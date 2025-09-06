@@ -5,7 +5,9 @@ local vk = require 'vkeys'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
-local okfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+
+local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
+local oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -16,7 +18,6 @@ local currentTab = 1 -- Индекс вкладки
 
 imgui.OnInitialize(function()
 	imgui.GetIO().IniFilename = nil
-	if okfuncs and funcs.applySciFiTheme then funcs.applySciFiTheme(imgui) end
 	if ok1 and mimgui_funcs and mimgui_funcs.Standart then mimgui_funcs.Standart() end
 	if ok2 and fa and fa.Init then fa.Init() end
 	if oksmihelp and SMIHelp and SMIHelp.Standart then SMIHelp.Standart() end
@@ -143,11 +144,9 @@ okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
 ltags, tags = pcall(require, 'HelperByOrc.tags')
 	-- print(ltags, tags)
 
-	ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-	okbinder, binder = pcall(require, 'HelperByOrc.binder')
-	oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
-	oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-	okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
+        okbinder, binder = pcall(require, 'HelperByOrc.binder')
+        oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
+        okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
 		-- print(oksmihelp, SMIHelp)
 		-- print(okvipad, VIPandADchat)
 	if okmyhooks then myhooks.init() end
