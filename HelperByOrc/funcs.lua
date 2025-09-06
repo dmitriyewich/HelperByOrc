@@ -80,16 +80,16 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 	if opts.wrap==nil  then opts.wrap = 80 end
 	if opts.wrap==true then opts.wrap = -1 end
 	opts.indent		 = opts.indent		 or "  "
-	opts.arrayPadding  = opts.arrayPadding  or opts.padding	  or 0
+	opts.arrayPadding  = opts.arrayPadding	or opts.padding	  or 0
 	opts.objectPadding = opts.objectPadding or opts.padding	  or 0
-	opts.afterComma	= opts.afterComma	or opts.aroundComma  or 0
-	opts.beforeComma   = opts.beforeComma   or opts.aroundComma  or 0
-	opts.beforeColon   = opts.beforeColon   or opts.aroundColon  or 0
-	opts.afterColon	= opts.afterColon	or opts.aroundColon  or 0
-	opts.beforeColon1  = opts.beforeColon1  or opts.aroundColon1 or opts.beforeColon or 0
-	opts.afterColon1   = opts.afterColon1   or opts.aroundColon1 or opts.afterColon  or 0
-	opts.beforeColonN  = opts.beforeColonN  or opts.aroundColonN or opts.beforeColon or 0
-	opts.afterColonN   = opts.afterColonN   or opts.aroundColonN or opts.afterColon  or 0
+	opts.afterComma	= opts.afterComma	or opts.aroundComma	 or 0
+	opts.beforeComma   = opts.beforeComma	or opts.aroundComma	 or 0
+	opts.beforeColon   = opts.beforeColon	or opts.aroundColon	 or 0
+	opts.afterColon	= opts.afterColon	or opts.aroundColon	 or 0
+	opts.beforeColon1  = opts.beforeColon1	or opts.aroundColon1 or opts.beforeColon or 0
+	opts.afterColon1   = opts.afterColon1	or opts.aroundColon1 or opts.afterColon	 or 0
+	opts.beforeColonN  = opts.beforeColonN	or opts.aroundColonN or opts.beforeColon or 0
+	opts.afterColonN   = opts.afterColonN	or opts.aroundColonN or opts.afterColon	 or 0
 
 	-- Convert array to a lookup table for convenience
 	local floatsForcedForKey = {}
@@ -97,11 +97,11 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 		floatsForcedForKey[key] = true
 	end
 
-	local colon  = opts.lua and '=' or ':'
-	local array  = opts.lua and {'{','}'} or {'[',']'}
-	local apad   = string.rep(' ', opts.arrayPadding)
-	local opad   = string.rep(' ', opts.objectPadding)
-	local comma  = string.rep(' ',opts.beforeComma)..','..string.rep(' ',opts.afterComma)
+	local colon	 = opts.lua and '=' or ':'
+	local array	 = opts.lua and {'{','}'} or {'[',']'}
+	local apad	 = string.rep(' ', opts.arrayPadding)
+	local opad	 = string.rep(' ', opts.objectPadding)
+	local comma	 = string.rep(' ',opts.beforeComma)..','..string.rep(' ',opts.afterComma)
 	local colon1 = string.rep(' ',opts.beforeColon1)..colon..string.rep(' ',opts.afterColon1)
 	local colonN = string.rep(' ',opts.beforeColonN)..colon..string.rep(' ',opts.afterColonN)
 
@@ -177,7 +177,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					keyvals[1][1] = keyvals[1][1]:gsub(indent..' ', indent..'{', 1)
 					if opts.aligned then
 						local longest = math.max(table.unpack(map(keyvals, function(kv) return #kv[1] end)))
-						local padrt   = '%-'..longest..'s'
+						local padrt	  = '%-'..longest..'s'
 						for _,kv in ipairs(keyvals) do kv[1] = padrt:format(kv[1]) end
 					end
 					for i,kv in ipairs(keyvals) do
@@ -210,7 +210,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					end
 					if opts.aligned then
 						local longest = math.max(table.unpack(map(keyvals, function(kv) return #kv[1] end)))
-						local padrt   = '%-'..longest..'s'
+						local padrt	  = '%-'..longest..'s'
 						for _,kv in ipairs(keyvals) do kv[1] = padrt:format(kv[1]) end
 					end
 					local indent2 = indent..opts.indent
@@ -280,26 +280,26 @@ function module.convertTableToJsonString(config)
 end
 
 function module.saveTableToJson(tbl, path)
-    local ok, err = pcall(function()
-        local f = io.open(path, "w+b")
-        if f then f:write(module.convertTableToJsonString(tbl)); f:close() end
-    end)
-    return ok
+	local ok, err = pcall(function()
+		local f = io.open(path, "w+b")
+		if f then f:write(module.convertTableToJsonString(tbl)); f:close() end
+	end)
+	return ok
 end
 
 function module.loadTableFromJson(path, defaults)
-    if doesFileExist(path) then
-        local ok, tbl = pcall(function()
-            local f = io.open(path, "rb")
-            if f then
-                local content = f:read("*a"); f:close()
-                local ok, data = pcall(decodeJson, content)
-                if ok and type(data) == "table" then return data end
-            end
-        end)
-        if type(tbl) == "table" then return tbl end
-    end
-    return defaults or {}
+	if doesFileExist(path) then
+		local ok, tbl = pcall(function()
+			local f = io.open(path, "rb")
+			if f then
+				local content = f:read("*a"); f:close()
+				local ok, data = pcall(decodeJson, content)
+				if ok and type(data) == "table" then return data end
+			end
+		end)
+		if type(tbl) == "table" then return tbl end
+	end
+	return defaults or {}
 end
 
 
@@ -343,7 +343,7 @@ function module.delay_func(bool, delay)
 end
 
 function module.insert_dashes(number)
-	local str_number = tostring(number)  -- Преобразуем число в строку
+	local str_number = tostring(number)	 -- Преобразуем число в строку
 	if #str_number < 2 then
 		return str_number  -- Если число одноцифровое, возвращаем его как есть
 	end
@@ -353,17 +353,17 @@ end
 local TakeScreenshot = ffi.cast("void(__cdecl*)(uintptr_t, const char*)", 0x5D0820)
 
 function module.Take_Screenshot(path, name)
-    local date_time = os.date("%d.%m.%Y %H.%M.%S")
-    local main_folder = getWorkingDirectory().."\\screens"
-    name = name and u8:decode(name) or date_time
-    path = path and main_folder .. '\\' .. u8:decode(path) or main_folder
+	local date_time = os.date("%d.%m.%Y %H.%M.%S")
+	local main_folder = getWorkingDirectory().."\\screens"
+	name = name and u8:decode(name) or date_time
+	path = path and main_folder .. '\\' .. u8:decode(path) or main_folder
 
-    if not doesDirectoryExist(path) then
-        createDirectory(path)
-    end
+	if not doesDirectoryExist(path) then
+		createDirectory(path)
+	end
 
-    local full_path = path .. '\\' .. name .. ".png"
-    TakeScreenshot(0, full_path)
+	local full_path = path .. '\\' .. name .. ".png"
+	TakeScreenshot(0, full_path)
 end
 
 function module.getFiles(folder)
@@ -409,8 +409,8 @@ function module.getRealCameraCoordinates()
 end
 
 function module.join_argb(a, r, g, b)
-	local argb = b  -- b
-	argb = bit.bor(argb, bit.lshift(g, 8))  -- g
+	local argb = b	-- b
+	argb = bit.bor(argb, bit.lshift(g, 8))	-- g
 	argb = bit.bor(argb, bit.lshift(r, 16)) -- r
 	argb = bit.bor(argb, bit.lshift(a, 24)) -- a
 	return argb
@@ -533,7 +533,19 @@ function module.randomed(min, max)
 end
 
 function module.trim(s)
-	return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
+		return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
+end
+
+function module.parseList(s)
+		s = tostring(s or "")
+		local t = {}
+		for part in s:gmatch("[^,\n]+") do
+				local p = module.trim(part)
+				if p ~= "" then
+						table.insert(t, p)
+				end
+		end
+		return t
 end
 
 
