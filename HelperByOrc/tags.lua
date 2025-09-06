@@ -943,17 +943,20 @@ end
 
 
 -- СПРАВОЧНЫЕ СПИСКИ ДЛЯ UI
+local function get_custom_var_list()
+	local out = {}
+	for k, v in pairs(custom_vars) do
+		out[#out+1] = { key = k, value = v }
+	end
+	table.sort(out, function(a,b) return a.key < b.key end)
+	return out
+end
+
 local function get_var_list()
 	local out, exists = {}, {}
 	for _, tag in ipairs(simple_tags) do
 		table.insert(out, { name = tag.name, desc = tag.desc, custom = false })
 		exists[tag.name] = true
-	end
-	for k in pairs(custom_vars) do
-		local tagname = "{"..k.."}"
-		if not exists[tagname] then
-			table.insert(out, { name = tagname, desc = "Пользовательская переменная (можно изменить)", custom = true })
-		end
 	end
 	for k, v in pairs(external_variables) do
 		local tagname = "{"..k.."}"
@@ -982,6 +985,8 @@ end
 -- UI (mimgui): СПРАВКА / КОПИРОВАНИЕ ПО КЛИКУ
 local showTagsWindow = imgui.new.bool(false)
 module.showTagsWindow = showTagsWindow
+local new_var_name = imgui.new.char[64]()
+local new_var_value = imgui.new.char[256]()
 
 -- состояние UI (флэш «скопировано»)
 local ui_state = { copied_text = nil, copied_time = 0, flash_sec = 1.5 }
@@ -1024,10 +1029,23 @@ imgui.OnFrame(
 			end
 		end
 
-		imgui.Separator()
-		imgui.Text("Доступные переменные (клик по имени — копировать):")
-		imgui.Columns(2, "vars", false)
-		for i, tag in ipairs(get_var_list()) do
+	imgui.Separator()
+	imgui.Text("Кастомные переменные (клик по имени — копировать):")
+	imgui.Columns(2, "cvars", false)
+	for i, tag in ipairs(get_custom_var_list()) do
+		if imgui.Selectable("{"..tag.key.."}##cvar"..tostring(i), false) then
+		imgui.SetClipboardText("{"..tag.key.."}")
+		flash_copied("Скопировано: {"..tag.key.."}")
+		end
+		imgui.NextColumn()
+		imgui.TextWrapped(tostring(tag.value))
+		imgui.NextColumn()
+		end
+	imgui.Columns(1)
+	imgui.Separator()
+	imgui.Text("Доступные переменные (клик по имени — копировать):")
+	imgui.Columns(2, "vars", false)
+	for i, tag in ipairs(get_var_list()) do
 			if imgui.Selectable((tag.name).."##var"..tostring(i), false) then
 				imgui.SetClipboardText(tag.name)
 				flash_copied("Скопировано: "..tag.name)

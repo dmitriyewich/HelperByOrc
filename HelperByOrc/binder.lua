@@ -10,6 +10,8 @@ local wm = require 'windows.message'
 local bit = require 'bit'
 local funcs = require 'HelperByOrc.funcs'
 local bor = bit and bit.bor or function(a, b) return a + b end
+local ok_tags, tags = pcall(require, 'HelperByOrc.tags')
+tags = (ok_tags and type(tags) == 'table') and tags or nil
 
 -- Иконки (безопасный фолбэк)
 local ok_fa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -1070,6 +1072,12 @@ local function drawEditHotkey(idx)
 		end
 		imgui.SameLine()
 		imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.PEN .. "	" .. "Редактирование бинда")
+	if tags and tags.showTagsWindow then
+		imgui.SameLine()
+		if imgui.Button(fa.TAGS .. " Переменные##open_tags") then
+			tags.showTagsWindow[0] = true
+		end
+	end
 	imgui.EndChild()
 
 	imgui.BeginChild("edit_main", imgui.ImVec2(0, -52), true)
