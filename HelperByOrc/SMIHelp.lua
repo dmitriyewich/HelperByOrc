@@ -257,8 +257,8 @@ end)
 
 -- ========= ЛОКАЛЬНОЕ СОСТОЯНИЕ =========
 local State = {
-	show_dialog = new.bool(false),
-	edit_buf = new.char[1024](),
+        show_dialog = new.bool(false),
+        edit_buf = new.char[1024](),
 	filter_buf = imgui.new.char[128](),
 	last_dialog_id = nil,
 	last_dialog_title = "",
@@ -276,7 +276,9 @@ local State = {
 	collapse_selection_after_focus = false,
 	cursor_action = nil,			 -- 'to_next_quote' | 'to_end' | 'to_first_empty_quotes' | 'to_addon_end'
 	cursor_action_data = nil,
-	hist_index = nil,
+        hist_index = nil,
+
+        drag = ok_mf and mimgui_funcs.newDragState() or nil,
 
 	-- спеллер
 	last_speller_call = 0,
@@ -939,7 +941,10 @@ imgui.OnFrame(
 		imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
 
 		imgui.SetNextWindowSize(imgui.ImVec2(1280, 650), imgui.Cond.FirstUseEver)
-		local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+                local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove)
+                if ok_mf and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+                        mimgui_funcs.handleWindowDrag(State.drag)
+                end
 
 		if not State.show_dialog[0] then
 			reset_ui_state()

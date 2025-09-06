@@ -17,6 +17,7 @@ local sizeof = ffi.sizeof
 -- ИКОНКИ (fallback на текст)
 local okfa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local function I(glyph, text) return (okfa and glyph and (glyph .. " ") or "") .. (text or "") end
+local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 -- === Конфиг ===
 local CONFIG_PATH = "moonloader/HelperByOrc/unwanted.json"
@@ -43,6 +44,7 @@ local invalid_count = 0
 
 -- === UI-состояние ===
 M.showWindow        = imgui.new.bool(false)
+M.dragState        = ok_mf and mimgui_funcs.newDragState() or nil
 local new_buf       = imgui.new.char[512]("")
 local new_is_pat    = imgui.new.bool(false)
 local new_nocase    = imgui.new.bool(false)
@@ -616,7 +618,10 @@ function M.DrawWindow()
   if not M.showWindow[0] then return end
 
   imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
-  imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse)
+  imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoMove)
+  if ok_mf and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+    mimgui_funcs.handleWindowDrag(M.dragState)
+  end
 
   -- Верхняя панель
   do

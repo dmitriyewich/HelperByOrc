@@ -709,4 +709,51 @@ function module.customVerticalMenu(items, current)
 	return current
 end
 
+-- --- Manual window dragging with clamping ---
+
+-- Create state table for dragging (stores flag and offset)
+function module.newDragState()
+    return { dragging = false, dragOffset = imgui.ImVec2(0, 0) }
+end
+
+-- Clamp position so window stays within the game screen
+function module.clampToScreen(pos, size)
+    local sw, sh = getScreenResolution()
+    size = size or imgui.GetWindowSize()
+    if pos.x < 0 then pos.x = 0 end
+    if pos.y < 0 then pos.y = 0 end
+    if pos.x + size.x > sw then pos.x = sw - size.x end
+    if pos.y + size.y > sh then pos.y = sh - size.y end
+    return pos
+end
+
+-- Handle manual dragging for current window
+function module.handleWindowDrag(state)
+    if not state then return imgui.GetWindowPos() end
+    local io = imgui.GetIO()
+    local mousePos = io.MousePos
+    local winPos = imgui.GetWindowPos()
+
+    if not state.dragging and imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows) and imgui.IsMouseClicked(0) then
+        state.dragging = true
+        state.dragOffset.x = mousePos.x - winPos.x
+        state.dragOffset.y = mousePos.y - winPos.y
+    end
+
+    if state.dragging then
+        if imgui.IsMouseDown(0) then
+            local newPos = imgui.ImVec2(mousePos.x - state.dragOffset.x, mousePos.y - state.dragOffset.y)
+            module.clampToScreen(newPos)
+            imgui.SetWindowPos(newPos, imgui.Cond.Always)
+        else
+            state.dragging = false
+        end
+    else
+        module.clampToScreen(winPos)
+        imgui.SetWindowPos(winPos, imgui.Cond.Always)
+    end
+
+    return imgui.GetWindowPos()
+end
+
 return module

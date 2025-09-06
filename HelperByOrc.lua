@@ -9,10 +9,12 @@ local u8 = encoding.UTF8
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 -- === Интерфейсные переменные ===
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
+local dragMain = ok1 and mimgui_funcs.newDragState() or nil
 
 imgui.OnInitialize(function()
     imgui.GetIO().IniFilename = nil
@@ -26,7 +28,10 @@ imgui.OnFrame(
     function() return renderHotkeyWnd[0] end,
     function()
         imgui.SetNextWindowSize(imgui.ImVec2(970, 560), imgui.Cond.FirstUseEver)
-        imgui.Begin('HelperByOrc', renderHotkeyWnd)
+        imgui.Begin('HelperByOrc', renderHotkeyWnd, imgui.WindowFlags.NoMove)
+        if ok1 and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+            mimgui_funcs.handleWindowDrag(dragMain)
+        end
 
         -- Левая панель: логотип + меню
         imgui.BeginGroup()
@@ -144,8 +149,7 @@ function main()
 	ltags, tags = pcall(require, 'HelperByOrc.tags')
 	-- print(ltags, tags)
 
-	ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-	okbinder, binder = pcall(require, 'HelperByOrc.binder')
+        okbinder, binder = pcall(require, 'HelperByOrc.binder')
 	oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
 	oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
 	okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')

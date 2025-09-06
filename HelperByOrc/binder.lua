@@ -9,6 +9,7 @@ local vk = require 'vkeys'
 local wm = require 'windows.message'
 local bit = require 'bit'
 local bor = bit and bit.bor or function(a, b) return a + b end
+local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 -- Иконки (безопасный фолбэк)
 local ok_fa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -89,6 +90,8 @@ end
 module.binderWindow  = imgui.new.bool(false)
 module.showQuickMenu = imgui.new.bool(false)
 module.quickMenuOpen = false
+module.quickMenuPos  = nil
+module.quickMenuDrag = ok_mf and mimgui_funcs.newDragState() or nil
 
 imgui.OnInitialize(function()
   imgui.GetIO().IniFilename = nil
@@ -564,9 +567,16 @@ end
 function module.DrawQuickMenu()
   if not module.quickMenuOpen then return end
   local resX, resY = getScreenResolution()
-  imgui.SetNextWindowPos(imgui.ImVec2(resX / 2, resY / 2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
+  if not module.quickMenuPos then
+    module.quickMenuPos = { x = resX / 2 - 130, y = resY / 2 - 140 }
+  end
+  imgui.SetNextWindowPos(imgui.ImVec2(module.quickMenuPos.x, module.quickMenuPos.y), imgui.Cond.Always)
   imgui.SetNextWindowSize(imgui.ImVec2(260, 280), imgui.Cond.Always)
-  imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+  imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove)
+  if ok_mf and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+    local pos = mimgui_funcs.handleWindowDrag(module.quickMenuDrag)
+    module.quickMenuPos.x, module.quickMenuPos.y = pos.x, pos.y
+  end
 
   local function drawRec(node)
     if not isFolderChainVisible(node) then return end
@@ -1371,7 +1381,7 @@ local function drawFolderTabs()
 
         imgui.Separator()
         -- Условия быстрого меню ДЛЯ ПАПКИ
-        imgui.Text(fа.BOLT and fа.BOLT .. " " or "" .. "Папка: условия быстрого меню")
+        imgui.Text((fa.BOLT and fa.BOLT .. " " or "") .. "Папка: условия быстрого меню")
         f._quick_cond_bools = f._quick_cond_bools or {}
         for ii = 1, quick_cond_count do
           local cur = (f.quick_conditions and f.quick_conditions[ii]) or false

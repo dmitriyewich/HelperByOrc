@@ -7,6 +7,7 @@ local ffi	= require 'ffi'
 local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
 local ok2, fa	   = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local okbinder, binder = pcall(require, 'HelperByOrc.binder')
+local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
@@ -982,6 +983,7 @@ end
 -- UI (mimgui): СПРАВКА / КОПИРОВАНИЕ ПО КЛИКУ
 local showTagsWindow = imgui.new.bool(false)
 module.showTagsWindow = showTagsWindow
+local dragState = ok_mf and mimgui_funcs.newDragState() or nil
 
 -- состояние UI (флэш «скопировано»)
 local ui_state = { copied_text = nil, copied_time = 0, flash_sec = 1.5 }
@@ -995,7 +997,10 @@ imgui.OnFrame(
 	function() return showTagsWindow[0] end,
 	function()
 		imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
-		imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+                imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoMove)
+                if ok_mf and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+                        mimgui_funcs.handleWindowDrag(dragState)
+                end
 
 		imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
 		imgui.Separator()

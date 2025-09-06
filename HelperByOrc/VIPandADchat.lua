@@ -12,6 +12,7 @@ local ok_funcs, funcs = pcall(require, 'HelperByOrc.funcs')
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
 
 local ok_samp, samp = pcall(require, 'HelperByOrc.samp')
+local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 -- ===================== КОНФИГ =====================
 local config = {}
@@ -525,12 +526,16 @@ imgui.OnFrame(
 -- ===================== ОКНО НАСТРОЕК =====================
 local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
+local dragSettings = ok_mf and mimgui_funcs.newDragState() or nil
 
 function module.DrawSettingsWindow()
     if not settings_open[0] then return end
 
     imgui.SetNextWindowSize(imgui.ImVec2(600, 460), imgui.Cond.FirstUseEver)
-    if imgui.Begin("VIP/AD чат — настройки", settings_open) then
+    if imgui.Begin("VIP/AD чат — настройки", settings_open, imgui.WindowFlags.NoMove) then
+        if ok_mf and mimgui_funcs and mimgui_funcs.handleWindowDrag then
+            mimgui_funcs.handleWindowDrag(dragSettings)
+        end
         imgui.Text("Позиция/размер ленты")
         imgui.PushItemWidth(70)
 
