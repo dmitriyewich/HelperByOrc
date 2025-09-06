@@ -13,6 +13,8 @@ local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 -- === Интерфейсные переменные ===
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
+local dragging = false
+local dragOffset = imgui.ImVec2(0, 0)
 
 imgui.OnInitialize(function()
     imgui.GetIO().IniFilename = nil
@@ -26,7 +28,38 @@ imgui.OnFrame(
     function() return renderHotkeyWnd[0] end,
     function()
         imgui.SetNextWindowSize(imgui.ImVec2(970, 560), imgui.Cond.FirstUseEver)
-        imgui.Begin('HelperByOrc', renderHotkeyWnd)
+        imgui.Begin('HelperByOrc', renderHotkeyWnd, imgui.WindowFlags.NoMove)
+
+        -- Manually handle window dragging and clamp it within the game viewport
+        local io = imgui.GetIO()
+        local pos = imgui.GetWindowPos()
+        local size = imgui.GetWindowSize()
+        local maxX = io.DisplaySize.x - size.x
+        local maxY = io.DisplaySize.y - size.y
+        local x = math.max(0, math.min(pos.x, maxX))
+        local y = math.max(0, math.min(pos.y, maxY))
+        if x ~= pos.x or y ~= pos.y then
+            imgui.SetWindowPos(imgui.ImVec2(x, y), imgui.Cond.Always)
+            pos = imgui.GetWindowPos()
+        end
+
+        if imgui.IsWindowHovered() and imgui.IsMouseClicked(0) then
+            local mouse = imgui.GetMousePos()
+            dragOffset = imgui.ImVec2(mouse.x - pos.x, mouse.y - pos.y)
+            dragging = true
+        end
+        if dragging then
+            if imgui.IsMouseDown(0) then
+                local mouse = imgui.GetMousePos()
+                local newX = mouse.x - dragOffset.x
+                local newY = mouse.y - dragOffset.y
+                newX = math.max(0, math.min(newX, maxX))
+                newY = math.max(0, math.min(newY, maxY))
+                imgui.SetWindowPos(imgui.ImVec2(newX, newY), imgui.Cond.Always)
+            else
+                dragging = false
+            end
+        end
 
         -- Левая панель: логотип + меню
         imgui.BeginGroup()
@@ -193,7 +226,7 @@ function main()
 end
 
 function onScriptTerminate(script, quit)
-	if script == thisScript() and not quit then
-		-- myhooks.deinit()
-	end
+        if script == thisScript() and not quit then
+                -- myhooks.deinit()
+        end
 end
