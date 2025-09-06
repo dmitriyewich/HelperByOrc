@@ -6,6 +6,19 @@ local ffi = require("ffi")
 local memory = require("memory")
 lsamp, samp = pcall(require, 'HelperByOrc.samp')
 ltables, tables = pcall(require, 'HelperByOrc.tables')
+-- recursive table copy
+function module.deepcopy(obj, seen)
+	seen = seen or {}
+	if type(obj) ~= 'table' then return obj end
+	if seen[obj] then return seen[obj] end
+	local res = {}
+	seen[obj] = res
+	for k, v in pairs(obj) do
+		res[module.deepcopy(k, seen)] = module.deepcopy(v, seen)
+	end
+	return res
+end
+
 
 ffi.cdef[[
 	intptr_t LoadKeyboardLayoutA(const char* pwszKLID, unsigned int Flags);
@@ -77,19 +90,19 @@ local keywords = {["and"]=1,["break"]=1,["do"]=1,["else"]=1,["elseif"]=1,["end"]
 
 function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 	opts = opts or {}
-	if opts.wrap==nil  then opts.wrap = 80 end
+	if opts.wrap==nil	 then opts.wrap = 80 end
 	if opts.wrap==true then opts.wrap = -1 end
-	opts.indent		 = opts.indent		 or "  "
-	opts.arrayPadding  = opts.arrayPadding	or opts.padding	  or 0
-	opts.objectPadding = opts.objectPadding or opts.padding	  or 0
+	opts.indent		 = opts.indent		 or "	 "
+	opts.arrayPadding	 = opts.arrayPadding	or opts.padding		or 0
+	opts.objectPadding = opts.objectPadding or opts.padding		or 0
 	opts.afterComma	= opts.afterComma	or opts.aroundComma	 or 0
-	opts.beforeComma   = opts.beforeComma	or opts.aroundComma	 or 0
-	opts.beforeColon   = opts.beforeColon	or opts.aroundColon	 or 0
+	opts.beforeComma	 = opts.beforeComma	or opts.aroundComma	 or 0
+	opts.beforeColon	 = opts.beforeColon	or opts.aroundColon	 or 0
 	opts.afterColon	= opts.afterColon	or opts.aroundColon	 or 0
-	opts.beforeColon1  = opts.beforeColon1	or opts.aroundColon1 or opts.beforeColon or 0
-	opts.afterColon1   = opts.afterColon1	or opts.aroundColon1 or opts.afterColon	 or 0
-	opts.beforeColonN  = opts.beforeColonN	or opts.aroundColonN or opts.beforeColon or 0
-	opts.afterColonN   = opts.afterColonN	or opts.aroundColonN or opts.afterColon	 or 0
+	opts.beforeColon1	 = opts.beforeColon1	or opts.aroundColon1 or opts.beforeColon or 0
+	opts.afterColon1	 = opts.afterColon1	or opts.aroundColon1 or opts.afterColon	 or 0
+	opts.beforeColonN	 = opts.beforeColonN	or opts.aroundColonN or opts.beforeColon or 0
+	opts.afterColonN	 = opts.afterColonN	or opts.aroundColonN or opts.afterColon	 or 0
 
 	-- Convert array to a lookup table for convenience
 	local floatsForcedForKey = {}
@@ -177,7 +190,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					keyvals[1][1] = keyvals[1][1]:gsub(indent..' ', indent..'{', 1)
 					if opts.aligned then
 						local longest = math.max(table.unpack(map(keyvals, function(kv) return #kv[1] end)))
-						local padrt	  = '%-'..longest..'s'
+						local padrt		= '%-'..longest..'s'
 						for _,kv in ipairs(keyvals) do kv[1] = padrt:format(kv[1]) end
 					end
 					for i,kv in ipairs(keyvals) do
@@ -210,7 +223,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					end
 					if opts.aligned then
 						local longest = math.max(table.unpack(map(keyvals, function(kv) return #kv[1] end)))
-						local padrt	  = '%-'..longest..'s'
+						local padrt		= '%-'..longest..'s'
 						for _,kv in ipairs(keyvals) do kv[1] = padrt:format(kv[1]) end
 					end
 					local indent2 = indent..opts.indent
@@ -345,9 +358,9 @@ end
 function module.insert_dashes(number)
 	local str_number = tostring(number)	 -- Преобразуем число в строку
 	if #str_number < 2 then
-		return str_number  -- Если число одноцифровое, возвращаем его как есть
+		return str_number	 -- Если число одноцифровое, возвращаем его как есть
 	end
-	return str_number:sub(1, 1) .. str_number:sub(2):gsub("(%d)", "-%1")  -- Вставляем дефисы
+	return str_number:sub(1, 1) .. str_number:sub(2):gsub("(%d)", "-%1")	-- Вставляем дефисы
 end
 
 local TakeScreenshot = ffi.cast("void(__cdecl*)(uintptr_t, const char*)", 0x5D0820)
