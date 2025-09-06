@@ -15,6 +15,7 @@ local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 -- === Интерфейсные переменные ===
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
+local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 
 -- модули, загружаемые в main()
 local lsamp, samp
@@ -97,35 +98,71 @@ imgui.OnFrame(
 				SMIHelp.DrawSettingsUI()
 			elseif currentTab == 4 and oknotepad and notepad and notepad.drawNotepadPanel then
 				notepad.drawNotepadPanel()
-			elseif currentTab == 5 then
-				imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "Прочее")
-				imgui.Separator()
-				if ltags and tags and tags.showTagsWindow then
-					if imgui.Button("Переменные") then
-						tags.showTagsWindow[0] = true
-					end
-				end
-				imgui.Separator()
-				if okvipad and VIPandADchat then
-					if imgui.Button("VIP/AD чат — настройки") then
-						VIPandADchat.showSettingsWindow[0] = true
-					end
-					if VIPandADchat.showSettingsWindow and VIPandADchat.DrawSettingsWindow then
-						VIPandADchat.DrawSettingsWindow()
-					end
-				end
-				imgui.Separator()
-				if okunw and Unwanted then
-					if imgui.Button("Игнорируемые сообщения — настройки") then
-						Unwanted.showWindow[0] = true
-					end
-					Unwanted.DrawWindow()
-				end
-			else
-				imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "HelperByOrc")
-				imgui.Separator()
-				imgui.Text("Вкладка в разработке. Тут будет контент.")
-			end
+                       elseif currentTab == 5 then
+                                if miscPage == 0 then
+                                        imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "Прочее")
+                                        imgui.Separator()
+                                        local items = {}
+                                        if ltags and tags and tags.DrawSettingsPage then table.insert(items, {id=1, name="Переменные"}) end
+                                        if okvipad and VIPandADchat and VIPandADchat.DrawSettingsInline then table.insert(items, {id=2, name="VIP/AD чат"}) end
+                                        if okunw and Unwanted and Unwanted.DrawWindowInline then table.insert(items, {id=3, name="Игнорируемые сообщения"}) end
+
+                                        local avail = imgui.GetContentRegionAvail().x
+                                        local cardW, cardH = 200, 60
+                                        local spacing = 16
+                                        local cols = math.max(1, math.floor((avail + spacing) / (cardW + spacing)))
+                                        local x0 = imgui.GetCursorScreenPos().x
+                                        local y0 = imgui.GetCursorScreenPos().y
+                                        for i, it in ipairs(items) do
+                                                local x = x0 + ((i-1)%cols)*(cardW+spacing)
+                                                local y = y0 + math.floor((i-1)/cols)*(cardH+spacing)
+                                                imgui.SetCursorScreenPos(imgui.ImVec2(x,y))
+                                                imgui.BeginGroup()
+                                                local pmin = imgui.GetCursorScreenPos()
+                                                local pmax = imgui.ImVec2(pmin.x+cardW, pmin.y+cardH)
+                                                local dl = imgui.GetWindowDrawList()
+                                                local hovered = imgui.IsMouseHoveringRect(pmin,pmax)
+                                                local bg = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+                                                dl:AddRectFilled(pmin,pmax,imgui.GetColorU32Vec4(bg),8)
+                                                dl:AddRect(pmin,pmax,imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]),8,2)
+                                                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x+10, pmin.y+22))
+                                                imgui.Text(it.name)
+                                                if hovered and imgui.IsMouseClicked(0) then miscPage = it.id end
+                                                imgui.EndGroup()
+                                        end
+                                elseif miscPage == 1 and ltags and tags and tags.DrawSettingsPage then
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
+                                                if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
+                                                imgui.SameLine()
+                                                imgui.Text("Переменные")
+                                        imgui.EndChild()
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0,-42), true)
+                                                tags.DrawSettingsPage()
+                                        imgui.EndChild()
+                                elseif miscPage == 2 and okvipad and VIPandADchat and VIPandADchat.DrawSettingsInline then
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
+                                                if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
+                                                imgui.SameLine()
+                                                imgui.Text("VIP/AD чат")
+                                        imgui.EndChild()
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0,-42), true)
+                                                VIPandADchat.DrawSettingsInline()
+                                        imgui.EndChild()
+                                elseif miscPage == 3 and okunw and Unwanted and Unwanted.DrawWindowInline then
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
+                                                if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
+                                                imgui.SameLine()
+                                                imgui.Text("Игнорируемые сообщения")
+                                        imgui.EndChild()
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0,-42), true)
+                                                Unwanted.DrawWindowInline()
+                                        imgui.EndChild()
+                                end
+                        else
+                                imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "HelperByOrc")
+                                imgui.Separator()
+                                imgui.Text("Вкладка в разработке. Тут будет контент.")
+                        end
 			imgui.EndChild()
 		end
 		imgui.End()

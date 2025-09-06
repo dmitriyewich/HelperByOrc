@@ -978,15 +978,49 @@ local new_var_value = imgui.new.char[256]()
 local ui_state = { copied_text = nil, copied_time = 0, flash_sec = 1.5 }
 
 local function flash_copied(txt)
-	ui_state.copied_text = txt
-	ui_state.copied_time = os.clock()
+        ui_state.copied_text = txt
+        ui_state.copied_time = os.clock()
+end
+
+-- Рисует страницу настроек (вкладка "Прочее")
+function module.DrawSettingsPage()
+        imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
+        imgui.Separator()
+
+        imgui.Text("Настройки:")
+        do
+                local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
+                if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
+                        settings.show_target_notice = chk1[0] and true or false
+                        save_config()
+                end
+
+                imgui.SameLine()
+                local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
+                if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
+                        settings.allow_unsafe = chk2[0] and true or false
+                        save_config()
+                end
+
+                local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
+                if imgui.InputInt("Таймаут $wait, сек", wt) then
+                        if wt[0] < 1 then wt[0] = 1 end
+                        settings.wait_timeout_sec = wt[0]
+                        save_config()
+                end
+        end
+
+        imgui.Separator()
+        if imgui.Button("Открыть список переменных") then
+                showTagsWindow[0] = true
+        end
 end
 
 imgui.OnFrame(
-	function() return showTagsWindow[0] end,
-	function()
-		imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
-		imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+        function() return showTagsWindow[0] end,
+        function()
+                imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
+                imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
 
 		imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
 		imgui.Separator()

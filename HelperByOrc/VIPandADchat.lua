@@ -482,13 +482,9 @@ imgui.OnFrame(
 local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
 
-function module.DrawSettingsWindow()
-		if not settings_open[0] then return end
-
-		imgui.SetNextWindowSize(imgui.ImVec2(600, 460), imgui.Cond.FirstUseEver)
-		if imgui.Begin("VIP/AD чат — настройки", settings_open) then
-				imgui.Text("Позиция/размер ленты")
-				imgui.PushItemWidth(70)
+local function draw_settings_content()
+                imgui.Text("Позиция/размер ленты")
+                imgui.PushItemWidth(70)
 
 				local pos_x = ffi.new("int[1]", config.pos_x)
 				local pos_y = ffi.new("int[1]", config.pos_y)
@@ -580,12 +576,23 @@ function module.DrawSettingsWindow()
 						end
 					end
 
-				imgui.Separator()
-				imgui.TextDisabled("• ЛКМ по строке — копировать всю строку; ПКМ — открыть окно для выделения нужного фрагмента.\n• Подсветка поддерживает цветовые теги {RRGGBB[AA]}.\n• Фон/текст меняют прозрачность в зависимости от is_chat.\n• Когда чат закрыт: окно и элементы сквозные (NoInputs).\n• Окно расширяется только вправо от позиции (X,Y).")
-				imgui.Spacing()
-				if imgui.Button("Закрыть окно") then settings_open[0] = false end
-		end
-		imgui.End()
+                imgui.Separator()
+                imgui.TextDisabled("• ЛКМ по строке — копировать всю строку; ПКМ — открыть окно для выделения нужного фрагмента.\n• Подсветка поддерживает цветовые теги {RRGGBB[AA]}.\n• Фон/текст меняют прозрачность в зависимости от is_chat.\n• Когда чат закрыт: окно и элементы сквозные (NoInputs).\n• Окно расширяется только вправо от позиции (X,Y).")
+                imgui.Spacing()
+end
+
+function module.DrawSettingsWindow()
+                if not settings_open[0] then return end
+
+                imgui.SetNextWindowSize(imgui.ImVec2(600, 460), imgui.Cond.FirstUseEver)
+                if imgui.Begin("VIP/AD чат — настройки", settings_open) then
+                                draw_settings_content()
+                end
+                imgui.End()
+end
+
+function module.DrawSettingsInline()
+                draw_settings_content()
 end
 
 -- ===================== ИНИЦИАЛИЗАЦИЯ =====================

@@ -612,11 +612,12 @@ local function draw_rule_row(idx, item)
 end
 
 -- === ГЛАВНОЕ ОКНО ===
-function M.DrawWindow()
-  if not M.showWindow[0] then return end
-
-  imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
-  imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse)
+function M.DrawWindow(inline)
+  if not inline then
+    if not M.showWindow[0] then return end
+    imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
+    imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse)
+  end
 
   -- Верхняя панель
   do
@@ -818,7 +819,13 @@ function M.DrawWindow()
     "  • Избегайте «.*» без якорей ^ и $, это может тормозить."
   )
 
-  imgui.End()
+  if not inline then
+    imgui.End()
+  end
+end
+
+function M.DrawWindowInline()
+  M.DrawWindow(true)
 end
 
 -- === Инициализация ===
