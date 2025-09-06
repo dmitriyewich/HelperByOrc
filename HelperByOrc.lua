@@ -16,6 +16,15 @@ local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
 
+-- модули, загружаемые в main()
+local lsamp, samp
+local okunw, Unwanted
+local okmyhooks, myhooks
+local ltags, tags
+local okbinder, binder
+local oknotepad, notepad
+local okvipad, VIPandADchat
+
 imgui.OnInitialize(function()
 	imgui.GetIO().IniFilename = nil
 	if ok1 and mimgui_funcs and mimgui_funcs.Standart then mimgui_funcs.Standart() end
