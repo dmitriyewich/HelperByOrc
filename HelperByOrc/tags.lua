@@ -968,6 +968,7 @@ end
 -- UI (mimgui): СПРАВКА / КОПИРОВАНИЕ ПО КЛИКУ
 local showTagsWindow = imgui.new.bool(false)
 module.showTagsWindow = showTagsWindow
+local cvar_bufs = {}
 local new_var_name = imgui.new.char[64]()
 local new_var_value = imgui.new.char[256]()
 
@@ -981,36 +982,74 @@ end
 
 -- Рисует страницу настроек (вкладка "Прочее")
 function module.DrawSettingsPage()
-        imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
-        imgui.Separator()
+    imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
+    imgui.Separator()
 
-        imgui.Text("Настройки:")
-        do
-                local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
-                if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
-                        settings.show_target_notice = chk1[0] and true or false
-                        save_config()
-                end
-
-                imgui.SameLine()
-                local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
-                if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
-                        settings.allow_unsafe = chk2[0] and true or false
-                        save_config()
-                end
-
-                local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
-                if imgui.InputInt("Таймаут $wait, сек", wt) then
-                        if wt[0] < 1 then wt[0] = 1 end
-                        settings.wait_timeout_sec = wt[0]
-                        save_config()
-                end
+    imgui.Text("Настройки:")
+    do
+        local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
+        if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
+            settings.show_target_notice = chk1[0] and true or false
+            save_config()
         end
 
-        imgui.Separator()
-        if imgui.Button("Открыть список переменных") then
-                showTagsWindow[0] = true
+        imgui.SameLine()
+        local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
+        if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
+            settings.allow_unsafe = chk2[0] and true or false
+            save_config()
         end
+
+        local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
+        if imgui.InputInt("Таймаут $wait, сек", wt) then
+            if wt[0] < 1 then wt[0] = 1 end
+            settings.wait_timeout_sec = wt[0]
+            save_config()
+        end
+    end
+
+    imgui.Separator()
+    imgui.Text("Кастомные переменные:")
+    for _, tag in ipairs(get_custom_var_list()) do
+        local buf = cvar_bufs[tag.key]
+        if not buf then
+            buf = imgui.new.char[256](tostring(tag.value or ""))
+            cvar_bufs[tag.key] = buf
+        end
+        imgui.PushID(tag.key)
+        imgui.Text(tag.key)
+        imgui.SameLine()
+        if imgui.InputText("##val", buf, ffi.sizeof(buf)) then
+            custom_vars[tag.key] = ffi.string(buf)
+            save_config()
+            clear_parse_cache()
+        end
+        imgui.PopID()
+    end
+
+    imgui.Separator()
+    imgui.Text("Добавить переменную:")
+    imgui.InputText("Имя##newvar", new_var_name, ffi.sizeof(new_var_name))
+    imgui.SameLine()
+    imgui.InputText("Значение##newvar", new_var_value, ffi.sizeof(new_var_value))
+    imgui.SameLine()
+    if imgui.Button("Добавить##newvar") then
+        local name = ffi.string(new_var_name)
+        if name ~= "" then
+            local value = ffi.string(new_var_value)
+            custom_vars[name] = value
+            cvar_bufs[name] = imgui.new.char[256](value)
+            new_var_name = imgui.new.char[64]()
+            new_var_value = imgui.new.char[256]()
+            save_config()
+            clear_parse_cache()
+        end
+    end
+
+    imgui.Separator()
+    if imgui.Button("Открыть список переменных") then
+        showTagsWindow[0] = true
+    end
 end
 
 imgui.OnFrame(
