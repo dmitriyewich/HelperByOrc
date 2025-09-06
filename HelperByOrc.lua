@@ -19,10 +19,10 @@ local ok_tables, tables = pcall(require, 'HelperByOrc.tables')
 local lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
 local lhooklib, hooks = pcall(require, 'hooks')
 
--- === FontAwesome ===
-local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-
+--
+-- Экспорт базовых библиотек для модулей
+-- (модули могут импортировать их через import('HelperByOrc.lua'))
+--
 EXPORTS = {
     imgui = imgui,
     ffi = ffi,
@@ -42,9 +42,14 @@ EXPORTS = {
     effil = ok_effil and effil or nil,
     https = ok_https and https or nil,
     sampev = sampev,
-    mimgui_funcs = ok1 and mimgui_funcs or nil,
-    fa = ok2 and fa or nil,
 }
+
+-- === Дополнительные модули (загружаются после экспорта базовых библиотек) ===
+local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
+
+EXPORTS.fa = ok2 and fa or nil
+EXPORTS.mimgui_funcs = ok1 and mimgui_funcs or nil
 
 -- === Интерфейсные переменные ===
 local renderHotkeyWnd = imgui.new.bool(false)
