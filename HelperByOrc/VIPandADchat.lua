@@ -1,18 +1,18 @@
 local module = {}
 
 -- ===================== ЗАВИСИМОСТИ =====================
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-
-local imgui = require 'mimgui'
-local ffi   = require 'ffi'
-
-local ok_funcs, funcs = pcall(require, 'HelperByOrc.funcs')
+local exports = import('HelperByOrc.lua')
+local encoding = exports.encoding
+local u8 = exports.u8
+local imgui = exports.imgui
+local ffi = exports.ffi
+local funcs = exports.funcs
+local samp = exports.samp
+local mimgui_funcs = exports.mimgui_funcs
+local ok_funcs = funcs ~= nil
+local ok_samp = samp ~= nil
+local ok_mf = mimgui_funcs ~= nil
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
-
-local ok_samp, samp = pcall(require, 'HelperByOrc.samp')
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
 
 -- ===================== КОНФИГ =====================
 local config = {}

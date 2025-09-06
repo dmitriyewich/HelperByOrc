@@ -1,21 +1,17 @@
 local module = {}
-local imgui = require 'mimgui'
-local ffi = require 'ffi'
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local vkeys = require 'vkeys'
-local vk = require 'vkeys'
-local wm = require 'windows.message'
-local bit = require 'bit'
+local exports = import('HelperByOrc.lua')
+local imgui = exports.imgui
+local ffi = exports.ffi
+local encoding = exports.encoding
+local u8 = exports.u8
+local vkeys = exports.vkeys
+local vk = exports.vk
+local wm = exports.wm
+local bit = exports.bit
 local bor = bit and bit.bor or function(a, b) return a + b end
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-
--- Иконки (безопасный фолбэк)
-local ok_fa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-if not ok_fa or type(fa) ~= 'table' then
-  fa = setmetatable({}, { __index = function() return "" end })
-end
+local mimgui_funcs = exports.mimgui_funcs
+local fa = exports.fa or setmetatable({}, { __index = function() return "" end })
+local ok_mf = mimgui_funcs ~= nil
 
 -- === Константы ===
 local json_path = "moonloader/HelperByOrc/binder.json"
@@ -456,8 +452,7 @@ end
 
 -- === Поток отправки ===
 function module.sendHotkeyMessagesThread(hk, state)
-  local ltags, tagsModule = pcall(require, 'HelperByOrc.tags')
-  local tags = (ltags and type(tagsModule) == "table") and tagsModule or nil
+  local tags = exports.tags
   local messages = hk.messages
 
   for idx, msg in ipairs(messages) do

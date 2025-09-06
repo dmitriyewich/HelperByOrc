@@ -3,13 +3,48 @@ local ffi = require 'ffi'
 local wm = require('windows.message')
 local vkeys = require 'vkeys'
 local vk = require 'vkeys'
+local bit = require 'bit'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 
+local ok_effil, effil = pcall(require, 'effil')
+local ok_https, https = pcall(require, 'ssl.https')
+local sampev = require 'samp.events'
+local memory = require 'memory'
+local ok_dkjson, dkjson = pcall(require, 'dkjson')
+local ok_lfs, lfs = pcall(require, 'lfs')
+local ok_websocket, websocket = pcall(require, 'websocket')
+local ok_tables, tables = pcall(require, 'HelperByOrc.tables')
+local lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
+local lhooklib, hooks = pcall(require, 'hooks')
+
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
+
+EXPORTS = {
+    imgui = imgui,
+    ffi = ffi,
+    wm = wm,
+    vkeys = vkeys,
+    vk = vk,
+    bit = bit,
+    encoding = encoding,
+    u8 = u8,
+    memory = memory,
+    dkjson = ok_dkjson and dkjson or nil,
+    lfs = ok_lfs and lfs or nil,
+    websocket = ok_websocket and websocket or nil,
+    tables = ok_tables and tables or nil,
+    memory_picture = lmemory_picture and memory_picture or nil,
+    hooks = lhooklib and hooks or nil,
+    effil = ok_effil and effil or nil,
+    https = ok_https and https or nil,
+    sampev = sampev,
+    mimgui_funcs = ok1 and mimgui_funcs or nil,
+    fa = ok2 and fa or nil,
+}
 
 -- === Интерфейсные переменные ===
 local renderHotkeyWnd = imgui.new.bool(false)
@@ -143,16 +178,24 @@ function main()
     
     -- === Модули проекта ===
     lsamp, samp = pcall(require, 'HelperByOrc.samp')
+    EXPORTS.samp = lsamp and samp or nil
     okunw, Unwanted = pcall(require, 'HelperByOrc.unwanted')
+    EXPORTS.Unwanted = okunw and Unwanted or nil
     okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
+    EXPORTS.myhooks = okmyhooks and myhooks or nil
     lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+    EXPORTS.funcs = lfuncs and funcs or nil
     ltags, tags = pcall(require, 'HelperByOrc.tags')
-    -- print(ltags, tags)
+    EXPORTS.tags = ltags and tags or nil
 
-        okbinder, binder = pcall(require, 'HelperByOrc.binder')
+    okbinder, binder = pcall(require, 'HelperByOrc.binder')
+    EXPORTS.binder = okbinder and binder or nil
     oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
+    EXPORTS.notepad = oknotepad and notepad or nil
     oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
+    EXPORTS.SMIHelp = oksmihelp and SMIHelp or nil
     okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
+    EXPORTS.VIPandADchat = okvipad and VIPandADchat or nil
     -- print(oksmihelp, SMIHelp)
     print(okbinder, binder)
     -- print(okvipad, VIPandADchat)

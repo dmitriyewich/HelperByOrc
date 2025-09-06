@@ -5,19 +5,21 @@
 
 local M = {}
 
-local imgui     = require 'mimgui'
-local ffi       = require 'ffi'
-local encoding  = require 'encoding'
-encoding.default = 'CP1251'
-local u8        = encoding.UTF8
+local exports = import('HelperByOrc.lua')
+local imgui = exports.imgui
+local ffi = exports.ffi
+local encoding = exports.encoding
+local u8 = exports.u8
 
-local str    = ffi.string
+local str = ffi.string
 local sizeof = ffi.sizeof
 
 -- ИКОНКИ (fallback на текст)
-local okfa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local fa = exports.fa
+local okfa = fa ~= nil
 local function I(glyph, text) return (okfa and glyph and (glyph .. " ") or "") .. (text or "") end
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
+local mimgui_funcs = exports.mimgui_funcs
+local ok_mf = mimgui_funcs ~= nil
 
 -- === Конфиг ===
 local CONFIG_PATH = "moonloader/HelperByOrc/unwanted.json"
@@ -81,8 +83,8 @@ local function read_file(p) local f = io.open(p, "rb"); if not f then return nil
 local function write_file(p, data) local f = io.open(p, "wb"); if not f then return false end; f:write(data or ""); f:close(); return true end
 
 local function json_encode(tbl)
-  local ok, dk = pcall(require, 'dkjson')
-  if ok and dk and dk.encode then return dk.encode(tbl, {indent=true}) end
+  local dk = exports.dkjson
+  if dk and dk.encode then return dk.encode(tbl, {indent=true}) end
   -- tiny fallback
   local function esc(s) return tostring(s):gsub("\\","\\\\"):gsub('"','\\"') end
   local function dump(v)
@@ -104,8 +106,8 @@ end
 local function json_decode(s)
   local ok1, res1 = pcall(function() return decodeJson and decodeJson(s) or nil end)
   if ok1 and res1 ~= nil then return res1 end
-  local ok2, dk = pcall(require, 'dkjson')
-  if ok2 and dk and dk.decode then return dk.decode(s) end
+  local dk = exports.dkjson
+  if dk and dk.decode then return dk.decode(s) end
   return nil
 end
 

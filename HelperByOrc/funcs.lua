@@ -1,11 +1,13 @@
 local module = {}
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
-lsamp, samp = pcall(require, 'HelperByOrc.samp')
-ltables, tables = pcall(require, 'HelperByOrc.tables')
+local exports = import('HelperByOrc.lua')
+local encoding = exports.encoding
+local u8 = exports.u8
+local ffi = exports.ffi
+local memory = exports.memory
+local samp = exports.samp
+local tables = exports.tables
+local lsamp = samp ~= nil
+local ltables = tables ~= nil
 
 ffi.cdef[[
     intptr_t LoadKeyboardLayoutA(const char* pwszKLID, unsigned int Flags);
@@ -1095,7 +1097,8 @@ function module.sendOBS(cmd)
 
     if tbl[cmd] == nil then return end
     
-    local websocket = require("websocket")
+    local websocket = exports.websocket
+    if not websocket then return end
 
     local host = "localhost"
     local port = 4444

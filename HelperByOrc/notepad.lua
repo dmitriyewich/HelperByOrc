@@ -1,14 +1,16 @@
 local module = {}
-local imgui = require 'mimgui'
-local ffi = require 'ffi'
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local exports = import('HelperByOrc.lua')
+local imgui = exports.imgui
+local ffi = exports.ffi
+local encoding = exports.encoding
+local u8 = exports.u8
 local new = imgui.new
 
-local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
-local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local mimgui_funcs = exports.mimgui_funcs
+local fa = exports.fa or {}
+local ok2 = exports.fa ~= nil
+local funcs = exports.funcs
+local lfuncs = funcs ~= nil
 local json_path = getWorkingDirectory().."\\HelperByOrc\\notepad.json"
 local base_path = getWorkingDirectory().."\\HelperByOrc\\notepad"
 

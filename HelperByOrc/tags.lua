@@ -1,13 +1,17 @@
 -- МОДУЛЬ / ИМПОРТЫ
 
 local module = {}
-local imgui  = require 'mimgui'
-local ffi   = require 'ffi'
-
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local okbinder, binder = pcall(require, 'HelperByOrc.binder')
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
+local exports = import('HelperByOrc.lua')
+local imgui = exports.imgui
+local ffi = exports.ffi
+local funcs = exports.funcs
+local fa = exports.fa or setmetatable({}, { __index = function() return "" end })
+local binder = exports.binder
+local mimgui_funcs = exports.mimgui_funcs
+local lfuncs = funcs ~= nil
+local ok2 = exports.fa ~= nil
+local okbinder = binder ~= nil
+local ok_mf = mimgui_funcs ~= nil
 
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
@@ -45,8 +49,7 @@ local target = {
 -- SAMP ОБЁРТКА (ленивая)
 
 local function samp()
-    local lsamp, s = pcall(require, 'HelperByOrc.samp')
-    if lsamp then return s end
+    return exports.samp
 end
 
 -- Ленивый кеш для samp() — избегаем лишних require/вызовов
@@ -58,18 +61,16 @@ end
 
 
 -- BINDER АЛИАСЫ (если есть)
-
-if okbinder then
-    binddead       = binder.isBindEnded
-    bindstart     = binder.startBind
-    bindstop       = binder.stopBind
-    bindpause     = binder.pauseBind
-    bindunpause = binder.unpauseBind
-    bindenable   = binder.enableBind
-    binddisable = binder.disableBind
-    bindselector   = function(name, folder) return binder.setBindSelector(name, folder, true) end
-    bindunselector = function(name, folder) return binder.setBindSelector(name, folder, false) end
-end
+local function _binder() return exports.binder end
+binddead       = function(...) local b=_binder(); return b and b.isBindEnded(...) end
+bindstart      = function(...) local b=_binder(); return b and b.startBind(...) end
+bindstop       = function(...) local b=_binder(); return b and b.stopBind(...) end
+bindpause      = function(...) local b=_binder(); return b and b.pauseBind(...) end
+bindunpause    = function(...) local b=_binder(); return b and b.unpauseBind(...) end
+bindenable     = function(...) local b=_binder(); return b and b.enableBind(...) end
+binddisable    = function(...) local b=_binder(); return b and b.disableBind(...) end
+bindselector   = function(name, folder) local b=_binder(); return b and b.setBindSelector(name, folder, true) end
+bindunselector = function(name, folder) local b=_binder(); return b and b.setBindSelector(name, folder, false) end
 
 
 -- УТИЛИТЫ
@@ -86,8 +87,8 @@ end
 
 -- JSON fallback (если нет funcs.convertTableToJsonString)
 local function json_encode_fallback(tbl)
-    local ok, dk = pcall(require, 'dkjson')
-    if ok and dk and dk.encode then return dk.encode(tbl, { indent = true }) end
+    local dk = exports.dkjson
+    if dk and dk.encode then return dk.encode(tbl, { indent = true }) end
     local function esc(s) return tostring(s):gsub("\\","\\\\"):gsub('"','\\"') end
     local function dump(v)
         local t = type(v)
@@ -503,8 +504,8 @@ local VARS_DIR = "moonloader/HelperByOrc/vars"
 local function list_lua_files(dir)
     local out = {}
     dir = tostring(dir or ""):gsub("\\","/"):gsub("/+$","")
-    local ok_lfs, lfs = pcall(require, "lfs")
-    if ok_lfs and lfs and lfs.attributes(dir, "mode") == "directory" then
+    local lfs = exports.lfs
+    if lfs and lfs.attributes(dir, "mode") == "directory" then
         for f in lfs.dir(dir) do
             if f ~= "." and f ~= ".." and f:match("%.lua$") then
                 out[#out+1] = dir.."/"..f

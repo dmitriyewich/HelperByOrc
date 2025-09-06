@@ -1,10 +1,11 @@
 local module = {}
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
-ltags, tags = pcall(require, 'HelperByOrc.tags')
+local exports = import('HelperByOrc.lua')
+local encoding = exports.encoding
+local u8 = exports.u8
+local ffi = exports.ffi
+local memory = exports.memory
+local tags = exports.tags
+local ltags = tags ~= nil
 
 module.currentVersion, module.sampModule = nil, getModuleHandle("samp.dll")
 

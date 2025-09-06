@@ -8,13 +8,12 @@
 -- | ▓▓      \▓▓    ▓▓ ▓▓  \▓▓▓\▓▓    ▓▓  | ▓▓  |   ▓▓ \\▓▓    ▓▓ ▓▓  \▓▓▓   \▓▓    ▓▓     
 --  \▓▓       \▓▓▓▓▓▓ \▓▓   \▓▓ \▓▓▓▓▓▓    \▓▓   \▓▓▓▓▓▓ \▓▓▓▓▓▓ \▓▓   \▓▓    \▓▓▓▓▓▓      
 local module = {}
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
-
-local imgui = require 'mimgui'
+local exports = import('HelperByOrc.lua')
+local encoding = exports.encoding
+local u8 = exports.u8
+local ffi = exports.ffi
+local memory = exports.memory
+local imgui = exports.imgui
 local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
 
 function ImGuiEnum(name)
@@ -26,10 +25,14 @@ end
 module.TabBarFlags = ImGuiEnum('ImGuiTabBarFlags_')
 module.TabItemFlags = ImGuiEnum('ImGuiTabItemFlags_')
 
-lsamp, samp = pcall(require, 'HelperByOrc.samp')
-ltables, tables = pcall(require, 'HelperByOrc.tables')
-lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
+local samp = exports.samp
+local tables = exports.tables
+local funcs = exports.funcs
+local memory_picture = exports.memory_picture
+local lsamp = samp ~= nil
+local ltables = tables ~= nil
+local lfuncs = funcs ~= nil
+local lmemory_picture = memory_picture ~= nil
 
 -- Инициализация модуля
 imgui.OnInitialize(function()

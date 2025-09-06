@@ -1,17 +1,21 @@
 -- my_hooks.lua
 
-local ffi = require 'ffi'
-local encoding = require 'encoding'
-encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local exports = import('HelperByOrc.lua')
+local ffi = exports.ffi
+local encoding = exports.encoding
+local u8 = exports.u8
 
-local ltags, tags = pcall(require, 'HelperByOrc.tags')
-local oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-local okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local okunw, unwanted = pcall(require, 'HelperByOrc.unwanted')
--- 1. SAMP EVENTS HOOK (через samp.events)
-local sampev = require('samp.events')
+local tags = exports.tags
+local SMIHelp = exports.SMIHelp
+local VIPandADchat = exports.VIPandADchat
+local funcs = exports.funcs
+local unwanted = exports.Unwanted
+local sampev = exports.sampev
+local ltags = tags ~= nil
+local oksmihelp = SMIHelp ~= nil
+local okvipad = VIPandADchat ~= nil
+local lfuncs = funcs ~= nil
+local okunw = unwanted ~= nil
 
 local function fix_invalid_json_escapes(str)
     -- Заменить \9 (таб как в некоторых клиентах) на пробел
@@ -98,11 +102,11 @@ function onShowDialog(dialogid, style, title, button1, button2, text, placeholde
 end
 
 -- 2. JMP HOOK (через hooks.jmp на AddChatEntry)
-local lhook, hook = pcall(require, 'hooks')
+local hook = exports.hooks
+local lhook = hook ~= nil
 
 local function samp()
-local lsamp, samp = pcall(require, 'HelperByOrc.samp')
-    if lsamp then return samp end
+    return exports.samp
 end
 
 local originalChatAddEntry = nil
