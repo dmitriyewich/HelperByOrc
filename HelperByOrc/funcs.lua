@@ -6,6 +6,7 @@ local ffi = require("ffi")
 local memory = require("memory")
 lsamp, samp = pcall(require, 'HelperByOrc.samp')
 ltables, tables = pcall(require, 'HelperByOrc.tables')
+local imgui = require 'mimgui'
 -- recursive table copy
 function module.deepcopy(obj, seen)
 	seen = seen or {}
@@ -18,6 +19,71 @@ function module.deepcopy(obj, seen)
 	end
 	return res
 end
+
+-- sci-fi HUD styling
+function module.applySciFiTheme(imgui)
+	local style = imgui.GetStyle()
+	style.WindowRounding = 4
+	style.FrameRounding = 4
+	style.FrameBorderSize = 1
+	style.WindowBorderSize = 1
+	style.WindowPadding = imgui.ImVec2(8, 8)
+	style.FramePadding = imgui.ImVec2(6, 4)
+	style.Colors[imgui.Col.WindowBg] = imgui.ImVec4(0.05, 0.06, 0.07, 0.9)
+	style.Colors[imgui.Col.Border] = imgui.ImVec4(0.0, 0.7, 0.9, 0.6)
+	style.Colors[imgui.Col.Button] = imgui.ImVec4(0.0, 0.45, 0.55, 0.6)
+	style.Colors[imgui.Col.ButtonHovered] = imgui.ImVec4(0.0, 0.6, 0.8, 0.8)
+	style.Colors[imgui.Col.ButtonActive] = imgui.ImVec4(0.0, 0.75, 1.0, 1.0)
+	style.Colors[imgui.Col.FrameBg] = imgui.ImVec4(0.05, 0.10, 0.12, 0.8)
+	style.Colors[imgui.Col.FrameBgHovered] = imgui.ImVec4(0.0, 0.6, 0.8, 0.4)
+	style.Colors[imgui.Col.FrameBgActive] = imgui.ImVec4(0.0, 0.75, 1.0, 0.6)
+	style.Colors[imgui.Col.TitleBg] = imgui.ImVec4(0.02, 0.03, 0.05, 0.9)
+	style.Colors[imgui.Col.TitleBgActive] = imgui.ImVec4(0.02, 0.03, 0.05, 0.9)
+	style.Colors[imgui.Col.TitleBgCollapsed] = imgui.ImVec4(0.02, 0.03, 0.05, 0.9)
+	style.Colors[imgui.Col.CheckMark] = imgui.ImVec4(0.0, 0.8, 0.9, 1.0)
+	style.Colors[imgui.Col.SliderGrab] = imgui.ImVec4(0.0, 0.6, 0.8, 0.8)
+	style.Colors[imgui.Col.SliderGrabActive] = imgui.ImVec4(0.0, 0.75, 1.0, 0.8)
+	style.Colors[imgui.Col.Header] = imgui.ImVec4(0.0, 0.5, 0.6, 0.6)
+	style.Colors[imgui.Col.HeaderHovered] = imgui.ImVec4(0.0, 0.6, 0.8, 0.8)
+	style.Colors[imgui.Col.HeaderActive] = imgui.ImVec4(0.0, 0.75, 1.0, 1.0)
+	imgui.Button = function(label, size)
+	size = size or imgui.ImVec2(0, 0)
+	return module.hexButton(label, size)
+	end
+end
+
+	function module.hexButton(label, size)
+	size = size or imgui.ImVec2(80, 30)
+	local style = imgui.GetStyle()
+	if size.x <= 0 then size.x = imgui.CalcTextSize(label).x + style.FramePadding.x * 2 end
+	if size.y <= 0 then size.y = imgui.GetFrameHeight() end
+	local pos = imgui.GetCursorScreenPos()
+	local w, h = size.x, size.y
+	local x, y = pos.x, pos.y
+	local pts = {
+	imgui.ImVec2(x + w * 0.25, y),
+	imgui.ImVec2(x + w * 0.75, y),
+	imgui.ImVec2(x + w, y + h / 2),
+	imgui.ImVec2(x + w * 0.75, y + h),
+	imgui.ImVec2(x + w * 0.25, y + h),
+	imgui.ImVec2(x, y + h / 2)
+	}
+	imgui.InvisibleButton(label, imgui.ImVec2(w, h))
+	local col
+	if imgui.IsItemActive() then
+	col = imgui.Col.ButtonActive
+	elseif imgui.IsItemHovered() then
+	col = imgui.Col.ButtonHovered
+	else
+	col = imgui.Col.Button
+	end
+	local dl = imgui.GetWindowDrawList()
+	dl:AddConvexPolyFilled(pts, imgui.GetColorU32(col))
+	dl:AddPolyline(pts, imgui.GetColorU32(imgui.Col.Border), true, 1.0)
+	local textSize = imgui.CalcTextSize(label)
+	dl:AddText(imgui.ImVec2(x + (w - textSize.x) / 2, y + (h - textSize.y) / 2), imgui.GetColorU32(imgui.Col.Text), label)
+	return imgui.IsItemClicked(0)
+	end
 
 
 ffi.cdef[[
