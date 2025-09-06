@@ -26,10 +26,9 @@ end
 module.TabBarFlags = ImGuiEnum('ImGuiTabBarFlags_')
 module.TabItemFlags = ImGuiEnum('ImGuiTabItemFlags_')
 
-lsamp, samp = pcall(require, 'HelperByOrc.samp')
-ltables, tables = pcall(require, 'HelperByOrc.tables')
-lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
+local lsamp, samp = pcall(require, 'HelperByOrc.samp')
+local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
 
 -- Инициализация модуля
 imgui.OnInitialize(function()

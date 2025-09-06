@@ -78,21 +78,13 @@ local function saveNotes()
 	funcs.saveTableToJson(notes, json_path)
 end
 local function loadNotes()
-    notes, favorites, history = {}, {}, {}
-    if doesFileExist(json_path) then
-        local f = io.open(json_path, "rb")
-        if f then
-            local content = f:read("*a")
-            f:close()
-            local ok, data = pcall(decodeJson, content)
-            if ok and type(data) == "table" then notes = data end
-        end
-    end
-    for i, note in ipairs(notes) do
-        note._fav = note._fav or false
-        note._ctime = note._ctime or os.time()
-        note._mtime = note._mtime or os.time()
-    end
+	notes = funcs.loadTableFromJson(json_path, {})
+	favorites, history = {}, {}
+	for i, note in ipairs(notes) do
+		note._fav = note._fav or false
+		note._ctime = note._ctime or os.time()
+		note._mtime = note._mtime or os.time()
+	end
 end
 local function getAllTxtFilesRecursive(path)
     local result = {}
@@ -768,9 +760,8 @@ function module.drawNotepadPanel()
 end
 
 imgui.OnInitialize(function()
-    imgui.GetIO().IniFilename = nil
-    loadNotes()
-    loadTreeFromFiles()
+loadNotes()
+loadTreeFromFiles()
 end)
 
 return module

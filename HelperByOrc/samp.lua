@@ -4,7 +4,7 @@ encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
-ltags, tags = pcall(require, 'HelperByOrc.tags')
+local ltags, tags = pcall(require, 'HelperByOrc.tags')
 
 module.currentVersion, module.sampModule = nil, getModuleHandle("samp.dll")
 
