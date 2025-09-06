@@ -1044,7 +1044,7 @@ end
 
 local function drawKeyCapturePopup(hk)
   if imgui.BeginPopupModal("Назначить новую комбинацию", nil, imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoMove) then
-    imgui.Text(fa.KEYBOARD .. "	" .. "Нажмите нужные клавиши")
+    imgui.Text(fa.KEYBOARD .. " " .. "Нажмите нужные клавиши")
     imgui.Text(hotkeyToString(combo_keys))
     if imgui.Button(fa.XMARK .. " " .. "[CANCEL]") then
       combo_recording = false

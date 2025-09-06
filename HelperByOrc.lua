@@ -97,26 +97,26 @@ imgui.OnFrame(
                         tags.showTagsWindow[0] = true
                     end
                 end
-				imgui.Separator()
-				if okvipad and VIPandADchat then
-					if imgui.Button("VIP/AD чат — настройки") then
-						VIPandADchat.showSettingsWindow[0] = true
-					end
-				end
-				if okvipad and VIPandADchat and VIPandADchat.showSettingsWindow and VIPandADchat.DrawSettingsWindow then
-					VIPandADchat.DrawSettingsWindow()
-				end
+                imgui.Separator()
+                if okvipad and VIPandADchat then
+                    if imgui.Button("VIP/AD чат — настройки") then
+                        VIPandADchat.showSettingsWindow[0] = true
+                    end
+                end
+                if okvipad and VIPandADchat and VIPandADchat.showSettingsWindow and VIPandADchat.DrawSettingsWindow then
+                    VIPandADchat.DrawSettingsWindow()
+                end
 
-				imgui.Separator()
+                imgui.Separator()
 
-				-- Игнор-список
-				if okunw and Unwanted then
-					if imgui.Button("Игнорируемые сообщения — настройки") then
-						Unwanted.showWindow[0] = true
-					end
-					-- рисуем окно, если открыто
-					Unwanted.DrawWindow()
-				end
+                -- Игнор-список
+                if okunw and Unwanted then
+                    if imgui.Button("Игнорируемые сообщения — настройки") then
+                        Unwanted.showWindow[0] = true
+                    end
+                    -- рисуем окно, если открыто
+                    Unwanted.DrawWindow()
+                end
             else
                 imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "HelperByOrc")
                 imgui.Separator()
@@ -139,25 +139,25 @@ end)
 
 -- === onTick: обработка быстрого меню биндер-модуля ===
 function main()
-	while not isSampAvailable() do wait(1000) end
-	
-	-- === Модули проекта ===
-	lsamp, samp = pcall(require, 'HelperByOrc.samp')
-	okunw, Unwanted = pcall(require, 'HelperByOrc.unwanted')
-	okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
-	lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-	ltags, tags = pcall(require, 'HelperByOrc.tags')
-	-- print(ltags, tags)
+    while not isSampAvailable() do wait(1000) end
+    
+    -- === Модули проекта ===
+    lsamp, samp = pcall(require, 'HelperByOrc.samp')
+    okunw, Unwanted = pcall(require, 'HelperByOrc.unwanted')
+    okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
+    lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+    ltags, tags = pcall(require, 'HelperByOrc.tags')
+    -- print(ltags, tags)
 
         okbinder, binder = pcall(require, 'HelperByOrc.binder')
-	oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
-	oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-	okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
-	-- print(oksmihelp, SMIHelp)
-	print(okbinder, binder)
-	-- print(okvipad, VIPandADchat)
-	-- в
-	if okmyhooks then myhooks.init() end
+    oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
+    oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
+    okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
+    -- print(oksmihelp, SMIHelp)
+    print(okbinder, binder)
+    -- print(okvipad, VIPandADchat)
+    -- в
+    if okmyhooks then myhooks.init() end
 
     -- Запуск потоков для работы интерфейса и тегов
     lua_thread.create(function()
@@ -197,7 +197,7 @@ function main()
 end
 
 function onScriptTerminate(script, quit)
-	if script == thisScript() and not quit then
-		-- myhooks.deinit()
-	end
+    if script == thisScript() and not quit then
+        -- myhooks.deinit()
+    end
 end
