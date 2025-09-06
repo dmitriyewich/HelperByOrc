@@ -38,9 +38,14 @@ local sampev = require 'samp.events'
 local bit = require 'bit'						  -- для UTF-8 разборки и флагов
 
 -- опциональные зависимости (совместимость/сейв конфига)
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-local ok_fn, funcs = pcall(require, 'HelperByOrc.funcs')
-local trim = (ok_fn and funcs and funcs.trim) and funcs.trim or function(s) return (s or ""):gsub("^%s*(.-)%s*$", "%1") end
+local mimgui_funcs
+local funcs
+
+function SMIHelp.attachModules(mod)
+        mimgui_funcs = mod.mimgui_funcs
+        funcs = mod.funcs
+end
+local trim = (funcs and funcs.trim) and funcs.trim or function(s) return (s or ""):gsub("^%s*(.-)%s*$", "%1") end
 
 -- ========= КОНСТАНТЫ/НАСТРОЙКИ =========
 local CONFIG_PATH = getWorkingDirectory().."\\HelperByOrc\\SMIHelp.json"

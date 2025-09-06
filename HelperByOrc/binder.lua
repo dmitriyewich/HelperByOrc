@@ -8,10 +8,13 @@ local vk = require 'vkeys'
 local vkeys = vk
 local wm = require 'windows.message'
 local bit = require 'bit'
-local funcs = require 'HelperByOrc.funcs'
+local funcs, tags
 local bor = bit and bit.bor or function(a, b) return a + b end
-local ok_tags, tags = pcall(require, 'HelperByOrc.tags')
-tags = (ok_tags and type(tags) == 'table') and tags or nil
+
+function module.attachModules(mod)
+        funcs = mod.funcs
+        tags = mod.tags
+end
 
 -- Иконки (безопасный фолбэк)
 local ok_fa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -420,9 +423,7 @@ end
 
 -- === Поток отправки ===
 function module.sendHotkeyMessagesThread(hk, state)
-	local ltags, tagsModule = pcall(require, 'HelperByOrc.tags')
-	local tags = (ltags and type(tagsModule) == "table") and tagsModule or nil
-	local messages = hk.messages
+        local messages = hk.messages
 
 	for idx, msg in ipairs(messages) do
 		if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
@@ -1554,9 +1555,6 @@ function() module.DrawQuickMenu() end
 )
 
 -- Автозагрузка
-if tags and tags.attachBinder then
-	tags.attachBinder(module)
-end
 pcall(module.loadHotkeys)
 
 return module

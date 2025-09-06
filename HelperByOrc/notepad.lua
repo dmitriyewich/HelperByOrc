@@ -6,9 +6,14 @@ encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local new = imgui.new
 
-local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
+local mimgui_funcs
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local funcs
+
+function module.attachModules(mod)
+    mimgui_funcs = mod.mimgui_funcs
+    funcs = mod.funcs
+end
 local json_path = getWorkingDirectory().."\\HelperByOrc\\notepad.json"
 local base_path = getWorkingDirectory().."\\HelperByOrc\\notepad"
 

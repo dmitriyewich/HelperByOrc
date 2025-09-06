@@ -4,10 +4,16 @@ local module = {}
 local imgui  = require 'mimgui'
 local ffi	= require 'ffi'
 
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local funcs
 local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local binder
+local samp
 
+function module.attachModules(mod)
+        funcs = mod.funcs
+        binder = mod.binder
+        samp = mod.samp
+end
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
 
@@ -41,18 +47,9 @@ local target = {
 }
 
 
--- SAMP ОБЁРТКА (ленивая)
-
-local function samp()
-	local lsamp, s = pcall(require, 'HelperByOrc.samp')
-	if lsamp then return s end
-end
-
--- Ленивый кеш для samp() — избегаем лишних require/вызовов
-local S
+-- SAMP ссылка
 local function S_get()
-	if not S then S = samp() end
-	return S
+        return samp
 end
 
 
@@ -98,8 +95,8 @@ end
 local function save_config()
 	local data = { vars = custom_vars, settings = settings }
 	local json
-	if lfuncs and funcs and funcs.convertTableToJsonString then
-		json = funcs.convertTableToJsonString(data)
+    if funcs and funcs.convertTableToJsonString then
+            json = funcs.convertTableToJsonString(data)
 	else
 		json = json_encode_fallback(data)
 	end

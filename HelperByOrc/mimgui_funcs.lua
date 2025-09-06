@@ -26,19 +26,24 @@ end
 module.TabBarFlags = ImGuiEnum('ImGuiTabBarFlags_')
 module.TabItemFlags = ImGuiEnum('ImGuiTabItemFlags_')
 
-local lsamp, samp = pcall(require, 'HelperByOrc.samp')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
+local samp
+local funcs
+local memory_picture
+
+function module.attachModules(mod)
+    samp = mod.samp
+    funcs = mod.funcs
+    memory_picture = mod.memory_picture
+end
 
 -- Инициализация модуля
 imgui.OnInitialize(function()
     imgui.GetIO().IniFilename = nil
 
-    if lfuncs then
-		
+    if memory_picture then
         module.close_window = imgui.CreateTextureFromFileInMemory(memory_picture.button_close_base, #memory_picture.button_close_base)
         -- module.logo = imgui.CreateTextureFromFileInMemory(memory_picture.logo_base, #memory_picture.logo_base)
-		module.logo = imgui.CreateTextureFromFile('moonloader/HelperByOrc/resource/logo.png')
+        module.logo = imgui.CreateTextureFromFile('moonloader/HelperByOrc/resource/logo.png')
     end
 end)
 
@@ -291,7 +296,7 @@ function module.imgui_text_color(text, wrapped, aBool, number)
                     local r = bit.band(bit.rshift(clr, 24), 0xFF)
                     local g = bit.band(bit.rshift(clr, 16), 0xFF)
                     local b = bit.band(bit.rshift(clr, 8), 0xFF)
-					if aBool then alpha = samp.is_chat_opened() and 255 or 120 else alpha = a end
+                    if aBool and samp and samp.is_chat_opened then alpha = samp.is_chat_opened() and 255 or 120 else alpha = a end
                     local a = bit.band(clr, 0xFF)
 					-- local r, g, b, a = funcs.explode_argb(color)
 					-- if aBool then alpha = samp.is_chat_opened() and 255 or 150 else alpha = a end
@@ -328,7 +333,7 @@ function module.TextColoredRGB(text,align, aBool)
 		local color = type(color) == 'string' and tonumber(color, 16) or color
 		if type(color) ~= 'number' then return end
 		local r, g, b, a = funcs.explode_argb(color)
-		if aBool then alpha = samp.is_chat_opened() and 255 or 150 else alpha = a end
+                if aBool and samp and samp.is_chat_opened then alpha = samp.is_chat_opened() and 255 or 150 else alpha = a end
 		return ImVec4(r / 255, g / 255, b / 255, alpha / 255)
 	end
 

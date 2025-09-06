@@ -4,7 +4,6 @@ encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
-local lsamp, samp = pcall(require, 'HelperByOrc.samp')
 -- recursive table copy
 function module.deepcopy(obj, seen)
 	seen = seen or {}

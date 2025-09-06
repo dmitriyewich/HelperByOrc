@@ -5,9 +5,9 @@ local vk = require 'vkeys'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
-
-local ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-local oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
+local modules = require('HelperByOrc.init')
+local mimgui_funcs = modules.mimgui_funcs
+local SMIHelp = modules.SMIHelp
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -18,18 +18,18 @@ local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 
 -- модули, загружаемые в main()
-local lsamp, samp
-local okunw, Unwanted
-local okmyhooks, myhooks
-local ltags, tags
-local okbinder, binder
-local oknotepad, notepad
-local okvipad, VIPandADchat
+local samp = modules.samp
+local Unwanted = modules.unwanted
+local myhooks = modules.my_hooks
+local tags = modules.tags
+local binder = modules.binder
+local notepad = modules.notepad
+local VIPandADchat = modules.VIPandADchat
 
 imgui.OnInitialize(function()
-if ok1 and mimgui_funcs and mimgui_funcs.Standart then mimgui_funcs.Standart() end
+if mimgui_funcs and mimgui_funcs.Standart then mimgui_funcs.Standart() end
 if ok2 and fa and fa.Init then fa.Init() end
-if oksmihelp and SMIHelp and SMIHelp.Standart then SMIHelp.Standart() end
+if SMIHelp and SMIHelp.Standart then SMIHelp.Standart() end
 end)
 
 -- === Главное окно ===
@@ -45,7 +45,7 @@ imgui.OnFrame(
 		-- Левая панель: логотип + меню
 		imgui.BeginGroup()
 		if imgui.BeginChild('img##logo', imgui.ImVec2(128, 128), false) then
-			if ok1 and mimgui_funcs and mimgui_funcs.logo then
+                        if mimgui_funcs and mimgui_funcs.logo then
 				mimgui_funcs.drawOrcLogoZoom(mimgui_funcs.logo, currentTab, imgui.ImVec2(128, 128), 1.2)
 			else
 				imgui.Text("HelperByOrc")
@@ -74,15 +74,15 @@ imgui.OnFrame(
 					{"Настройки"},
 				}
 			end
-			if ok1 and mimgui_funcs and mimgui_funcs.customVerticalMenu then
-				currentTab = mimgui_funcs.customVerticalMenu(menuItems, currentTab)
-			else
-				for i, v in ipairs(menuItems) do
-					if imgui.Selectable(v[1], currentTab == i) then
-						currentTab = i
-					end
-				end
-			end
+                        if mimgui_funcs and mimgui_funcs.customVerticalMenu then
+                                currentTab = mimgui_funcs.customVerticalMenu(menuItems, currentTab)
+                        else
+                                for i, v in ipairs(menuItems) do
+                                        if imgui.Selectable(v[1], currentTab == i) then
+                                                currentTab = i
+                                        end
+                                end
+                        end
 			imgui.EndChild()
 		end
 		imgui.EndGroup()
@@ -90,22 +90,22 @@ imgui.OnFrame(
 		-- Правая основная часть
 		imgui.SameLine()
 		if imgui.BeginChild('main##content', imgui.ImVec2(0, 0), true) then
-			if currentTab == 2 and okbinder and binder then
-				binder.DrawBinder()
-			elseif currentTab == 3 and oksmihelp and SMIHelp then
-				imgui.TextColored(imgui.ImVec4(0.85,0.95,1,1), "СМИ Хелпер — настройки и шаблоны")
-				imgui.Separator()
-				SMIHelp.DrawSettingsUI()
-			elseif currentTab == 4 and oknotepad and notepad and notepad.drawNotepadPanel then
-				notepad.drawNotepadPanel()
+                        if currentTab == 2 and binder then
+                                binder.DrawBinder()
+                        elseif currentTab == 3 and SMIHelp then
+                                imgui.TextColored(imgui.ImVec4(0.85,0.95,1,1), "СМИ Хелпер — настройки и шаблоны")
+                                imgui.Separator()
+                                SMIHelp.DrawSettingsUI()
+                        elseif currentTab == 4 and notepad and notepad.drawNotepadPanel then
+                                notepad.drawNotepadPanel()
                        elseif currentTab == 5 then
                                 if miscPage == 0 then
                                         imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "Прочее")
                                         imgui.Separator()
                                         local items = {}
-                                        if ltags and tags and tags.DrawSettingsPage then table.insert(items, {id=1, name="Переменные"}) end
-                                        if okvipad and VIPandADchat and VIPandADchat.DrawSettingsInline then table.insert(items, {id=2, name="VIP/AD чат"}) end
-                                        if okunw and Unwanted and Unwanted.DrawWindowInline then table.insert(items, {id=3, name="Игнорируемые сообщения"}) end
+                                        if tags and tags.DrawSettingsPage then table.insert(items, {id=1, name="Переменные"}) end
+                                        if VIPandADchat and VIPandADchat.DrawSettingsInline then table.insert(items, {id=2, name="VIP/AD чат"}) end
+                                        if Unwanted and Unwanted.DrawWindowInline then table.insert(items, {id=3, name="Игнорируемые сообщения"}) end
 
                                         local avail = imgui.GetContentRegionAvail().x
                                         local cardW, cardH = 200, 60
@@ -130,7 +130,7 @@ imgui.OnFrame(
                                                 if hovered and imgui.IsMouseClicked(0) then miscPage = it.id end
                                                 imgui.EndGroup()
                                         end
-                                elseif miscPage == 1 and ltags and tags and tags.DrawSettingsPage then
+                                elseif miscPage == 1 and tags and tags.DrawSettingsPage then
                                         imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
                                                 if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
                                                 imgui.SameLine()
@@ -139,7 +139,7 @@ imgui.OnFrame(
                                         imgui.BeginChild("misc_body", imgui.ImVec2(0,-42), true)
                                                 tags.DrawSettingsPage()
                                         imgui.EndChild()
-                                elseif miscPage == 2 and okvipad and VIPandADchat and VIPandADchat.DrawSettingsInline then
+                                elseif miscPage == 2 and VIPandADchat and VIPandADchat.DrawSettingsInline then
                                         imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
                                                 if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
                                                 imgui.SameLine()
@@ -148,7 +148,7 @@ imgui.OnFrame(
                                         imgui.BeginChild("misc_body", imgui.ImVec2(0,-42), true)
                                                 VIPandADchat.DrawSettingsInline()
                                         imgui.EndChild()
-                                elseif miscPage == 3 and okunw and Unwanted and Unwanted.DrawWindowInline then
+                                elseif miscPage == 3 and Unwanted and Unwanted.DrawWindowInline then
                                         imgui.BeginChild("misc_header", imgui.ImVec2(0,40), false)
                                                 if imgui.Button(fa.ARROW_LEFT .. " Назад") then miscPage = 0 end
                                                 imgui.SameLine()
@@ -182,27 +182,16 @@ end)
 function main()
 	while not isSampAvailable() do wait(1000) end
 	
-	-- === Модули проекта ===
-	lsamp, samp = pcall(require, 'HelperByOrc.samp')
-	okunw, Unwanted = pcall(require, 'HelperByOrc.unwanted')
-okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
-ltags, tags = pcall(require, 'HelperByOrc.tags')
-	-- print(ltags, tags)
-
-        okbinder, binder = pcall(require, 'HelperByOrc.binder')
-        oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
-        okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
-		-- print(oksmihelp, SMIHelp)
-		-- print(okvipad, VIPandADchat)
-	if okmyhooks then myhooks.init() end
+        -- === Инициализация модулей ===
+        if myhooks and myhooks.init then myhooks.init() end
 
 	-- Запуск потоков для работы интерфейса и тегов
 	lua_thread.create(function()
-		if okbinder and binder and binder.OnTick then
+                if binder and binder.OnTick then
 			binder.loadHotkeys()
 			while true do
 				if wasKeyPressed(vk.VK_XBUTTON1) then
-					if ok1 and mimgui_funcs and mimgui_funcs.resetIO then
+                                        if mimgui_funcs and mimgui_funcs.resetIO then
 						mimgui_funcs.resetIO()
 					end
 				end
@@ -213,7 +202,7 @@ ltags, tags = pcall(require, 'HelperByOrc.tags')
 	end)
 
 	lua_thread.create(function()
-		if ltags and tags and tags.RenderTagsWindow then
+            if tags and tags.RenderTagsWindow then
 			while true do
 				tags.RenderTagsWindow()
 				wait(0)
@@ -222,7 +211,7 @@ ltags, tags = pcall(require, 'HelperByOrc.tags')
 	end)
 
 	lua_thread.create(function()
-		if okvipad and VIPandADchat then
+            if VIPandADchat then
 			while true do
 				VIPandADchat.showFeedWindow[0] = true
 				wait(0)

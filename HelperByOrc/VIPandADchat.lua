@@ -8,11 +8,19 @@ local u8 = encoding.UTF8
 local imgui = require 'mimgui'
 local ffi		= require 'ffi'
 
-local ok_funcs, funcs = pcall(require, 'HelperByOrc.funcs')
-local deepcopy = (ok_funcs and funcs.deepcopy) or function(t) return t end
+local funcs
+local deepcopy = function(t) return t end
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
 
-local ok_samp, samp = pcall(require, 'HelperByOrc.samp')
+local samp
+
+function module.attachModules(mod)
+        funcs = mod.funcs
+        samp = mod.samp
+        if funcs and funcs.deepcopy then
+                deepcopy = funcs.deepcopy
+        end
+end
 
 -- ===================== КОНФИГ =====================
 local config = {}
@@ -153,7 +161,7 @@ end
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
 function module.load()
 	config = deepcopy(default_config)
-	local loaded = ok_funcs and funcs.loadTableFromJson(json_path) or nil
+        local loaded = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(json_path) or nil
 	if type(loaded) == "table" and next(loaded) then
 		for k, v in pairs(loaded) do config[k] = v end
 	end
@@ -164,9 +172,9 @@ end
 
 
 function module.save()
-	if ok_funcs and funcs.saveTableToJson then
-		funcs.saveTableToJson(config, json_path)
-	end
+        if funcs and funcs.saveTableToJson then
+                funcs.saveTableToJson(config, json_path)
+        end
 end
 
 
@@ -206,7 +214,7 @@ module.showFeedWindow = imgui.new.bool(false)
 imgui.OnFrame(
 		function() return module.showFeedWindow[0] end,
 		function(VIPandADchat)
-				local is_chat = ok_samp and samp.is_chat_opened and samp.is_chat_opened() or false
+                                local is_chat = samp and samp.is_chat_opened and samp.is_chat_opened() or false
 				VIPandADchat.HideCursor = not is_chat
 				if not config then return end
 
@@ -558,23 +566,23 @@ local function draw_settings_content()
 				imgui.Separator()
 				-- Экспорт / Импорт (опционально)
 					if imgui.Button("Экспортировать конфиг") then
-						if ok_funcs and funcs.saveTableToJson then
-							funcs.saveTableToJson(config, json_path..".backup")
-						end
-					end
-					imgui.SameLine()
-					if imgui.Button("Импортировать из backup") then
-						if ok_funcs and doesFileExist(json_path..".backup") then
-							local tbl = funcs.loadTableFromJson(json_path..".backup")
-							if type(tbl) == "table" then
-								for k, v in pairs(tbl) do config[k] = v end
-								config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
-								config.table_config.vip_text = config.table_config.vip_text or {}
-								config.table_config.ad_text = config.table_config.ad_text or {}
-								module.save()
-							end
-						end
-					end
+                                                if funcs and funcs.saveTableToJson then
+                                                        funcs.saveTableToJson(config, json_path..".backup")
+                                                end
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.Button("Импортировать из backup") then
+                                                if funcs and doesFileExist(json_path..".backup") then
+                                                        local tbl = funcs.loadTableFromJson(json_path..".backup")
+                                                        if type(tbl) == "table" then
+                                                                for k, v in pairs(tbl) do config[k] = v end
+                                                                config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
+                                                                config.table_config.vip_text = config.table_config.vip_text or {}
+                                                                config.table_config.ad_text = config.table_config.ad_text or {}
+                                                                module.save()
+                                                        end
+                                                end
+                                        end
 
                 imgui.Separator()
                 imgui.TextDisabled("• ЛКМ по строке — копировать всю строку; ПКМ — открыть окно для выделения нужного фрагмента.\n• Подсветка поддерживает цветовые теги {RRGGBB[AA]}.\n• Фон/текст меняют прозрачность в зависимости от is_chat.\n• Когда чат закрыт: окно и элементы сквозные (NoInputs).\n• Окно расширяется только вправо от позиции (X,Y).")
