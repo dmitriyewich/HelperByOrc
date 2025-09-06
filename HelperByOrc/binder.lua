@@ -1549,11 +1549,14 @@ imgui.OnFrame(
 )
 
 imgui.OnFrame(
-	function() return module.quickMenuOpen end,
-	function() module.DrawQuickMenu() end
+function() return module.quickMenuOpen end,
+function() module.DrawQuickMenu() end
 )
 
 -- Автозагрузка
+if tags and tags.attachBinder then
+	tags.attachBinder(module)
+end
 pcall(module.loadHotkeys)
 
 return module

@@ -5,8 +5,8 @@ local imgui  = require 'mimgui'
 local ffi	= require 'ffi'
 
 local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local ok2, fa	   = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local okbinder, binder = pcall(require, 'HelperByOrc.binder')
+local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local binder
 
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
@@ -55,20 +55,6 @@ local function S_get()
 	return S
 end
 
-
--- BINDER АЛИАСЫ (если есть)
-
-if okbinder then
-	binddead	   = binder.isBindEnded
-	bindstart	  = binder.startBind
-	bindstop	   = binder.stopBind
-	bindpause	  = binder.pauseBind
-	bindunpause	= binder.unpauseBind
-	bindenable	 = binder.enableBind
-	binddisable	= binder.disableBind
-	bindselector   = function(name, folder) return binder.setBindSelector(name, folder, true) end
-	bindunselector = function(name, folder) return binder.setBindSelector(name, folder, false) end
-end
 
 
 -- УТИЛИТЫ
@@ -375,54 +361,54 @@ local multi_tag_handlers = {
 
 	-- ==== BINDS API через binder ====
 	bindstart = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.startBind(table.unpack(args))
 		return ''
 	end,
 	bindstop = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.stopBind(table.unpack(args))
 		return ''
 	end,
 	bindpause = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.pauseBind(table.unpack(args))
 		return ''
 	end,
 	bindunpause = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.unpauseBind(table.unpack(args))
 		return ''
 	end,
 	binddisable = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.disableBind(table.unpack(args))
 		return ''
 	end,
 	bindenable = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.enableBind(table.unpack(args))
 		return ''
 	end,
 	binddead = function(param, thisbind_value)
-		if not okbinder then return false end
+		if not binder then return false end
 		local args = parseBindArgs(param, thisbind_value)
 		return binder.isBindEnded(table.unpack(args)) and true or false
 	end,
 	bindselector = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.setBindSelector(table.unpack(args), true)
 		return ''
 	end,
 	bindunselector = function(param, thisbind_value)
-		if not okbinder then return '' end
+		if not binder then return '' end
 		local args = parseBindArgs(param, thisbind_value)
 		binder.setBindSelector(table.unpack(args), false)
 		return ''
@@ -473,13 +459,13 @@ local multi_tags_descriptions = {
 -- =======================
 
 -- Глобальные регистраторы (совместимость со старыми файлами вида obs.lua)
-_G.registerVariable = function(name, desc, fn)
+		_G.registerVariable = function(name, desc, fn)
 	if type(name) ~= "string" or type(fn) ~= "function" then return end
 	-- будет делегировать на module.registerVariable (определена ниже), загрузка файлов произойдёт ПОСЛЕ её определения
 	module.registerVariable(name, desc, fn)
 end
 
-_G.registerFunctionalVariable = function(name, desc, fn, opts)
+		_G.registerFunctionalVariable = function(name, desc, fn, opts)
 	if type(name) ~= "string" or type(fn) ~= "function" then return end
 	-- регистрируем хендлер в мульти-тегах
 	multi_tag_handlers[name] = function(param, thisbind_value)
@@ -546,7 +532,7 @@ local function load_external_vars()
 				registerFunctionalVariable = _G.registerFunctionalVariable,
 				module = module,
 				funcs = funcs,
-				binder = okbinder and binder or nil,
+				binder = binder,
 				imgui = imgui,
 				ffi = ffi,
 			}, { __index = _G })
@@ -820,8 +806,8 @@ local function make_safe_env()
 		pairs = pairs, ipairs = ipairs, select = select, unpack = unpack or table.unpack,
 		math = math, string = string, table = table,
 		module = module,
-		binder = okbinder and binder or nil,
-		binddead = okbinder and binder and binder.isBindEnded or nil,
+		binder = binder,
+		binddead = binder and binder.isBindEnded or nil,
 		time = os.time, clock = os.clock,
 		target_last_id = function() return target.last_id end,
 	}
@@ -1117,5 +1103,21 @@ end
 
 -- автозагрузка внешних переменных из HelperByOrc/vars при старте (после определения API registerVariable)
 pcall(load_external_vars)
+
+function module.attachBinder(b)
+	binder = b
+	if binder then
+		_G.bindstart = binder.startBind
+		_G.bindstop = binder.stopBind
+		_G.bindpause = binder.pauseBind
+		_G.bindunpause = binder.unpauseBind
+		_G.binddisable = binder.disableBind
+		_G.bindenable = binder.enableBind
+		_G.binddead = binder.isBindEnded
+		_G.bindselector = function(name, folder) return binder.setBindSelector(name, folder, true) end
+		_G.bindunselector = function(name, folder) return binder.setBindSelector(name, folder, false) end
+		pcall(load_external_vars)
+	end
+end
 
 return module
