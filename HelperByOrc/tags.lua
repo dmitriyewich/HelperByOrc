@@ -1,12 +1,13 @@
--- МОДУЛЬ / ИМПОРТЫ
+ -- МОДУЛЬ / ИМПОРТЫ
 
+return function(deps)
 local module = {}
-local imgui  = require 'mimgui'
-local ffi	= require 'ffi'
+local imgui  = deps.imgui
+local ffi = deps.ffi
 
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local lfuncs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
 local ok2, fa	   = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local okbinder, binder = pcall(require, 'HelperByOrc.binder')
+local okbinder, binder = pcall(function() return require('HelperByOrc.binder')(deps) end)
 
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
@@ -1101,3 +1102,4 @@ end
 pcall(load_external_vars)
 
 return module
+end

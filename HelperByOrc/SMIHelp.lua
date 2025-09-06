@@ -18,28 +18,29 @@
 		end
 ]]
 
+return function(deps)
 local SMIHelp = {}
 
 -- ========= ЗАВИСИМОСТИ =========
-local encoding = require 'encoding'
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local u8 = deps.u8
 
-local ffi = require 'ffi'
-local imgui = require 'mimgui'
+local ffi = deps.ffi
+local imgui = deps.imgui
 local new = imgui.new
 
 local str = ffi.string
 local sizeof = ffi.sizeof
 
-local ok_effil, effil = pcall(require, 'effil')   -- асинхрон для спеллера
-local ok_https, _ = pcall(require, 'ssl.https')
-local sampev = require 'samp.events'
-local bit = require 'bit'						  -- для UTF-8 разборки и флагов
+local ok_effil, effil = pcall(function() return deps.effil end)   -- асинхрон для спеллера
+local ok_https, _ = pcall(function() return deps.https end)
+local sampev = deps.sampev
+local bit = deps.bit						  -- для UTF-8 разборки и флагов
 
 -- опциональные зависимости (совместимость/сейв конфига)
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-local ok_fn, funcs = pcall(require, 'HelperByOrc.funcs')
+local ok_mf, mimgui_funcs = pcall(function() return require('HelperByOrc.mimgui_funcs')(deps) end)
+local ok_fn, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
 
 -- ========= КОНСТАНТЫ/НАСТРОЙКИ =========
 local CONFIG_PATH = getWorkingDirectory().."\\HelperByOrc\\SMIHelp.json"
@@ -516,7 +517,7 @@ local function asyncRequest(url, resolve, reject)
 	reject = reject or function() end
 	lua_thread.create(function()
 		local thread = effil.thread(function(u)
-			local https = require 'ssl.https'
+			local https = deps.https
 			local ok, result = pcall(https.request, u)
 			return {ok, result}
 		end)(url)
@@ -1239,3 +1240,4 @@ imgui.OnFrame(
 )
 
 return SMIHelp
+end

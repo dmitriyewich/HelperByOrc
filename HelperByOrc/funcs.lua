@@ -1,11 +1,12 @@
+return function(deps)
 local module = {}
-local encoding = require 'encoding'
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
-lsamp, samp = pcall(require, 'HelperByOrc.samp')
-ltables, tables = pcall(require, 'HelperByOrc.tables')
+local u8 = deps.u8
+local ffi = deps.ffi
+local memory = deps.memory
+lsamp, samp = pcall(function() return require('HelperByOrc.samp')(deps) end)
+ltables, tables = pcall(function() return require('HelperByOrc.tables')(deps) end)
 
 ffi.cdef[[
 	intptr_t LoadKeyboardLayoutA(const char* pwszKLID, unsigned int Flags);
@@ -1175,3 +1176,4 @@ function module.findSignatureInModule(signature, moduleName, data)
 end
 
 return module
+end

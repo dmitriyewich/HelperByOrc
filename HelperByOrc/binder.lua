@@ -1,13 +1,14 @@
+return function(deps)
 local module = {}
-local imgui = require 'mimgui'
-local ffi = require 'ffi'
-local encoding = require 'encoding'
+local imgui = deps.imgui
+local ffi = deps.ffi
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local vkeys = require 'vkeys'
-local vk = require 'vkeys'
-local wm = require 'windows.message'
-local bit = require 'bit'
+local u8 = deps.u8
+local vkeys = deps.vkeys
+local vk = deps.vk
+local wm = deps.wm
+local bit = deps.bit
 local bor = bit and bit.bor or function(a, b) return a + b end
 
 -- Иконки (безопасный фолбэк)
@@ -1587,3 +1588,4 @@ imgui.OnFrame(
 pcall(module.loadHotkeys)
 
 return module
+end

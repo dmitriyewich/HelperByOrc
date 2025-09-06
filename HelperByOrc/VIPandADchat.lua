@@ -1,17 +1,18 @@
+return function(deps)
 local module = {}
 
 -- ===================== ЗАВИСИМОСТИ =====================
-local encoding = require 'encoding'
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local u8 = deps.u8
 
-local imgui = require 'mimgui'
-local ffi   = require 'ffi'
+local imgui = deps.imgui
+local ffi   = deps.ffi
 
-local ok_funcs, funcs = pcall(require, 'HelperByOrc.funcs')
+local ok_funcs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
 
-local ok_samp, samp = pcall(require, 'HelperByOrc.samp')
+local ok_samp, samp = pcall(function() return require('HelperByOrc.samp')(deps) end)
 
 -- ===================== КОНФИГ =====================
 local config = {}
@@ -645,3 +646,4 @@ end
 -- ===================== ИНИЦИАЛИЗАЦИЯ =====================
 module.load()
 return module
+end

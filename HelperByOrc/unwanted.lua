@@ -3,13 +3,14 @@
 -- Хранилище: moonloader/HelperByOrc/unwanted.json (UTF-8)
 -- Runtime: CP1251 (матчинг в CP1251, конфиг — UTF-8)
 
+return function(deps)
 local M = {}
 
-local imgui     = require 'mimgui'
-local ffi       = require 'ffi'
-local encoding  = require 'encoding'
+local imgui     = deps.imgui
+local ffi       = deps.ffi
+local encoding  = deps.encoding
 encoding.default = 'CP1251'
-local u8        = encoding.UTF8
+local u8        = deps.u8
 
 local str    = ffi.string
 local sizeof = ffi.sizeof
@@ -826,3 +827,4 @@ function M.save() save_cfg(); rebuild_cache() end
 function M.reload() load_cfg(); rebuild_cache() end
 M.reload()
 return M
+end

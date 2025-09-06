@@ -1,14 +1,15 @@
+return function(deps)
 local module = {}
-local imgui = require 'mimgui'
-local ffi = require 'ffi'
-local encoding = require 'encoding'
+local imgui = deps.imgui
+local ffi = deps.ffi
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local u8 = deps.u8
 local new = imgui.new
 
-local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
+local mimgui_funcs = require('HelperByOrc.mimgui_funcs')(deps)
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local lfuncs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
 local json_path = getWorkingDirectory().."\\HelperByOrc\\notepad.json"
 local base_path = getWorkingDirectory().."\\HelperByOrc\\notepad"
 
@@ -774,3 +775,4 @@ imgui.OnInitialize(function()
 end)
 
 return module
+end

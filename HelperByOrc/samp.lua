@@ -1,10 +1,11 @@
+return function(deps)
 local module = {}
-local encoding = require 'encoding'
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
-ltags, tags = pcall(require, 'HelperByOrc.tags')
+local u8 = deps.u8
+local ffi = deps.ffi
+local memory = deps.memory
+ltags, tags = pcall(function() return require('HelperByOrc.tags')(deps) end)
 
 module.currentVersion, module.sampModule = nil, getModuleHandle("samp.dll")
 
@@ -511,4 +512,5 @@ end
 -- end
 
 return module
+end
 

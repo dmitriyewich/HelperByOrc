@@ -6,6 +6,28 @@ local vk = require 'vkeys'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
+local samp = require 'samp'
+local bit = require 'bit'
+local memory = require 'memory'
+local sampev = require 'samp.events'
+local ok_effil, effil = pcall(require, 'effil')
+local ok_https, https = pcall(require, 'ssl.https')
+
+local deps = {
+    imgui = imgui,
+    ffi = ffi,
+    wm = wm,
+    vkeys = vkeys,
+    vk = vk,
+    encoding = encoding,
+    u8 = u8,
+    samp = samp,
+    bit = bit,
+    memory = memory,
+    sampev = sampev,
+    effil = ok_effil and effil or nil,
+    https = ok_https and https or nil
+}
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -137,18 +159,18 @@ function main()
 	while not isSampAvailable() do wait(1000) end
 	
 	-- === Модули проекта ===
-	lsamp, samp = pcall(require, 'HelperByOrc.samp')
-	okunw, Unwanted = pcall(require, 'HelperByOrc.unwanted')
-	okmyhooks, myhooks = pcall(require, 'HelperByOrc.my_hooks')
-	lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-	ltags, tags = pcall(require, 'HelperByOrc.tags')
+	lsamp, samp_module = pcall(function() return require('HelperByOrc.samp')(deps) end)
+	okunw, Unwanted = pcall(function() return require('HelperByOrc.unwanted')(deps) end)
+	okmyhooks, myhooks = pcall(function() return require('HelperByOrc.my_hooks')(deps) end)
+	lfuncs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
+	ltags, tags = pcall(function() return require('HelperByOrc.tags')(deps) end)
 	-- print(ltags, tags)
 
-	ok1, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-	okbinder, binder = pcall(require, 'HelperByOrc.binder')
-	oknotepad, notepad = pcall(require, 'HelperByOrc.notepad')
-	oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-	okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
+	ok1, mimgui_funcs = pcall(function() return require('HelperByOrc.mimgui_funcs')(deps) end)
+	okbinder, binder = pcall(function() return require('HelperByOrc.binder')(deps) end)
+	oknotepad, notepad = pcall(function() return require('HelperByOrc.notepad')(deps) end)
+	oksmihelp, SMIHelp = pcall(function() return require('HelperByOrc.SMIHelp')(deps) end)
+	okvipad, VIPandADchat = pcall(function() return require('HelperByOrc.VIPandADchat')(deps) end)
 	-- print(oksmihelp, SMIHelp)
 	print(okbinder, binder)
 	-- print(okvipad, VIPandADchat)

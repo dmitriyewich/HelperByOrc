@@ -7,14 +7,15 @@
 -- | ▓▓     | ▓▓__/ ▓▓ ▓▓ \▓▓▓▓ ▓▓__/  \  | ▓▓   _| ▓▓_| ▓▓__/ ▓▓ ▓▓ \▓▓▓▓  |  \__| ▓▓     
 -- | ▓▓      \▓▓    ▓▓ ▓▓  \▓▓▓\▓▓    ▓▓  | ▓▓  |   ▓▓ \\▓▓    ▓▓ ▓▓  \▓▓▓   \▓▓    ▓▓     
 --  \▓▓       \▓▓▓▓▓▓ \▓▓   \▓▓ \▓▓▓▓▓▓    \▓▓   \▓▓▓▓▓▓ \▓▓▓▓▓▓ \▓▓   \▓▓    \▓▓▓▓▓▓      
+return function(deps)
 local module = {}
-local encoding = require 'encoding'
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
-local ffi = require("ffi")
-local memory = require("memory")
+local u8 = deps.u8
+local ffi = deps.ffi
+local memory = deps.memory
 
-local imgui = require 'mimgui'
+local imgui = deps.imgui
 local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
 
 function ImGuiEnum(name)
@@ -26,10 +27,10 @@ end
 module.TabBarFlags = ImGuiEnum('ImGuiTabBarFlags_')
 module.TabItemFlags = ImGuiEnum('ImGuiTabItemFlags_')
 
-lsamp, samp = pcall(require, 'HelperByOrc.samp')
-ltables, tables = pcall(require, 'HelperByOrc.tables')
-lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-lmemory_picture, memory_picture = pcall(require, 'HelperByOrc.memory_picture')
+lsamp, samp = pcall(function() return require('HelperByOrc.samp')(deps) end)
+ltables, tables = pcall(function() return require('HelperByOrc.tables')(deps) end)
+lfuncs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
+lmemory_picture, memory_picture = pcall(function() return require('HelperByOrc.memory_picture')(deps) end)
 
 -- Инициализация модуля
 imgui.OnInitialize(function()
@@ -710,3 +711,4 @@ function module.customVerticalMenu(items, current)
 end
 
 return module
+end

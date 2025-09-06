@@ -1,17 +1,18 @@
 -- my_hooks.lua
 
-local ffi = require 'ffi'
-local encoding = require 'encoding'
+return function(deps)
+local ffi = deps.ffi
+local encoding = deps.encoding
 encoding.default = 'CP1251'
-local u8 = encoding.UTF8
+local u8 = deps.u8
 
-local ltags, tags = pcall(require, 'HelperByOrc.tags')
-local oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-local okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local okunw, unwanted = pcall(require, 'HelperByOrc.unwanted')
+local ltags, tags = pcall(function() return require('HelperByOrc.tags')(deps) end)
+local oksmihelp, SMIHelp = pcall(function() return require('HelperByOrc.SMIHelp')(deps) end)
+local okvipad, VIPandADchat = pcall(function() return require('HelperByOrc.VIPandADchat')(deps) end)
+local lfuncs, funcs = pcall(function() return require('HelperByOrc.funcs')(deps) end)
+local okunw, unwanted = pcall(function() return require('HelperByOrc.unwanted')(deps) end)
 -- 1. SAMP EVENTS HOOK (через samp.events)
-local sampev = require('samp.events')
+local sampev = deps.sampev
 
 local function fix_invalid_json_escapes(str)
     -- Заменить \9 (таб как в некоторых клиентах) на пробел
@@ -291,3 +292,4 @@ function module.deinit()
 end
 
 return module
+end
