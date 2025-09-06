@@ -20,6 +20,7 @@ function module.attachModules(mod)
         if funcs and funcs.deepcopy then
                 deepcopy = funcs.deepcopy
         end
+        module.load()
 end
 
 -- ===================== КОНФИГ =====================
@@ -603,6 +604,4 @@ function module.DrawSettingsInline()
                 draw_settings_content()
 end
 
--- ===================== ИНИЦИАЛИЗАЦИЯ =====================
-module.load()
 return module
