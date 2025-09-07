@@ -5,9 +5,11 @@ local vk = require 'vkeys'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
-local modules = require('HelperByOrc.init')
-local mimgui_funcs = modules.mimgui_funcs
-local SMIHelp = modules.SMIHelp
+
+-- модули будут загружены в main()
+local mimgui_funcs
+local SMIHelp
+local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
@@ -18,13 +20,6 @@ local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 
 -- модули, загружаемые в main()
-local samp = modules.samp
-local Unwanted = modules.unwanted
-local myhooks = modules.my_hooks
-local tags = modules.tags
-local binder = modules.binder
-local notepad = modules.notepad
-local VIPandADchat = modules.VIPandADchat
 
 imgui.OnInitialize(function()
 if mimgui_funcs and mimgui_funcs.Standart then mimgui_funcs.Standart() end
@@ -180,46 +175,58 @@ end)
 
 -- === onTick: обработка быстрого меню биндер-модуля ===
 function main()
-	while not isSampAvailable() do wait(1000) end
-	
-        -- === Инициализация модулей ===
+        while not isSampAvailable() do wait(1000) end
+
+        local modules = require('HelperByOrc.init')
+        if modules.loadHeavyModules then modules.loadHeavyModules() end
+
+        mimgui_funcs = modules.mimgui_funcs
+        SMIHelp = modules.SMIHelp
+        samp = modules.samp
+        Unwanted = modules.unwanted
+        myhooks = modules.my_hooks
+        tags = modules.tags
+        binder = modules.binder
+        notepad = modules.notepad
+        VIPandADchat = modules.VIPandADchat
+
         if myhooks and myhooks.init then myhooks.init() end
 
-	-- Запуск потоков для работы интерфейса и тегов
-	lua_thread.create(function()
+        -- Запуск потоков для работы интерфейса и тегов
+        lua_thread.create(function()
                 if binder and binder.OnTick then
-			binder.loadHotkeys()
-			while true do
-				if wasKeyPressed(vk.VK_XBUTTON1) then
+                        binder.loadHotkeys()
+                        while true do
+                                if wasKeyPressed(vk.VK_XBUTTON1) then
                                         if mimgui_funcs and mimgui_funcs.resetIO then
-						mimgui_funcs.resetIO()
-					end
-				end
-				binder.OnTick()
-				wait(0)
-			end
-		end
-	end)
+                                                mimgui_funcs.resetIO()
+                                        end
+                                end
+                                binder.OnTick()
+                                wait(0)
+                        end
+                end
+        end)
 
-	lua_thread.create(function()
+        lua_thread.create(function()
             if tags and tags.RenderTagsWindow then
-			while true do
-				tags.RenderTagsWindow()
-				wait(0)
-			end
-		end
-	end)
+                        while true do
+                                tags.RenderTagsWindow()
+                                wait(0)
+                        end
+                end
+        end)
 
-	lua_thread.create(function()
+        lua_thread.create(function()
             if VIPandADchat then
-			while true do
-				VIPandADchat.showFeedWindow[0] = true
-				wait(0)
-			end
-		end
-	end)
+                        while true do
+                                VIPandADchat.showFeedWindow[0] = true
+                                wait(0)
+                        end
+                end
+        end)
 
-	wait(-1)
+        wait(-1)
 end
 
 function onScriptTerminate(script, quit)
