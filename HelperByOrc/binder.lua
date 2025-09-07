@@ -26,6 +26,7 @@ end
 local json_path = "moonloader/HelperByOrc/binder.json"
 local DEBOUNCE_MS = 40						-- антидребезг
 local MAX_BIND_DEPTH = 5					-- защита от рекурсии при внешних вызовах runBind*
+local MAX_ACTIVE_THREADS = 10                                   -- limit of active threads
 
 -- === Утилиты ===
 local function flags_or(...)
@@ -42,6 +43,26 @@ local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local function pushToast(text, kind, dur)
 	toasts[#toasts+1] = { text = tostring(text or ""), kind = kind or 'ok', t = os.clock(), dur = dur or 3.0 }
 end
+local active_threads = {}
+
+local function log_error(err)
+        print('[binder] '..tostring(err))
+        pushToast(err, 'err', 5.0)
+end
+
+local function add_active_thread(hk, thread, state)
+        active_threads[#active_threads+1] = { hk = hk, thread = thread, state = state }
+end
+
+local function remove_active_thread(thread)
+        for i, t in ipairs(active_threads) do
+                if t.thread == thread then
+                        table.remove(active_threads, i)
+                        break
+                end
+        end
+end
+
 
 local function drawToasts()
 	if #toasts == 0 then return end
@@ -426,7 +447,7 @@ function module.sendHotkeyMessagesThread(hk, state)
         local messages = hk.messages
 
 	for idx, msg in ipairs(messages) do
-		if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+		if state.stopped then return end
 
 		local text = msg.text or ""
 		if tags and tags.change_tags then
@@ -445,9 +466,9 @@ function module.sendHotkeyMessagesThread(hk, state)
 					while true do
 						local ok, res = pcall(fn)
 						if ok and res then break end
-						if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+						if state.stopped then return end
 						while state.paused do
-							if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+							if state.stopped then return end
 							wait(50)
 						end
 						wait(50)
@@ -470,9 +491,9 @@ function module.sendHotkeyMessagesThread(hk, state)
 			if interval < 50 then interval = 50 end
 			local t0 = os.clock()
 			while (os.clock() - t0) * 1000 < interval do
-				if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+				if state.stopped then return end
 				while state.paused do
-					if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+					if state.stopped then return end
 					wait(50)
 				end
 				wait(0)
@@ -480,36 +501,60 @@ function module.sendHotkeyMessagesThread(hk, state)
 		end
 	end
 
-	hk.is_running = false
-	hk._thread_state = nil
+	
+	
 end
 
 function module.launchHotkeyThread(hk)
-	if hk.is_running or not hk.enabled then return end
-	if not check_conditions(hk.conditions) then return end
-	if hk.messages and #hk.messages > 0 then
-		local state = { paused = false, idx = 1, stopped = false }
-		hk._thread_state = state
-		hk.is_running = true
-		state.thread = lua_thread.create(function()
-			module.sendHotkeyMessagesThread(hk, state)
-		end)
-	end
+        if hk.is_running or not hk.enabled then return end
+        if not check_conditions(hk.conditions) then return end
+        if hk.messages and #hk.messages > 0 then
+                if #active_threads >= MAX_ACTIVE_THREADS then
+                        pushToast('Превышен лимит активных биндов', 'warn', 3.0)
+                        return
+                end
+                local state = { paused = false, idx = 1, stopped = false }
+                hk._thread_state = state
+                hk.is_running = true
+                state.thread = lua_thread.create(function()
+                        local ok, err = pcall(function()
+                                module.sendHotkeyMessagesThread(hk, state)
+                        end)
+                        hk.is_running = false
+                        hk._thread_state = nil
+                        remove_active_thread(state.thread)
+                        if not ok then log_error(err) end
+                end)
+                add_active_thread(hk, state.thread, state)
+        end
 end
-
 function module.stopHotkey(hk)
-	local state = hk._thread_state
-	if state and state.thread and state.thread:status() ~= "dead" then
-		state.stopped = true
-		state.thread:terminate()
-		hk.is_running = false
-		hk._thread_state = nil
-	end
+        local state = hk._thread_state
+        if state and state.thread and state.thread:status() ~= "dead" then
+                state.stopped = true
+                state.thread:terminate()
+                hk.is_running = false
+                hk._thread_state = nil
+                remove_active_thread(state.thread)
+        end
 end
 
 function module.stopAllHotkeys()
 	for _, hk in ipairs(hotkeys) do module.stopHotkey(hk) end
 end
+function module.stopAllThreads()
+        for _, info in ipairs(active_threads) do
+                if info.thread and info.thread:status() ~= 'dead' then
+                        info.thread:terminate()
+                end
+                if info.hk then
+                        info.hk.is_running = false
+                        info.hk._thread_state = nil
+                end
+        end
+        active_threads = {}
+end
+
 
 -- === Быстрое меню (учёт условий папок по всей цепочке) ===
 local function folderHasQuickBindsVisible(folder)
