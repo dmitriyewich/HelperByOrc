@@ -978,17 +978,30 @@ local function ensureEditBuffers(hk)
 		hk.editConditions = {}
 		for i = 1, cond_count do hk.editConditions[i] = hk.conditions and hk.conditions[i] or false end
 	end
-	if hk.editRepeatMode == nil then hk.editRepeatMode = hk.repeat_mode or false end
-	if hk.editQuickMenu == nil then hk.editQuickMenu = hk.quick_menu or false end
-	if hk.editRepeatInterval == nil then hk.editRepeatInterval = hk.repeat_interval_ms and tostring(hk.repeat_interval_ms) or "" end
-	if not hk.editQuickConditions then
-		hk.editQuickConditions = {}
-		for i = 1, quick_cond_count do
-			hk.editQuickConditions[i] = hk.quick_conditions and hk.quick_conditions[i] or false
-		end
-	end
-	hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
-	hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
+        if hk.editRepeatMode == nil then hk.editRepeatMode = hk.repeat_mode or false end
+        if hk.editQuickMenu == nil then hk.editQuickMenu = hk.quick_menu or false end
+        if hk.editRepeatInterval == nil then hk.editRepeatInterval = hk.repeat_interval_ms and tostring(hk.repeat_interval_ms) or "" end
+        if not hk.editQuickConditions then
+                hk.editQuickConditions = {}
+                for i = 1, quick_cond_count do
+                        hk.editQuickConditions[i] = hk.quick_conditions and hk.quick_conditions[i] or false
+                end
+        end
+        if hk.editBulkMethod == nil then
+                hk.editBulkMethod = hk.editMsgs[1] and hk.editMsgs[1].method or 0
+        end
+        if hk.editBulkInterval == nil then
+                hk.editBulkInterval = hk.editMsgs[1] and hk.editMsgs[1].interval or "0"
+        end
+        if hk.editMultiline == nil then hk.editMultiline = false end
+        if not hk.editMultiText then
+                local lines = {}
+                for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
+                hk.editMultiText = table.concat(lines, "\n")
+        end
+        hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
+        hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
+        hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
 end
 
 local function openComboPopupNow()
@@ -1065,12 +1078,13 @@ local function drawEditHotkey(idx)
 
 	-- Шапка
 	imgui.BeginChild("edit_header", imgui.ImVec2(0, 40), false)
-		if imgui.Button(fa.ARROW_LEFT .. " Назад") then
-			hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-			hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-			editHotkey.active = false
-			return
-		end
+                if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+                        hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+                        hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+                        hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+                        editHotkey.active = false
+                        return
+                end
 		imgui.SameLine()
 		imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.PEN .. "	" .. "Редактирование бинда")
 	if tags and tags.showTagsWindow then
@@ -1157,77 +1171,133 @@ local function drawEditHotkey(idx)
 		end
 		imgui.PopItemWidth()
 
-		imgui.Separator()
-		imgui.Text(fa.LIST_UL .. "	" .. "Сообщения")
-		if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
-			table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
-			module.saveHotkeys()
-		end
-		imgui.SameLine()
-		imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
 
-		imgui.Spacing()
-		imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
-			for i, m in ipairs(hk.editMsgs) do
-				imgui.PushIDStr("row" .. i)
-				imgui.BeginGroup()
-					if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
-						hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
-						module.saveHotkeys()
-					end
-					imgui.SameLine()
-					if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
-						hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
-						module.saveHotkeys()
-					end
-					imgui.SameLine()
 
-					imgui.PushItemWidth(420)
-					local tbuf = imgui.new.char[256](m.text or "")
-					if imgui.InputText("Текст##t", tbuf, ffi.sizeof(tbuf),
-						flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-						m.text = ffi.string(tbuf)
-						module.saveHotkeys()
-					end
-					imgui.PopItemWidth()
+                imgui.Separator()
+                imgui.Text(fa.LIST_UL .. "      " .. "Сообщения")
+                imgui.SameLine()
+                if imgui.Checkbox("Мульти-ввод##multi_mode", hk._bools.multi) then
+                        hk.editMultiline = hk._bools.multi[0]
+                        if hk.editMultiline then
+                                local lines = {}
+                                for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
+                                hk.editMultiText = table.concat(lines, "\n")
+                        else
+                                hk.editMsgs = {}
+                                for line in (hk.editMultiText or ""):gmatch("[^\r\n]+") do
+                                        if line ~= "" then
+                                                table.insert(hk.editMsgs, { text = line, interval = hk.editBulkInterval or "0", method = hk.editBulkMethod or 0 })
+                                        end
+                                end
+                                module.saveHotkeys()
+                        end
+                end
+                imgui.SameLine()
+                imgui.PushItemWidth(120)
+                local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
+                if imgui.Combo("Куда##allm", allMBuf, send_labels_ffi, #send_labels) then
+                        hk.editBulkMethod = allMBuf[0]
+                        if not hk.editMultiline then
+                                for _, m in ipairs(hk.editMsgs) do m.method = hk.editBulkMethod end
+                                module.saveHotkeys()
+                        end
+                end
+                imgui.PopItemWidth()
+                imgui.SameLine()
+                imgui.PushItemWidth(70)
+                local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
+                if imgui.InputText("мс##alli", allIBuf, ffi.sizeof(allIBuf),
+                        flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
+                        local s = ffi.string(allIBuf)
+                        if s == "" or tonumber(s) then
+                                hk.editBulkInterval = s
+                                if not hk.editMultiline then
+                                        for _, m in ipairs(hk.editMsgs) do m.interval = s end
+                                        module.saveHotkeys()
+                                end
+                        end
+                end
+                imgui.PopItemWidth()
+                imgui.NewLine()
 
-					imgui.SameLine()
-					imgui.PushItemWidth(70)
-					local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
-					if imgui.InputText("мс##i", ibuf, ffi.sizeof(ibuf),
-						flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
-						local s = ffi.string(ibuf)
-						if tonumber(s) then
-							m.interval = s
-						elseif s == "" then
-							m.interval = "0"
-						end
-						module.saveHotkeys()
-					end
-					imgui.PopItemWidth()
+                if hk.editMultiline then
+                        imgui.PushItemWidth(-1)
+                        local buf = imgui.new.char[4096](hk.editMultiText or "")
+                        if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 200)) then
+                                hk.editMultiText = ffi.string(buf)
+                        end
+                        imgui.PopItemWidth()
+                else
+                        if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
+                                table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
+                                module.saveHotkeys()
+                        end
+                        imgui.SameLine()
+                        imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
 
-					imgui.SameLine()
-					imgui.PushItemWidth(120)
-					local mbuf = imgui.new.int(m.method or 0)
-					if imgui.Combo("Куда##m", mbuf, send_labels_ffi, #send_labels) then
-						m.method = mbuf[0]
-						module.saveHotkeys()
-					end
-					imgui.PopItemWidth()
+                        imgui.Spacing()
+                        imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
+                                for i, m in ipairs(hk.editMsgs) do
+                                        imgui.PushIDStr("row" .. i)
+                                        imgui.BeginGroup()
+                                                if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
+                                                        hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
+                                                        module.saveHotkeys()
+                                                end
+                                                imgui.SameLine()
+                                                if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
+                                                        hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
+                                                        module.saveHotkeys()
+                                                end
+                                                imgui.SameLine()
 
-					imgui.SameLine()
-					if imgui.Button(fa.TRASH .. "##del", imgui.ImVec2(46, 20)) then
-						table.remove(hk.editMsgs, i)
-						module.saveHotkeys()
-						imgui.EndGroup()
-						imgui.PopID()
-						goto continue_msgs
-					end
-				imgui.EndGroup()
-				imgui.PopID()
-				::continue_msgs::
-			end
-		imgui.EndChild()
+                                                imgui.PushItemWidth(420)
+                                                local tbuf = imgui.new.char[256](m.text or "")
+                                                if imgui.InputText("Текст##t", tbuf, ffi.sizeof(tbuf),
+                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)) then
+                                                        m.text = ffi.string(tbuf)
+                                                        module.saveHotkeys()
+                                                end
+                                                imgui.PopItemWidth()
+
+                                                imgui.SameLine()
+                                                imgui.PushItemWidth(70)
+                                                local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
+                                                if imgui.InputText("мс##i", ibuf, ffi.sizeof(ibuf),
+                                                        flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
+                                                        local s = ffi.string(ibuf)
+                                                        if tonumber(s) then
+                                                                m.interval = s
+                                                        elseif s == "" then
+                                                                m.interval = "0"
+                                                        end
+                                                        module.saveHotkeys()
+                                                end
+                                                imgui.PopItemWidth()
+
+                                                imgui.SameLine()
+                                                imgui.PushItemWidth(120)
+                                                local mbuf = imgui.new.int(m.method or 0)
+                                                if imgui.Combo("Куда##m", mbuf, send_labels_ffi, #send_labels) then
+                                                        m.method = mbuf[0]
+                                                        module.saveHotkeys()
+                                                end
+                                                imgui.PopItemWidth()
+
+                                                imgui.SameLine()
+                                                if imgui.Button(fa.TRASH .. "##del", imgui.ImVec2(46, 20)) then
+                                                        table.remove(hk.editMsgs, i)
+                                                        module.saveHotkeys()
+                                                        imgui.EndGroup()
+                                                        imgui.PopID()
+                                                        goto continue_msgs
+                                                end
+                                        imgui.EndGroup()
+                                        imgui.PopID()
+                                        ::continue_msgs::
+                                end
+                        imgui.EndChild()
+                end
 
 	imgui.EndChild()
 
@@ -1260,20 +1330,22 @@ local function drawEditHotkey(idx)
 		hk.quick_conditions = {}
 		for i = 1, quick_cond_count do hk.quick_conditions[i] = hk.editQuickConditions[i] end
 
-		hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-		hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-		editHotkey.active = false
-		module.saveHotkeys()
-		pushToast("Бинд сохранен: "..(hk.label or ""), 'ok', 2.5)
+                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+                hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+                hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+                editHotkey.active = false
+                module.saveHotkeys()
+                pushToast("Бинд сохранен: "..(hk.label or ""), 'ok', 2.5)
 		return
 	end
 	imgui.SameLine()
-	if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
-		hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-		hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-		editHotkey.active = false
-		return
-	end
+        if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
+                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+                hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+                hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+                editHotkey.active = false
+                return
+        end
 	imgui.SameLine()
 	if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
 		table.remove(hotkeys, idx)
