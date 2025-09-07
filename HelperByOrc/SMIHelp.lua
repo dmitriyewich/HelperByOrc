@@ -32,14 +32,20 @@ local new = imgui.new
 local str = ffi.string
 local sizeof = ffi.sizeof
 
-local ok_effil, effil = pcall(require, 'effil')   -- асинхрон для спеллера
+local ok_effil, effil = pcall(require, 'effil')	  -- асинхрон для спеллера
 local ok_https, _ = pcall(require, 'ssl.https')
 local sampev = require 'samp.events'
 local bit = require 'bit'						  -- для UTF-8 разборки и флагов
 
 -- опциональные зависимости (совместимость/сейв конфига)
-local ok_mf, mimgui_funcs = pcall(require, 'HelperByOrc.mimgui_funcs')
-local ok_fn, funcs = pcall(require, 'HelperByOrc.funcs')
+local mimgui_funcs
+local funcs
+
+function SMIHelp.attachModules(mod)
+        mimgui_funcs = mod.mimgui_funcs
+        funcs = mod.funcs
+end
+local trim = (funcs and funcs.trim) and funcs.trim or function(s) return (s or ""):gsub("^%s*(.-)%s*$", "%1") end
 
 -- ========= КОНСТАНТЫ/НАСТРОЙКИ =========
 local CONFIG_PATH = getWorkingDirectory().."\\HelperByOrc\\SMIHelp.json"
@@ -49,15 +55,14 @@ local LIMIT_WARN_RATIO = 0.90			-- порог предупреждения 90%
 
 local SECTION_H = 270					-- высота секции конструктора
 local BTN_H = 24						 -- высота кнопок сеток
-local TYPEW_BASE, TYPEW_MIN   = 150, 110
+local TYPEW_BASE, TYPEW_MIN	  = 150, 110
 local PRICEW_BASE, PRICEW_MIN = 165, 120
-local OBJ_BTN_MIN_W  = 88
-local KBD_BTN_MIN_W  = 56
+local OBJ_BTN_MIN_W	 = 88
+local KBD_BTN_MIN_W	 = 56
 
 local SPELLER_DEBOUNCE_SEC = 0.5		 -- дребезг запуска автокорректора
 
 -- ========= УТИЛИТЫ =========
-local function trim(s) return (s or ""):gsub("^%s*(.-)%s*$", "%1") end
 local function safe(s) return s or "" end
 
 -- атомарная запись файла (насколько возможно в Windows)
@@ -162,7 +167,7 @@ function Config:load()
 	-- память по никнеймам (MRU)
 	ensure_table('nick_memory', {})	 -- формат: nick -> { last_incoming=string, last_sent=string, ts=number }
 	t.nick_memory_limit = (type(t.nick_memory_limit)=='number' and t.nick_memory_limit) or 100
-	if type(t.nick_memory._order) ~= 'table' then t.nick_memory._order = {} end  -- порядок MRU
+	if type(t.nick_memory._order) ~= 'table' then t.nick_memory._order = {} end	 -- порядок MRU
 
 	self.data = t
 end
@@ -450,8 +455,8 @@ end
 -- ========= UI УТИЛИТЫ =========
 local function LabelSeparator(text)
 	local label = string.format("-- %s ", safe(text))
-	local draw  = imgui.GetWindowDrawList()
-	local pos   = imgui.GetCursorScreenPos()
+	local draw	= imgui.GetWindowDrawList()
+	local pos	= imgui.GetCursorScreenPos()
 	local avail = imgui.GetContentRegionAvail().x
 	local style = imgui.GetStyle()
 	local txtsz = imgui.CalcTextSize(label)
@@ -465,7 +470,7 @@ local function LabelSeparator(text)
 	local col = imgui.GetColorU32(imgui.Col.Separator)
 
 	if left_x2 > left_x1 then
-		draw:AddLine(imgui.ImVec2(left_x1,  line_y), imgui.ImVec2(left_x2,  line_y), col, 1.0)
+		draw:AddLine(imgui.ImVec2(left_x1,	line_y), imgui.ImVec2(left_x2,	line_y), col, 1.0)
 	end
 	if right_x2 > right_x1 then
 		draw:AddLine(imgui.ImVec2(right_x1, line_y), imgui.ImVec2(right_x2, line_y), col, 1.0)
@@ -771,7 +776,7 @@ local function EditBufCallback(data)
 			if data.SelectionStart == 0 and data.SelectionEnd == data.BufTextLen and data.BufTextLen > 0 then
 				data.CursorPos = data.BufTextLen
 				data.SelectionStart = data.CursorPos
-				data.SelectionEnd   = data.CursorPos
+				data.SelectionEnd	= data.CursorPos
 			end
 			State.collapse_selection_after_focus = false
 		end
@@ -871,11 +876,11 @@ end
 
 -- ========= Центрированный фильтр =========
 local function DrawCenteredFilter()
-	local style  = imgui.GetStyle()
+	local style	 = imgui.GetStyle()
 	local availX = imgui.GetContentRegionAvail().x
-	local leftW  = math.floor(availX * 0.26)
+	local leftW	 = math.floor(availX * 0.26)
 	local rightW = math.floor(availX * 0.26)
-	local midW   = availX - leftW - rightW - style.ItemSpacing.x * 2
+	local midW	 = availX - leftW - rightW - style.ItemSpacing.x * 2
 
 	local x0 = imgui.GetCursorPosX()
 	imgui.SetCursorPosX(x0 + leftW + style.ItemSpacing.x)
@@ -956,9 +961,9 @@ imgui.OnFrame(
 
 		local availX = imgui.GetContentRegionAvail().x
 		local availY = imgui.GetContentRegionAvail().y
-		local leftW  = math.floor(availX * 0.26)
+		local leftW	 = math.floor(availX * 0.26)
 		local rightW = math.floor(availX * 0.26)
-		local midW   = availX - leftW - rightW - imgui.GetStyle().ItemSpacing.x * 2
+		local midW	 = availX - leftW - rightW - imgui.GetStyle().ItemSpacing.x * 2
 
 		-- LEFT
 		imgui.BeginGroup()
@@ -1094,19 +1099,19 @@ imgui.OnFrame(
 			local NEED_OBJ_W3 = 3 * OBJ_BTN_MIN_W + 2 * spacing
 			local NEED_KBD_W3 = 3 * KBD_BTN_MIN_W + 2 * spacing
 
-			local typeW  = TYPEW_BASE
+			local typeW	 = TYPEW_BASE
 			local priceW = PRICEW_BASE
 			local remain = c_availX - typeW - priceW - spacing * 3
 
 			if remain < (NEED_OBJ_W3 + NEED_KBD_W3) then
 				local deficit = (NEED_OBJ_W3 + NEED_KBD_W3) - remain
 				local cutType  = math.min(deficit * 0.5, typeW - TYPEW_MIN)
-				typeW  = typeW  - cutType
+				typeW  = typeW	- cutType
 				deficit = deficit - cutType
 				local cutPrice = math.min(deficit, priceW - PRICEW_MIN)
 				priceW = priceW - cutPrice
 				deficit = deficit - cutPrice
-				remain  = c_availX - typeW - priceW - spacing * 3
+				remain	= c_availX - typeW - priceW - spacing * 3
 			end
 
 			local objW = math.max(NEED_OBJ_W3, math.floor(remain * 0.58))
@@ -1121,8 +1126,8 @@ imgui.OnFrame(
 				kbdW = kbdW - cutK
 			end
 
-			local type_btns  = Config.data.type_buttons
-			local obj_btns   = Config.data.objects
+			local type_btns	 = Config.data.type_buttons
+			local obj_btns	 = Config.data.objects
 			local price_btns = Config.data.prices
 			local numpad	 = Config.data.numpad
 			local currencies = Config.data.currencies
@@ -1235,7 +1240,56 @@ imgui.OnFrame(
 
 		imgui.End()
 		imgui.PopStyleVar(4)
-	end
+		end
 )
+
+function SMIHelp.DrawSettingsUI()
+		if not SMIHelp._settings then
+				SMIHelp._settings = {
+						type_buttons = new.char[512](),
+						objects = new.char[512](),
+						prices = new.char[512](),
+						currencies = new.char[512](),
+						addons = new.char[512](),
+						numpad = new.char[128](),
+						history_limit = new.int(Config.data.history_limit or 100),
+						nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
+						timer_send_delay = new.int(SMIHelp.timer_send_delay or 10),
+						timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
+				}
+				imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
+				imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
+				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
+				imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
+				imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
+				imgui.StrCopy(SMIHelp._settings.numpad, table.concat(Config.data.numpad or {}, ','))
+		end
+		local S = SMIHelp._settings
+		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
+				imgui.InputInt('Лимит истории', S.history_limit, 1, 1000)
+				imgui.InputInt('Лимит памяти ников', S.nick_memory_limit, 1, 1000)
+				imgui.InputInt('Задержка отправки', S.timer_send_delay, 1, 60)
+				imgui.InputInt('Задержка новостей', S.timer_news_delay, 1, 60)
+				imgui.InputTextMultiline('Типы', S.type_buttons, 512, imgui.ImVec2(0,60))
+				imgui.InputTextMultiline('Объекты', S.objects, 512, imgui.ImVec2(0,60))
+				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
+				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
+				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
+				imgui.InputTextMultiline('Numpad', S.numpad, 128, imgui.ImVec2(0,60))
+				if imgui.Button('Сохранить') then
+						Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
+						Config.data.objects = funcs.parseList(str(S.objects))
+						Config.data.prices = funcs.parseList(str(S.prices))
+						Config.data.currencies = funcs.parseList(str(S.currencies))
+						Config.data.addons = funcs.parseList(str(S.addons))
+						Config.data.numpad = funcs.parseList(str(S.numpad))
+						Config.data.history_limit = S.history_limit[0]
+						Config.data.nick_memory_limit = S.nick_memory_limit[0]
+						SMIHelp.timer_send_delay = S.timer_send_delay[0]
+						SMIHelp.timer_news_delay = S.timer_news_delay[0]
+						Config:save()
+				end
+		imgui.EndChild()
+end
 
 return SMIHelp

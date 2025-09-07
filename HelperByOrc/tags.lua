@@ -4,10 +4,14 @@ local module = {}
 local imgui  = require 'mimgui'
 local ffi	= require 'ffi'
 
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local ok2, fa	   = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local okbinder, binder = pcall(require, 'HelperByOrc.binder')
+local funcs
+local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local samp
 
+function module.attachModules(mod)
+        funcs = mod.funcs
+        samp = mod.samp
+end
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
 
@@ -41,34 +45,11 @@ local target = {
 }
 
 
--- SAMP ОБЁРТКА (ленивая)
-
-local function samp()
-	local lsamp, s = pcall(require, 'HelperByOrc.samp')
-	if lsamp then return s end
-end
-
--- Ленивый кеш для samp() — избегаем лишних require/вызовов
-local S
+-- SAMP ссылка
 local function S_get()
-	if not S then S = samp() end
-	return S
+        return samp
 end
 
-
--- BINDER АЛИАСЫ (если есть)
-
-if okbinder then
-	binddead	   = binder.isBindEnded
-	bindstart	  = binder.startBind
-	bindstop	   = binder.stopBind
-	bindpause	  = binder.pauseBind
-	bindunpause	= binder.unpauseBind
-	bindenable	 = binder.enableBind
-	binddisable	= binder.disableBind
-	bindselector   = function(name, folder) return binder.setBindSelector(name, folder, true) end
-	bindunselector = function(name, folder) return binder.setBindSelector(name, folder, false) end
-end
 
 
 -- УТИЛИТЫ
@@ -112,8 +93,8 @@ end
 local function save_config()
 	local data = { vars = custom_vars, settings = settings }
 	local json
-	if lfuncs and funcs and funcs.convertTableToJsonString then
-		json = funcs.convertTableToJsonString(data)
+    if funcs and funcs.convertTableToJsonString then
+            json = funcs.convertTableToJsonString(data)
 	else
 		json = json_encode_fallback(data)
 	end
@@ -166,21 +147,6 @@ local function clear_parse_cache()
 	parse_cache_order = {}
 end
 
--- Парсер аргументов для биндеров (поддержка кавычек)
-local function parseBindArgs(param, thisbind_value)
-	local args = {}
-	param = tostring(param or "")
-	for arg in param:gmatch('"(.-)"') do table.insert(args, arg) end
-	if #args == 0 then
-		for word in param:gmatch("(%S+)") do table.insert(args, word) end
-	end
-	for i = 1, #args do
-		if args[i] == '[thisbind]' and thisbind_value then
-			args[i] = thisbind_value
-		end
-	end
-	return args
-end
 
 
 -- TARGET: ЧТЕНИЕ И СОСТОЯНИЕ
@@ -373,61 +339,6 @@ local multi_tag_handlers = {
 		end
 	end,
 
-	-- ==== BINDS API через binder ====
-	bindstart = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.startBind(table.unpack(args))
-		return ''
-	end,
-	bindstop = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.stopBind(table.unpack(args))
-		return ''
-	end,
-	bindpause = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.pauseBind(table.unpack(args))
-		return ''
-	end,
-	bindunpause = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.unpauseBind(table.unpack(args))
-		return ''
-	end,
-	binddisable = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.disableBind(table.unpack(args))
-		return ''
-	end,
-	bindenable = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.enableBind(table.unpack(args))
-		return ''
-	end,
-	binddead = function(param, thisbind_value)
-		if not okbinder then return false end
-		local args = parseBindArgs(param, thisbind_value)
-		return binder.isBindEnded(table.unpack(args)) and true or false
-	end,
-	bindselector = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.setBindSelector(table.unpack(args), true)
-		return ''
-	end,
-	bindunselector = function(param, thisbind_value)
-		if not okbinder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.setBindSelector(table.unpack(args), false)
-		return ''
-	end,
-
 	-- Скриншот
 	screen = function(param)
 		local args = {}
@@ -455,17 +366,8 @@ local multi_tags_descriptions = {
 	surname = {desc="Фамилия по ID (листабельно)", example="[surname(1, 2, 3)]"},
 	surnameru = {desc="Фамилия (рус) по ID (листабельно)", example="[surnameru(1 2 3)]"},
 	strlow = {desc="Строка в нижнем регистре", example="[strlow(ТЕКСТ)]"},
-	addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
-	bindstart = {desc="Запустить бинд", example='[bindstart("название" "папка")]'},
-	bindstop = {desc="Остановить бинд", example='[bindstop("название" "папка")]'},
-	bindpause = {desc="Пауза бинда", example='[bindpause("название" "папка")]'},
-	bindunpause = {desc="Снять с паузы бинд", example='[bindunpause("название" "папка")]'},
-	binddisable = {desc="Отключить бинд", example='[binddisable("название" "папка")]'},
-	bindenable = {desc="Включить бинд", example='[bindenable("название" "папка")]'},
-	binddead = {desc="True, если бинд завершён", example='[binddead("название" "папка")]'},
-	bindselector = {desc="Добавить в селектор быстрых биндов", example='[bindselector("название" "папка")]'},
-	bindunselector = {desc="Убрать из селектора", example='[bindunselector("название" "папка")]'},
-	screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
+        addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
+        screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
 }
 
 -- =======================
@@ -473,13 +375,13 @@ local multi_tags_descriptions = {
 -- =======================
 
 -- Глобальные регистраторы (совместимость со старыми файлами вида obs.lua)
-_G.registerVariable = function(name, desc, fn)
+		_G.registerVariable = function(name, desc, fn)
 	if type(name) ~= "string" or type(fn) ~= "function" then return end
 	-- будет делегировать на module.registerVariable (определена ниже), загрузка файлов произойдёт ПОСЛЕ её определения
 	module.registerVariable(name, desc, fn)
 end
 
-_G.registerFunctionalVariable = function(name, desc, fn, opts)
+		_G.registerFunctionalVariable = function(name, desc, fn, opts)
 	if type(name) ~= "string" or type(fn) ~= "function" then return end
 	-- регистрируем хендлер в мульти-тегах
 	multi_tag_handlers[name] = function(param, thisbind_value)
@@ -544,11 +446,10 @@ local function load_external_vars()
 			local env = setmetatable({
 				registerVariable = _G.registerVariable,
 				registerFunctionalVariable = _G.registerFunctionalVariable,
-				module = module,
-				funcs = funcs,
-				binder = okbinder and binder or nil,
-				imgui = imgui,
-				ffi = ffi,
+                                module = module,
+                                funcs = funcs,
+                                imgui = imgui,
+                                ffi = ffi,
 			}, { __index = _G })
 			setfenv(chunk, env)
 
@@ -573,8 +474,8 @@ end
 
 -- Командные «строчная форма»
 local command_tags = {
-	{ name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(binddead(\"name\", \"folder\"))" },
-	{ name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(binder.enableBind(\"name\"))" },
+        { name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
+        { name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
 }
 
 
@@ -818,13 +719,11 @@ local function make_safe_env()
 	local env = {
 		tonumber = tonumber, tostring = tostring, type = type,
 		pairs = pairs, ipairs = ipairs, select = select, unpack = unpack or table.unpack,
-		math = math, string = string, table = table,
-		module = module,
-		binder = okbinder and binder or nil,
-		binddead = okbinder and binder and binder.isBindEnded or nil,
-		time = os.time, clock = os.clock,
-		target_last_id = function() return target.last_id end,
-	}
+                math = math, string = string, table = table,
+                module = module,
+                time = os.time, clock = os.clock,
+                target_last_id = function() return target.last_id end,
+        }
 	return setmetatable(env, { __index = _G })
 end
 
@@ -943,17 +842,20 @@ end
 
 
 -- СПРАВОЧНЫЕ СПИСКИ ДЛЯ UI
+local function get_custom_var_list()
+	local out = {}
+	for k, v in pairs(custom_vars) do
+		out[#out+1] = { key = k, value = v }
+	end
+	table.sort(out, function(a,b) return a.key < b.key end)
+	return out
+end
+
 local function get_var_list()
 	local out, exists = {}, {}
 	for _, tag in ipairs(simple_tags) do
 		table.insert(out, { name = tag.name, desc = tag.desc, custom = false })
 		exists[tag.name] = true
-	end
-	for k in pairs(custom_vars) do
-		local tagname = "{"..k.."}"
-		if not exists[tagname] then
-			table.insert(out, { name = tagname, desc = "Пользовательская переменная (можно изменить)", custom = true })
-		end
 	end
 	for k, v in pairs(external_variables) do
 		local tagname = "{"..k.."}"
@@ -982,20 +884,95 @@ end
 -- UI (mimgui): СПРАВКА / КОПИРОВАНИЕ ПО КЛИКУ
 local showTagsWindow = imgui.new.bool(false)
 module.showTagsWindow = showTagsWindow
+local cvar_bufs = {}
+local new_var_name = imgui.new.char[64]()
+local new_var_value = imgui.new.char[256]()
 
 -- состояние UI (флэш «скопировано»)
 local ui_state = { copied_text = nil, copied_time = 0, flash_sec = 1.5 }
 
 local function flash_copied(txt)
-	ui_state.copied_text = txt
-	ui_state.copied_time = os.clock()
+        ui_state.copied_text = txt
+        ui_state.copied_time = os.clock()
+end
+
+-- Рисует страницу настроек (вкладка "Прочее")
+function module.DrawSettingsPage()
+    imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
+    imgui.Separator()
+
+    imgui.Text("Настройки:")
+    do
+        local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
+        if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
+            settings.show_target_notice = chk1[0] and true or false
+            save_config()
+        end
+
+        imgui.SameLine()
+        local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
+        if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
+            settings.allow_unsafe = chk2[0] and true or false
+            save_config()
+        end
+
+        local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
+        if imgui.InputInt("Таймаут $wait, сек", wt) then
+            if wt[0] < 1 then wt[0] = 1 end
+            settings.wait_timeout_sec = wt[0]
+            save_config()
+        end
+    end
+
+    imgui.Separator()
+    imgui.Text("Кастомные переменные:")
+    for _, tag in ipairs(get_custom_var_list()) do
+        local buf = cvar_bufs[tag.key]
+        if not buf then
+            buf = imgui.new.char[256](tostring(tag.value or ""))
+            cvar_bufs[tag.key] = buf
+        end
+        imgui.PushIDStr(tag.key)
+        imgui.Text(tag.key)
+        imgui.SameLine()
+        if imgui.InputText("##val", buf, ffi.sizeof(buf)) then
+            custom_vars[tag.key] = ffi.string(buf)
+            save_config()
+            clear_parse_cache()
+        end
+        imgui.PopID()
+    end
+
+    imgui.Separator()
+    imgui.Text("Добавить переменную:")
+    imgui.InputText("Имя##newvar", new_var_name, ffi.sizeof(new_var_name))
+    imgui.SameLine()
+    imgui.InputText("Значение##newvar", new_var_value, ffi.sizeof(new_var_value))
+    imgui.SameLine()
+    if imgui.Button("Добавить##newvar") then
+        local name = ffi.string(new_var_name)
+        if name ~= "" then
+            local value = ffi.string(new_var_value)
+            custom_vars[name] = value
+            cvar_bufs[name] = imgui.new.char[256](value)
+            new_var_name = imgui.new.char[64]()
+            new_var_value = imgui.new.char[256]()
+            save_config()
+            clear_parse_cache()
+        end
+    end
+
+    imgui.Separator()
+    if imgui.Button("Открыть список переменных") then
+        showTagsWindow[0] = true
+    end
 end
 
 imgui.OnFrame(
-	function() return showTagsWindow[0] end,
-	function()
-		imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
-		imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+        function() return showTagsWindow[0] end,
+        function()
+                imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
+                imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
 
 		imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
 		imgui.Separator()
@@ -1024,10 +1001,23 @@ imgui.OnFrame(
 			end
 		end
 
-		imgui.Separator()
-		imgui.Text("Доступные переменные (клик по имени — копировать):")
-		imgui.Columns(2, "vars", false)
-		for i, tag in ipairs(get_var_list()) do
+	imgui.Separator()
+	imgui.Text("Кастомные переменные (клик по имени — копировать):")
+	imgui.Columns(2, "cvars", false)
+	for i, tag in ipairs(get_custom_var_list()) do
+		if imgui.Selectable("{"..tag.key.."}##cvar"..tostring(i), false) then
+		imgui.SetClipboardText("{"..tag.key.."}")
+		flash_copied("Скопировано: {"..tag.key.."}")
+		end
+		imgui.NextColumn()
+		imgui.TextWrapped(tostring(tag.value))
+		imgui.NextColumn()
+		end
+	imgui.Columns(1)
+	imgui.Separator()
+	imgui.Text("Доступные переменные (клик по имени — копировать):")
+	imgui.Columns(2, "vars", false)
+	for i, tag in ipairs(get_var_list()) do
 			if imgui.Selectable((tag.name).."##var"..tostring(i), false) then
 				imgui.SetClipboardText(tag.name)
 				flash_copied("Скопировано: "..tag.name)

@@ -1,15 +1,27 @@
 -- my_hooks.lua
 
+local module = {}
+
 local ffi = require 'ffi'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 
-local ltags, tags = pcall(require, 'HelperByOrc.tags')
-local oksmihelp, SMIHelp = pcall(require, 'HelperByOrc.SMIHelp')
-local okvipad, VIPandADchat = pcall(require, 'HelperByOrc.VIPandADchat')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
-local okunw, unwanted = pcall(require, 'HelperByOrc.unwanted')
+local tags
+local SMIHelp
+local VIPandADchat
+local funcs
+local unwanted
+local samp_mod
+
+function module.attachModules(mod)
+        tags = mod.tags
+        SMIHelp = mod.SMIHelp
+        VIPandADchat = mod.VIPandADchat
+        funcs = mod.funcs
+        unwanted = mod.unwanted
+        samp_mod = mod.samp
+end
 -- 1. SAMP EVENTS HOOK (через samp.events)
 local sampev = require('samp.events')
 
@@ -38,8 +50,8 @@ local function onServerMessage(color, text)
 		end)
 	end
 	
-	if okvipad then
-		local vip = VIPandADchat.VIP()
+        if VIPandADchat then
+                local vip = VIPandADchat.VIP()
 		for i = 1, #vip do
 			if string.match(text, '^' .. vip[i]) then
 				local text = string.format('{FFFFFF}%s{%s} %s', os.date('[%H:%M:%S]'), color1, text)
@@ -80,9 +92,9 @@ local function onServerMessage(color, text)
     -- например: фильтрация, изменение, логирование и т.д.
     -- text = string.gsub(text, "замена", "на что-то")
 	-- print(text)
-	if okunw and unwanted and unwanted.should_ignore(text) then
-		return false  -- глушим сообщение
-	end
+        if unwanted and unwanted.should_ignore(text) then
+                return false  -- глушим сообщение
+        end
 	
     return {color, text}
 end
@@ -101,8 +113,7 @@ end
 local lhook, hook = pcall(require, 'hooks')
 
 local function samp()
-local lsamp, samp = pcall(require, 'HelperByOrc.samp')
-	if lsamp then return samp end
+        return samp_mod
 end
 
 local originalChatAddEntry = nil
@@ -195,7 +206,7 @@ end
 local function CInput_Send_hook(this, text)
     local raw = ffi.string(text)   -- CP1251 от клиента
     local msg = u8(raw)            -- теперь UTF-8, можно юзать tags.change_tags
-    msg = tags.change_tags(msg)
+    if tags and tags.change_tags then msg = tags.change_tags(msg) end
     local back = u8:decode(msg)    -- возвращаем обратно в CP1251
     CInput_Send_hook(this, back)
 	-- local text = ffi.string(text)
@@ -219,7 +230,7 @@ end
 local function CInput_SendSay_hook(this, text)
     local raw = ffi.string(text)   -- CP1251 от клиента
     local msg = u8(raw)            -- теперь UTF-8, можно юзать tags.change_tags
-    msg = tags.change_tags(msg)
+    if tags and tags.change_tags then msg = tags.change_tags(msg) end
     local back = u8:decode(msg)    -- возвращаем обратно в CP1251
     CInput_SendSay_hook(this, back)
 	-- local text = ffi.string(text)
@@ -235,37 +246,34 @@ local function CDamageManager_ApplyDamage(this, car, component, intensity, arg3)
     return CDamageManager_ApplyDamage(this, car, component, intensity, arg3)
 end
 
-
-local module = {}
-
 function module.init()
     -- Включить hook на samp().events
     sampev.onServerMessage = onServerMessage
     -- sampev.onShowDialog = onShowDialog
 
     -- Включить JMP hook (detour) на AddChatEntry
-    if lhook and lsamp and samp().sampModule and samp().main_offsets and samp().currentVersion then
+        if lhook and samp_mod and samp_mod.sampModule and samp_mod.main_offsets and samp_mod.currentVersion then
         originalChatAddEntry = hook.jmp.new(
             "void(__thiscall*)(void* chat, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor)",
             ChatAddEntryHooked,
-            samp().sampModule + samp().main_offsets.AddEntry[samp().currentVersion]
+                samp_mod.sampModule + samp_mod.main_offsets.AddEntry[samp_mod.currentVersion]
         )
         CDialog_Close = hook.jmp.new(
 			"void(__thiscall *)(uintptr_t, char)",
 			CDialog_Close,
-			samp().sampModule + samp().main_offsets.CDialog_Close[samp().currentVersion]
+                        samp_mod.sampModule + samp_mod.main_offsets.CDialog_Close[samp_mod.currentVersion]
 		)
 		
         -- CDialog_Show = hook.jmp.new("void(__thiscall *)(uintptr_t, int, int, const char*, const char*, const char*, const char*, bool)", CDialog_Show, samp().sampModule + samp().main_offsets.CDialog_Show[samp().currentVersion])
         CInput_Send_hook = hook.jmp.new(
 			"void(__thiscall *)(uintptr_t, const char*)",
 			CInput_Send_hook,
-			samp().sampModule + samp().main_offsets.CInput_Send[samp().currentVersion]
+                        samp_mod.sampModule + samp_mod.main_offsets.CInput_Send[samp_mod.currentVersion]
 		)
         CInput_SendSay_hook = hook.jmp.new(
 			"void(__thiscall *)(uintptr_t, const char*)",
 			CInput_SendSay_hook,
-			samp().sampModule + samp().main_offsets.CInput_SendSay[samp().currentVersion]
+                        samp_mod.sampModule + samp_mod.main_offsets.CInput_SendSay[samp_mod.currentVersion]
 		)
         CDamageManager_ApplyDamage = hook.jmp.new(
 			"bool(__thiscall*)(uintptr_t this, uintptr_t car, int component, float intensity, float arg3)",

@@ -6,9 +6,14 @@ encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local new = imgui.new
 
-local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
+local mimgui_funcs
 local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local lfuncs, funcs = pcall(require, 'HelperByOrc.funcs')
+local funcs
+
+function module.attachModules(mod)
+    mimgui_funcs = mod.mimgui_funcs
+    funcs = mod.funcs
+end
 local json_path = getWorkingDirectory().."\\HelperByOrc\\notepad.json"
 local base_path = getWorkingDirectory().."\\HelperByOrc\\notepad"
 
@@ -78,21 +83,13 @@ local function saveNotes()
 	funcs.saveTableToJson(notes, json_path)
 end
 local function loadNotes()
-    notes, favorites, history = {}, {}, {}
-    if doesFileExist(json_path) then
-        local f = io.open(json_path, "rb")
-        if f then
-            local content = f:read("*a")
-            f:close()
-            local ok, data = pcall(decodeJson, content)
-            if ok and type(data) == "table" then notes = data end
-        end
-    end
-    for i, note in ipairs(notes) do
-        note._fav = note._fav or false
-        note._ctime = note._ctime or os.time()
-        note._mtime = note._mtime or os.time()
-    end
+	notes = funcs.loadTableFromJson(json_path, {})
+	favorites, history = {}, {}
+	for i, note in ipairs(notes) do
+		note._fav = note._fav or false
+		note._ctime = note._ctime or os.time()
+		note._mtime = note._mtime or os.time()
+	end
 end
 local function getAllTxtFilesRecursive(path)
     local result = {}
@@ -768,9 +765,8 @@ function module.drawNotepadPanel()
 end
 
 imgui.OnInitialize(function()
-    imgui.GetIO().IniFilename = nil
-    loadNotes()
-    loadTreeFromFiles()
+loadNotes()
+loadTreeFromFiles()
 end)
 
 return module
