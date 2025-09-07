@@ -87,12 +87,16 @@ imgui.OnFrame(
 		if imgui.BeginChild('main##content', imgui.ImVec2(0, 0), true) then
                         if currentTab == 2 and binder then
                                 binder.DrawBinder()
-                        elseif currentTab == 3 and SMIHelp then
-                                imgui.TextColored(imgui.ImVec4(0.85,0.95,1,1), "СМИ Хелпер — настройки и шаблоны")
-                                imgui.Separator()
-                                SMIHelp.DrawSettingsUI()
-                        elseif currentTab == 4 and notepad and notepad.drawNotepadPanel then
-                                notepad.drawNotepadPanel()
+                       elseif currentTab == 3 and SMIHelp then
+                               imgui.TextColored(imgui.ImVec4(0.85,0.95,1,1), "СМИ Хелпер — настройки и шаблоны")
+                               imgui.Separator()
+                               if imgui.Button("Открыть редактор объявлений") then
+                                       SMIHelp.OpenEditPreview()
+                               end
+                               imgui.Separator()
+                               SMIHelp.DrawSettingsUI()
+                       elseif currentTab == 4 and notepad and notepad.drawNotepadPanel then
+                               notepad.drawNotepadPanel()
                        elseif currentTab == 5 then
                                 if miscPage == 0 then
                                         imgui.TextColored(imgui.ImVec4(0.8,0.8,1,1), "Прочее")
