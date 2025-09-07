@@ -425,8 +425,8 @@ end
 function module.sendHotkeyMessagesThread(hk, state)
         local messages = hk.messages
 
-	for idx, msg in ipairs(messages) do
-		if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
+        for idx, msg in ipairs(messages) do
+                if state.stopped then module.stopHotkey(hk); return end
 
 		local text = msg.text or ""
 		if tags and tags.change_tags then
@@ -444,13 +444,13 @@ function module.sendHotkeyMessagesThread(hk, state)
 				if fn then
 					while true do
 						local ok, res = pcall(fn)
-						if ok and res then break end
-						if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
-						while state.paused do
-							if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
-							wait(50)
-						end
-						wait(50)
+                                                if ok and res then break end
+                                                if state.stopped then module.stopHotkey(hk); return end
+                                                while state.paused do
+                                                        if state.stopped then module.stopHotkey(hk); return end
+                                                        wait(50)
+                                                end
+                                                wait(50)
 					end
 				end
 				pos = e + 1
@@ -469,42 +469,44 @@ function module.sendHotkeyMessagesThread(hk, state)
 			local interval = tonumber(msg.interval) or 0
 			if interval < 50 then interval = 50 end
 			local t0 = os.clock()
-			while (os.clock() - t0) * 1000 < interval do
-				if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
-				while state.paused do
-					if state.stopped then hk.is_running = false; hk._thread_state = nil; return end
-					wait(50)
-				end
-				wait(0)
-			end
-		end
-	end
+                        while (os.clock() - t0) * 1000 < interval do
+                                if state.stopped then module.stopHotkey(hk); return end
+                                while state.paused do
+                                        if state.stopped then module.stopHotkey(hk); return end
+                                        wait(50)
+                                end
+                                wait(0)
+                        end
+                end
+        end
 
-	hk.is_running = false
-	hk._thread_state = nil
+        module.stopHotkey(hk)
 end
 
 function module.launchHotkeyThread(hk)
-	if hk.is_running or not hk.enabled then return end
-	if not check_conditions(hk.conditions) then return end
-	if hk.messages and #hk.messages > 0 then
-		local state = { paused = false, idx = 1, stopped = false }
-		hk._thread_state = state
-		hk.is_running = true
-		state.thread = lua_thread.create(function()
-			module.sendHotkeyMessagesThread(hk, state)
-		end)
-	end
+        if hk.is_running then module.stopHotkey(hk) end
+        if hk.is_running or not hk.enabled then return end
+        if not check_conditions(hk.conditions) then return end
+        if hk.messages and #hk.messages > 0 then
+                local state = { paused = false, idx = 1, stopped = false }
+                hk._thread_state = state
+                hk.is_running = true
+                state.thread = lua_thread.create(function()
+                        module.sendHotkeyMessagesThread(hk, state)
+                end)
+        end
 end
 
 function module.stopHotkey(hk)
-	local state = hk._thread_state
-	if state and state.thread and state.thread:status() ~= "dead" then
-		state.stopped = true
-		state.thread:terminate()
-		hk.is_running = false
-		hk._thread_state = nil
-	end
+        local state = hk._thread_state
+        if state then
+                state.stopped = true
+                if state.thread and state.thread:status() ~= "dead" then
+                        pcall(function() state.thread:terminate() end)
+                end
+        end
+        hk.is_running = false
+        hk._thread_state = nil
 end
 
 function module.stopAllHotkeys()
@@ -726,16 +728,30 @@ local function drawQuickIndicator(dl, pos_min, enabled)
 end
 
 local function cloneHotkey(hk)
-	local copy = funcs.deepcopy(hk)
-	copy.is_running = false
-	copy._thread_state = nil
-	copy.lastActivated = 0
-	copy._bools = {}
-	copy._cond_bools = {}
-	copy._quick_cond_bools = {}
-	copy._comboActive = false
-	copy._debounce_until = nil
-	return copy
+        local copy = funcs.deepcopy(hk)
+        copy.is_running = false
+        copy._thread_state = nil
+        copy.lastActivated = 0
+        copy._bools = {}
+        copy._cond_bools = {}
+        copy._quick_cond_bools = {}
+        copy._comboActive = false
+        copy._debounce_until = nil
+        return copy
+end
+
+local function pushDisabled(dis)
+        if dis then
+                imgui.PushItemFlag(imgui.ItemFlags.Disabled, true)
+                imgui.PushStyleVar(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+        end
+end
+
+local function popDisabled(dis)
+        if dis then
+                imgui.PopStyleVar()
+                imgui.PopItemFlag()
+        end
 end
 
 local function drawBindsGrid()
@@ -811,17 +827,19 @@ local function drawBindsGrid()
 				local spacing = imgui.GetStyle().ItemSpacing.x
 				local buttonW = (cardWidth - padX * 2 - spacing * 3) / 4
 				local buttonH = cardHeight - 16
-				local btnY = pmin.y + 8
-				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
-				if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					editHotkey.active = true
-					editHotkey.idx = i
-				end
-				imgui.SameLine(0, spacing)
-				if not hk.is_running then
-					if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						module.launchHotkeyThread(hk)
-					end
+                                local btnY = pmin.y + 8
+                                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
+                                pushDisabled(hk.is_running)
+                                if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) and not hk.is_running then
+                                        editHotkey.active = true
+                                        editHotkey.idx = i
+                                end
+                                popDisabled(hk.is_running)
+                                imgui.SameLine(0, spacing)
+                                if not hk.is_running then
+                                        if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                                module.launchHotkeyThread(hk)
+                                        end
 				else
 					if hk._thread_state and hk._thread_state.paused then
 						if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
@@ -837,22 +855,27 @@ local function drawBindsGrid()
 						module.stopHotkey(hk)
 					end
 				end
-				imgui.SameLine(0, spacing)
-				if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					table.remove(hotkeys, i)
-					module.saveHotkeys()
-					imgui.EndGroup()
-					goto after_card
-				end
-				imgui.SameLine(0, spacing)
-				if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					imgui.OpenPopup("ctx_card_" .. i)
-				end
-			end
+                                imgui.SameLine(0, spacing)
+                                pushDisabled(hk.is_running)
+                                if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) and not hk.is_running then
+                                        module.stopHotkey(hk)
+                                        table.remove(hotkeys, i)
+                                        module.saveHotkeys()
+                                        imgui.EndGroup()
+                                        goto after_card
+                                end
+                                popDisabled(hk.is_running)
+                                imgui.SameLine(0, spacing)
+                                pushDisabled(hk.is_running)
+                                if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) and not hk.is_running then
+                                        imgui.OpenPopup("ctx_card_" .. i)
+                                end
+                                popDisabled(hk.is_running)
+                        end
 
-		if imgui.BeginPopup("ctx_card_" .. i) then
-			if imgui.MenuItemBool("Дублировать", false) then
-				local newhk = cloneHotkey(hk)
+                if imgui.BeginPopup("ctx_card_" .. i) then
+                        if imgui.MenuItemBool("Дублировать", false) then
+                                local newhk = cloneHotkey(hk)
 				table.insert(hotkeys, i + 1, newhk)
 				module.saveHotkeys()
 			end
@@ -1096,8 +1119,13 @@ local function drawQuickConditionsPopup(hk)
 end
 
 local function drawEditHotkey(idx)
-	local hk = hotkeys[idx]; if not hk then return end
-	ensureEditBuffers(hk)
+        local hk = hotkeys[idx]; if not hk then return end
+        if hk.is_running then
+                pushToast("Бинд выполняется, редактирование недоступно", 'warn', 3.0)
+                editHotkey.active = false
+                return
+        end
+        ensureEditBuffers(hk)
 
 	-- Шапка
 	imgui.BeginChild("edit_header", imgui.ImVec2(0, 40), false)
