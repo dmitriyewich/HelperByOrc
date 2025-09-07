@@ -773,59 +773,82 @@ local function drawBindsGrid()
 
 		drawQuickIndicator(dl, pmin, hk.quick_menu)
 
-		if not isHovered then
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 7))
-			imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], (hk.label or ("bind" .. i)) .. (hk.quick_menu and ("	 " .. fa.BOLT) or ""))
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 25))
-			imgui.TextDisabled(fa.LIST_UL .. " " .. tostring(#(hk.messages or {})))
-			if hk.command and hk.command ~= "" then
-				imgui.SameLine()
-				imgui.TextDisabled(fa.TERMINAL.. " " .. hk.command)
-			end
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 39))
-			if #hk.keys > 0 then
-				imgui.TextDisabled(fa.KEYBOARD .. " " .. hotkeyToString(hk.keys))
-			end
-		else
-			local buttonW, buttonH = (cardWidth - 20) / 4, cardHeight - 16
-			local btnY = pmin.y + 8
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 6, btnY))
-			if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				editHotkey.active = true
-				editHotkey.idx = i
-			end
-			imgui.SameLine()
-			if not hk.is_running then
-				if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					module.launchHotkeyThread(hk)
+			if not isHovered then
+				local dot_pad, dot_r = 8, 5
+				local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
+				local text_start = pmin.x + 11
+				local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
+				local bolt_x = dot_cx - dot_r - 4 - bolt_w
+				local max_text_w = bolt_x - text_start - 4
+				local label = hk.label or ('bind' .. i)
+				if imgui.CalcTextSize(label).x > max_text_w then
+					local ell = '...'
+					local ell_w = imgui.CalcTextSize(ell).x
+					local t = label
+					while #t > 0 and imgui.CalcTextSize(t).x > (max_text_w - ell_w) do
+						t = t:sub(1, -2)
+					end
+					label = t .. ell
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
+				imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
+				if hk.quick_menu then
+					imgui.SetCursorScreenPos(imgui.ImVec2(bolt_x, pmin.y + 7))
+					imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.BOLT)
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 25))
+				imgui.TextDisabled(fa.LIST_UL .. ' ' .. tostring(#(hk.messages or {})))
+				if hk.command and hk.command ~= '' then
+					imgui.SameLine()
+					imgui.TextDisabled(fa.TERMINAL.. ' ' .. hk.command)
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 39))
+				if #hk.keys > 0 then
+					imgui.TextDisabled(fa.KEYBOARD .. ' ' .. hotkeyToString(hk.keys))
 				end
 			else
-				if hk._thread_state and hk._thread_state.paused then
-					if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						hk._thread_state.paused = false
+				local padX = 6
+				local spacing = imgui.GetStyle().ItemSpacing.x
+				local buttonW = (cardWidth - padX * 2 - spacing * 3) / 4
+				local buttonH = cardHeight - 16
+				local btnY = pmin.y + 8
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
+				if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					editHotkey.active = true
+					editHotkey.idx = i
+				end
+				imgui.SameLine(0, spacing)
+				if not hk.is_running then
+					if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
+						module.launchHotkeyThread(hk)
 					end
 				else
-					if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						hk._thread_state.paused = true
+					if hk._thread_state and hk._thread_state.paused then
+						if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
+							hk._thread_state.paused = false
+						end
+					else
+						if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
+							hk._thread_state.paused = true
+						end
+					end
+					imgui.SameLine(0, spacing)
+					if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
+						module.stopHotkey(hk)
 					end
 				end
-				imgui.SameLine()
-				if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					module.stopHotkey(hk)
+				imgui.SameLine(0, spacing)
+				if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					table.remove(hotkeys, i)
+					module.saveHotkeys()
+					imgui.EndGroup()
+					goto after_card
+				end
+				imgui.SameLine(0, spacing)
+				if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					imgui.OpenPopup("ctx_card_" .. i)
 				end
 			end
-			imgui.SameLine()
-			if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				table.remove(hotkeys, i)
-				module.saveHotkeys()
-				imgui.EndGroup()
-				goto after_card
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				imgui.OpenPopup("ctx_card_" .. i)
-			end
-		end
 
 		if imgui.BeginPopup("ctx_card_" .. i) then
 			if imgui.MenuItemBool("Дублировать", false) then
