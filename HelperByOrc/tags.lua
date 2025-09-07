@@ -6,12 +6,10 @@ local ffi	= require 'ffi'
 
 local funcs
 local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
-local binder
 local samp
 
 function module.attachModules(mod)
         funcs = mod.funcs
-        binder = mod.binder
         samp = mod.samp
 end
 
@@ -149,21 +147,6 @@ local function clear_parse_cache()
 	parse_cache_order = {}
 end
 
--- Парсер аргументов для биндеров (поддержка кавычек)
-local function parseBindArgs(param, thisbind_value)
-	local args = {}
-	param = tostring(param or "")
-	for arg in param:gmatch('"(.-)"') do table.insert(args, arg) end
-	if #args == 0 then
-		for word in param:gmatch("(%S+)") do table.insert(args, word) end
-	end
-	for i = 1, #args do
-		if args[i] == '[thisbind]' and thisbind_value then
-			args[i] = thisbind_value
-		end
-	end
-	return args
-end
 
 
 -- TARGET: ЧТЕНИЕ И СОСТОЯНИЕ
@@ -356,61 +339,6 @@ local multi_tag_handlers = {
 		end
 	end,
 
-	-- ==== BINDS API через binder ====
-	bindstart = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.startBind(table.unpack(args))
-		return ''
-	end,
-	bindstop = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.stopBind(table.unpack(args))
-		return ''
-	end,
-	bindpause = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.pauseBind(table.unpack(args))
-		return ''
-	end,
-	bindunpause = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.unpauseBind(table.unpack(args))
-		return ''
-	end,
-	binddisable = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.disableBind(table.unpack(args))
-		return ''
-	end,
-	bindenable = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.enableBind(table.unpack(args))
-		return ''
-	end,
-	binddead = function(param, thisbind_value)
-		if not binder then return false end
-		local args = parseBindArgs(param, thisbind_value)
-		return binder.isBindEnded(table.unpack(args)) and true or false
-	end,
-	bindselector = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.setBindSelector(table.unpack(args), true)
-		return ''
-	end,
-	bindunselector = function(param, thisbind_value)
-		if not binder then return '' end
-		local args = parseBindArgs(param, thisbind_value)
-		binder.setBindSelector(table.unpack(args), false)
-		return ''
-	end,
-
 	-- Скриншот
 	screen = function(param)
 		local args = {}
@@ -438,17 +366,8 @@ local multi_tags_descriptions = {
 	surname = {desc="Фамилия по ID (листабельно)", example="[surname(1, 2, 3)]"},
 	surnameru = {desc="Фамилия (рус) по ID (листабельно)", example="[surnameru(1 2 3)]"},
 	strlow = {desc="Строка в нижнем регистре", example="[strlow(ТЕКСТ)]"},
-	addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
-	bindstart = {desc="Запустить бинд", example='[bindstart("название" "папка")]'},
-	bindstop = {desc="Остановить бинд", example='[bindstop("название" "папка")]'},
-	bindpause = {desc="Пауза бинда", example='[bindpause("название" "папка")]'},
-	bindunpause = {desc="Снять с паузы бинд", example='[bindunpause("название" "папка")]'},
-	binddisable = {desc="Отключить бинд", example='[binddisable("название" "папка")]'},
-	bindenable = {desc="Включить бинд", example='[bindenable("название" "папка")]'},
-	binddead = {desc="True, если бинд завершён", example='[binddead("название" "папка")]'},
-	bindselector = {desc="Добавить в селектор быстрых биндов", example='[bindselector("название" "папка")]'},
-	bindunselector = {desc="Убрать из селектора", example='[bindunselector("название" "папка")]'},
-	screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
+        addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
+        screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
 }
 
 -- =======================
@@ -527,11 +446,10 @@ local function load_external_vars()
 			local env = setmetatable({
 				registerVariable = _G.registerVariable,
 				registerFunctionalVariable = _G.registerFunctionalVariable,
-				module = module,
-				funcs = funcs,
-				binder = binder,
-				imgui = imgui,
-				ffi = ffi,
+                                module = module,
+                                funcs = funcs,
+                                imgui = imgui,
+                                ffi = ffi,
 			}, { __index = _G })
 			setfenv(chunk, env)
 
@@ -556,8 +474,8 @@ end
 
 -- Командные «строчная форма»
 local command_tags = {
-	{ name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(binddead(\"name\", \"folder\"))" },
-	{ name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(binder.enableBind(\"name\"))" },
+        { name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
+        { name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
 }
 
 
@@ -801,13 +719,11 @@ local function make_safe_env()
 	local env = {
 		tonumber = tonumber, tostring = tostring, type = type,
 		pairs = pairs, ipairs = ipairs, select = select, unpack = unpack or table.unpack,
-		math = math, string = string, table = table,
-		module = module,
-		binder = binder,
-		binddead = binder and binder.isBindEnded or nil,
-		time = os.time, clock = os.clock,
-		target_last_id = function() return target.last_id end,
-	}
+                math = math, string = string, table = table,
+                module = module,
+                time = os.time, clock = os.clock,
+                target_last_id = function() return target.last_id end,
+        }
 	return setmetatable(env, { __index = _G })
 end
 
@@ -1173,21 +1089,5 @@ end
 
 -- автозагрузка внешних переменных из HelperByOrc/vars при старте (после определения API registerVariable)
 pcall(load_external_vars)
-
-function module.attachBinder(b)
-	binder = b
-	if binder then
-		_G.bindstart = binder.startBind
-		_G.bindstop = binder.stopBind
-		_G.bindpause = binder.pauseBind
-		_G.bindunpause = binder.unpauseBind
-		_G.binddisable = binder.disableBind
-		_G.bindenable = binder.enableBind
-		_G.binddead = binder.isBindEnded
-		_G.bindselector = function(name, folder) return binder.setBindSelector(name, folder, true) end
-		_G.bindunselector = function(name, folder) return binder.setBindSelector(name, folder, false) end
-		pcall(load_external_vars)
-	end
-end
 
 return module
