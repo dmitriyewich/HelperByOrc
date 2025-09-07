@@ -59,6 +59,7 @@ local TYPEW_BASE, TYPEW_MIN	  = 150, 110
 local PRICEW_BASE, PRICEW_MIN = 165, 120
 local OBJ_BTN_MIN_W	 = 88
 local KBD_BTN_MIN_W	 = 56
+local NUMPAD = {"1","2","3","4","5","6","7","8","9",".","0"}
 
 local SPELLER_DEBOUNCE_SEC = 0.5		 -- дребезг запуска автокорректора
 
@@ -145,7 +146,6 @@ function Config:load()
 	t.prices = (type(t.prices)=='table' and t.prices) or {"Цена:","Бюджет:","Цена за шт:","Бюджет за шт:","Цена за час:","Бюджет за час:"}
 	t.currencies = (type(t.currencies)=='table' and t.currencies) or {"$","тыс.$","млн.$","млрд.$","Свободный","Договорная"}
 	t.addons = (type(t.addons)=='table' and t.addons) or {'с гравировкой +','с вышивкой ','с биркой ','в кол-ве '}
-	t.numpad = (type(t.numpad)=='table' and t.numpad) or {"1","2","3","4","5","6","7","8","9",".","0"}
 
 	ensure_table('templates', {
 		{ category = "Прочее",  text = "Предоставляю услуги охраны, все подробности по телефону" },
@@ -1129,7 +1129,7 @@ imgui.OnFrame(
 			local type_btns	 = Config.data.type_buttons
 			local obj_btns	 = Config.data.objects
 			local price_btns = Config.data.prices
-			local numpad	 = Config.data.numpad
+			local numpad     = NUMPAD
 			local currencies = Config.data.currencies
 			local addons	 = Config.data.addons
 
@@ -1251,7 +1251,6 @@ function SMIHelp.DrawSettingsUI()
 						prices = new.char[512](),
 						currencies = new.char[512](),
 						addons = new.char[512](),
-						numpad = new.char[128](),
 						history_limit = new.int(Config.data.history_limit or 100),
 						nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
 						timer_send_delay = new.int(SMIHelp.timer_send_delay or 10),
@@ -1262,7 +1261,6 @@ function SMIHelp.DrawSettingsUI()
 				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.numpad, table.concat(Config.data.numpad or {}, ','))
 		end
 		local S = SMIHelp._settings
 		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
@@ -1275,14 +1273,12 @@ function SMIHelp.DrawSettingsUI()
 				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Numpad', S.numpad, 128, imgui.ImVec2(0,60))
 				if imgui.Button('Сохранить') then
 						Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
 						Config.data.objects = funcs.parseList(str(S.objects))
 						Config.data.prices = funcs.parseList(str(S.prices))
 						Config.data.currencies = funcs.parseList(str(S.currencies))
 						Config.data.addons = funcs.parseList(str(S.addons))
-						Config.data.numpad = funcs.parseList(str(S.numpad))
 						Config.data.history_limit = S.history_limit[0]
 						Config.data.nick_memory_limit = S.nick_memory_limit[0]
 						SMIHelp.timer_send_delay = S.timer_send_delay[0]
