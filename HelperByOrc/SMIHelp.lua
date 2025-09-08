@@ -899,24 +899,23 @@ end
 
 -- ========= Центрированный фильтр =========
 local function DrawCenteredFilter()
-	local style	 = imgui.GetStyle()
-	local availX = imgui.GetContentRegionAvail().x
-	local leftW	 = math.floor(availX * 0.26)
-	local rightW = math.floor(availX * 0.26)
-	local midW	 = availX - leftW - rightW - style.ItemSpacing.x * 2
+        local style  = imgui.GetStyle()
+        local availX = imgui.GetContentRegionAvail().x
+        local inputW = math.floor(availX * 0.48)
+        local clearW = 70
+        local show_clear = str(State.filter_buf) ~= ""
+        local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
 
-	local x0 = imgui.GetCursorPosX()
-	imgui.SetCursorPosX(x0 + leftW + style.ItemSpacing.x)
+        local x0 = imgui.GetCursorPosX()
+        imgui.SetCursorPosX(x0 + (availX - totalW) / 2)
 
-        imgui.PushItemWidth(midW)
-        imgui.Text("Фильтр (слова через запятую, можно исключать через -слово):")
-        imgui.Dummy(imgui.ImVec2(0, 2))
+        imgui.PushItemWidth(inputW)
         local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
         imgui.PopItemWidth()
 
-        if str(State.filter_buf) ~= "" then
+        if show_clear then
                 imgui.SameLine()
-                if imgui.Button("Clear", imgui.ImVec2(70, 0)) then
+                if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
                         imgui.StrCopy(State.filter_buf, "")
                 end
         end
@@ -1015,6 +1014,20 @@ imgui.OnFrame(
                         if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
                                 if not State.corr_in_progress then handleCorrectionLite() end
                         end
+                        imgui.SameLine()
+                        if imgui.Button("К следующей кавычке", imgui.ImVec2(180, 0)) then
+                                State.cursor_action = 'to_next_quote'
+                                State.cursor_action_data = nil
+                                State.want_focus_input = true
+                                State.collapse_selection_after_focus = true
+                        end
+                        imgui.SameLine()
+                        if imgui.Button("Курсор в конец", imgui.ImVec2(150, 0)) then
+                                State.cursor_action = 'to_end'
+                                State.cursor_action_data = nil
+                                State.want_focus_input = true
+                                State.collapse_selection_after_focus = true
+                        end
                         if State.corr_error then
                                 imgui.SameLine()
                                 imgui.TextColored(imgui.ImVec4(1,0.4,0.4,1), "[Ошибка: "..State.corr_error.."]")
@@ -1025,25 +1038,10 @@ imgui.OnFrame(
                         imgui.Spacing()
                         DrawCharLimitBar(char_count, INPUT_MAX)
 
-			imgui.PopItemWidth()
-			if bigFont then imgui.PopFont() end
+                        imgui.PopItemWidth()
+                        if bigFont then imgui.PopFont() end
 
-			imgui.Spacing()
-			if imgui.Button("К следующей кавычке", imgui.ImVec2(180, 0)) then
-				State.cursor_action = 'to_next_quote'
-				State.cursor_action_data = nil
-				State.want_focus_input = true
-				State.collapse_selection_after_focus = true
-			end
-			imgui.SameLine()
-			if imgui.Button("Курсор в конец", imgui.ImVec2(150, 0)) then
-				State.cursor_action = 'to_end'
-				State.cursor_action_data = nil
-				State.want_focus_input = true
-				State.collapse_selection_after_focus = true
-			end
-
-			imgui.EndChild()
+                        imgui.EndChild()
 
 			if changed then
 				local old = str(State.edit_buf)
