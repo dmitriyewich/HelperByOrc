@@ -387,16 +387,31 @@ end
 
 -- ========= ПАРСИНГ BODY =========
 local function parse_dialog_body(body)
-	local nick = body:match("Объявление от%s+([^,%\r\n]+),")
-	local msg = body:match("Сообщение:%s*(.-)\r?\n\r?\n")
-	if not msg then msg = body:match("Сообщение:%s*(.+)") end
-	msg = msg and trim(msg) or ""
-	return nick or "", msg
+    -- убираем цветовые коды {FFFFFF} и т.п.
+    local clean = body:gsub("{.-}", "")
+    
+    -- ищем ник после "Объявление от "
+    local nick = clean:match("Объявление от%s+([%w_]+)")
+    
+    -- ищем текст после "Сообщение:"
+    local msg = clean:match("Сообщение:%s*(.-)\n")
+    
+    return nick or "", msg
+	-- local nick = body:match("Объявление от%s+([^,%\r\n]+),")
+	-- -- local msg = body:match("Сообщение:%s*(.-)\r?\n\r?\n")
+	-- local msg = body:match("{33AA33}(.-)%s-{FFFFFF}")
+	-- if not msg then msg = body:match("Сообщение:%s*(.+)") end
+	-- msg = msg and trim(msg) or ""
+	-- return nick or "", msg
 end
 
 -- ========= ДИАЛОГИ (SAMP) =========
 local function extract_ad_text_from_dialog_colored(dialog_text)
-	return dialog_text:match("{33AA33}(.-)%s-{FFFFFF}") or ""
+	local clean = dialog_text:gsub("{.-}", "")
+	local msg = clean:match("Сообщение:%s*(.-)$")
+	-- local dialog_text = dialog_text:match("{33AA33}(.-)%s-{FFFFFF}")
+	return '232131'..msg 
+	-- return dialog_text:match("{33AA33}(.-)%s-{FFFFFF}") or ""
 end
 
 function sampev.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
@@ -1015,14 +1030,14 @@ imgui.OnFrame(
                                 if not State.corr_in_progress then handleCorrectionLite() end
                         end
                         imgui.SameLine()
-                        if imgui.Button("К следующей кавычке", imgui.ImVec2(180, 0)) then
+                        if imgui.SmallButton("К следующей кавычке") then
                                 State.cursor_action = 'to_next_quote'
                                 State.cursor_action_data = nil
                                 State.want_focus_input = true
                                 State.collapse_selection_after_focus = true
                         end
                         imgui.SameLine()
-                        if imgui.Button("Курсор в конец", imgui.ImVec2(150, 0)) then
+                        if imgui.SmallButton("Курсор в конец") then
                                 State.cursor_action = 'to_end'
                                 State.cursor_action_data = nil
                                 State.want_focus_input = true
