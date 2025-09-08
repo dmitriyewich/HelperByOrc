@@ -16,6 +16,54 @@ function module.attachModules(mod)
         tags = mod.tags
 end
 
+local function drawBindsGrid()
+        local availWidth = imgui.GetContentRegionAvail().x
+        local cardWidth, cardHeight = 138, 56
+        local spacingX, spacingY = 16, 16
+        local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
+        local x0 = imgui.GetCursorScreenPos().x
+        local y0 = imgui.GetCursorScreenPos().y
+
+        local subfolders = selectedFolder.children or {}
+        for n, folder in ipairs(subfolders) do
+                local x = x0 + (((n - 1) % columns) * (cardWidth + spacingX))
+                local y = y0 + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
+                imgui.SetCursorScreenPos(imgui.ImVec2(x, y))
+                local pmin = imgui.GetCursorScreenPos()
+                local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+                local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
+                local dl = imgui.GetWindowDrawList()
+                local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
+                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - imgui.CalcTextSize(fa.FOLDER).x) / 2, pmin.y + 8))
+                imgui.Text(fa.FOLDER)
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 6, pmin.y + cardHeight - 20))
+                imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], folder.name)
+                imgui.SetCursorScreenPos(pmin)
+                imgui.InvisibleButton("##folder_area"..tostring(folder), imgui.ImVec2(cardWidth, cardHeight))
+                if hovered and imgui.IsMouseDoubleClicked(0) then
+                        selectedFolder = folder
+                end
+                if imgui.BeginDragDropTarget() then
+                        local payload = imgui.AcceptDragDropPayload()
+                        if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+                                local src_idx = ffi.cast("int*", payload.Data)[0]
+                                if hotkeys[src_idx] then
+                                        hotkeys[src_idx].folderPath = folderFullPath(folder)
+                                        module.saveHotkeys()
+                                end
+                        end
+                        imgui.EndDragDropTarget()
+                end
+        end
+
+        local rows = math.ceil(#subfolders / columns)
+        local startY = y0 + rows * (cardHeight + spacingY)
+        imgui.SetCursorScreenPos(imgui.ImVec2(x0, startY))
+        drawBindsGridOld()
+end
+
 -- Иконки (безопасный фолбэк)
 local ok_fa, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 if not ok_fa or type(fa) ~= 'table' then
@@ -783,7 +831,7 @@ local function cloneHotkey(hk)
 	return copy
 end
 
-local function drawBindsGrid()
+local function drawBindsGridOld()
 	local availWidth = imgui.GetContentRegionAvail().x
 	local cardWidth, cardHeight = 138, 56
 	local spacingX, spacingY = 16, 16
