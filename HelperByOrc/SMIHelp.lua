@@ -53,12 +53,13 @@ local CONFIG_PATH = getWorkingDirectory().."\\HelperByOrc\\SMIHelp.json"
 local INPUT_MAX = 80					 -- жёсткий лимит символов UTF-8
 local LIMIT_WARN_RATIO = 0.90			-- порог предупреждения 90%
 
-local SECTION_H = 270					-- высота секции конструктора
+local SECTION_H = 0					-- высота секции конструктора
 local BTN_H = 24						 -- высота кнопок сеток
 local TYPEW_BASE, TYPEW_MIN	  = 150, 110
 local PRICEW_BASE, PRICEW_MIN = 165, 120
 local OBJ_BTN_MIN_W	 = 88
 local KBD_BTN_MIN_W	 = 56
+local NUMPAD = {"1","2","3","4","5","6","7","8","9",".","0"}
 
 local SPELLER_DEBOUNCE_SEC = 0.5		 -- дребезг запуска автокорректора
 
@@ -145,7 +146,6 @@ function Config:load()
 	t.prices = (type(t.prices)=='table' and t.prices) or {"Цена:","Бюджет:","Цена за шт:","Бюджет за шт:","Цена за час:","Бюджет за час:"}
 	t.currencies = (type(t.currencies)=='table' and t.currencies) or {"$","тыс.$","млн.$","млрд.$","Свободный","Договорная"}
 	t.addons = (type(t.addons)=='table' and t.addons) or {'с гравировкой +','с вышивкой ','с биркой ','в кол-ве '}
-	t.numpad = (type(t.numpad)=='table' and t.numpad) or {"1","2","3","4","5","6","7","8","9",".","0"}
 
 	ensure_table('templates', {
 		{ category = "Прочее",  text = "Предоставляю услуги охраны, все подробности по телефону" },
@@ -436,6 +436,23 @@ function sampev.onShowDialog(dialogid, style, title, button1, button2, text, pla
 	end
 end
 
+-- Открытие окна редактирования в режиме эмуляции
+function SMIHelp.OpenEditPreview(text, nick)
+        State.show_dialog[0] = true
+        State.last_dialog_id = nil
+        State.last_dialog_title = "Редактирование объявления"
+        State.last_dialog_text = ""
+        State.sender_nick = nick or "Пример"
+        State.original_ad_text = text or ""
+        State.auto_memory_used = false
+        State.cursor_action = nil
+        imgui.StrCopy(State.edit_buf, clamp80(text or ""))
+        State.want_focus_input = true
+        State.collapse_selection_after_focus = true
+        history_reset_index()
+        AD:reset()
+end
+
 -- ========= КЭШИ ШАБЛОНОВ/КАТЕГОРИЙ =========
 local Cache = { cats = nil, cats_key_len = 0 }
 local function rebuild_cats_if_needed()
@@ -651,7 +668,7 @@ local function DrawTemplatesPanel(width, height)
 	imgui.Spacing()
 	LabelSeparator("Шаблоны")
 
-	imgui.BeginChild("templates_list", imgui.ImVec2(0, -32), true)
+	imgui.BeginChild("templates_list", imgui.ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
 
 	for _, tpl in ipairs(Config.data.templates or {}) do
@@ -664,23 +681,26 @@ local function DrawTemplatesPanel(width, height)
 				local filter_line = ((cat ~= '' and (cat .. ': ') or '') .. combined)
 
 				if passFilter(filter_line, filter_str) then
-					if imgui.Selectable(line, false) then
-						seed_once()
-						local pick = group[math.random(1, #group)] or ""
-						pick = clamp80(pick)
-						imgui.StrCopy(State.edit_buf, pick)
-						State.cursor_action = 'to_first_empty_quotes'
-						State.cursor_action_data = nil
-						State.want_place_cursor = false
-						history_reset_index()
-					end
-					if imgui.IsItemClicked(1) then
-						imgui.SetClipboardText(line)
-					end
-				end
-			end
-		end
-	end
+                                        if imgui.Selectable(line, false) then
+                                                seed_once()
+                                                local pick = group[math.random(1, #group)] or ""
+                                                pick = clamp80(pick)
+                                                imgui.StrCopy(State.edit_buf, pick)
+                                                State.cursor_action = 'to_first_empty_quotes'
+                                                State.cursor_action_data = nil
+                                                State.want_place_cursor = false
+                                                history_reset_index()
+                                        end
+                                        if imgui.IsItemClicked(1) then
+                                                imgui.SetClipboardText(line)
+                                        end
+                                        if imgui.IsItemHovered() then
+                                                imgui.SetTooltip(line)
+                                        end
+                                end
+                        end
+                end
+        end
 
 	imgui.EndChild()
 	imgui.EndChild()
@@ -693,20 +713,23 @@ local function DrawHistoryPanel(width, height)
 	local filter_str = str(State.filter_buf)
 	for _, v in ipairs(Config.data.history or {}) do
 		if passFilter(v, filter_str) then
-			if imgui.Selectable(v, false) then
-				local txt = clamp80(v)
-				imgui.StrCopy(State.edit_buf, txt)
-				State.cursor_action = 'to_end'
-				State.cursor_action_data = nil
-				history_reset_index()
-			end
-			if imgui.IsItemClicked(1) then
-				imgui.SetClipboardText(v)
-			end
-		end
-	end
-	imgui.EndChild()
-	imgui.EndChild()
+                        if imgui.Selectable(v, false) then
+                                local txt = clamp80(v)
+                                imgui.StrCopy(State.edit_buf, txt)
+                                State.cursor_action = 'to_end'
+                                State.cursor_action_data = nil
+                                history_reset_index()
+                        end
+                        if imgui.IsItemClicked(1) then
+                                imgui.SetClipboardText(v)
+                        end
+                        if imgui.IsItemHovered() then
+                                imgui.SetTooltip(v)
+                        end
+                end
+        end
+        imgui.EndChild()
+        imgui.EndChild()
 end
 
 -- ========= КУРСОР: поиск позиций с циклическим обходом =========
@@ -925,7 +948,7 @@ local function DrawMetaPanel()
 		imgui.Text("Исходное сообщение:")
 		local startX = imgui.GetCursorPosX()
 		imgui.SetCursorPosX(startX + 4)
-		imgui.BeginChild("orig_box", imgui.ImVec2(0, 48), true)
+		imgui.BeginChild("orig_box", imgui.ImVec2(0, 25), true)
 			imgui.TextWrapped(State.original_ad_text ~= "" and State.original_ad_text or "-")
 		imgui.EndChild()
 		if imgui.SmallButton("Скопировать исходник") then
@@ -1031,63 +1054,66 @@ imgui.OnFrame(
 				end
 			end
 
-			-- Кнопки действий + таймер блокировки и сохранение памяти по нику
-			do
-				local can_send = SMIHelp.timer_send
-				local rem = timer_send_remaining()
+                        -- Кнопки действий + таймер блокировки и сохранение памяти по нику
+                        do
+                                local can_send = SMIHelp.timer_send
+                                local rem = timer_send_remaining()
+                                local btn_send_clicked = false
 
-				local btn_send_clicked = false
-				if imgui.Button("Отправить", imgui.ImVec2(150, 0)) then
-					btn_send_clicked = true
-				end
-				imgui.SameLine()
-				if imgui.Button("Отклонить", imgui.ImVec2(150, 0)) then
-					if State.last_dialog_id then
-						local to_send_utf8 = str(State.edit_buf)
-						local to_send_cp = u8:decode(to_send_utf8) -- UTF-8 -> CP1251 для игры
-						sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
-						State.show_dialog[0] = false
-						AD:reset()
-						reset_ui_state()
-					end
-				end
-				imgui.SameLine()
-				if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(200, 0)) then
-					local orig = clamp80(State.original_ad_text or "")
-					imgui.StrCopy(State.edit_buf, orig)
-					AD:reset()
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
-				end
-				imgui.SameLine()
-				imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
+                                local avail = imgui.GetContentRegionAvail().x
+                                local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
 
-				if not can_send then
-					imgui.Spacing()
-					imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
-				end
+                                if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) then
+                                        btn_send_clicked = true
+                                end
+                                imgui.SameLine()
+                                if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
+                                        if State.last_dialog_id then
+                                                local to_send_utf8 = str(State.edit_buf)
+                                                local to_send_cp = u8:decode(to_send_utf8)
+                                                sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
+                                                State.show_dialog[0] = false
+                                                AD:reset()
+                                                reset_ui_state()
+                                        end
+                                end
 
-				if btn_send_clicked then
-					if not can_send then
-						-- блокируем отправку
-					else
-						if State.last_dialog_id then
-							local to_send_utf8 = str(State.edit_buf)
-							local to_send_cp = u8:decode(to_send_utf8) -- UTF-8 -> CP1251 для игры
-							sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
-							add_to_history(to_send_utf8)
+                                if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
+                                        local orig = clamp80(State.original_ad_text or "")
+                                        imgui.StrCopy(State.edit_buf, orig)
+                                        AD:reset()
+                                        history_reset_index()
+                                        State.want_focus_input = true
+                                        State.collapse_selection_after_focus = true
+                                end
+                                imgui.SameLine()
+                                imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
 
-							-- сохраняем память по никнейму (перезапись + MRU-трим)
-							nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
+                                if not can_send then
+                                        imgui.Spacing()
+                                        imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
+                                end
 
-							State.show_dialog[0] = false
-							AD:reset()
-							reset_ui_state()
-						end
-					end
-				end
-			end
+                                if btn_send_clicked then
+                                        if not can_send then
+                                                -- блокируем отправку
+                                        else
+                                                if State.last_dialog_id then
+                                                        local to_send_utf8 = str(State.edit_buf)
+                                                        local to_send_cp = u8:decode(to_send_utf8)
+                                                        sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
+                                                        add_to_history(to_send_utf8)
+
+                                                        -- сохраняем память по никнейму (перезапись + MRU-трим)
+                                                        nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
+
+                                                        State.show_dialog[0] = false
+                                                        AD:reset()
+                                                        reset_ui_state()
+                                                end
+                                        end
+                                end
+                        end
 
 			imgui.Spacing()
 			LabelSeparator("Конструктор")
@@ -1129,7 +1155,7 @@ imgui.OnFrame(
 			local type_btns	 = Config.data.type_buttons
 			local obj_btns	 = Config.data.objects
 			local price_btns = Config.data.prices
-			local numpad	 = Config.data.numpad
+			local numpad     = NUMPAD
 			local currencies = Config.data.currencies
 			local addons	 = Config.data.addons
 
@@ -1251,7 +1277,6 @@ function SMIHelp.DrawSettingsUI()
 						prices = new.char[512](),
 						currencies = new.char[512](),
 						addons = new.char[512](),
-						numpad = new.char[128](),
 						history_limit = new.int(Config.data.history_limit or 100),
 						nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
 						timer_send_delay = new.int(SMIHelp.timer_send_delay or 10),
@@ -1262,7 +1287,6 @@ function SMIHelp.DrawSettingsUI()
 				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.numpad, table.concat(Config.data.numpad or {}, ','))
 		end
 		local S = SMIHelp._settings
 		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
@@ -1275,14 +1299,12 @@ function SMIHelp.DrawSettingsUI()
 				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Numpad', S.numpad, 128, imgui.ImVec2(0,60))
 				if imgui.Button('Сохранить') then
 						Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
 						Config.data.objects = funcs.parseList(str(S.objects))
 						Config.data.prices = funcs.parseList(str(S.prices))
 						Config.data.currencies = funcs.parseList(str(S.currencies))
 						Config.data.addons = funcs.parseList(str(S.addons))
-						Config.data.numpad = funcs.parseList(str(S.numpad))
 						Config.data.history_limit = S.history_limit[0]
 						Config.data.nick_memory_limit = S.nick_memory_limit[0]
 						SMIHelp.timer_send_delay = S.timer_send_delay[0]
