@@ -908,26 +908,18 @@ local function DrawCenteredFilter()
 	local x0 = imgui.GetCursorPosX()
 	imgui.SetCursorPosX(x0 + leftW + style.ItemSpacing.x)
 
-	imgui.PushItemWidth(midW)
-	imgui.Text("Фильтр (слова через запятую, можно исключать через -слово):")
-	imgui.Dummy(imgui.ImVec2(0, 2))
-	local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
-	imgui.PopItemWidth()
+        imgui.PushItemWidth(midW)
+        imgui.Text("Фильтр (слова через запятую, можно исключать через -слово):")
+        imgui.Dummy(imgui.ImVec2(0, 2))
+        local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
+        imgui.PopItemWidth()
 
-	imgui.SameLine()
-	if str(State.filter_buf) ~= "" then
-		if imgui.Button("Clear", imgui.ImVec2(70, 0)) then
-			imgui.StrCopy(State.filter_buf, "")
-		end
-		imgui.SameLine()
-	end
-	if imgui.Button(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция", imgui.ImVec2(140, 0)) then
-		if not State.corr_in_progress then handleCorrectionLite() end
-	end
-	if State.corr_error then
-		imgui.SameLine()
-		imgui.TextColored(imgui.ImVec4(1,0.4,0.4,1), "[Ошибка: "..State.corr_error.."]")
-	end
+        if str(State.filter_buf) ~= "" then
+                imgui.SameLine()
+                if imgui.Button("Clear", imgui.ImVec2(70, 0)) then
+                        imgui.StrCopy(State.filter_buf, "")
+                end
+        end
 end
 
 -- ========= Блок «От кого и что прислано» =========
@@ -1015,15 +1007,23 @@ imgui.OnFrame(
 			)
 			local changed = imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
 
-			imgui.Spacing()
-			if imgui.SmallButton("Копировать текст") then
-				imgui.SetClipboardText(str(State.edit_buf))
-			end
+                        imgui.Spacing()
+                        if imgui.SmallButton("Копировать текст") then
+                                imgui.SetClipboardText(str(State.edit_buf))
+                        end
+                        imgui.SameLine()
+                        if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
+                                if not State.corr_in_progress then handleCorrectionLite() end
+                        end
+                        if State.corr_error then
+                                imgui.SameLine()
+                                imgui.TextColored(imgui.ImVec4(1,0.4,0.4,1), "[Ошибка: "..State.corr_error.."]")
+                        end
 
-			local cur_text = str(State.edit_buf)
-			local char_count = utf8_len(cur_text)
-			imgui.Spacing()
-			DrawCharLimitBar(char_count, INPUT_MAX)
+                        local cur_text = str(State.edit_buf)
+                        local char_count = utf8_len(cur_text)
+                        imgui.Spacing()
+                        DrawCharLimitBar(char_count, INPUT_MAX)
 
 			imgui.PopItemWidth()
 			if bigFont then imgui.PopFont() end
