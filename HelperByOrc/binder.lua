@@ -804,21 +804,47 @@ local function drawBindsGrid()
 		local x = x0 + (((n - 1) % columns) * (cardWidth + spacingX))
 		local yPos = y + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
 
-		imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
-		imgui.BeginGroup()
+                imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
+                imgui.BeginGroup()
 
-		local pmin = imgui.GetCursorScreenPos()
-		local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
-		local dl = imgui.GetWindowDrawList()
-		local isHovered = imgui.IsMouseHoveringRect(pmin, pmax)
-		local bgcol = isHovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+                -- зона карточки как элемент для hover/drag
+                imgui.InvisibleButton("##card_area"..i, imgui.ImVec2(cardWidth, cardHeight))
+                local pmin = imgui.GetItemRectMin()
+                local pmax = imgui.GetItemRectMax()
+                local hovered = imgui.IsItemHovered()
+                imgui.SetItemAllowOverlap()
 
-		dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
-		dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+                if imgui.BeginDragDropSource() then
+                        local payload = ffi.new("int[1]", i)
+                        imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+                        imgui.Text(hk.label or ('bind' .. i))
+                        imgui.EndDragDropSource()
+                end
+                if imgui.BeginDragDropTarget() then
+                        local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
+                        if payload then
+                                local src_idx = ffi.cast("int*", payload.Data)[0]
+                                local dst_idx = i
+                                if src_idx ~= dst_idx then
+                                        local moved = table.remove(hotkeys, src_idx)
+                                        if dst_idx > src_idx then dst_idx = dst_idx - 1 end
+                                        table.insert(hotkeys, dst_idx, moved)
+                                        module.saveHotkeys()
+                                end
+                        end
+                        imgui.EndDragDropTarget()
+                end
 
-		drawQuickIndicator(dl, pmin, hk.quick_menu)
+                imgui.SetCursorScreenPos(pmin)
+                local dl = imgui.GetWindowDrawList()
+                local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
 
-			if not isHovered then
+                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
+                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+
+                drawQuickIndicator(dl, pmin, hk.quick_menu)
+
+                        if not hovered then
 				local dot_pad, dot_r = 8, 5
 				local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
 				local text_start = pmin.x + 11
