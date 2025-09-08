@@ -26,7 +26,7 @@ end
 local json_path = "moonloader/HelperByOrc/binder.json"
 local DEBOUNCE_MS = 40						-- антидребезг
 local MAX_BIND_DEPTH = 5					-- защита от рекурсии при внешних вызовах runBind*
-local MAX_ACTIVE_THREADS = 10                                   -- limit of active threads
+local MAX_ACTIVE_HOTKEYS = 10                                   -- limit of active coroutines
 
 -- === Утилиты ===
 local function flags_or(...)
@@ -43,26 +43,52 @@ local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local function pushToast(text, kind, dur)
 	toasts[#toasts+1] = { text = tostring(text or ""), kind = kind or 'ok', t = os.clock(), dur = dur or 3.0 }
 end
-local active_threads = {}
+local active_coroutines = {} -- { hk, co, state, wake }
 
 local function log_error(err)
         print('[binder] '..tostring(err))
         pushToast(err, 'err', 5.0)
 end
 
-local function add_active_thread(hk, thread, state)
-        active_threads[#active_threads+1] = { hk = hk, thread = thread, state = state }
-end
 
-local function remove_active_thread(thread)
-        for i, t in ipairs(active_threads) do
-                if t.thread == thread then
-                        table.remove(active_threads, i)
-                        break
+local scheduler = coroutine.create(function()
+        while true do
+                local now = os.clock() * 1000
+                for i = #active_coroutines, 1, -1 do
+                        local item = active_coroutines[i]
+                        local state = item.state
+                        if state.stopped then
+                                item.hk.is_running = false
+                                item.hk._co_state = nil
+                                table.remove(active_coroutines, i)
+                        elseif now >= item.wake then
+                                local ok, wait_ms = coroutine.resume(item.co)
+                                if not ok then
+                                        log_error(wait_ms)
+                                        item.hk.is_running = false
+                                        item.hk._co_state = nil
+                                        table.remove(active_coroutines, i)
+                                elseif coroutine.status(item.co) == 'dead' then
+                                        item.hk.is_running = false
+                                        item.hk._co_state = nil
+                                        table.remove(active_coroutines, i)
+                                else
+                                        item.wake = now + (wait_ms or 0)
+                                end
+                        end
                 end
+                coroutine.yield()
+        end
+end)
+
+local function runScheduler()
+        if coroutine.status(scheduler) ~= 'dead' then
+                local ok, err = coroutine.resume(scheduler)
+                if not ok then log_error(err) end
         end
 end
 
+module.runScheduler = runScheduler
 
 local function drawToasts()
 	if #toasts == 0 then return end
@@ -251,7 +277,7 @@ local function newHotkeyBase()
 		command = "",
 		folderPath = { folders[1].name },
 		is_running = false,
-		_thread_state = nil,
+            _co_state = nil,
 		lastActivated = 0,
 		_bools = {},
 		_cond_bools = {},
@@ -442,117 +468,104 @@ local function collectBindsInFolder(pathTbl, recursive)
 	return res
 end
 
--- === Поток отправки ===
-function module.sendHotkeyMessagesThread(hk, state)
+-- === Короутина отправки ===
+function module.sendHotkeyCoroutine(hk, state)
         local messages = hk.messages
 
-	for idx, msg in ipairs(messages) do
-		if state.stopped then return end
+        for idx, msg in ipairs(messages) do
+                if state.stopped then return end
 
-		local text = msg.text or ""
-		if tags and tags.change_tags then
-			text = tags.change_tags(text)
-		end
+                local text = msg.text or ""
+                if tags and tags.change_tags then
+                        text = tags.change_tags(text)
+                end
 
-		-- [waitif(...)]
-		local pos = 1
-		local out = {}
-		while pos <= #text do
-			local s, e, expr = text:find("%[waitif%((.-)%)%]", pos)
-			if s then
-				if s > pos then table.insert(out, text:sub(pos, s - 1)) end
-				local fn = load("return (" .. expr .. ")")
-				if fn then
-					while true do
-						local ok, res = pcall(fn)
-						if ok and res then break end
-						if state.stopped then return end
-						while state.paused do
-							if state.stopped then return end
-							wait(50)
-						end
-						wait(50)
-					end
-				end
-				pos = e + 1
-			else
-				table.insert(out, text:sub(pos))
-				break
-			end
-		end
+                -- [waitif(...)]
+                local pos = 1
+                local out = {}
+                while pos <= #text do
+                        local s, e, expr = text:find("%[waitif%((.-)%)%]", pos)
+                        if s then
+                                if s > pos then table.insert(out, text:sub(pos, s - 1)) end
+                                local fn = load("return (" .. expr .. ")")
+                                if fn then
+                                        while true do
+                                                local ok, res = pcall(fn)
+                                                if ok and res then break end
+                                                if state.stopped then return end
+                                                while state.paused do
+                                                        if state.stopped then return end
+                                                        coroutine.yield(50)
+                                                end
+                                                coroutine.yield(50)
+                                        end
+                                end
+                                pos = e + 1
+                        else
+                                table.insert(out, text:sub(pos))
+                                break
+                        end
+                end
 
-		local final_str = table.concat(out)
-		if final_str and final_str:match("%S") then
-			doSend(final_str, msg.method or 0)
-		end
+                local final_str = table.concat(out)
+                if final_str and final_str:match("%S") then
+                        doSend(final_str, msg.method or 0)
+                end
 
-		if idx < #messages then
-			local interval = tonumber(msg.interval) or 0
-			if interval < 50 then interval = 50 end
-			local t0 = os.clock()
-			while (os.clock() - t0) * 1000 < interval do
-				if state.stopped then return end
-				while state.paused do
-					if state.stopped then return end
-					wait(50)
-				end
-				wait(0)
-			end
-		end
-	end
-
-	
-	
+                if idx < #messages then
+                        local interval = tonumber(msg.interval) or 0
+                        if interval < 50 then interval = 50 end
+                        while state.paused do
+                                if state.stopped then return end
+                                coroutine.yield(50)
+                        end
+                        coroutine.yield(interval)
+                end
+        end
 end
 
-function module.launchHotkeyThread(hk)
+function module.enqueueHotkey(hk, delay_ms)
         if hk.is_running or not hk.enabled then return end
         if not check_conditions(hk.conditions) then return end
         if hk.messages and #hk.messages > 0 then
-                if #active_threads >= MAX_ACTIVE_THREADS then
+                if #active_coroutines >= MAX_ACTIVE_HOTKEYS then
                         pushToast('Превышен лимит активных биндов', 'warn', 3.0)
                         return
                 end
                 local state = { paused = false, idx = 1, stopped = false }
-                hk._thread_state = state
+                hk._co_state = state
                 hk.is_running = true
-                state.thread = lua_thread.create(function()
-                        local ok, err = pcall(function()
-                                module.sendHotkeyMessagesThread(hk, state)
-                        end)
-                        hk.is_running = false
-                        hk._thread_state = nil
-                        remove_active_thread(state.thread)
-                        if not ok then log_error(err) end
+                local co = coroutine.create(function()
+                        if delay_ms and delay_ms > 0 then
+                                coroutine.yield(delay_ms)
+                        end
+                        module.sendHotkeyCoroutine(hk, state)
                 end)
-                add_active_thread(hk, state.thread, state)
+                table.insert(active_coroutines, { hk = hk, co = co, state = state, wake = 0 })
         end
 end
+
 function module.stopHotkey(hk)
-        local state = hk._thread_state
-        if state and state.thread and state.thread:status() ~= "dead" then
+        local state = hk._co_state
+        if state then
                 state.stopped = true
-                state.thread:terminate()
-                hk.is_running = false
-                hk._thread_state = nil
-                remove_active_thread(state.thread)
         end
 end
 
 function module.stopAllHotkeys()
-	for _, hk in ipairs(hotkeys) do module.stopHotkey(hk) end
+        for _, hk in ipairs(hotkeys) do module.stopHotkey(hk) end
 end
+-- совместимость со старым API
+module.launchHotkeyThread = module.enqueueHotkey
 function module.stopAllThreads()
-        for _, info in ipairs(active_threads) do
-                if info.thread and info.thread:status() ~= 'dead' then
-                        info.thread:terminate()
-                end
+        for _, info in ipairs(active_coroutines) do
+                info.state.stopped = true
                 if info.hk then
                         info.hk.is_running = false
-                        info.hk._thread_state = nil
+                        info.hk._co_state = nil
                 end
         end
-        active_threads = {}
+        active_coroutines = {}
 end
 
 
@@ -591,7 +604,7 @@ function module.DrawQuickMenu()
 				if not first then imgui.Separator() end
 				local label = hk.label or ("bind" .. i)
 				if imgui.MenuItemBool(label, false, false) then
-					module.launchHotkeyThread(hk)
+                                    module.enqueueHotkey(hk)
 				end
 				first = false
 			end
@@ -651,7 +664,7 @@ end
 function module.startBind(name, folder)
 	local hk = module.findBind(name, folder)
 	if hk and not hk.is_running and hk.enabled then
-		module.launchHotkeyThread(hk)
+            module.enqueueHotkey(hk)
 		return true
 	end
 	return false
@@ -677,13 +690,13 @@ end
 
 function module.pauseBind(name, folder)
 	local hk = module.findBind(name, folder)
-	if hk and hk.is_running and hk._thread_state then hk._thread_state.paused = true return true end
+    if hk and hk.is_running and hk._co_state then hk._co_state.paused = true return true end
 	return false
 end
 
 function module.unpauseBind(name, folder)
 	local hk = module.findBind(name, folder)
-	if hk and hk.is_running and hk._thread_state then hk._thread_state.paused = false return true end
+    if hk and hk.is_running and hk._co_state then hk._co_state.paused = false return true end
 	return false
 end
 
@@ -715,19 +728,13 @@ function module.runBind(name, folder, opts)
 		pushToast(("Бинд не найден: %s (%s)"):format(tostring(name), tostring(folder or "")), 'warn', 3.0)
 		return false
 	end
-	if not hk.enabled then
-		pushToast(("Бинд выключен: %s"):format(hk.label or "?"), 'warn', 3.0)
-		return false
-	end
-	lua_thread.create(function()
-		if delay > 0 then
-			local t0 = os.clock()
-			while (os.clock() - t0) * 1000 < delay do wait(0) end
-		end
-		-- при желании можно передавать глубину дальше; сейчас сам бинд не вызывает другие, так что ок
-		module.launchHotkeyThread(hk)
-	end)
-	return true
+        if not hk.enabled then
+                pushToast(("Бинд выключен: %s"):format(hk.label or "?"), 'warn', 3.0)
+                return false
+        end
+        -- при желании можно передавать глубину дальше; сейчас сам бинд не вызывает другие, так что ок
+        module.enqueueHotkey(hk, delay)
+        return true
 end
 
 -- Случайный бинд из папки/подпапок. folderPathString = "A/B/C"
@@ -747,15 +754,9 @@ function module.runBindRandom(folderPathString, opts)
 		pushToast(("Нет биндов в папке: %s"):format(folderPathString or "(все)"), 'warn', 3.0)
 		return false
 	end
-	local target = pool[math.random(1, #pool)]
-	lua_thread.create(function()
-		if delay > 0 then
-			local t0 = os.clock()
-			while (os.clock() - t0) * 1000 < delay do wait(0) end
-		end
-		module.launchHotkeyThread(target)
-	end)
-	return true
+        local target = pool[math.random(1, #pool)]
+        module.enqueueHotkey(target, delay)
+        return true
 end
 
 -- === UI: карточки ===
@@ -773,7 +774,7 @@ end
 local function cloneHotkey(hk)
 	local copy = funcs.deepcopy(hk)
 	copy.is_running = false
-	copy._thread_state = nil
+    copy._co_state = nil
 	copy.lastActivated = 0
 	copy._bools = {}
 	copy._cond_bools = {}
@@ -865,18 +866,19 @@ local function drawBindsGrid()
 				imgui.SameLine(0, spacing)
 				if not hk.is_running then
 					if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						module.launchHotkeyThread(hk)
+                                            module.enqueueHotkey(hk)
 					end
-				else
-					if hk._thread_state and hk._thread_state.paused then
-						if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
-							hk._thread_state.paused = false
-						end
-					else
-						if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
-							hk._thread_state.paused = true
-						end
-					end
+                                else
+                                        if hk._co_state and hk._co_state.paused then
+                                                if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                                        hk._co_state.paused = false
+                                                end
+                                        else
+                                                if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                                        hk._co_state = hk._co_state or {}
+                                                        hk._co_state.paused = true
+                                                end
+                                        end
 					imgui.SameLine(0, spacing)
 					if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
 						module.stopHotkey(hk)
@@ -1589,94 +1591,94 @@ function module.DrawBinder()
 	drawToasts()
 end
 
+
 -- === События и ввод ===
 addEventHandler('onWindowMessage', function(msg, wparam, lparam)
-	-- Комбо-захват
-	if combo_recording then
-		if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-			if wparam == vk.VK_ESCAPE then
-				combo_recording = false
-				combo_keys = {}
-				imgui.CloseCurrentPopup()
-			elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
-				-- SAVE в попапе
-			elseif wparam == vk.VK_BACK then
-				combo_keys = {}
-			else
-				if isKeyboardKey(wparam) then
-					local nk = normalizeKey(wparam)
-					local dup = false
-					for _, kk in ipairs(combo_keys) do if normalizeKey(kk) == nk then dup = true break end end
-					if not dup then table.insert(combo_keys, nk) end
-				end
-			end
-			consumeWindowMessage(true, true)
-		end
-		return
-	end
-
-	-- Живой набор клавиш
-	if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-		if isKeyboardKey(wparam) then
-			pressedKeysSet[normalizeKey(wparam)] = true
-			rebuildPressedList()
-		end
-	elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
-		if isKeyboardKey(wparam) then
-			pressedKeysSet[normalizeKey(wparam)] = false
-			rebuildPressedList()
-		end
-	end
-
-	-- Обработка биндов
-	local now = os.clock()
-	local nowMs = now * 1000
-	for _, hk in ipairs(hotkeys) do
-		if #hk.keys > 0 and hk.enabled then
-			local comboNow = keysMatchCombo(pressedKeysList, hk.keys)
-			if hk.repeat_mode then
-				if comboNow then
-					local lastInterval = hk.repeat_interval_ms
-					if not lastInterval and hk.messages and #hk.messages > 0 then
-						lastInterval = math.max(hk.messages[#hk.messages].interval or 500, 50)
-					end
-					lastInterval = lastInterval or 500
-					local sec = lastInterval / 1000
-					if not hk._lastRepeatPressed or not keysMatchCombo(hk._lastRepeatPressed, hk.keys) then
-						module.launchHotkeyThread(hk)
-						hk.lastActivated = now
-						hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
-					elseif now - (hk.lastActivated or 0) >= sec then
-						module.launchHotkeyThread(hk)
-						hk.lastActivated = now
-						hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
-					end
-				else
-					hk._lastRepeatPressed = nil
-				end
-			else
-				-- Срабатывание на фронте (когда комбо стало истинным)
-				if comboNow and not hk._comboActive then
-					if not hk._debounce_until or nowMs >= hk._debounce_until then
-						module.launchHotkeyThread(hk)
-						hk._debounce_until = nowMs + DEBOUNCE_MS
-					end
-					hk._comboActive = true
-				elseif not comboNow and hk._comboActive then
-					hk._comboActive = false
-				end
-			end
-		end
-	end
+        -- Комбо-захват во время записи комбинации
+        if combo_recording and (msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN) then
+                if wparam == vk.VK_ESCAPE then
+                        combo_recording = false
+                        combo_keys = {}
+                        imgui.CloseCurrentPopup()
+                elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
+                        -- SAVE в попапе
+                elseif wparam == vk.VK_BACK then
+                        combo_keys = {}
+                elseif isKeyboardKey(wparam) then
+                        local nk = normalizeKey(wparam)
+                        local dup = false
+                        for _, kk in ipairs(combo_keys) do if normalizeKey(kk) == nk then dup = true break end end
+                        if not dup then table.insert(combo_keys, nk) end
+                end
+                consumeWindowMessage(true, true)
+        end
 end)
+
+addEventHandler('onKeyDown', function(key)
+        if combo_recording then return end
+        if isKeyboardKey(key) then
+                pressedKeysSet[normalizeKey(key)] = true
+                rebuildPressedList()
+        end
+end)
+
+addEventHandler('onKeyUp', function(key)
+        if isKeyboardKey(key) then
+                pressedKeysSet[normalizeKey(key)] = false
+                rebuildPressedList()
+        end
+end)
+
+local function processHotkeys()
+        local now = os.clock()
+        local nowMs = now * 1000
+        for _, hk in ipairs(hotkeys) do
+                if #hk.keys > 0 and hk.enabled then
+                        local comboNow = keysMatchCombo(pressedKeysList, hk.keys)
+                        if hk.repeat_mode then
+                                if comboNow then
+                                        local lastInterval = hk.repeat_interval_ms
+                                        if not lastInterval and hk.messages and #hk.messages > 0 then
+                                                lastInterval = math.max(hk.messages[#hk.messages].interval or 500, 50)
+                                        end
+                                        lastInterval = lastInterval or 500
+                                        local sec = lastInterval / 1000
+                                        if not hk._lastRepeatPressed or not keysMatchCombo(hk._lastRepeatPressed, hk.keys) then
+                                                module.enqueueHotkey(hk)
+                                                hk.lastActivated = now
+                                                hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
+                                        elseif now - (hk.lastActivated or 0) >= sec then
+                                                module.enqueueHotkey(hk)
+                                                hk.lastActivated = now
+                                                hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
+                                        end
+                                else
+                                        hk._lastRepeatPressed = nil
+                                end
+                        else
+                                if comboNow and not hk._comboActive then
+                                        if not hk._debounce_until or nowMs >= hk._debounce_until then
+                                                module.enqueueHotkey(hk)
+                                                hk._debounce_until = nowMs + DEBOUNCE_MS
+                                        end
+                                        hk._comboActive = true
+                                elseif not comboNow and hk._comboActive then
+                                        hk._comboActive = false
+                                end
+                        end
+                end
+        end
+end
 
 -- Быстрое меню по боковой кнопке мыши
 function module.CheckQuickMenuKey()
-	module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+        module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
 end
 
 function module.OnTick()
-	module.CheckQuickMenuKey()
+        module.CheckQuickMenuKey()
+        processHotkeys()
+        runScheduler()
 end
 
 function module.OpenBinder()
