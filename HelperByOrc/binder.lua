@@ -549,11 +549,21 @@ function module.stopHotkey(hk)
         local state = hk._co_state
         if state then
                 state.stopped = true
+                hk.is_running = false
+                hk._co_state = nil
+                for i = #active_coroutines, 1, -1 do
+                        if active_coroutines[i].hk == hk then
+                                table.remove(active_coroutines, i)
+                                break
+                        end
+                end
         end
 end
 
 function module.stopAllHotkeys()
-        for _, hk in ipairs(hotkeys) do module.stopHotkey(hk) end
+        for _, hk in ipairs(hotkeys) do
+                module.stopHotkey(hk)
+        end
 end
 -- совместимость со старым API
 module.launchHotkeyThread = module.enqueueHotkey
