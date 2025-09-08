@@ -1461,10 +1461,21 @@ local function drawFolderTabs()
 			imgui.SameLine(0, tabPad)
 			local isSel = (selectedFolder == f)
 			if isSel then imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]) end
-			if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
-				selectedFolder = f
-			end
-			if isSel then imgui.PopStyleColor() end
+                       if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
+                               selectedFolder = f
+                       end
+                       if imgui.BeginDragDropTarget() then
+                               local payload = imgui.AcceptDragDropPayload()
+                               if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+                                       local src_idx = ffi.cast("int*", payload.Data)[0]
+                                       if hotkeys[src_idx] then
+                                               hotkeys[src_idx].folderPath = folderFullPath(f)
+                                               module.saveHotkeys()
+                                       end
+                               end
+                               imgui.EndDragDropTarget()
+                       end
+                       if isSel then imgui.PopStyleColor() end
 			imgui.SameLine(0, 0)
 			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear" .. tostring(f), imgui.ImVec2(tabHeight, tabHeight)) then
 				imgui.OpenPopup("popup_gear_" .. tostring(f))
