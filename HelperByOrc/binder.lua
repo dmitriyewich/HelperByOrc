@@ -1621,21 +1621,19 @@ addEventHandler('onWindowMessage', function(msg, wparam, lparam)
                         if not dup then table.insert(combo_keys, nk) end
                 end
                 consumeWindowMessage(true, true)
+                return
         end
-end)
 
-addEventHandler('onKeyDown', function(key)
-        if combo_recording then return end
-        if isKeyboardKey(key) then
-                pressedKeysSet[normalizeKey(key)] = true
-                rebuildPressedList()
-        end
-end)
-
-addEventHandler('onKeyUp', function(key)
-        if isKeyboardKey(key) then
-                pressedKeysSet[normalizeKey(key)] = false
-                rebuildPressedList()
+        if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                if isKeyboardKey(wparam) then
+                        pressedKeysSet[normalizeKey(wparam)] = true
+                        rebuildPressedList()
+                end
+        elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+                if isKeyboardKey(wparam) then
+                        pressedKeysSet[normalizeKey(wparam)] = false
+                        rebuildPressedList()
+                end
         end
 end)
 
