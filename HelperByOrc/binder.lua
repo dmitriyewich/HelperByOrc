@@ -821,8 +821,8 @@ local function drawBindsGrid()
                         imgui.EndDragDropSource()
                 end
                 if imgui.BeginDragDropTarget() then
-                        local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
-                        if payload and payload.Delivery and payload.Data and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+                        local payload = imgui.AcceptDragDropPayload()
+                        if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
                                 local src_idx = ffi.cast("int*", payload.Data)[0]
                                 local dst_idx = i
                                 if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
