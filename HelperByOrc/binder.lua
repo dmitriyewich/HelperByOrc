@@ -805,37 +805,12 @@ local function drawBindsGrid()
 		local yPos = y + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
 
                 imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
+                local pmin = imgui.GetCursorScreenPos()
+                local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+                local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
+
                 imgui.BeginGroup()
 
-                -- зона карточки как элемент для hover/drag
-                imgui.InvisibleButton("##card_area"..i, imgui.ImVec2(cardWidth, cardHeight))
-                local pmin = imgui.GetItemRectMin()
-                local pmax = imgui.GetItemRectMax()
-                local hovered = imgui.IsItemHovered()
-                imgui.SetItemAllowOverlap()
-
-                if imgui.BeginDragDropSource() then
-                        local payload = ffi.new("int[1]", i)
-                        imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-                        imgui.Text(hk.label or ('bind' .. i))
-                        imgui.EndDragDropSource()
-                end
-                if imgui.BeginDragDropTarget() then
-                        local payload = imgui.AcceptDragDropPayload()
-                        if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-                                local src_idx = ffi.cast("int*", payload.Data)[0]
-                                local dst_idx = i
-                                if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-                                        local moved = table.remove(hotkeys, src_idx)
-                                        if dst_idx > src_idx then dst_idx = dst_idx - 1 end
-                                        table.insert(hotkeys, dst_idx, moved)
-                                        module.saveHotkeys()
-                                end
-                        end
-                        imgui.EndDragDropTarget()
-                end
-
-                imgui.SetCursorScreenPos(pmin)
                 local dl = imgui.GetWindowDrawList()
                 local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
 
@@ -910,17 +885,17 @@ local function drawBindsGrid()
 					end
 				end
 				imgui.SameLine(0, spacing)
-				if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					table.remove(hotkeys, i)
-					module.saveHotkeys()
-					imgui.EndGroup()
-					goto after_card
-				end
-				imgui.SameLine(0, spacing)
-				if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					imgui.OpenPopup("ctx_card_" .. i)
-				end
-			end
+                                if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                        table.remove(hotkeys, i)
+                                        module.saveHotkeys()
+                                        imgui.EndGroup()
+                                        goto after_card
+                                end
+                                imgui.SameLine(0, spacing)
+                                if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                        imgui.OpenPopup("ctx_card_" .. i)
+                                end
+                        end
 
 		if imgui.BeginPopup("ctx_card_" .. i) then
 			if imgui.MenuItemBool("Дублировать", false) then
@@ -936,9 +911,33 @@ local function drawBindsGrid()
 			imgui.EndPopup()
 		end
 
-		::after_card::
-		imgui.EndGroup()
-	end
+                imgui.EndGroup()
+
+                imgui.SetCursorScreenPos(pmin)
+                imgui.InvisibleButton("##card_area"..i, imgui.ImVec2(cardWidth, cardHeight))
+                if imgui.BeginDragDropSource() then
+                        local payload = ffi.new("int[1]", i)
+                        imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+                        imgui.Text(hk.label or ('bind' .. i))
+                        imgui.EndDragDropSource()
+                end
+                if imgui.BeginDragDropTarget() then
+                        local payload = imgui.AcceptDragDropPayload()
+                        if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+                                local src_idx = ffi.cast("int*", payload.Data)[0]
+                                local dst_idx = i
+                                if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+                                        local moved = table.remove(hotkeys, src_idx)
+                                        if dst_idx > src_idx then dst_idx = dst_idx - 1 end
+                                        table.insert(hotkeys, dst_idx, moved)
+                                        module.saveHotkeys()
+                                end
+                        end
+                        imgui.EndDragDropTarget()
+                end
+
+                ::after_card::
+        end
 
 	-- Кнопка "+"
 	local add_x = x0 + ((#cards % columns) * (cardWidth + spacingX))
