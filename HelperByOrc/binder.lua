@@ -551,32 +551,21 @@ function module.stopHotkey(hk)
                 state.stopped = true
                 hk.is_running = false
                 hk._co_state = nil
-                for i = #active_coroutines, 1, -1 do
-                        if active_coroutines[i].hk == hk then
-                                table.remove(active_coroutines, i)
-                                break
-                        end
-                end
         end
 end
 
 function module.stopAllHotkeys()
-        for _, hk in ipairs(hotkeys) do
-                module.stopHotkey(hk)
+        for i = 1, #active_coroutines do
+                local info = active_coroutines[i]
+                info.state.stopped = true
+                info.hk.is_running = false
+                info.hk._co_state = nil
         end
 end
+
 -- совместимость со старым API
 module.launchHotkeyThread = module.enqueueHotkey
-function module.stopAllThreads()
-        for _, info in ipairs(active_coroutines) do
-                info.state.stopped = true
-                if info.hk then
-                        info.hk.is_running = false
-                        info.hk._co_state = nil
-                end
-        end
-        active_coroutines = {}
-end
+module.stopAllThreads = module.stopAllHotkeys
 
 
 -- === Быстрое меню (учёт условий папок по всей цепочке) ===
