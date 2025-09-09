@@ -20,7 +20,7 @@ local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 local mainPos = imgui.ImVec2(10, 10)
 local mainSize  -- will init on first frame
-
+local ImageButton_color = imgui.ImVec4(1,1,1,1)
 -- модули, загружаемые в main()
 
 imgui.OnInitialize(
@@ -66,6 +66,7 @@ imgui.OnFrame(
 
 		imgui.SetCursorPos(imgui.ImVec2(0, 0))
 		imgui.InvisibleButton("##titlebar", imgui.ImVec2(winSize.x, titleH))
+		imgui.SetItemAllowOverlap()
 		local pmin = imgui.GetItemRectMin()
 		local pmax = imgui.GetItemRectMax()
 		local dl = imgui.GetWindowDrawList()
@@ -77,10 +78,34 @@ imgui.OnFrame(
 			imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]),
 			"HelperByOrc"
 		)
-
 		if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
 			local delta = io.MouseDelta
 			mainPos = imgui.ImVec2(mainPos.x + delta.x, mainPos.y + delta.y)
+		end
+
+		-- Draw close button
+		local closeSize = imgui.ImVec2(titleH - 6, titleH - 6)
+		local closePos = imgui.ImVec2(pmax.x - pad.x - closeSize.x, pmin.y + (titleH - closeSize.y) / 2)
+		imgui.SetCursorScreenPos(closePos)
+		if mimgui_funcs and mimgui_funcs.close_window then
+			imgui.PushStyleVarFloat(imgui.StyleVar.FrameBorderSize, 0.0)
+			imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.00, 0.00, 0.00, 0.0))
+			imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+			imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.76, 0.76, 0.76, 1.00))
+			if imgui.ImageButton(mimgui_funcs.close_window, closeSize, _,  _, 1, imgui.ImVec4(0,0,0,0), ImageButton_color) then
+				renderHotkeyWnd[0] = false
+			end
+			if imgui.IsItemHovered() then
+				ImageButton_color = imgui.ImVec4(1,1,1,0.5)
+			else
+				ImageButton_color = imgui.ImVec4(1,1,1,1)
+			end
+			imgui.PopStyleColor(3)
+			imgui.PopStyleVar()
+		else
+			if imgui.Button("X", closeSize) then
+				renderHotkeyWnd[0] = false
+			end
 		end
 
 		imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
