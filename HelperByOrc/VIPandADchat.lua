@@ -275,7 +275,7 @@ imgui.OnFrame(
 
 				if imgui.Begin("##VIPADFEED", module.showFeedWindow, flags) then
                 if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(5)
+                        mimgui_funcs.clampWindowToScreen(3)
                 end
 						local child_flags = not is_chat and imgui.WindowFlags.NoInputs or 0
 

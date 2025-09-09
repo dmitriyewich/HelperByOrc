@@ -715,7 +715,7 @@ end
 
 -- Ограничение позиции и размера окна границами экрана
 function module.clampWindowToScreen(margin)
-    margin = margin or 5
+    margin = margin or 3
     local io = imgui.GetIO()
     local ds = io.DisplaySize
 

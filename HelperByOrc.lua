@@ -35,10 +35,40 @@ imgui.OnFrame(
                 local ds = io.DisplaySize
                 imgui.SetNextWindowPos(imgui.ImVec2(10, 10), imgui.Cond.FirstUseEver)
                 imgui.SetNextWindowSize(imgui.ImVec2(ds.x - 20, ds.y - 20), imgui.Cond.FirstUseEver)
-                imgui.Begin('HelperByOrc', renderHotkeyWnd)
+                imgui.Begin('HelperByOrc', renderHotkeyWnd,
+                        imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoCollapse)
                 if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(5)
+                        mimgui_funcs.clampWindowToScreen(3)
                 end
+
+                -- Custom draggable title bar
+                local style = imgui.GetStyle()
+                local pad = style.WindowPadding
+                local titleH = imgui.GetFontSize() + style.FramePadding.y * 2
+                local winPos = imgui.GetWindowPos()
+                local winSize = imgui.GetWindowSize()
+
+                imgui.SetCursorPos(imgui.ImVec2(0, 0))
+                imgui.InvisibleButton('##titlebar', imgui.ImVec2(winSize.x, titleH))
+                local pmin = imgui.GetItemRectMin()
+                local pmax = imgui.GetItemRectMax()
+                local dl = imgui.GetWindowDrawList()
+                local col = style.Colors[imgui.Col.TitleBg]
+                local colActive = style.Colors[imgui.Col.TitleBgActive]
+                dl:AddRectFilled(pmin, pmax,
+                        imgui.GetColorU32Vec4(imgui.IsItemActive() and colActive or col))
+                dl:AddText(imgui.ImVec2(pmin.x + pad.x, pmin.y + style.FramePadding.y),
+                        imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), 'HelperByOrc')
+
+                if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
+                        local delta = io.MouseDelta
+                        imgui.SetWindowPos(imgui.ImVec2(winPos.x + delta.x, winPos.y + delta.y))
+                        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                                mimgui_funcs.clampWindowToScreen(3)
+                        end
+                end
+
+                imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
 		-- Левая панель: логотип + меню
 		imgui.BeginGroup()

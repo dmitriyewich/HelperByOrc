@@ -594,7 +594,7 @@ function module.DrawQuickMenu()
         imgui.SetNextWindowSize(imgui.ImVec2(260, 280), imgui.Cond.FirstUseEver)
         imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
         if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                mimgui_funcs.clampWindowToScreen(5)
+                mimgui_funcs.clampWindowToScreen(3)
         end
 
 	local function drawRec(node)
