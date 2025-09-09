@@ -38,7 +38,7 @@ imgui.OnFrame(
                 imgui.Begin('HelperByOrc', renderHotkeyWnd,
                         imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoCollapse)
                 if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(3)
+                        mimgui_funcs.clampWindowToScreen(5)
                 end
 
                 -- Custom draggable title bar
@@ -62,9 +62,9 @@ imgui.OnFrame(
 
                 if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
                         local delta = io.MouseDelta
-                        imgui.SetWindowPos(imgui.ImVec2(winPos.x + delta.x, winPos.y + delta.y))
+                        imgui.SetWindowPosVec2(imgui.ImVec2(winPos.x + delta.x, winPos.y + delta.y))
                         if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                                mimgui_funcs.clampWindowToScreen(3)
+                                mimgui_funcs.clampWindowToScreen(5)
                         end
                 end
 

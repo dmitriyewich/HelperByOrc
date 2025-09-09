@@ -975,7 +975,7 @@ imgui.OnFrame(
                 imgui.SetNextWindowSize(imgui.ImVec2(1280, 650), imgui.Cond.FirstUseEver)
                 local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
                 if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(3)
+                        mimgui_funcs.clampWindowToScreen(5)
                 end
 
 		if not State.show_dialog[0] then

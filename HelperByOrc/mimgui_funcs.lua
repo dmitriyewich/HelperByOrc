@@ -715,7 +715,7 @@ end
 
 -- Ограничение позиции и размера окна границами экрана
 function module.clampWindowToScreen(margin)
-    margin = margin or 3
+    margin = margin or 5
     local io = imgui.GetIO()
     local ds = io.DisplaySize
 
@@ -725,8 +725,7 @@ function module.clampWindowToScreen(margin)
     local newSizeY = math.min(size.y, ds.y - margin * 2)
     if newSizeX ~= size.x or newSizeY ~= size.y then
         local newSize = imgui.ImVec2(newSizeX, newSizeY)
-        imgui.SetWindowSize(newSize, imgui.Cond.Always)
-        imgui.SetNextWindowSize(newSize, imgui.Cond.Always)
+        imgui.SetWindowSizeVec2(newSize, imgui.Cond.Always)
         size = imgui.GetWindowSize()
     end
 
@@ -734,9 +733,7 @@ function module.clampWindowToScreen(margin)
     local newPosX = math.min(math.max(pos.x, margin), ds.x - size.x - margin)
     local newPosY = math.min(math.max(pos.y, margin), ds.y - size.y - margin)
     if newPosX ~= pos.x or newPosY ~= pos.y then
-        local newPos = imgui.ImVec2(newPosX, newPosY)
-        imgui.SetWindowPos(newPos, imgui.Cond.Always)
-        imgui.SetNextWindowPos(newPos, imgui.Cond.Always)
+        imgui.SetWindowPosVec2(imgui.ImVec2(newPosX, newPosY), imgui.Cond.Always)
     end
 end
 
