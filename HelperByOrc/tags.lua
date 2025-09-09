@@ -1,16 +1,16 @@
 -- МОДУЛЬ / ИМПОРТЫ
 
 local module = {}
-local imgui  = require 'mimgui'
-local ffi	= require 'ffi'
+local imgui = require 'mimgui'
+local ffi = require 'ffi'
 
 local funcs
-local ok2, fa      = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local samp
 
 function module.attachModules(mod)
-        funcs = mod.funcs
-        samp = mod.samp
+	funcs = mod.funcs
+	samp = mod.samp
 end
 
 -- КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ
@@ -39,15 +39,15 @@ local builtin_custom_vars = {
 -- состояние таргета
 local target = {
 	current_ped = nil,   -- Ped, в которого сейчас целимся (или nil)
-	current_id  = nil,   -- ID, соответствующий current_ped (или nil)
-	last_id	 = nil,   -- последний валидный ID цели
-	_notice_id  = nil,   -- защита от повторных уведомлений
+	current_id = nil,   -- ID, соответствующий current_ped (или nil)
+	last_id = nil,   -- последний валидный ID цели
+	_notice_id = nil,   -- защита от повторных уведомлений
 }
 
 
 -- SAMP ссылка
 local function S_get()
-        return samp
+	return samp
 end
 
 
@@ -93,8 +93,8 @@ end
 local function save_config()
 	local data = { vars = custom_vars, settings = settings }
 	local json
-    if funcs and funcs.convertTableToJsonString then
-            json = funcs.convertTableToJsonString(data)
+	if funcs and funcs.convertTableToJsonString then
+			json = funcs.convertTableToJsonString(data)
 	else
 		json = json_encode_fallback(data)
 	end
@@ -366,8 +366,8 @@ local multi_tags_descriptions = {
 	surname = {desc="Фамилия по ID (листабельно)", example="[surname(1, 2, 3)]"},
 	surnameru = {desc="Фамилия (рус) по ID (листабельно)", example="[surnameru(1 2 3)]"},
 	strlow = {desc="Строка в нижнем регистре", example="[strlow(ТЕКСТ)]"},
-        addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
-        screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
+		addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
+		screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
 }
 
 -- =======================
@@ -446,10 +446,10 @@ local function load_external_vars()
 			local env = setmetatable({
 				registerVariable = _G.registerVariable,
 				registerFunctionalVariable = _G.registerFunctionalVariable,
-                                module = module,
-                                funcs = funcs,
-                                imgui = imgui,
-                                ffi = ffi,
+								module = module,
+								funcs = funcs,
+								imgui = imgui,
+								ffi = ffi,
 			}, { __index = _G })
 			setfenv(chunk, env)
 
@@ -474,8 +474,8 @@ end
 
 -- Командные «строчная форма»
 local command_tags = {
-        { name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
-        { name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
+		{ name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
+		{ name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
 }
 
 
@@ -719,11 +719,11 @@ local function make_safe_env()
 	local env = {
 		tonumber = tonumber, tostring = tostring, type = type,
 		pairs = pairs, ipairs = ipairs, select = select, unpack = unpack or table.unpack,
-                math = math, string = string, table = table,
-                module = module,
-                time = os.time, clock = os.clock,
-                target_last_id = function() return target.last_id end,
-        }
+				math = math, string = string, table = table,
+				module = module,
+				time = os.time, clock = os.clock,
+				target_last_id = function() return target.last_id end,
+		}
 	return setmetatable(env, { __index = _G })
 end
 
@@ -892,87 +892,87 @@ local new_var_value = imgui.new.char[256]()
 local ui_state = { copied_text = nil, copied_time = 0, flash_sec = 1.5 }
 
 local function flash_copied(txt)
-        ui_state.copied_text = txt
-        ui_state.copied_time = os.clock()
+	ui_state.copied_text = txt
+	ui_state.copied_time = os.clock()
 end
 
 -- Рисует страницу настроек (вкладка "Прочее")
 function module.DrawSettingsPage()
-    imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
-    imgui.Separator()
+	imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
+	imgui.Separator()
 
-    imgui.Text("Настройки:")
-    do
-        local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
-        if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
-            settings.show_target_notice = chk1[0] and true or false
-            save_config()
-        end
+	imgui.Text("Настройки:")
+	do
+		local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
+		if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
+			settings.show_target_notice = chk1[0] and true or false
+			save_config()
+		end
 
-        imgui.SameLine()
-        local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
-        if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
-            settings.allow_unsafe = chk2[0] and true or false
-            save_config()
-        end
+		imgui.SameLine()
+		local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
+		if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
+			settings.allow_unsafe = chk2[0] and true or false
+			save_config()
+		end
 
-        local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
-        if imgui.InputInt("Таймаут $wait, сек", wt) then
-            if wt[0] < 1 then wt[0] = 1 end
-            settings.wait_timeout_sec = wt[0]
-            save_config()
-        end
-    end
+		local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
+		if imgui.InputInt("Таймаут $wait, сек", wt) then
+			if wt[0] < 1 then wt[0] = 1 end
+			settings.wait_timeout_sec = wt[0]
+			save_config()
+		end
+	end
 
-    imgui.Separator()
-    imgui.Text("Кастомные переменные:")
-    for _, tag in ipairs(get_custom_var_list()) do
-        local buf = cvar_bufs[tag.key]
-        if not buf then
-            buf = imgui.new.char[256](tostring(tag.value or ""))
-            cvar_bufs[tag.key] = buf
-        end
-        imgui.PushIDStr(tag.key)
-        imgui.Text(tag.key)
-        imgui.SameLine()
-        if imgui.InputText("##val", buf, ffi.sizeof(buf)) then
-            custom_vars[tag.key] = ffi.string(buf)
-            save_config()
-            clear_parse_cache()
-        end
-        imgui.PopID()
-    end
+	imgui.Separator()
+	imgui.Text("Кастомные переменные:")
+	for _, tag in ipairs(get_custom_var_list()) do
+		local buf = cvar_bufs[tag.key]
+		if not buf then
+			buf = imgui.new.char[256](tostring(tag.value or ""))
+			cvar_bufs[tag.key] = buf
+		end
+		imgui.PushIDStr(tag.key)
+		imgui.Text(tag.key)
+		imgui.SameLine()
+		if imgui.InputText("##val", buf, ffi.sizeof(buf)) then
+			custom_vars[tag.key] = ffi.string(buf)
+			save_config()
+			clear_parse_cache()
+		end
+		imgui.PopID()
+	end
 
-    imgui.Separator()
-    imgui.Text("Добавить переменную:")
-    imgui.InputText("Имя##newvar", new_var_name, ffi.sizeof(new_var_name))
-    imgui.SameLine()
-    imgui.InputText("Значение##newvar", new_var_value, ffi.sizeof(new_var_value))
-    imgui.SameLine()
-    if imgui.Button("Добавить##newvar") then
-        local name = ffi.string(new_var_name)
-        if name ~= "" then
-            local value = ffi.string(new_var_value)
-            custom_vars[name] = value
-            cvar_bufs[name] = imgui.new.char[256](value)
-            new_var_name = imgui.new.char[64]()
-            new_var_value = imgui.new.char[256]()
-            save_config()
-            clear_parse_cache()
-        end
-    end
+	imgui.Separator()
+	imgui.Text("Добавить переменную:")
+	imgui.InputText("Имя##newvar", new_var_name, ffi.sizeof(new_var_name))
+	imgui.SameLine()
+	imgui.InputText("Значение##newvar", new_var_value, ffi.sizeof(new_var_value))
+	imgui.SameLine()
+	if imgui.Button("Добавить##newvar") then
+		local name = ffi.string(new_var_name)
+		if name ~= "" then
+			local value = ffi.string(new_var_value)
+			custom_vars[name] = value
+			cvar_bufs[name] = imgui.new.char[256](value)
+			new_var_name = imgui.new.char[64]()
+			new_var_value = imgui.new.char[256]()
+			save_config()
+			clear_parse_cache()
+		end
+	end
 
-    imgui.Separator()
-    if imgui.Button("Открыть список переменных") then
-        showTagsWindow[0] = true
-    end
+	imgui.Separator()
+	if imgui.Button("Открыть список переменных") then
+		showTagsWindow[0] = true
+	end
 end
 
 imgui.OnFrame(
-        function() return showTagsWindow[0] end,
-        function()
-                imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
-                imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+		function() return showTagsWindow[0] end,
+		function()
+				imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
+				imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
 
 		imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
 		imgui.Separator()

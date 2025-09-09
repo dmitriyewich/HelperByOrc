@@ -15,8 +15,8 @@ local quickMenuPos = imgui.ImVec2(0, 0)
 local quickMenuSize = imgui.ImVec2(260, 280)
 
 function module.attachModules(mod)
-        funcs = mod.funcs
-        tags = mod.tags
+		funcs = mod.funcs
+		tags = mod.tags
 end
 
 -- Иконки (безопасный фолбэк)
@@ -29,7 +29,7 @@ end
 local json_path = "moonloader/HelperByOrc/binder.json"
 local DEBOUNCE_MS = 40						-- антидребезг
 local MAX_BIND_DEPTH = 5					-- защита от рекурсии при внешних вызовах runBind*
-local MAX_ACTIVE_HOTKEYS = 10                                   -- limit of active coroutines
+local MAX_ACTIVE_HOTKEYS = 10								   -- limit of active coroutines
 
 -- === Утилиты ===
 local function flags_or(...)
@@ -49,46 +49,46 @@ end
 local active_coroutines = {} -- { hk, co, state, wake }
 
 local function log_error(err)
-        print('[binder] '..tostring(err))
-        pushToast(err, 'err', 5.0)
+		print('[binder] '..tostring(err))
+		pushToast(err, 'err', 5.0)
 end
 
 
 local scheduler = coroutine.create(function()
-        while true do
-                local now = os.clock() * 1000
-                for i = #active_coroutines, 1, -1 do
-                        local item = active_coroutines[i]
-                        local state = item.state
-                        if state.stopped then
-                                item.hk.is_running = false
-                                item.hk._co_state = nil
-                                table.remove(active_coroutines, i)
-                        elseif now >= item.wake then
-                                local ok, wait_ms = coroutine.resume(item.co)
-                                if not ok then
-                                        log_error(wait_ms)
-                                        item.hk.is_running = false
-                                        item.hk._co_state = nil
-                                        table.remove(active_coroutines, i)
-                                elseif coroutine.status(item.co) == 'dead' then
-                                        item.hk.is_running = false
-                                        item.hk._co_state = nil
-                                        table.remove(active_coroutines, i)
-                                else
-                                        item.wake = now + (wait_ms or 0)
-                                end
-                        end
-                end
-                coroutine.yield()
-        end
+		while true do
+				local now = os.clock() * 1000
+				for i = #active_coroutines, 1, -1 do
+						local item = active_coroutines[i]
+						local state = item.state
+						if state.stopped then
+								item.hk.is_running = false
+								item.hk._co_state = nil
+								table.remove(active_coroutines, i)
+						elseif now >= item.wake then
+								local ok, wait_ms = coroutine.resume(item.co)
+								if not ok then
+										log_error(wait_ms)
+										item.hk.is_running = false
+										item.hk._co_state = nil
+										table.remove(active_coroutines, i)
+								elseif coroutine.status(item.co) == 'dead' then
+										item.hk.is_running = false
+										item.hk._co_state = nil
+										table.remove(active_coroutines, i)
+								else
+										item.wake = now + (wait_ms or 0)
+								end
+						end
+				end
+				coroutine.yield()
+		end
 end)
 
 local function runScheduler()
-        if coroutine.status(scheduler) ~= 'dead' then
-                local ok, err = coroutine.resume(scheduler)
-                if not ok then log_error(err) end
-        end
+		if coroutine.status(scheduler) ~= 'dead' then
+				local ok, err = coroutine.resume(scheduler)
+				if not ok then log_error(err) end
+		end
 end
 
 module.runScheduler = runScheduler
@@ -280,7 +280,7 @@ local function newHotkeyBase()
 		command = "",
 		folderPath = { folders[1].name },
 		is_running = false,
-            _co_state = nil,
+			_co_state = nil,
 		lastActivated = 0,
 		_bools = {},
 		_cond_bools = {},
@@ -473,97 +473,97 @@ end
 
 -- === Короутина отправки ===
 function module.sendHotkeyCoroutine(hk, state)
-        local messages = hk.messages
+		local messages = hk.messages
 
-        for idx, msg in ipairs(messages) do
-                if state.stopped then return end
+		for idx, msg in ipairs(messages) do
+				if state.stopped then return end
 
-                local text = msg.text or ""
-                if tags and tags.change_tags then
-                        text = tags.change_tags(text)
-                end
+				local text = msg.text or ""
+				if tags and tags.change_tags then
+						text = tags.change_tags(text)
+				end
 
-                -- [waitif(...)]
-                local pos = 1
-                local out = {}
-                while pos <= #text do
-                        local s, e, expr = text:find("%[waitif%((.-)%)%]", pos)
-                        if s then
-                                if s > pos then table.insert(out, text:sub(pos, s - 1)) end
-                                local fn = load("return (" .. expr .. ")")
-                                if fn then
-                                        while true do
-                                                local ok, res = pcall(fn)
-                                                if ok and res then break end
-                                                if state.stopped then return end
-                                                while state.paused do
-                                                        if state.stopped then return end
-                                                        coroutine.yield(50)
-                                                end
-                                                coroutine.yield(50)
-                                        end
-                                end
-                                pos = e + 1
-                        else
-                                table.insert(out, text:sub(pos))
-                                break
-                        end
-                end
+				-- [waitif(...)]
+				local pos = 1
+				local out = {}
+				while pos <= #text do
+						local s, e, expr = text:find("%[waitif%((.-)%)%]", pos)
+						if s then
+								if s > pos then table.insert(out, text:sub(pos, s - 1)) end
+								local fn = load("return (" .. expr .. ")")
+								if fn then
+										while true do
+												local ok, res = pcall(fn)
+												if ok and res then break end
+												if state.stopped then return end
+												while state.paused do
+														if state.stopped then return end
+														coroutine.yield(50)
+												end
+												coroutine.yield(50)
+										end
+								end
+								pos = e + 1
+						else
+								table.insert(out, text:sub(pos))
+								break
+						end
+				end
 
-                local final_str = table.concat(out)
-                if final_str and final_str:match("%S") then
-                        doSend(final_str, msg.method or 0)
-                end
+				local final_str = table.concat(out)
+				if final_str and final_str:match("%S") then
+						doSend(final_str, msg.method or 0)
+				end
 
-                if idx < #messages then
-                        local interval = tonumber(msg.interval) or 0
-                        if interval < 50 then interval = 50 end
-                        while state.paused do
-                                if state.stopped then return end
-                                coroutine.yield(50)
-                        end
-                        coroutine.yield(interval)
-                end
-        end
+				if idx < #messages then
+						local interval = tonumber(msg.interval) or 0
+						if interval < 50 then interval = 50 end
+						while state.paused do
+								if state.stopped then return end
+								coroutine.yield(50)
+						end
+						coroutine.yield(interval)
+				end
+		end
 end
 
 function module.enqueueHotkey(hk, delay_ms)
-        if hk.is_running or not hk.enabled then return end
-        if not check_conditions(hk.conditions) then return end
-        if hk.messages and #hk.messages > 0 then
-                if #active_coroutines >= MAX_ACTIVE_HOTKEYS then
-                        pushToast('Превышен лимит активных биндов', 'warn', 3.0)
-                        return
-                end
-                local state = { paused = false, idx = 1, stopped = false }
-                hk._co_state = state
-                hk.is_running = true
-                local co = coroutine.create(function()
-                        if delay_ms and delay_ms > 0 then
-                                coroutine.yield(delay_ms)
-                        end
-                        module.sendHotkeyCoroutine(hk, state)
-                end)
-                table.insert(active_coroutines, { hk = hk, co = co, state = state, wake = 0 })
-        end
+		if hk.is_running or not hk.enabled then return end
+		if not check_conditions(hk.conditions) then return end
+		if hk.messages and #hk.messages > 0 then
+				if #active_coroutines >= MAX_ACTIVE_HOTKEYS then
+						pushToast('Превышен лимит активных биндов', 'warn', 3.0)
+						return
+				end
+				local state = { paused = false, idx = 1, stopped = false }
+				hk._co_state = state
+				hk.is_running = true
+				local co = coroutine.create(function()
+						if delay_ms and delay_ms > 0 then
+								coroutine.yield(delay_ms)
+						end
+						module.sendHotkeyCoroutine(hk, state)
+				end)
+				table.insert(active_coroutines, { hk = hk, co = co, state = state, wake = 0 })
+		end
 end
 
 function module.stopHotkey(hk)
-        local state = hk._co_state
-        if state then
-                state.stopped = true
-                hk.is_running = false
-                hk._co_state = nil
-        end
+		local state = hk._co_state
+		if state then
+				state.stopped = true
+				hk.is_running = false
+				hk._co_state = nil
+		end
 end
 
 function module.stopAllHotkeys()
-        for i = 1, #active_coroutines do
-                local info = active_coroutines[i]
-                info.state.stopped = true
-                info.hk.is_running = false
-                info.hk._co_state = nil
-        end
+		for i = 1, #active_coroutines do
+				local info = active_coroutines[i]
+				info.state.stopped = true
+				info.hk.is_running = false
+				info.hk._co_state = nil
+		end
 end
 
 -- совместимость со старым API
@@ -590,19 +590,19 @@ local function folderHasQuickBindsVisible(folder)
 end
 
 function module.DrawQuickMenu()
-        if not module.quickMenuOpen then return end
-        local resX, resY = getScreenResolution()
-        if quickMenuPos.x == 0 and quickMenuPos.y == 0 then
-                quickMenuPos = imgui.ImVec2(resX/2 - quickMenuSize.x/2, resY/2 - quickMenuSize.y/2)
-        end
-        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                quickMenuPos, quickMenuSize = mimgui_funcs.clampWindowToScreen(quickMenuPos, quickMenuSize, 5)
-        end
-        imgui.SetNextWindowPos(quickMenuPos, imgui.Cond.Always)
-        imgui.SetNextWindowSize(quickMenuSize, imgui.Cond.Always)
-        imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
-        quickMenuPos = imgui.GetWindowPos()
-        quickMenuSize = imgui.GetWindowSize()
+		if not module.quickMenuOpen then return end
+		local resX, resY = getScreenResolution()
+		if quickMenuPos.x == 0 and quickMenuPos.y == 0 then
+				quickMenuPos = imgui.ImVec2(resX/2 - quickMenuSize.x/2, resY/2 - quickMenuSize.y/2)
+		end
+		if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+				quickMenuPos, quickMenuSize = mimgui_funcs.clampWindowToScreen(quickMenuPos, quickMenuSize, 5)
+		end
+		imgui.SetNextWindowPos(quickMenuPos, imgui.Cond.Always)
+		imgui.SetNextWindowSize(quickMenuSize, imgui.Cond.Always)
+		imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
+		quickMenuPos = imgui.GetWindowPos()
+		quickMenuSize = imgui.GetWindowSize()
 
 	local function drawRec(node)
 		if not isFolderChainVisible(node) then return end
@@ -614,7 +614,7 @@ function module.DrawQuickMenu()
 				if not first then imgui.Separator() end
 				local label = hk.label or ("bind" .. i)
 				if imgui.MenuItemBool(label, false, false) then
-                                    module.enqueueHotkey(hk)
+									module.enqueueHotkey(hk)
 				end
 				first = false
 			end
@@ -674,7 +674,7 @@ end
 function module.startBind(name, folder)
 	local hk = module.findBind(name, folder)
 	if hk and not hk.is_running and hk.enabled then
-            module.enqueueHotkey(hk)
+			module.enqueueHotkey(hk)
 		return true
 	end
 	return false
@@ -700,13 +700,13 @@ end
 
 function module.pauseBind(name, folder)
 	local hk = module.findBind(name, folder)
-    if hk and hk.is_running and hk._co_state then hk._co_state.paused = true return true end
+	if hk and hk.is_running and hk._co_state then hk._co_state.paused = true return true end
 	return false
 end
 
 function module.unpauseBind(name, folder)
 	local hk = module.findBind(name, folder)
-    if hk and hk.is_running and hk._co_state then hk._co_state.paused = false return true end
+	if hk and hk.is_running and hk._co_state then hk._co_state.paused = false return true end
 	return false
 end
 
@@ -738,13 +738,13 @@ function module.runBind(name, folder, opts)
 		pushToast(("Бинд не найден: %s (%s)"):format(tostring(name), tostring(folder or "")), 'warn', 3.0)
 		return false
 	end
-        if not hk.enabled then
-                pushToast(("Бинд выключен: %s"):format(hk.label or "?"), 'warn', 3.0)
-                return false
-        end
-        -- при желании можно передавать глубину дальше; сейчас сам бинд не вызывает другие, так что ок
-        module.enqueueHotkey(hk, delay)
-        return true
+		if not hk.enabled then
+				pushToast(("Бинд выключен: %s"):format(hk.label or "?"), 'warn', 3.0)
+				return false
+		end
+		-- при желании можно передавать глубину дальше; сейчас сам бинд не вызывает другие, так что ок
+		module.enqueueHotkey(hk, delay)
+		return true
 end
 
 -- Случайный бинд из папки/подпапок. folderPathString = "A/B/C"
@@ -764,9 +764,9 @@ function module.runBindRandom(folderPathString, opts)
 		pushToast(("Нет биндов в папке: %s"):format(folderPathString or "(все)"), 'warn', 3.0)
 		return false
 	end
-        local target = pool[math.random(1, #pool)]
-        module.enqueueHotkey(target, delay)
-        return true
+		local target = pool[math.random(1, #pool)]
+		module.enqueueHotkey(target, delay)
+		return true
 end
 
 -- === UI: карточки ===
@@ -784,7 +784,7 @@ end
 local function cloneHotkey(hk)
 	local copy = funcs.deepcopy(hk)
 	copy.is_running = false
-    copy._co_state = nil
+	copy._co_state = nil
 	copy.lastActivated = 0
 	copy._bools = {}
 	copy._cond_bools = {}
@@ -815,22 +815,22 @@ local function drawBindsGrid()
 		local x = x0 + (((n - 1) % columns) * (cardWidth + spacingX))
 		local yPos = y + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
 
-                imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
-                local pmin = imgui.GetCursorScreenPos()
-                local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
-                local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
+				imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
+				local pmin = imgui.GetCursorScreenPos()
+				local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+				local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
 
-                imgui.BeginGroup()
+				imgui.BeginGroup()
 
-                local dl = imgui.GetWindowDrawList()
-                local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+				local dl = imgui.GetWindowDrawList()
+				local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
 
-                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
-                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+				dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
+				dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
 
-                drawQuickIndicator(dl, pmin, hk.quick_menu)
+				drawQuickIndicator(dl, pmin, hk.quick_menu)
 
-                        if not hovered then
+						if not hovered then
 				local dot_pad, dot_r = 8, 5
 				local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
 				local text_start = pmin.x + 11
@@ -877,36 +877,36 @@ local function drawBindsGrid()
 				imgui.SameLine(0, spacing)
 				if not hk.is_running then
 					if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                            module.enqueueHotkey(hk)
+											module.enqueueHotkey(hk)
 					end
-                                else
-                                        if hk._co_state and hk._co_state.paused then
-                                                if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                                        hk._co_state.paused = false
-                                                end
-                                        else
-                                                if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                                        hk._co_state = hk._co_state or {}
-                                                        hk._co_state.paused = true
-                                                end
-                                        end
+								else
+										if hk._co_state and hk._co_state.paused then
+												if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
+														hk._co_state.paused = false
+												end
+										else
+												if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
+														hk._co_state = hk._co_state or {}
+														hk._co_state.paused = true
+												end
+										end
 					imgui.SameLine(0, spacing)
 					if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
 						module.stopHotkey(hk)
 					end
 				end
 				imgui.SameLine(0, spacing)
-                                if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                        table.remove(hotkeys, i)
-                                        module.saveHotkeys()
-                                        imgui.EndGroup()
-                                        goto after_card
-                                end
-                                imgui.SameLine(0, spacing)
-                                if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                        imgui.OpenPopup("ctx_card_" .. i)
-                                end
-                        end
+								if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+										table.remove(hotkeys, i)
+										module.saveHotkeys()
+										imgui.EndGroup()
+										goto after_card
+								end
+								imgui.SameLine(0, spacing)
+								if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
+										imgui.OpenPopup("ctx_card_" .. i)
+								end
+						end
 
 		if imgui.BeginPopup("ctx_card_" .. i) then
 			if imgui.MenuItemBool("Дублировать", false) then
@@ -922,33 +922,33 @@ local function drawBindsGrid()
 			imgui.EndPopup()
 		end
 
-                imgui.EndGroup()
+				imgui.EndGroup()
 
-                imgui.SetCursorScreenPos(pmin)
-                imgui.InvisibleButton("##card_area"..i, imgui.ImVec2(cardWidth, cardHeight))
-                if imgui.BeginDragDropSource() then
-                        local payload = ffi.new("int[1]", i)
-                        imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-                        imgui.Text(hk.label or ('bind' .. i))
-                        imgui.EndDragDropSource()
-                end
-                if imgui.BeginDragDropTarget() then
-                        local payload = imgui.AcceptDragDropPayload()
-                        if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-                                local src_idx = ffi.cast("int*", payload.Data)[0]
-                                local dst_idx = i
-                                if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-                                        local moved = table.remove(hotkeys, src_idx)
-                                        if dst_idx > src_idx then dst_idx = dst_idx - 1 end
-                                        table.insert(hotkeys, dst_idx, moved)
-                                        module.saveHotkeys()
-                                end
-                        end
-                        imgui.EndDragDropTarget()
-                end
+				imgui.SetCursorScreenPos(pmin)
+				imgui.InvisibleButton("##card_area"..i, imgui.ImVec2(cardWidth, cardHeight))
+				if imgui.BeginDragDropSource() then
+						local payload = ffi.new("int[1]", i)
+						imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+						imgui.Text(hk.label or ('bind' .. i))
+						imgui.EndDragDropSource()
+				end
+				if imgui.BeginDragDropTarget() then
+						local payload = imgui.AcceptDragDropPayload()
+						if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+								local src_idx = ffi.cast("int*", payload.Data)[0]
+								local dst_idx = i
+								if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+										local moved = table.remove(hotkeys, src_idx)
+										if dst_idx > src_idx then dst_idx = dst_idx - 1 end
+										table.insert(hotkeys, dst_idx, moved)
+										module.saveHotkeys()
+								end
+						end
+						imgui.EndDragDropTarget()
+				end
 
-                ::after_card::
-        end
+				::after_card::
+		end
 
 	-- Кнопка "+"
 	local add_x = x0 + ((#cards % columns) * (cardWidth + spacingX))
@@ -1083,30 +1083,30 @@ local function ensureEditBuffers(hk)
 		hk.editConditions = {}
 		for i = 1, cond_count do hk.editConditions[i] = hk.conditions and hk.conditions[i] or false end
 	end
-        if hk.editRepeatMode == nil then hk.editRepeatMode = hk.repeat_mode or false end
-        if hk.editQuickMenu == nil then hk.editQuickMenu = hk.quick_menu or false end
-        if hk.editRepeatInterval == nil then hk.editRepeatInterval = hk.repeat_interval_ms and tostring(hk.repeat_interval_ms) or "" end
-        if not hk.editQuickConditions then
-                hk.editQuickConditions = {}
-                for i = 1, quick_cond_count do
-                        hk.editQuickConditions[i] = hk.quick_conditions and hk.quick_conditions[i] or false
-                end
-        end
-        if hk.editBulkMethod == nil then
-                hk.editBulkMethod = hk.editMsgs[1] and hk.editMsgs[1].method or 0
-        end
-        if hk.editBulkInterval == nil then
-                hk.editBulkInterval = hk.editMsgs[1] and hk.editMsgs[1].interval or "0"
-        end
-        if hk.editMultiline == nil then hk.editMultiline = false end
-        if not hk.editMultiText then
-                local lines = {}
-                for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
-                hk.editMultiText = table.concat(lines, "\n")
-        end
-        hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
-        hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
-        hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
+		if hk.editRepeatMode == nil then hk.editRepeatMode = hk.repeat_mode or false end
+		if hk.editQuickMenu == nil then hk.editQuickMenu = hk.quick_menu or false end
+		if hk.editRepeatInterval == nil then hk.editRepeatInterval = hk.repeat_interval_ms and tostring(hk.repeat_interval_ms) or "" end
+		if not hk.editQuickConditions then
+				hk.editQuickConditions = {}
+				for i = 1, quick_cond_count do
+						hk.editQuickConditions[i] = hk.quick_conditions and hk.quick_conditions[i] or false
+				end
+		end
+		if hk.editBulkMethod == nil then
+				hk.editBulkMethod = hk.editMsgs[1] and hk.editMsgs[1].method or 0
+		end
+		if hk.editBulkInterval == nil then
+				hk.editBulkInterval = hk.editMsgs[1] and hk.editMsgs[1].interval or "0"
+		end
+		if hk.editMultiline == nil then hk.editMultiline = false end
+		if not hk.editMultiText then
+				local lines = {}
+				for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
+				hk.editMultiText = table.concat(lines, "\n")
+		end
+		hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
+		hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
+		hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
 end
 
 local function openComboPopupNow()
@@ -1183,13 +1183,13 @@ local function drawEditHotkey(idx)
 
 	-- Шапка
 	imgui.BeginChild("edit_header", imgui.ImVec2(0, 40), false)
-                if imgui.Button(fa.ARROW_LEFT .. " Назад") then
-                        hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-                        hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-                        hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-                        editHotkey.active = false
-                        return
-                end
+				if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+						hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+						hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+						hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+						editHotkey.active = false
+						return
+				end
 		imgui.SameLine()
 		imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.PEN .. "	" .. "Редактирование бинда")
 	if tags and tags.showTagsWindow then
@@ -1278,131 +1278,131 @@ local function drawEditHotkey(idx)
 
 
 
-                imgui.Separator()
-                imgui.Text(fa.LIST_UL .. "      " .. "Сообщения")
-                imgui.SameLine()
-                if imgui.Checkbox("Мульти-ввод##multi_mode", hk._bools.multi) then
-                        hk.editMultiline = hk._bools.multi[0]
-                        if hk.editMultiline then
-                                local lines = {}
-                                for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
-                                hk.editMultiText = table.concat(lines, "\n")
-                        else
-                                hk.editMsgs = {}
-                                for line in (hk.editMultiText or ""):gmatch("[^\r\n]+") do
-                                        if line ~= "" then
-                                                table.insert(hk.editMsgs, { text = line, interval = hk.editBulkInterval or "0", method = hk.editBulkMethod or 0 })
-                                        end
-                                end
-                                module.saveHotkeys()
-                        end
-                end
-                imgui.SameLine()
-                imgui.PushItemWidth(120)
-                local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
-                if imgui.Combo("Куда##allm", allMBuf, send_labels_ffi, #send_labels) then
-                        hk.editBulkMethod = allMBuf[0]
-                        if not hk.editMultiline then
-                                for _, m in ipairs(hk.editMsgs) do m.method = hk.editBulkMethod end
-                                module.saveHotkeys()
-                        end
-                end
-                imgui.PopItemWidth()
-                imgui.SameLine()
-                imgui.PushItemWidth(70)
-                local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
-                if imgui.InputText("мс##alli", allIBuf, ffi.sizeof(allIBuf),
-                        flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
-                        local s = ffi.string(allIBuf)
-                        if s == "" or tonumber(s) then
-                                hk.editBulkInterval = s
-                                if not hk.editMultiline then
-                                        for _, m in ipairs(hk.editMsgs) do m.interval = s end
-                                        module.saveHotkeys()
-                                end
-                        end
-                end
-                imgui.PopItemWidth()
-                imgui.NewLine()
+				imgui.Separator()
+				imgui.Text(fa.LIST_UL .. "	  " .. "Сообщения")
+				imgui.SameLine()
+				if imgui.Checkbox("Мульти-ввод##multi_mode", hk._bools.multi) then
+						hk.editMultiline = hk._bools.multi[0]
+						if hk.editMultiline then
+								local lines = {}
+								for _, m in ipairs(hk.editMsgs) do table.insert(lines, m.text or "") end
+								hk.editMultiText = table.concat(lines, "\n")
+						else
+								hk.editMsgs = {}
+								for line in (hk.editMultiText or ""):gmatch("[^\r\n]+") do
+										if line ~= "" then
+												table.insert(hk.editMsgs, { text = line, interval = hk.editBulkInterval or "0", method = hk.editBulkMethod or 0 })
+										end
+								end
+								module.saveHotkeys()
+						end
+				end
+				imgui.SameLine()
+				imgui.PushItemWidth(120)
+				local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
+				if imgui.Combo("Куда##allm", allMBuf, send_labels_ffi, #send_labels) then
+						hk.editBulkMethod = allMBuf[0]
+						if not hk.editMultiline then
+								for _, m in ipairs(hk.editMsgs) do m.method = hk.editBulkMethod end
+								module.saveHotkeys()
+						end
+				end
+				imgui.PopItemWidth()
+				imgui.SameLine()
+				imgui.PushItemWidth(70)
+				local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
+				if imgui.InputText("мс##alli", allIBuf, ffi.sizeof(allIBuf),
+						flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
+						local s = ffi.string(allIBuf)
+						if s == "" or tonumber(s) then
+								hk.editBulkInterval = s
+								if not hk.editMultiline then
+										for _, m in ipairs(hk.editMsgs) do m.interval = s end
+										module.saveHotkeys()
+								end
+						end
+				end
+				imgui.PopItemWidth()
+				imgui.NewLine()
 
-                if hk.editMultiline then
-                        imgui.PushItemWidth(-1)
-                        local buf = imgui.new.char[4096](hk.editMultiText or "")
-                        if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 200)) then
-                                hk.editMultiText = ffi.string(buf)
-                        end
-                        imgui.PopItemWidth()
-                else
-                        if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
-                                table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
-                                module.saveHotkeys()
-                        end
-                        imgui.SameLine()
-                        imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
+				if hk.editMultiline then
+						imgui.PushItemWidth(-1)
+						local buf = imgui.new.char[4096](hk.editMultiText or "")
+						if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 200)) then
+								hk.editMultiText = ffi.string(buf)
+						end
+						imgui.PopItemWidth()
+				else
+						if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
+								table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
+								module.saveHotkeys()
+						end
+						imgui.SameLine()
+						imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
 
-                        imgui.Spacing()
-                        imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
-                                for i, m in ipairs(hk.editMsgs) do
-                                        imgui.PushIDStr("row" .. i)
-                                        imgui.BeginGroup()
-                                                if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
-                                                        hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.SameLine()
-                                                if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
-                                                        hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.SameLine()
+						imgui.Spacing()
+						imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
+								for i, m in ipairs(hk.editMsgs) do
+										imgui.PushIDStr("row" .. i)
+										imgui.BeginGroup()
+												if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
+														hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
+														module.saveHotkeys()
+												end
+												imgui.SameLine()
+												if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
+														hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
+														module.saveHotkeys()
+												end
+												imgui.SameLine()
 
-                                                imgui.PushItemWidth(420)
-                                                local tbuf = imgui.new.char[256](m.text or "")
-                                                if imgui.InputText("Текст##t", tbuf, ffi.sizeof(tbuf),
-                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-                                                        m.text = ffi.string(tbuf)
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.PopItemWidth()
+												imgui.PushItemWidth(420)
+												local tbuf = imgui.new.char[256](m.text or "")
+												if imgui.InputText("Текст##t", tbuf, ffi.sizeof(tbuf),
+														flags_or(imgui.InputTextFlags.AutoSelectAll)) then
+														m.text = ffi.string(tbuf)
+														module.saveHotkeys()
+												end
+												imgui.PopItemWidth()
 
-                                                imgui.SameLine()
-                                                imgui.PushItemWidth(70)
-                                                local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
-                                                if imgui.InputText("мс##i", ibuf, ffi.sizeof(ibuf),
-                                                        flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
-                                                        local s = ffi.string(ibuf)
-                                                        if tonumber(s) then
-                                                                m.interval = s
-                                                        elseif s == "" then
-                                                                m.interval = "0"
-                                                        end
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.PopItemWidth()
+												imgui.SameLine()
+												imgui.PushItemWidth(70)
+												local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
+												if imgui.InputText("мс##i", ibuf, ffi.sizeof(ibuf),
+														flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)) then
+														local s = ffi.string(ibuf)
+														if tonumber(s) then
+																m.interval = s
+														elseif s == "" then
+																m.interval = "0"
+														end
+														module.saveHotkeys()
+												end
+												imgui.PopItemWidth()
 
-                                                imgui.SameLine()
-                                                imgui.PushItemWidth(120)
-                                                local mbuf = imgui.new.int(m.method or 0)
-                                                if imgui.Combo("Куда##m", mbuf, send_labels_ffi, #send_labels) then
-                                                        m.method = mbuf[0]
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.PopItemWidth()
+												imgui.SameLine()
+												imgui.PushItemWidth(120)
+												local mbuf = imgui.new.int(m.method or 0)
+												if imgui.Combo("Куда##m", mbuf, send_labels_ffi, #send_labels) then
+														m.method = mbuf[0]
+														module.saveHotkeys()
+												end
+												imgui.PopItemWidth()
 
-                                                imgui.SameLine()
-                                                if imgui.Button(fa.TRASH .. "##del", imgui.ImVec2(46, 20)) then
-                                                        table.remove(hk.editMsgs, i)
-                                                        module.saveHotkeys()
-                                                        imgui.EndGroup()
-                                                        imgui.PopID()
-                                                        goto continue_msgs
-                                                end
-                                        imgui.EndGroup()
-                                        imgui.PopID()
-                                        ::continue_msgs::
-                                end
-                        imgui.EndChild()
-                end
+												imgui.SameLine()
+												if imgui.Button(fa.TRASH .. "##del", imgui.ImVec2(46, 20)) then
+														table.remove(hk.editMsgs, i)
+														module.saveHotkeys()
+														imgui.EndGroup()
+														imgui.PopID()
+														goto continue_msgs
+												end
+										imgui.EndGroup()
+										imgui.PopID()
+										::continue_msgs::
+								end
+						imgui.EndChild()
+				end
 
 	imgui.EndChild()
 
@@ -1435,22 +1435,22 @@ local function drawEditHotkey(idx)
 		hk.quick_conditions = {}
 		for i = 1, quick_cond_count do hk.quick_conditions[i] = hk.editQuickConditions[i] end
 
-                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-                hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-                hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-                editHotkey.active = false
-                module.saveHotkeys()
-                pushToast("Бинд сохранен: "..(hk.label or ""), 'ok', 2.5)
+				hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+				hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+				hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+				editHotkey.active = false
+				module.saveHotkeys()
+				pushToast("Бинд сохранен: "..(hk.label or ""), 'ok', 2.5)
 		return
 	end
 	imgui.SameLine()
-        if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
-                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-                hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-                hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-                editHotkey.active = false
-                return
-        end
+		if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
+				hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+				hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+				hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+				editHotkey.active = false
+				return
+		end
 	imgui.SameLine()
 	if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
 		table.remove(hotkeys, idx)
@@ -1472,21 +1472,21 @@ local function drawFolderTabs()
 			imgui.SameLine(0, tabPad)
 			local isSel = (selectedFolder == f)
 			if isSel then imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]) end
-                       if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
-                               selectedFolder = f
-                       end
-                       if imgui.BeginDragDropTarget() then
-                               local payload = imgui.AcceptDragDropPayload()
-                               if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-                                       local src_idx = ffi.cast("int*", payload.Data)[0]
-                                       if hotkeys[src_idx] then
-                                               hotkeys[src_idx].folderPath = folderFullPath(f)
-                                               module.saveHotkeys()
-                                       end
-                               end
-                               imgui.EndDragDropTarget()
-                       end
-                       if isSel then imgui.PopStyleColor() end
+					   if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
+							   selectedFolder = f
+					   end
+					   if imgui.BeginDragDropTarget() then
+							   local payload = imgui.AcceptDragDropPayload()
+							   if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+									   local src_idx = ffi.cast("int*", payload.Data)[0]
+									   if hotkeys[src_idx] then
+											   hotkeys[src_idx].folderPath = folderFullPath(f)
+											   module.saveHotkeys()
+									   end
+							   end
+							   imgui.EndDragDropTarget()
+					   end
+					   if isSel then imgui.PopStyleColor() end
 			imgui.SameLine(0, 0)
 			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear" .. tostring(f), imgui.ImVec2(tabHeight, tabHeight)) then
 				imgui.OpenPopup("popup_gear_" .. tostring(f))
@@ -1640,89 +1640,89 @@ end
 
 -- === События и ввод ===
 addEventHandler('onWindowMessage', function(msg, wparam, lparam)
-        -- Комбо-захват во время записи комбинации
-        if combo_recording and (msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN) then
-                if wparam == vk.VK_ESCAPE then
-                        combo_recording = false
-                        combo_keys = {}
-                        imgui.CloseCurrentPopup()
-                elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
-                        -- SAVE в попапе
-                elseif wparam == vk.VK_BACK then
-                        combo_keys = {}
-                elseif isKeyboardKey(wparam) then
-                        local nk = normalizeKey(wparam)
-                        local dup = false
-                        for _, kk in ipairs(combo_keys) do if normalizeKey(kk) == nk then dup = true break end end
-                        if not dup then table.insert(combo_keys, nk) end
-                end
-                consumeWindowMessage(true, true)
-                return
-        end
+		-- Комбо-захват во время записи комбинации
+		if combo_recording and (msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN) then
+				if wparam == vk.VK_ESCAPE then
+						combo_recording = false
+						combo_keys = {}
+						imgui.CloseCurrentPopup()
+				elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
+						-- SAVE в попапе
+				elseif wparam == vk.VK_BACK then
+						combo_keys = {}
+				elseif isKeyboardKey(wparam) then
+						local nk = normalizeKey(wparam)
+						local dup = false
+						for _, kk in ipairs(combo_keys) do if normalizeKey(kk) == nk then dup = true break end end
+						if not dup then table.insert(combo_keys, nk) end
+				end
+				consumeWindowMessage(true, true)
+				return
+		end
 
-        if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-                if isKeyboardKey(wparam) then
-                        pressedKeysSet[normalizeKey(wparam)] = true
-                        rebuildPressedList()
-                end
-        elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
-                if isKeyboardKey(wparam) then
-                        pressedKeysSet[normalizeKey(wparam)] = false
-                        rebuildPressedList()
-                end
-        end
+		if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+				if isKeyboardKey(wparam) then
+						pressedKeysSet[normalizeKey(wparam)] = true
+						rebuildPressedList()
+				end
+		elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+				if isKeyboardKey(wparam) then
+						pressedKeysSet[normalizeKey(wparam)] = false
+						rebuildPressedList()
+				end
+		end
 end)
 
 local function processHotkeys()
-        local now = os.clock()
-        local nowMs = now * 1000
-        for _, hk in ipairs(hotkeys) do
-                if #hk.keys > 0 and hk.enabled then
-                        local comboNow = keysMatchCombo(pressedKeysList, hk.keys)
-                        if hk.repeat_mode then
-                                if comboNow then
-                                        local lastInterval = hk.repeat_interval_ms
-                                        if not lastInterval and hk.messages and #hk.messages > 0 then
-                                                lastInterval = math.max(hk.messages[#hk.messages].interval or 500, 50)
-                                        end
-                                        lastInterval = lastInterval or 500
-                                        local sec = lastInterval / 1000
-                                        if not hk._lastRepeatPressed or not keysMatchCombo(hk._lastRepeatPressed, hk.keys) then
-                                                module.enqueueHotkey(hk)
-                                                hk.lastActivated = now
-                                                hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
-                                        elseif now - (hk.lastActivated or 0) >= sec then
-                                                module.enqueueHotkey(hk)
-                                                hk.lastActivated = now
-                                                hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
-                                        end
-                                else
-                                        hk._lastRepeatPressed = nil
-                                end
-                        else
-                                if comboNow and not hk._comboActive then
-                                        if not hk._debounce_until or nowMs >= hk._debounce_until then
-                                                module.enqueueHotkey(hk)
-                                                hk._debounce_until = nowMs + DEBOUNCE_MS
-                                        end
-                                        hk._comboActive = true
-                                elseif not comboNow and hk._comboActive then
-                                        hk._comboActive = false
-                                end
-                        end
-                end
-        end
+		local now = os.clock()
+		local nowMs = now * 1000
+		for _, hk in ipairs(hotkeys) do
+				if #hk.keys > 0 and hk.enabled then
+						local comboNow = keysMatchCombo(pressedKeysList, hk.keys)
+						if hk.repeat_mode then
+								if comboNow then
+										local lastInterval = hk.repeat_interval_ms
+										if not lastInterval and hk.messages and #hk.messages > 0 then
+												lastInterval = math.max(hk.messages[#hk.messages].interval or 500, 50)
+										end
+										lastInterval = lastInterval or 500
+										local sec = lastInterval / 1000
+										if not hk._lastRepeatPressed or not keysMatchCombo(hk._lastRepeatPressed, hk.keys) then
+												module.enqueueHotkey(hk)
+												hk.lastActivated = now
+												hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
+										elseif now - (hk.lastActivated or 0) >= sec then
+												module.enqueueHotkey(hk)
+												hk.lastActivated = now
+												hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
+										end
+								else
+										hk._lastRepeatPressed = nil
+								end
+						else
+								if comboNow and not hk._comboActive then
+										if not hk._debounce_until or nowMs >= hk._debounce_until then
+												module.enqueueHotkey(hk)
+												hk._debounce_until = nowMs + DEBOUNCE_MS
+										end
+										hk._comboActive = true
+								elseif not comboNow and hk._comboActive then
+										hk._comboActive = false
+								end
+						end
+				end
+		end
 end
 
 -- Быстрое меню по боковой кнопке мыши
 function module.CheckQuickMenuKey()
-        module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+		module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
 end
 
 function module.OnTick()
-        module.CheckQuickMenuKey()
-        processHotkeys()
-        runScheduler()
+		module.CheckQuickMenuKey()
+		processHotkeys()
+		runScheduler()
 end
 
 function module.OpenBinder()

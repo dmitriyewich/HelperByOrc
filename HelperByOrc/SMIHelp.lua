@@ -42,8 +42,8 @@ local mimgui_funcs
 local funcs
 
 function SMIHelp.attachModules(mod)
-        mimgui_funcs = mod.mimgui_funcs
-        funcs = mod.funcs
+		mimgui_funcs = mod.mimgui_funcs
+		funcs = mod.funcs
 end
 local trim = (funcs and funcs.trim) and funcs.trim or function(s) return (s or ""):gsub("^%s*(.-)%s*$", "%1") end
 
@@ -285,12 +285,12 @@ local State = {
 
 	-- спеллер
 	last_speller_call = 0,
-        corr_cache = {},
-        corr_in_progress = false,
-        corr_error = nil,
+		corr_cache = {},
+		corr_in_progress = false,
+		corr_error = nil,
 
-        win_pos = imgui.ImVec2(100, 100),
-        win_size = imgui.ImVec2(1280, 650),
+		win_pos = imgui.ImVec2(100, 100),
+		win_size = imgui.ImVec2(1280, 650),
 }
 
 local function history_reset_index()
@@ -390,16 +390,16 @@ end
 
 -- ========= ПАРСИНГ BODY =========
 local function parse_dialog_body(body)
-    -- убираем цветовые коды {FFFFFF} и т.п.
-    local clean = body:gsub("{.-}", "")
-    
-    -- ищем ник после "Объявление от "
-    local nick = clean:match("Объявление от%s+([%w_]+)")
-    
-    -- ищем текст после "Сообщение:"
-    local msg = clean:match("Сообщение:%s*(.-)\n")
-    
-    return nick or "", msg
+	-- убираем цветовые коды {FFFFFF} и т.п.
+	local clean = body:gsub("{.-}", "")
+	
+	-- ищем ник после "Объявление от "
+	local nick = clean:match("Объявление от%s+([%w_]+)")
+	
+	-- ищем текст после "Сообщение:"
+	local msg = clean:match("Сообщение:%s*(.-)\n")
+	
+	return nick or "", msg
 	-- local nick = body:match("Объявление от%s+([^,%\r\n]+),")
 	-- -- local msg = body:match("Сообщение:%s*(.-)\r?\n\r?\n")
 	-- local msg = body:match("{33AA33}(.-)%s-{FFFFFF}")
@@ -456,19 +456,19 @@ end
 
 -- Открытие окна редактирования в режиме эмуляции
 function SMIHelp.OpenEditPreview(text, nick)
-        State.show_dialog[0] = true
-        State.last_dialog_id = nil
-        State.last_dialog_title = "Редактирование объявления"
-        State.last_dialog_text = ""
-        State.sender_nick = nick or "Пример"
-        State.original_ad_text = text or ""
-        State.auto_memory_used = false
-        State.cursor_action = nil
-        imgui.StrCopy(State.edit_buf, clamp80(text or ""))
-        State.want_focus_input = true
-        State.collapse_selection_after_focus = true
-        history_reset_index()
-        AD:reset()
+		State.show_dialog[0] = true
+		State.last_dialog_id = nil
+		State.last_dialog_title = "Редактирование объявления"
+		State.last_dialog_text = ""
+		State.sender_nick = nick or "Пример"
+		State.original_ad_text = text or ""
+		State.auto_memory_used = false
+		State.cursor_action = nil
+		imgui.StrCopy(State.edit_buf, clamp80(text or ""))
+		State.want_focus_input = true
+		State.collapse_selection_after_focus = true
+		history_reset_index()
+		AD:reset()
 end
 
 -- ========= КЭШИ ШАБЛОНОВ/КАТЕГОРИЙ =========
@@ -699,26 +699,26 @@ local function DrawTemplatesPanel(width, height)
 				local filter_line = ((cat ~= '' and (cat .. ': ') or '') .. combined)
 
 				if passFilter(filter_line, filter_str) then
-                                        if imgui.Selectable(line, false) then
-                                                seed_once()
-                                                local pick = group[math.random(1, #group)] or ""
-                                                pick = clamp80(pick)
-                                                imgui.StrCopy(State.edit_buf, pick)
-                                                State.cursor_action = 'to_first_empty_quotes'
-                                                State.cursor_action_data = nil
-                                                State.want_place_cursor = false
-                                                history_reset_index()
-                                        end
-                                        if imgui.IsItemClicked(1) then
-                                                imgui.SetClipboardText(line)
-                                        end
-                                        if imgui.IsItemHovered() then
-                                                imgui.SetTooltip(line)
-                                        end
-                                end
-                        end
-                end
-        end
+										if imgui.Selectable(line, false) then
+												seed_once()
+												local pick = group[math.random(1, #group)] or ""
+												pick = clamp80(pick)
+												imgui.StrCopy(State.edit_buf, pick)
+												State.cursor_action = 'to_first_empty_quotes'
+												State.cursor_action_data = nil
+												State.want_place_cursor = false
+												history_reset_index()
+										end
+										if imgui.IsItemClicked(1) then
+												imgui.SetClipboardText(line)
+										end
+										if imgui.IsItemHovered() then
+												imgui.SetTooltip(line)
+										end
+								end
+						end
+				end
+		end
 
 	imgui.EndChild()
 	imgui.EndChild()
@@ -731,23 +731,23 @@ local function DrawHistoryPanel(width, height)
 	local filter_str = str(State.filter_buf)
 	for _, v in ipairs(Config.data.history or {}) do
 		if passFilter(v, filter_str) then
-                        if imgui.Selectable(v, false) then
-                                local txt = clamp80(v)
-                                imgui.StrCopy(State.edit_buf, txt)
-                                State.cursor_action = 'to_end'
-                                State.cursor_action_data = nil
-                                history_reset_index()
-                        end
-                        if imgui.IsItemClicked(1) then
-                                imgui.SetClipboardText(v)
-                        end
-                        if imgui.IsItemHovered() then
-                                imgui.SetTooltip(v)
-                        end
-                end
-        end
-        imgui.EndChild()
-        imgui.EndChild()
+						if imgui.Selectable(v, false) then
+								local txt = clamp80(v)
+								imgui.StrCopy(State.edit_buf, txt)
+								State.cursor_action = 'to_end'
+								State.cursor_action_data = nil
+								history_reset_index()
+						end
+						if imgui.IsItemClicked(1) then
+								imgui.SetClipboardText(v)
+						end
+						if imgui.IsItemHovered() then
+								imgui.SetTooltip(v)
+						end
+				end
+		end
+		imgui.EndChild()
+		imgui.EndChild()
 end
 
 -- ========= КУРСОР: поиск позиций с циклическим обходом =========
@@ -917,26 +917,26 @@ end
 
 -- ========= Центрированный фильтр =========
 local function DrawCenteredFilter()
-        local style  = imgui.GetStyle()
-        local availX = imgui.GetContentRegionAvail().x
-        local inputW = math.floor(availX * 0.48)
-        local clearW = 70
-        local show_clear = str(State.filter_buf) ~= ""
-        local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
+		local style  = imgui.GetStyle()
+		local availX = imgui.GetContentRegionAvail().x
+		local inputW = math.floor(availX * 0.48)
+		local clearW = 70
+		local show_clear = str(State.filter_buf) ~= ""
+		local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
 
-        local x0 = imgui.GetCursorPosX()
-        imgui.SetCursorPosX(x0 + (availX - totalW) / 2)
+		local x0 = imgui.GetCursorPosX()
+		imgui.SetCursorPosX(x0 + (availX - totalW) / 2)
 
-        imgui.PushItemWidth(inputW)
-        local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
-        imgui.PopItemWidth()
+		imgui.PushItemWidth(inputW)
+		local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
+		imgui.PopItemWidth()
 
-        if show_clear then
-                imgui.SameLine()
-                if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
-                        imgui.StrCopy(State.filter_buf, "")
-                end
-        end
+		if show_clear then
+				imgui.SameLine()
+				if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
+						imgui.StrCopy(State.filter_buf, "")
+				end
+		end
 end
 
 -- ========= Блок «От кого и что прислано» =========
@@ -970,19 +970,19 @@ end
 imgui.OnFrame(
 	function() return State.show_dialog[0] end,
 	function()
-                imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
-                imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding,  6.0)
-                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding,6.0)
-                imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
+				imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
+				imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding,  6.0)
+				imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding,6.0)
+				imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
 
-                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
-                end
-                imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
-                imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
-                local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
-                State.win_pos = imgui.GetWindowPos()
-                State.win_size = imgui.GetWindowSize()
+				if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+						State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
+				end
+				imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
+				imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
+				local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
+				State.win_pos = imgui.GetWindowPos()
+				State.win_size = imgui.GetWindowSize()
 
 		if not State.show_dialog[0] then
 			reset_ui_state()
@@ -1030,42 +1030,42 @@ imgui.OnFrame(
 			)
 			local changed = imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
 
-                        imgui.Spacing()
-                        if imgui.SmallButton("Копировать текст") then
-                                imgui.SetClipboardText(str(State.edit_buf))
-                        end
-                        imgui.SameLine()
-                        if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
-                                if not State.corr_in_progress then handleCorrectionLite() end
-                        end
-                        imgui.SameLine()
-                        if imgui.SmallButton("К следующей кавычке") then
-                                State.cursor_action = 'to_next_quote'
-                                State.cursor_action_data = nil
-                                State.want_focus_input = true
-                                State.collapse_selection_after_focus = true
-                        end
-                        imgui.SameLine()
-                        if imgui.SmallButton("Курсор в конец") then
-                                State.cursor_action = 'to_end'
-                                State.cursor_action_data = nil
-                                State.want_focus_input = true
-                                State.collapse_selection_after_focus = true
-                        end
-                        if State.corr_error then
-                                imgui.SameLine()
-                                imgui.TextColored(imgui.ImVec4(1,0.4,0.4,1), "[Ошибка: "..State.corr_error.."]")
-                        end
+						imgui.Spacing()
+						if imgui.SmallButton("Копировать текст") then
+								imgui.SetClipboardText(str(State.edit_buf))
+						end
+						imgui.SameLine()
+						if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
+								if not State.corr_in_progress then handleCorrectionLite() end
+						end
+						imgui.SameLine()
+						if imgui.SmallButton("К следующей кавычке") then
+								State.cursor_action = 'to_next_quote'
+								State.cursor_action_data = nil
+								State.want_focus_input = true
+								State.collapse_selection_after_focus = true
+						end
+						imgui.SameLine()
+						if imgui.SmallButton("Курсор в конец") then
+								State.cursor_action = 'to_end'
+								State.cursor_action_data = nil
+								State.want_focus_input = true
+								State.collapse_selection_after_focus = true
+						end
+						if State.corr_error then
+								imgui.SameLine()
+								imgui.TextColored(imgui.ImVec4(1,0.4,0.4,1), "[Ошибка: "..State.corr_error.."]")
+						end
 
-                        local cur_text = str(State.edit_buf)
-                        local char_count = utf8_len(cur_text)
-                        imgui.Spacing()
-                        DrawCharLimitBar(char_count, INPUT_MAX)
+						local cur_text = str(State.edit_buf)
+						local char_count = utf8_len(cur_text)
+						imgui.Spacing()
+						DrawCharLimitBar(char_count, INPUT_MAX)
 
-                        imgui.PopItemWidth()
-                        if bigFont then imgui.PopFont() end
+						imgui.PopItemWidth()
+						if bigFont then imgui.PopFont() end
 
-                        imgui.EndChild()
+						imgui.EndChild()
 
 			if changed then
 				local old = str(State.edit_buf)
@@ -1076,66 +1076,66 @@ imgui.OnFrame(
 				end
 			end
 
-                        -- Кнопки действий + таймер блокировки и сохранение памяти по нику
-                        do
-                                local can_send = SMIHelp.timer_send
-                                local rem = timer_send_remaining()
-                                local btn_send_clicked = false
+						-- Кнопки действий + таймер блокировки и сохранение памяти по нику
+						do
+								local can_send = SMIHelp.timer_send
+								local rem = timer_send_remaining()
+								local btn_send_clicked = false
 
-                                local avail = imgui.GetContentRegionAvail().x
-                                local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
+								local avail = imgui.GetContentRegionAvail().x
+								local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
 
-                                if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) then
-                                        btn_send_clicked = true
-                                end
-                                imgui.SameLine()
-                                if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
-                                        if State.last_dialog_id then
-                                                local to_send_utf8 = str(State.edit_buf)
-                                                local to_send_cp = u8:decode(to_send_utf8)
-                                                sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
-                                                State.show_dialog[0] = false
-                                                AD:reset()
-                                                reset_ui_state()
-                                        end
-                                end
+								if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) then
+										btn_send_clicked = true
+								end
+								imgui.SameLine()
+								if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
+										if State.last_dialog_id then
+												local to_send_utf8 = str(State.edit_buf)
+												local to_send_cp = u8:decode(to_send_utf8)
+												sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
+												State.show_dialog[0] = false
+												AD:reset()
+												reset_ui_state()
+										end
+								end
 
-                                if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
-                                        local orig = clamp80(State.original_ad_text or "")
-                                        imgui.StrCopy(State.edit_buf, orig)
-                                        AD:reset()
-                                        history_reset_index()
-                                        State.want_focus_input = true
-                                        State.collapse_selection_after_focus = true
-                                end
-                                imgui.SameLine()
-                                imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
+								if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
+										local orig = clamp80(State.original_ad_text or "")
+										imgui.StrCopy(State.edit_buf, orig)
+										AD:reset()
+										history_reset_index()
+										State.want_focus_input = true
+										State.collapse_selection_after_focus = true
+								end
+								imgui.SameLine()
+								imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
 
-                                if not can_send then
-                                        imgui.Spacing()
-                                        imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
-                                end
+								if not can_send then
+										imgui.Spacing()
+										imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
+								end
 
-                                if btn_send_clicked then
-                                        if not can_send then
-                                                -- блокируем отправку
-                                        else
-                                                if State.last_dialog_id then
-                                                        local to_send_utf8 = str(State.edit_buf)
-                                                        local to_send_cp = u8:decode(to_send_utf8)
-                                                        sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
-                                                        add_to_history(to_send_utf8)
+								if btn_send_clicked then
+										if not can_send then
+												-- блокируем отправку
+										else
+												if State.last_dialog_id then
+														local to_send_utf8 = str(State.edit_buf)
+														local to_send_cp = u8:decode(to_send_utf8)
+														sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
+														add_to_history(to_send_utf8)
 
-                                                        -- сохраняем память по никнейму (перезапись + MRU-трим)
-                                                        nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
+														-- сохраняем память по никнейму (перезапись + MRU-трим)
+														nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
 
-                                                        State.show_dialog[0] = false
-                                                        AD:reset()
-                                                        reset_ui_state()
-                                                end
-                                        end
-                                end
-                        end
+														State.show_dialog[0] = false
+														AD:reset()
+														reset_ui_state()
+												end
+										end
+								end
+						end
 
 			imgui.Spacing()
 			LabelSeparator("Конструктор")
@@ -1177,7 +1177,7 @@ imgui.OnFrame(
 			local type_btns	 = Config.data.type_buttons
 			local obj_btns	 = Config.data.objects
 			local price_btns = Config.data.prices
-			local numpad     = NUMPAD
+			local numpad	 = NUMPAD
 			local currencies = Config.data.currencies
 			local addons	 = Config.data.addons
 

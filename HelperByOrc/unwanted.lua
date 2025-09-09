@@ -5,13 +5,13 @@
 
 local M = {}
 
-local imgui     = require 'mimgui'
-local ffi       = require 'ffi'
+local imgui	 = require 'mimgui'
+local ffi	   = require 'ffi'
 local encoding  = require 'encoding'
 encoding.default = 'CP1251'
-local u8        = encoding.UTF8
+local u8		= encoding.UTF8
 
-local str    = ffi.string
+local str	= ffi.string
 local sizeof = ffi.sizeof
 
 -- ИКОНКИ (fallback на текст)
@@ -22,48 +22,48 @@ local function I(glyph, text) return (okfa and glyph and (glyph .. " ") or "") .
 local CONFIG_PATH = "moonloader/HelperByOrc/unwanted.json"
 local cfg = {
   settings = {
-    enabled = true,
-    normalizer = { strip_colors = true, collapse_ws = false, trim = true },
-    max_pattern_len = 2048
+	enabled = true,
+	normalizer = { strip_colors = true, collapse_ws = false, trim = true },
+	max_pattern_len = 2048
   },
   ignore = {
-    -- { type="literal"|"pattern", text="...", enabled=true, nocase=false, whole_word=false }
+	-- { type="literal"|"pattern", text="...", enabled=true, nocase=false, whole_word=false }
   }
 }
 
 -- === Кэш (в CP1251) ===
 local compiled = {
-  literals = {},             -- { {s=cp1251, nocase, whole_word}, ... } только enabled
-  literals_by_first = {},    -- [byte] = { indices into 'literals' }
-  patterns = {},             -- { cp1251_pattern, ... } только enabled
+  literals = {},			 -- { {s=cp1251, nocase, whole_word}, ... } только enabled
+  literals_by_first = {},	-- [byte] = { indices into 'literals' }
+  patterns = {},			 -- { cp1251_pattern, ... } только enabled
   flat_patterns_cp1251 = {}, -- совместимость: единый список
 }
-local error_by_idx = {}      -- индекс правила -> текст ошибки (если паттерн невалиден)
+local error_by_idx = {}	  -- индекс правила -> текст ошибки (если паттерн невалиден)
 local invalid_count = 0
 
 -- === UI-состояние ===
-M.showWindow        = imgui.new.bool(false)
-local new_buf       = imgui.new.char[512]("")
-local new_is_pat    = imgui.new.bool(false)
-local new_nocase    = imgui.new.bool(false)
-local new_whole     = imgui.new.bool(false)
-local test_buf      = imgui.new.char[512]("")
-local last_match    = nil    -- { idx, kind, s_utf8, a,b }
-local selection     = {}     -- [idx] = true/false
+M.showWindow		= imgui.new.bool(false)
+local new_buf	   = imgui.new.char[512]("")
+local new_is_pat	= imgui.new.bool(false)
+local new_nocase	= imgui.new.bool(false)
+local new_whole	 = imgui.new.bool(false)
+local test_buf	  = imgui.new.char[512]("")
+local last_match	= nil	-- { idx, kind, s_utf8, a,b }
+local selection	 = {}	 -- [idx] = true/false
 local want_scroll_to_idx = -1
 
 -- Инлайн-редактор
 local editor = {}  -- [idx] = { editing=true, buf=char[512], is_pattern=bool, nocase=bool, whole=bool, enabled=bool }
 
 -- === Автопомощник (состояние) ===
-local helper_buf        = imgui.new.char[512]("")
-local hp_anchor         = imgui.new.bool(true)
-local hp_money          = imgui.new.bool(true)
-local hp_numbers        = imgui.new.bool(true)
-local hp_time           = imgui.new.bool(true)
-local hp_colors         = imgui.new.bool(true)
-local hp_nick           = imgui.new.bool(true)
-local hp_bracket_tag    = imgui.new.bool(true)
+local helper_buf		= imgui.new.char[512]("")
+local hp_anchor		 = imgui.new.bool(true)
+local hp_money		  = imgui.new.bool(true)
+local hp_numbers		= imgui.new.bool(true)
+local hp_time		   = imgui.new.bool(true)
+local hp_colors		 = imgui.new.bool(true)
+local hp_nick		   = imgui.new.bool(true)
+local hp_bracket_tag	= imgui.new.bool(true)
 local helper_exact_out  = ""   -- UTF-8
 local helper_general_out= ""   -- UTF-8
 
@@ -84,17 +84,17 @@ local function json_encode(tbl)
   -- tiny fallback
   local function esc(s) return tostring(s):gsub("\\","\\\\"):gsub('"','\\"') end
   local function dump(v)
-    local t = type(v)
-    if t=="table" then
-      local isArr, n = true, 0
-      for k,_ in pairs(v) do n=n+1; if k ~= n then isArr=false end end
-      local parts={}
-      if isArr then for i=1,#v do parts[#parts+1]=dump(v[i]) end
-      else for k,val in pairs(v) do parts[#parts+1]='"'..esc(k)..'":'..dump(val) end end
-      return (isArr and "["..table.concat(parts,",").."]" or "{"..table.concat(parts,",").."}")
-    elseif t=="string" then return '"'..esc(v)..'"'
-    elseif t=="number" or t=="boolean" then return tostring(v)
-    else return "null" end
+	local t = type(v)
+	if t=="table" then
+	  local isArr, n = true, 0
+	  for k,_ in pairs(v) do n=n+1; if k ~= n then isArr=false end end
+	  local parts={}
+	  if isArr then for i=1,#v do parts[#parts+1]=dump(v[i]) end
+	  else for k,val in pairs(v) do parts[#parts+1]='"'..esc(k)..'":'..dump(val) end end
+	  return (isArr and "["..table.concat(parts,",").."]" or "{"..table.concat(parts,",").."}")
+	elseif t=="string" then return '"'..esc(v)..'"'
+	elseif t=="number" or t=="boolean" then return tostring(v)
+	else return "null" end
   end
   return dump(tbl)
 end
@@ -116,9 +116,9 @@ local function normalize_cp1251(s)
   local t = s or ""
   local n = cfg.settings and cfg.settings.normalizer
   if n then
-    if n.strip_colors then t = t:gsub("{%x%x%x%x%x%x}", "") end
-    if n.collapse_ws then t = t:gsub("%s+", " ") end
-    if n.trim then t = t:match("^%s*(.-)%s*$") end
+	if n.strip_colors then t = t:gsub("{%x%x%x%x%x%x}", "") end
+	if n.collapse_ws then t = t:gsub("%s+", " ") end
+	if n.trim then t = t:match("^%s*(.-)%s*$") end
   end
   return t
 end
@@ -138,13 +138,13 @@ end
 local function load_cfg()
   local s = read_file(CONFIG_PATH)
   if not s or s == "" then
-    write_file(CONFIG_PATH, json_encode(cfg))
-    return
+	write_file(CONFIG_PATH, json_encode(cfg))
+	return
   end
   local t = json_decode(s)
   if type(t) == "table" then
-    cfg.settings = type(t.settings)=="table" and t.settings or cfg.settings
-    cfg.ignore   = type(t.ignore)=="table"   and t.ignore   or {}
+	cfg.settings = type(t.settings)=="table" and t.settings or cfg.settings
+	cfg.ignore   = type(t.ignore)=="table"   and t.ignore   or {}
   end
 end
 
@@ -161,10 +161,10 @@ local function rule_enabled(it) return it.enabled ~= false end
 local function lint_pattern(src)
   if #src > (tonumber(cfg.settings.max_pattern_len) or 2048) then return false, "Слишком длинный шаблон" end
   if src:find("%.%*") and not (src:find("^%^") or src:find("%$%s*$")) then
-    return false, "Жадный \".*\" без якорей ^ / $ (может тормозить)"
+	return false, "Жадный \".*\" без якорей ^ / $ (может тормозить)"
   end
   if src:find("%[%^.-%]%*%.%*") then
-    return false, "Подозрительный класс + жадность (может тормозить)"
+	return false, "Подозрительный класс + жадность (может тормозить)"
   end
   return true
 end
@@ -184,35 +184,35 @@ local function rebuild_cache()
   invalid_count = 0
 
   for i, it in ipairs(cfg.ignore) do
-    local kind  = (it.type == "pattern") and "pattern" or "literal"
-    local txt_u = tostring(it.text or "")
-    local txt_c = to_cp1251(txt_u)
-    local en    = rule_enabled(it)
+	local kind  = (it.type == "pattern") and "pattern" or "literal"
+	local txt_u = tostring(it.text or "")
+	local txt_c = to_cp1251(txt_u)
+	local en	= rule_enabled(it)
 
-    if kind == "literal" then
-      local rec = { s = txt_c, nocase = it.nocase and true or false, whole_word = it.whole_word and true or false }
-      if en and txt_c ~= "" then
-        local pos = #compiled.literals + 1
-        compiled.literals[pos] = rec
-        local b = txt_c:byte(1)
-        if b then
-          compiled.literals_by_first[b] = compiled.literals_by_first[b] or {}
-          table.insert(compiled.literals_by_first[b], pos)
-        end
-        compiled.flat_patterns_cp1251[#compiled.flat_patterns_cp1251+1] = escape_lua_magic(txt_c)
-      end
-    else -- pattern
-      if en then
-        local ok, err = is_valid_pattern(txt_c)
-        if ok then
-          compiled.patterns[#compiled.patterns+1] = txt_c
-          compiled.flat_patterns_cp1251[#compiled.flat_patterns_cp1251+1] = txt_c
-        else
-          error_by_idx[i] = err or "Некорректный Lua-шаблон"
-          invalid_count = invalid_count + 1
-        end
-      end
-    end
+	if kind == "literal" then
+	  local rec = { s = txt_c, nocase = it.nocase and true or false, whole_word = it.whole_word and true or false }
+	  if en and txt_c ~= "" then
+		local pos = #compiled.literals + 1
+		compiled.literals[pos] = rec
+		local b = txt_c:byte(1)
+		if b then
+		  compiled.literals_by_first[b] = compiled.literals_by_first[b] or {}
+		  table.insert(compiled.literals_by_first[b], pos)
+		end
+		compiled.flat_patterns_cp1251[#compiled.flat_patterns_cp1251+1] = escape_lua_magic(txt_c)
+	  end
+	else -- pattern
+	  if en then
+		local ok, err = is_valid_pattern(txt_c)
+		if ok then
+		  compiled.patterns[#compiled.patterns+1] = txt_c
+		  compiled.flat_patterns_cp1251[#compiled.flat_patterns_cp1251+1] = txt_c
+		else
+		  error_by_idx[i] = err or "Некорректный Lua-шаблон"
+		  invalid_count = invalid_count + 1
+		end
+	  end
+	end
   end
 end
 
@@ -222,14 +222,14 @@ local function match_literal(hay, needle, nocase, whole_word)
   if nocase then hs = hs:lower(); ns = ns:lower() end
   if ns == "" then return nil end
   if whole_word then
-    local pat = "%f[%w]" .. escape_lua_magic(ns) .. "%f[%W]"
-    local ok, a, b = pcall(string.find, hs, pat)
-    if ok and a then return a, b end
-    return nil
+	local pat = "%f[%w]" .. escape_lua_magic(ns) .. "%f[%W]"
+	local ok, a, b = pcall(string.find, hs, pat)
+	if ok and a then return a, b end
+	return nil
   else
-    local a, b = hs:find(ns, 1, true)
-    if a then return a, b end
-    return nil
+	local a, b = hs:find(ns, 1, true)
+	if a then return a, b end
+	return nil
   end
 end
 
@@ -243,19 +243,19 @@ function M.should_ignore(text_cp1251)
   local present = {}
   for i=1,#s do present[s:byte(i)] = true end
   for b, idxs in pairs(compiled.literals_by_first) do
-    if present[b] then
-      for _, pos in ipairs(idxs) do
-        local rec = compiled.literals[pos]
-        local a, _ = match_literal(s, rec.s, rec.nocase, rec.whole_word)
-        if a then return true end
-      end
-    end
+	if present[b] then
+	  for _, pos in ipairs(idxs) do
+		local rec = compiled.literals[pos]
+		local a, _ = match_literal(s, rec.s, rec.nocase, rec.whole_word)
+		if a then return true end
+	  end
+	end
   end
 
   -- Паттерны
   for _, p in ipairs(compiled.patterns) do
-    local ok, found = pcall(string.find, s, p)
-    if ok and found then return true end
+	local ok, found = pcall(string.find, s, p)
+	if ok and found then return true end
   end
   return false
 end
@@ -273,12 +273,12 @@ function M.save()   save_cfg(); rebuild_cache() end
 -- === Инлайн-редактор ===
 local function start_edit(idx, it)
   editor[idx] = {
-    editing    = true,
-    is_pattern = (it.type == "pattern"),
-    buf        = imgui.new.char[512](tostring(it.text or "")),
-    nocase     = it.nocase and true or false,
-    whole      = it.whole_word and true or false,
-    enabled    = rule_enabled(it)
+	editing	= true,
+	is_pattern = (it.type == "pattern"),
+	buf		= imgui.new.char[512](tostring(it.text or "")),
+	nocase	 = it.nocase and true or false,
+	whole	  = it.whole_word and true or false,
+	enabled	= rule_enabled(it)
   }
 end
 local function cancel_edit(idx) editor[idx] = nil end
@@ -287,15 +287,15 @@ local function apply_edit(idx)
   local txt  = str(st.buf)
   local kind = st.is_pattern and "pattern" or "literal"
   if st.is_pattern then
-    local ok, msg = is_valid_pattern(to_cp1251(txt))
-    if not ok then return end
+	local ok, msg = is_valid_pattern(to_cp1251(txt))
+	if not ok then return end
   end
   local it = {
-    type       = kind,
-    text       = txt,
-    enabled    = st.enabled and true or false,
-    nocase     = (not st.is_pattern) and (st.nocase and true or false) or nil,
-    whole_word = (not st.is_pattern) and (st.whole and true or false) or nil
+	type	   = kind,
+	text	   = txt,
+	enabled	= st.enabled and true or false,
+	nocase	 = (not st.is_pattern) and (st.nocase and true or false) or nil,
+	whole_word = (not st.is_pattern) and (st.whole and true or false) or nil
   }
   cfg.ignore[idx] = it
   editor[idx] = nil
@@ -305,8 +305,8 @@ local function swap_editor(i, j) editor[i], editor[j] = editor[j], editor[i] end
 local function remove_editor(idx)
   local new_e = {}
   for i, st in pairs(editor) do
-    if i < idx then new_e[i] = st
-    elseif i > idx then new_e[i - 1] = st end
+	if i < idx then new_e[i] = st
+	elseif i > idx then new_e[i - 1] = st end
   end
   editor = new_e
 end
@@ -316,10 +316,10 @@ local function remove_duplicates()
   local seen = {}
   local out = {}
   for _, it in ipairs(cfg.ignore) do
-    local key = (it.type or "") .. "\n" .. (it.text or "") ..
-                "\n" .. tostring(it.nocase and true or false) ..
-                "\n" .. tostring(it.whole_word and true or false)
-    if not seen[key] then seen[key] = true; out[#out+1] = it end
+	local key = (it.type or "") .. "\n" .. (it.text or "") ..
+				"\n" .. tostring(it.nocase and true or false) ..
+				"\n" .. tostring(it.whole_word and true or false)
+	if not seen[key] then seen[key] = true; out[#out+1] = it end
   end
   cfg.ignore = out
   rebuild_cache(); save_cfg()
@@ -328,21 +328,21 @@ end
 -- === Сортировка ===
 local function sort_by_type()
   table.sort(cfg.ignore, function(a,b)
-    local ka = (a.type=="literal") and 0 or 1
-    local kb = (b.type=="literal") and 0 or 1
-    if ka ~= kb then return ka < kb end
-    return (tostring(a.text or ""):lower() < tostring(b.text or ""):lower())
+	local ka = (a.type=="literal") and 0 or 1
+	local kb = (b.type=="literal") and 0 or 1
+	if ka ~= kb then return ka < kb end
+	return (tostring(a.text or ""):lower() < tostring(b.text or ""):lower())
   end)
   rebuild_cache(); save_cfg()
 end
 local function sort_by_text()
   table.sort(cfg.ignore, function(a,b)
-    local ta = tostring(a.text or ""):lower()
-    local tb = tostring(b.text or ""):lower()
-    if ta ~= tb then return ta < tb end
-    local ka = (a.type=="literal") and 0 or 1
-    local kb = (b.type=="literal") and 0 or 1
-    return ka < kb
+	local ta = tostring(a.text or ""):lower()
+	local tb = tostring(b.text or ""):lower()
+	if ta ~= tb then return ta < tb end
+	local ka = (a.type=="literal") and 0 or 1
+	local kb = (b.type=="literal") and 0 or 1
+	return ka < kb
   end)
   rebuild_cache(); save_cfg()
 end
@@ -358,9 +358,9 @@ local function bulk_delete()
   local idxs = selected_indices()
   if #idxs == 0 then return end
   for k = #idxs, 1, -1 do
-    local i = idxs[k]
-    table.remove(cfg.ignore, i)
-    remove_editor(i)
+	local i = idxs[k]
+	table.remove(cfg.ignore, i)
+	remove_editor(i)
   end
   selection = {}
   rebuild_cache(); save_cfg()
@@ -369,8 +369,8 @@ local function bulk_set_enabled(value)
   local idxs = selected_indices()
   if #idxs == 0 then return end
   for _, i in ipairs(idxs) do
-    local it = cfg.ignore[i]
-    if it then it.enabled = value and true or false end
+	local it = cfg.ignore[i]
+	if it then it.enabled = value and true or false end
   end
   rebuild_cache(); save_cfg()
 end
@@ -390,43 +390,43 @@ local function run_tester()
   local present = {}
   for i=1,#s do present[s:byte(i)] = true end
   for b, idxs in pairs(compiled.literals_by_first) do
-    if present[b] then
-      for _, pos in ipairs(idxs) do
-        local rec = compiled.literals[pos]
-        local a, bpos = match_literal(s, rec.s, rec.nocase, rec.whole_word)
-        if a then
-          local sub_cp = s:sub(a, bpos)
-          local hit_idx = -1
-          for i, it in ipairs(cfg.ignore) do
-            if rule_enabled(it) and it.type=="literal" then
-              if to_cp1251(it.text or "") == rec.s and
-                 (it.nocase and true or false) == (rec.nocase and true or false) and
-                 (it.whole_word and true or false) == (rec.whole and true or false)
-              then hit_idx = i; break end
-            end
-          end
-          last_match = { kind="literal", idx=hit_idx, a=a, b=bpos, s_utf8=to_utf8(sub_cp) }
-          if hit_idx > 0 then
-            selection = {}; selection[hit_idx] = true; want_scroll_to_idx = hit_idx
-          end
-          return
-        end
-      end
-    end
+	if present[b] then
+	  for _, pos in ipairs(idxs) do
+		local rec = compiled.literals[pos]
+		local a, bpos = match_literal(s, rec.s, rec.nocase, rec.whole_word)
+		if a then
+		  local sub_cp = s:sub(a, bpos)
+		  local hit_idx = -1
+		  for i, it in ipairs(cfg.ignore) do
+			if rule_enabled(it) and it.type=="literal" then
+			  if to_cp1251(it.text or "") == rec.s and
+				 (it.nocase and true or false) == (rec.nocase and true or false) and
+				 (it.whole_word and true or false) == (rec.whole and true or false)
+			  then hit_idx = i; break end
+			end
+		  end
+		  last_match = { kind="literal", idx=hit_idx, a=a, b=bpos, s_utf8=to_utf8(sub_cp) }
+		  if hit_idx > 0 then
+			selection = {}; selection[hit_idx] = true; want_scroll_to_idx = hit_idx
+		  end
+		  return
+		end
+	  end
+	end
   end
 
   -- patterns
   for i, it in ipairs(cfg.ignore) do
-    if rule_enabled(it) and it.type == "pattern" then
-      local p = to_cp1251(it.text or "")
-      local ok, a, bpos = pcall(string.find, s, p)
-      if ok and a then
-        local sub_cp = s:sub(a, bpos)
-        last_match = { kind="pattern", idx=i, a=a, b=bpos, s_utf8=to_utf8(sub_cp) }
-        selection = {}; selection[i] = true; want_scroll_to_idx = i
-        return
-      end
-    end
+	if rule_enabled(it) and it.type == "pattern" then
+	  local p = to_cp1251(it.text or "")
+	  local ok, a, bpos = pcall(string.find, s, p)
+	  if ok and a then
+		local sub_cp = s:sub(a, bpos)
+		last_match = { kind="pattern", idx=i, a=a, b=bpos, s_utf8=to_utf8(sub_cp) }
+		selection = {}; selection[i] = true; want_scroll_to_idx = i
+		return
+	  end
+	end
   end
 end
 
@@ -441,59 +441,59 @@ local function helper_generate(sample_utf8, opts)
 
   -- Цвета {ffffff} → {%x%x%x%x%x%x}
   if opts.colors then
-    for token in cp:gmatch("{%x%x%x%x%x%x}") do
-      local esc_token = escape_lua_magic(token)
-      gen = gen:gsub(esc_token, "{%%x%%x%%x%%x%%x%%x}")
-    end
+	for token in cp:gmatch("{%x%x%x%x%x%x}") do
+	  local esc_token = escape_lua_magic(token)
+	  gen = gen:gsub(esc_token, "{%%x%%x%%x%%x%%x%%x}")
+	end
   end
 
   -- Деньги $18.400 → \%$%d[%d%.,]*
   if opts.money then
-    for token in cp:gmatch("%$%d[%d%.,]*") do
-      local esc_token = escape_lua_magic(token)
-      gen = gen:gsub(esc_token, "%%$%%d[%d%.,]*")
-    end
+	for token in cp:gmatch("%$%d[%d%.,]*") do
+	  local esc_token = escape_lua_magic(token)
+	  gen = gen:gsub(esc_token, "%%$%%d[%d%.,]*")
+	end
   end
 
   -- Время 12:34 → %d%d:%d%d
   if opts.time then
-    for token in cp:gmatch("%d%d:%d%d") do
-      local esc_token = escape_lua_magic(token)
-      gen = gen:gsub(esc_token, "%%d%%d:%%d%%d")
-    end
+	for token in cp:gmatch("%d%d:%d%d") do
+	  local esc_token = escape_lua_magic(token)
+	  gen = gen:gsub(esc_token, "%%d%%d:%%d%%d")
+	end
   end
 
   -- Числа 123, 18.400 → %d+ (после денег/времени)
   if opts.numbers then
-    for token in cp:gmatch("%d[%d%.,]*") do
-      local esc_token = escape_lua_magic(token)
-      gen = gen:gsub(esc_token, "%%d+")
-    end
+	for token in cp:gmatch("%d[%d%.,]*") do
+	  local esc_token = escape_lua_magic(token)
+	  gen = gen:gsub(esc_token, "%%d+")
+	end
   end
 
   -- Ник Имя_Фамилия → %w+_%w+ (просто и понятно)
   if opts.nick then
-    for token in cp:gmatch("([A-Za-z\192-\255\168\184]+_[A-Za-z\192-\255\168\184]+)") do
-      local esc_token = escape_lua_magic(token)
-      gen = gen:gsub(esc_token, "%%w+_%%w+")
-    end
+	for token in cp:gmatch("([A-Za-z\192-\255\168\184]+_[A-Za-z\192-\255\168\184]+)") do
+	  local esc_token = escape_lua_magic(token)
+	  gen = gen:gsub(esc_token, "%%w+_%%w+")
+	end
   end
 
   -- Тег в квадратных скобках в начале → %b[]
   if opts.bracket_tag then
-    local tag = cp:match("^%[(.-)%]")
-    if tag then
-      local token = "["..tag.."]"
-      local esc_token = escape_lua_magic(token)
-      -- заменим первое вхождение на %b[]
-      gen = gen:gsub(esc_token, "%%b[]", 1)
-    end
+	local tag = cp:match("^%[(.-)%]")
+	if tag then
+	  local token = "["..tag.."]"
+	  local esc_token = escape_lua_magic(token)
+	  -- заменим первое вхождение на %b[]
+	  gen = gen:gsub(esc_token, "%%b[]", 1)
+	end
   end
 
   -- Якоря
   if opts.anchor then
-    esc = "^" .. esc .. "$"
-    gen = "^" .. gen .. "$"
+	esc = "^" .. esc .. "$"
+	gen = "^" .. gen .. "$"
   end
 
   return { exact = to_utf8(esc), generalized = to_utf8(gen) }
@@ -504,8 +504,8 @@ local function draw_rule_row(idx, item)
   imgui.PushIDInt(idx)
 
   if want_scroll_to_idx == idx and imgui.SetScrollHereY then
-    imgui.SetScrollHereY(0.20)
-    want_scroll_to_idx = -1
+	imgui.SetScrollHereY(0.20)
+	want_scroll_to_idx = -1
   end
 
   TextRaw(("#%d"):format(idx)); imgui.SameLine()
@@ -519,92 +519,92 @@ local function draw_rule_row(idx, item)
   Tooltip("Включить/выключить именно это правило"); imgui.SameLine()
 
   local typelabel =
-    (item.type == "pattern") and (okfa and (fa.CODE .. " Шаблон") or "[PATTERN] Шаблон")
-                              or  (okfa and (fa.QUOTE_LEFT .. " Точная") or "[LITERAL] Точная")
+	(item.type == "pattern") and (okfa and (fa.CODE .. " Шаблон") or "[PATTERN] Шаблон")
+							  or  (okfa and (fa.QUOTE_LEFT .. " Точная") or "[LITERAL] Точная")
   TextRaw(typelabel); HelpMark(
-    (item.type=="pattern")
-      and "Шаблон — продвинутое правило по образцу (Lua-паттерн).\nПримеры:\n• ^%[AD%] — строки, начинающиеся с [AD]\n• %d+ — одна или больше цифр\n• %w+_%w+ — ник Имя_Фамилия\n• ^Текст$ — точное совпадение всей строки\nСовет: избегайте «.*» без якорей ^ и $ — это может тормозить."
-      or "Точная — простая подстрока без спецсимволов.\nСоветы:\n• «Без регистра» — игнорирует регистр.\n• «Целое слово» — только отдельное слово (не часть)."
+	(item.type=="pattern")
+	  and "Шаблон — продвинутое правило по образцу (Lua-паттерн).\nПримеры:\n• ^%[AD%] — строки, начинающиеся с [AD]\n• %d+ — одна или больше цифр\n• %w+_%w+ — ник Имя_Фамилия\n• ^Текст$ — точное совпадение всей строки\nСовет: избегайте «.*» без якорей ^ и $ — это может тормозить."
+	  or "Точная — простая подстрока без спецсимволов.\nСоветы:\n• «Без регистра» — игнорирует регистр.\n• «Целое слово» — только отдельное слово (не часть)."
   )
   imgui.SameLine()
 
   if SmallBtn(okfa and (fa.ANGLE_UP .. " Вверх") or "[UP]", "Переместить выше") and idx > 1 then
-    cfg.ignore[idx], cfg.ignore[idx-1] = cfg.ignore[idx-1], cfg.ignore[idx]
-    selection[idx], selection[idx-1] = selection[idx-1], selection[idx]
-    swap_editor(idx, idx-1)
-    rebuild_cache()
+	cfg.ignore[idx], cfg.ignore[idx-1] = cfg.ignore[idx-1], cfg.ignore[idx]
+	selection[idx], selection[idx-1] = selection[idx-1], selection[idx]
+	swap_editor(idx, idx-1)
+	rebuild_cache()
   end
   imgui.SameLine()
   if SmallBtn(okfa and (fa.ANGLE_DOWN .. " Вниз") or "[DOWN]", "Переместить ниже") and idx < #cfg.ignore then
-    cfg.ignore[idx], cfg.ignore[idx+1] = cfg.ignore[idx+1], cfg.ignore[idx]
-    selection[idx], selection[idx+1] = selection[idx+1], selection[idx]
-    swap_editor(idx, idx+1)
-    rebuild_cache()
+	cfg.ignore[idx], cfg.ignore[idx+1] = cfg.ignore[idx+1], cfg.ignore[idx]
+	selection[idx], selection[idx+1] = selection[idx+1], selection[idx]
+	swap_editor(idx, idx+1)
+	rebuild_cache()
   end
   imgui.SameLine()
   if SmallBtn(okfa and (fa.PEN .. " Редактировать") or "[EDIT]", "Редактировать") then
-    start_edit(idx, item)
+	start_edit(idx, item)
   end
   imgui.SameLine()
   if SmallBtn(okfa and (fa.TRASH_CAN .. " Удалить") or "[DEL]", "Удалить правило") then
-    table.remove(cfg.ignore, idx)
-    remove_editor(idx)
-    selection[idx] = nil
-    rebuild_cache()
-    imgui.PopID(); imgui.Separator(); return
+	table.remove(cfg.ignore, idx)
+	remove_editor(idx)
+	selection[idx] = nil
+	rebuild_cache()
+	imgui.PopID(); imgui.Separator(); return
   end
 
   local st = editor[idx]
   if st and st.editing then
-    imgui.InputText("##edit_text", st.buf, sizeof(st.buf))
-    Tooltip("Текст правила. Для шаблонов — Lua-паттерн.\nПримеры:\n• ^%[Подсказка%]\n• %d+ (числа)\n• %w+_%w+ (ник)\n• ^Текст$ (строка целиком)")
+	imgui.InputText("##edit_text", st.buf, sizeof(st.buf))
+	Tooltip("Текст правила. Для шаблонов — Lua-паттерн.\nПримеры:\n• ^%[Подсказка%]\n• %d+ (числа)\n• %w+_%w+ (ник)\n• ^Текст$ (строка целиком)")
 
-    imgui.SameLine()
-    local isp = ffi.new("bool[1]", st.is_pattern and true or false)
-    if imgui.Checkbox(okfa and (fa.CODE .. " Lua-шаблон") or "Lua-шаблон", isp) then st.is_pattern = isp[0] and true or false end
-    Tooltip("Включите, если хотите использовать шаблон (Lua-паттерн) вместо точной подстроки.")
-    imgui.SameLine()
-    local en2 = ffi.new("bool[1]", st.enabled and true or false)
-    if imgui.Checkbox("Вкл", en2) then st.enabled = en2[0] and true or false end
-    Tooltip("Включает/выключает это правило.")
+	imgui.SameLine()
+	local isp = ffi.new("bool[1]", st.is_pattern and true or false)
+	if imgui.Checkbox(okfa and (fa.CODE .. " Lua-шаблон") or "Lua-шаблон", isp) then st.is_pattern = isp[0] and true or false end
+	Tooltip("Включите, если хотите использовать шаблон (Lua-паттерн) вместо точной подстроки.")
+	imgui.SameLine()
+	local en2 = ffi.new("bool[1]", st.enabled and true or false)
+	if imgui.Checkbox("Вкл", en2) then st.enabled = en2[0] and true or false end
+	Tooltip("Включает/выключает это правило.")
 
-    if not st.is_pattern then
-      imgui.SameLine()
-      local nc = ffi.new("bool[1]", st.nocase and true or false)
-      if imgui.Checkbox("Без регистра", nc) then st.nocase = nc[0] and true or false end
-      Tooltip("Искать без учёта регистра.\nПример: «vip» найдёт «VIP», «Vip», «vIp».")
-      imgui.SameLine()
-      local wh = ffi.new("bool[1]", st.whole and true or false)
-      if imgui.Checkbox("Целое слово", wh) then st.whole = wh[0] and true or false end
-      Tooltip("Совпадение только как отдельного слова.\nПример: «vip» не сработает на «vipка», но сработает на «... vip ...».")
-    end
+	if not st.is_pattern then
+	  imgui.SameLine()
+	  local nc = ffi.new("bool[1]", st.nocase and true or false)
+	  if imgui.Checkbox("Без регистра", nc) then st.nocase = nc[0] and true or false end
+	  Tooltip("Искать без учёта регистра.\nПример: «vip» найдёт «VIP», «Vip», «vIp».")
+	  imgui.SameLine()
+	  local wh = ffi.new("bool[1]", st.whole and true or false)
+	  if imgui.Checkbox("Целое слово", wh) then st.whole = wh[0] and true or false end
+	  Tooltip("Совпадение только как отдельного слова.\nПример: «vip» не сработает на «vipка», но сработает на «... vip ...».")
+	end
 
-    if SmallBtn(okfa and (fa.CHECK .. " Сохранить") or "[SAVE]", "Сохранить изменения") then apply_edit(idx) end
-    imgui.SameLine()
-    if SmallBtn(okfa and (fa.XMARK .. " Отмена") or "[CANCEL]", "Отменить изменения") then cancel_edit(idx) end
+	if SmallBtn(okfa and (fa.CHECK .. " Сохранить") or "[SAVE]", "Сохранить изменения") then apply_edit(idx) end
+	imgui.SameLine()
+	if SmallBtn(okfa and (fa.XMARK .. " Отмена") or "[CANCEL]", "Отменить изменения") then cancel_edit(idx) end
 
-    if st.is_pattern then
-      local ok, msg = is_valid_pattern(to_cp1251(str(st.buf)))
-      TextRaw(ok and (okfa and (fa.CHECK .. " Валидно") or "[OK] Валидно")
-                 or (okfa and (fa.TRIANGLE_EXCLAMATION .. " Ошибка: "..(msg or "")) or "[ERROR] "..(msg or "")))
-    end
+	if st.is_pattern then
+	  local ok, msg = is_valid_pattern(to_cp1251(str(st.buf)))
+	  TextRaw(ok and (okfa and (fa.CHECK .. " Валидно") or "[OK] Валидно")
+				 or (okfa and (fa.TRIANGLE_EXCLAMATION .. " Ошибка: "..(msg or "")) or "[ERROR] "..(msg or "")))
+	end
   else
-    local tags = {}
-    if item.type == "literal" then
-      if item.nocase then tags[#tags+1] = "[nocase]" end
-      if item.whole_word then tags[#tags+1] = "[word]" end
-    end
-    if #tags > 0 then TextRaw(table.concat(tags, " ")) end
+	local tags = {}
+	if item.type == "literal" then
+	  if item.nocase then tags[#tags+1] = "[nocase]" end
+	  if item.whole_word then tags[#tags+1] = "[word]" end
+	end
+	if #tags > 0 then TextRaw(table.concat(tags, " ")) end
 
-    local err = error_by_idx[idx]
-    if err then
-      TextWrappedRaw((item.text or "").."   "..(okfa and (fa.TRIANGLE_EXCLAMATION.." Ошибка: "..tostring(err)) or ("[ERROR] "..tostring(err))))
-    else
-      TextWrappedRaw(item.text or "")
-    end
-    if last_match and last_match.idx == idx then
-      TextRaw(okfa and (fa.CHECK .. " ← совпадение (тестер)") or "<- совпадение (тестер)")
-    end
+	local err = error_by_idx[idx]
+	if err then
+	  TextWrappedRaw((item.text or "").."   "..(okfa and (fa.TRIANGLE_EXCLAMATION.." Ошибка: "..tostring(err)) or ("[ERROR] "..tostring(err))))
+	else
+	  TextWrappedRaw(item.text or "")
+	end
+	if last_match and last_match.idx == idx then
+	  TextRaw(okfa and (fa.CHECK .. " ← совпадение (тестер)") or "<- совпадение (тестер)")
+	end
   end
 
   imgui.Separator()
@@ -614,49 +614,49 @@ end
 -- === ГЛАВНОЕ ОКНО ===
 function M.DrawWindow(inline)
   if not inline then
-    if not M.showWindow[0] then return end
-    imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
-    imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse)
+	if not M.showWindow[0] then return end
+	imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
+	imgui.Begin(I(fa.SHIELD, "Игнорируемые сообщения").."##unwanted", M.showWindow, imgui.WindowFlags.NoCollapse)
   end
 
   -- Верхняя панель
   do
-    local en = ffi.new("bool[1]", cfg.settings.enabled and true or false)
-    if imgui.Checkbox(I(fa.TOGGLE_ON, "Включить фильтр"), en) then
-      cfg.settings.enabled = en[0] and true or false
-      save_cfg()
-    end
-    Tooltip("Главный переключатель: включить/выключить весь фильтр.")
+	local en = ffi.new("bool[1]", cfg.settings.enabled and true or false)
+	if imgui.Checkbox(I(fa.TOGGLE_ON, "Включить фильтр"), en) then
+	  cfg.settings.enabled = en[0] and true or false
+	  save_cfg()
+	end
+	Tooltip("Главный переключатель: включить/выключить весь фильтр.")
 
-    imgui.SameLine()
-    if imgui.Button(I(fa.FLOPPY_DISK, "Сохранить")) then M.save() end; Tooltip("Сохранить конфиг на диск.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.FLOPPY_DISK, "Сохранить")) then M.save() end; Tooltip("Сохранить конфиг на диск.")
 
-    imgui.SameLine()
-    if imgui.Button(I(fa.ROTATE_RIGHT, "Перечитать")) then M.reload() end; Tooltip("Перечитать конфиг с диска.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.ROTATE_RIGHT, "Перечитать")) then M.reload() end; Tooltip("Перечитать конфиг с диска.")
 
-    imgui.SameLine()
-    if imgui.Button(I(fa.TOGGLE_ON, "Включить все")) then set_all_enabled(true) end; Tooltip("Включить ВСЕ правила.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить все")) then set_all_enabled(false) end; Tooltip("Выключить ВСЕ правила.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.TOGGLE_ON, "Включить все")) then set_all_enabled(true) end; Tooltip("Включить ВСЕ правила.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить все")) then set_all_enabled(false) end; Tooltip("Выключить ВСЕ правила.")
 
-    imgui.SameLine()
-    TextRaw(I(fa.GEARS, "Нормализация:"))
-    imgui.SameLine()
-    local n = cfg.settings.normalizer or {}
-    local sc = ffi.new("bool[1]", n.strip_colors and true or false)
-    if imgui.Checkbox("Без {цветов}", sc) then n.strip_colors = sc[0] and true or false; cfg.settings.normalizer = n; save_cfg(); rebuild_cache() end
-    Tooltip("Убирает цветовые коды вида {FFFFFF} из входящего текста перед проверкой.\nРекомендуется оставить включённым.")
-    imgui.SameLine()
-    local cw = ffi.new("bool[1]", n.collapse_ws and true or false)
-    if imgui.Checkbox("Схлоп. пробелы", cw) then n.collapse_ws = cw[0] and true or false; cfg.settings.normalizer = n; save_cfg() end
-    Tooltip("Заменяет подряд идущие пробелы на один. Помогает, если в чат летят «лохматые» пробелы.")
-    imgui.SameLine()
-    local tr = ffi.new("bool[1]", n.trim and true or false)
-    if imgui.Checkbox("Trim", tr) then n.trim = tr[0] and true or false; cfg.settings.normalizer = n; save_cfg() end
-    Tooltip("Удаляет пробелы в начале и конце строки.\nПолезно при копировании текста из чата.")
+	imgui.SameLine()
+	TextRaw(I(fa.GEARS, "Нормализация:"))
+	imgui.SameLine()
+	local n = cfg.settings.normalizer or {}
+	local sc = ffi.new("bool[1]", n.strip_colors and true or false)
+	if imgui.Checkbox("Без {цветов}", sc) then n.strip_colors = sc[0] and true or false; cfg.settings.normalizer = n; save_cfg(); rebuild_cache() end
+	Tooltip("Убирает цветовые коды вида {FFFFFF} из входящего текста перед проверкой.\nРекомендуется оставить включённым.")
+	imgui.SameLine()
+	local cw = ffi.new("bool[1]", n.collapse_ws and true or false)
+	if imgui.Checkbox("Схлоп. пробелы", cw) then n.collapse_ws = cw[0] and true or false; cfg.settings.normalizer = n; save_cfg() end
+	Tooltip("Заменяет подряд идущие пробелы на один. Помогает, если в чат летят «лохматые» пробелы.")
+	imgui.SameLine()
+	local tr = ffi.new("bool[1]", n.trim and true or false)
+	if imgui.Checkbox("Trim", tr) then n.trim = tr[0] and true or false; cfg.settings.normalizer = n; save_cfg() end
+	Tooltip("Удаляет пробелы в начале и конце строки.\nПолезно при копировании текста из чата.")
 
-    imgui.SameLine()
-    TextRaw(I(fa.LIST, (" Правил: %d | Ошибок: %d"):format(#cfg.ignore, invalid_count)))
+	imgui.SameLine()
+	TextRaw(I(fa.LIST, (" Правил: %d | Ошибок: %d"):format(#cfg.ignore, invalid_count)))
   end
 
   imgui.Separator()
@@ -664,35 +664,35 @@ function M.DrawWindow(inline)
 
   -- Массовые операции
   do
-    if imgui.Button(I(fa.SQUARE_CHECK or fa.CHECK, "Выделить все")) then
-      for i=1,#cfg.ignore do selection[i] = true end
-    end; Tooltip("Выделить весь список правил.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.SQUARE_MINUS or fa.MINUS, "Снять выделение")) then selection = {} end; Tooltip("Снять выделение со всех правил.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.TRASH_CAN, "Удалить выделенные")) then bulk_delete() end; Tooltip("Удалить все выделенные правила.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.TOGGLE_ON, "Включить выделенные")) then bulk_set_enabled(true) end; Tooltip("Включить все выделенные правила.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить выделенные")) then bulk_set_enabled(false) end; Tooltip("Выключить все выделенные правила.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.RECYCLE or fa.REPEAT, "Удалить дубли")) then remove_duplicates() end; Tooltip("Удаляет дубликаты (совпадают тип, текст и флаги).")
-    imgui.SameLine()
-    if imgui.Button(I(fa.LIST_OL or fa.SORT_UP, "Сортировать по типу")) then sort_by_type() end; Tooltip("Сначала точные, затем шаблоны. Внутри — по тексту.")
-    imgui.SameLine()
-    if imgui.Button(I(fa.LIST_UL or fa.SORT_UP, "Сортировать по тексту")) then sort_by_text() end; Tooltip("Чистая алфавитная сортировка по тексту.")
+	if imgui.Button(I(fa.SQUARE_CHECK or fa.CHECK, "Выделить все")) then
+	  for i=1,#cfg.ignore do selection[i] = true end
+	end; Tooltip("Выделить весь список правил.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.SQUARE_MINUS or fa.MINUS, "Снять выделение")) then selection = {} end; Tooltip("Снять выделение со всех правил.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.TRASH_CAN, "Удалить выделенные")) then bulk_delete() end; Tooltip("Удалить все выделенные правила.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.TOGGLE_ON, "Включить выделенные")) then bulk_set_enabled(true) end; Tooltip("Включить все выделенные правила.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить выделенные")) then bulk_set_enabled(false) end; Tooltip("Выключить все выделенные правила.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.RECYCLE or fa.REPEAT, "Удалить дубли")) then remove_duplicates() end; Tooltip("Удаляет дубликаты (совпадают тип, текст и флаги).")
+	imgui.SameLine()
+	if imgui.Button(I(fa.LIST_OL or fa.SORT_UP, "Сортировать по типу")) then sort_by_type() end; Tooltip("Сначала точные, затем шаблоны. Внутри — по тексту.")
+	imgui.SameLine()
+	if imgui.Button(I(fa.LIST_UL or fa.SORT_UP, "Сортировать по тексту")) then sort_by_text() end; Tooltip("Чистая алфавитная сортировка по тексту.")
   end
 
   -- Список
   local list_h = 330
   if imgui.BeginChild("list_ignore", imgui.ImVec2(0, list_h), true) then
-    if #cfg.ignore == 0 then
-      TextRaw("Пусто. Добавьте правило ниже.")
-      imgui.Separator()
-    else
-      for i, it in ipairs(cfg.ignore) do draw_rule_row(i, it) end
-    end
-    imgui.EndChild()
+	if #cfg.ignore == 0 then
+	  TextRaw("Пусто. Добавьте правило ниже.")
+	  imgui.Separator()
+	else
+	  for i, it in ipairs(cfg.ignore) do draw_rule_row(i, it) end
+	end
+	imgui.EndChild()
   end
 
   -- Добавление
@@ -712,21 +712,21 @@ function M.DrawWindow(inline)
 
   imgui.SameLine()
   if imgui.Button(I(fa.SQUARE_PLUS, "Добавить")) then
-    local txt = str(new_buf)
-    if txt ~= "" then
-      local it = {
-        type = new_is_pat[0] and "pattern" or "literal",
-        text = txt,
-        enabled = true
-      }
-      if not new_is_pat[0] then
-        it.nocase = new_nocase[0] and true or false
-        it.whole_word = new_whole[0] and true or false
-      end
-      table.insert(cfg.ignore, it)
-      ffi.fill(new_buf, 512); new_is_pat[0] = false; new_nocase[0] = false; new_whole[0] = false
-      rebuild_cache(); save_cfg()
-    end
+	local txt = str(new_buf)
+	if txt ~= "" then
+	  local it = {
+		type = new_is_pat[0] and "pattern" or "literal",
+		text = txt,
+		enabled = true
+	  }
+	  if not new_is_pat[0] then
+		it.nocase = new_nocase[0] and true or false
+		it.whole_word = new_whole[0] and true or false
+	  end
+	  table.insert(cfg.ignore, it)
+	  ffi.fill(new_buf, 512); new_is_pat[0] = false; new_nocase[0] = false; new_whole[0] = false
+	  rebuild_cache(); save_cfg()
+	end
   end
 
   -- Тестер
@@ -738,11 +738,11 @@ function M.DrawWindow(inline)
   if imgui.Button(I(fa.MAGNIFYING_GLASS, "Проверить")) then run_tester() end
   imgui.SameLine()
   if last_match and last_match.idx and last_match.idx > 0 then
-    TextRaw(I(fa.CHECK, (" Совпало с правилом #%d (%s)"):format(last_match.idx, last_match.kind)))
-    TextWrappedRaw("Подстрока: " .. (last_match.s_utf8 or ""))
-    TextRaw(("Позиция: %d..%d"):format(last_match.a or 0, last_match.b or 0))
+	TextRaw(I(fa.CHECK, (" Совпало с правилом #%d (%s)"):format(last_match.idx, last_match.kind)))
+	TextWrappedRaw("Подстрока: " .. (last_match.s_utf8 or ""))
+	TextRaw(("Позиция: %d..%d"):format(last_match.a or 0, last_match.b or 0))
   else
-    TextRaw("Совпадений нет")
+	TextRaw("Совпадений нет")
   end
 
   -- Автопомощник
@@ -767,60 +767,60 @@ function M.DrawWindow(inline)
   imgui.Checkbox("Тег [..] в начале", hp_bracket_tag); Tooltip("Если строка начинается с [Текст], заменит его на «%b[]».")
 
   if imgui.Button(I(fa.WAND_MAGIC or fa.MAGIC, "Сгенерировать")) then
-    local opts = {
-      anchor = hp_anchor[0], money = hp_money[0], numbers = hp_numbers[0],
-      time = hp_time[0], colors = hp_colors[0], nick = hp_nick[0],
-      bracket_tag = hp_bracket_tag[0]
-    }
-    local out = helper_generate(str(helper_buf), opts)
-    helper_exact_out   = out.exact or ""
-    helper_general_out = out.generalized or ""
+	local opts = {
+	  anchor = hp_anchor[0], money = hp_money[0], numbers = hp_numbers[0],
+	  time = hp_time[0], colors = hp_colors[0], nick = hp_nick[0],
+	  bracket_tag = hp_bracket_tag[0]
+	}
+	local out = helper_generate(str(helper_buf), opts)
+	helper_exact_out   = out.exact or ""
+	helper_general_out = out.generalized or ""
   end
 
   if helper_exact_out ~= "" or helper_general_out ~= "" then
-    imgui.Separator()
-    TextRaw("Подсказки:");
-    if helper_exact_out ~= "" then
-      TextRaw("• Точный (экранированный):"); TextWrappedRaw(helper_exact_out)
-      imgui.SameLine()
-      if imgui.Button("[ADD exact]") then
-        table.insert(cfg.ignore, { type="pattern", text = helper_exact_out, enabled=true })
-        rebuild_cache(); save_cfg()
-      end
-      imgui.SameLine()
-      if imgui.Button("[COPY exact]") and imgui.SetClipboardText then imgui.SetClipboardText(helper_exact_out) end
-      HelpMark("Просто экранированная версия — совпадение именно с такой строкой (удобно с ^ и $).")
-    end
-    if helper_general_out ~= "" then
-      TextRaw("• Обобщённый:"); TextWrappedRaw(helper_general_out)
-      imgui.SameLine()
-      if imgui.Button("[ADD general]") then
-        table.insert(cfg.ignore, { type="pattern", text = helper_general_out, enabled=true })
-        rebuild_cache(); save_cfg()
-      end
-      imgui.SameLine()
-      if imgui.Button("[COPY general]") and imgui.SetClipboardText then imgui.SetClipboardText(helper_general_out) end
-      HelpMark("Включает замены:\n— деньги → \\%$%d[%d%.,]*\n— числа → %d+\n— время → %d%d:%d%d\n— цвет → {%x%x%x%x%x%x}\n— ник → %w+_%w+")
-    end
+	imgui.Separator()
+	TextRaw("Подсказки:");
+	if helper_exact_out ~= "" then
+	  TextRaw("• Точный (экранированный):"); TextWrappedRaw(helper_exact_out)
+	  imgui.SameLine()
+	  if imgui.Button("[ADD exact]") then
+		table.insert(cfg.ignore, { type="pattern", text = helper_exact_out, enabled=true })
+		rebuild_cache(); save_cfg()
+	  end
+	  imgui.SameLine()
+	  if imgui.Button("[COPY exact]") and imgui.SetClipboardText then imgui.SetClipboardText(helper_exact_out) end
+	  HelpMark("Просто экранированная версия — совпадение именно с такой строкой (удобно с ^ и $).")
+	end
+	if helper_general_out ~= "" then
+	  TextRaw("• Обобщённый:"); TextWrappedRaw(helper_general_out)
+	  imgui.SameLine()
+	  if imgui.Button("[ADD general]") then
+		table.insert(cfg.ignore, { type="pattern", text = helper_general_out, enabled=true })
+		rebuild_cache(); save_cfg()
+	  end
+	  imgui.SameLine()
+	  if imgui.Button("[COPY general]") and imgui.SetClipboardText then imgui.SetClipboardText(helper_general_out) end
+	  HelpMark("Включает замены:\n— деньги → \\%$%d[%d%.,]*\n— числа → %d+\n— время → %d%d:%d%d\n— цвет → {%x%x%x%x%x%x}\n— ник → %w+_%w+")
+	end
   end
 
   imgui.Separator()
   TextRaw(I(fa.BOOK, " Краткие примеры:"))
   TextWrappedRaw(
-    "Точная подстрока:\n" ..
-    "  • «VIP» — уберёт любые сообщения, где встречается VIP.\n" ..
-    "  • Флаги: «Без регистра», «Целое слово».\n\n" ..
-    "Lua-шаблон (продвинутый):\n" ..
-    "  • ^%[Подсказка%] — сообщение начинается с [Подсказка]\n" ..
-    "  • %d+ — любая последовательность цифр\n" ..
-    "  • %w+_%w+ — ник Имя_Фамилия\n" ..
-    "  • { %x%x%x%x%x%x } — цветовой код, например {ffffff}\n" ..
-    "  • ^Текст$ — строка должна совпасть полностью\n" ..
-    "  • Избегайте «.*» без якорей ^ и $, это может тормозить."
+	"Точная подстрока:\n" ..
+	"  • «VIP» — уберёт любые сообщения, где встречается VIP.\n" ..
+	"  • Флаги: «Без регистра», «Целое слово».\n\n" ..
+	"Lua-шаблон (продвинутый):\n" ..
+	"  • ^%[Подсказка%] — сообщение начинается с [Подсказка]\n" ..
+	"  • %d+ — любая последовательность цифр\n" ..
+	"  • %w+_%w+ — ник Имя_Фамилия\n" ..
+	"  • { %x%x%x%x%x%x } — цветовой код, например {ffffff}\n" ..
+	"  • ^Текст$ — строка должна совпасть полностью\n" ..
+	"  • Избегайте «.*» без якорей ^ и $, это может тормозить."
   )
 
   if not inline then
-    imgui.End()
+	imgui.End()
   end
 end
 
