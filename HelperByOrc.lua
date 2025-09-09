@@ -31,11 +31,14 @@ end)
 imgui.OnFrame(
 	function() return renderHotkeyWnd[0] end,
 	function()
-		local io = imgui.GetIO()
-		local ds = io.DisplaySize
-		imgui.SetNextWindowPos(imgui.ImVec2(10, 10), imgui.Cond.Always)
-		imgui.SetNextWindowSize(imgui.ImVec2(ds.x - 20, ds.y - 20), imgui.Cond.Always)
-		imgui.Begin('HelperByOrc', renderHotkeyWnd, imgui.WindowFlags.NoMove + imgui.WindowFlags.NoResize)
+                local io = imgui.GetIO()
+                local ds = io.DisplaySize
+                imgui.SetNextWindowPos(imgui.ImVec2(10, 10), imgui.Cond.FirstUseEver)
+                imgui.SetNextWindowSize(imgui.ImVec2(ds.x - 20, ds.y - 20), imgui.Cond.FirstUseEver)
+                imgui.Begin('HelperByOrc', renderHotkeyWnd)
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        mimgui_funcs.clampWindowToScreen(5)
+                end
 
 		-- Левая панель: логотип + меню
 		imgui.BeginGroup()

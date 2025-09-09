@@ -972,8 +972,11 @@ imgui.OnFrame(
 		imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding,6.0)
 		imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
 
-		imgui.SetNextWindowSize(imgui.ImVec2(1280, 650), imgui.Cond.FirstUseEver)
-		local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+                imgui.SetNextWindowSize(imgui.ImVec2(1280, 650), imgui.Cond.FirstUseEver)
+                local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        mimgui_funcs.clampWindowToScreen(5)
+                end
 
 		if not State.show_dialog[0] then
 			reset_ui_state()

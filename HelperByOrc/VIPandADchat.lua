@@ -7,6 +7,7 @@ local u8 = encoding.UTF8
 
 local imgui = require 'mimgui'
 local ffi		= require 'ffi'
+local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
 
 local funcs
 local deepcopy = function(t) return t end
@@ -245,8 +246,8 @@ imgui.OnFrame(
 				end
 
 				-- Геометрия: расширяемся только вправо (pivot 0,0)
-				imgui.SetNextWindowPos(imgui.ImVec2(config.pos_x, config.pos_y), imgui.Cond.Always, imgui.ImVec2(0, 0))
-				imgui.SetNextWindowSize(imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 100), imgui.Cond.Always)
+				imgui.SetNextWindowPos(imgui.ImVec2(config.pos_x, config.pos_y), imgui.Cond.FirstUseEver, imgui.ImVec2(0, 0))
+				imgui.SetNextWindowSize(imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 100), imgui.Cond.FirstUseEver)
 
 				-- Стили
 				imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 7)
@@ -265,8 +266,6 @@ imgui.OnFrame(
 				local flags = bit.bor(
 						imgui.WindowFlags.NoCollapse,
 						imgui.WindowFlags.NoTitleBar,
-						imgui.WindowFlags.NoResize,
-						imgui.WindowFlags.NoMove,
 						imgui.WindowFlags.NoScrollbar,
 						imgui.WindowFlags.NoBackground
 				)
@@ -275,6 +274,9 @@ imgui.OnFrame(
 				end
 
 				if imgui.Begin("##VIPADFEED", module.showFeedWindow, flags) then
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        mimgui_funcs.clampWindowToScreen(5)
+                end
 						local child_flags = not is_chat and imgui.WindowFlags.NoInputs or 0
 
 						-- список слов для подсветки (lower)

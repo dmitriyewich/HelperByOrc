@@ -710,7 +710,30 @@ function module.customVerticalMenu(items, current)
 	imgui.PopStyleVar(2)
 	imgui.EndGroup()
 
-	return current
+        return current
+end
+
+-- Ограничение позиции и размера окна границами экрана
+function module.clampWindowToScreen(margin)
+    margin = margin or 5
+    local io = imgui.GetIO()
+    local ds = io.DisplaySize
+
+    -- сначала ограничиваем размер, затем позицию
+    local size = imgui.GetWindowSize()
+    local newSizeX = math.min(size.x, ds.x - margin * 2)
+    local newSizeY = math.min(size.y, ds.y - margin * 2)
+    if newSizeX ~= size.x or newSizeY ~= size.y then
+        imgui.SetWindowSize(imgui.ImVec2(newSizeX, newSizeY))
+        size = imgui.GetWindowSize()
+    end
+
+    local pos = imgui.GetWindowPos()
+    local newPosX = math.min(math.max(pos.x, margin), ds.x - size.x - margin)
+    local newPosY = math.min(math.max(pos.y, margin), ds.y - size.y - margin)
+    if newPosX ~= pos.x or newPosY ~= pos.y then
+        imgui.SetWindowPos(imgui.ImVec2(newPosX, newPosY))
+    end
 end
 
 return module

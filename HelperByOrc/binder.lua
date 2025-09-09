@@ -2,6 +2,7 @@ local module = {}
 local imgui = require 'mimgui'
 local ffi = require 'ffi'
 local encoding = require 'encoding'
+local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local vk = require 'vkeys'
@@ -589,9 +590,12 @@ end
 function module.DrawQuickMenu()
 	if not module.quickMenuOpen then return end
 	local resX, resY = getScreenResolution()
-	imgui.SetNextWindowPos(imgui.ImVec2(resX / 2, resY / 2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
-	imgui.SetNextWindowSize(imgui.ImVec2(260, 280), imgui.Cond.Always)
-	imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+        imgui.SetNextWindowPos(imgui.ImVec2(resX / 2, resY / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
+        imgui.SetNextWindowSize(imgui.ImVec2(260, 280), imgui.Cond.FirstUseEver)
+        imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
+        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                mimgui_funcs.clampWindowToScreen(5)
+        end
 
 	local function drawRec(node)
 		if not isFolderChainVisible(node) then return end
