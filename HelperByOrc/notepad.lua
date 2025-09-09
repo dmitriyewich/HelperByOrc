@@ -80,16 +80,16 @@ local current_folder = nil
 local scrollToLine = nil
 
 local function saveNotes()
-	funcs.saveTableToJson(notes, json_path)
+    funcs.saveTableToJson(notes, json_path)
 end
 local function loadNotes()
-	notes = funcs.loadTableFromJson(json_path, {})
-	favorites, history = {}, {}
-	for i, note in ipairs(notes) do
-		note._fav = note._fav or false
-		note._ctime = note._ctime or os.time()
-		note._mtime = note._mtime or os.time()
-	end
+    notes = funcs.loadTableFromJson(json_path, {})
+    favorites, history = {}, {}
+    for i, note in ipairs(notes) do
+        note._fav = note._fav or false
+        note._ctime = note._ctime or os.time()
+        note._mtime = note._mtime or os.time()
+    end
 end
 local function getAllTxtFilesRecursive(path)
     local result = {}
@@ -206,7 +206,7 @@ local function fadeAlpha(idx, speed, isActive)
 end
 local function exportNote(note)
     local name = note.title:gsub("[^%w%d_%-]", "_")
-	-- local name = u8:decode(name)
+    -- local name = u8:decode(name)
     local out = base_path.."\\export_"..name..".txt"
     local f = io.open(out, "w+b")
     if f then f:write(note.text or ""); f:close() end
@@ -541,7 +541,7 @@ local function drawSearchResults(results)
             else
                 local label = string.format("%s [%s]  строка %d:  %s", title, cat, res.line_idx, res.line)
                 if imgui.Selectable(label, false) then
-					copyToClipboard((res.line))
+                    copyToClipboard((res.line))
                     -- selectedNode = {isJson=true, idx=res.idx}
                     -- editingBufSize = math.max(4096, #(note.text or "") + 2048)
                     -- editingText = imgui.new.char[editingBufSize](note.text or "")
@@ -569,7 +569,7 @@ local function drawSearchResults(results)
             else
                 local label = string.format("%s (строка %d): %s", name, res.line_idx, res.line)
                 if imgui.Selectable(label, false) then
-					copyToClipboard((res.line))
+                    copyToClipboard((res.line))
                     -- readTxtFile(path, function(content)
                         -- selectedNode = {isJson=false, path=path, idx=-1}
                         -- editingBufSize = math.max(4096, #(content or "") + 2048)
