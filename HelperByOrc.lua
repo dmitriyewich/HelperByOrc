@@ -66,6 +66,7 @@ imgui.OnFrame(
 
 		imgui.SetCursorPos(imgui.ImVec2(0, 0))
 		imgui.InvisibleButton("##titlebar", imgui.ImVec2(winSize.x, titleH))
+		imgui.SetItemAllowOverlap()
 		local pmin = imgui.GetItemRectMin()
 		local pmax = imgui.GetItemRectMax()
 		local dl = imgui.GetWindowDrawList()
@@ -77,6 +78,20 @@ imgui.OnFrame(
 			imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]),
 			"HelperByOrc"
 		)
+		-- Draw close button
+		local closeSize = imgui.ImVec2(titleH - 6, titleH - 6)
+		local closePos = imgui.ImVec2(pmax.x - pad.x - closeSize.x, pmin.y + (titleH - closeSize.y) / 2)
+		imgui.SetCursorScreenPos(closePos)
+		if mimgui_funcs and mimgui_funcs.close_window then
+			if imgui.ImageButton("##close", mimgui_funcs.close_window, closeSize) then
+				renderHotkeyWnd[0] = false
+			end
+		else
+			if imgui.Button("X", closeSize) then
+				renderHotkeyWnd[0] = false
+			end
+		end
+
 
 		if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
 			local delta = io.MouseDelta
