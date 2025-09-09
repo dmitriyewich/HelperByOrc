@@ -34,7 +34,6 @@ local sizeof = ffi.sizeof
 
 local ok_effil, effil = pcall(require, 'effil')	  -- асинхрон для спеллера
 local ok_https, _ = pcall(require, 'ssl.https')
-local sampev = require 'samp.events'
 local bit = require 'bit'						  -- для UTF-8 разборки и флагов
 
 -- опциональные зависимости (совместимость/сейв конфига)
@@ -417,7 +416,7 @@ local function extract_ad_text_from_dialog_colored(dialog_text)
 	-- return dialog_text:match("{33AA33}(.-)%s-{FFFFFF}") or ""
 end
 
-function sampev.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
+function SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
 	local t = u8(title)
 	local body = u8(text)
 	if t:find("Редактирование") and (body:find("Объявление от") ~= nil) then
