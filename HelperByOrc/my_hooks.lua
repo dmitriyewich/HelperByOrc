@@ -52,8 +52,8 @@ local function onServerMessage(color, text)
 		end)
 	end
 
-	if VIPandADchat then
-		local vip = VIPandADchat.VIP()
+        if VIPandADchat and VIPandADchat.isEnabled and VIPandADchat.isEnabled() then
+                local vip = VIPandADchat.VIP()
 		for i = 1, #vip do
 			if string.match(text, '^' .. vip[i]) then
 				local text = string.format('{FFFFFF}%s{%s} %s', os.date('[%H:%M:%S]'), color1, text)
@@ -93,9 +93,9 @@ local function onServerMessage(color, text)
 	-- например: фильтрация, изменение, логирование и т.д.
 	-- text = string.gsub(text, "замена", "на что-то")
 	-- print(text)
-	if unwanted and unwanted.should_ignore(text) then
-		return false -- глушим сообщение
-	end
+        if unwanted and unwanted.isEnabled and unwanted.isEnabled() and unwanted.should_ignore(text) then
+                return false -- глушим сообщение
+        end
 
 	return { color, text }
 end

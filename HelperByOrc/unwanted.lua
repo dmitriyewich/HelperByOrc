@@ -828,6 +828,10 @@ function M.DrawWindowInline()
   M.DrawWindow(true)
 end
 
+function M.isEnabled()
+  return cfg.settings and cfg.settings.enabled
+end
+
 -- === Инициализация ===
 function M.save() save_cfg(); rebuild_cache() end
 function M.reload() load_cfg(); rebuild_cache() end
