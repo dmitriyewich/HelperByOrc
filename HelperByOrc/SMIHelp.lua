@@ -285,9 +285,12 @@ local State = {
 
 	-- спеллер
 	last_speller_call = 0,
-	corr_cache = {},
-	corr_in_progress = false,
-	corr_error = nil,
+        corr_cache = {},
+        corr_in_progress = false,
+        corr_error = nil,
+
+        win_pos = imgui.ImVec2(100, 100),
+        win_size = imgui.ImVec2(1280, 650),
 }
 
 local function history_reset_index()
@@ -967,13 +970,19 @@ end
 imgui.OnFrame(
 	function() return State.show_dialog[0] end,
 	function()
-		imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
-		imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding,  6.0)
-		imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding,6.0)
-		imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding,  6.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding,6.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding,6.0)
 
-		imgui.SetNextWindowSize(imgui.ImVec2(1280, 650), imgui.Cond.FirstUseEver)
-		local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
+                end
+                imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
+                imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
+                local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
+                State.win_pos = imgui.GetWindowPos()
+                State.win_size = imgui.GetWindowSize()
 
 		if not State.show_dialog[0] then
 			reset_ui_state()
