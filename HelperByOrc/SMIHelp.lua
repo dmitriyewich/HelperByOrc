@@ -35,6 +35,7 @@ local sizeof = ffi.sizeof
 local ok_effil, effil = pcall(require, 'effil')	  -- асинхрон для спеллера
 local ok_https, _ = pcall(require, 'ssl.https')
 local bit = require 'bit'						  -- для UTF-8 разборки и флагов
+local vk = require 'vkeys'
 
 -- опциональные зависимости (совместимость/сейв конфига)
 local mimgui_funcs
@@ -251,6 +252,7 @@ SMIHelp.down_w_smi = new.bool(false)
 SMIHelp.acticve_redall = false
 SMIHelp.pasr_find = 'ALL'
 SMIHelp.filter_SMI = imgui.ImGuiTextFilter()
+SMIHelp.skip_mm_dialog = false
 
 -- ========= ГЛОБАЛЬНЫЙ UI-ФОНТ =========
 local bigFont = nil
@@ -417,8 +419,15 @@ local function extract_ad_text_from_dialog_colored(dialog_text)
 end
 
 function SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
-	local t = u8(title)
-	local body = u8(text)
+	if SMIHelp.skip_mm_dialog then
+	        sampSendDialogResponse(dialogid, 0, 0, 0)
+	        SMIHelp.skip_mm_dialog = false
+	        sampSendChat('/newsredak')
+	        return false
+	end
+
+        local t = u8(title)
+        local body = u8(text)
 	if t:find("Редактирование") and (body:find("Объявление от") ~= nil) then
 		State.show_dialog[0]   = true
 		State.last_dialog_id   = dialogid
@@ -1077,63 +1086,72 @@ imgui.OnFrame(
 
 						-- Кнопки действий + таймер блокировки и сохранение памяти по нику
 						do
-								local can_send = SMIHelp.timer_send
-								local rem = timer_send_remaining()
-								local btn_send_clicked = false
-
-								local avail = imgui.GetContentRegionAvail().x
-								local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
-
-								if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) then
-										btn_send_clicked = true
-								end
-								imgui.SameLine()
-								if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
-										if State.last_dialog_id then
-												local to_send_utf8 = str(State.edit_buf)
-												local to_send_cp = u8:decode(to_send_utf8)
-												sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
-												State.show_dialog[0] = false
-												AD:reset()
-												reset_ui_state()
-										end
-								end
-
-								if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
-										local orig = clamp80(State.original_ad_text or "")
-										imgui.StrCopy(State.edit_buf, orig)
-										AD:reset()
-										history_reset_index()
-										State.want_focus_input = true
-										State.collapse_selection_after_focus = true
-								end
-								imgui.SameLine()
-								imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
-
-								if not can_send then
-										imgui.Spacing()
-										imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
-								end
-
-								if btn_send_clicked then
-										if not can_send then
-												-- блокируем отправку
-										else
-												if State.last_dialog_id then
-														local to_send_utf8 = str(State.edit_buf)
-														local to_send_cp = u8:decode(to_send_utf8)
-														sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
-														add_to_history(to_send_utf8)
-
+							local can_send = SMIHelp.timer_send
+							local rem = timer_send_remaining()
+							local btn_send_clicked, btn_skip_clicked = false, false
+														local avail = imgui.GetContentRegionAvail().x
+							local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x * 2) / 3)
+														local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
+							if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) or enter_pressed then
+							btn_send_clicked = true
+							end
+							imgui.SameLine()
+							if imgui.Button("Пропустить", imgui.ImVec2(btnW, 0)) then
+							btn_skip_clicked = true
+							end
+							imgui.SameLine()
+							if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
+							if State.last_dialog_id then
+							local to_send_utf8 = str(State.edit_buf)
+							local to_send_cp = u8:decode(to_send_utf8)
+							sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
+							State.show_dialog[0] = false
+							AD:reset()
+							reset_ui_state()
+							end
+							end
+														if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
+							local orig = clamp80(State.original_ad_text or "")
+							imgui.StrCopy(State.edit_buf, orig)
+							AD:reset()
+							history_reset_index()
+							State.want_focus_input = true
+							State.collapse_selection_after_focus = true
+							end
+							imgui.SameLine()
+							imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
+														if not can_send then
+							imgui.Spacing()
+							imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
+							end
+														if btn_send_clicked then
+							if not can_send then
+							-- блокируем отправку
+							else
+							if State.last_dialog_id then
+							local to_send_utf8 = str(State.edit_buf)
+							local to_send_cp = u8:decode(to_send_utf8)
+							sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
+							add_to_history(to_send_utf8)
 														-- сохраняем память по никнейму (перезапись + MRU-трим)
-														nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
-
+							nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
 														State.show_dialog[0] = false
-														AD:reset()
-														reset_ui_state()
-												end
-										end
-								end
+							AD:reset()
+							reset_ui_state()
+							end
+							end
+							elseif btn_skip_clicked then
+							if State.last_dialog_id then
+							local to_send_utf8 = str(State.edit_buf)
+							local to_send_cp = u8:decode(to_send_utf8)
+							sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
+							State.show_dialog[0] = false
+							AD:reset()
+							reset_ui_state()
+							SMIHelp.skip_mm_dialog = true
+							sampSendChat('/mm')
+							end
+							end
 						end
 
 			imgui.Spacing()
