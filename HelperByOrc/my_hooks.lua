@@ -100,15 +100,13 @@ local function onServerMessage(color, text)
 	return { color, text }
 end
 
-function onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
-	-- Вызывается КАЖДЫЙ раз, когда сервер показывает диалоговое окно
-	-- print(dialogid)
-	-- print(style)
-	-- print(title)
-	-- print(button1)
-	-- print(button2)
-	-- print(text)
-	return {dialogid, style, title, button1, button2, text, placeholder}
+local function onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
+        -- Вызывается КАЖДЫЙ раз, когда сервер показывает диалоговое окно
+        if SMIHelp and SMIHelp.onShowDialog then
+                local ret = SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
+                if ret ~= nil then return ret end
+        end
+        return {dialogid, style, title, button1, button2, text, placeholder}
 end
 
 -- 2. JMP HOOK (через hooks.jmp на AddChatEntry)
