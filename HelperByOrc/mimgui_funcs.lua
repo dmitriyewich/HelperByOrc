@@ -724,7 +724,9 @@ function module.clampWindowToScreen(margin)
     local newSizeX = math.min(size.x, ds.x - margin * 2)
     local newSizeY = math.min(size.y, ds.y - margin * 2)
     if newSizeX ~= size.x or newSizeY ~= size.y then
-        imgui.SetWindowSize(imgui.ImVec2(newSizeX, newSizeY))
+        local newSize = imgui.ImVec2(newSizeX, newSizeY)
+        imgui.SetWindowSize(newSize, imgui.Cond.Always)
+        imgui.SetNextWindowSize(newSize, imgui.Cond.Always)
         size = imgui.GetWindowSize()
     end
 
@@ -732,7 +734,9 @@ function module.clampWindowToScreen(margin)
     local newPosX = math.min(math.max(pos.x, margin), ds.x - size.x - margin)
     local newPosY = math.min(math.max(pos.y, margin), ds.y - size.y - margin)
     if newPosX ~= pos.x or newPosY ~= pos.y then
-        imgui.SetWindowPos(imgui.ImVec2(newPosX, newPosY))
+        local newPos = imgui.ImVec2(newPosX, newPosY)
+        imgui.SetWindowPos(newPos, imgui.Cond.Always)
+        imgui.SetNextWindowPos(newPos, imgui.Cond.Always)
     end
 end
 
