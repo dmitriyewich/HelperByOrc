@@ -11,6 +11,8 @@ local wm = require 'windows.message'
 local bit = require 'bit'
 local funcs, tags
 local bor = bit and bit.bor or function(a, b) return a + b end
+local quickMenuPos = imgui.ImVec2(0, 0)
+local quickMenuSize = imgui.ImVec2(260, 280)
 
 function module.attachModules(mod)
         funcs = mod.funcs
@@ -588,14 +590,19 @@ local function folderHasQuickBindsVisible(folder)
 end
 
 function module.DrawQuickMenu()
-	if not module.quickMenuOpen then return end
-	local resX, resY = getScreenResolution()
-        imgui.SetNextWindowPos(imgui.ImVec2(resX / 2, resY / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.SetNextWindowSize(imgui.ImVec2(260, 280), imgui.Cond.FirstUseEver)
-        imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
-        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                mimgui_funcs.clampWindowToScreen(5)
+        if not module.quickMenuOpen then return end
+        local resX, resY = getScreenResolution()
+        if quickMenuPos.x == 0 and quickMenuPos.y == 0 then
+                quickMenuPos = imgui.ImVec2(resX/2 - quickMenuSize.x/2, resY/2 - quickMenuSize.y/2)
         end
+        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                quickMenuPos, quickMenuSize = mimgui_funcs.clampWindowToScreen(quickMenuPos, quickMenuSize, 5)
+        end
+        imgui.SetNextWindowPos(quickMenuPos, imgui.Cond.Always)
+        imgui.SetNextWindowSize(quickMenuSize, imgui.Cond.Always)
+        imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
+        quickMenuPos = imgui.GetWindowPos()
+        quickMenuSize = imgui.GetWindowSize()
 
 	local function drawRec(node)
 		if not isFolderChainVisible(node) then return end

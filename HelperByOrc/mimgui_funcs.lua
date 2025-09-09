@@ -714,27 +714,17 @@ function module.customVerticalMenu(items, current)
 end
 
 -- Ограничение позиции и размера окна границами экрана
-function module.clampWindowToScreen(margin)
+function module.clampWindowToScreen(pos, size, margin)
     margin = margin or 5
-    local io = imgui.GetIO()
-    local ds = io.DisplaySize
+    local ds = imgui.GetIO().DisplaySize
 
-    -- сначала ограничиваем размер, затем позицию
-    local size = imgui.GetWindowSize()
     local newSizeX = math.min(size.x, ds.x - margin * 2)
     local newSizeY = math.min(size.y, ds.y - margin * 2)
-    if newSizeX ~= size.x or newSizeY ~= size.y then
-        local newSize = imgui.ImVec2(newSizeX, newSizeY)
-        imgui.SetWindowSizeVec2(newSize, imgui.Cond.Always)
-        size = imgui.GetWindowSize()
-    end
 
-    local pos = imgui.GetWindowPos()
-    local newPosX = math.min(math.max(pos.x, margin), ds.x - size.x - margin)
-    local newPosY = math.min(math.max(pos.y, margin), ds.y - size.y - margin)
-    if newPosX ~= pos.x or newPosY ~= pos.y then
-        imgui.SetWindowPosVec2(imgui.ImVec2(newPosX, newPosY), imgui.Cond.Always)
-    end
+    local newPosX = math.min(math.max(pos.x, margin), ds.x - newSizeX - margin)
+    local newPosY = math.min(math.max(pos.y, margin), ds.y - newSizeY - margin)
+
+    return imgui.ImVec2(newPosX, newPosY), imgui.ImVec2(newSizeX, newSizeY)
 end
 
 return module

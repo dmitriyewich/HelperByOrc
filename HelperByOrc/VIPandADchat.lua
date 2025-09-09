@@ -14,6 +14,8 @@ local deepcopy = function(t) return t end
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
 
 local samp
+local feedPos = imgui.ImVec2(800, 500)
+local feedSize = imgui.ImVec2(900, 200)
 
 function module.attachModules(mod)
         funcs = mod.funcs
@@ -245,9 +247,14 @@ imgui.OnFrame(
 						end
 				end
 
-				-- Геометрия: расширяемся только вправо (pivot 0,0)
-				imgui.SetNextWindowPos(imgui.ImVec2(config.pos_x, config.pos_y), imgui.Cond.FirstUseEver, imgui.ImVec2(0, 0))
-				imgui.SetNextWindowSize(imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 100), imgui.Cond.FirstUseEver)
+                                -- Геометрия
+                                feedSize = imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 100)
+                                feedPos = imgui.ImVec2(config.pos_x, config.pos_y)
+                                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                                        feedPos, feedSize = mimgui_funcs.clampWindowToScreen(feedPos, feedSize, 5)
+                                end
+                                imgui.SetNextWindowPos(feedPos, imgui.Cond.Always, imgui.ImVec2(0, 0))
+                                imgui.SetNextWindowSize(feedSize, imgui.Cond.Always)
 
 				-- Стили
 				imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 7)
@@ -273,10 +280,12 @@ imgui.OnFrame(
 						flags = bit.bor(flags, imgui.WindowFlags.NoInputs)
 				end
 
-				if imgui.Begin("##VIPADFEED", module.showFeedWindow, flags) then
-                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(5)
-                end
+                                if imgui.Begin("##VIPADFEED", module.showFeedWindow, flags) then
+                                        feedPos = imgui.GetWindowPos()
+                                        feedSize = imgui.GetWindowSize()
+                                        config.pos_x = feedPos.x
+                                        config.pos_y = feedPos.y
+                                        config.width = feedSize.x
 						local child_flags = not is_chat and imgui.WindowFlags.NoInputs or 0
 
 						-- список слов для подсветки (lower)

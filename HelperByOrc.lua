@@ -18,6 +18,8 @@ local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
+local mainPos = imgui.ImVec2(10, 10)
+local mainSize -- will init on first frame
 
 -- модули, загружаемые в main()
 
@@ -29,17 +31,22 @@ end)
 
 -- === Главное окно ===
 imgui.OnFrame(
-	function() return renderHotkeyWnd[0] end,
-	function()
+        function() return renderHotkeyWnd[0] end,
+        function()
                 local io = imgui.GetIO()
                 local ds = io.DisplaySize
-                imgui.SetNextWindowPos(imgui.ImVec2(10, 10), imgui.Cond.FirstUseEver)
-                imgui.SetNextWindowSize(imgui.ImVec2(ds.x - 20, ds.y - 20), imgui.Cond.FirstUseEver)
+                if not mainSize then
+                        mainSize = imgui.ImVec2(ds.x - 20, ds.y - 20)
+                end
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        mainPos, mainSize = mimgui_funcs.clampWindowToScreen(mainPos, mainSize, 5)
+                end
+                imgui.SetNextWindowPos(mainPos, imgui.Cond.Always)
+                imgui.SetNextWindowSize(mainSize, imgui.Cond.Always)
                 imgui.Begin('HelperByOrc', renderHotkeyWnd,
                         imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoCollapse)
-                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                        mimgui_funcs.clampWindowToScreen(5)
-                end
+                mainPos = imgui.GetWindowPos()
+                mainSize = imgui.GetWindowSize()
 
                 -- Custom draggable title bar
                 local style = imgui.GetStyle()
@@ -62,10 +69,7 @@ imgui.OnFrame(
 
                 if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
                         local delta = io.MouseDelta
-                        imgui.SetWindowPosVec2(imgui.ImVec2(winPos.x + delta.x, winPos.y + delta.y))
-                        if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
-                                mimgui_funcs.clampWindowToScreen(5)
-                        end
+                        mainPos = imgui.ImVec2(mainPos.x + delta.x, mainPos.y + delta.y)
                 end
 
                 imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
