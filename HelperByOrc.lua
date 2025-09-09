@@ -18,6 +18,8 @@ local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
 local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
+local mainPos = imgui.ImVec2(10, 10)
+local mainSize -- will init on first frame
 
 -- модули, загружаемые в main()
 
@@ -29,13 +31,47 @@ end)
 
 -- === Главное окно ===
 imgui.OnFrame(
-	function() return renderHotkeyWnd[0] end,
-	function()
-		local io = imgui.GetIO()
-		local ds = io.DisplaySize
-		imgui.SetNextWindowPos(imgui.ImVec2(10, 10), imgui.Cond.Always)
-		imgui.SetNextWindowSize(imgui.ImVec2(ds.x - 20, ds.y - 20), imgui.Cond.Always)
-		imgui.Begin('HelperByOrc', renderHotkeyWnd, imgui.WindowFlags.NoMove + imgui.WindowFlags.NoResize)
+        function() return renderHotkeyWnd[0] end,
+        function()
+                local io = imgui.GetIO()
+                if not mainSize then
+                        mainSize = imgui.ImVec2(930,500)
+                end
+                if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
+                        mainPos, mainSize = mimgui_funcs.clampWindowToScreen(mainPos, mainSize, 5)
+                end
+                imgui.SetNextWindowPos(mainPos, imgui.Cond.Always)
+                imgui.SetNextWindowSize(mainSize, imgui.Cond.Always)
+                imgui.Begin('HelperByOrc', renderHotkeyWnd,
+                        imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoCollapse)
+                mainPos = imgui.GetWindowPos()
+                mainSize = imgui.GetWindowSize()
+
+                -- Custom draggable title bar
+                local style = imgui.GetStyle()
+                local pad = style.WindowPadding
+                local titleH = imgui.GetFontSize() + style.FramePadding.y * 2
+                local winPos = imgui.GetWindowPos()
+                local winSize = imgui.GetWindowSize()
+
+                imgui.SetCursorPos(imgui.ImVec2(0, 0))
+                imgui.InvisibleButton('##titlebar', imgui.ImVec2(winSize.x, titleH))
+                local pmin = imgui.GetItemRectMin()
+                local pmax = imgui.GetItemRectMax()
+                local dl = imgui.GetWindowDrawList()
+                local col = style.Colors[imgui.Col.TitleBg]
+                local colActive = style.Colors[imgui.Col.TitleBgActive]
+                dl:AddRectFilled(pmin, pmax,
+                        imgui.GetColorU32Vec4(imgui.IsItemActive() and colActive or col))
+                dl:AddText(imgui.ImVec2(pmin.x + pad.x, pmin.y + style.FramePadding.y),
+                        imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), 'HelperByOrc')
+
+                if imgui.IsItemActive() and imgui.IsMouseDragging(0) then
+                        local delta = io.MouseDelta
+                        mainPos = imgui.ImVec2(mainPos.x + delta.x, mainPos.y + delta.y)
+                end
+
+                imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
 		-- Левая панель: логотип + меню
 		imgui.BeginGroup()
