@@ -668,57 +668,112 @@ function module.findBind(name, folder)
 			end
 		end
 	end
-	return partial
+        return partial
+end
+
+local function withBind(name, folder, fn)
+local hk = module.findBind(name, folder)
+if hk then return fn(hk) end
+return false
 end
 
 function module.startBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk and not hk.is_running and hk.enabled then
-			module.enqueueHotkey(hk)
-		return true
-	end
-	return false
+return withBind(name, folder, function(hk)
+if not hk.is_running and hk.enabled then
+module.enqueueHotkey(hk)
+return true
+end
+return false
+end)
 end
 
 function module.stopBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk and hk.is_running then module.stopHotkey(hk) return true end
-	return false
+return withBind(name, folder, function(hk)
+if hk.is_running then
+module.stopHotkey(hk)
+return true
+end
+return false
+end)
 end
 
-function module.disableBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk then hk.enabled = false; module.saveHotkeys(); return true end
-	return false
+function module.setBindEnabled(name, folder, state)
+return withBind(name, folder, function(hk)
+hk.enabled = not not state
+module.saveHotkeys()
+return true
+end)
 end
 
 function module.enableBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk then hk.enabled = true; module.saveHotkeys(); return true end
-	return false
+return module.setBindEnabled(name, folder, true)
+end
+
+function module.disableBind(name, folder)
+return module.setBindEnabled(name, folder, false)
+end
+
+function module.toggleBind(name, folder)
+return withBind(name, folder, function(hk)
+hk.enabled = not hk.enabled
+module.saveHotkeys()
+return hk.enabled
+end)
+end
+
+function module.setBindPaused(name, folder, state)
+return withBind(name, folder, function(hk)
+if hk.is_running and hk._co_state then
+hk._co_state.paused = not not state
+return true
+end
+return false
+end)
 end
 
 function module.pauseBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk and hk.is_running and hk._co_state then hk._co_state.paused = true return true end
-	return false
+return module.setBindPaused(name, folder, true)
 end
 
 function module.unpauseBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk and hk.is_running and hk._co_state then hk._co_state.paused = false return true end
-	return false
+return module.setBindPaused(name, folder, false)
+end
+
+function module.isBindRunning(name, folder)
+local hk = module.findBind(name, folder)
+return hk and hk.is_running or false
+end
+
+function module.isBindEnabled(name, folder)
+local hk = module.findBind(name, folder)
+return hk and hk.enabled or false
 end
 
 function module.isBindEnded(name, folder)
-	local hk = module.findBind(name, folder)
-	return not (hk and hk.is_running)
+return not module.isBindRunning(name, folder)
+end
+
+function module.restartBind(name, folder)
+return withBind(name, folder, function(hk)
+if hk.is_running then module.stopHotkey(hk) end
+if hk.enabled then
+module.enqueueHotkey(hk)
+return true
+end
+return false
+end)
 end
 
 function module.setBindSelector(name, folder, state)
-	local hk = module.findBind(name, folder)
-	if hk then hk.quick_menu = not not state; module.saveHotkeys(); return true end
-	return false
+return withBind(name, folder, function(hk)
+hk.quick_menu = not not state
+module.saveHotkeys()
+return true
+end)
+end
+
+function module.bindExists(name, folder)
+return module.findBind(name, folder) and true or false
 end
 
 -- === Новые экспортируемые функции для «макросов» ===
