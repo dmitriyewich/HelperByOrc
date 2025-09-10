@@ -601,9 +601,9 @@ function module.DrawQuickMenu()
 		end
                 imgui.SetNextWindowPos(quickMenuPos, imgui.Cond.Always)
                 imgui.SetNextWindowSize(quickMenuSize, imgui.Cond.Always)
-                imgui.PushStyleVar(imgui.StyleVar.WindowPadding, imgui.ImVec2(8, 8))
-                imgui.PushStyleVar(imgui.StyleVar.FramePadding, imgui.ImVec2(4, 3))
-                imgui.PushStyleVar(imgui.StyleVar.ItemSpacing, imgui.ImVec2(4, 4))
+                imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(8, 8))
+                imgui.PushStyleVarVec2(imgui.StyleVar.FramePadding, imgui.ImVec2(4, 3))
+                imgui.PushStyleVarVec2(imgui.StyleVar.ItemSpacing, imgui.ImVec2(4, 4))
                 imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
                 quickMenuPos = imgui.GetWindowPos()
                 quickMenuSize = imgui.GetWindowSize()
@@ -632,11 +632,12 @@ function module.DrawQuickMenu()
                                 if open ~= nil then imgui.SetNextItemOpen(open) end
                                 local text = (fa.FOLDER ~= '' and (fa.FOLDER .. ' ') or '') .. child.name
                                 local label = text .. '##quick_folder_' .. path
-                                if imgui.BeginMenu(label, true) then
+                                local opened = imgui.BeginMenu(label, true)
+                                if opened then
                                         drawRec(child)
                                         imgui.EndMenu()
                                 end
-                                quickMenuOpened[child] = imgui.IsItemOpen()
+                                quickMenuOpened[child] = opened
                                 first = false
                         end
                 end
