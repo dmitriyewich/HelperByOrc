@@ -608,19 +608,34 @@ function module.DrawQuickMenu()
                 quickMenuPos = imgui.GetWindowPos()
                 quickMenuSize = imgui.GetWindowSize()
 
-	local function drawRec(node)
-		if not isFolderChainVisible(node) then return end
+        local ARROW_RIGHT = (fa.ANGLE_RIGHT ~= '' and (fa.ANGLE_RIGHT .. ' ') or '> ')
+        local ARROW_DOWN  = (fa.ANGLE_DOWN  ~= '' and (fa.ANGLE_DOWN  .. ' ') or 'v ')
+        local ICON_FOLDER = (fa.FOLDER      ~= '' and (fa.FOLDER      .. ' ') or '')
+        local ICON_KEYB   = (fa.KEYBOARD    ~= '' and (fa.KEYBOARD    .. ' ') or '')
+
+        local function quickSelectable(text, id, enabled)
+                imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
+                local flags = bor(imgui.SelectableFlags.DontClosePopups, imgui.SelectableFlags.SpanAvailWidth)
+                if not enabled then
+                        imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
+                end
+                local clicked = imgui.Selectable(text .. id, false, flags)
+                if not enabled then imgui.PopStyleColor() end
+                imgui.PopStyleVar()
+                return clicked
+        end
+
+        local function drawRec(node)
+                if not isFolderChainVisible(node) then return end
                 local first = true
                 for i, hk in ipairs(hotkeys) do
                         if hk.quick_menu
                                  and pathEquals(hk.folderPath, folderFullPath(node))
                                  and check_quick_visibility(hk.quick_conditions or {}) then
                                 if not first then imgui.Separator() end
-                                local text = (fa.KEYBOARD ~= '' and (fa.KEYBOARD .. ' ') or '') .. (hk.label or ("bind" .. i))
-                -- Quick menu items do not show a check mark; we only disable those that cannot run
-                                local label = text .. '##quick_bind' .. i
-                                if imgui.MenuItemBool(label, nil, false, hk.enabled) then
-                                                module.enqueueHotkey(hk)
+                                local text = ICON_KEYB .. (hk.label or ("bind" .. i))
+                                if quickSelectable(text, '##quick_bind' .. i, hk.enabled) then
+                                        module.enqueueHotkey(hk)
                                 end
                                 first = false
                         end
@@ -629,20 +644,22 @@ function module.DrawQuickMenu()
                         if folderHasQuickBindsVisible(child) then
                                 if not first then imgui.Separator() end
                                 local path = table.concat(folderFullPath(child), '/')
-                                local open = quickMenuOpened[child]
-                                if open ~= nil then imgui.SetNextItemOpen(open) end
-                                local text = (fa.FOLDER ~= '' and (fa.FOLDER .. ' ') or '') .. child.name
-                                local label = text .. '##quick_folder_' .. path
-                                local opened = imgui.BeginMenu(label, true)
-                                if opened then
-                                        drawRec(child)
-                                        imgui.EndMenu()
+                                local open = quickMenuOpened[child] and true or false
+                                local arrow = open and ARROW_DOWN or ARROW_RIGHT
+                                local text = arrow .. ICON_FOLDER .. child.name
+                                if quickSelectable(text, '##quick_folder_' .. path, true) then
+                                        open = not open
                                 end
-                                quickMenuOpened[child] = opened
+                                quickMenuOpened[child] = open
+                                if open then
+                                        imgui.Indent(14)
+                                        drawRec(child)
+                                        imgui.Unindent(14)
+                                end
                                 first = false
                         end
                 end
-end
+        end
 
 	if imgui.BeginTabBar("##quickbinder_tabbar") then
 		for _, folder in ipairs(folders) do
