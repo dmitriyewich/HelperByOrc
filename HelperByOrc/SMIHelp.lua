@@ -1379,6 +1379,34 @@ local function parse_autocorrect(text)
     return res
 end
 
+-- helpers for editable text buffers
+local function buf_ensure(tbl, key, size)
+    size = size or 256
+    local entry = tbl[key]
+    if not entry or entry.size < size then
+        entry = { buf = new.char[size](), size = size }
+        tbl[key] = entry
+    end
+    return entry
+end
+
+local function buf_set(tbl, key, text)
+    local entry = buf_ensure(tbl, key, #text + 1)
+    imgui.StrCopy(entry.buf, text)
+    return entry
+end
+
+local function buf_maybe_grow(entry)
+    local content = str(entry.buf)
+    if #content + 1 >= entry.size then
+        local new_size = entry.size * 2
+        local new_buf = new.char[new_size]()
+        imgui.StrCopy(new_buf, content)
+        entry.buf = new_buf
+        entry.size = new_size
+    end
+end
+
 function SMIHelp.DrawSettingsUI()
                if not SMIHelp._settings then
                                                SMIHelp._settings = {
@@ -1410,9 +1438,19 @@ function SMIHelp.DrawSettingsUI()
                                for _, tpl in ipairs(Config.data.templates or {}) do
                                                local copy = { category = tpl.category, texts = {} }
                                                if type(tpl.texts) == 'table' then
-                                                               for _, s in ipairs(tpl.texts) do table.insert(copy.texts, s) end
+                                                               for _, g in ipairs(tpl.texts) do
+                                                                               if type(g) == 'table' then
+                                                                                               local group = {}
+                                                                                               for _, s in ipairs(g) do
+                                                                                                               if type(s) == 'string' then table.insert(group, s) end
+                                                                                               end
+                                                                                               if #group > 0 then table.insert(copy.texts, group) end
+                                                                               elseif type(g) == 'string' then
+                                                                                               table.insert(copy.texts, { g })
+                                                                               end
+                                                               end
                                                elseif type(tpl.text) == 'string' then
-                                                               table.insert(copy.texts, tpl.text)
+                                                               table.insert(copy.texts, { tpl.text })
                                                end
                                                table.insert(SMIHelp._settings.templates_list, copy)
                                end
@@ -1436,81 +1474,78 @@ function SMIHelp.DrawSettingsUI()
                                                if imgui.BeginTabBar('tpl_tabs') then
                                                                for idx, tpl in ipairs(S.templates_list) do
                                                                                local cat = tpl.category or ('Категория '..idx)
-                                                                               if imgui.BeginTabItem(cat) then
-                                                                                              S.tpl_edit_mode[idx] = S.tpl_edit_mode[idx] or new.bool(false)
-                                                                                              S.tpl_edit_buf[idx] = S.tpl_edit_buf[idx] or new.char[1024]()
-                                                                                              if S.tpl_edit_mode[idx][0] then
-                                                                                                              imgui.InputTextMultiline('##tplexisting'..idx, S.tpl_edit_buf[idx], 1024, imgui.ImVec2(0,60))
-                                                                                                              if imgui.Button('Готово##tplexisting'..idx) then
-                                                                                                                              tpl.texts = {}
-                                                                                                                              local val = str(S.tpl_edit_buf[idx])
-                                                                                                                              for line in val:gmatch('[^\n]+') do table.insert(tpl.texts, line) end
-                                                                                                                              S.tpl_edit_mode[idx][0] = false
-                                                                                                              end
-                                                                                              else
-                                                                                                              local j = 1
-                                                                                                              while tpl.texts and j <= #tpl.texts do
-                                                                                                                              local txt = tpl.texts[j]
-                                                                                                                              local display
-                                                                                                                              if type(txt) == 'table' then
-                                                                                                                                              local pieces = {}
-                                                                                                                                              for _, s in ipairs(txt) do table.insert(pieces, tostring(s)) end
-                                                                                                                                              display = table.concat(pieces, ', ')
-                                                                                                                              else
-                                                                                                                                              display = tostring(txt)
-                                                                                                                              end
-                                                                                                                              if imgui.SmallButton('X##tpldel'..idx..'_'..j) then
-                                                                                                                                              table.remove(tpl.texts, j)
-                                                                                                                              else
-                                                                                                                                              imgui.SameLine()
-                                                                                                                                              imgui.BulletText(display)
-                                                                                                                                              j = j + 1
-                                                                                                                              end
-                                                                                                              end
-                                                                                                             if imgui.Button('Редактировать##tplexistingbtn'..idx) then
-                                                                                                                             local lines = {}
-                                                                                                                             for _, txt in ipairs(tpl.texts or {}) do
-                                                                                                                                           if type(txt) == 'table' then
-                                                                                                                                                          local pieces = {}
-                                                                                                                                                          for _, s in ipairs(txt) do table.insert(pieces, tostring(s)) end
-                                                                                                                                                          table.insert(lines, table.concat(pieces, ', '))
-                                                                                                                                           else
-                                                                                                                                                          table.insert(lines, tostring(txt))
-                                                                                                                                           end
-                                                                                                                             end
-                                                                                                                             imgui.StrCopy(S.tpl_edit_buf[idx], table.concat(lines, '\n'))
-                                                                                                                             S.tpl_edit_mode[idx][0] = true
-                                                                                                             end
-                                                                                              end
-                                                                                              S.tpl_input[idx] = S.tpl_input[idx] or new.char[256]()
-                                                                                              S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
-                                                                                               if S.tpl_multiline[idx][0] then
-                                                                                                               imgui.InputTextMultiline('##tplinput'..idx, S.tpl_input[idx], 256, imgui.ImVec2(0,60))
-                                                                                                               if imgui.Button('Одна строка##toggle'..idx) then
-                                                                                                                               S.tpl_multiline[idx][0] = false
-                                                                                                               end
-                                                                                               else
-                                                                                                               imgui.InputText('##tplinput'..idx, S.tpl_input[idx], 256)
-                                                                                                               if imgui.Button('Много строк##toggle'..idx) then
-                                                                                                                               S.tpl_multiline[idx][0] = true
-                                                                                                               end
-                                                                                               end
-                                                                                               imgui.SameLine()
-                                                                                               if imgui.Button('Добавить##tpl'..idx) then
-                                                                                                               local val = str(S.tpl_input[idx])
-                                                                                                               if val ~= '' then
-                                                                                                                               tpl.texts = tpl.texts or {}
-                                                                                                                               if S.tpl_multiline[idx][0] then
-                                                                                                                                               for line in val:gmatch('[^\n]+') do table.insert(tpl.texts, line) end
-                                                                                                                               else
-                                                                                                                                               table.insert(tpl.texts, val)
-                                                                                                                               end
-                                                                                                                               imgui.StrCopy(S.tpl_input[idx], '')
-                                                                                                               end
-                                                                                               end
-                                                                                               imgui.EndTabItem()
-                                                                               end
-                                                               end
+
+								if imgui.BeginTabItem(cat) then
+								tpl.texts = tpl.texts or {}
+								S.tpl_edit_mode[idx] = S.tpl_edit_mode[idx] or {}
+								S.tpl_edit_buf[idx] = S.tpl_edit_buf[idx] or {}
+								local j = 1
+								while j <= #tpl.texts do
+								S.tpl_edit_mode[idx][j] = S.tpl_edit_mode[idx][j] or new.bool(false)
+								if S.tpl_edit_mode[idx][j][0] then
+								local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
+								imgui.InputTextMultiline('##tplexisting'..idx..'_'..j, buf.buf, buf.size, imgui.ImVec2(0,60))
+								buf_maybe_grow(buf)
+								if imgui.Button('Готово##tplexisting'..idx..'_'..j) then
+								local val = str(buf.buf)
+								local group = {}
+								for line in val:gmatch('[^\n]+') do table.insert(group, line) end
+								tpl.texts[j] = group
+								S.tpl_edit_mode[idx][j][0] = false
+								end
+								else
+								local group = tpl.texts[j]
+								local display = table.concat(group, ' / ')
+								if imgui.SmallButton('X##tpldel'..idx..'_'..j) then
+								table.remove(tpl.texts, j)
+								else
+								imgui.SameLine()
+								imgui.BulletText(display)
+								imgui.SameLine()
+								if imgui.SmallButton('E##tplexistingbtn'..idx..'_'..j) then
+								local edit_str = table.concat(group, '\n')
+								buf_set(S.tpl_edit_buf[idx], j, edit_str)
+								S.tpl_edit_mode[idx][j][0] = true
+								else
+								j = j + 1
+								end
+								end
+								end
+								end
+								S.tpl_input[idx] = buf_ensure(S.tpl_input, idx, 256)
+								S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
+								if S.tpl_multiline[idx][0] then
+								imgui.InputTextMultiline('##tplinput'..idx, S.tpl_input[idx].buf, S.tpl_input[idx].size, imgui.ImVec2(0,60))
+								else
+								imgui.InputText('##tplinput'..idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
+								end
+								buf_maybe_grow(S.tpl_input[idx])
+								if S.tpl_multiline[idx][0] then
+								if imgui.Button('Одна строка##toggle'..idx) then
+								S.tpl_multiline[idx][0] = false
+								end
+								else
+								if imgui.Button('Много строк##toggle'..idx) then
+								S.tpl_multiline[idx][0] = true
+								end
+								end
+								imgui.SameLine()
+								if imgui.Button('Добавить##tpl'..idx) then
+								local val = str(S.tpl_input[idx].buf)
+								if val ~= '' then
+								tpl.texts = tpl.texts or {}
+								if S.tpl_multiline[idx][0] then
+								local group = {}
+								for line in val:gmatch('[^\n]+') do table.insert(group, line) end
+								if #group > 0 then table.insert(tpl.texts, group) end
+								else
+								table.insert(tpl.texts, { val })
+								end
+								imgui.StrCopy(S.tpl_input[idx].buf, '')
+								end
+								end
+								imgui.EndTabItem()
+								end                                                               end
                                                                imgui.EndTabBar()
                                                end
                                end
