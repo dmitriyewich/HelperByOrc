@@ -98,13 +98,21 @@ local function onServerMessage(color, text)
                 return false -- глушим сообщение
         end
 
-	return { color, text }
+        if SMIHelp and SMIHelp.AdHunterOnServerMessage then
+                SMIHelp.AdHunterOnServerMessage(color, text)
+        end
+
+        return { color, text }
 end
 
 local function onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
         -- Вызывается КАЖДЫЙ раз, когда сервер показывает диалоговое окно
         if SMIHelp and SMIHelp.onShowDialog then
                 local ret = SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
+                if ret ~= nil then return ret end
+        end
+        if SMIHelp and SMIHelp.AdHunterOnShowDialog then
+                local ret = SMIHelp.AdHunterOnShowDialog(dialogid, style, title, button1, button2, text, placeholder)
                 if ret ~= nil then return ret end
         end
         return {dialogid, style, title, button1, button2, text, placeholder}
@@ -215,9 +223,13 @@ local function CDamageManager_ApplyDamage_hook(this, car, component, intensity, 
 end
 
 function module.init()
-	-- Включить hook на samp().events
-	sampev.onServerMessage = onServerMessage
-	sampev.onShowDialog = onShowDialog
+        if SMIHelp and SMIHelp.initAdHunter then
+                SMIHelp.initAdHunter()
+        end
+
+        -- Включить hook на samp().events
+        sampev.onServerMessage = onServerMessage
+        sampev.onShowDialog = onShowDialog
 
 	-- Включить JMP hook (detour) на AddChatEntry
 	if lhook and samp_mod and samp_mod.sampModule and samp_mod.main_offsets and samp_mod.currentVersion then

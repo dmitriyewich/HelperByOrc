@@ -1385,4 +1385,145 @@ function SMIHelp.DrawSettingsUI()
 		imgui.EndChild()
 end
 
+--[[
+        =======  AD HUNTER  =======
+        One-shot ловля объявлений (/obv, /obvv)
+        Оптимизированная версия оригинального скрипта Kary
+]]
+
+-- настройки и состояние
+local Ad = {
+        dialog = 556,
+        cmd_all = 'obv',
+        cmd_vip = 'obvv',
+        open_cmd = '/newsredak',
+        delay = {5, 15},
+        armed = false,
+        busy = false,
+        vip = false,
+        target = nil,
+        worker = nil
+}
+
+local patterns = {
+        vip = 'пришло vip сообщение от:',
+        any = {
+                'пришло сообщение от:',
+                'пришло сообщение о рекламе бизнеса от:'
+        }
+}
+
+local function ad_log(text)
+        sampAddChatMessage('{7697E3}[CNN] '..text, -1)
+end
+
+local function kill_thread(th)
+        if th and th:status() == 'running' then th:terminate() end
+end
+
+local function is_ad(text, vipOnly)
+        if not text or text == '' then return false end
+        text = text:lower()
+        if vipOnly then return text:find(patterns.vip, 1, true) end
+        if text:find(patterns.vip, 1, true) then return true end
+        for _, p in ipairs(patterns.any) do
+                if text:find(p, 1, true) then return true end
+        end
+        return false
+end
+
+local function extract_nick(raw)
+        return raw and raw:match('от:%s*([%w_]+)') or nil
+end
+
+local function analyze_dialog(text, nick, vipOnly)
+        local vipIdx, normIdx, editor, busy
+        for line in (text or ''):gmatch('[^\n]+') do
+                if line:find(nick, 1, true) then
+                        if line:find('В редакции', 1, true) then
+                                busy = true
+                                editor = line:match('В%s*редакции%s*%(*([%w_]+)%)?')
+                                          or line:match('редактирует%s+([%w_]+)')
+                                          or line:match('%(([%w_]+)%)')
+                        else
+                                local idx = tonumber(line:match('%[(%d+)%]'))
+                                if idx then
+                                        if line:find('VIP', 1, true) then vipIdx = idx else normIdx = idx end
+                                end
+                        end
+                end
+        end
+        local idx = vipOnly and vipIdx or vipIdx or normIdx
+        if idx then return idx, 'ok' end
+        if busy then return nil, 'busy', editor end
+        return nil, 'none'
+end
+
+function SMIHelp.initAdHunter()
+        math.randomseed(os.time())
+        local function toggle(vip)
+                if Ad.busy then
+                        ad_log('Сейчас идёт обработка. Дождитесь завершения.')
+                        return
+                end
+                Ad.vip = vip
+                Ad.armed = not Ad.armed
+                local t = Ad.armed and (vip and 'включена (VIP)' or 'включена (все)') or 'выключена'
+                ad_log('Ловля объявлений '..t..'.')
+        end
+
+        sampRegisterChatCommand(Ad.cmd_all, function() toggle(false) end)
+        sampRegisterChatCommand(Ad.cmd_vip, function() toggle(true) end)
+        ad_log(('Загружен. Команды: /%s (все), /%s (только VIP). One-shot с исключением для «В редакции».')
+                :format(Ad.cmd_all, Ad.cmd_vip))
+end
+
+function SMIHelp.AdHunterOnServerMessage(color, text)
+        if not Ad.armed or Ad.busy then return end
+        if sampIsDialogActive() or sampIsChatInputActive() then return end
+        if not is_ad(text, Ad.vip) then return end
+
+        local nick = extract_nick(text)
+        if not nick then
+                Ad.armed = false
+                ad_log(('Пришло объявление, но не удалось распознать ник. Введите /%s или /%s.')
+                        :format(Ad.cmd_all, Ad.cmd_vip))
+                return
+        end
+
+        Ad.armed, Ad.busy, Ad.target = false, true, nick
+        kill_thread(Ad.worker)
+        Ad.worker = lua_thread.create(function()
+                wait(math.random(Ad.delay[1], Ad.delay[2]))
+                sampSendChat(Ad.open_cmd)
+        end)
+end
+
+function SMIHelp.AdHunterOnShowDialog(dialogid, style, title, button1, button2, text, placeholder)
+        if dialogid ~= Ad.dialog or not Ad.busy or not Ad.target then return end
+        local idx, reason, editor = analyze_dialog(text, Ad.target, Ad.vip)
+        if reason == 'ok' and idx then
+                kill_thread(Ad.worker)
+                Ad.worker = lua_thread.create(function()
+                        wait(math.random(Ad.delay[1], Ad.delay[2]))
+                        sampSendDialogResponse(Ad.dialog, 1, idx - 1)
+                        local tn = Ad.target
+                        Ad.busy, Ad.target = false, nil
+                        ad_log(('Взято объявление от {%s}%s{FFFFFF}. Режим ловли выключен.'):format('FFD700', tn))
+                end)
+                return
+        end
+
+        local tn = Ad.target
+        Ad.busy, Ad.target = false, nil
+        if reason == 'busy' then
+                Ad.armed = true
+                local msg = editor and ('Это объявление уже редактирует '..editor..'.')
+                                    or 'Это объявление уже в редакции.'
+                ad_log(msg..' Режим ловли снова включён.')
+        else
+                ad_log(('Для %s нет доступных строк. Режим ловли выключен.'):format(tn or '?'))
+        end
+end
+
 return SMIHelp
