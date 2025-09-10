@@ -617,6 +617,18 @@ function module.DrawQuickMenu()
                return clicked
        end
 
+       local function quickBeginMenu(label, enabled)
+               local startX = imgui.GetCursorPosX()
+               imgui.SetCursorPosX(startX - imgui.GetFontSize())
+               imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
+               local opened = imgui.BeginMenu(label, enabled)
+               imgui.PopStyleVar()
+               if not opened then
+                       imgui.SetCursorPosX(startX)
+               end
+               return opened, startX
+       end
+
         local function drawRec(node)
                 if not isFolderChainVisible(node) then return end
                for i, hk in ipairs(hotkeys) do
@@ -633,9 +645,11 @@ function module.DrawQuickMenu()
                for _, child in ipairs(node.children or {}) do
                        if folderHasQuickBindsVisible(child) then
                                local path = table.concat(folderFullPath(child), '/')
-                               if imgui.BeginMenu(ICON_FOLDER .. child.name .. '##quick_folder_' .. path) then
+                               local opened, startX = quickBeginMenu(ICON_FOLDER .. child.name .. '##quick_folder_' .. path, true)
+                               if opened then
                                        drawRec(child)
                                        imgui.EndMenu()
+                                       imgui.SetCursorPosX(startX)
                                end
                        end
                end
