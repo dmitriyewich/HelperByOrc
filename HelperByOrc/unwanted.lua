@@ -138,13 +138,24 @@ end
 local function load_cfg()
   local s = read_file(CONFIG_PATH)
   if not s or s == "" then
-	write_file(CONFIG_PATH, json_encode(cfg))
-	return
+        write_file(CONFIG_PATH, json_encode(cfg))
+        return
   end
   local t = json_decode(s)
   if type(t) == "table" then
-	cfg.settings = type(t.settings)=="table" and t.settings or cfg.settings
-	cfg.ignore   = type(t.ignore)=="table"   and t.ignore   or {}
+        if type(t.settings) == "table" then
+          local src = t.settings
+          local dst = cfg.settings
+          dst.enabled = src.enabled ~= false
+          dst.max_pattern_len = tonumber(src.max_pattern_len) or dst.max_pattern_len
+          if type(src.normalizer) == "table" then
+                local dn, sn = dst.normalizer, src.normalizer
+                dn.strip_colors = sn.strip_colors ~= false
+                dn.collapse_ws = sn.collapse_ws and true or false
+                dn.trim = sn.trim ~= false
+          end
+        end
+        cfg.ignore = type(t.ignore) == "table" and t.ignore or {}
   end
 end
 
@@ -267,8 +278,6 @@ function M.get_flat_patterns_cp1251()
 end
 
 function M.get_config() return cfg end
-function M.reload() load_cfg(); rebuild_cache() end
-function M.save()   save_cfg(); rebuild_cache() end
 
 -- === Инлайн-редактор ===
 local function start_edit(idx, it)
@@ -621,28 +630,33 @@ function M.DrawWindow(inline)
 
   -- Верхняя панель
   do
-	local en = ffi.new("bool[1]", cfg.settings.enabled and true or false)
-	if imgui.Checkbox(I(fa.TOGGLE_ON, "Включить фильтр"), en) then
-	  cfg.settings.enabled = en[0] and true or false
-	  save_cfg()
-	end
-	Tooltip("Главный переключатель: включить/выключить весь фильтр.")
+        local en = ffi.new("bool[1]", cfg.settings.enabled and true or false)
+        imgui.AlignTextToFramePadding()
+        if imgui.Checkbox(" Фильтр включён", en) then
+          cfg.settings.enabled = en[0] and true or false
+          save_cfg()
+        end
+        Tooltip("Главный переключатель: включить/выключить весь фильтр.")
 
 	imgui.SameLine()
-	if imgui.Button(I(fa.FLOPPY_DISK, "Сохранить")) then M.save() end; Tooltip("Сохранить конфиг на диск.")
+        if imgui.Button(I(fa.FLOPPY_DISK, "Сохранить")) then M.save() end
+        Tooltip("Сохранить конфиг на диск.")
 
 	imgui.SameLine()
-	if imgui.Button(I(fa.ROTATE_RIGHT, "Перечитать")) then M.reload() end; Tooltip("Перечитать конфиг с диска.")
+        if imgui.Button(I(fa.ROTATE_RIGHT, "Перечитать")) then M.reload() end
+        Tooltip("Перечитать конфиг с диска.")
 
 	imgui.SameLine()
-	if imgui.Button(I(fa.TOGGLE_ON, "Включить все")) then set_all_enabled(true) end; Tooltip("Включить ВСЕ правила.")
+        if imgui.Button(I(fa.TOGGLE_ON, "Включить все")) then set_all_enabled(true) end
+        Tooltip("Включить ВСЕ правила.")
 	imgui.SameLine()
-	if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить все")) then set_all_enabled(false) end; Tooltip("Выключить ВСЕ правила.")
-
-	imgui.SameLine()
-	TextRaw(I(fa.GEARS, "Нормализация:"))
-	imgui.SameLine()
-	local n = cfg.settings.normalizer or {}
+        if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить все")) then set_all_enabled(false) end
+        Tooltip("Выключить ВСЕ правила.")
+  end
+  imgui.Spacing()
+    TextRaw(I(fa.GEARS, "Нормализация:"))
+    imgui.SameLine()
+    local n = cfg.settings.normalizer or {}
 	local sc = ffi.new("bool[1]", n.strip_colors and true or false)
 	if imgui.Checkbox("Без {цветов}", sc) then n.strip_colors = sc[0] and true or false; cfg.settings.normalizer = n; save_cfg(); rebuild_cache() end
 	Tooltip("Убирает цветовые коды вида {FFFFFF} из входящего текста перед проверкой.\nРекомендуется оставить включённым.")
@@ -655,9 +669,8 @@ function M.DrawWindow(inline)
 	if imgui.Checkbox("Trim", tr) then n.trim = tr[0] and true or false; cfg.settings.normalizer = n; save_cfg() end
 	Tooltip("Удаляет пробелы в начале и конце строки.\nПолезно при копировании текста из чата.")
 
-	imgui.SameLine()
-	TextRaw(I(fa.LIST, (" Правил: %d | Ошибок: %d"):format(#cfg.ignore, invalid_count)))
-  end
+        imgui.SameLine()
+        TextRaw(I(fa.LIST, (" Правил: %d | Ошибок: %d"):format(#cfg.ignore, invalid_count)))
 
   imgui.Separator()
   TextRaw(I(fa.LIST, "Список правил:"))
@@ -826,6 +839,10 @@ end
 
 function M.DrawWindowInline()
   M.DrawWindow(true)
+end
+
+function M.isEnabled()
+  return cfg.settings and cfg.settings.enabled
 end
 
 -- === Инициализация ===

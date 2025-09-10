@@ -30,23 +30,28 @@ end
 local config = {}
 
 local default_config = {
-	pos_x = 800, pos_y = 500,
-	width = 900,
-	vip_height = 7, ad_height = 7,
-	highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
-	vip = {
-		'%[VIP ADV%]', '%[VIP%]', '%[PREMIUM%]', '%[FOREVER%]', '%[SERVER%]',
-		'%[ADMIN%]', u8:decode('%{......%}%[Семья%]'), u8:decode('%[Альянс%]'), '%[Family Car%]',
-		u8:decode('%[Дальнобойщик]'), u8:decode('%(%( %[Дальнобойщик%]')
-	},
-	table_config = { vip_text = {}, ad_text = {} },
+        enabled = true,
+        pos_x = 800, pos_y = 500,
+        width = 900,
+        vip_height = 7, ad_height = 7,
+        highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
+        vip = {
+                '%[VIP ADV%]', '%[VIP%]', '%[PREMIUM%]', '%[FOREVER%]', '%[SERVER%]',
+                '%[ADMIN%]', u8:decode('%{......%}%[Семья%]'), u8:decode('%[Альянс%]'), '%[Family Car%]',
+                u8:decode('%[Дальнобойщик]'), u8:decode('%(%( %[Дальнобойщик%]')
+        },
+        table_config = { vip_text = {}, ad_text = {} },
 
-	-- прозрачности (0..1)
-	bg_alpha_chat = 0.50, -- фон при is_chat=true
-	bg_alpha_idle = 0.00, -- фон при is_chat=false
-	text_alpha_chat = 1.00, -- текст при is_chat=true
-	text_alpha_idle = 0.50, -- текст при is_chat=false
+        -- прозрачности (0..1)
+        bg_alpha_chat = 0.50, -- фон при is_chat=true
+        bg_alpha_idle = 0.00, -- фон при is_chat=false
+        text_alpha_chat = 1.00, -- текст при is_chat=true
+        text_alpha_idle = 0.50, -- текст при is_chat=false
 }
+
+function module.isEnabled()
+        return config.enabled
+end
 
 -- ===================== УТИЛИТЫ =====================
 -- убрать цветовые теги {RRGGBB[AA]}
@@ -184,40 +189,47 @@ end
 
 -- ===================== ПУБЛИЧНОЕ API =====================
 function module.AddVIPMessage(text)
-	local t = config.table_config.vip_text
-	t[#t+1] = text
-	if #t > 100 then table.remove(t, 1) end
-	module.save()
+        if not config.enabled then return end
+        local t = config.table_config.vip_text
+        t[#t+1] = text
+        if #t > 100 then table.remove(t, 1) end
+        module.save()
 end
 
 function module.AddADMessage(main, edited, toredact)
-	local t = config.table_config.ad_text
-	t[#t+1] = { main, edited or "", toredact or "" }
-	if #t > 100 then table.remove(t, 1) end
-	module.save()
+        if not config.enabled then return end
+        local t = config.table_config.ad_text
+        t[#t+1] = { main, edited or "", toredact or "" }
+        if #t > 100 then table.remove(t, 1) end
+        module.save()
 end
 
 function module.SetLastADEdited(text)
-	local ad = config.table_config.ad_text
-	if #ad > 0 then ad[#ad][2] = text; module.save() end
+        if not config.enabled then return end
+        local ad = config.table_config.ad_text
+        if #ad > 0 then ad[#ad][2] = text; module.save() end
 end
 
 function module.SetLastADPreEdit(text)
-	local ad = config.table_config.ad_text
-	if #ad > 0 then ad[#ad][3] = text; module.save() end
+        if not config.enabled then return end
+        local ad = config.table_config.ad_text
+        if #ad > 0 then ad[#ad][3] = text; module.save() end
 end
 
 function module.ClearVIP() config.table_config.vip_text = {}; module.save() end
 function module.ClearAD()	 config.table_config.ad_text = {}; module.save() end
 
-function module.VIP() return config.vip end
+function module.VIP()
+        if not config.enabled then return {} end
+        return config.vip
+end
 
 -- ===================== ОКНО ЛЕНТЫ =====================
 module.showFeedWindow = imgui.new.bool(false)
 
 imgui.OnFrame(
-	function() return module.showFeedWindow[0] end,
-	function(VIPandADchat)
+        function() return module.showFeedWindow[0] and config.enabled end,
+        function(VIPandADchat)
 				local is_chat = samp and samp.is_chat_opened and samp.is_chat_opened() or false
 		VIPandADchat.HideCursor = not is_chat
 		if not config then return end
@@ -248,7 +260,7 @@ imgui.OnFrame(
 		end
 
 				-- Геометрия
-				feedSize = imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 100)
+				feedSize = imgui.ImVec2(max_width, (config.vip_height + config.ad_height) * lh + 30)
 				feedPos = imgui.ImVec2(config.pos_x, config.pos_y)
 				if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
 					feedPos, feedSize = mimgui_funcs.clampWindowToScreen(feedPos, feedSize, 5)
@@ -503,8 +515,15 @@ local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
 
 local function draw_settings_content()
-		imgui.Text("Позиция/размер ленты")
-		imgui.PushItemWidth(70)
+                local en = imgui.new.bool(config.enabled and true or false)
+                if imgui.Checkbox("Включить модуль", en) then
+                        config.enabled = en[0] and true or false
+                        module.save()
+                end
+                imgui.Separator()
+
+                imgui.Text("Позиция/размер ленты")
+                imgui.PushItemWidth(70)
 
 		local pos_x = ffi.new("int[1]", config.pos_x)
 		local pos_y = ffi.new("int[1]", config.pos_y)

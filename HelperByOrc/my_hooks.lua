@@ -4,6 +4,7 @@ local module = {}
 
 local ffi = require 'ffi'
 local encoding = require 'encoding'
+local bit = require 'bit'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 
@@ -37,23 +38,23 @@ local function fix_invalid_json_escapes(str)
 end
 
 local function onServerMessage(color, text)
-	local text2 = u8(text)
-	-- local color1 = bit.tohex(funcs.ARGBtoRGB(color)):gsub('^00', '')
-	local color1 = bit.tohex(color)
+        local text2 = u8(text)
+        -- local color1 = bit.tohex(funcs.ARGBtoRGB(color)):gsub('^00', '')
+        local color1 = bit.tohex(color)
 
-	if string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.') then
-		lua_thread.create(function()
-			SMIHelp.timer_send_clock = os.clock()
-			SMIHelp.timer_send = false
-			repeat
-				wait(0)
-			until (os.clock() - SMIHelp.timer_send_clock >= SMIHelp.timer_send_delay)
-			SMIHelp.timer_send = true
-		end)
-	end
+        if SMIHelp and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
+                lua_thread.create(function()
+                        SMIHelp.timer_send_clock = os.clock()
+                        SMIHelp.timer_send = false
+                        repeat
+                                wait(0)
+                        until (os.clock() - SMIHelp.timer_send_clock >= SMIHelp.timer_send_delay)
+                        SMIHelp.timer_send = true
+                end)
+        end
 
-	if VIPandADchat then
-		local vip = VIPandADchat.VIP()
+        if VIPandADchat and VIPandADchat.isEnabled and VIPandADchat.isEnabled() then
+                local vip = VIPandADchat.VIP()
 		for i = 1, #vip do
 			if string.match(text, '^' .. vip[i]) then
 				local text = string.format('{FFFFFF}%s{%s} %s', os.date('[%H:%M:%S]'), color1, text)
@@ -93,9 +94,9 @@ local function onServerMessage(color, text)
 	-- например: фильтрация, изменение, логирование и т.д.
 	-- text = string.gsub(text, "замена", "на что-то")
 	-- print(text)
-	if unwanted and unwanted.should_ignore(text) then
-		return false -- глушим сообщение
-	end
+        if unwanted and unwanted.isEnabled and unwanted.isEnabled() and unwanted.should_ignore(text) then
+                return false -- глушим сообщение
+        end
 
 	return { color, text }
 end
@@ -112,97 +113,52 @@ end
 -- 2. JMP HOOK (через hooks.jmp на AddChatEntry)
 local lhook, hook = pcall(require, 'hooks')
 
-local function samp()
-	return samp_mod
-end
-
 local originalChatAddEntry = nil
-local CDialog_Close = nil
+local CDialog_Close_orig = nil
+local CInput_Send_orig = nil
+local CInput_SendSay_orig = nil
+local CDamageManager_ApplyDamage_orig = nil
 
 local function ChatAddEntryHooked(chat, type, szText, szPrefix, textColor, prefixColor)
-	local text = ffi.string(szText)
-	local text = u8(text)
-	local text3 = u8:decode(text)
-	local text_gsub = string.gsub(text, '[%p%c%s]', '')
-	-- Твоя логика обработки текста чата
-	-- Например, можно изменить szText и т.д.
-	-- Для примера - ничего не меняем:
+        local text = u8(ffi.string(szText))
+        -- Твоя логика обработки текста чата
+        -- Например, можно изменить szText и т.д.
+        -- Для примера - ничего не меняем:
 
-	return originalChatAddEntry(chat, type, szText, szPrefix, textColor, prefixColor)
+        return originalChatAddEntry(chat, type, szText, szPrefix, textColor, prefixColor)
 end
 
-local function CDialog_Close(this, button)
-	-- -- Проверяем основные условия
-	if samp().isDialogActive()
-		and samp().pEditBox_active_func()
-		and samp().get_dialog_caption():find(u8:decode('Редактирование'))
-		and button == 1
-	then
-		-- print(samp().sampGetDialogEditboxText())
-		-- -- Если таймер не активен, выходим
-		if SMIHelp.timer_send then
-			-- -- Получаем текст ввода
-			local input = samp().sampGetDialogEditboxText()
-			if input and not input:match("^%s*$") then
-				local inputU8 = u8(input)
-				SMIHelp.AddToHistory(inputU8)
-				-- -- -- Удаляем все дубликаты
-				-- -- local i = #config.table_config.last_text
-				-- -- while i >= 1 do
-				-- --	 if u8:decode(config.table_config.last_text[i]) == input then
-				-- --		 table.remove(config.table_config.last_text, i)
-				-- --	 end
-				-- --	 i = i - 1
-				-- -- end
-				-- -- -- Вставляем один экземпляр в конец
-				-- -- table.insert(config.table_config.last_text, inputU8)
-				-- -- if #config.table_config.last_text > 101 then
-				-- --	 table.remove(config.table_config.last_text, 1)
-				-- -- end
-				-- -- config.save()
-			end
+local function CDialog_Close_hook(this, button)
+        if not (samp_mod and SMIHelp) then
+                return CDialog_Close_orig(this, button)
+        end
 
-			-- -- local input = samp().sampGetDialogEditboxText()
+        local caption = samp_mod.get_dialog_caption and samp_mod.get_dialog_caption() or nil
+        if samp_mod.isDialogActive()
+                and samp_mod.pEditBox_active_func()
+                and caption and caption:find(u8:decode('Редактирование'))
+                and button == 1
+        then
+                if SMIHelp.timer_send then
+                        local input = samp_mod.sampGetDialogEditboxText()
+                        if input and not input:match("^%s*$") then
+                                SMIHelp.AddToHistory(u8(input))
+                        end
 
-			-- -- if input and not input:match("^%s*$") then -- Проверяем, что строка не пустая и не состоит только из пробелов
-			-- --	 -- print(button, input)
+                        lua_thread.create(function()
+                                SMIHelp.timer_send_clock = os.clock()
+                                SMIHelp.timer_send = false
+                                repeat
+                                        wait(0)
+                                until (os.clock() - SMIHelp.timer_send_clock >= SMIHelp.timer_send_delay)
+                                SMIHelp.timer_send = true
+                        end)
+                else
+                        return false
+                end
+        end
 
-			-- --	 -- Проверяем, сохранён ли текст ранее
-			-- --	 local isNewText = true
-			-- --	 for _, savedText in ipairs(config.table_config.last_text) do
-			-- --		 if u8:decode(savedText) == input then -- Точное сравнение текста
-			-- --			 isNewText = false
-			-- --			 break
-			-- --		 end
-			-- --	 end
-
-			-- --	 -- Если текст новый, сохраняем его
-			-- --	 if isNewText then
-			-- --		 table.insert(config.table_config.last_text, u8(input))
-			-- --		 if #config.table_config.last_text > 101 then
-			-- --			 table.remove(config.table_config.last_text, 1)
-			-- --		 end
-			-- --		 config.save()
-			-- --	 end
-			-- -- end
-
-			-- -- Сбрасываем фильтр и запускаем таймер
-			-- SMIHelp.pasr_find = 'ALL'
-			-- SMIHelp.filter_SMI:Clear()
-
-			lua_thread.create(function()
-				SMIHelp.timer_send_clock = os.clock()
-				SMIHelp.timer_send = false
-				repeat
-					wait(0)
-				until (os.clock() - SMIHelp.timer_send_clock >= SMIHelp.timer_send_delay)
-				SMIHelp.timer_send = true
-			end)
-		else
-			return false
-		end
-	end
-	CDialog_Close(this, button)
+        return CDialog_Close_orig(this, button)
 end
 
 local function CInput_Send_hook(this, text)
@@ -211,8 +167,8 @@ local function CInput_Send_hook(this, text)
 	if tags and tags.change_tags then
 		msg = tags.change_tags(msg)
 	end
-	local back = u8:decode(msg) -- возвращаем обратно в CP1251
-	CInput_Send_hook(this, back)
+        local back = u8:decode(msg) -- возвращаем обратно в CP1251
+        return CInput_Send_orig(this, back)
 	-- local text = ffi.string(text)
 	-- local text = tags.change_tags(text)
 	-- -- local text = u8:decode(text)
@@ -239,8 +195,8 @@ local function CInput_SendSay_hook(this, text)
 	if tags and tags.change_tags then
 		msg = tags.change_tags(msg)
 	end
-	local back = u8:decode(msg) -- возвращаем обратно в CP1251
-	CInput_SendSay_hook(this, back)
+        local back = u8:decode(msg) -- возвращаем обратно в CP1251
+        return CInput_SendSay_orig(this, back)
 	-- local text = ffi.string(text)
 	-- local text = tags.change_tags(text)
 	-- -- local text = u8:decode(text)
@@ -249,11 +205,11 @@ local function CInput_SendSay_hook(this, text)
 	-- CInput_SendSay_hook(this, text)
 end
 
-local function CDamageManager_ApplyDamage(this, car, component, intensity, arg3)
+local function CDamageManager_ApplyDamage_hook(this, car, component, intensity, arg3)
 	if not (component >= 1 and component <= 4) then
 		return false
 	end
-	return CDamageManager_ApplyDamage(this, car, component, intensity, arg3)
+        return CDamageManager_ApplyDamage_orig(this, car, component, intensity, arg3)
 end
 
 function module.init()
@@ -268,28 +224,28 @@ function module.init()
 			ChatAddEntryHooked,
 			samp_mod.sampModule + samp_mod.main_offsets.AddEntry[samp_mod.currentVersion]
 		)
-		CDialog_Close = hook.jmp.new(
-			"void(__thiscall *)(uintptr_t, char)",
-			CDialog_Close,
-			samp_mod.sampModule + samp_mod.main_offsets.CDialog_Close[samp_mod.currentVersion]
-		)
+                CDialog_Close_orig = hook.jmp.new(
+                        "void(__thiscall *)(uintptr_t, char)",
+                        CDialog_Close_hook,
+                        samp_mod.sampModule + samp_mod.main_offsets.CDialog_Close[samp_mod.currentVersion]
+                )
 
 		-- CDialog_Show = hook.jmp.new("void(__thiscall *)(uintptr_t, int, int, const char*, const char*, const char*, const char*, bool)", CDialog_Show, samp().sampModule + samp().main_offsets.CDialog_Show[samp().currentVersion])
-		CInput_Send_hook = hook.jmp.new(
-			"void(__thiscall *)(uintptr_t, const char*)",
-			CInput_Send_hook,
-			samp_mod.sampModule + samp_mod.main_offsets.CInput_Send[samp_mod.currentVersion]
-		)
-		CInput_SendSay_hook = hook.jmp.new(
-			"void(__thiscall *)(uintptr_t, const char*)",
-			CInput_SendSay_hook,
-			samp_mod.sampModule + samp_mod.main_offsets.CInput_SendSay[samp_mod.currentVersion]
-		)
-		CDamageManager_ApplyDamage = hook.jmp.new(
-			"bool(__thiscall*)(uintptr_t this, uintptr_t car, int component, float intensity, float arg3)",
-			CDamageManager_ApplyDamage,
-			0x6C24B0
-		)
+                CInput_Send_orig = hook.jmp.new(
+                        "void(__thiscall *)(uintptr_t, const char*)",
+                        CInput_Send_hook,
+                        samp_mod.sampModule + samp_mod.main_offsets.CInput_Send[samp_mod.currentVersion]
+                )
+                CInput_SendSay_orig = hook.jmp.new(
+                        "void(__thiscall *)(uintptr_t, const char*)",
+                        CInput_SendSay_hook,
+                        samp_mod.sampModule + samp_mod.main_offsets.CInput_SendSay[samp_mod.currentVersion]
+                )
+                CDamageManager_ApplyDamage_orig = hook.jmp.new(
+                        "bool(__thiscall*)(uintptr_t this, uintptr_t car, int component, float intensity, float arg3)",
+                        CDamageManager_ApplyDamage_hook,
+                        0x6C24B0
+                )
 
 		-- AttachObjectToBone = hook.jmp.new("void(__cdecl*)(uintptr_t, uintptr_t, int)", AttachObjectToBone, 0x5B0450)
 	end
