@@ -617,8 +617,9 @@ function module.DrawQuickMenu()
                                  and check_quick_visibility(hk.quick_conditions or {}) then
                                 if not first then imgui.Separator() end
                                 local text = (fa.KEYBOARD ~= '' and (fa.KEYBOARD .. ' ') or '') .. (hk.label or ("bind" .. i))
+                -- Quick menu items do not show a check mark; we only disable those that cannot run
                                 local label = text .. '##quick_bind' .. i
-                                if imgui.MenuItemBool(label, hk.is_running, hk.enabled) then
+                                if imgui.MenuItemBool(label, nil, false, hk.enabled) then
                                                 module.enqueueHotkey(hk)
                                 end
                                 first = false
