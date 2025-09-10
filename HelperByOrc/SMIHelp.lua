@@ -1040,7 +1040,7 @@ imgui.OnFrame(
 		-- LEFT
 		imgui.BeginGroup()
 			DrawTemplatesPanel(leftW, availY)
-		imgui.EndGroup()
+                imgui.EndGroup()
 		imgui.SameLine()
 
 		-- CENTER
@@ -1274,43 +1274,70 @@ local btn_send_clicked = false
 					State.collapse_selection_after_focus = true
 				end)
 
-				imgui.Spacing(); imgui.Separator(); imgui.Spacing()
+                                imgui.Spacing(); imgui.Separator(); imgui.Spacing()
+                                local cur_label = AD.currency or (currencies[1] or "-")
+                                local addon_label = AD.addon or "- выбрать дополнение -"
+                                imgui.BeginChild('##currency_addon', imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
+                                        if imgui.BeginMenuBar() then
+                                               -- currency menu
+                                               local cur_menu_hover, cur_popup_hover = false, false
+                                               local cur_open = imgui.BeginMenu(cur_label)
+                                               if cur_open then
+                                                       for _, item in ipairs(currencies) do
+                                                               local sel = (AD.currency == item)
+                                                               if imgui.MenuItemBool(item, nil, sel) then
+                                                                       refresh_object_value_from_editbuf()
+                                                                       AD.currency = item
+                                                                       ad_commit_to_editbuf()
+                                                                       State.cursor_action = 'to_end'; State.cursor_action_data = nil
+                                                                       history_reset_index()
+                                                                       State.want_focus_input = true
+                                                                       State.collapse_selection_after_focus = true
+                                                               end
+                                                       end
+                                                       cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+                                                       imgui.EndMenu()
+                                                       cur_menu_hover = imgui.IsItemHovered()
+                                               else
+                                                       cur_menu_hover = imgui.IsItemHovered()
+                                                       if cur_menu_hover then imgui.OpenPopup(cur_label) end
+                                               end
+                                               if cur_open and not cur_menu_hover and not cur_popup_hover then
+                                                       imgui.CloseCurrentPopup()
+                                               end
 
-				local cur_label = AD.currency or (currencies[1] or "-")
-				if imgui.BeginCombo("##currency", cur_label) then
-					for _, item in ipairs(currencies) do
-						local sel = (AD.currency == item)
-						if imgui.Selectable(item, sel) then
-							refresh_object_value_from_editbuf()
-							AD.currency = item
-							ad_commit_to_editbuf()
-							State.cursor_action = 'to_end'; State.cursor_action_data = nil
-							history_reset_index()
-							State.want_focus_input = true
-							State.collapse_selection_after_focus = true
-						end
-					end
-					imgui.EndCombo()
-				end
+                                               -- addon menu
+                                               local addon_menu_hover, addon_popup_hover = false, false
+                                               local addon_open = imgui.BeginMenu(addon_label)
+                                               if addon_open then
+                                                       for _, item in ipairs(addons) do
+                                                               local sel = (AD.addon == item)
+                                                               if imgui.MenuItemBool(item, nil, sel) then
+                                                                       refresh_object_value_from_editbuf()
+                                                                       AD.addon = item
+                                                                       ad_commit_to_editbuf()
+                                                                       State.cursor_action = 'to_addon_end'
+                                                                       State.cursor_action_data = item
+                                                                       history_reset_index()
+                                                                       State.want_focus_input = true
+                                                                       State.collapse_selection_after_focus = true
+                                                               end
+                                                       end
+                                                       addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+                                                       imgui.EndMenu()
+                                                       addon_menu_hover = imgui.IsItemHovered()
+                                               else
+                                                       addon_menu_hover = imgui.IsItemHovered()
+                                                       if addon_menu_hover then imgui.OpenPopup(addon_label) end
+                                               end
+                                               if addon_open and not addon_menu_hover and not addon_popup_hover then
+                                                       imgui.CloseCurrentPopup()
+                                               end
 
-				local addon_label = AD.addon or "- выбрать дополнение -"
-				if imgui.BeginCombo("##addon", addon_label) then
-					for _, item in ipairs(addons) do
-						local sel = (AD.addon == item)
-						if imgui.Selectable(item, sel) then
-							refresh_object_value_from_editbuf()
-							AD.addon = item
-							ad_commit_to_editbuf()
-							State.cursor_action = 'to_addon_end'
-							State.cursor_action_data = item
-							history_reset_index()
-							State.want_focus_input = true
-							State.collapse_selection_after_focus = true
-						end
-					end
-					imgui.EndCombo()
-				end
-			imgui.EndChild()
+                                               imgui.EndMenuBar()
+                                        end
+                                imgui.EndChild()
+                        imgui.EndChild()
 
 			imgui.EndChild()
 		imgui.EndGroup()
@@ -1323,34 +1350,119 @@ local btn_send_clicked = false
 		imgui.EndGroup()
 
 		imgui.End()
-		imgui.PopStyleVar(4)
-		end
+                imgui.PopStyleVar(4)
+                end
 )
 
+-- ========= СЕРИАЛИЗАЦИЯ НАСТРОЕК =========
+local function autocorrect_to_string(list)
+    local lines = {}
+    if type(list) == 'table' then
+        for _, pair in ipairs(list) do
+            local find = pair[1] or ''
+            local repl = pair[2] or ''
+            table.insert(lines, find .. '=' .. repl)
+        end
+    end
+    return table.concat(lines, '\n')
+end
+
+local function parse_autocorrect(text)
+    local res = {}
+    text = tostring(text or '')
+    for line in text:gmatch('[^\n]+') do
+        local find, repl = line:match('^(.-)=(.*)$')
+        if find and find ~= '' then
+            table.insert(res, { find, repl or '' })
+        end
+    end
+    return res
+end
+
+-- helpers for editable text buffers
+local function buf_ensure(tbl, key, size)
+    size = size or 256
+    local entry = tbl[key]
+    if not entry then
+        entry = { buf = new.char[size](), size = size }
+        tbl[key] = entry
+    elseif entry.size < size then
+        local content = str(entry.buf)
+        local new_buf = new.char[size]()
+        imgui.StrCopy(new_buf, content)
+        entry.buf = new_buf
+        entry.size = size
+    end
+    return entry
+end
+
+local function buf_set(tbl, key, text)
+    local entry = buf_ensure(tbl, key, #text + 1)
+    imgui.StrCopy(entry.buf, text)
+    return entry
+end
+
+local function buf_maybe_grow(entry)
+    local content = str(entry.buf)
+    if #content + 1 >= entry.size then
+        local new_size = entry.size * 2
+        local new_buf = new.char[new_size]()
+        imgui.StrCopy(new_buf, content)
+        entry.buf = new_buf
+        entry.size = new_size
+    end
+end
+
 function SMIHelp.DrawSettingsUI()
-		if not SMIHelp._settings then
-						SMIHelp._settings = {
-						type_buttons = new.char[512](),
-						objects = new.char[512](),
-						prices = new.char[512](),
-						currencies = new.char[512](),
-						addons = new.char[512](),
-                                                history_limit = new.int(Config.data.history_limit or 100),
-                                                nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
-                                                vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
-                                                vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
-                                                btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
-                                                btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
-                                                timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
-                                                }
-				imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
-		end
-		local S = SMIHelp._settings
-		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
+               if not SMIHelp._settings then
+                                               SMIHelp._settings = {
+                                               type_buttons = new.char[512](),
+                                               objects = new.char[512](),
+                                               prices = new.char[512](),
+                                               currencies = new.char[512](),
+                                               addons = new.char[512](),
+                                               autocorrect = new.char[1024](),
+                                               history_limit = new.int(Config.data.history_limit or 100),
+                                               nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
+                                               vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
+                                               vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
+                                               btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
+                                               btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
+                                               timer_news_delay = new.int(SMIHelp.timer_news_delay or 4),
+                                               templates_list = {},
+                                               tpl_input = {},
+                                               tpl_multiline = {},
+                                               tpl_edit_mode = {},
+                                               tpl_edit_buf = {}
+                                               }
+                               imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
+                               for _, tpl in ipairs(Config.data.templates or {}) do
+                                               local copy = { category = tpl.category, texts = {} }
+                                               if type(tpl.texts) == 'table' then
+                                                               for _, g in ipairs(tpl.texts) do
+                                                                               if type(g) == 'table' then
+                                                                                               local group = {}
+                                                                                               for _, s in ipairs(g) do
+                                                                                                               if type(s) == 'string' then table.insert(group, s) end
+                                                                                               end
+                                                                                               if #group > 0 then table.insert(copy.texts, group) end
+                                                                               elseif type(g) == 'string' then
+                                                                                               table.insert(copy.texts, { g })
+                                                                               end
+                                                               end
+                                               elseif type(tpl.text) == 'string' then
+                                                               table.insert(copy.texts, { tpl.text })
+                                               end
+                                               table.insert(SMIHelp._settings.templates_list, copy)
+                               end
+               end
+               local S = SMIHelp._settings
+               imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
                                                 imgui.InputInt('Лимит истории', S.history_limit, 1, 1000)
                                                 imgui.InputInt('Лимит памяти ников', S.nick_memory_limit, 1, 1000)
                                                 imgui.Checkbox('Таймер VIP объявлений', S.vip_timer_enabled)
@@ -1360,17 +1472,100 @@ function SMIHelp.DrawSettingsUI()
                                                 imgui.InputInt('Задержка новостей', S.timer_news_delay, 1, 60)
 				imgui.InputTextMultiline('Типы', S.type_buttons, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Объекты', S.objects, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
-				if imgui.Button('Сохранить') then
-												Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
-												Config.data.objects = funcs.parseList(str(S.objects))
-												Config.data.prices = funcs.parseList(str(S.prices))
-												Config.data.currencies = funcs.parseList(str(S.currencies))
-												Config.data.addons = funcs.parseList(str(S.addons))
-												Config.data.history_limit = S.history_limit[0]
-												Config.data.nick_memory_limit = S.nick_memory_limit[0]
+                                imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
+                                imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
+                               imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
+                               imgui.InputTextMultiline('Автокоррекция', S.autocorrect, 1024, imgui.ImVec2(0,60))
+                               if imgui.CollapsingHeader('Шаблоны') then
+                                               if imgui.BeginTabBar('tpl_tabs') then
+                                                               for idx, tpl in ipairs(S.templates_list) do
+                                                                               local cat = tpl.category or ('Категория '..idx)
+
+								if imgui.BeginTabItem(cat) then
+								tpl.texts = tpl.texts or {}
+								S.tpl_edit_mode[idx] = S.tpl_edit_mode[idx] or {}
+								S.tpl_edit_buf[idx] = S.tpl_edit_buf[idx] or {}
+								local j = 1
+								while j <= #tpl.texts do
+								S.tpl_edit_mode[idx][j] = S.tpl_edit_mode[idx][j] or new.bool(false)
+                                                                if S.tpl_edit_mode[idx][j][0] then
+                                                                local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
+                                                                imgui.InputTextMultiline('##tplexisting'..idx..'_'..j, buf.buf, buf.size, imgui.ImVec2(0,60))
+                                                                buf_maybe_grow(buf)
+                                                                if imgui.Button('Готово##tplexisting'..idx..'_'..j) then
+                                                                local val = str(buf.buf)
+                                                                local group = {}
+                                                                for line in val:gmatch('[^\n]+') do table.insert(group, line) end
+                                                                tpl.texts[j] = group
+                                                                S.tpl_edit_mode[idx][j][0] = false
+                                                                end
+                                                                j = j + 1
+                                                                else
+								local group = tpl.texts[j]
+								local display = table.concat(group, ' / ')
+								if imgui.SmallButton('X##tpldel'..idx..'_'..j) then
+								table.remove(tpl.texts, j)
+								else
+								imgui.SameLine()
+								if imgui.SmallButton('E##tplexistingbtn'..idx..'_'..j) then
+								local edit_str = table.concat(group, '\n')
+								buf_set(S.tpl_edit_buf[idx], j, edit_str)
+								S.tpl_edit_mode[idx][j][0] = true
+								else
+								j = j + 1
+								end
+								imgui.SameLine()
+								imgui.BulletText(display)
+								end
+								end
+								end
+								S.tpl_input[idx] = buf_ensure(S.tpl_input, idx, 256)
+								S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
+								if S.tpl_multiline[idx][0] then
+								imgui.InputTextMultiline('##tplinput'..idx, S.tpl_input[idx].buf, S.tpl_input[idx].size, imgui.ImVec2(0,60))
+								else
+								imgui.InputText('##tplinput'..idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
+								end
+								buf_maybe_grow(S.tpl_input[idx])
+								if S.tpl_multiline[idx][0] then
+								if imgui.Button('Одна строка##toggle'..idx) then
+								S.tpl_multiline[idx][0] = false
+								end
+								else
+								if imgui.Button('Много строк##toggle'..idx) then
+								S.tpl_multiline[idx][0] = true
+								end
+								end
+								imgui.SameLine()
+								if imgui.Button('Добавить##tpl'..idx) then
+								local val = str(S.tpl_input[idx].buf)
+								if val ~= '' then
+								tpl.texts = tpl.texts or {}
+								if S.tpl_multiline[idx][0] then
+								local group = {}
+								for line in val:gmatch('[^\n]+') do table.insert(group, line) end
+								if #group > 0 then table.insert(tpl.texts, group) end
+								else
+								table.insert(tpl.texts, { val })
+								end
+								imgui.StrCopy(S.tpl_input[idx].buf, '')
+								end
+								end
+								imgui.EndTabItem()
+								end                                                               end
+                                                               imgui.EndTabBar()
+                                               end
+                               end
+                               if imgui.Button('Сохранить') then
+                                                                                                Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
+                                                                                                Config.data.objects = funcs.parseList(str(S.objects))
+                                                                                                Config.data.prices = funcs.parseList(str(S.prices))
+                                                                                                Config.data.currencies = funcs.parseList(str(S.currencies))
+                                                                                                Config.data.addons = funcs.parseList(str(S.addons))
+                                                                                                Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
+                               Config.data.templates = S.templates_list
+                                                                                                Config.data.history_limit = S.history_limit[0]
+                                                                                                Config.data.nick_memory_limit = S.nick_memory_limit[0]
                                                                                                 Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
                                                                                                 Config.data.vip_timer_delay = S.vip_timer_delay[0]
                                                                                                 Config.data.btn_timer_enabled = S.btn_timer_enabled[0]
@@ -1382,7 +1577,7 @@ function SMIHelp.DrawSettingsUI()
                                                                                                 SMIHelp.timer_news_delay = S.timer_news_delay[0]
                                                                                                 Config:save()
                                                                                                 end
-		imgui.EndChild()
+                imgui.EndChild()
 end
 
 return SMIHelp
