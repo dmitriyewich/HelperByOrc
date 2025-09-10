@@ -42,7 +42,7 @@ local function onServerMessage(color, text)
         -- local color1 = bit.tohex(funcs.ARGBtoRGB(color)):gsub('^00', '')
         local color1 = bit.tohex(color)
 
-        if SMIHelp and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
+        if SMIHelp and SMIHelp.timer_send_enabled and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
                 lua_thread.create(function()
                         SMIHelp.timer_send_clock = os.clock()
                         SMIHelp.timer_send = false
@@ -139,12 +139,16 @@ local function CDialog_Close_hook(this, button)
                 and caption and caption:find(u8:decode('Редактирование'))
                 and button == 1
         then
-                if SMIHelp.timer_send then
-                        local input = samp_mod.sampGetDialogEditboxText()
-                        if input and not input:match("^%s*$") then
-                                SMIHelp.AddToHistory(u8(input))
-                        end
+                if SMIHelp.timer_send_enabled and not SMIHelp.timer_send then
+                        return false
+                end
 
+                local input = samp_mod.sampGetDialogEditboxText()
+                if input and not input:match("^%s*$") then
+                        SMIHelp.AddToHistory(u8(input))
+                end
+
+                if SMIHelp.timer_send_enabled then
                         lua_thread.create(function()
                                 SMIHelp.timer_send_clock = os.clock()
                                 SMIHelp.timer_send = false
@@ -153,8 +157,6 @@ local function CDialog_Close_hook(this, button)
                                 until (os.clock() - SMIHelp.timer_send_clock >= SMIHelp.timer_send_delay)
                                 SMIHelp.timer_send = true
                         end)
-                else
-                        return false
                 end
         end
 

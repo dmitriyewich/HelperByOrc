@@ -169,6 +169,13 @@ function Config:load()
 	t.nick_memory_limit = (type(t.nick_memory_limit)=='number' and t.nick_memory_limit) or 100
 	if type(t.nick_memory._order) ~= 'table' then t.nick_memory._order = {} end	 -- порядок MRU
 
+        -- настройки таймеров
+        if type(t.vip_timer_enabled) ~= "boolean" then t.vip_timer_enabled = true end
+        t.vip_timer_delay = (type(t.vip_timer_delay) == "number" and t.vip_timer_delay) or 10
+
+        if type(t.btn_timer_enabled) ~= "boolean" then t.btn_timer_enabled = true end
+        t.btn_timer_delay = (type(t.btn_timer_delay) == "number" and t.btn_timer_delay) or 3
+
 	self.data = t
 end
 
@@ -238,8 +245,14 @@ end
 
 -- ========= ПУБЛИЧНЫЕ ПОЛЯ (совместимость) =========
 SMIHelp.timer_send = true
-SMIHelp.timer_send_delay = 10
+SMIHelp.timer_send_enabled = Config.data.vip_timer_enabled
+SMIHelp.timer_send_delay = Config.data.vip_timer_delay or 10
 SMIHelp.timer_send_clock = os.clock()
+
+SMIHelp.btn_timer = true
+SMIHelp.btn_timer_enabled = Config.data.btn_timer_enabled
+SMIHelp.btn_timer_delay = Config.data.btn_timer_delay or 3
+SMIHelp.btn_timer_clock = os.clock()
 
 SMIHelp.timer_news = true
 SMIHelp.timer_news_delay = 4.5
@@ -906,13 +919,34 @@ local function reset_ui_state()
 	imgui.StrCopy(State.filter_buf, "")
 end
 
--- ========= Таймер отправки =========
-local function timer_send_remaining()
-	if SMIHelp.timer_send then return 0 end
-	local elapsed = os.clock() - (SMIHelp.timer_send_clock or 0)
-	local rem = (SMIHelp.timer_send_delay or 0) - elapsed
-	if rem < 0 then rem = 0 end
-	return rem
+-- ========= Таймеры отправки =========
+local function vip_timer_remaining()
+        if not SMIHelp.timer_send_enabled or SMIHelp.timer_send then
+                return 0
+        end
+        local elapsed = os.clock() - (SMIHelp.timer_send_clock or 0)
+        local rem = (SMIHelp.timer_send_delay or 0) - elapsed
+        if rem <= 0 then
+                SMIHelp.timer_send = true
+                rem = 0
+        end
+        return rem
+end
+
+local function btn_timer_remaining()
+        if not SMIHelp.btn_timer_enabled then
+                SMIHelp.btn_timer = true
+                return 0
+        end
+        local elapsed = os.clock() - (SMIHelp.btn_timer_clock or 0)
+        local rem = (SMIHelp.btn_timer_delay or 0) - elapsed
+        if rem <= 0 then
+                SMIHelp.btn_timer = true
+                rem = 0
+        else
+                SMIHelp.btn_timer = false
+        end
+        return rem
 end
 
 -- ========= Центрированный фильтр =========
@@ -1076,11 +1110,12 @@ imgui.OnFrame(
 				end
 			end
 
-						-- Кнопки действий + таймер блокировки и сохранение памяти по нику
-						do
-                                                        local can_send = SMIHelp.timer_send
-                                                        local rem = timer_send_remaining()
-                                                        local btn_send_clicked = false
+-- Кнопки действий + таймер блокировки и сохранение памяти по нику
+do
+local vip_rem = vip_timer_remaining()
+local btn_rem = btn_timer_remaining()
+local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
+local btn_send_clicked = false
                                                         local avail = imgui.GetContentRegionAvail().x
                                                         local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
                                                         local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
@@ -1107,28 +1142,35 @@ imgui.OnFrame(
                                                         State.collapse_selection_after_focus = true
                                                         end
                                                         imgui.SameLine()
-                                                        imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
-                                                        if not can_send then
-                                                                imgui.Spacing()
-                                                                imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", rem))
-                                                        end
-                                                        if btn_send_clicked then
-                                                                if not can_send then
-                                                                        -- блокируем отправку
-                                                                else
-                                                                        if State.last_dialog_id then
-                                                                                local to_send_utf8 = str(State.edit_buf)
-                                                                                local to_send_cp = u8:decode(to_send_utf8)
-                                                                                sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
-                                                                                add_to_history(to_send_utf8)
-                                                                                -- сохраняем память по никнейму (перезапись + MRU-трим)
-                                                                                nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
-                                                                                State.show_dialog[0] = false
-                                                                                AD:reset()
-                                                                                reset_ui_state()
-                                                                        end
-                                                                end
-                                                        end
+                                                                                                        imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
+                                                if not SMIHelp.timer_send then
+                                                        imgui.Spacing()
+                                                        imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер VIP активен. Осталось: %.1f c", vip_rem))
+                                                elseif SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
+                                                        imgui.Spacing()
+                                                        imgui.TextColored(imgui.ImVec4(1,0.45,0.45,1), string.format("Таймер отправки активен. Осталось: %.1f c", btn_rem))
+                                                end
+						if btn_send_clicked then
+						if not can_send then
+						-- блокируем отправку
+						else
+						if State.last_dialog_id then
+						local to_send_utf8 = str(State.edit_buf)
+						local to_send_cp = u8:decode(to_send_utf8)
+						sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
+						add_to_history(to_send_utf8)
+						-- сохраняем память по никнейму (перезапись + MRU-трим)
+						nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
+						State.show_dialog[0] = false
+						AD:reset()
+						reset_ui_state()
+                                                if SMIHelp.btn_timer_enabled then
+                                                SMIHelp.btn_timer = false
+                                                SMIHelp.btn_timer_clock = os.clock()
+                                                end
+						end
+						end
+						end
                                                 end
 
 			imgui.Spacing()
@@ -1287,17 +1329,20 @@ imgui.OnFrame(
 
 function SMIHelp.DrawSettingsUI()
 		if not SMIHelp._settings then
-				SMIHelp._settings = {
+						SMIHelp._settings = {
 						type_buttons = new.char[512](),
 						objects = new.char[512](),
 						prices = new.char[512](),
 						currencies = new.char[512](),
 						addons = new.char[512](),
-						history_limit = new.int(Config.data.history_limit or 100),
-						nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
-						timer_send_delay = new.int(SMIHelp.timer_send_delay or 10),
-						timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
-				}
+                                                history_limit = new.int(Config.data.history_limit or 100),
+                                                nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
+                                                vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
+                                                vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
+                                                btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
+                                                btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
+                                                timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
+                                                }
 				imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
 				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
@@ -1306,27 +1351,37 @@ function SMIHelp.DrawSettingsUI()
 		end
 		local S = SMIHelp._settings
 		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
-				imgui.InputInt('Лимит истории', S.history_limit, 1, 1000)
-				imgui.InputInt('Лимит памяти ников', S.nick_memory_limit, 1, 1000)
-				imgui.InputInt('Задержка отправки', S.timer_send_delay, 1, 60)
-				imgui.InputInt('Задержка новостей', S.timer_news_delay, 1, 60)
+                                                imgui.InputInt('Лимит истории', S.history_limit, 1, 1000)
+                                                imgui.InputInt('Лимит памяти ников', S.nick_memory_limit, 1, 1000)
+                                                imgui.Checkbox('Таймер VIP объявлений', S.vip_timer_enabled)
+                                                imgui.InputInt('Задержка VIP таймера', S.vip_timer_delay, 1, 60)
+                                                imgui.Checkbox('Таймер кнопки \"Отправить\"', S.btn_timer_enabled)
+                                                imgui.InputInt('Задержка отправки', S.btn_timer_delay, 1, 60)
+                                                imgui.InputInt('Задержка новостей', S.timer_news_delay, 1, 60)
 				imgui.InputTextMultiline('Типы', S.type_buttons, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Объекты', S.objects, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
 				if imgui.Button('Сохранить') then
-						Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
-						Config.data.objects = funcs.parseList(str(S.objects))
-						Config.data.prices = funcs.parseList(str(S.prices))
-						Config.data.currencies = funcs.parseList(str(S.currencies))
-						Config.data.addons = funcs.parseList(str(S.addons))
-						Config.data.history_limit = S.history_limit[0]
-						Config.data.nick_memory_limit = S.nick_memory_limit[0]
-						SMIHelp.timer_send_delay = S.timer_send_delay[0]
-						SMIHelp.timer_news_delay = S.timer_news_delay[0]
-						Config:save()
-				end
+												Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
+												Config.data.objects = funcs.parseList(str(S.objects))
+												Config.data.prices = funcs.parseList(str(S.prices))
+												Config.data.currencies = funcs.parseList(str(S.currencies))
+												Config.data.addons = funcs.parseList(str(S.addons))
+												Config.data.history_limit = S.history_limit[0]
+												Config.data.nick_memory_limit = S.nick_memory_limit[0]
+                                                                                                Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
+                                                                                                Config.data.vip_timer_delay = S.vip_timer_delay[0]
+                                                                                                Config.data.btn_timer_enabled = S.btn_timer_enabled[0]
+                                                                                                Config.data.btn_timer_delay = S.btn_timer_delay[0]
+                                                                                                SMIHelp.timer_send_enabled = S.vip_timer_enabled[0]
+                                                                                                SMIHelp.timer_send_delay = S.vip_timer_delay[0]
+                                                                                                SMIHelp.btn_timer_enabled = S.btn_timer_enabled[0]
+                                                                                                SMIHelp.btn_timer_delay = S.btn_timer_delay[0]
+                                                                                                SMIHelp.timer_news_delay = S.timer_news_delay[0]
+                                                                                                Config:save()
+                                                                                                end
 		imgui.EndChild()
 end
 
