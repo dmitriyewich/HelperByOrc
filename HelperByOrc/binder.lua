@@ -613,17 +613,18 @@ function module.DrawQuickMenu()
         local ICON_FOLDER = (fa.FOLDER      ~= '' and (fa.FOLDER      .. ' ') or '')
         local ICON_KEYB   = (fa.KEYBOARD    ~= '' and (fa.KEYBOARD    .. ' ') or '')
 
-        local function quickSelectable(text, id, enabled)
-                imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
-                local flags = bor(imgui.SelectableFlags.DontClosePopups, imgui.SelectableFlags.SpanAvailWidth)
-                if not enabled then
-                        imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
-                end
-                local clicked = imgui.Selectable(text .. id, false, flags)
-                if not enabled then imgui.PopStyleColor() end
-                imgui.PopStyleVar()
-                return clicked
-        end
+       local function quickSelectable(text, id, enabled)
+               imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
+               local flags = imgui.SelectableFlags.DontClosePopups
+               if not enabled then
+                       imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
+               end
+               local width = imgui.GetContentRegionAvail().x
+               local clicked = imgui.Selectable(text .. id, false, flags, imgui.ImVec2(width, 0))
+               if not enabled then imgui.PopStyleColor() end
+               imgui.PopStyleVar()
+               return clicked
+       end
 
         local function drawRec(node)
                 if not isFolderChainVisible(node) then return end
