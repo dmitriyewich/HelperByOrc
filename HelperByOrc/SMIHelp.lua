@@ -1372,18 +1372,6 @@ local function parse_autocorrect(text)
     return res
 end
 
-local function templates_to_string(list)
-    local ok, json = pcall(encodeJson, list or {})
-    if ok and json then return json end
-    return ''
-end
-
-local function parse_templates(text)
-    local ok, tbl = pcall(decodeJson, text or '')
-    if ok and type(tbl) == 'table' then return tbl end
-    return {}
-end
-
 function SMIHelp.DrawSettingsUI()
                if not SMIHelp._settings then
                                                SMIHelp._settings = {
@@ -1393,14 +1381,16 @@ function SMIHelp.DrawSettingsUI()
                                                currencies = new.char[512](),
                                                addons = new.char[512](),
                                                autocorrect = new.char[1024](),
-                                               templates = new.char[4096](),
                                                history_limit = new.int(Config.data.history_limit or 100),
                                                nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
                                                vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
                                                vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
                                                btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
                                                btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
-                                               timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
+                                               timer_news_delay = new.int(SMIHelp.timer_news_delay or 4),
+                                               templates_list = {},
+                                               tpl_input = {},
+                                               tpl_multiline = {}
                                                }
                                imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
                                imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
@@ -1408,7 +1398,13 @@ function SMIHelp.DrawSettingsUI()
                                imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
                                imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
                                imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
-                               imgui.StrCopy(SMIHelp._settings.templates, templates_to_string(Config.data.templates))
+                               for _, tpl in ipairs(Config.data.templates or {}) do
+                                               local copy = { category = tpl.category, texts = {} }
+                                               if type(tpl.texts) == 'table' then
+                                                               for _, s in ipairs(tpl.texts) do table.insert(copy.texts, s) end
+                                               end
+                                               table.insert(SMIHelp._settings.templates_list, copy)
+                               end
                end
                local S = SMIHelp._settings
                imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
@@ -1423,17 +1419,56 @@ function SMIHelp.DrawSettingsUI()
 				imgui.InputTextMultiline('Объекты', S.objects, 512, imgui.ImVec2(0,60))
                                 imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
                                 imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
-                                imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
-                                imgui.InputTextMultiline('Автокоррекция', S.autocorrect, 1024, imgui.ImVec2(0,60))
-                                imgui.InputTextMultiline('Шаблоны (JSON)', S.templates, 4096, imgui.ImVec2(0,120))
-                                if imgui.Button('Сохранить') then
+                               imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
+                               imgui.InputTextMultiline('Автокоррекция', S.autocorrect, 1024, imgui.ImVec2(0,60))
+                               if imgui.CollapsingHeader('Шаблоны') then
+                                               if imgui.BeginTabBar('tpl_tabs') then
+                                                               for idx, tpl in ipairs(S.templates_list) do
+                                                                               local cat = tpl.category or ('Категория '..idx)
+                                                                               if imgui.BeginTabItem(cat) then
+                                                                                               for _, txt in ipairs(tpl.texts or {}) do
+                                                                                                               imgui.BulletText(txt)
+                                                                                               end
+                                                                                               S.tpl_input[idx] = S.tpl_input[idx] or new.char[256]()
+                                                                                               S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
+                                                                                               if S.tpl_multiline[idx][0] then
+                                                                                                               imgui.InputTextMultiline('##tplinput'..idx, S.tpl_input[idx], 256, imgui.ImVec2(0,60))
+                                                                                                               if imgui.Button('Одна строка##toggle'..idx) then
+                                                                                                                               S.tpl_multiline[idx][0] = false
+                                                                                                               end
+                                                                                               else
+                                                                                                               imgui.InputText('##tplinput'..idx, S.tpl_input[idx], 256)
+                                                                                                               if imgui.Button('Много строк##toggle'..idx) then
+                                                                                                                               S.tpl_multiline[idx][0] = true
+                                                                                                               end
+                                                                                               end
+                                                                                               imgui.SameLine()
+                                                                                               if imgui.Button('Добавить##tpl'..idx) then
+                                                                                                               local val = str(S.tpl_input[idx])
+                                                                                                               if val ~= '' then
+                                                                                                                               tpl.texts = tpl.texts or {}
+                                                                                                                               if S.tpl_multiline[idx][0] then
+                                                                                                                                               for line in val:gmatch('[^\n]+') do table.insert(tpl.texts, line) end
+                                                                                                                               else
+                                                                                                                                               table.insert(tpl.texts, val)
+                                                                                                                               end
+                                                                                                                               imgui.StrCopy(S.tpl_input[idx], '')
+                                                                                                               end
+                                                                                               end
+                                                                                               imgui.EndTabItem()
+                                                                               end
+                                                               end
+                                                               imgui.EndTabBar()
+                                               end
+                               end
+                               if imgui.Button('Сохранить') then
                                                                                                 Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
                                                                                                 Config.data.objects = funcs.parseList(str(S.objects))
                                                                                                 Config.data.prices = funcs.parseList(str(S.prices))
                                                                                                 Config.data.currencies = funcs.parseList(str(S.currencies))
                                                                                                 Config.data.addons = funcs.parseList(str(S.addons))
                                                                                                 Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
-                                                                                                Config.data.templates = parse_templates(str(S.templates))
+                               Config.data.templates = S.templates_list
                                                                                                 Config.data.history_limit = S.history_limit[0]
                                                                                                 Config.data.nick_memory_limit = S.nick_memory_limit[0]
                                                                                                 Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
