@@ -1482,18 +1482,19 @@ function SMIHelp.DrawSettingsUI()
 								local j = 1
 								while j <= #tpl.texts do
 								S.tpl_edit_mode[idx][j] = S.tpl_edit_mode[idx][j] or new.bool(false)
-								if S.tpl_edit_mode[idx][j][0] then
-								local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
-								imgui.InputTextMultiline('##tplexisting'..idx..'_'..j, buf.buf, buf.size, imgui.ImVec2(0,60))
-								buf_maybe_grow(buf)
-								if imgui.Button('Готово##tplexisting'..idx..'_'..j) then
-								local val = str(buf.buf)
-								local group = {}
-								for line in val:gmatch('[^\n]+') do table.insert(group, line) end
-								tpl.texts[j] = group
-								S.tpl_edit_mode[idx][j][0] = false
-								end
-								else
+                                                                if S.tpl_edit_mode[idx][j][0] then
+                                                                local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
+                                                                imgui.InputTextMultiline('##tplexisting'..idx..'_'..j, buf.buf, buf.size, imgui.ImVec2(0,60))
+                                                                buf_maybe_grow(buf)
+                                                                if imgui.Button('Готово##tplexisting'..idx..'_'..j) then
+                                                                local val = str(buf.buf)
+                                                                local group = {}
+                                                                for line in val:gmatch('[^\n]+') do table.insert(group, line) end
+                                                                tpl.texts[j] = group
+                                                                S.tpl_edit_mode[idx][j][0] = false
+                                                                end
+                                                                j = j + 1
+                                                                else
 								local group = tpl.texts[j]
 								local display = table.concat(group, ' / ')
 								if imgui.SmallButton('X##tpldel'..idx..'_'..j) then
