@@ -1040,7 +1040,7 @@ imgui.OnFrame(
 		-- LEFT
 		imgui.BeginGroup()
 			DrawTemplatesPanel(leftW, availY)
-		imgui.EndGroup()
+                imgui.EndGroup()
 		imgui.SameLine()
 
 		-- CENTER
@@ -1333,34 +1333,75 @@ local btn_send_clicked = false
 		imgui.EndGroup()
 
 		imgui.End()
-		imgui.PopStyleVar(4)
-		end
+                imgui.PopStyleVar(4)
+                end
 )
 
+-- ========= СЕРИАЛИЗАЦИЯ НАСТРОЕК =========
+local function autocorrect_to_string(list)
+    local lines = {}
+    if type(list) == 'table' then
+        for _, pair in ipairs(list) do
+            local find = pair[1] or ''
+            local repl = pair[2] or ''
+            table.insert(lines, find .. '=' .. repl)
+        end
+    end
+    return table.concat(lines, '\n')
+end
+
+local function parse_autocorrect(text)
+    local res = {}
+    text = tostring(text or '')
+    for line in text:gmatch('[^\n]+') do
+        local find, repl = line:match('^(.-)=(.*)$')
+        if find and find ~= '' then
+            table.insert(res, { find, repl or '' })
+        end
+    end
+    return res
+end
+
+local function templates_to_string(list)
+    local ok, json = pcall(encodeJson, list or {})
+    if ok and json then return json end
+    return ''
+end
+
+local function parse_templates(text)
+    local ok, tbl = pcall(decodeJson, text or '')
+    if ok and type(tbl) == 'table' then return tbl end
+    return {}
+end
+
 function SMIHelp.DrawSettingsUI()
-		if not SMIHelp._settings then
-						SMIHelp._settings = {
-						type_buttons = new.char[512](),
-						objects = new.char[512](),
-						prices = new.char[512](),
-						currencies = new.char[512](),
-						addons = new.char[512](),
-                                                history_limit = new.int(Config.data.history_limit or 100),
-                                                nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
-                                                vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
-                                                vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
-                                                btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
-                                                btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
-                                                timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
-                                                }
-				imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
-				imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
-		end
-		local S = SMIHelp._settings
-		imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
+               if not SMIHelp._settings then
+                                               SMIHelp._settings = {
+                                               type_buttons = new.char[512](),
+                                               objects = new.char[512](),
+                                               prices = new.char[512](),
+                                               currencies = new.char[512](),
+                                               addons = new.char[512](),
+                                               autocorrect = new.char[1024](),
+                                               templates = new.char[4096](),
+                                               history_limit = new.int(Config.data.history_limit or 100),
+                                               nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
+                                               vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
+                                               vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
+                                               btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
+                                               btn_timer_delay = new.int(SMIHelp.btn_timer_delay or 3),
+                                               timer_news_delay = new.int(SMIHelp.timer_news_delay or 4)
+                                               }
+                               imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ','))
+                               imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
+                               imgui.StrCopy(SMIHelp._settings.templates, templates_to_string(Config.data.templates))
+               end
+               local S = SMIHelp._settings
+               imgui.BeginChild('smi_settings', imgui.ImVec2(0,0), true)
                                                 imgui.InputInt('Лимит истории', S.history_limit, 1, 1000)
                                                 imgui.InputInt('Лимит памяти ников', S.nick_memory_limit, 1, 1000)
                                                 imgui.Checkbox('Таймер VIP объявлений', S.vip_timer_enabled)
@@ -1370,17 +1411,21 @@ function SMIHelp.DrawSettingsUI()
                                                 imgui.InputInt('Задержка новостей', S.timer_news_delay, 1, 60)
 				imgui.InputTextMultiline('Типы', S.type_buttons, 512, imgui.ImVec2(0,60))
 				imgui.InputTextMultiline('Объекты', S.objects, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
-				imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
-				if imgui.Button('Сохранить') then
-												Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
-												Config.data.objects = funcs.parseList(str(S.objects))
-												Config.data.prices = funcs.parseList(str(S.prices))
-												Config.data.currencies = funcs.parseList(str(S.currencies))
-												Config.data.addons = funcs.parseList(str(S.addons))
-												Config.data.history_limit = S.history_limit[0]
-												Config.data.nick_memory_limit = S.nick_memory_limit[0]
+                                imgui.InputTextMultiline('Цены', S.prices, 512, imgui.ImVec2(0,60))
+                                imgui.InputTextMultiline('Валюты', S.currencies, 512, imgui.ImVec2(0,60))
+                                imgui.InputTextMultiline('Дополнения', S.addons, 512, imgui.ImVec2(0,60))
+                                imgui.InputTextMultiline('Автокоррекция', S.autocorrect, 1024, imgui.ImVec2(0,60))
+                                imgui.InputTextMultiline('Шаблоны (JSON)', S.templates, 4096, imgui.ImVec2(0,120))
+                                if imgui.Button('Сохранить') then
+                                                                                                Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
+                                                                                                Config.data.objects = funcs.parseList(str(S.objects))
+                                                                                                Config.data.prices = funcs.parseList(str(S.prices))
+                                                                                                Config.data.currencies = funcs.parseList(str(S.currencies))
+                                                                                                Config.data.addons = funcs.parseList(str(S.addons))
+                                                                                                Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
+                                                                                                Config.data.templates = parse_templates(str(S.templates))
+                                                                                                Config.data.history_limit = S.history_limit[0]
+                                                                                                Config.data.nick_memory_limit = S.nick_memory_limit[0]
                                                                                                 Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
                                                                                                 Config.data.vip_timer_delay = S.vip_timer_delay[0]
                                                                                                 Config.data.btn_timer_enabled = S.btn_timer_enabled[0]
@@ -1392,7 +1437,7 @@ function SMIHelp.DrawSettingsUI()
                                                                                                 SMIHelp.timer_news_delay = S.timer_news_delay[0]
                                                                                                 Config:save()
                                                                                                 end
-		imgui.EndChild()
+                imgui.EndChild()
 end
 
 return SMIHelp
