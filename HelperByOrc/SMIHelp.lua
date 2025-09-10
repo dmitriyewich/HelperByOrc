@@ -1279,60 +1279,62 @@ local btn_send_clicked = false
                                 local addon_label = AD.addon or "- выбрать дополнение -"
                                 imgui.BeginChild('##currency_addon', imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
                                         if imgui.BeginMenuBar() then
-                                                -- currency menu
-                                                local cur_menu_hover, cur_popup_hover = false, false
-                                                if imgui.BeginMenu(cur_label) then
-                                                        for _, item in ipairs(currencies) do
-                                                                local sel = (AD.currency == item)
-                                                                if imgui.MenuItemBool(item, nil, sel) then
-                                                                        refresh_object_value_from_editbuf()
-                                                                        AD.currency = item
-                                                                        ad_commit_to_editbuf()
-                                                                        State.cursor_action = 'to_end'; State.cursor_action_data = nil
-                                                                        history_reset_index()
-                                                                        State.want_focus_input = true
-                                                                        State.collapse_selection_after_focus = true
-                                                                end
-                                                        end
-                                                        cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-                                                        imgui.EndMenu()
-                                                        cur_menu_hover = imgui.IsItemHovered()
-                                                else
-                                                        cur_menu_hover = imgui.IsItemHovered()
-                                                        if cur_menu_hover then imgui.OpenPopup(cur_label) end
-                                                end
-                                                if imgui.IsPopupOpen(cur_label) and not cur_menu_hover and not cur_popup_hover then
-                                                        imgui.CloseCurrentPopup()
-                                                end
+                                               -- currency menu
+                                               local cur_menu_hover, cur_popup_hover = false, false
+                                               local cur_open = imgui.BeginMenu(cur_label)
+                                               if cur_open then
+                                                       for _, item in ipairs(currencies) do
+                                                               local sel = (AD.currency == item)
+                                                               if imgui.MenuItemBool(item, nil, sel) then
+                                                                       refresh_object_value_from_editbuf()
+                                                                       AD.currency = item
+                                                                       ad_commit_to_editbuf()
+                                                                       State.cursor_action = 'to_end'; State.cursor_action_data = nil
+                                                                       history_reset_index()
+                                                                       State.want_focus_input = true
+                                                                       State.collapse_selection_after_focus = true
+                                                               end
+                                                       end
+                                                       cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+                                                       imgui.EndMenu()
+                                                       cur_menu_hover = imgui.IsItemHovered()
+                                               else
+                                                       cur_menu_hover = imgui.IsItemHovered()
+                                                       if cur_menu_hover then imgui.OpenPopup(cur_label) end
+                                               end
+                                               if cur_open and not cur_menu_hover and not cur_popup_hover then
+                                                       imgui.CloseCurrentPopup()
+                                               end
 
-                                                -- addon menu
-                                                local addon_menu_hover, addon_popup_hover = false, false
-                                                if imgui.BeginMenu(addon_label) then
-                                                        for _, item in ipairs(addons) do
-                                                                local sel = (AD.addon == item)
-                                                                if imgui.MenuItemBool(item, nil, sel) then
-                                                                        refresh_object_value_from_editbuf()
-                                                                        AD.addon = item
-                                                                        ad_commit_to_editbuf()
-                                                                        State.cursor_action = 'to_addon_end'
-                                                                        State.cursor_action_data = item
-                                                                        history_reset_index()
-                                                                        State.want_focus_input = true
-                                                                        State.collapse_selection_after_focus = true
-                                                                end
-                                                        end
-                                                        addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-                                                        imgui.EndMenu()
-                                                        addon_menu_hover = imgui.IsItemHovered()
-                                                else
-                                                        addon_menu_hover = imgui.IsItemHovered()
-                                                        if addon_menu_hover then imgui.OpenPopup(addon_label) end
-                                                end
-                                                if imgui.IsPopupOpen(addon_label) and not addon_menu_hover and not addon_popup_hover then
-                                                        imgui.CloseCurrentPopup()
-                                                end
+                                               -- addon menu
+                                               local addon_menu_hover, addon_popup_hover = false, false
+                                               local addon_open = imgui.BeginMenu(addon_label)
+                                               if addon_open then
+                                                       for _, item in ipairs(addons) do
+                                                               local sel = (AD.addon == item)
+                                                               if imgui.MenuItemBool(item, nil, sel) then
+                                                                       refresh_object_value_from_editbuf()
+                                                                       AD.addon = item
+                                                                       ad_commit_to_editbuf()
+                                                                       State.cursor_action = 'to_addon_end'
+                                                                       State.cursor_action_data = item
+                                                                       history_reset_index()
+                                                                       State.want_focus_input = true
+                                                                       State.collapse_selection_after_focus = true
+                                                               end
+                                                       end
+                                                       addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+                                                       imgui.EndMenu()
+                                                       addon_menu_hover = imgui.IsItemHovered()
+                                               else
+                                                       addon_menu_hover = imgui.IsItemHovered()
+                                                       if addon_menu_hover then imgui.OpenPopup(addon_label) end
+                                               end
+                                               if addon_open and not addon_menu_hover and not addon_popup_hover then
+                                                       imgui.CloseCurrentPopup()
+                                               end
 
-                                                imgui.EndMenuBar()
+                                               imgui.EndMenuBar()
                                         end
                                 imgui.EndChild()
                         imgui.EndChild()
