@@ -1467,10 +1467,20 @@ function SMIHelp.DrawSettingsUI()
                                                                                                                                               j = j + 1
                                                                                                                               end
                                                                                                               end
-                                                                                                              if imgui.Button('Редактировать##tplexistingbtn'..idx) then
-                                                                                                                              imgui.StrCopy(S.tpl_edit_buf[idx], table.concat(tpl.texts or {}, '\n'))
-                                                                                                                              S.tpl_edit_mode[idx][0] = true
-                                                                                                              end
+                                                                                                             if imgui.Button('Редактировать##tplexistingbtn'..idx) then
+                                                                                                                             local lines = {}
+                                                                                                                             for _, txt in ipairs(tpl.texts or {}) do
+                                                                                                                                           if type(txt) == 'table' then
+                                                                                                                                                          local pieces = {}
+                                                                                                                                                          for _, s in ipairs(txt) do table.insert(pieces, tostring(s)) end
+                                                                                                                                                          table.insert(lines, table.concat(pieces, ', '))
+                                                                                                                                           else
+                                                                                                                                                          table.insert(lines, tostring(txt))
+                                                                                                                                           end
+                                                                                                                             end
+                                                                                                                             imgui.StrCopy(S.tpl_edit_buf[idx], table.concat(lines, '\n'))
+                                                                                                                             S.tpl_edit_mode[idx][0] = true
+                                                                                                             end
                                                                                               end
                                                                                               S.tpl_input[idx] = S.tpl_input[idx] or new.char[256]()
                                                                                               S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
