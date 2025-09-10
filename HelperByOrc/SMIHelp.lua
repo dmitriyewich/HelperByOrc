@@ -1274,43 +1274,47 @@ local btn_send_clicked = false
 					State.collapse_selection_after_focus = true
 				end)
 
-				imgui.Spacing(); imgui.Separator(); imgui.Spacing()
+                                imgui.Spacing(); imgui.Separator(); imgui.Spacing()
+                                local cur_label = AD.currency or (currencies[1] or "-")
+                                local addon_label = AD.addon or "- выбрать дополнение -"
+                                imgui.BeginChild('##currency_addon', imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
+                                        if imgui.BeginMenuBar() then
+                                                if imgui.BeginMenu(cur_label) then
+                                                        for _, item in ipairs(currencies) do
+                                                                local sel = (AD.currency == item)
+                                                                if imgui.MenuItemBool(item, nil, sel) then
+                                                                        refresh_object_value_from_editbuf()
+                                                                        AD.currency = item
+                                                                        ad_commit_to_editbuf()
+                                                                        State.cursor_action = 'to_end'; State.cursor_action_data = nil
+                                                                        history_reset_index()
+                                                                        State.want_focus_input = true
+                                                                        State.collapse_selection_after_focus = true
+                                                                end
+                                                        end
+                                                        imgui.EndMenu()
+                                                end
 
-				local cur_label = AD.currency or (currencies[1] or "-")
-				if imgui.BeginCombo("##currency", cur_label) then
-					for _, item in ipairs(currencies) do
-						local sel = (AD.currency == item)
-						if imgui.Selectable(item, sel) then
-							refresh_object_value_from_editbuf()
-							AD.currency = item
-							ad_commit_to_editbuf()
-							State.cursor_action = 'to_end'; State.cursor_action_data = nil
-							history_reset_index()
-							State.want_focus_input = true
-							State.collapse_selection_after_focus = true
-						end
-					end
-					imgui.EndCombo()
-				end
-
-				local addon_label = AD.addon or "- выбрать дополнение -"
-				if imgui.BeginCombo("##addon", addon_label) then
-					for _, item in ipairs(addons) do
-						local sel = (AD.addon == item)
-						if imgui.Selectable(item, sel) then
-							refresh_object_value_from_editbuf()
-							AD.addon = item
-							ad_commit_to_editbuf()
-							State.cursor_action = 'to_addon_end'
-							State.cursor_action_data = item
-							history_reset_index()
-							State.want_focus_input = true
-							State.collapse_selection_after_focus = true
-						end
-					end
-					imgui.EndCombo()
-				end
-			imgui.EndChild()
+                                                if imgui.BeginMenu(addon_label) then
+                                                        for _, item in ipairs(addons) do
+                                                                local sel = (AD.addon == item)
+                                                                if imgui.MenuItemBool(item, nil, sel) then
+                                                                        refresh_object_value_from_editbuf()
+                                                                        AD.addon = item
+                                                                        ad_commit_to_editbuf()
+                                                                        State.cursor_action = 'to_addon_end'
+                                                                        State.cursor_action_data = item
+                                                                        history_reset_index()
+                                                                        State.want_focus_input = true
+                                                                        State.collapse_selection_after_focus = true
+                                                                end
+                                                        end
+                                                        imgui.EndMenu()
+                                                end
+                                                imgui.EndMenuBar()
+                                        end
+                                imgui.EndChild()
+                        imgui.EndChild()
 
 			imgui.EndChild()
 		imgui.EndGroup()
