@@ -1407,6 +1407,8 @@ function SMIHelp.DrawSettingsUI()
                                                local copy = { category = tpl.category, texts = {} }
                                                if type(tpl.texts) == 'table' then
                                                                for _, s in ipairs(tpl.texts) do table.insert(copy.texts, s) end
+                                               elseif type(tpl.text) == 'string' then
+                                                               table.insert(copy.texts, tpl.text)
                                                end
                                                table.insert(SMIHelp._settings.templates_list, copy)
                                end
@@ -1432,7 +1434,13 @@ function SMIHelp.DrawSettingsUI()
                                                                                local cat = tpl.category or ('Категория '..idx)
                                                                                if imgui.BeginTabItem(cat) then
                                                                                                for _, txt in ipairs(tpl.texts or {}) do
-                                                                                                               imgui.BulletText(txt)
+                                                                                                               if type(txt) == 'table' then
+                                                                                                                               local pieces = {}
+                                                                                                                               for _, s in ipairs(txt) do table.insert(pieces, tostring(s)) end
+                                                                                                                               imgui.BulletText(table.concat(pieces, ', '))
+                                                                                                               else
+                                                                                                                               imgui.BulletText(tostring(txt))
+                                                                                                               end
                                                                                                end
                                                                                                S.tpl_input[idx] = S.tpl_input[idx] or new.char[256]()
                                                                                                S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
