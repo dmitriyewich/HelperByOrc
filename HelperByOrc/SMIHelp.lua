@@ -1279,7 +1279,8 @@ local btn_send_clicked = false
                                 local addon_label = AD.addon or "- выбрать дополнение -"
                                 imgui.BeginChild('##currency_addon', imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
                                         if imgui.BeginMenuBar() then
-                                                if imgui.BeginMenu(cur_label) then
+                                                local currency_open = imgui.BeginMenu(cur_label)
+                                                if currency_open then
                                                         for _, item in ipairs(currencies) do
                                                                 local sel = (AD.currency == item)
                                                                 if imgui.MenuItemBool(item, nil, sel) then
@@ -1293,9 +1294,12 @@ local btn_send_clicked = false
                                                                 end
                                                         end
                                                         imgui.EndMenu()
+                                                elseif imgui.IsItemHovered() then
+                                                        imgui.OpenPopup(cur_label)
                                                 end
 
-                                                if imgui.BeginMenu(addon_label) then
+                                                local addon_open = imgui.BeginMenu(addon_label)
+                                                if addon_open then
                                                         for _, item in ipairs(addons) do
                                                                 local sel = (AD.addon == item)
                                                                 if imgui.MenuItemBool(item, nil, sel) then
@@ -1310,6 +1314,8 @@ local btn_send_clicked = false
                                                                 end
                                                         end
                                                         imgui.EndMenu()
+                                                elseif imgui.IsItemHovered() then
+                                                        imgui.OpenPopup(addon_label)
                                                 end
                                                 imgui.EndMenuBar()
                                         end
