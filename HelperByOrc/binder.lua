@@ -13,7 +13,6 @@ local funcs, tags
 local bor = bit and bit.bor or function(a, b) return a + b end
 local quickMenuPos = imgui.ImVec2(0, 0)
 local quickMenuSize = imgui.ImVec2(260, 280)
-local quickMenuOpened = setmetatable({}, { __mode = 'k' })
 
 function module.attachModules(mod)
 		funcs = mod.funcs
@@ -608,59 +607,39 @@ function module.DrawQuickMenu()
                 quickMenuPos = imgui.GetWindowPos()
                 quickMenuSize = imgui.GetWindowSize()
 
-        local ARROW_RIGHT = (fa.ANGLE_RIGHT ~= '' and (fa.ANGLE_RIGHT .. ' ') or '> ')
-        local ARROW_DOWN  = (fa.ANGLE_DOWN  ~= '' and (fa.ANGLE_DOWN  .. ' ') or 'v ')
-        local ICON_FOLDER = (fa.FOLDER      ~= '' and (fa.FOLDER      .. ' ') or '')
-        local ICON_KEYB   = (fa.KEYBOARD    ~= '' and (fa.KEYBOARD    .. ' ') or '')
+       local ICON_FOLDER = (fa.FOLDER   ~= '' and (fa.FOLDER   .. ' ') or '')
+       local ICON_KEYB   = (fa.KEYBOARD ~= '' and (fa.KEYBOARD .. ' ') or '')
 
-       local function quickSelectable(text, id, enabled)
+       local function quickMenuItem(label, shortcut, enabled)
                imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
-               local flags = imgui.SelectableFlags.DontClosePopups
-               if not enabled then
-                       imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
-               end
-               local width = imgui.GetContentRegionAvail().x
-               local clicked = imgui.Selectable(text .. id, false, flags, imgui.ImVec2(width, 0))
-               if not enabled then imgui.PopStyleColor() end
+               local clicked = imgui.MenuItemBool(label, shortcut, false, enabled)
                imgui.PopStyleVar()
                return clicked
        end
 
         local function drawRec(node)
                 if not isFolderChainVisible(node) then return end
-                local first = true
-                for i, hk in ipairs(hotkeys) do
-                        if hk.quick_menu
-                                 and pathEquals(hk.folderPath, folderFullPath(node))
-                                 and check_quick_visibility(hk.quick_conditions or {}) then
-                                if not first then imgui.Separator() end
-                                local text = ICON_KEYB .. (hk.label or ("bind" .. i))
-                                if quickSelectable(text, '##quick_bind' .. i, hk.enabled) then
-                                        module.enqueueHotkey(hk)
-                                end
-                                first = false
-                        end
-                end
-                for _, child in ipairs(node.children or {}) do
-                        if folderHasQuickBindsVisible(child) then
-                                if not first then imgui.Separator() end
-                                local path = table.concat(folderFullPath(child), '/')
-                                local open = quickMenuOpened[child] and true or false
-                                local arrow = open and ARROW_DOWN or ARROW_RIGHT
-                                local text = arrow .. ICON_FOLDER .. child.name
-                                if quickSelectable(text, '##quick_folder_' .. path, true) then
-                                        open = not open
-                                end
-                                quickMenuOpened[child] = open
-                                if open then
-                                        imgui.Indent(14)
-                                        drawRec(child)
-                                        imgui.Unindent(14)
-                                end
-                                first = false
-                        end
-                end
-        end
+               for i, hk in ipairs(hotkeys) do
+                       if hk.quick_menu
+                                and pathEquals(hk.folderPath, folderFullPath(node))
+                                and check_quick_visibility(hk.quick_conditions or {}) then
+                               local label = ICON_KEYB .. (hk.label or ("bind" .. i)) .. '##quick_bind' .. i
+                               local shortcut = (hk.keys and #hk.keys > 0) and hotkeyToString(hk.keys) or nil
+                               if quickMenuItem(label, shortcut, hk.enabled) then
+                                       module.enqueueHotkey(hk)
+                               end
+                       end
+               end
+               for _, child in ipairs(node.children or {}) do
+                       if folderHasQuickBindsVisible(child) then
+                               local path = table.concat(folderFullPath(child), '/')
+                               if imgui.BeginMenu(ICON_FOLDER .. child.name .. '##quick_folder_' .. path) then
+                                       drawRec(child)
+                                       imgui.EndMenu()
+                               end
+                       end
+               end
+       end
 
 	if imgui.BeginTabBar("##quickbinder_tabbar") then
 		for _, folder in ipairs(folders) do
