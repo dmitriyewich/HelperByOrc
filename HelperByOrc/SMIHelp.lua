@@ -1383,9 +1383,15 @@ end
 local function buf_ensure(tbl, key, size)
     size = size or 256
     local entry = tbl[key]
-    if not entry or entry.size < size then
+    if not entry then
         entry = { buf = new.char[size](), size = size }
         tbl[key] = entry
+    elseif entry.size < size then
+        local content = str(entry.buf)
+        local new_buf = new.char[size]()
+        imgui.StrCopy(new_buf, content)
+        entry.buf = new_buf
+        entry.size = size
     end
     return entry
 end
