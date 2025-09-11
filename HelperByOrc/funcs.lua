@@ -1,5 +1,5 @@
 local module = {}
-local encoding = require "encoding"
+local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local ffi = require("ffi")
@@ -21,7 +21,7 @@ function module.deepcopy(obj, seen)
 	return res
 end
 
-ffi.cdef [[
+ffi.cdef([[
 	intptr_t LoadKeyboardLayoutA(const char* pwszKLID, unsigned int Flags);
 	int PostMessageA(intptr_t hWnd, unsigned int Msg, unsigned int wParam, long lParam);
 	intptr_t GetActiveWindow();
@@ -61,7 +61,7 @@ ffi.cdef [[
 	} MEMORY_BASIC_INFORMATION;
 	
 	
-]]
+]])
 
 -- NeatJSON
 function isarray(t, emptyIsObject)
@@ -115,7 +115,7 @@ local keywords = {
 	["then"] = 1,
 	["true"] = 1,
 	["until"] = 1,
-	["while"] = 1
+	["while"] = 1,
 }
 
 function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
@@ -145,14 +145,14 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 	end
 
 	local colon = opts.lua and "=" or ":"
-	local array = opts.lua and {"{", "}"} or {"[", "]"}
+	local array = opts.lua and { "{", "}" } or { "[", "]" }
 	local apad = string.rep(" ", opts.arrayPadding)
 	local opad = string.rep(" ", opts.objectPadding)
 	local comma = string.rep(" ", opts.beforeComma) .. "," .. string.rep(" ", opts.afterComma)
 	local colon1 = string.rep(" ", opts.beforeColon1) .. colon .. string.rep(" ", opts.afterColon1)
 	local colonN = string.rep(" ", opts.beforeColonN) .. colon .. string.rep(" ", opts.afterColonN)
 
-	local build  -- set lower
+	local build -- set lower
 	function rawBuild(o, indent, floatsForced)
 		if o == nil then
 			return indent .. "null"
@@ -160,9 +160,8 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 			local kind = type(o)
 			if kind == "number" then
 				local treatAsFloat = floatsForced or (math.fmod(o, 1) ~= 0)
-				local result =
-					indent ..
-					string.format(treatAsFloat and opts.decimals and ("%." .. opts.decimals .. "f") or "%.10g", o)
+				local result = indent
+					.. string.format(treatAsFloat and opts.decimals and ("%." .. opts.decimals .. "f") or "%.10g", o)
 				if opts.trimTrailingZeros then
 					result = tonumber(result)
 					result = tostring((math.fmod(result, 1) == 0) and math.floor(result) or result)
@@ -179,44 +178,35 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 				if #o == 0 then
 					return indent .. array[1] .. array[2]
 				end
-				local pieces =
-					map(
-					o,
-					function(v)
-						return build(v, "", floatsForced)
-					end
-				)
+				local pieces = map(o, function(v)
+					return build(v, "", floatsForced)
+				end)
 				local oneLine = indent .. array[1] .. apad .. table.concat(pieces, comma) .. apad .. array[2]
 				if opts.wrap == false or #oneLine <= opts.wrap then
 					return oneLine
 				end
 				if opts.short then
 					local indent2 = indent .. " " .. apad
-					pieces =
-						map(
-						o,
-						function(v)
-							return build(v, indent2, floatsForced)
-						end
-					)
+					pieces = map(o, function(v)
+						return build(v, indent2, floatsForced)
+					end)
 					pieces[1] = pieces[1]:gsub(indent2, indent .. array[1] .. apad, 1)
 					pieces[#pieces] = pieces[#pieces] .. apad .. array[2]
 					return table.concat(pieces, ",\n")
 				else
 					local indent2 = indent .. opts.indent
-					return indent ..
-						array[1] ..
-							"\n" ..
-								table.concat(
-									map(
-										o,
-										function(v)
-											return build(v, indent2, floatsForced)
-										end
-									),
-									",\n"
-								) ..
-									"\n" .. (opts.indentLast and indent2 or indent) .. array[2]
+					return indent
+						.. array[1]
+						.. "\n"
+						.. table.concat(
+							map(o, function(v)
+								return build(v, indent2, floatsForced)
+							end),
+							",\n"
+						)
+						.. "\n"
+						.. (opts.indentLast and indent2 or indent)
+						.. array[2]
 				end
 			elseif kind == "table" then
 				if not next(o) then
@@ -228,7 +218,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 				for k, v in pairs(o) do
 					local kind = type(k)
 					if kind == "string" or kind == "number" then
-						sortedKV[#sortedKV + 1] = {k, v}
+						sortedKV[#sortedKV + 1] = { k, v }
 						if sort == true then
 							sortedKV[#sortedKV][3] = tostring(k)
 						elseif type(sort) == "function" then
@@ -237,40 +227,29 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					end
 				end
 				if sort then
-					table.sort(
-						sortedKV,
-						function(a, b)
-							return a[3] < b[3]
-						end
-					)
+					table.sort(sortedKV, function(a, b)
+						return a[3] < b[3]
+					end)
 				end
 				local keyvals
 				if opts.lua then
-					keyvals =
-						map(
-						sortedKV,
-						function(kv)
-							local isFloatKey = opts.forceFloats or floatsForcedForKey[kv[1]]
-							if type(kv[1]) == "string" and not keywords[kv[1]] and string.match(kv[1], "^[%a_][%w_]*$") then
-								return string.format("%s%s%s", kv[1], colon1, build(kv[2], "", isFloatKey))
-							else
-								return string.format("[%q]%s%s", kv[1], colon1, build(kv[2], "", isFloatKey))
-							end
+					keyvals = map(sortedKV, function(kv)
+						local isFloatKey = opts.forceFloats or floatsForcedForKey[kv[1]]
+						if type(kv[1]) == "string" and not keywords[kv[1]] and string.match(kv[1], "^[%a_][%w_]*$") then
+							return string.format("%s%s%s", kv[1], colon1, build(kv[2], "", isFloatKey))
+						else
+							return string.format("[%q]%s%s", kv[1], colon1, build(kv[2], "", isFloatKey))
 						end
-					)
+					end)
 				else
-					keyvals =
-						map(
-						sortedKV,
-						function(kv)
-							return string.format(
-								"%q%s%s",
-								kv[1],
-								colon1,
-								build(kv[2], "", opts.forceFloats or floatsForcedForKey[kv[1]])
-							)
-						end
-					)
+					keyvals = map(sortedKV, function(kv)
+						return string.format(
+							"%q%s%s",
+							kv[1],
+							colon1,
+							build(kv[2], "", opts.forceFloats or floatsForcedForKey[kv[1]])
+						)
+					end)
 				end
 				keyvals = table.concat(keyvals, comma)
 				local oneLine = indent .. "{" .. opad .. keyvals .. opad .. "}"
@@ -278,26 +257,14 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 					return oneLine
 				end
 				if opts.short then
-					keyvals =
-						map(
-						sortedKV,
-						function(kv)
-							return {indent .. " " .. opad .. string.format("%q", kv[1]), kv[2]}
-						end
-					)
+					keyvals = map(sortedKV, function(kv)
+						return { indent .. " " .. opad .. string.format("%q", kv[1]), kv[2] }
+					end)
 					keyvals[1][1] = keyvals[1][1]:gsub(indent .. " ", indent .. "{", 1)
 					if opts.aligned then
-						local longest =
-							math.max(
-							table.unpack(
-								map(
-									keyvals,
-									function(kv)
-										return #kv[1]
-									end
-								)
-							)
-						)
+						local longest = math.max(table.unpack(map(keyvals, function(kv)
+							return #kv[1]
+						end)))
 						local padrt = "%-" .. longest .. "s"
 						for _, kv in ipairs(keyvals) do
 							kv[1] = padrt:format(kv[1])
@@ -318,38 +285,27 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 				else
 					local keyvals
 					if opts.lua then
-						keyvals =
-							map(
-							sortedKV,
-							function(kv)
-								if
-									type(kv[1]) == "string" and not keywords[kv[1]] and
-										string.match(kv[1], "^[%a_][%w_]*$")
-								 then
-									return {table.concat {indent, opts.indent, kv[1]}, kv[2]}
-								else
-									return {string.format("%s%s[%q]", indent, opts.indent, kv[1]), kv[2]}
-								end
+						keyvals = map(sortedKV, function(kv)
+							if
+								type(kv[1]) == "string"
+								and not keywords[kv[1]]
+								and string.match(kv[1], "^[%a_][%w_]*$")
+							then
+								return { table.concat({ indent, opts.indent, kv[1] }), kv[2] }
+							else
+								return { string.format("%s%s[%q]", indent, opts.indent, kv[1]), kv[2] }
 							end
-						)
+						end)
 					else
 						keyvals = {}
 						for i, kv in ipairs(sortedKV) do
-							keyvals[i] = {indent .. opts.indent .. string.format("%q", kv[1]), kv[2]}
+							keyvals[i] = { indent .. opts.indent .. string.format("%q", kv[1]), kv[2] }
 						end
 					end
 					if opts.aligned then
-						local longest =
-							math.max(
-							table.unpack(
-								map(
-									keyvals,
-									function(kv)
-										return #kv[1]
-									end
-								)
-							)
-						)
+						local longest = math.max(table.unpack(map(keyvals, function(kv)
+							return #kv[1]
+						end)))
 						local padrt = "%-" .. longest .. "s"
 						for _, kv in ipairs(keyvals) do
 							kv[1] = padrt:format(kv[1])
@@ -366,8 +322,12 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 							keyvals[i] = k .. colonN .. build(v, indent2, floatsForced):gsub("^%s+", "", 1)
 						end
 					end
-					return indent ..
-						"{\n" .. table.concat(keyvals, ",\n") .. "\n" .. (opts.indentLast and indent2 or indent) .. "}"
+					return indent
+						.. "{\n"
+						.. table.concat(keyvals, ",\n")
+						.. "\n"
+						.. (opts.indentLast and indent2 or indent)
+						.. "}"
 				end
 			end
 		end
@@ -375,7 +335,7 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 
 	-- indexed by object, then by indent level, then by floatsForced
 	function memoize()
-		local memo = setmetatable({}, {_mode = "k"})
+		local memo = setmetatable({}, { _mode = "k" })
 		return function(o, indent, floatsForced)
 			if o == nil then
 				return indent .. (opts.lua and "nil" or "null")
@@ -388,15 +348,15 @@ function neatJSON(value, opts) -- https://github.com/Phrogz/NeatJSON
 			end
 			local byIndent = memo[o]
 			if not byIndent then
-				byIndent = setmetatable({}, {_mode = "k"})
+				byIndent = setmetatable({}, { _mode = "k" })
 				memo[o] = byIndent
 			end
 			local byFloatForce = byIndent[indent]
 			if not byFloatForce then
-				byFloatForce = setmetatable({}, {_mode = "k"})
+				byFloatForce = setmetatable({}, { _mode = "k" })
 				byIndent[indent] = byFloatForce
 			end
-			floatsForced = not (not floatsForced) -- convert nil to false
+			floatsForced = not not floatsForced -- convert nil to false
 			if not byFloatForce[floatsForced] then
 				byFloatForce[floatsForced] = rawBuild(o, indent, floatsForced)
 			end
@@ -418,42 +378,38 @@ function module.savejson(table, path)
 end
 
 function module.convertTableToJsonString(config)
-	return (neatJSON(
-		config,
-		{wrap = 40, short = true, sort = true, aligned = true, arrayPadding = 1, afterComma = 1, beforeColon1 = 1}
-	))
+	return (
+		neatJSON(
+			config,
+			{ wrap = 40, short = true, sort = true, aligned = true, arrayPadding = 1, afterComma = 1, beforeColon1 = 1 }
+		)
+	)
 end
 
 function module.saveTableToJson(tbl, path)
-	local ok, err =
-		pcall(
-		function()
-			local f = io.open(path, "w+b")
-			if f then
-				f:write(module.convertTableToJsonString(tbl))
-				f:close()
-			end
+	local ok, err = pcall(function()
+		local f = io.open(path, "w+b")
+		if f then
+			f:write(module.convertTableToJsonString(tbl))
+			f:close()
 		end
-	)
+	end)
 	return ok
 end
 
 function module.loadTableFromJson(path, defaults)
 	if doesFileExist(path) then
-		local ok, tbl =
-			pcall(
-			function()
-				local f = io.open(path, "rb")
-				if f then
-					local content = f:read("*a")
-					f:close()
-					local ok, data = pcall(decodeJson, content)
-					if ok and type(data) == "table" then
-						return data
-					end
+		local ok, tbl = pcall(function()
+			local f = io.open(path, "rb")
+			if f then
+				local content = f:read("*a")
+				f:close()
+				local ok, data = pcall(decodeJson, content)
+				if ok and type(data) == "table" then
+					return data
 				end
 			end
-		)
+		end)
 		if type(tbl) == "table" then
 			return tbl
 		end
@@ -462,11 +418,9 @@ function module.loadTableFromJson(path, defaults)
 end
 
 function module.Set_CursorPos(x, y)
-	lua_thread.create(
-		function()
-			ffi.C.SetCursorPos(x, y)
-		end
-	)
+	lua_thread.create(function()
+		ffi.C.SetCursorPos(x, y)
+	end)
 end
 
 function module.RusToGame(text)
@@ -536,7 +490,7 @@ function module.RusToGame(text)
 		[205] = 72,
 		[217] = 138,
 		[218] = 167,
-		[219] = 145
+		[219] = 145,
 	}
 	local result = {}
 	for i = 1, #text do
@@ -555,13 +509,13 @@ end
 function module.delay_func(bool, delay)
 	local char_count = #getAllChars() > 10 and 1 or 0
 	local delay_map = {
-		[1] = {1374, 1074}, -- обычный
-		[2] = {3374, 3074}, -- /s
-		[3] = {2574, 2074} -- /b
+		[1] = { 1374, 1074 }, -- обычный
+		[2] = { 3374, 3074 }, -- /s
+		[3] = { 2574, 2074 }, -- /b
 	}
 	-- Если delay не 1 и не 2, добавляем его в таблицу как новое значение
 	if not delay_map[delay] then
-		delay_map[delay] = {delay, delay}
+		delay_map[delay] = { delay, delay }
 	end
 	-- Выполнение действия в зависимости от bool
 	if bool then
@@ -769,16 +723,15 @@ local utf8_lower_map = {
 	["Ь"] = "ь",
 	["Э"] = "э",
 	["Ю"] = "ю",
-	["Я"] = "я"
+	["Я"] = "я",
 }
 
 function module.string_lower(str)
-	return (str:gsub(
-		"[%z\1-\127\194-\244][\128-\191]*",
-		function(c)
+	return (
+		str:gsub("[%z\1-\127\194-\244][\128-\191]*", function(c)
 			return utf8_lower_map[c] or string.lower(c)
-		end
-	))
+		end)
+	)
 end
 
 function module.memory_setfloat(adr, value, prot)
@@ -836,7 +789,7 @@ function module.fromRGBtoRGB(maxhp, curhp, fromR, fromG, fromB, toR, toG, toB)
 	deltaR = module.rounding(((toR - fromR) / maxhp), 2)
 	deltaG = module.rounding(((toG - fromG) / maxhp), 2)
 	deltaB = module.rounding(((toB - fromB) / maxhp), 2)
-	t = {(fromR + curhp * deltaR), (fromG + curhp * deltaG), (fromB + curhp * deltaB)}
+	t = { (fromR + curhp * deltaR), (fromG + curhp * deltaG), (fromB + curhp * deltaB) }
 	return t
 end
 
@@ -942,7 +895,7 @@ function module.translite_name(name)
 		["zi"] = "зи",
 		["Zi"] = "Зи",
 		["Ey"] = "Ей",
-		["ey"] = "ей"
+		["ey"] = "ей",
 	}
 	-- Таблица для одиночных символов
 	local single_char_dict = {
@@ -1003,7 +956,7 @@ function module.translite_name(name)
 		["c"] = "к",
 		["``"] = "ъ",
 		["`"] = "ь",
-		["_"] = " "
+		["_"] = " ",
 	}
 
 	-- Таблица для популярных имен
@@ -1870,7 +1823,7 @@ function module.translite_name(name)
 		["Zhen"] = "Чжэнь",
 		["Zhi"] = "Чжи",
 		["Zoe"] = "Зои",
-		["Zoey"] = "Зои"
+		["Zoey"] = "Зои",
 	}
 	-- Сначала заменяем популярные имена
 	for pattern, replacement in pairs(name_dict) do
@@ -1980,8 +1933,7 @@ function module.get_file_modify_time(path)
 	local FILE_ATTRIBUTE_NORMAL = 0x00000080
 
 	-- Открываем файл
-	local handle =
-		ffi.C.CreateFileA(
+	local handle = ffi.C.CreateFileA(
 		path,
 		GENERIC_READ,
 		FILE_SHARE_READ + FILE_SHARE_WRITE,
@@ -2002,7 +1954,7 @@ function module.get_file_modify_time(path)
 
 	if result ~= 0 then
 		local modify_time = filetime[2]
-		return {tonumber(modify_time.dwLowDateTime), tonumber(modify_time.dwHighDateTime)}
+		return { tonumber(modify_time.dwLowDateTime), tonumber(modify_time.dwHighDateTime) }
 	end
 
 	return nil -- Если чтение времени завершилось неудачей
@@ -2045,7 +1997,7 @@ function module.collectFileTree(path)
 						end
 						f:close()
 					end
-					node[file] = {__lines = lines}
+					node[file] = { __lines = lines }
 				end
 			end
 			file = findNextFile(h)
@@ -2127,7 +2079,7 @@ local eCamMode = {
 	[62] = "MODE_DW_PLANECAM1",
 	[63] = "MODE_DW_PLANECAM2",
 	[64] = "MODE_DW_PLANECAM3",
-	[65] = "MODE_AIMWEAPON_ATTACHED"
+	[65] = "MODE_AIMWEAPON_ATTACHED",
 }
 
 function module.getCameraMode()
@@ -2140,7 +2092,7 @@ function module.sendOBS(cmd)
 	local tbl = {
 		[1] = [[ { "request-type": "StartRecording", "message-id": "1" } ]],
 		[2] = [[ { "request-type": "StopRecording", "message-id": "1" } ]],
-		[3] = [[ { "request-type": "SaveReplayBuffer", "message-id": "1" } ]]
+		[3] = [[ { "request-type": "SaveReplayBuffer", "message-id": "1" } ]],
 	}
 
 	if tbl[cmd] == nil then
@@ -2155,12 +2107,9 @@ function module.sendOBS(cmd)
 
 	local client = websocket.client.sync()
 
-	local success, err =
-		pcall(
-		function()
-			client:connect(url)
-		end
-	)
+	local success, err = pcall(function()
+		client:connect(url)
+	end)
 
 	if not success then
 		print("Ошибка подключения: " .. err)
