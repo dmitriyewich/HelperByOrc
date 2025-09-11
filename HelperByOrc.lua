@@ -19,8 +19,8 @@ local renderHotkeyWnd = imgui.new.bool(false)
 local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 local mainPos = imgui.ImVec2(10, 10)
-local mainSize  -- will init on first frame
-local ImageButton_color = imgui.ImVec4(1,1,1,1)
+local mainSize -- will init on first frame
+local ImageButton_color = imgui.ImVec4(1, 1, 1, 1)
 -- модули, загружаемые в main()
 
 imgui.OnInitialize(
@@ -92,13 +92,13 @@ imgui.OnFrame(
 			imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.00, 0.00, 0.00, 0.0))
 			imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
 			imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.76, 0.76, 0.76, 1.00))
-			if imgui.ImageButton(mimgui_funcs.close_window, closeSize, _,  _, 1, imgui.ImVec4(0,0,0,0), ImageButton_color) then
+			if imgui.ImageButton(mimgui_funcs.close_window, closeSize, _, _, 1, imgui.ImVec4(0, 0, 0, 0), ImageButton_color) then
 				renderHotkeyWnd[0] = false
 			end
 			if imgui.IsItemHovered() then
-				ImageButton_color = imgui.ImVec4(1,1,1,0.5)
+				ImageButton_color = imgui.ImVec4(1, 1, 1, 0.5)
 			else
-				ImageButton_color = imgui.ImVec4(1,1,1,1)
+				ImageButton_color = imgui.ImVec4(1, 1, 1, 1)
 			end
 			imgui.PopStyleColor(3)
 			imgui.PopStyleVar()
@@ -201,8 +201,7 @@ imgui.OnFrame(
 						local dl = imgui.GetWindowDrawList()
 						local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
 						local bg =
-							hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or
-							imgui.GetStyle().Colors[imgui.Col.FrameBg]
+							hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
 						dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bg), 8)
 						dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
 						imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 10, pmin.y + 22))
