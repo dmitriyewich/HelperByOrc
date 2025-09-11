@@ -1,11 +1,11 @@
 -- МОДУЛЬ / ИМПОРТЫ
 
 local module = {}
-local imgui = require 'mimgui'
-local ffi = require 'ffi'
+local imgui = require("mimgui")
+local ffi = require("ffi")
 
 local funcs
-local ok2, fa = pcall(require, 'HelperByOrc.fAwesome6_solid')
+local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
 local samp
 
 function module.attachModules(mod)
@@ -26,31 +26,28 @@ local parse_cache_order = {}
 -- настройки модуля
 local settings = {
 	show_target_notice = true,
-	allow_unsafe = true,		-- разрешать $call(...) и кастомные выражения
-	wait_timeout_sec = 30	   -- таймаут для $wait(...)
+	allow_unsafe = true, -- разрешать $call(...) и кастомные выражения
+	wait_timeout_sec = 30, -- таймаут для $wait(...)
 }
 
 -- базовые пользовательские переменные по умолчанию
 local builtin_custom_vars = {
 	myorg = "СМИ ЛС",
-	myorgrang = "Ведущий"
+	myorgrang = "Ведущий",
 }
 
 -- состояние таргета
 local target = {
-	current_ped = nil,   -- Ped, в которого сейчас целимся (или nil)
-	current_id = nil,   -- ID, соответствующий current_ped (или nil)
-	last_id = nil,   -- последний валидный ID цели
-	_notice_id = nil,   -- защита от повторных уведомлений
+	current_ped = nil, -- Ped, в которого сейчас целимся (или nil)
+	current_id = nil, -- ID, соответствующий current_ped (или nil)
+	last_id = nil, -- последний валидный ID цели
+	_notice_id = nil, -- защита от повторных уведомлений
 }
-
 
 -- SAMP ссылка
 local function S_get()
 	return samp
 end
-
-
 
 -- УТИЛИТЫ
 
@@ -66,26 +63,44 @@ end
 
 -- JSON fallback (если нет funcs.convertTableToJsonString)
 local function json_encode_fallback(tbl)
-	local ok, dk = pcall(require, 'dkjson')
-	if ok and dk and dk.encode then return dk.encode(tbl, { indent = true }) end
-	local function esc(s) return tostring(s):gsub("\\","\\\\"):gsub('"','\\"') end
+	local ok, dk = pcall(require, "dkjson")
+	if ok and dk and dk.encode then
+		return dk.encode(tbl, { indent = true })
+	end
+	local function esc(s)
+		return tostring(s):gsub("\\", "\\\\"):gsub('"', '\\"')
+	end
 	local function dump(v)
 		local t = type(v)
 		if t == "table" then
 			local isArr, idx = true, 1
-			for k,_ in pairs(v) do if k ~= idx then isArr = false break end idx = idx + 1 end
+			for k, _ in pairs(v) do
+				if k ~= idx then
+					isArr = false
+					break
+				end
+				idx = idx + 1
+			end
 			if isArr then
 				local parts = {}
-				for i=1,#v do parts[#parts+1] = dump(v[i]) end
-				return "["..table.concat(parts, ",").."]"
+				for i = 1, #v do
+					parts[#parts + 1] = dump(v[i])
+				end
+				return "[" .. table.concat(parts, ",") .. "]"
 			else
 				local parts = {}
-				for k,val in pairs(v) do parts[#parts+1] = '"'..esc(k)..'":'..dump(val) end
-				return "{"..table.concat(parts, ",").."}"
+				for k, val in pairs(v) do
+					parts[#parts + 1] = '"' .. esc(k) .. '":' .. dump(val)
+				end
+				return "{" .. table.concat(parts, ",") .. "}"
 			end
-		elseif t == "string" then return '"'..esc(v)..'"'
-		elseif t == "number" or t == "boolean" then return tostring(v)
-		else return "null" end
+		elseif t == "string" then
+			return '"' .. esc(v) .. '"'
+		elseif t == "number" or t == "boolean" then
+			return tostring(v)
+		else
+			return "null"
+		end
 	end
 	return dump(tbl)
 end
@@ -94,19 +109,23 @@ local function save_config()
 	local data = { vars = custom_vars, settings = settings }
 	local json
 	if funcs and funcs.convertTableToJsonString then
-			json = funcs.convertTableToJsonString(data)
+		json = funcs.convertTableToJsonString(data)
 	else
 		json = json_encode_fallback(data)
 	end
 	local f = io.open(config_path, "w+")
-	if f then f:write(json or ""); f:close() end
+	if f then
+		f:write(json or "")
+		f:close()
+	end
 end
 
 local function load_custom_vars()
 	if doesFileExist and doesFileExist(config_path) then
 		local f = io.open(config_path, "r")
 		if f then
-			local content = f:read("*a"); f:close()
+			local content = f:read("*a")
+			f:close()
 			local ok, tbl = pcall(decodeJson, content)
 			if ok and type(tbl) == "table" then
 				if tbl.vars or tbl.settings then
@@ -119,11 +138,19 @@ local function load_custom_vars()
 		end
 	end
 	for k, v in pairs(builtin_custom_vars) do
-		if custom_vars[k] == nil then custom_vars[k] = v end
+		if custom_vars[k] == nil then
+			custom_vars[k] = v
+		end
 	end
-	if settings.show_target_notice == nil then settings.show_target_notice = true end
-	if settings.allow_unsafe == nil then settings.allow_unsafe = true end
-	if not tonumber(settings.wait_timeout_sec) then settings.wait_timeout_sec = 30 end
+	if settings.show_target_notice == nil then
+		settings.show_target_notice = true
+	end
+	if settings.allow_unsafe == nil then
+		settings.allow_unsafe = true
+	end
+	if not tonumber(settings.wait_timeout_sec) then
+		settings.wait_timeout_sec = 30
+	end
 end
 
 local function save_custom_vars()
@@ -135,19 +162,21 @@ load_custom_vars()
 -- Кэш парсинга (LRU)
 local function cache_set(key, val)
 	parse_cache[key] = val
-	parse_cache_order[#parse_cache_order+1] = key
+	parse_cache_order[#parse_cache_order + 1] = key
 	if #parse_cache_order > PARSE_CACHE_MAX then
 		local old = table.remove(parse_cache_order, 1)
 		parse_cache[old] = nil
 	end
 end
-local function cache_get(key) return parse_cache[key] end
+local function cache_get(key)
+	return parse_cache[key]
+end
 local function clear_parse_cache()
-	for k in pairs(parse_cache) do parse_cache[k] = nil end
+	for k in pairs(parse_cache) do
+		parse_cache[k] = nil
+	end
 	parse_cache_order = {}
 end
-
-
 
 -- TARGET: ЧТЕНИЕ И СОСТОЯНИЕ
 
@@ -160,11 +189,15 @@ local function read_target_once()
 	local res, ped = false, nil
 	if rawget(_G, "PLAYER_HANDLE") ~= nil then
 		local ok, r, p = pcall(getCharPlayerIsTargeting, PLAYER_HANDLE)
-		if ok then res, ped = r, p end
+		if ok then
+			res, ped = r, p
+		end
 	end
 	if not res then
 		local ok, r, p = pcall(getCharPlayerIsTargeting, 0)
-		if ok then res, ped = r, p end
+		if ok then
+			res, ped = r, p
+		end
 	end
 
 	if res and type(ped) == "number" and ped ~= -1 then
@@ -202,7 +235,9 @@ end
 
 -- получить ник по ID через SAMP-обёртку
 local function get_nick_by_id(id)
-	if not id then return nil end
+	if not id then
+		return nil
+	end
 	if sampGetPlayerNickname then
 		local ok, name = pcall(sampGetPlayerNickname, id)
 		if ok and type(name) == "string" and name ~= "" then
@@ -219,7 +254,6 @@ local function get_nick_by_id(id)
 	return nil
 end
 
-
 -- ЛИСТАБЕЛЬНЫЕ ПАРСЕРЫ ПАРАМЕТРОВ
 -- Разделяем строку параметров на часть значений и кастомный разделитель
 -- Синтаксис: [tag(1 2 3 | ", ")]  -- всё после | — разделитель (кавычки опциональны)
@@ -229,8 +263,13 @@ local function split_param_list_with_delim(raw)
 	local i_bar = nil
 	for i = 1, #s do
 		local c = s:sub(i, i)
-		if c == '"' then in_q = not in_q end
-		if c == '|' and not in_q then i_bar = i; break end
+		if c == '"' then
+			in_q = not in_q
+		end
+		if c == "|" and not in_q then
+			i_bar = i
+			break
+		end
 	end
 	local items_str, delim_str
 	if i_bar then
@@ -242,11 +281,19 @@ local function split_param_list_with_delim(raw)
 
 	-- Вытащим кавычечные токены из items_str
 	local quoted = {}
-	for q in items_str:gmatch('"(.-)"') do quoted[#quoted+1] = q end
-	local s2 = items_str:gsub('"(.-)"', ' ')
+	for q in items_str:gmatch('"(.-)"') do
+		quoted[#quoted + 1] = q
+	end
+	local s2 = items_str:gsub('"(.-)"', " ")
 	local list = {}
-	for _,q in ipairs(quoted) do if q ~= "" then list[#list+1] = q end end
-	for part in s2:gmatch("[^,%s]+") do list[#list+1] = part end
+	for _, q in ipairs(quoted) do
+		if q ~= "" then
+			list[#list + 1] = q
+		end
+	end
+	for part in s2:gmatch("[^,%s]+") do
+		list[#list + 1] = part
+	end
 
 	-- Разделитель
 	local delim = ", "
@@ -256,7 +303,9 @@ local function split_param_list_with_delim(raw)
 			delim = dq
 		else
 			delim = delim_str:match("^%s*(.-)%s*$")
-			if delim == "" then delim = ", " end
+			if delim == "" then
+				delim = ", "
+			end
 		end
 	end
 	return list, delim
@@ -272,17 +321,20 @@ local function make_listable(handler)
 		local results = {}
 		for _, it in ipairs(items) do
 			local r = handler(it, thisbind_value)
-			if r and r ~= "" then results[#results+1] = r end
+			if r and r ~= "" then
+				results[#results + 1] = r
+			end
 		end
 		return table.concat(results, delim or ", ")
 	end
 end
 
-
 -- ПРОЕКЦИИ НИКОВ / МАППЕРЫ
 local function map_nick_raw(id)
 	id = tonumber(id)
-	if not id then return "" end
+	if not id then
+		return ""
+	end
 	return get_nick_by_id(id) or ""
 end
 local function map_nick_ru(id)
@@ -295,7 +347,7 @@ local function map_rpnick(id)
 end
 local function map_name(id)
 	local n = map_nick_raw(id)
-	return n and strip_tag(n):match('([^_]+)') or ""
+	return n and strip_tag(n):match("([^_]+)") or ""
 end
 local function map_name_ru(id)
 	local nm = map_name(id)
@@ -303,13 +355,12 @@ local function map_name_ru(id)
 end
 local function map_surname(id)
 	local n = map_nick_raw(id)
-	return n and strip_tag(n):match('.*_(.+)') or ""
+	return n and strip_tag(n):match(".*_(.+)") or ""
 end
 local function map_surname_ru(id)
 	local sn = map_surname(id)
 	return (sn and funcs and funcs.translite_name) and funcs.translite_name(sn) or ""
 end
-
 
 -- MULTI-TAG HANDLERS
 
@@ -320,20 +371,34 @@ local multi_tag_handlers = {
 	end,
 
 	-- ----- ЛИСТАБЕЛЬНЫЕ ПРОЕКЦИИ ПО ID -----
-	nickid   = make_listable(function(id) return map_nick_raw(id) end),
-	nickru   = make_listable(function(id) return map_nick_ru(id) end),
-	rpnick   = make_listable(function(id) return map_rpnick(id) end),
-	name	 = make_listable(function(id) return map_name(id) end),
-	nameru   = make_listable(function(id) return map_name_ru(id) end),
-	surname  = make_listable(function(id) return map_surname(id) end),
-	surnameru= make_listable(function(id) return map_surname_ru(id) end),
+	nickid = make_listable(function(id)
+		return map_nick_raw(id)
+	end),
+	nickru = make_listable(function(id)
+		return map_nick_ru(id)
+	end),
+	rpnick = make_listable(function(id)
+		return map_rpnick(id)
+	end),
+	name = make_listable(function(id)
+		return map_name(id)
+	end),
+	nameru = make_listable(function(id)
+		return map_name_ru(id)
+	end),
+	surname = make_listable(function(id)
+		return map_surname(id)
+	end),
+	surnameru = make_listable(function(id)
+		return map_surname_ru(id)
+	end),
 
 	-- текущее время + смещение мин:сек
 	addtime = function(param)
-		local min, sec = param:match('(%d+):(%d+)')
+		local min, sec = param:match("(%d+):(%d+)")
 		min, sec = tonumber(min), tonumber(sec)
 		if min and sec then
-			return os.date("%H:%M:%S", os.time() + (min*60) + sec)
+			return os.date("%H:%M:%S", os.time() + (min * 60) + sec)
 		else
 			return ""
 		end
@@ -342,9 +407,13 @@ local multi_tag_handlers = {
 	-- Скриншот
 	screen = function(param)
 		local args = {}
-		for arg in tostring(param):gmatch('"(.-)"') do table.insert(args, arg) end
+		for arg in tostring(param):gmatch('"(.-)"') do
+			table.insert(args, arg)
+		end
 		if #args == 0 then
-			for word in tostring(param):gmatch("([^,]+)") do table.insert(args, word:match("^%s*(.-)%s*$")) end
+			for word in tostring(param):gmatch("([^,]+)") do
+				table.insert(args, word:match("^%s*(.-)%s*$"))
+			end
 		end
 		local name = args[1] and args[1] ~= "" and args[1] or nil
 		local path = args[2] and args[2] ~= "" and args[2] or nil
@@ -358,16 +427,19 @@ local multi_tag_handlers = {
 
 -- Описания мульти-тегов (для справки)
 local multi_tags_descriptions = {
-	nickid = {desc="Ник игрока по ID (листабельно)", example="[nickid(1 2 3)]"},
-	nickru = {desc="Русский ник по ID (листабельно)", example="[nickru(1,2,3 | \", \")]"},
-	rpnick = {desc="РП-ник по ID (листабельно)", example="[rpnick(4 5 6)]"},
-	name = {desc="Имя по ID (листабельно)", example="[name(1 2 3)]"},
-	nameru = {desc="Имя (рус) по ID (листабельно)", example="[nameru(1 2 3 | \" / \")]"},
-	surname = {desc="Фамилия по ID (листабельно)", example="[surname(1, 2, 3)]"},
-	surnameru = {desc="Фамилия (рус) по ID (листабельно)", example="[surnameru(1 2 3)]"},
-	strlow = {desc="Строка в нижнем регистре", example="[strlow(ТЕКСТ)]"},
-		addtime = {desc="Текущее время + мин:сек", example="[addtime(\"10:10\")]"},
-		screen = {desc="Сделать скриншот. Аргументы опциональны.", example='[screen("имя_файла", "папка")]'},
+	nickid = { desc = "Ник игрока по ID (листабельно)", example = "[nickid(1 2 3)]" },
+	nickru = { desc = "Русский ник по ID (листабельно)", example = '[nickru(1,2,3 | ", ")]' },
+	rpnick = { desc = "РП-ник по ID (листабельно)", example = "[rpnick(4 5 6)]" },
+	name = { desc = "Имя по ID (листабельно)", example = "[name(1 2 3)]" },
+	nameru = { desc = "Имя (рус) по ID (листабельно)", example = '[nameru(1 2 3 | " / ")]' },
+	surname = { desc = "Фамилия по ID (листабельно)", example = "[surname(1, 2, 3)]" },
+	surnameru = { desc = "Фамилия (рус) по ID (листабельно)", example = "[surnameru(1 2 3)]" },
+	strlow = { desc = "Строка в нижнем регистре", example = "[strlow(ТЕКСТ)]" },
+	addtime = { desc = "Текущее время + мин:сек", example = '[addtime("10:10")]' },
+	screen = {
+		desc = "Сделать скриншот. Аргументы опциональны.",
+		example = '[screen("имя_файла", "папка")]',
+	},
 }
 
 -- =======================
@@ -375,27 +447,31 @@ local multi_tags_descriptions = {
 -- =======================
 
 -- Глобальные регистраторы (совместимость со старыми файлами вида obs.lua)
-		_G.registerVariable = function(name, desc, fn)
-	if type(name) ~= "string" or type(fn) ~= "function" then return end
+_G.registerVariable = function(name, desc, fn)
+	if type(name) ~= "string" or type(fn) ~= "function" then
+		return
+	end
 	-- будет делегировать на module.registerVariable (определена ниже), загрузка файлов произойдёт ПОСЛЕ её определения
 	module.registerVariable(name, desc, fn)
 end
 
-		_G.registerFunctionalVariable = function(name, desc, fn, opts)
-	if type(name) ~= "string" or type(fn) ~= "function" then return end
+_G.registerFunctionalVariable = function(name, desc, fn, opts)
+	if type(name) ~= "string" or type(fn) ~= "function" then
+		return
+	end
 	-- регистрируем хендлер в мульти-тегах
 	multi_tag_handlers[name] = function(param, thisbind_value)
 		local ok, res = pcall(fn, tostring(param or ""), thisbind_value)
 		if not ok then
 			log_chat(("[Tags]1 Ошибка в [%s(...)]: %s"):format(name, tostring(res)), 0xAA3333)
-			return "[Ошибка "..name.."]"
+			return "[Ошибка " .. name .. "]"
 		end
 		return res
 	end
 	-- описание для справки
 	multi_tags_descriptions[name] = {
-		desc = desc or ("Внешняя функциональная переменная '"..name.."'"),
-		example = (opts and opts.example) or ("["..name.."(...)]")
+		desc = desc or ("Внешняя функциональная переменная '" .. name .. "'"),
+		example = (opts and opts.example) or ("[" .. name .. "(...)]"),
 	}
 end
 
@@ -403,23 +479,23 @@ local VARS_DIR = "moonloader/HelperByOrc/vars"
 
 local function list_lua_files(dir)
 	local out = {}
-	dir = tostring(dir or ""):gsub("\\","/"):gsub("/+$","")
+	dir = tostring(dir or ""):gsub("\\", "/"):gsub("/+$", "")
 	local ok_lfs, lfs = pcall(require, "lfs")
 	if ok_lfs and lfs and lfs.attributes(dir, "mode") == "directory" then
 		for f in lfs.dir(dir) do
 			if f ~= "." and f ~= ".." and f:match("%.lua$") then
-				out[#out+1] = dir.."/"..f
+				out[#out + 1] = dir .. "/" .. f
 			end
 		end
 		return out
 	end
 	if io.popen then
-		local cmd = ('dir /b "%s\\*.lua"'):format(dir:gsub("/","\\"))
+		local cmd = ('dir /b "%s\\*.lua"'):format(dir:gsub("/", "\\"))
 		local p = io.popen(cmd)
 		if p then
 			for line in p:lines() do
 				if line and line:match("%.lua$") then
-					out[#out+1] = dir.."/"..line
+					out[#out + 1] = dir .. "/" .. line
 				end
 			end
 			p:close()
@@ -446,20 +522,23 @@ local function load_external_vars()
 			local env = setmetatable({
 				registerVariable = _G.registerVariable,
 				registerFunctionalVariable = _G.registerFunctionalVariable,
-								module = module,
-								funcs = funcs,
-								imgui = imgui,
-								ffi = ffi,
+				module = module,
+				funcs = funcs,
+				imgui = imgui,
+				ffi = ffi,
 			}, { __index = _G })
 			setfenv(chunk, env)
 
 			local ok, perr = pcall(chunk)
 			if not ok then
 				errors = errors + 1
-				log_chat(("[Tags]3 Ошибка при выполнении '%s': %s"):format(path, tostring(perr)), 0xAA3333)
+				log_chat(
+					("[Tags]3 Ошибка при выполнении '%s': %s"):format(path, tostring(perr)),
+					0xAA3333
+				)
 			else
 				loaded = loaded + 1
-				_loaded_var_files[#_loaded_var_files+1] = path
+				_loaded_var_files[#_loaded_var_files + 1] = path
 			end
 		end
 	end
@@ -467,52 +546,71 @@ local function load_external_vars()
 	clear_parse_cache()
 
 	-- if loaded > 0 or errors > 0 then
-		-- log_chat(("[Tags]4 Внешние переменные: загружено %d файл(ов), ошибок %d."):format(loaded, errors), 0xFFD700)
+	-- log_chat(("[Tags]4 Внешние переменные: загружено %d файл(ов), ошибок %d."):format(loaded, errors), 0xFFD700)
 	-- end
 end
 
-
 -- Командные «строчная форма»
 local command_tags = {
-		{ name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
-		{ name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
+	{
+		name = "$wait(expr)",
+		desc = "Ждать до выполнения условия (строка полностью: $wait(...))",
+		example = "$wait(time() % 2 == 0)",
+	},
+	{
+		name = "$call(expr)",
+		desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))",
+		example = "$call(module.save_config())",
+	},
 }
-
 
 -- ВНЕШНИЕ ПЕРЕМЕННЫЕ (API)
 local external_variables = {}
 function module.registerVariable(name, desc, fn)
-	external_variables[name] = {desc = desc, fn = fn}
+	external_variables[name] = { desc = desc, fn = fn }
 end
-
 
 -- СПИСОК ПРОСТЫХ ТЕГОВ (для справки)
 local simple_tags = {
-	{ name = "{id}",			desc = "Ваш ID на сервере" },
-	{ name = "{nick}",		  desc = "Ваш ник (с тегом)" },
-	{ name = "{nickru}",		desc = "Ваш ник (русскими буквами, без тега)" },
-	{ name = "{rpnick}",		desc = "Ник для РП-формата" },
-	{ name = "{name}",		  desc = "Имя до подчёркивания" },
-	{ name = "{nameru}",		desc = "Имя (русскими буквами)" },
-	{ name = "{surname}",	   desc = "Фамилия (после подчёркивания)" },
-	{ name = "{surnameru}",	 desc = "Фамилия (русскими буквами)" },
-	{ name = "{myskin}",		desc = "Ваш ID скина" },
-	{ name = "{city}",		  desc = "Ваш город (по зоне GTA)" },
-	{ name = "{date}",		  desc = "Текущая дата (ДД.ММ.ГГГГ)" },
-	{ name = "{time}",		  desc = "Текущее время (ЧЧ:ММ:СС)" },
-	{ name = "{timenosec}",	 desc = "Время (без секунд)" },
-	{ name = "{myorg}",		 desc = "Ваша организация (можно изменить)" },
-	{ name = "{myorgrang}",	 desc = "Ваш ранг в организации (можно изменить)" },
-	{ name = "{screen}",		desc = "Сделать скриншот. По умолчанию — в стандартную папку с текущей датой" },
+	{ name = "{id}", desc = "Ваш ID на сервере" },
+	{ name = "{nick}", desc = "Ваш ник (с тегом)" },
+	{ name = "{nickru}", desc = "Ваш ник (русскими буквами, без тега)" },
+	{ name = "{rpnick}", desc = "Ник для РП-формата" },
+	{ name = "{name}", desc = "Имя до подчёркивания" },
+	{ name = "{nameru}", desc = "Имя (русскими буквами)" },
+	{ name = "{surname}", desc = "Фамилия (после подчёркивания)" },
+	{ name = "{surnameru}", desc = "Фамилия (русскими буквами)" },
+	{ name = "{myskin}", desc = "Ваш ID скина" },
+	{ name = "{city}", desc = "Ваш город (по зоне GTA)" },
+	{ name = "{date}", desc = "Текущая дата (ДД.ММ.ГГГГ)" },
+	{ name = "{time}", desc = "Текущее время (ЧЧ:ММ:СС)" },
+	{ name = "{timenosec}", desc = "Время (без секунд)" },
+	{ name = "{myorg}", desc = "Ваша организация (можно изменить)" },
+	{ name = "{myorgrang}", desc = "Ваш ранг в организации (можно изменить)" },
+	{
+		name = "{screen}",
+		desc = "Сделать скриншот. По умолчанию — в стандартную папку с текущей датой",
+	},
 
 	-- переменные по таргету (используют ПОСЛЕДНИЙ валидный ID)
-	{ name = "{targetid}",	  desc = "ID игрока, в которого вы целились последним (последний валидный)" },
-	{ name = "{targetnick}",	desc = "Ник игрока последней цели (как в SAMP)" },
-	{ name = "{targetrpnick}",  desc = "Ник последней цели в RP-формате (без тега, пробел вместо подчёркивания)" },
-	{ name = "{targetname}",	desc = "Имя последней цели (до подчёркивания, без тега)" },
-	{ name = "{targetsurname}", desc = "Фамилия последней цели (после подчёркивания, без тега)" },
+	{
+		name = "{targetid}",
+		desc = "ID игрока, в которого вы целились последним (последний валидный)",
+	},
+	{ name = "{targetnick}", desc = "Ник игрока последней цели (как в SAMP)" },
+	{
+		name = "{targetrpnick}",
+		desc = "Ник последней цели в RP-формате (без тега, пробел вместо подчёркивания)",
+	},
+	{
+		name = "{targetname}",
+		desc = "Имя последней цели (до подчёркивания, без тега)",
+	},
+	{
+		name = "{targetsurname}",
+		desc = "Фамилия последней цели (после подчёркивания, без тега)",
+	},
 }
-
 
 -- ТАБЛИЦА ТЕГОВ {var}
 local tags = setmetatable({}, {
@@ -558,7 +656,7 @@ local tags = setmetatable({}, {
 				local Ss = S_get()
 				if Ss and Ss.GetNameID and Ss.Local_ID then
 					local n = Ss.GetNameID(Ss.Local_ID())
-					return n and strip_tag(n):match('([^_]+)') or ""
+					return n and strip_tag(n):match("([^_]+)") or ""
 				end
 				return ""
 			end
@@ -567,7 +665,7 @@ local tags = setmetatable({}, {
 				local Ss = S_get()
 				if Ss and Ss.GetNameID and Ss.Local_ID and funcs and funcs.translite_name then
 					local n = Ss.GetNameID(Ss.Local_ID())
-					local nm = n and strip_tag(n):match('([^_]+)')
+					local nm = n and strip_tag(n):match("([^_]+)")
 					return nm and funcs.translite_name(nm) or ""
 				end
 				return ""
@@ -577,7 +675,7 @@ local tags = setmetatable({}, {
 				local Ss = S_get()
 				if Ss and Ss.GetNameID and Ss.Local_ID then
 					local n = Ss.GetNameID(Ss.Local_ID())
-					return n and strip_tag(n):match('.*_(.+)') or ""
+					return n and strip_tag(n):match(".*_(.+)") or ""
 				end
 				return ""
 			end
@@ -586,25 +684,33 @@ local tags = setmetatable({}, {
 				local Ss = S_get()
 				if Ss and Ss.GetNameID and Ss.Local_ID and funcs and funcs.translite_name then
 					local n = Ss.GetNameID(Ss.Local_ID())
-					local sn = n and strip_tag(n):match('.*_(.+)')
+					local sn = n and strip_tag(n):match(".*_(.+)")
 					return sn and funcs.translite_name(sn) or ""
 				end
 				return ""
 			end
 		elseif key == "{myskin}" then
-			return function() return getCharModel and getCharModel(PLAYER_PED) or "" end
+			return function()
+				return getCharModel and getCharModel(PLAYER_PED) or ""
+			end
 		elseif key == "{city}" then
 			return function()
-				local mapping = {[0]="San-Andreas",[1]="Los-Santos",[2]="San-Fierro",[3]="Las-Venturas"}
+				local mapping = { [0] = "San-Andreas", [1] = "Los-Santos", [2] = "San-Fierro", [3] = "Las-Venturas" }
 				local city = getCityPlayerIsIn and getCityPlayerIsIn(PLAYER_PED)
 				return mapping[city or 0] or ""
 			end
 		elseif key == "{time}" then
-			return function() return os.date("%H:%M:%S") end
+			return function()
+				return os.date("%H:%M:%S")
+			end
 		elseif key == "{timenosec}" then
-			return function() return os.date("%H:%M") end
+			return function()
+				return os.date("%H:%M")
+			end
 		elseif key == "{date}" then
-			return function() return os.date("%d.%m.%Y") end
+			return function()
+				return os.date("%d.%m.%Y")
+			end
 
 		-- TARGET-теги: используют ПОСЛЕДНИЙ ВАЛИДНЫЙ ID
 		elseif key == "{targetid}" then
@@ -614,63 +720,82 @@ local tags = setmetatable({}, {
 		elseif key == "{targetnick}" then
 			return function()
 				local id = target.last_id
-				if not id then return "" end
+				if not id then
+					return ""
+				end
 				local n = get_nick_by_id(id)
 				return n or ""
 			end
 		elseif key == "{targetrpnick}" then
 			return function()
 				local id = target.last_id
-				if not id then return "" end
+				if not id then
+					return ""
+				end
 				local n = get_nick_by_id(id)
 				return n and strip_tag(n):gsub("_", " ") or ""
 			end
 		elseif key == "{targetname}" then
 			return function()
 				local id = target.last_id
-				if not id then return "" end
+				if not id then
+					return ""
+				end
 				local n = get_nick_by_id(id)
-				return n and strip_tag(n):match('([^_]+)') or ""
+				return n and strip_tag(n):match("([^_]+)") or ""
 			end
 		elseif key == "{targetsurname}" then
 			return function()
 				local id = target.last_id
-				if not id then return "" end
+				if not id then
+					return ""
+				end
 				local n = get_nick_by_id(id)
-				return n and strip_tag(n):match('.*_(.+)') or ""
+				return n and strip_tag(n):match(".*_(.+)") or ""
 			end
 		end
 
 		-- внешние переменные вида {var}
 		local keystr = key:match("^{(.+)}$")
 		if keystr and external_variables[keystr] then
-			return function() return external_variables[keystr].fn() end
+			return function()
+				return external_variables[keystr].fn()
+			end
 		end
 		if keystr and custom_vars[keystr] ~= nil then
-			return function() return tostring(custom_vars[keystr]) end
+			return function()
+				return tostring(custom_vars[keystr])
+			end
 		end
-		return function() return "" end
-	end
+		return function()
+			return ""
+		end
+	end,
 })
-
 
 -- ПАРСЕР МУЛЬТИ-ТЕГОВ
 local RECURSION_LIMIT = 10
 
 local function handle_multi_tag(tag, val, thisbind_value, depth)
 	depth = (depth or 0) + 1
-	if depth > RECURSION_LIMIT then return "[Ошибка: слишком глубокая вложенность]" end
-	local cache_key = tag .. "(" .. tostring(val) .. ")" .. (thisbind_value and ("|"..tostring(thisbind_value)) or "")
+	if depth > RECURSION_LIMIT then
+		return "[Ошибка: слишком глубокая вложенность]"
+	end
+	local cache_key = tag .. "(" .. tostring(val) .. ")" .. (thisbind_value and ("|" .. tostring(thisbind_value)) or "")
 	local cached = cache_get(cache_key)
-	if cached ~= nil then return cached end
+	if cached ~= nil then
+		return cached
+	end
 
 	local handler = multi_tag_handlers[tag]
 	local ok, res
 	if handler then
 		ok, res = pcall(handler, val, thisbind_value)
-		if not ok then res = "[Ошибка парсинга тега: "..tag.."]" end
+		if not ok then
+			res = "[Ошибка парсинга тега: " .. tag .. "]"
+		end
 	else
-		res = "[Неизвестный тег: "..tag.."]"
+		res = "[Неизвестный тег: " .. tag .. "]"
 	end
 	cache_set(cache_key, res)
 	return res
@@ -679,7 +804,9 @@ end
 local function parse_multi_tags(text, thisbind_value, depth)
 	local out, pos = "", 1
 	depth = (depth or 0) + 1
-	if depth > RECURSION_LIMIT then return "[Ошибка: слишком глубокая вложенность]" end
+	if depth > RECURSION_LIMIT then
+		return "[Ошибка: слишком глубокая вложенность]"
+	end
 	while true do
 		local start_s, start_e, tag = text:find("%[([%w_]+)%s*%(", pos)
 		if not start_s then
@@ -689,18 +816,21 @@ local function parse_multi_tags(text, thisbind_value, depth)
 		out = out .. text:sub(pos, start_s - 1)
 		local depth2, i = 1, start_e + 1
 		while i <= #text do
-			local c = text:sub(i,i)
-			if c == "(" then depth2 = depth2 + 1
+			local c = text:sub(i, i)
+			if c == "(" then
+				depth2 = depth2 + 1
 			elseif c == ")" then
 				depth2 = depth2 - 1
 				if depth2 == 0 then
-					if text:sub(i+1,i+1) == "]" then break end
+					if text:sub(i + 1, i + 1) == "]" then
+						break
+					end
 				end
 			end
 			i = i + 1
 		end
-		if depth2 == 0 and text:sub(i+1,i+1) == "]" then
-			local expr = text:sub(start_e+1, i-1)
+		if depth2 == 0 and text:sub(i + 1, i + 1) == "]" then
+			local expr = text:sub(start_e + 1, i - 1)
 			local value = module.change_tags(expr, thisbind_value, depth)
 			local inner = handle_multi_tag(tag, value, thisbind_value, depth)
 			out = out .. tostring(inner)
@@ -713,27 +843,38 @@ local function parse_multi_tags(text, thisbind_value, depth)
 	return out
 end
 
-
 -- $wait / $call — БЕЗОПАСНАЯ СРЕДА
 local function make_safe_env()
 	local env = {
-		tonumber = tonumber, tostring = tostring, type = type,
-		pairs = pairs, ipairs = ipairs, select = select, unpack = unpack or table.unpack,
-				math = math, string = string, table = table,
-				module = module,
-				time = os.time, clock = os.clock,
-				target_last_id = function() return target.last_id end,
-		}
+		tonumber = tonumber,
+		tostring = tostring,
+		type = type,
+		pairs = pairs,
+		ipairs = ipairs,
+		select = select,
+		unpack = unpack or table.unpack,
+		math = math,
+		string = string,
+		table = table,
+		module = module,
+		time = os.time,
+		clock = os.clock,
+		target_last_id = function()
+			return target.last_id
+		end,
+	}
 	return setmetatable(env, { __index = _G })
 end
 
 local function safe_load_expr(expr)
 	-- попытка как "return (expr)"
-	local chunk, err = load("return ("..expr..")")
+	local chunk, err = load("return (" .. expr .. ")")
 	if not chunk then
 		-- вторая попытка — как есть (для $call со стейтментами)
 		chunk, err = load(expr)
-		if not chunk then return nil, err end
+		if not chunk then
+			return nil, err
+		end
 	end
 	setfenv(chunk, make_safe_env())
 	return chunk
@@ -741,7 +882,9 @@ end
 
 local function execute_special_commands(text)
 	local lines = {}
-	for line in text:gmatch("[^\r\n]+") do table.insert(lines, line) end
+	for line in text:gmatch("[^\r\n]+") do
+		table.insert(lines, line)
+	end
 
 	local out = {}
 	for _, line in ipairs(lines) do
@@ -751,13 +894,16 @@ local function execute_special_commands(text)
 			local finished, timed_out = false, false
 			local chunk, err = safe_load_expr(expr)
 			if not chunk then
-				log_chat("[Tags]5 Ошибка в $wait: "..tostring(err), 0xAA3333)
+				log_chat("[Tags]5 Ошибка в $wait: " .. tostring(err), 0xAA3333)
 			else
 				lua_thread.create(function()
 					local t0 = os.clock()
 					while true do
 						local ok, res = pcall(chunk)
-						if ok and res then finished = true break end
+						if ok and res then
+							finished = true
+							break
+						end
 						if (os.clock() - t0) > timeout then
 							timed_out = true
 							break
@@ -766,22 +912,29 @@ local function execute_special_commands(text)
 					end
 				end)
 				local tstart = os.clock()
-				while not finished and not timed_out do wait(25) end
+				while not finished and not timed_out do
+					wait(25)
+				end
 				if timed_out then
-					log_chat("[Tags]6 $wait: истёк таймаут "..timeout.." сек", 0xAA3333)
+					log_chat("[Tags]6 $wait: истёк таймаут " .. timeout .. " сек", 0xAA3333)
 				end
 			end
 		else
 			local expr2 = line:match("^%$call%((.+)%)$") -- строка целиком
 			if expr2 then
 				if not settings.allow_unsafe then
-					log_chat("[Tags]7 $call отклонён: небезопасный режим выключен", 0xAA3333)
+					log_chat(
+						"[Tags]7 $call отклонён: небезопасный режим выключен",
+						0xAA3333
+					)
 				else
 					local chunk, err = safe_load_expr(expr2)
 					if not chunk then
-						log_chat("[Tags]8 Ошибка в $call: "..tostring(err), 0xAA3333)
+						log_chat("[Tags]8 Ошибка в $call: " .. tostring(err), 0xAA3333)
 					else
-						lua_thread.create(function() pcall(chunk) end)
+						lua_thread.create(function()
+							pcall(chunk)
+						end)
 					end
 				end
 			else
@@ -791,7 +944,6 @@ local function execute_special_commands(text)
 	end
 	return table.concat(out, "\n")
 end
-
 
 -- ОСНОВНАЯ ФУНКЦИЯ ПОДСТАНОВКИ
 function module.change_tags(text, thisbind_value, depth)
@@ -803,7 +955,9 @@ function module.change_tags(text, thisbind_value, depth)
 		if fn then
 			local cache_key = key
 			local c = cache_get(cache_key)
-			if c ~= nil then return c end
+			if c ~= nil then
+				return c
+			end
 			local ok, res = pcall(fn)
 			local out = (ok and res and tostring(res) ~= key) and tostring(res) or ""
 			cache_set(cache_key, out)
@@ -812,10 +966,11 @@ function module.change_tags(text, thisbind_value, depth)
 		return ""
 	end)
 	text = text:gsub("[%]%)]*$", "")
-	if text:match("^%s*$") then text = "" end
+	if text:match("^%s*$") then
+		text = ""
+	end
 	return text
 end
-
 
 -- ПУБЛИЧНЫЕ API ПО TARGET / НАСТРОЙКИ
 function module.setTargetNoticeEnabled(flag)
@@ -837,17 +992,21 @@ function module.setUnsafeAllowed(flag)
 end
 function module.setWaitTimeout(sec)
 	local n = tonumber(sec)
-	if n and n > 0 then settings.wait_timeout_sec = n; save_config() end
+	if n and n > 0 then
+		settings.wait_timeout_sec = n
+		save_config()
+	end
 end
-
 
 -- СПРАВОЧНЫЕ СПИСКИ ДЛЯ UI
 local function get_custom_var_list()
 	local out = {}
 	for k, v in pairs(custom_vars) do
-		out[#out+1] = { key = k, value = v }
+		out[#out + 1] = { key = k, value = v }
 	end
-	table.sort(out, function(a,b) return a.key < b.key end)
+	table.sort(out, function(a, b)
+		return a.key < b.key
+	end)
 	return out
 end
 
@@ -858,12 +1017,14 @@ local function get_var_list()
 		exists[tag.name] = true
 	end
 	for k, v in pairs(external_variables) do
-		local tagname = "{"..k.."}"
+		local tagname = "{" .. k .. "}"
 		if not exists[tagname] then
 			table.insert(out, { name = tagname, desc = v.desc or "(доп. переменная)", custom = false })
 		end
 	end
-	table.sort(out, function(a,b) return a.name < b.name end)
+	table.sort(out, function(a, b)
+		return a.name < b.name
+	end)
 	return out
 end
 
@@ -873,13 +1034,14 @@ local function get_func_list()
 		table.insert(out, {
 			name = ("[%s(...)]"):format(tag),
 			desc = v.desc,
-			example = v.example or ("[%s(...)]"):format(tag)
+			example = v.example or ("[%s(...)]"):format(tag),
 		})
 	end
-	table.sort(out, function(a,b) return a.name < b.name end)
+	table.sort(out, function(a, b)
+		return a.name < b.name
+	end)
 	return out
 end
-
 
 -- UI (mimgui): СПРАВКА / КОПИРОВАНИЕ ПО КЛИКУ
 local showTagsWindow = imgui.new.bool(false)
@@ -898,7 +1060,10 @@ end
 
 -- Рисует страницу настроек (вкладка "Прочее")
 function module.DrawSettingsPage()
-	imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
+	imgui.TextColored(
+		imgui.ImVec4(0.7, 1, 1, 1),
+		"Переменные для сообщений, биндеров и шаблонов"
+	)
 	imgui.Separator()
 
 	imgui.Text("Настройки:")
@@ -918,7 +1083,9 @@ function module.DrawSettingsPage()
 
 		local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
 		if imgui.InputInt("Таймаут $wait, сек", wt) then
-			if wt[0] < 1 then wt[0] = 1 end
+			if wt[0] < 1 then
+				wt[0] = 1
+			end
 			settings.wait_timeout_sec = wt[0]
 			save_config()
 		end
@@ -968,113 +1135,118 @@ function module.DrawSettingsPage()
 	end
 end
 
-imgui.OnFrame(
-		function() return showTagsWindow[0] end,
-		function()
-				imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
-				imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+imgui.OnFrame(function()
+	return showTagsWindow[0]
+end, function()
+	imgui.SetNextWindowSize(imgui.ImVec2(780, 680), imgui.Cond.FirstUseEver)
+	imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
 
-		imgui.TextColored(imgui.ImVec4(0.7,1,1,1), "Переменные для сообщений, биндеров и шаблонов")
-		imgui.Separator()
+	imgui.TextColored(
+		imgui.ImVec4(0.7, 1, 1, 1),
+		"Переменные для сообщений, биндеров и шаблонов"
+	)
+	imgui.Separator()
 
-		-- Настройки
-		imgui.Text("Настройки:")
-		do
-			local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
-			if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
-				settings.show_target_notice = chk1[0] and true or false
-				save_config()
-			end
-
-			imgui.SameLine()
-			local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
-			if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
-				settings.allow_unsafe = chk2[0] and true or false
-				save_config()
-			end
-
-			local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
-			if imgui.InputInt("Таймаут $wait, сек", wt) then
-				if wt[0] < 1 then wt[0] = 1 end
-				settings.wait_timeout_sec = wt[0]
-				save_config()
-			end
+	-- Настройки
+	imgui.Text("Настройки:")
+	do
+		local chk1 = ffi.new("bool[1]", settings.show_target_notice and true or false)
+		if imgui.Checkbox("Показывать уведомление о {targetid}", chk1) then
+			settings.show_target_notice = chk1[0] and true or false
+			save_config()
 		end
+
+		imgui.SameLine()
+		local chk2 = ffi.new("bool[1]", settings.allow_unsafe and true or false)
+		if imgui.Checkbox("Разрешить $call (небезопасно)", chk2) then
+			settings.allow_unsafe = chk2[0] and true or false
+			save_config()
+		end
+
+		local wt = ffi.new("int[1]", settings.wait_timeout_sec or 30)
+		if imgui.InputInt("Таймаут $wait, сек", wt) then
+			if wt[0] < 1 then
+				wt[0] = 1
+			end
+			settings.wait_timeout_sec = wt[0]
+			save_config()
+		end
+	end
 
 	imgui.Separator()
 	imgui.Text("Кастомные переменные (клик по имени — копировать):")
 	imgui.Columns(2, "cvars", false)
 	for i, tag in ipairs(get_custom_var_list()) do
-		if imgui.Selectable("{"..tag.key.."}##cvar"..tostring(i), false) then
-		imgui.SetClipboardText("{"..tag.key.."}")
-		flash_copied("Скопировано: {"..tag.key.."}")
+		if imgui.Selectable("{" .. tag.key .. "}##cvar" .. tostring(i), false) then
+			imgui.SetClipboardText("{" .. tag.key .. "}")
+			flash_copied("Скопировано: {" .. tag.key .. "}")
 		end
 		imgui.NextColumn()
 		imgui.TextWrapped(tostring(tag.value))
 		imgui.NextColumn()
-		end
+	end
 	imgui.Columns(1)
 	imgui.Separator()
 	imgui.Text("Доступные переменные (клик по имени — копировать):")
 	imgui.Columns(2, "vars", false)
 	for i, tag in ipairs(get_var_list()) do
-			if imgui.Selectable((tag.name).."##var"..tostring(i), false) then
-				imgui.SetClipboardText(tag.name)
-				flash_copied("Скопировано: "..tag.name)
-			end
-			if imgui.IsItemHovered() then
-				imgui.BeginTooltip()
-				imgui.Text("Кликните, чтобы скопировать")
-				imgui.EndTooltip()
-			end
-			imgui.NextColumn()
-			imgui.TextWrapped(tag.desc)
-			imgui.NextColumn()
+		if imgui.Selectable(tag.name .. "##var" .. tostring(i), false) then
+			imgui.SetClipboardText(tag.name)
+			flash_copied("Скопировано: " .. tag.name)
 		end
-		imgui.Columns(1)
-
-		imgui.Separator()
-		imgui.Text("Функции-теги (клик по имени — копировать пример):")
-		imgui.Columns(2, "funcs", false)
-		for i, tag in ipairs(get_func_list()) do
-			local to_copy = tag.example or tag.name
-			if imgui.Selectable((tag.name).."##fn"..tostring(i), false) then
-				imgui.SetClipboardText(to_copy)
-				flash_copied("Скопировано: "..to_copy)
-			end
-			if imgui.IsItemHovered() then
-				imgui.BeginTooltip()
-				imgui.Text("Копировать пример")
-				imgui.EndTooltip()
-			end
-			imgui.NextColumn()
-			imgui.TextWrapped(tag.desc..(tag.example and ("  Пример: "..tag.example) or ""))
-			imgui.NextColumn()
+		if imgui.IsItemHovered() then
+			imgui.BeginTooltip()
+			imgui.Text("Кликните, чтобы скопировать")
+			imgui.EndTooltip()
 		end
-		imgui.Columns(1)
-
-		imgui.Separator()
-		imgui.Text("Командные (строка целиком):")
-		for _, t in ipairs(command_tags) do
-			imgui.Text(t.name.." — "..t.desc.."  Пример: "..t.example)
-		end
-
-		-- Флэш «Скопировано»
-		do
-			local dt = os.clock() - (ui_state.copied_time or 0)
-			if ui_state.copied_text and dt < (ui_state.flash_sec or 1.5) then
-				imgui.Spacing()
-				imgui.TextColored(imgui.ImVec4(0.5, 1.0, 0.5, 1.0), ui_state.copied_text)
-			end
-		end
-
-		imgui.Spacing()
-		if imgui.Button("Закрыть") then showTagsWindow[0] = false end
-
-		imgui.End()
+		imgui.NextColumn()
+		imgui.TextWrapped(tag.desc)
+		imgui.NextColumn()
 	end
-)
+	imgui.Columns(1)
 
+	imgui.Separator()
+	imgui.Text("Функции-теги (клик по имени — копировать пример):")
+	imgui.Columns(2, "funcs", false)
+	for i, tag in ipairs(get_func_list()) do
+		local to_copy = tag.example or tag.name
+		if imgui.Selectable(tag.name .. "##fn" .. tostring(i), false) then
+			imgui.SetClipboardText(to_copy)
+			flash_copied("Скопировано: " .. to_copy)
+		end
+		if imgui.IsItemHovered() then
+			imgui.BeginTooltip()
+			imgui.Text("Копировать пример")
+			imgui.EndTooltip()
+		end
+		imgui.NextColumn()
+		imgui.TextWrapped(tag.desc .. (tag.example and ("  Пример: " .. tag.example) or ""))
+		imgui.NextColumn()
+	end
+	imgui.Columns(1)
+
+	imgui.Separator()
+	imgui.Text("Командные (строка целиком):")
+	for _, t in ipairs(command_tags) do
+		imgui.Text(t.name .. " — " .. t.desc .. "  Пример: " .. t.example)
+	end
+
+	-- Флэш «Скопировано»
+	do
+		local dt = os.clock() - (ui_state.copied_time or 0)
+		if ui_state.copied_text and dt < (ui_state.flash_sec or 1.5) then
+			imgui.Spacing()
+			imgui.TextColored(imgui.ImVec4(0.5, 1.0, 0.5, 1.0), ui_state.copied_text)
+		end
+	end
+
+	imgui.Spacing()
+	if imgui.Button("Закрыть") then
+		showTagsWindow[0] = false
+	end
+
+	imgui.End()
+end)
 
 -- ВНЕШНИЕ СЕРВИСНЫЕ ФУНКЦИИ (СОХРАНИТЬ/ПЕРЕЧИТАТЬ)
 module.save_config = save_custom_vars
