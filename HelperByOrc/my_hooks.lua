@@ -14,14 +14,16 @@ local VIPandADchat
 local funcs
 local unwanted
 local samp_mod
+local binder
 
 function module.attachModules(mod)
 	tags = mod.tags
 	SMIHelp = mod.SMIHelp
 	VIPandADchat = mod.VIPandADchat
-	funcs = mod.funcs
-	unwanted = mod.unwanted
-	samp_mod = mod.samp
+        funcs = mod.funcs
+        unwanted = mod.unwanted
+        samp_mod = mod.samp
+        binder = mod.binder
 end
 
 -- 1. SAMP EVENTS HOOK (через samp.events)
@@ -41,6 +43,10 @@ local function onServerMessage(color, text)
         local text2 = u8(text)
         -- local color1 = bit.tohex(funcs.ARGBtoRGB(color)):gsub('^00', '')
         local color1 = bit.tohex(color)
+
+        if binder and binder.onServerMessage then
+                binder.onServerMessage(text2)
+        end
 
         if SMIHelp and SMIHelp.timer_send_enabled and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
                 lua_thread.create(function()
