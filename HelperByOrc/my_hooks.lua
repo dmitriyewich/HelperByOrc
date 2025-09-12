@@ -14,14 +14,16 @@ local VIPandADchat
 local funcs
 local unwanted
 local samp_mod
+local binder
 
 function module.attachModules(mod)
 	tags = mod.tags
 	SMIHelp = mod.SMIHelp
 	VIPandADchat = mod.VIPandADchat
-	funcs = mod.funcs
-	unwanted = mod.unwanted
-	samp_mod = mod.samp
+        funcs = mod.funcs
+        unwanted = mod.unwanted
+        samp_mod = mod.samp
+        binder = mod.binder
 end
 
 -- 1. SAMP EVENTS HOOK (через samp.events)
@@ -41,6 +43,10 @@ local function onServerMessage(color, text)
         local text2 = u8(text)
         -- local color1 = bit.tohex(funcs.ARGBtoRGB(color)):gsub('^00', '')
         local color1 = bit.tohex(color)
+
+        if binder and binder.onServerMessage then
+                binder.onServerMessage(text2)
+        end
 
         if SMIHelp and SMIHelp.timer_send_enabled and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
                 lua_thread.create(function()
@@ -164,11 +170,16 @@ local function CDialog_Close_hook(this, button)
 end
 
 local function CInput_Send_hook(this, text)
-	local raw = ffi.string(text) -- CP1251 от клиента
-	local msg = u8(raw) -- теперь UTF-8, можно юзать tags.change_tags
-	if tags and tags.change_tags then
-		msg = tags.change_tags(msg)
-	end
+        local raw = ffi.string(text) -- CP1251 от клиента
+        local msg = u8(raw) -- теперь UTF-8, можно юзать tags.change_tags
+        if tags and tags.change_tags then
+                msg = tags.change_tags(msg)
+        end
+        if binder and binder.onPlayerCommand then
+                if binder.onPlayerCommand(msg) then
+                        return false
+                end
+        end
         local back = u8:decode(msg) -- возвращаем обратно в CP1251
         return CInput_Send_orig(this, back)
 	-- local text = ffi.string(text)
@@ -192,11 +203,11 @@ local function CInput_Send_hook(this, text)
 end
 
 local function CInput_SendSay_hook(this, text)
-	local raw = ffi.string(text) -- CP1251 от клиента
-	local msg = u8(raw) -- теперь UTF-8, можно юзать tags.change_tags
-	if tags and tags.change_tags then
-		msg = tags.change_tags(msg)
-	end
+        local raw = ffi.string(text) -- CP1251 от клиента
+        local msg = u8(raw) -- теперь UTF-8, можно юзать tags.change_tags
+        if tags and tags.change_tags then
+                msg = tags.change_tags(msg)
+        end
         local back = u8:decode(msg) -- возвращаем обратно в CP1251
         return CInput_SendSay_orig(this, back)
 	-- local text = ffi.string(text)
