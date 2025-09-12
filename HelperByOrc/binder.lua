@@ -307,10 +307,11 @@ function module.saveHotkeys()
                                 quick_menu = hk.quick_menu or false,
                                 messages = msgs,
                                 conditions = hk.conditions,
-                                quick_conditions = hk.quick_conditions,
-                                command = hk.command or "",
-                                folderPath = hk.folderPath,
-                                text_trigger = hk.text_trigger
+                               quick_conditions = hk.quick_conditions,
+                               command = hk.command or "",
+                               command_enabled = hk.command_enabled or false,
+                               folderPath = hk.folderPath,
+                               text_trigger = hk.text_trigger
                         }
                 )
         end
@@ -328,9 +329,10 @@ local function newHotkeyBase()
                 conditions = {},
                 quick_conditions = {},
                 enabled = true,
-		quick_menu = false,
-		command = "",
-		folderPath = {folders[1].name},
+               quick_menu = false,
+               command = "",
+               command_enabled = false,
+               folderPath = {folders[1].name},
 		is_running = false,
 		_co_state = nil,
 		lastActivated = 0,
@@ -342,14 +344,15 @@ local function newHotkeyBase()
 	}
 end
 
-function module.registerHotkey(keys, messages, label, repeat_mode, conditions, command, folderPath, text_trigger)
+function module.registerHotkey(keys, messages, label, repeat_mode, conditions, command, folderPath, text_trigger, command_enabled)
         local hk = newHotkeyBase()
         hk.keys = keys or {}
         hk.messages = messages or {}
         hk.label = label or hk.label
         hk.repeat_mode = not (not repeat_mode)
         hk.conditions = conditions or {}
-        hk.command = command or ""
+       hk.command = command or ""
+       hk.command_enabled = not not command_enabled
         hk.folderPath = folderPath or {folders[1].name}
         hk.text_trigger = text_trigger or {text = "", enabled = false, pattern = false}
         hotkeys[#hotkeys + 1] = hk
@@ -369,22 +372,24 @@ function module.loadHotkeys()
 		end
 		selectedFolder = folders[1]
 		for _, hk in ipairs(tbl.hotkeys or {}) do
-                        module.registerHotkey(
-                                hk.keys,
-                                hk.messages,
-                                hk.label,
-                                hk.repeat_mode,
-                                hk.conditions,
-                                hk.command,
-                                hk.folderPath or {folders[1].name},
-                                hk.text_trigger
-                        )
-                        local last = hotkeys[#hotkeys]
-                        last.enabled = hk.enabled == nil and true or hk.enabled
-                        last.quick_menu = hk.quick_menu or hk.fast_menu or false
-                        last.repeat_interval_ms = tonumber(hk.repeat_interval_ms) or nil
-                        last.quick_conditions = hk.quick_conditions or {}
-                        last.text_trigger = hk.text_trigger or {text = "", enabled = false, pattern = false}
+                       module.registerHotkey(
+                               hk.keys,
+                               hk.messages,
+                               hk.label,
+                               hk.repeat_mode,
+                               hk.conditions,
+                               hk.command,
+                               hk.folderPath or {folders[1].name},
+                               hk.text_trigger,
+                               hk.command_enabled
+                       )
+                       local last = hotkeys[#hotkeys]
+                       last.enabled = hk.enabled == nil and true or hk.enabled
+                       last.quick_menu = hk.quick_menu or hk.fast_menu or false
+                       last.repeat_interval_ms = tonumber(hk.repeat_interval_ms) or nil
+                       last.quick_conditions = hk.quick_conditions or {}
+                       last.text_trigger = hk.text_trigger or {text = "", enabled = false, pattern = false}
+                       last.command_enabled = hk.command_enabled == nil and (hk.command ~= "") or hk.command_enabled
                 end
         end
 end
@@ -689,6 +694,21 @@ function module.onServerMessage(text)
                         end
                 end
         end
+end
+
+function module.onPlayerCommand(cmd)
+	local nowMs = os.clock() * 1000
+	for _, hk in ipairs(hotkeys) do
+		if hk.command_enabled and hk.command and hk.command ~= "" then
+			local len = #hk.command
+			if cmd:sub(1, len) == hk.command and (cmd:len() == len or cmd:sub(len + 1, len + 1) == " ") then
+				if not hk._debounce_until or nowMs >= hk._debounce_until then
+					module.enqueueHotkey(hk)
+					hk._debounce_until = nowMs + DEBOUNCE_MS
+				end
+			end
+		end
+	end
 end
 
 function module.stopHotkey(hk)
@@ -1267,16 +1287,19 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 		end
 	end
 
-        if hkEdit.editRepeatMode and hkEdit.editRepeatInterval and hkEdit.editRepeatInterval ~= "" then
-                local v = tonumber(hkEdit.editRepeatInterval)
-                if not v or v < 50 then
-                        errs[#errs + 1] = "Интервал повтора должен быть числом ≥ 50 мс"
-                end
-        end
+	if hkEdit.editRepeatMode and hkEdit.editRepeatInterval and hkEdit.editRepeatInterval ~= "" then
+		local v = tonumber(hkEdit.editRepeatInterval)
+		if not v or v < 50 then
+			errs[#errs + 1] = "Интервал повтора должен быть числом ≥ 50 мс"
+		end
+	end
 
-        if hkEdit.editTriggerEnabled and (not hkEdit.editTextTrigger or hkEdit.editTextTrigger:gsub("%s+", "") == "") then
-                errs[#errs + 1] = "Текст триггера пустой"
-        end
+	if hkEdit.editTriggerEnabled and (not hkEdit.editTextTrigger or hkEdit.editTextTrigger:gsub("%s+", "") == "") then
+		errs[#errs + 1] = "Текст триггера пустой"
+	end
+	if hkEdit.editCommandEnabled and (not hkEdit.editCommand or hkEdit.editCommand:gsub("%s+", "") == "") then
+		errs[#errs + 1] = "Команда пустая"
+	end
 
 	local myCombo = normalizeCombo(hkEdit.editKeys or {})
 	if myCombo ~= "" then
@@ -1304,9 +1327,12 @@ local function ensureEditBuffers(hk)
 	if not hk.editLabel then
 		hk.editLabel = hk.label or ""
 	end
-        if not hk.editCommand then
-                hk.editCommand = hk.command or ""
-        end
+       if not hk.editCommand then
+               hk.editCommand = hk.command or ""
+       end
+       if hk.editCommandEnabled == nil then
+               hk.editCommandEnabled = hk.command_enabled or false
+       end
         if not hk.editKeys then
                 hk.editKeys = {table.unpack(hk.keys or {})}
 	end
@@ -1356,11 +1382,12 @@ local function ensureEditBuffers(hk)
 		end
 		hk.editMultiText = table.concat(lines, "\n")
 	end
-        hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
-        hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
-        hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
-        hk._bools.triggerEnabled = ensure_bool(hk._bools.triggerEnabled, hk.editTriggerEnabled)
-        hk._bools.triggerPattern = ensure_bool(hk._bools.triggerPattern, hk.editTriggerPattern)
+       hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
+       hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
+       hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
+       hk._bools.triggerEnabled = ensure_bool(hk._bools.triggerEnabled, hk.editTriggerEnabled)
+       hk._bools.triggerPattern = ensure_bool(hk._bools.triggerPattern, hk.editTriggerPattern)
+       hk._bools.commandEnabled = ensure_bool(hk._bools.commandEnabled, hk.editCommandEnabled)
 end
 
 local function openComboPopupNow()
@@ -1537,11 +1564,15 @@ local function drawEditHotkey(idx)
 
 	imgui.NewLine()
 	-- Команда
+	if imgui.Checkbox("##cmd_enable", hk._bools.commandEnabled) then
+		hk.editCommandEnabled = hk._bools.commandEnabled[0]
+	end
+	imgui.SameLine()
 	imgui.PushItemWidth(360)
 	local cmdBuf = imgui.new.char[256](hk.editCommand)
 	if
 		imgui.InputText(
-			fa.TERMINAL .. "	 " .. "Команда##edit_command",
+			fa.TERMINAL .. "         " .. "Команда##edit_command",
 			cmdBuf,
 			ffi.sizeof(cmdBuf),
 			flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1751,8 +1782,9 @@ local function drawEditHotkey(idx)
 			return
 		end
 
-		hk.label = hk.editLabel
-		hk.command = hk.editCommand
+hk.label = hk.editLabel
+hk.command = hk.editCommand
+hk.command_enabled = hk.editCommandEnabled
 		hk.keys = {table.unpack(hk.editKeys)}
 		hk.messages = {}
 		for _, m in ipairs(hk.editMsgs) do
@@ -1783,7 +1815,7 @@ local function drawEditHotkey(idx)
                         pattern = hk.editTriggerPattern
                 }
 
-                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
+hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled = nil, nil, nil, nil, nil, nil
                 hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
                 hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
                 hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
@@ -1793,14 +1825,14 @@ local function drawEditHotkey(idx)
                 return
         end
         imgui.SameLine()
-        if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
-                hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-                hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-                hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-                hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
-                editHotkey.active = false
-                return
-        end
+if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
+hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled = nil, nil, nil, nil, nil, nil
+hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
+editHotkey.active = false
+return
+end
 	imgui.SameLine()
 	if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
 		table.remove(hotkeys, idx)

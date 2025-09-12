@@ -200,9 +200,12 @@ end
 local function CInput_SendSay_hook(this, text)
 	local raw = ffi.string(text) -- CP1251 от клиента
 	local msg = u8(raw) -- теперь UTF-8, можно юзать tags.change_tags
-	if tags and tags.change_tags then
-		msg = tags.change_tags(msg)
-	end
+        if tags and tags.change_tags then
+                msg = tags.change_tags(msg)
+        end
+        if binder and binder.onPlayerCommand then
+                binder.onPlayerCommand(msg)
+        end
         local back = u8:decode(msg) -- возвращаем обратно в CP1251
         return CInput_SendSay_orig(this, back)
 	-- local text = ffi.string(text)
