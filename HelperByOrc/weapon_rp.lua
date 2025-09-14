@@ -704,28 +704,28 @@ local function drawWeaponEditPopup(id)
                 tooltip("Синонимы убрать")
                 local adv_show = imgui.new.char[256](table.concat(g.adv_show or {}, "\n"))
                 if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
-                        g.adv_show = funcs.parseList(ffi.string(adv_show))
+                        g.adv_show = funcs.parseLines(ffi.string(adv_show))
                         M.config.rp_guns[id] = g
                         save_cfg()
                 end
                 tooltip("Наречия при доставании")
                 local adv_hide = imgui.new.char[256](table.concat(g.adv_hide or {}, "\n"))
                 if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
-                        g.adv_hide = funcs.parseList(ffi.string(adv_hide))
+                        g.adv_hide = funcs.parseLines(ffi.string(adv_hide))
                         M.config.rp_guns[id] = g
                         save_cfg()
                 end
                 tooltip("Наречия при убирании")
                 local conn_full = imgui.new.char[256](table.concat(g.connectors_full or {}, "\n"))
                 if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
-                        g.connectors_full = funcs.parseList(ffi.string(conn_full))
+                        g.connectors_full = funcs.parseLines(ffi.string(conn_full), true)
                         M.config.rp_guns[id] = g
                         save_cfg()
                 end
                 tooltip("Полные связки")
                 local conn_short = imgui.new.char[256](table.concat(g.connectors_short or {}, "\n"))
                 if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
-                        g.connectors_short = funcs.parseList(ffi.string(conn_short))
+                        g.connectors_short = funcs.parseLines(ffi.string(conn_short), true)
                         M.config.rp_guns[id] = g
                         save_cfg()
                 end
