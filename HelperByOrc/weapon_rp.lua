@@ -58,7 +58,13 @@ local function load_cfg()
                 if k == "auto_rp" and tbl.auto_mode == nil then
                         M.config.auto_mode = v and 0 or 1
                 elseif M.config[k] ~= nil then
-                        M.config[k] = v
+                        if type(M.config[k]) == "table" and type(v) == "table" then
+                                local t = {}
+                                for kk, vv in pairs(v) do t[tonumber(kk) or kk] = vv end
+                                M.config[k] = t
+                        else
+                                M.config[k] = v
+                        end
                 end
         end
         M.rpTakeNames = M.config.rpTakeNames
@@ -450,7 +456,7 @@ end
 
 -- ===== детектор =====
 local function update_once()
-        if M.config.auto_mode == 1 and pending_line and type(isButtonPressed) == "function" and isButtonPressed(1, 6) then
+        if M.config.auto_mode == 1 and pending_line and type(isButtonPressed) == "function" and isButtonPressed(0, 6) then
                 send_chat(pending_line)
                 pending_line = nil
         end
@@ -541,6 +547,59 @@ end
 
 local auto_mode_labels = {"Авто /me", "По ПКМ"}
 local auto_mode_labels_ffi = imgui.new["const char*"][#auto_mode_labels](auto_mode_labels)
+
+local weapon_list = {
+        {0, "Fist"},
+        {1, "Brass Knuckles"},
+        {2, "Golf Club"},
+        {3, "Nightstick"},
+        {4, "Knife"},
+        {5, "Baseball Bat"},
+        {6, "Shovel"},
+        {7, "Pool Cue"},
+        {8, "Katana"},
+        {9, "Chainsaw"},
+        {10, "Purple Dildo"},
+        {11, "Dildo"},
+        {12, "Vibrator"},
+        {13, "Silver Vibrator"},
+        {14, "Flowers"},
+        {15, "Cane"},
+        {16, "Grenade"},
+        {17, "Tear Gas"},
+        {18, "Molotov Cocktail"},
+        {22, "9mm"},
+        {23, "Silenced 9mm"},
+        {24, "Desert Eagle"},
+        {25, "Shotgun"},
+        {26, "Sawnoff Shotgun"},
+        {27, "Combat Shotgun"},
+        {28, "Micro Uzi"},
+        {29, "MP5"},
+        {30, "AK-47"},
+        {31, "M4"},
+        {32, "Tec-9"},
+        {33, "Country Rifle"},
+        {34, "Sniper Rifle"},
+        {35, "RPG"},
+        {36, "HS Rocket"},
+        {37, "Flamethrower"},
+        {38, "Minigun"},
+        {39, "Satchel Charge"},
+        {40, "Detonator"},
+        {41, "Spraycan"},
+        {42, "Fire Extinguisher"},
+        {43, "Camera"},
+        {44, "Night Vis Goggles"},
+        {45, "Thermal Goggles"},
+        {46, "Parachute"}
+}
+local weapon_ids, weapon_labels = {}, {}
+for i, w in ipairs(weapon_list) do
+        weapon_ids[i] = w[1]
+        weapon_labels[i] = w[2]
+end
+local weapon_labels_ffi = imgui.new["const char*"][#weapon_labels](weapon_labels)
 function M.DrawSettingsInline()
         local run = imgui.new.bool(running)
         if imgui.Checkbox("Включить модуль", run) then
@@ -578,41 +637,6 @@ function M.DrawSettingsInline()
         end
         tooltip("Команда, используемая для RP, например /me")
 
-        local tick = ffi.new("int[1]", M.config.tick_ms)
-        if imgui.InputInt("Интервал проверки (мс)", tick) then
-                M.config.tick_ms = math.max(10, tick[0])
-                save_cfg()
-        end
-        tooltip("Как часто проверяется текущее оружие")
-
-        local stable = ffi.new("int[1]", M.config.stable_need)
-        if imgui.InputInt("Кадров стабильности", stable) then
-                M.setStableNeed(stable[0])
-                save_cfg()
-        end
-        tooltip("Сколько кадров оружие должно быть одинаковым для фиксации")
-
-        local cooldown = ffi.new("int[1]", M.config.cooldown_frames)
-        if imgui.InputInt("Кадров задержки", cooldown) then
-                M.setCooldownFrames(cooldown[0])
-                save_cfg()
-        end
-        tooltip("Задержка после обнаружения смены")
-
-        local min_gap = ffi.new("int[1]", M.config.min_me_gap_ms)
-        if imgui.InputInt("Пауза между /me (мс)", min_gap) then
-                M.setMinMeGapMs(min_gap[0])
-                save_cfg()
-        end
-        tooltip("Минимальный интервал между RP сообщениями")
-
-        local max_len = ffi.new("int[1]", M.config.max_len)
-        if imgui.InputInt("Макс длина строки", max_len) then
-                M.setMaxLen(max_len[0])
-                save_cfg()
-        end
-        tooltip("Ограничение длины сформированной строки")
-
         local flavor = ffi.new("int[1]", M.config.flavor_level)
         if imgui.SliderInt("Уровень разнообразия", flavor, 1, 3) then
                 M.setFlavorLevel(flavor[0])
@@ -620,133 +644,169 @@ function M.DrawSettingsInline()
         end
         tooltip("1 — минимум украшений, 3 — максимум разнообразия")
 
-        imgui.Separator()
-        imgui.Text("Места ношения")
-        for i=1, #M.config.rpTakeNames do
-                local from = imgui.new.char[32](M.config.rpTakeNames[i][1])
-                local to = imgui.new.char[32](M.config.rpTakeNames[i][2])
-                if imgui.InputText(("Откуда %d"):format(i), from, ffi.sizeof(from)) then
-                        M.config.rpTakeNames[i][1] = ffi.string(from)
+        if imgui.CollapsingHeader("Дополнительно") then
+                local tick = ffi.new("int[1]", M.config.tick_ms)
+                if imgui.InputInt("Интервал проверки (мс)", tick) then
+                        M.config.tick_ms = math.max(10, tick[0])
                         save_cfg()
                 end
-                tooltip("Фраза при доставании из этого места")
-                if imgui.InputText(("Куда %d"):format(i), to, ffi.sizeof(to)) then
-                        M.config.rpTakeNames[i][2] = ffi.string(to)
-                        save_cfg()
-                end
-                tooltip("Фраза при убирании в это место")
-        end
+                tooltip("Как часто проверяется текущее оружие")
 
-        imgui.Text("Места ношения (кратко)")
-        for i=1, #M.config.rpTakeNamesShort do
-                local from = imgui.new.char[32](M.config.rpTakeNamesShort[i][1])
-                local to = imgui.new.char[32](M.config.rpTakeNamesShort[i][2])
-                if imgui.InputText(("Коротко откуда %d"):format(i), from, ffi.sizeof(from)) then
-                        M.config.rpTakeNamesShort[i][1] = ffi.string(from)
+                local stable = ffi.new("int[1]", M.config.stable_need)
+                if imgui.InputInt("Кадров стабильности", stable) then
+                        M.setStableNeed(stable[0])
                         save_cfg()
                 end
-                tooltip("Короткая фраза откуда достать")
-                if imgui.InputText(("Коротко куда %d"):format(i), to, ffi.sizeof(to)) then
-                        M.config.rpTakeNamesShort[i][2] = ffi.string(to)
+                tooltip("Сколько кадров оружие должно быть одинаковым для фиксации")
+
+                local cooldown = ffi.new("int[1]", M.config.cooldown_frames)
+                if imgui.InputInt("Кадров задержки", cooldown) then
+                        M.setCooldownFrames(cooldown[0])
                         save_cfg()
                 end
-                tooltip("Короткая фраза куда убрать")
-        end
+                tooltip("Задержка после обнаружения смены")
 
-        imgui.Separator()
-        imgui.Text("Глаголы")
-        for i=1, #M.config.verb_map do
-                local vm = M.config.verb_map[i]
-                local show = imgui.new.char[128](table.concat(vm.show or {}, ","))
-                if imgui.InputText(("Показ %d"):format(i), show, ffi.sizeof(show)) then
-                        vm.show = split_csv(ffi.string(show))
+                local min_gap = ffi.new("int[1]", M.config.min_me_gap_ms)
+                if imgui.InputInt("Пауза между /me (мс)", min_gap) then
+                        M.setMinMeGapMs(min_gap[0])
                         save_cfg()
                 end
-                tooltip("Глаголы для достания")
-                local hide = imgui.new.char[128](table.concat(vm.hide or {}, ","))
-                if imgui.InputText(("Спрятать %d"):format(i), hide, ffi.sizeof(hide)) then
-                        vm.hide = split_csv(ffi.string(hide))
+                tooltip("Минимальный интервал между RP сообщениями")
+
+                local max_len = ffi.new("int[1]", M.config.max_len)
+                if imgui.InputInt("Макс длина строки", max_len) then
+                        M.setMaxLen(max_len[0])
                         save_cfg()
                 end
-                tooltip("Глаголы для убирания")
-        end
+                tooltip("Ограничение длины сформированной строки")
 
-        imgui.Separator()
-        local adv_show = imgui.new.char[256](table.concat(M.config.adv_show, "\n"))
-        if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
-                M.config.adv_show = split_lines(ffi.string(adv_show))
-                save_cfg()
-        end
-        tooltip("Список наречий при доставании")
-        local adv_hide = imgui.new.char[256](table.concat(M.config.adv_hide, "\n"))
-        if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
-                M.config.adv_hide = split_lines(ffi.string(adv_hide))
-                save_cfg()
-        end
-        tooltip("Список наречий при убирании")
+                imgui.Separator()
+                imgui.Text("Места ношения")
+                for i=1, #M.config.rpTakeNames do
+                        local from = imgui.new.char[32](M.config.rpTakeNames[i][1])
+                        local to = imgui.new.char[32](M.config.rpTakeNames[i][2])
+                        if imgui.InputText(("Откуда %d"):format(i), from, ffi.sizeof(from)) then
+                                M.config.rpTakeNames[i][1] = ffi.string(from)
+                                save_cfg()
+                        end
+                        tooltip("Фраза при доставании из этого места")
+                        if imgui.InputText(("Куда %d"):format(i), to, ffi.sizeof(to)) then
+                                M.config.rpTakeNames[i][2] = ffi.string(to)
+                                save_cfg()
+                        end
+                        tooltip("Фраза при убирании в это место")
+                end
 
-        imgui.Separator()
-        local conn_full = imgui.new.char[256](table.concat(M.config.connectors_full, "\n"))
-        if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
-                M.config.connectors_full = split_lines(ffi.string(conn_full))
-                save_cfg()
-        end
-        tooltip("Полные связки между действиями")
-        local conn_short = imgui.new.char[256](table.concat(M.config.connectors_short, "\n"))
-        if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
-                M.config.connectors_short = split_lines(ffi.string(conn_short))
-                save_cfg()
-        end
-        tooltip("Короткие связки между действиями")
+                imgui.Text("Места ношения (кратко)")
+                for i=1, #M.config.rpTakeNamesShort do
+                        local from = imgui.new.char[32](M.config.rpTakeNamesShort[i][1])
+                        local to = imgui.new.char[32](M.config.rpTakeNamesShort[i][2])
+                        if imgui.InputText(("Коротко откуда %d"):format(i), from, ffi.sizeof(from)) then
+                                M.config.rpTakeNamesShort[i][1] = ffi.string(from)
+                                save_cfg()
+                        end
+                        tooltip("Короткая фраза откуда достать")
+                        if imgui.InputText(("Коротко куда %d"):format(i), to, ffi.sizeof(to)) then
+                                M.config.rpTakeNamesShort[i][2] = ffi.string(to)
+                                save_cfg()
+                        end
+                        tooltip("Короткая фраза куда убрать")
+                end
 
-        imgui.Separator()
-        imgui.Text("Слоты по умолчанию")
-        for i=0, 12 do
-                local val = ffi.new("int[1]", M.config.slot_to_take[i] or 2)
-                if imgui.InputInt(("Слот %d"):format(i), val) then
-                        M.config.slot_to_take[i] = val[0]
+                imgui.Separator()
+                imgui.Text("Глаголы")
+                for i=1, #M.config.verb_map do
+                        local vm = M.config.verb_map[i]
+                        local show = imgui.new.char[128](table.concat(vm.show or {}, ","))
+                        if imgui.InputText(("Показ %d"):format(i), show, ffi.sizeof(show)) then
+                                vm.show = split_csv(ffi.string(show))
+                                save_cfg()
+                        end
+                        tooltip("Глаголы для достания")
+                        local hide = imgui.new.char[128](table.concat(vm.hide or {}, ","))
+                        if imgui.InputText(("Спрятать %d"):format(i), hide, ffi.sizeof(hide)) then
+                                vm.hide = split_csv(ffi.string(hide))
+                                save_cfg()
+                        end
+                        tooltip("Глаголы для убирания")
+                end
+
+                imgui.Separator()
+                local adv_show = imgui.new.char[256](table.concat(M.config.adv_show, "\n"))
+                if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
+                        M.config.adv_show = split_lines(ffi.string(adv_show))
                         save_cfg()
                 end
-                tooltip("Индекс места ношения для слота")
-        end
+                tooltip("Список наречий при доставании")
+                local adv_hide = imgui.new.char[256](table.concat(M.config.adv_hide, "\n"))
+                if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
+                        M.config.adv_hide = split_lines(ffi.string(adv_hide))
+                        save_cfg()
+                end
+                tooltip("Список наречий при убирании")
 
-        imgui.Separator()
-        imgui.Text("Оружие")
-        M._gun_id = M._gun_id or imgui.new.int(0)
-        if imgui.InputInt("ID оружия", M._gun_id) then
-                if M._gun_id[0] < 0 then M._gun_id[0] = 0 end
+                imgui.Separator()
+                local conn_full = imgui.new.char[256](table.concat(M.config.connectors_full, "\n"))
+                if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
+                        M.config.connectors_full = split_lines(ffi.string(conn_full))
+                        save_cfg()
+                end
+                tooltip("Полные связки между действиями")
+                local conn_short = imgui.new.char[256](table.concat(M.config.connectors_short, "\n"))
+                if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
+                        M.config.connectors_short = split_lines(ffi.string(conn_short))
+                        save_cfg()
+                end
+                tooltip("Короткие связки между действиями")
+
+                imgui.Separator()
+                imgui.Text("Слоты по умолчанию")
+                for i=0, 12 do
+                        local val = ffi.new("int[1]", M.config.slot_to_take[i] or 2)
+                        if imgui.InputInt(("Слот %d"):format(i), val) then
+                                M.config.slot_to_take[i] = val[0]
+                                save_cfg()
+                        end
+                        tooltip("Индекс места ношения для слота")
+                end
+
+                imgui.Separator()
+                if imgui.CollapsingHeader("Оружие") then
+                        M._weapon_idx = M._weapon_idx or imgui.new.int(0)
+                        imgui.Combo("Оружие", M._weapon_idx, weapon_labels_ffi, #weapon_labels)
+                        tooltip("Выберите оружие для редактирования")
+                        local gid = weapon_ids[M._weapon_idx[0]+1]
+                        local g = M.config.rp_guns[gid] or {name="", enable=true, rpTake=2, short=""}
+                        local gname = imgui.new.char[64](g.name or "")
+                        if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
+                                g.name = ffi.string(gname)
+                                M.config.rp_guns[gid] = g
+                                save_cfg()
+                        end
+                        tooltip("Название оружия")
+                        local gshort = imgui.new.char[32](g.short or "")
+                        if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
+                                g.short = ffi.string(gshort)
+                                M.config.rp_guns[gid] = g
+                                save_cfg()
+                        end
+                        tooltip("Сокращённое название")
+                        local grp = ffi.new("int[1]", g.rpTake or 2)
+                        if imgui.InputInt("Место ношения", grp) then
+                                g.rpTake = grp[0]
+                                M.config.rp_guns[gid] = g
+                                save_cfg()
+                        end
+                        tooltip("Индекс места ношения")
+                        local gen = imgui.new.bool(g.enable ~= false)
+                        if imgui.Checkbox("Включить", gen) then
+                                g.enable = gen[0]
+                                M.config.rp_guns[gid] = g
+                                save_cfg()
+                        end
+                        tooltip("Использовать эту запись")
+                end
         end
-        tooltip("Идентификатор редактируемого оружия")
-        local gid = M._gun_id[0]
-        local g = M.config.rp_guns[gid] or {name="", enable=true, rpTake=2, short=""}
-        local gname = imgui.new.char[64](g.name or "")
-        if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
-                g.name = ffi.string(gname)
-                M.config.rp_guns[gid] = g
-                save_cfg()
-        end
-        tooltip("Название оружия")
-        local gshort = imgui.new.char[32](g.short or "")
-        if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
-                g.short = ffi.string(gshort)
-                M.config.rp_guns[gid] = g
-                save_cfg()
-        end
-        tooltip("Сокращённое название")
-        local grp = ffi.new("int[1]", g.rpTake or 2)
-        if imgui.InputInt("Место ношения", grp) then
-                g.rpTake = grp[0]
-                M.config.rp_guns[gid] = g
-                save_cfg()
-        end
-        tooltip("Индекс места ношения")
-        local gen = imgui.new.bool(g.enable ~= false)
-        if imgui.Checkbox("Включить", gen) then
-                g.enable = gen[0]
-                M.config.rp_guns[gid] = g
-                save_cfg()
-        end
-        tooltip("Использовать эту запись")
 end
 
 load_cfg()
