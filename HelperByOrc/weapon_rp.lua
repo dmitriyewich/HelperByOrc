@@ -580,13 +580,19 @@ local weapon_list = {
         {45, "Thermal Goggles"},
         {46, "Parachute"}
 }
-local weapon_ids, weapon_labels, weapon_labels_ffi = {}, {}, nil
+local weapon_ids = {}
 
 -- позиция в спрайт-листе -> id оружия ("?" и "ADD" для кастомных)
 local weaponsID = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 22, 23, 24, 25, 26, 27, 28, 29, 32, 30, 31, 33, 34, 35, 36, 37, 38, 16, 17, 18, 39, 41, 42, 43, 10, 11, 12, 13, 14, 15, 44, 45, 46, 40, "?", "ADD"}
-local standard_weapons = {}
-for _, id in ipairs(weaponsID) do
-        if type(id) == "number" then standard_weapons[id] = true end
+
+local sprite_idx_by_weapon = {}
+local unknown_sprite_idx = 1
+for idx, id in ipairs(weaponsID) do
+        if id == "?" then
+                unknown_sprite_idx = idx
+        elseif type(id) == "number" then
+                sprite_idx_by_weapon[id] = idx
+        end
 end
 
 -- стандартное распределение ID по слотам
@@ -606,22 +612,114 @@ local weaponsBySlot = {
         [12] = {40},
 }
 function rebuild_weapon_lists()
-        weapon_ids, weapon_labels = {}, {}
+        weapon_ids = {}
         local seen = {}
         for i, w in ipairs(weapon_list) do
                 weapon_ids[#weapon_ids+1] = w[1]
-                weapon_labels[#weapon_labels+1] = w[2]
                 seen[w[1]] = true
         end
-        for id, g in pairs(M.config.rp_guns or {}) do
+        for id, _ in pairs(M.config.rp_guns or {}) do
                 if not seen[id] then
                         weapon_ids[#weapon_ids+1] = id
-                        weapon_labels[#weapon_labels+1] = g.name or ("Weapon "..id)
                 end
         end
-        weapon_labels_ffi = imgui.new["const char*"][#weapon_labels](weapon_labels)
 end
 rebuild_weapon_lists()
+
+local function drawWeaponCards()
+        local availWidth = imgui.GetContentRegionAvail().x
+        local cardWidth, cardHeight = 138, 56
+        local spacingX, spacingY = 16, 16
+        local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
+        local x0 = imgui.GetCursorScreenPos().x
+        local y0 = imgui.GetCursorScreenPos().y
+
+        local cards = {}
+        for _, id in ipairs(weapon_ids) do
+                local g = M.config.rp_guns[id]
+                if g then
+                        cards[#cards + 1] = {id = id, g = g}
+                end
+        end
+
+        for n, card in ipairs(cards) do
+                local id, g = card.id, card.g
+                local x = x0 + (((n - 1) % columns) * (cardWidth + spacingX))
+                local y = y0 + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
+                imgui.SetCursorScreenPos(imgui.ImVec2(x, y))
+                local pmin = imgui.GetCursorScreenPos()
+                local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+                local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
+
+                imgui.BeginGroup()
+                local dl = imgui.GetWindowDrawList()
+                local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
+                local borderCol = (M._selected_weapon == id) and imgui.ImVec4(1, 1, 0, 1) or imgui.GetStyle().Colors[imgui.Col.Border]
+                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(borderCol), 8, 2)
+
+                local spr = sprite_idx_by_weapon[id] or unknown_sprite_idx
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 8, pmin.y + 8))
+                mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, spr, imgui.ImVec2(40, 40), 1.0)
+
+                local label = g.name or ("Weapon " .. id)
+                if g.enable == false then
+                        imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
+                end
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 56, pmin.y + 20))
+                imgui.Text(label)
+                if g.enable == false then
+                        imgui.PopStyleColor()
+                end
+
+                imgui.EndGroup()
+                imgui.SetCursorScreenPos(pmin)
+                if imgui.InvisibleButton("##wcard" .. id, imgui.ImVec2(cardWidth, cardHeight)) then
+                        M._selected_weapon = id
+                end
+        end
+
+        -- add button
+        local add_x = x0 + ((#cards % columns) * (cardWidth + spacingX))
+        local add_y = y0 + (math.floor(#cards / columns) * (cardHeight + spacingY))
+        imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
+        imgui.BeginGroup()
+        local pmin = imgui.GetCursorScreenPos()
+        local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+        local dl = imgui.GetWindowDrawList()
+        dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
+        dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+        imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
+        if imgui.Button("+##add_weapon", imgui.ImVec2(32, 32)) then
+                imgui.OpenPopup("weapon_add_popup")
+        end
+        imgui.EndGroup()
+
+        if imgui.BeginPopup("weapon_add_popup") then
+                M._new_wid = M._new_wid or imgui.new.int(0)
+                M._new_wname = M._new_wname or imgui.new.char[64]()
+                imgui.InputInt("ID", M._new_wid)
+                imgui.InputText("Имя", M._new_wname, ffi.sizeof(M._new_wname))
+                if imgui.Button("OK") then
+                        local nid = M._new_wid[0]
+                        local nname = ffi.string(M._new_wname)
+                        if nname ~= "" then
+                                local gnew = M.config.rp_guns[nid] or {enable = true, slot_to_take = get_slot_take_for(nid)}
+                                gnew.name = nname
+                                gnew.short = gnew.short or nname
+                                apply_defaults(gnew)
+                                M.config.rp_guns[nid] = gnew
+                                rebuild_weapon_lists()
+                                save_cfg()
+                        end
+                        imgui.CloseCurrentPopup()
+                end
+                imgui.SameLine()
+                if imgui.Button("Отмена") then imgui.CloseCurrentPopup() end
+                imgui.EndPopup()
+        end
+end
+
 function M.DrawSettingsInline()
         local run = imgui.new.bool(running)
         if imgui.Checkbox("Включить модуль", run) then
@@ -704,66 +802,7 @@ function M.DrawSettingsInline()
 
                 imgui.Separator()
                 if imgui.CollapsingHeader("Оружие") then
-                        imgui.Text("Выберите оружие для редактирования")
-                        local cols, size = 9, imgui.ImVec2(60,20)
-                        for i, wid in ipairs(weaponsID) do
-                                local pos = imgui.GetCursorScreenPos()
-                                imgui.PushID(i)
-                                if imgui.InvisibleButton("wbtn", size) then
-                                        if wid == "ADD" then
-                                                imgui.OpenPopup("weapon_add_popup")
-                                        elseif wid == "?" then
-                                                imgui.OpenPopup("weapon_custom_select")
-                                        else
-                                                M._selected_weapon = wid
-                                        end
-                                end
-                                mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, i, size, 1.0)
-                                if M._selected_weapon == wid then
-                                        local dl = imgui.GetWindowDrawList()
-                                        dl:AddRect(pos, imgui.ImVec2(pos.x+size.x, pos.y+size.y), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,0,1)), 0, 0, 2)
-                                end
-                                imgui.PopID()
-                                if i % cols ~= 0 then imgui.SameLine() end
-                        end
-
-                        if imgui.BeginPopup("weapon_custom_select") then
-                                for id, g in pairs(M.config.rp_guns) do
-                                        if not standard_weapons[id] then
-                                                local label = (g.name or ("Weapon "..id)) .. "##"..id
-                                                if imgui.Selectable(label) then
-                                                        M._selected_weapon = id
-                                                        imgui.CloseCurrentPopup()
-                                                end
-                                        end
-                                end
-                                imgui.EndPopup()
-                        end
-
-                        if imgui.BeginPopup("weapon_add_popup") then
-                                M._new_wid = M._new_wid or imgui.new.int(0)
-                                M._new_wname = M._new_wname or imgui.new.char[64]()
-                                imgui.InputInt("ID", M._new_wid)
-                                imgui.InputText("Имя", M._new_wname, ffi.sizeof(M._new_wname))
-                                if imgui.Button("OK") then
-                                        local nid = M._new_wid[0]
-                                        local nname = ffi.string(M._new_wname)
-                                        if nname ~= "" then
-                                                local gnew = M.config.rp_guns[nid] or {enable=true, slot_to_take=get_slot_take_for(nid)}
-                                                gnew.name = nname
-                                                gnew.short = gnew.short or nname
-                                                apply_defaults(gnew)
-                                                M.config.rp_guns[nid] = gnew
-                                                rebuild_weapon_lists()
-                                                save_cfg()
-                                        end
-                                        imgui.CloseCurrentPopup()
-                                end
-                                imgui.SameLine()
-                                if imgui.Button("Отмена") then imgui.CloseCurrentPopup() end
-                                imgui.EndPopup()
-                        end
-
+                        drawWeaponCards()
                         if M._selected_weapon then
                                 imgui.Separator()
                                 local gid = M._selected_weapon
