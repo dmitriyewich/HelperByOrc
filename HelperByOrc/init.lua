@@ -8,6 +8,7 @@ modules.VIPandADchat   = require('HelperByOrc.VIPandADchat')
 modules.mimgui_funcs   = require('HelperByOrc.mimgui_funcs')
 modules.notepad		= require('HelperByOrc.notepad')
 modules.SMIHelp		= require('HelperByOrc.SMIHelp')
+modules.weapon_rp      = require('HelperByOrc.weapon_rp')
 
 for _, m in pairs(modules) do
 	if type(m) == 'table' and m.attachModules then

@@ -9,7 +9,7 @@ local u8 = encoding.UTF8
 -- модули будут загружены в main()
 local mimgui_funcs
 local SMIHelp
-local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat
+local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
@@ -174,16 +174,19 @@ imgui.OnFrame(
 				if miscPage == 0 then
 					imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "Прочее")
 					imgui.Separator()
-					local items = {}
-					if tags and tags.DrawSettingsPage then
-						table.insert(items, {id = 1, name = "Переменные"})
-					end
-					if VIPandADchat and VIPandADchat.DrawSettingsInline then
-						table.insert(items, {id = 2, name = "VIP/AD чат"})
-					end
-					if Unwanted and Unwanted.DrawWindowInline then
-						table.insert(items, {id = 3, name = "Игнорируемые сообщения"})
-					end
+                                        local items = {}
+                                        if tags and tags.DrawSettingsPage then
+                                                table.insert(items, {id = 1, name = "Переменные"})
+                                        end
+                                        if VIPandADchat and VIPandADchat.DrawSettingsInline then
+                                                table.insert(items, {id = 2, name = "VIP/AD чат"})
+                                        end
+                                        if Unwanted and Unwanted.DrawWindowInline then
+                                                table.insert(items, {id = 3, name = "Игнорируемые сообщения"})
+                                        end
+                                        if weapon_rp and weapon_rp.DrawSettingsInline then
+                                                table.insert(items, {id = 4, name = "Оружие RP"})
+                                        end
 
 					local avail = imgui.GetContentRegionAvail().x
 					local cardW, cardH = 200, 60
@@ -233,18 +236,29 @@ imgui.OnFrame(
 					imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
 					VIPandADchat.DrawSettingsInline()
 					imgui.EndChild()
-				elseif miscPage == 3 and Unwanted and Unwanted.DrawWindowInline then
-					imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
-					if imgui.Button(fa.ARROW_LEFT .. " Назад") then
-						miscPage = 0
-					end
-					imgui.SameLine()
-					imgui.Text("Игнорируемые сообщения")
-					imgui.EndChild()
-					imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
-					Unwanted.DrawWindowInline()
-					imgui.EndChild()
-				end
+                                elseif miscPage == 3 and Unwanted and Unwanted.DrawWindowInline then
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+                                        if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+                                                miscPage = 0
+                                        end
+                                        imgui.SameLine()
+                                        imgui.Text("Игнорируемые сообщения")
+                                        imgui.EndChild()
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+                                        Unwanted.DrawWindowInline()
+                                        imgui.EndChild()
+                                elseif miscPage == 4 and weapon_rp and weapon_rp.DrawSettingsInline then
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+                                        if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+                                                miscPage = 0
+                                        end
+                                        imgui.SameLine()
+                                        imgui.Text("Оружие RP")
+                                        imgui.EndChild()
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+                                        weapon_rp.DrawSettingsInline()
+                                        imgui.EndChild()
+                                end
 			else
 				imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "HelperByOrc")
 				imgui.Separator()
@@ -285,9 +299,14 @@ function main()
 	Unwanted = modules.unwanted
 	myhooks = modules.my_hooks
 	tags = modules.tags
-	binder = modules.binder
-	notepad = modules.notepad
-	VIPandADchat = modules.VIPandADchat
+        binder = modules.binder
+        notepad = modules.notepad
+        VIPandADchat = modules.VIPandADchat
+        weapon_rp = modules.weapon_rp
+
+        if weapon_rp and weapon_rp.start then
+                weapon_rp.start()
+        end
 
 	if myhooks and myhooks.init then
 		myhooks.init()

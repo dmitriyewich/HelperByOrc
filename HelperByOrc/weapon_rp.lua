@@ -1,5 +1,7 @@
--- HelperByOrc/weapon_watch.lua
+-- HelperByOrc/weapon_rp.lua
 local M = {}
+local imgui = require "mimgui"
+local ffi = require "ffi"
 local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -22,6 +24,53 @@ M.config = {
 
 	sender = nil,				-- function(line) ... end (nil -> sampProcessChatInput)
 }
+
+local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
+
+local function json_decode(s)
+        local ok, res = pcall(function()
+                return decodeJson and decodeJson(s) or nil
+        end)
+        if ok and res then return res end
+        local ok2, dk = pcall(require, "dkjson")
+        if ok2 and dk and dk.decode then return dk.decode(s) end
+        return nil
+end
+
+local function json_encode(t)
+        local ok, res = pcall(function()
+                return encodeJson and encodeJson(t) or nil
+        end)
+        if ok and res then return res end
+        local ok2, dk = pcall(require, "dkjson")
+        if ok2 and dk and dk.encode then return dk.encode(t, {indent = true}) end
+        return nil
+end
+
+local function load_cfg()
+        local f = io.open(CONFIG_PATH, "rb")
+        if not f then return end
+        local data = f:read("*a")
+        f:close()
+        local tbl = json_decode(data)
+        if type(tbl) ~= "table" then return end
+        for k, v in pairs(tbl) do
+                if M.config[k] ~= nil then M.config[k] = v end
+        end
+end
+
+local function save_cfg()
+        local data = json_encode(M.config)
+        if not data then return end
+        local f = io.open(CONFIG_PATH, "wb")
+        if f then
+                f:write(data)
+                f:close()
+        end
+end
+
+M.save = save_cfg
+M.reload = load_cfg
 
 -- ===== события/внутрянка =====
 local running, thr = false, nil
@@ -80,7 +129,7 @@ local verb_map = {
 }
 
 -- приправы
-local adv_show = {"уверенно","быстрым движением","плавно","ловко",",легким движением руки"}
+local adv_show = {"уверенно","быстрым движением","плавно","ловко","легким движением руки"}
 local adv_hide = {"аккуратно","спокойно","без лишнего шума","коротким движением","бережно"}
 local connectors_full  = {", затем ","; после чего ","; и тут же ",", не теряя времени, "}
 local connectors_short = {", затем "}
@@ -190,7 +239,7 @@ local function ensure_send_thread()
 		while true do
 			if #send_queue > 0 then
 				local s = table.remove(send_queue, 1)
-				local s = u8:decode(s)
+                                s = u8:decode(s)
 				if s and s ~= "" then
 					if type(M.config.sender) == "function" then
 						pcall(M.config.sender, s)
@@ -292,7 +341,7 @@ end
 
 local function join_changed(hidden_str, shown_str, connector)
 	local s1 = hidden_str:gsub("^/me%s*", "")
-	local s2 = shown_str :gsub("^/me%s*", "")
+    local s2 = shown_str:gsub("^/me%s*", "")
 	return ("%s %s%s%s"):format(M.config.prefix, s1, connector, s2)
 end
 
@@ -451,5 +500,76 @@ function M.bindExample()
 		end
 	end)
 end
+-- ===== Настройки UI =====
+function M.DrawSettingsInline()
+        local run = imgui.new.bool(running)
+        if imgui.Checkbox("Включить модуль", run) then
+                if run[0] then M.start() else M.stop() end
+        end
+
+        local auto = imgui.new.bool(M.config.auto_rp)
+        if imgui.Checkbox("Авто /me", auto) then
+                M.setAutoRp(auto[0])
+                save_cfg()
+        end
+
+        local two = imgui.new.bool(M.config.change_as_two_lines)
+        if imgui.Checkbox("Смена в две строки", two) then
+                M.setChangeMode(two[0])
+                save_cfg()
+        end
+
+        local ign = imgui.new.bool(M.config.ignore_knuckles)
+        if imgui.Checkbox("Игнорировать кастеты", ign) then
+                M.setIgnoreKnuckles(ign[0])
+                save_cfg()
+        end
+
+        imgui.Separator()
+
+        local prefix = imgui.new.char[16](M.config.prefix)
+        if imgui.InputText("Префикс", prefix, ffi.sizeof(prefix)) then
+                M.setPrefix(ffi.string(prefix))
+                save_cfg()
+        end
+
+        local tick = ffi.new("int[1]", M.config.tick_ms)
+        if imgui.InputInt("Интервал проверки (мс)", tick) then
+                M.config.tick_ms = math.max(10, tick[0])
+                save_cfg()
+        end
+
+        local stable = ffi.new("int[1]", M.config.stable_need)
+        if imgui.InputInt("Кадров стабильности", stable) then
+                M.setStableNeed(stable[0])
+                save_cfg()
+        end
+
+        local cooldown = ffi.new("int[1]", M.config.cooldown_frames)
+        if imgui.InputInt("Кадров задержки", cooldown) then
+                M.setCooldownFrames(cooldown[0])
+                save_cfg()
+        end
+
+        local min_gap = ffi.new("int[1]", M.config.min_me_gap_ms)
+        if imgui.InputInt("Пауза между /me (мс)", min_gap) then
+                M.setMinMeGapMs(min_gap[0])
+                save_cfg()
+        end
+
+        local max_len = ffi.new("int[1]", M.config.max_len)
+        if imgui.InputInt("Макс длина строки", max_len) then
+                M.setMaxLen(max_len[0])
+                save_cfg()
+        end
+
+        local flavor = ffi.new("int[1]", M.config.flavor_level)
+        if imgui.SliderInt("Уровень разнообразия", flavor, 1, 3) then
+                M.setFlavorLevel(flavor[0])
+                save_cfg()
+        end
+end
+
+load_cfg()
 
 return M
