@@ -538,6 +538,9 @@ local function split_lines(s)
         end
         return t
 end
+
+local auto_mode_labels = {"Авто /me", "По ПКМ"}
+local auto_mode_labels_ffi = imgui.new["const char*"][#auto_mode_labels](auto_mode_labels)
 function M.DrawSettingsInline()
         local run = imgui.new.bool(running)
         if imgui.Checkbox("Включить модуль", run) then
@@ -546,7 +549,7 @@ function M.DrawSettingsInline()
         tooltip("Запускает или останавливает отслеживание смены оружия")
 
         local mode = ffi.new("int[1]", M.config.auto_mode)
-        if imgui.Combo("Режим /me", mode, "Авто /me\0По ПКМ\0") then
+        if imgui.Combo("Режим /me", mode, auto_mode_labels_ffi, #auto_mode_labels) then
                 M.config.auto_mode = mode[0]
                 save_cfg()
         end
