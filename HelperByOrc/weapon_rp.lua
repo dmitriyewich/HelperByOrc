@@ -6,6 +6,7 @@ local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local funcs = require "HelperByOrc.funcs"
+local mimgui_funcs
 
 -- ===== настройки =====
 M.config = {
@@ -30,6 +31,7 @@ local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
 
 function M.attachModules(mod)
         funcs = mod.funcs or funcs
+        mimgui_funcs = mod.mimgui_funcs or mimgui_funcs
 end
 
 local rebuild_weapon_lists
@@ -262,6 +264,14 @@ end
 local function get_slot_take_for(id)
         local ok, slot = pcall(getWeapontypeSlot, id)
         slot = ok and slot or -1
+        if slot == -1 then
+                for s, ids in pairs(weaponsBySlot) do
+                        for _, wid in ipairs(ids) do
+                                if wid == id then slot = s break end
+                        end
+                        if slot ~= -1 then break end
+                end
+        end
         return M.config.slot_to_take[slot] or 2
 end
 
@@ -569,6 +579,30 @@ local weapon_list = {
         {46, "Parachute"}
 }
 local weapon_ids, weapon_labels, weapon_labels_ffi = {}, {}, nil
+
+-- позиция в спрайт-листе -> id оружия ("?" и "ADD" для кастомных)
+local weaponsID = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 22, 23, 24, 25, 26, 27, 28, 29, 32, 30, 31, 33, 34, 35, 36, 37, 38, 16, 17, 18, 39, 41, 42, 43, 10, 11, 12, 13, 14, 15, 44, 45, 46, 40, "?", "ADD"}
+local standard_weapons = {}
+for _, id in ipairs(weaponsID) do
+        if type(id) == "number" then standard_weapons[id] = true end
+end
+
+-- стандартное распределение ID по слотам
+local weaponsBySlot = {
+        [0] = {0, 1},
+        [1] = {2, 3, 4, 5, 6, 7, 8, 9},
+        [2] = {22, 23, 24},
+        [3] = {25, 26, 27},
+        [4] = {28, 29, 32},
+        [5] = {30, 31},
+        [6] = {33, 34},
+        [7] = {35, 36, 37, 38},
+        [8] = {16, 17, 18, 39},
+        [9] = {41, 42, 43},
+        [10] = {10, 11, 12, 13, 14, 15},
+        [11] = {44, 45, 46},
+        [12] = {40},
+}
 function rebuild_weapon_lists()
         weapon_ids, weapon_labels = {}, {}
         local seen = {}
@@ -758,59 +792,99 @@ function M.DrawSettingsInline()
 
                 imgui.Separator()
                 if imgui.CollapsingHeader("Оружие") then
-                        M._weapon_idx = M._weapon_idx or imgui.new.int(0)
-                        imgui.Combo("Оружие##sel", M._weapon_idx, weapon_labels_ffi, #weapon_labels)
-                        tooltip("Выберите оружие для редактирования")
-                        local gid = weapon_ids[M._weapon_idx[0]+1]
-                        local g = M.config.rp_guns[gid] or {name="", enable=true, rpTake=2, short=""}
-                        local gname = imgui.new.char[64](g.name or "")
-                        if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
-                                g.name = ffi.string(gname)
-                                M.config.rp_guns[gid] = g
-                                save_cfg()
-                                rebuild_weapon_lists()
+                        imgui.Text("Выберите оружие для редактирования")
+                        local cols, size = 9, imgui.ImVec2(60,20)
+                        for i, wid in ipairs(weaponsID) do
+                                local pos = imgui.GetCursorScreenPos()
+                                imgui.PushID(i)
+                                if imgui.InvisibleButton("wbtn", size) then
+                                        if wid == "ADD" then
+                                                imgui.OpenPopup("weapon_add_popup")
+                                        elseif wid == "?" then
+                                                imgui.OpenPopup("weapon_custom_select")
+                                        else
+                                                M._selected_weapon = wid
+                                        end
+                                end
+                                mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, i, size, 1.0)
+                                if M._selected_weapon == wid then
+                                        local dl = imgui.GetWindowDrawList()
+                                        dl:AddRect(pos, imgui.ImVec2(pos.x+size.x, pos.y+size.y), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,0,1)), 0, 0, 2)
+                                end
+                                imgui.PopID()
+                                if i % cols ~= 0 then imgui.SameLine() end
                         end
-                        tooltip("Название оружия")
-                        local gshort = imgui.new.char[32](g.short or "")
-                        if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
-                                g.short = ffi.string(gshort)
-                                M.config.rp_guns[gid] = g
-                                save_cfg()
+
+                        if imgui.BeginPopup("weapon_custom_select") then
+                                for id, g in pairs(M.config.rp_guns) do
+                                        if not standard_weapons[id] then
+                                                local label = (g.name or ("Weapon "..id)) .. "##"..id
+                                                if imgui.Selectable(label) then
+                                                        M._selected_weapon = id
+                                                        imgui.CloseCurrentPopup()
+                                                end
+                                        end
+                                end
+                                imgui.EndPopup()
                         end
-                        tooltip("Сокращённое название")
-                        local grp = ffi.new("int[1]", g.rpTake or 2)
-                        if imgui.InputInt("Место ношения", grp) then
-                                g.rpTake = grp[0]
-                                M.config.rp_guns[gid] = g
-                                save_cfg()
+
+                        if imgui.BeginPopup("weapon_add_popup") then
+                                M._new_wid = M._new_wid or imgui.new.int(0)
+                                M._new_wname = M._new_wname or imgui.new.char[64]()
+                                imgui.InputInt("ID", M._new_wid)
+                                imgui.InputText("Имя", M._new_wname, ffi.sizeof(M._new_wname))
+                                if imgui.Button("OK") then
+                                        local nid = M._new_wid[0]
+                                        local nname = ffi.string(M._new_wname)
+                                        if nname ~= "" then
+                                                local gnew = M.config.rp_guns[nid] or {enable=true, rpTake=get_slot_take_for(nid)}
+                                                gnew.name = nname
+                                                gnew.short = gnew.short or nname
+                                                M.config.rp_guns[nid] = gnew
+                                                rebuild_weapon_lists()
+                                                save_cfg()
+                                        end
+                                        imgui.CloseCurrentPopup()
+                                end
+                                imgui.SameLine()
+                                if imgui.Button("Отмена") then imgui.CloseCurrentPopup() end
+                                imgui.EndPopup()
                         end
-                        tooltip("Индекс места ношения")
-                        local gen = imgui.new.bool(g.enable ~= false)
-                        if imgui.Checkbox("Включить", gen) then
-                                g.enable = gen[0]
-                                M.config.rp_guns[gid] = g
-                                save_cfg()
-                        end
-                        tooltip("Использовать эту запись")
-                        imgui.Separator()
-                        imgui.Text("Добавить оружие")
-                        M._new_wid = M._new_wid or imgui.new.int(0)
-                        M._new_wname = M._new_wname or imgui.new.char[64]()
-                        imgui.InputInt("ID##newweapon", M._new_wid)
-                        imgui.InputText("Имя##newweapon", M._new_wname, ffi.sizeof(M._new_wname))
-                        if imgui.Button("Добавить") then
-                                local nid = M._new_wid[0]
-                                local nname = ffi.string(M._new_wname)
-                                if nname ~= "" then
-                                        local gnew = M.config.rp_guns[nid] or {enable=true, rpTake=get_slot_take_for(nid)}
-                                        gnew.name = nname
-                                        gnew.short = gnew.short or nname
-                                        M.config.rp_guns[nid] = gnew
+
+                        if M._selected_weapon then
+                                imgui.Separator()
+                                local gid = M._selected_weapon
+                                local g = M.config.rp_guns[gid] or {name="", enable=true, rpTake=2, short=""}
+                                local gname = imgui.new.char[64](g.name or "")
+                                if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
+                                        g.name = ffi.string(gname)
+                                        M.config.rp_guns[gid] = g
+                                        save_cfg()
                                         rebuild_weapon_lists()
+                                end
+                                tooltip("Название оружия")
+                                local gshort = imgui.new.char[32](g.short or "")
+                                if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
+                                        g.short = ffi.string(gshort)
+                                        M.config.rp_guns[gid] = g
                                         save_cfg()
                                 end
+                                tooltip("Сокращённое название")
+                                local grp = ffi.new("int[1]", g.rpTake or 2)
+                                if imgui.InputInt("Место ношения", grp) then
+                                        g.rpTake = grp[0]
+                                        M.config.rp_guns[gid] = g
+                                        save_cfg()
+                                end
+                                tooltip("Индекс места ношения")
+                                local gen = imgui.new.bool(g.enable ~= false)
+                                if imgui.Checkbox("Включить", gen) then
+                                        g.enable = gen[0]
+                                        M.config.rp_guns[gid] = g
+                                        save_cfg()
+                                end
+                                tooltip("Использовать эту запись")
                         end
-                        tooltip("Добавить кастомное оружие по ID")
                 end
         end
 end
