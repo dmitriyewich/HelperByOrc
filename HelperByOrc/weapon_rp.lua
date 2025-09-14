@@ -5,6 +5,7 @@ local ffi = require "ffi"
 local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
+local funcs = require "HelperByOrc.funcs"
 
 -- ===== настройки =====
 M.config = {
@@ -27,35 +28,14 @@ M.config = {
 
 local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
 
-local function json_decode(s)
-        local ok, res = pcall(function()
-                return decodeJson and decodeJson(s) or nil
-        end)
-        if ok and res then return res end
-        local ok2, dk = pcall(require, "dkjson")
-        if ok2 and dk and dk.decode then return dk.decode(s) end
-        return nil
-end
-
-local function json_encode(t)
-        local ok, res = pcall(function()
-                return encodeJson and encodeJson(t) or nil
-        end)
-        if ok and res then return res end
-        local ok2, dk = pcall(require, "dkjson")
-        if ok2 and dk and dk.encode then return dk.encode(t, {indent = true}) end
-        return nil
+function M.attachModules(mod)
+        funcs = mod.funcs or funcs
 end
 
 local rebuild_weapon_lists
 
 local function load_cfg()
-        local f = io.open(CONFIG_PATH, "rb")
-        if not f then return end
-        local data = f:read("*a")
-        f:close()
-        local tbl = json_decode(data)
-        if type(tbl) ~= "table" then return end
+        local tbl = funcs.loadTableFromJson(CONFIG_PATH)
         for k, v in pairs(tbl) do
                 if k == "auto_rp" and tbl.auto_mode == nil then
                         M.config.auto_mode = v and 0 or 1
@@ -75,13 +55,7 @@ local function load_cfg()
 end
 
 local function save_cfg()
-        local data = json_encode(M.config)
-        if not data then return end
-        local f = io.open(CONFIG_PATH, "wb")
-        if f then
-                f:write(data)
-                f:close()
-        end
+        funcs.saveTableToJson(M.config, CONFIG_PATH)
 end
 
 M.save = save_cfg
@@ -545,23 +519,6 @@ local function tooltip(text)
         if imgui.IsItemHovered() then imgui.SetTooltip(text) end
 end
 
-local function split_csv(s)
-        local t = {}
-        for part in s:gmatch("[^,]+") do
-                t[#t+1] = part:gsub("^%s+", ""):gsub("%s+$", "")
-        end
-        return t
-end
-
-local function split_lines(s)
-        local t = {}
-        for line in s:gmatch("[^\r\n]+") do
-                line = line:gsub("^%s+", ""):gsub("%s+$", "")
-                if line ~= "" then t[#t+1] = line end
-        end
-        return t
-end
-
 local auto_mode_labels = {"Авто /me", "По ПКМ"}
 local auto_mode_labels_ffi = imgui.new["const char*"][#auto_mode_labels](auto_mode_labels)
 
@@ -748,13 +705,13 @@ function M.DrawSettingsInline()
                         local vm = M.config.verb_map[i]
                         local show = imgui.new.char[128](table.concat(vm.show or {}, ","))
                         if imgui.InputText(("Показ %d"):format(i), show, ffi.sizeof(show)) then
-                                vm.show = split_csv(ffi.string(show))
+                                vm.show = funcs.parseList(ffi.string(show))
                                 save_cfg()
                         end
                         tooltip("Глаголы для достания")
                         local hide = imgui.new.char[128](table.concat(vm.hide or {}, ","))
                         if imgui.InputText(("Спрятать %d"):format(i), hide, ffi.sizeof(hide)) then
-                                vm.hide = split_csv(ffi.string(hide))
+                                vm.hide = funcs.parseList(ffi.string(hide))
                                 save_cfg()
                         end
                         tooltip("Глаголы для убирания")
@@ -763,13 +720,13 @@ function M.DrawSettingsInline()
                 imgui.Separator()
                 local adv_show = imgui.new.char[256](table.concat(M.config.adv_show, "\n"))
                 if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
-                        M.config.adv_show = split_lines(ffi.string(adv_show))
+                        M.config.adv_show = funcs.parseList(ffi.string(adv_show))
                         save_cfg()
                 end
                 tooltip("Список наречий при доставании")
                 local adv_hide = imgui.new.char[256](table.concat(M.config.adv_hide, "\n"))
                 if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
-                        M.config.adv_hide = split_lines(ffi.string(adv_hide))
+                        M.config.adv_hide = funcs.parseList(ffi.string(adv_hide))
                         save_cfg()
                 end
                 tooltip("Список наречий при убирании")
@@ -777,13 +734,13 @@ function M.DrawSettingsInline()
                 imgui.Separator()
                 local conn_full = imgui.new.char[256](table.concat(M.config.connectors_full, "\n"))
                 if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
-                        M.config.connectors_full = split_lines(ffi.string(conn_full))
+                        M.config.connectors_full = funcs.parseList(ffi.string(conn_full))
                         save_cfg()
                 end
                 tooltip("Полные связки между действиями")
                 local conn_short = imgui.new.char[256](table.concat(M.config.connectors_short, "\n"))
                 if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
-                        M.config.connectors_short = split_lines(ffi.string(conn_short))
+                        M.config.connectors_short = funcs.parseList(ffi.string(conn_short))
                         save_cfg()
                 end
                 tooltip("Короткие связки между действиями")
