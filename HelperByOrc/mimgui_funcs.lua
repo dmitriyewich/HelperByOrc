@@ -40,14 +40,16 @@ end
 
 -- Инициализация модуля
 imgui.OnInitialize(function()
-	imgui.GetIO().IniFilename = nil
+        imgui.GetIO().IniFilename = nil
 
-	if memory_picture then
-		module.close_window =
-			imgui.CreateTextureFromFileInMemory(memory_picture.button_close_base, #memory_picture.button_close_base)
-		-- module.logo = imgui.CreateTextureFromFileInMemory(memory_picture.logo_base, #memory_picture.logo_base)
-		module.logo = imgui.CreateTextureFromFile("moonloader/HelperByOrc/resource/logo.png")
-	end
+        if memory_picture then
+                module.close_window =
+                        imgui.CreateTextureFromFileInMemory(memory_picture.button_close_base, #memory_picture.button_close_base)
+                -- module.logo = imgui.CreateTextureFromFileInMemory(memory_picture.logo_base, #memory_picture.logo_base)
+                module.logo = imgui.CreateTextureFromFile("moonloader/HelperByOrc/resource/logo.png")
+        end
+
+        module.weapon_standard = imgui.CreateTextureFromFile("moonloader/HelperByOrc/resource/standard_gun.png")
 end)
 
 function module.GetMiddleButtonX(count)
@@ -125,6 +127,53 @@ function module.drawOrcLogoZoom(texture_id, tab_idx, size, zoom)
 	local uv1 = imgui.ImVec2(zx1 / tex_w, zy1 / tex_h)
 
 	imgui.Image(texture_id, size, uv0, uv1)
+end
+
+function module.drawWeaponZoom(texture_id, idx, size, zoom)
+        -- спрайт-лист: 540x100, 9 колонок, 5 строк, без отступов и промежутков
+        local tex_w, tex_h = 540, 100
+        local cols, rows   = 9, 5
+        local cell_w, cell_h = 60, 20
+        local gap_x, gap_y   = 0, 0
+        local margin_x, margin_y = 0, 0
+
+        zoom = (zoom and zoom > 0) and zoom or 1
+        idx = math.max(1, math.min(idx or 1, cols * rows))
+        size = size or imgui.ImVec2(cell_w, cell_h)
+
+        local col = (idx - 1) % cols
+        local row = math.floor((idx - 1) / cols)
+
+        -- верхний левый угол ячейки в пикселях текстуры
+        local cell_x0 = margin_x + col * (cell_w + gap_x)
+        local cell_y0 = margin_y + row * (cell_h + gap_y)
+        local cell_x1 = cell_x0 + cell_w
+        local cell_y1 = cell_y0 + cell_h
+
+        -- центр ячейки
+        local cx = cell_x0 + cell_w * 0.5
+        local cy = cell_y0 + cell_h * 0.5
+
+        -- область зума внутри ячейки
+        local zoom_w = cell_w / zoom
+        local zoom_h = cell_h / zoom
+
+        local zx0 = cx - zoom_w * 0.5
+        local zy0 = cy - zoom_h * 0.5
+        local zx1 = cx + zoom_w * 0.5
+        local zy1 = cy + zoom_h * 0.5
+
+        -- на всякий случай держим рамку внутри ячейки
+        if zx0 < cell_x0 then zx0 = cell_x0 end
+        if zy0 < cell_y0 then zy0 = cell_y0 end
+        if zx1 > cell_x1 then zx1 = cell_x1 end
+        if zy1 > cell_y1 then zy1 = cell_y1 end
+
+        -- UV
+        local uv0 = imgui.ImVec2(zx0 / tex_w, zy0 / tex_h)
+        local uv1 = imgui.ImVec2(zx1 / tex_w, zy1 / tex_h)
+
+        imgui.Image(texture_id, size, uv0, uv1)
 end
 
 function module.Standart()
