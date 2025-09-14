@@ -47,6 +47,8 @@ local function json_encode(t)
         return nil
 end
 
+local rebuild_weapon_lists
+
 local function load_cfg()
         local f = io.open(CONFIG_PATH, "rb")
         if not f then return end
@@ -69,6 +71,7 @@ local function load_cfg()
         end
         M.rpTakeNames = M.config.rpTakeNames
         M.rp_guns = M.config.rp_guns
+        rebuild_weapon_lists()
 end
 
 local function save_cfg()
@@ -87,7 +90,7 @@ M.reload = load_cfg
 -- ===== события/внутрянка =====
 local running, thr = false, nil
 local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
-local pending_line
+local pending_old, pending_new
 local cb_any, cb_show, cb_hide, cb_change
 function M.onAny(fn)	cb_any = fn end
 function M.onShow(fn)   cb_show = fn end
@@ -436,12 +439,12 @@ end
 
 -- авто-RP
 local function auto_rp(kind, newW, oldW)
-        local line = M.makeRpLine(kind, newW, oldW)
-        if not line or line == "" then return end
         if M.config.auto_mode == 0 then
-                send_chat(line)
+                local line = M.makeRpLine(kind, newW, oldW)
+                if line and line ~= "" then send_chat(line) end
         else
-                pending_line = line
+                if not pending_old then pending_old = oldW end
+                pending_new = newW
         end
 end
 
@@ -456,14 +459,26 @@ end
 
 -- ===== детектор =====
 local function update_once()
-        if M.config.auto_mode == 1 and pending_line and type(isButtonPressed) == "function" and isButtonPressed(0, 6) then
-                send_chat(pending_line)
-                pending_line = nil
+        if M.config.auto_mode == 1 and pending_new and type(isButtonPressed) == "function" and isButtonPressed(0, 6) then
+                local oldW, newW = pending_old or -1, pending_new
+                local kind
+                if is_empty_weapon(oldW) and not is_empty_weapon(newW) then
+                        kind = "shown"
+                elseif not is_empty_weapon(oldW) and is_empty_weapon(newW) then
+                        kind = "hidden"
+                elseif oldW ~= newW then
+                        kind = "changed"
+                end
+                if kind then
+                        local line = M.makeRpLine(kind, newW, oldW)
+                        if line and line ~= "" then send_chat(line) end
+                end
+                pending_old, pending_new = nil, nil
         end
         local ped = PLAYER_PED
-	if not ped then return end
-	local w = getCurrentCharWeapon(ped)
-	if w == nil then return end
+        if not ped then return end
+        local w = getCurrentCharWeapon(ped)
+        if w == nil then return end
 
 	if w == candidate_weapon then
 		if stable_count < M.config.stable_need then
@@ -496,23 +511,25 @@ local function update_once()
 end
 
 function M.start(interval_ms)
-	if running then return end
-	running = true
-	prev_weapon, candidate_weapon, stable_count, cooldown = 0, 0, 0, 0
-	if interval_ms then M.config.tick_ms = interval_ms end
-	ensure_send_thread()
-	thr = lua_thread.create(function()
-		while running do
-			wait(M.config.tick_ms)
-			update_once()
-		end
-	end)
+        if running then return end
+        running = true
+        prev_weapon, candidate_weapon, stable_count, cooldown = 0, 0, 0, 0
+        pending_old, pending_new = nil, nil
+        if interval_ms then M.config.tick_ms = interval_ms end
+        ensure_send_thread()
+        thr = lua_thread.create(function()
+                while running do
+                        wait(M.config.tick_ms)
+                        update_once()
+                end
+        end)
 end
 
 function M.stop()
-	running = false
-	if thr and thr:status() ~= "dead" then thr:terminate() end
-	thr = nil
+        running = false
+        pending_old, pending_new = nil, nil
+        if thr and thr:status() ~= "dead" then thr:terminate() end
+        thr = nil
 end
 
 -- пример: логи в чат
@@ -594,12 +611,24 @@ local weapon_list = {
         {45, "Thermal Goggles"},
         {46, "Parachute"}
 }
-local weapon_ids, weapon_labels = {}, {}
-for i, w in ipairs(weapon_list) do
-        weapon_ids[i] = w[1]
-        weapon_labels[i] = w[2]
+local weapon_ids, weapon_labels, weapon_labels_ffi = {}, {}, nil
+function rebuild_weapon_lists()
+        weapon_ids, weapon_labels = {}, {}
+        local seen = {}
+        for i, w in ipairs(weapon_list) do
+                weapon_ids[#weapon_ids+1] = w[1]
+                weapon_labels[#weapon_labels+1] = w[2]
+                seen[w[1]] = true
+        end
+        for id, g in pairs(M.config.rp_guns or {}) do
+                if not seen[id] then
+                        weapon_ids[#weapon_ids+1] = id
+                        weapon_labels[#weapon_labels+1] = g.name or ("Weapon "..id)
+                end
+        end
+        weapon_labels_ffi = imgui.new["const char*"][#weapon_labels](weapon_labels)
 end
-local weapon_labels_ffi = imgui.new["const char*"][#weapon_labels](weapon_labels)
+rebuild_weapon_lists()
 function M.DrawSettingsInline()
         local run = imgui.new.bool(running)
         if imgui.Checkbox("Включить модуль", run) then
@@ -773,7 +802,7 @@ function M.DrawSettingsInline()
                 imgui.Separator()
                 if imgui.CollapsingHeader("Оружие") then
                         M._weapon_idx = M._weapon_idx or imgui.new.int(0)
-                        imgui.Combo("Оружие", M._weapon_idx, weapon_labels_ffi, #weapon_labels)
+                        imgui.Combo("Оружие##sel", M._weapon_idx, weapon_labels_ffi, #weapon_labels)
                         tooltip("Выберите оружие для редактирования")
                         local gid = weapon_ids[M._weapon_idx[0]+1]
                         local g = M.config.rp_guns[gid] or {name="", enable=true, rpTake=2, short=""}
@@ -782,6 +811,7 @@ function M.DrawSettingsInline()
                                 g.name = ffi.string(gname)
                                 M.config.rp_guns[gid] = g
                                 save_cfg()
+                                rebuild_weapon_lists()
                         end
                         tooltip("Название оружия")
                         local gshort = imgui.new.char[32](g.short or "")
@@ -805,6 +835,25 @@ function M.DrawSettingsInline()
                                 save_cfg()
                         end
                         tooltip("Использовать эту запись")
+                        imgui.Separator()
+                        imgui.Text("Добавить оружие")
+                        M._new_wid = M._new_wid or imgui.new.int(0)
+                        M._new_wname = M._new_wname or imgui.new.char[64]()
+                        imgui.InputInt("ID##newweapon", M._new_wid)
+                        imgui.InputText("Имя##newweapon", M._new_wname, ffi.sizeof(M._new_wname))
+                        if imgui.Button("Добавить") then
+                                local nid = M._new_wid[0]
+                                local nname = ffi.string(M._new_wname)
+                                if nname ~= "" then
+                                        local gnew = M.config.rp_guns[nid] or {enable=true, rpTake=get_slot_take_for(nid)}
+                                        gnew.name = nname
+                                        gnew.short = gnew.short or nname
+                                        M.config.rp_guns[nid] = gnew
+                                        rebuild_weapon_lists()
+                                        save_cfg()
+                                end
+                        end
+                        tooltip("Добавить кастомное оружие по ID")
                 end
         end
 end
