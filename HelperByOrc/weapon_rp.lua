@@ -22,10 +22,16 @@ M.config = {
 	min_me_gap_ms = 1000, -- пауза между несколькими /me, если вдруг будут
 	max_len = 96, -- ЖЁСТКИЙ лимит на длину одной строки
 
-	flavor_level = 2, -- 1 сдержанно, 2 поярче, 3 ещё разнообразнее
+        flavor_level = 2, -- 1 сдержанно, 2 поярче, 3 ещё разнообразнее
 
-	sender = nil, -- function(line) ... end (nil -> sampProcessChatInput)
+        sender = nil, -- function(line) ... end (nil -> sampProcessChatInput)
+
+        -- пресеты RP-фраз
+        presets = {},
+        active_preset = 1,
 }
+
+local preset_editor_open = imgui.new.bool(false)
 
 local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
 
@@ -130,6 +136,52 @@ local function apply_defaults(g)
 end
 
 local rebuild_weapon_lists
+
+local function default_preset()
+        return {
+                full_name = "",
+                short_name = "",
+                slot = 2,
+                actions = { "достал", "убрал" },
+                adv_show = { "аккуратно", "плавно" },
+                adv_hide = { "аккуратно", "плавно" },
+                connectors = { "затем" },
+                selected_actions = {},
+                selected_adv_show = {},
+                selected_adv_hide = {},
+                selected_connectors = {},
+                enable = true,
+        }
+end
+
+local function draw_pill(tag, selected)
+        imgui.PushStyleVar(imgui.StyleVar.FrameRounding, 12)
+        imgui.PushStyleColor(imgui.Col.Button, selected and imgui.ImVec4(0.20, 0.40, 0.60, 0.80) or imgui.ImVec4(0.15, 0.18, 0.22, 0.80))
+        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.25, 0.45, 0.65, 0.80))
+        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.30, 0.50, 0.80, 0.80))
+        local clicked = imgui.Button(tag)
+        imgui.PopStyleColor(3)
+        imgui.PopStyleVar()
+        return clicked
+end
+
+local function build_preview(p)
+        local parts = {}
+        if p.full_name and p.full_name ~= "" then table.insert(parts, p.full_name) end
+        for act, _ in pairs(p.selected_actions or {}) do
+                table.insert(parts, act)
+        end
+        for adv, _ in pairs(p.selected_adv_show or {}) do
+                table.insert(parts, adv)
+        end
+        for conn, _ in pairs(p.selected_connectors or {}) do
+                table.insert(parts, conn)
+        end
+        for adv, _ in pairs(p.selected_adv_hide or {}) do
+                table.insert(parts, adv)
+        end
+        return table.concat(parts, " ")
+end
 
 local function load_cfg()
 	local tbl = funcs.loadTableFromJson(CONFIG_PATH)
@@ -1134,10 +1186,18 @@ function M.DrawSettingsInline()
 		M.setFlavorLevel(flavor[0])
 		save_cfg()
 	end
-	tooltip("1 — минимум украшений, 3 — максимум разнообразия")
+        tooltip("1 — минимум украшений, 3 — максимум разнообразия")
 
-	if imgui.CollapsingHeader("Дополнительно") then
-		local tick = ffi.new("int[1]", M.config.tick_ms)
+        imgui.Separator()
+        if imgui.Button("Редактор пресетов") then
+                preset_editor_open[0] = true
+        end
+        if preset_editor_open[0] then
+                M.DrawPresetEditor()
+        end
+
+        if imgui.CollapsingHeader("Дополнительно") then
+                local tick = ffi.new("int[1]", M.config.tick_ms)
 		if imgui.InputInt("Интервал проверки (мс)", tick) then
 			M.config.tick_ms = math.max(10, tick[0])
 			save_cfg()
@@ -1175,10 +1235,156 @@ function M.DrawSettingsInline()
 		tooltip("Ограничение длины сформированной строки")
 
 		imgui.Separator()
-		if imgui.CollapsingHeader("Оружие") then
-			drawWeaponCards()
-		end
-	end
+                if imgui.CollapsingHeader("Оружие") then
+                        drawWeaponCards()
+                end
+        end
+end
+
+function M.DrawPresetEditor()
+        mimgui_funcs.SciFiTheme()
+        imgui.SetNextWindowSize(imgui.ImVec2(620, 480), imgui.Cond.Once)
+        if not imgui.Begin("RP Preset Editor", preset_editor_open, imgui.WindowFlags.NoCollapse) then
+                imgui.End()
+                return
+        end
+
+        local presets = M.config.presets
+        if #presets == 0 then presets[1] = default_preset() end
+        local active = M.config.active_preset or 1
+        active = math.max(1, math.min(active, #presets))
+        local preset = presets[active]
+
+        local names = {}
+        for i, p in ipairs(presets) do
+                names[#names + 1] = (p.full_name ~= "" and p.full_name) or ("Preset " .. i)
+        end
+        local combo_buf = table.concat(names, "\0") .. "\0"
+        local idx = ffi.new("int[1]", active - 1)
+        if imgui.Combo("Presets", idx, combo_buf, #presets) then
+                active = idx[0] + 1
+                M.config.active_preset = active
+                preset = presets[active]
+        end
+        imgui.SameLine()
+        imgui.TextDisabled("(?)")
+        if imgui.IsItemHovered() then imgui.SetTooltip("Редактор пресетов RP-фраз") end
+
+        imgui.Columns(2, nil, false)
+        local total_w = imgui.GetWindowWidth()
+        imgui.SetColumnWidth(0, total_w * 0.6)
+        local start_pos = imgui.GetCursorScreenPos()
+        local x = start_pos.x + imgui.GetColumnWidth(0)
+        local y0 = imgui.GetWindowPos().y + imgui.GetStyle().WindowPadding.y
+        local y1 = imgui.GetWindowPos().y + imgui.GetWindowHeight() - imgui.GetStyle().WindowPadding.y
+        imgui.GetWindowDrawList():AddLine(imgui.ImVec2(x, y0), imgui.ImVec2(x, y1), imgui.GetColorU32Vec4(imgui.ImVec4(0.2, 0.4, 0.6, 0.4)))
+
+        -- Left column
+        imgui.BeginChild("builder", imgui.ImVec2(0, 0), false)
+        imgui.Text("Предмет")
+        imgui.PushItemWidth(-1)
+        local buf_full = ffi.new("char[64]", preset.full_name or "")
+        if imgui.InputText("##full", buf_full, ffi.sizeof(buf_full)) then
+                preset.full_name = ffi.string(buf_full)
+        end
+        imgui.SameLine()
+        imgui.SetNextItemWidth(120)
+        local buf_short = ffi.new("char[32]", preset.short_name or "")
+        if imgui.InputText("##short", buf_short, ffi.sizeof(buf_short)) then
+                preset.short_name = ffi.string(buf_short)
+        end
+        imgui.PopItemWidth()
+
+        imgui.Separator()
+        imgui.Text("Действия")
+        for _, v in ipairs(preset.actions or {}) do
+                local sel = preset.selected_actions and preset.selected_actions[v]
+                if draw_pill(v, sel) then
+                        preset.selected_actions = preset.selected_actions or {}
+                        if sel then
+                                preset.selected_actions[v] = nil
+                        else
+                                preset.selected_actions[v] = true
+                        end
+                end
+                imgui.SameLine()
+        end
+        imgui.NewLine()
+
+        imgui.Text("Наречия достать")
+        for _, v in ipairs(preset.adv_show or {}) do
+                local sel = preset.selected_adv_show and preset.selected_adv_show[v]
+                if draw_pill(v, sel) then
+                        preset.selected_adv_show = preset.selected_adv_show or {}
+                        if sel then
+                                preset.selected_adv_show[v] = nil
+                        else
+                                preset.selected_adv_show[v] = true
+                        end
+                end
+                imgui.SameLine()
+        end
+        imgui.NewLine()
+
+        imgui.Text("Наречия убрать")
+        for _, v in ipairs(preset.adv_hide or {}) do
+                local sel = preset.selected_adv_hide and preset.selected_adv_hide[v]
+                if draw_pill(v, sel) then
+                        preset.selected_adv_hide = preset.selected_adv_hide or {}
+                        if sel then
+                                preset.selected_adv_hide[v] = nil
+                        else
+                                preset.selected_adv_hide[v] = true
+                        end
+                end
+                imgui.SameLine()
+        end
+        imgui.NewLine()
+
+        imgui.Text("Соединители")
+        for _, v in ipairs(preset.connectors or {}) do
+                local sel = preset.selected_connectors and preset.selected_connectors[v]
+                if draw_pill(v, sel) then
+                        preset.selected_connectors = preset.selected_connectors or {}
+                        if sel then
+                                preset.selected_connectors[v] = nil
+                        else
+                                preset.selected_connectors[v] = true
+                        end
+                end
+                imgui.SameLine()
+        end
+        imgui.NewLine()
+        imgui.EndChild()
+
+        imgui.NextColumn()
+
+        -- Right column
+        imgui.BeginChild("preview", imgui.ImVec2(0, 0), false)
+        imgui.Text("Превью")
+        imgui.BeginChild("preview_box", imgui.ImVec2(0, 120), true)
+        imgui.TextWrapped(build_preview(preset))
+        imgui.EndChild()
+        imgui.Separator()
+        local enable = imgui.new.bool(preset.enable ~= false)
+        if imgui.Checkbox("Включить", enable) then
+                preset.enable = enable[0]
+        end
+        imgui.SameLine()
+        if imgui.Button("Скопировать") then
+                imgui.SetClipboardText(build_preview(preset))
+        end
+        imgui.Separator()
+        if imgui.Button("Сохранить пресет", imgui.ImVec2(-1, 0)) then
+                save_cfg()
+        end
+        if imgui.Button("Сброс", imgui.ImVec2(-1, 0)) then
+                presets[active] = default_preset()
+        end
+        imgui.EndChild()
+
+        imgui.Columns(1)
+        imgui.End()
 end
 
 load_cfg()

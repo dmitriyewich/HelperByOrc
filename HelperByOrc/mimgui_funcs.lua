@@ -265,6 +265,35 @@ function module.Standart()
 	c[imgui.Col.ModalWindowDimBg] = ImVec4(0.15, 0.18, 0.22, 0.70)
 end
 
+-- Sci-fi dark theme with blue accents
+function module.SciFiTheme()
+        imgui.SwitchContext()
+        local s = imgui.GetStyle()
+        local c = s.Colors
+        local ImVec2, ImVec4 = imgui.ImVec2, imgui.ImVec4
+
+        s.WindowPadding = ImVec2(8, 8)
+        s.FramePadding = ImVec2(10, 6)
+        s.ItemSpacing = ImVec2(8, 8)
+        s.WindowRounding = 14
+        s.ChildRounding = 14
+        s.FrameRounding = 12
+        s.ScrollbarRounding = 12
+        s.GrabRounding = 12
+
+        c[imgui.Col.Text] = ImVec4(0.85, 0.90, 1.00, 1.00)
+        c[imgui.Col.WindowBg] = ImVec4(0.06, 0.07, 0.10, 0.95)
+        c[imgui.Col.ChildBg] = ImVec4(0.08, 0.09, 0.13, 0.90)
+        c[imgui.Col.FrameBg] = ImVec4(0.12, 0.14, 0.20, 0.80)
+        c[imgui.Col.FrameBgHovered] = ImVec4(0.20, 0.25, 0.35, 0.80)
+        c[imgui.Col.FrameBgActive] = ImVec4(0.25, 0.40, 0.60, 0.80)
+        c[imgui.Col.Button] = ImVec4(0.12, 0.14, 0.20, 0.80)
+        c[imgui.Col.ButtonHovered] = ImVec4(0.25, 0.40, 0.60, 0.80)
+        c[imgui.Col.ButtonActive] = ImVec4(0.30, 0.50, 0.80, 0.80)
+        c[imgui.Col.Separator] = ImVec4(0.20, 0.25, 0.35, 0.80)
+        c[imgui.Col.Border] = ImVec4(0.20, 0.30, 0.50, 0.60)
+end
+
 function module.CustomInput(name, hint, buffer, bufferSize, flags, width)
 	-- local width = width or imgui.GetWindowSize().x / 2;
 	local width = width or imgui.GetContentRegionAvail().x
