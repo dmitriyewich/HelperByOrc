@@ -1259,9 +1259,10 @@ function M.DrawPresetEditor()
         for i, p in ipairs(presets) do
                 names[#names + 1] = (p.full_name ~= "" and p.full_name) or ("Preset " .. i)
         end
-        local combo_buf = table.concat(names, "\0") .. "\0"
+        -- build ffi array of preset names for ImGui Combo
+        local names_ffi = imgui.new["const char*"][#names](names)
         local idx = ffi.new("int[1]", active - 1)
-        if imgui.Combo("Presets", idx, combo_buf, #presets) then
+        if imgui.Combo("Presets", idx, names_ffi, #presets) then
                 active = idx[0] + 1
                 M.config.active_preset = active
                 preset = presets[active]
