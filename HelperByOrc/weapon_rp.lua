@@ -626,10 +626,125 @@ function rebuild_weapon_lists()
 end
 rebuild_weapon_lists()
 
+local function drawWeaponEditPopup(id)
+        local popup = "weapon_edit_" .. id
+        local g = M.config.rp_guns[id] or {name="", enable=true, slot_to_take=2, short=""}
+        apply_defaults(g)
+        if imgui.BeginPopup(popup) then
+                local gname = imgui.new.char[64](g.name or "")
+                if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
+                        g.name = ffi.string(gname)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                        rebuild_weapon_lists()
+                end
+                tooltip("Название оружия")
+                local gshort = imgui.new.char[32](g.short or "")
+                if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
+                        g.short = ffi.string(gshort)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Сокращённое название")
+                local grp = ffi.new("int[1]", g.slot_to_take or 2)
+                if imgui.InputInt("Место ношения", grp) then
+                        g.slot_to_take = grp[0]
+                        apply_defaults(g)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Индекс места ношения")
+                local from_full = imgui.new.char[32]((g.rpTakeNames and g.rpTakeNames[1]) or "")
+                if imgui.InputText("Откуда", from_full, ffi.sizeof(from_full)) then
+                        g.rpTakeNames = g.rpTakeNames or {"",""}
+                        g.rpTakeNames[1] = ffi.string(from_full)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Фраза при доставании")
+                local to_full = imgui.new.char[32]((g.rpTakeNames and g.rpTakeNames[2]) or "")
+                if imgui.InputText("Куда", to_full, ffi.sizeof(to_full)) then
+                        g.rpTakeNames = g.rpTakeNames or {"",""}
+                        g.rpTakeNames[2] = ffi.string(to_full)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Фраза при убирании")
+                local from_short = imgui.new.char[32]((g.rpTakeNamesShort and g.rpTakeNamesShort[1]) or "")
+                if imgui.InputText("Откуда кратко", from_short, ffi.sizeof(from_short)) then
+                        g.rpTakeNamesShort = g.rpTakeNamesShort or {"",""}
+                        g.rpTakeNamesShort[1] = ffi.string(from_short)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Краткая фраза откуда")
+                local to_short = imgui.new.char[32]((g.rpTakeNamesShort and g.rpTakeNamesShort[2]) or "")
+                if imgui.InputText("Куда кратко", to_short, ffi.sizeof(to_short)) then
+                        g.rpTakeNamesShort = g.rpTakeNamesShort or {"",""}
+                        g.rpTakeNamesShort[2] = ffi.string(to_short)
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Краткая фраза куда")
+                local show_verbs = imgui.new.char[128](table.concat(g.verb_map and g.verb_map.show or {}, ","))
+                if imgui.InputText("Глаголы достать", show_verbs, ffi.sizeof(show_verbs)) then
+                        g.verb_map = g.verb_map or {}
+                        g.verb_map.show = funcs.parseList(ffi.string(show_verbs))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Синонимы достать")
+                local hide_verbs = imgui.new.char[128](table.concat(g.verb_map and g.verb_map.hide or {}, ","))
+                if imgui.InputText("Глаголы убрать", hide_verbs, ffi.sizeof(hide_verbs)) then
+                        g.verb_map = g.verb_map or {}
+                        g.verb_map.hide = funcs.parseList(ffi.string(hide_verbs))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Синонимы убрать")
+                local adv_show = imgui.new.char[256](table.concat(g.adv_show or {}, "\n"))
+                if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
+                        g.adv_show = funcs.parseList(ffi.string(adv_show))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Наречия при доставании")
+                local adv_hide = imgui.new.char[256](table.concat(g.adv_hide or {}, "\n"))
+                if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
+                        g.adv_hide = funcs.parseList(ffi.string(adv_hide))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Наречия при убирании")
+                local conn_full = imgui.new.char[256](table.concat(g.connectors_full or {}, "\n"))
+                if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
+                        g.connectors_full = funcs.parseList(ffi.string(conn_full))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Полные связки")
+                local conn_short = imgui.new.char[256](table.concat(g.connectors_short or {}, "\n"))
+                if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
+                        g.connectors_short = funcs.parseList(ffi.string(conn_short))
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Короткие связки")
+                local gen = imgui.new.bool(g.enable ~= false)
+                if imgui.Checkbox("Включить", gen) then
+                        g.enable = gen[0]
+                        M.config.rp_guns[id] = g
+                        save_cfg()
+                end
+                tooltip("Использовать эту запись")
+                imgui.EndPopup()
+        end
+end
+
 local function drawWeaponCards()
         local availWidth = imgui.GetContentRegionAvail().x
-        local cardWidth, cardHeight = 138, 56
-        local spacingX, spacingY = 16, 16
+        local cardWidth, cardHeight = 60, 20
+        local spacingX, spacingY = 8, 8
         local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
         local x0 = imgui.GetCursorScreenPos().x
         local y0 = imgui.GetCursorScreenPos().y
@@ -650,50 +765,38 @@ local function drawWeaponCards()
                 local pmin = imgui.GetCursorScreenPos()
                 local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
                 local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
-
-                imgui.BeginGroup()
                 local dl = imgui.GetWindowDrawList()
-                local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered] or imgui.GetStyle().Colors[imgui.Col.FrameBg]
-                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
-                local borderCol = (M._selected_weapon == id) and imgui.ImVec4(1, 1, 0, 1) or imgui.GetStyle().Colors[imgui.Col.Border]
-                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(borderCol), 8, 2)
-
+                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 4)
+                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 4)
                 local spr = sprite_idx_by_weapon[id] or unknown_sprite_idx
-                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 8, pmin.y + 8))
-                mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, spr, imgui.ImVec2(40, 40), 1.0)
-
-                local label = g.name or ("Weapon " .. id)
-                if g.enable == false then
-                        imgui.PushStyleColor(imgui.Col.Text, imgui.GetStyle().Colors[imgui.Col.TextDisabled])
-                end
-                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 56, pmin.y + 20))
-                imgui.Text(label)
-                if g.enable == false then
-                        imgui.PopStyleColor()
-                end
-
-                imgui.EndGroup()
                 imgui.SetCursorScreenPos(pmin)
-                if imgui.InvisibleButton("##wcard" .. id, imgui.ImVec2(cardWidth, cardHeight)) then
-                        M._selected_weapon = id
+                mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, spr, imgui.ImVec2(60,20), 1.0)
+                local label = g.short or g.name or ("Weapon " .. id)
+                local txt = imgui.CalcTextSize(label)
+                local txt_pos = imgui.ImVec2(pmin.x + (cardWidth - txt.x)/2, pmin.y + (cardHeight - txt.y)/2)
+                dl:AddText(txt_pos, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Text]), label)
+                if hovered then
+                        dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,0.5)), 4)
+                        imgui.SetCursorScreenPos(pmin)
+                        if imgui.Button("Edit##"..id, imgui.ImVec2(cardWidth, cardHeight)) then
+                                imgui.OpenPopup("weapon_edit_"..id)
+                        end
                 end
+                drawWeaponEditPopup(id)
         end
 
-        -- add button
         local add_x = x0 + ((#cards % columns) * (cardWidth + spacingX))
         local add_y = y0 + (math.floor(#cards / columns) * (cardHeight + spacingY))
         imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
-        imgui.BeginGroup()
         local pmin = imgui.GetCursorScreenPos()
         local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
         local dl = imgui.GetWindowDrawList()
-        dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
-        dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
-        imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
-        if imgui.Button("+##add_weapon", imgui.ImVec2(32, 32)) then
+        dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 4)
+        dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 4)
+        imgui.SetCursorScreenPos(pmin)
+        if imgui.Button("+##add_weapon", imgui.ImVec2(cardWidth, cardHeight)) then
                 imgui.OpenPopup("weapon_add_popup")
         end
-        imgui.EndGroup()
 
         if imgui.BeginPopup("weapon_add_popup") then
                 M._new_wid = M._new_wid or imgui.new.int(0)
@@ -803,118 +906,6 @@ function M.DrawSettingsInline()
                 imgui.Separator()
                 if imgui.CollapsingHeader("Оружие") then
                         drawWeaponCards()
-                        if M._selected_weapon then
-                                imgui.Separator()
-                                local gid = M._selected_weapon
-                                local g = M.config.rp_guns[gid] or {name="", enable=true, slot_to_take=2, short=""}
-                                apply_defaults(g)
-                                local gname = imgui.new.char[64](g.name or "")
-                                if imgui.InputText("Полное имя", gname, ffi.sizeof(gname)) then
-                                        g.name = ffi.string(gname)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                        rebuild_weapon_lists()
-                                end
-                                tooltip("Название оружия")
-                                local gshort = imgui.new.char[32](g.short or "")
-                                if imgui.InputText("Короткое имя", gshort, ffi.sizeof(gshort)) then
-                                        g.short = ffi.string(gshort)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Сокращённое название")
-                                local grp = ffi.new("int[1]", g.slot_to_take or 2)
-                                if imgui.InputInt("Место ношения", grp) then
-                                        g.slot_to_take = grp[0]
-                                        apply_defaults(g)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Индекс места ношения")
-                                local from_full = imgui.new.char[32]((g.rpTakeNames and g.rpTakeNames[1]) or "")
-                                if imgui.InputText("Откуда", from_full, ffi.sizeof(from_full)) then
-                                        g.rpTakeNames = g.rpTakeNames or {"",""}
-                                        g.rpTakeNames[1] = ffi.string(from_full)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Фраза при доставании")
-                                local to_full = imgui.new.char[32]((g.rpTakeNames and g.rpTakeNames[2]) or "")
-                                if imgui.InputText("Куда", to_full, ffi.sizeof(to_full)) then
-                                        g.rpTakeNames = g.rpTakeNames or {"",""}
-                                        g.rpTakeNames[2] = ffi.string(to_full)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Фраза при убирании")
-                                local from_short = imgui.new.char[32]((g.rpTakeNamesShort and g.rpTakeNamesShort[1]) or "")
-                                if imgui.InputText("Откуда кратко", from_short, ffi.sizeof(from_short)) then
-                                        g.rpTakeNamesShort = g.rpTakeNamesShort or {"",""}
-                                        g.rpTakeNamesShort[1] = ffi.string(from_short)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Краткая фраза откуда")
-                                local to_short = imgui.new.char[32]((g.rpTakeNamesShort and g.rpTakeNamesShort[2]) or "")
-                                if imgui.InputText("Куда кратко", to_short, ffi.sizeof(to_short)) then
-                                        g.rpTakeNamesShort = g.rpTakeNamesShort or {"",""}
-                                        g.rpTakeNamesShort[2] = ffi.string(to_short)
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Краткая фраза куда")
-                                local show_verbs = imgui.new.char[128](table.concat(g.verb_map and g.verb_map.show or {}, ","))
-                                if imgui.InputText("Глаголы достать", show_verbs, ffi.sizeof(show_verbs)) then
-                                        g.verb_map = g.verb_map or {}
-                                        g.verb_map.show = funcs.parseList(ffi.string(show_verbs))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Синонимы достать")
-                                local hide_verbs = imgui.new.char[128](table.concat(g.verb_map and g.verb_map.hide or {}, ","))
-                                if imgui.InputText("Глаголы убрать", hide_verbs, ffi.sizeof(hide_verbs)) then
-                                        g.verb_map = g.verb_map or {}
-                                        g.verb_map.hide = funcs.parseList(ffi.string(hide_verbs))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Синонимы убрать")
-                                local adv_show = imgui.new.char[256](table.concat(g.adv_show or {}, "\n"))
-                                if imgui.InputTextMultiline("Наречия достать", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0,80)) then
-                                        g.adv_show = funcs.parseList(ffi.string(adv_show))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Наречия при доставании")
-                                local adv_hide = imgui.new.char[256](table.concat(g.adv_hide or {}, "\n"))
-                                if imgui.InputTextMultiline("Наречия убрать", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0,80)) then
-                                        g.adv_hide = funcs.parseList(ffi.string(adv_hide))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Наречия при убирании")
-                                local conn_full = imgui.new.char[256](table.concat(g.connectors_full or {}, "\n"))
-                                if imgui.InputTextMultiline("Соединители", conn_full, ffi.sizeof(conn_full), imgui.ImVec2(0,80)) then
-                                        g.connectors_full = funcs.parseList(ffi.string(conn_full))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Полные связки")
-                                local conn_short = imgui.new.char[256](table.concat(g.connectors_short or {}, "\n"))
-                                if imgui.InputTextMultiline("Соединители короткие", conn_short, ffi.sizeof(conn_short), imgui.ImVec2(0,80)) then
-                                        g.connectors_short = funcs.parseList(ffi.string(conn_short))
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Короткие связки")
-                                local gen = imgui.new.bool(g.enable ~= false)
-                                if imgui.Checkbox("Включить", gen) then
-                                        g.enable = gen[0]
-                                        M.config.rp_guns[gid] = g
-                                        save_cfg()
-                                end
-                                tooltip("Использовать эту запись")
-                        end
                 end
         end
 end
