@@ -57,6 +57,8 @@ local function load_cfg()
         for k, v in pairs(tbl) do
                 if M.config[k] ~= nil then M.config[k] = v end
         end
+        M.rpTakeNames = M.config.rpTakeNames
+        M.rp_guns = M.config.rp_guns
 end
 
 local function save_cfg()
@@ -93,8 +95,7 @@ function M.setMinMeGapMs(n)		  M.config.min_me_gap_ms = math.max(0, tonumber(n) 
 function M.setFlavorLevel(n)		 M.config.flavor_level = math.max(1, math.min(3, tonumber(n) or 2)) end
 function M.setMaxLen(n)			  M.config.max_len = math.max(20, tonumber(n) or 90) end
 
--- ===== RP базы =====
-M.rpTakeNames = {
+M.config.rpTakeNames = {
 	[1] = {"из-за спины", "за спину"},
 	[2] = {"из кармана", "в карман"},
 	[3] = {"с пояса", "на пояс"},
@@ -105,7 +106,7 @@ M.rpTakeNames = {
 	[8] = {"из сумки", "в сумку"},
 }
 -- короткие варианты мест (для ужатия)
-local rpTakeNamesShort = {
+M.config.rpTakeNamesShort = {
 	[1] = {"со спины","за спину"},
 	[2] = {"из кармана","в карман"},
 	[3] = {"с пояса","на пояс"},
@@ -117,7 +118,7 @@ local rpTakeNamesShort = {
 }
 
 -- глаголы по месту ношения
-local verb_map = {
+M.config.verb_map = {
 	[1] = {show={"достал","снял"}, hide={"убрал","повесил"}},
 	[2] = {show={"достал","вытащил"}, hide={"убрал","спрятал"}},
 	[3] = {show={"снял","достал"}, hide={"убрал","вернул"}},
@@ -129,13 +130,13 @@ local verb_map = {
 }
 
 -- приправы
-local adv_show = {"уверенно","быстрым движением","плавно","ловко","легким движением руки"}
-local adv_hide = {"аккуратно","спокойно","без лишнего шума","коротким движением","бережно"}
-local connectors_full  = {", затем ","; после чего ","; и тут же ",", не теряя времени, "}
-local connectors_short = {", затем "}
+M.config.adv_show = {"уверенно","быстрым движением","плавно","ловко","легким движением руки"}
+M.config.adv_hide = {"аккуратно","спокойно","без лишнего шума","коротким движением","бережно"}
+M.config.connectors_full  = {", затем ","; после чего ","; и тут же ",", не теряя времени, "}
+M.config.connectors_short = {", затем "}
 
 -- оружие (name + короткое имя short)
-M.rp_guns = {
+M.config.rp_guns = {
 	[0]  = {name="кулаки", enable=false, rpTake=2, short="кулаки"},
 	[1]  = {name="кастеты", enable=true,  rpTake=2, short="кастеты"},
 	[2]  = {name="клюшку для гольфа", enable=true, rpTake=1, short="клюшку"},
@@ -229,7 +230,10 @@ M.rp_guns = {
 }
 
 -- слот -> фолбэк
-local slot_to_take = { [0]=2,[1]=1,[2]=4,[3]=7,[4]=7,[5]=7,[6]=7,[7]=1,[8]=6,[9]=8,[10]=8,[11]=2,[12]=2 }
+M.config.slot_to_take = { [0]=2,[1]=1,[2]=4,[3]=7,[4]=7,[5]=7,[6]=7,[7]=1,[8]=6,[9]=8,[10]=8,[11]=2,[12]=2 }
+
+M.rpTakeNames = M.config.rpTakeNames
+M.rp_guns = M.config.rp_guns
 
 -- ===== очередь /me с паузой =====
 local send_queue, send_thr = {}, nil
@@ -268,13 +272,13 @@ local function is_empty_weapon(id)
 end
 
 local function get_slot_take_for(id)
-	local ok, slot = pcall(getWeapontypeSlot, id)
-	slot = ok and slot or -1
-	return slot_to_take[slot] or 2
+        local ok, slot = pcall(getWeapontypeSlot, id)
+        slot = ok and slot or -1
+        return M.config.slot_to_take[slot] or 2
 end
 
 local function winfo(id)
-	local g = M.rp_guns[id]
+        local g = M.config.rp_guns[id]
 	if g then return g end
 	return {name=("оружие %d"):format(id), short=("оружие %d"):format(id), enable=true, rpTake=get_slot_take_for(id)}
 end
@@ -299,13 +303,13 @@ end
 
 -- конструкторы фраз с опциями
 local function place_phrase(take, is_from, compact)
-	local src = compact and rpTakeNamesShort or M.rpTakeNames
+        local src = compact and M.config.rpTakeNamesShort or M.config.rpTakeNames
 	local p = src[take] and src[take][is_from and 1 or 2] or ""
 	return p
 end
 
 local function verb_for(take, kind, plain)
-	local vm = verb_map[take] or {}
+        local vm = M.config.verb_map[take] or {}
 	local set = (kind == "show") and (vm.show or {"достал"}) or (vm.hide or {"убрал"})
 	if plain then return set[1] or "достал" end
 	return pick(set, (kind=="show") and 17 or 23) or set[1] or "достал"
@@ -313,7 +317,7 @@ end
 
 local function adv_for(kind, with_adv)
 	if not with_adv or M.config.flavor_level < 2 then return "" end
-	local a = (kind=="show") and pick(adv_show, 7) or pick(adv_hide, 13)
+        local a = (kind=="show") and pick(M.config.adv_show, 7) or pick(M.config.adv_hide, 13)
 	return a and (a.." ") or ""
 end
 
@@ -353,7 +357,7 @@ local function try_build(kind, newId, oldId, level)
 		short_names  = (level >= 3),
 		short_place  = (level >= 4),
 	}
-	local conn_set = (level >= 1) and connectors_short or connectors_full
+        local conn_set = (level >= 1) and M.config.connectors_short or M.config.connectors_full
 	local connector = pick(conn_set, (newId or 0)+(oldId or 0)) or ", затем "
 
 	if kind == "shown" then
@@ -501,29 +505,36 @@ function M.bindExample()
 	end)
 end
 -- ===== Настройки UI =====
+local function tooltip(text)
+        if imgui.IsItemHovered() then imgui.SetTooltip(text) end
+end
 function M.DrawSettingsInline()
         local run = imgui.new.bool(running)
         if imgui.Checkbox("Включить модуль", run) then
                 if run[0] then M.start() else M.stop() end
         end
+        tooltip("Запускает или останавливает отслеживание смены оружия")
 
         local auto = imgui.new.bool(M.config.auto_rp)
         if imgui.Checkbox("Авто /me", auto) then
                 M.setAutoRp(auto[0])
                 save_cfg()
         end
+        tooltip("Автоматически отправлять RP фразы в чат")
 
         local two = imgui.new.bool(M.config.change_as_two_lines)
         if imgui.Checkbox("Смена в две строки", two) then
                 M.setChangeMode(two[0])
                 save_cfg()
         end
+        tooltip("При смене оружия отправлять две отдельные /me")
 
         local ign = imgui.new.bool(M.config.ignore_knuckles)
         if imgui.Checkbox("Игнорировать кастеты", ign) then
                 M.setIgnoreKnuckles(ign[0])
                 save_cfg()
         end
+        tooltip("Не реагировать на переключение на кастеты")
 
         imgui.Separator()
 
@@ -532,42 +543,49 @@ function M.DrawSettingsInline()
                 M.setPrefix(ffi.string(prefix))
                 save_cfg()
         end
+        tooltip("Команда, используемая для RP, например /me")
 
         local tick = ffi.new("int[1]", M.config.tick_ms)
         if imgui.InputInt("Интервал проверки (мс)", tick) then
                 M.config.tick_ms = math.max(10, tick[0])
                 save_cfg()
         end
+        tooltip("Как часто проверяется текущее оружие")
 
         local stable = ffi.new("int[1]", M.config.stable_need)
         if imgui.InputInt("Кадров стабильности", stable) then
                 M.setStableNeed(stable[0])
                 save_cfg()
         end
+        tooltip("Сколько кадров оружие должно быть одинаковым для фиксации")
 
         local cooldown = ffi.new("int[1]", M.config.cooldown_frames)
         if imgui.InputInt("Кадров задержки", cooldown) then
                 M.setCooldownFrames(cooldown[0])
                 save_cfg()
         end
+        tooltip("Задержка после обнаружения смены")
 
         local min_gap = ffi.new("int[1]", M.config.min_me_gap_ms)
         if imgui.InputInt("Пауза между /me (мс)", min_gap) then
                 M.setMinMeGapMs(min_gap[0])
                 save_cfg()
         end
+        tooltip("Минимальный интервал между RP сообщениями")
 
         local max_len = ffi.new("int[1]", M.config.max_len)
         if imgui.InputInt("Макс длина строки", max_len) then
                 M.setMaxLen(max_len[0])
                 save_cfg()
         end
+        tooltip("Ограничение длины сформированной строки")
 
         local flavor = ffi.new("int[1]", M.config.flavor_level)
         if imgui.SliderInt("Уровень разнообразия", flavor, 1, 3) then
                 M.setFlavorLevel(flavor[0])
                 save_cfg()
         end
+        tooltip("1 — минимум украшений, 3 — максимум разнообразия")
 end
 
 load_cfg()
