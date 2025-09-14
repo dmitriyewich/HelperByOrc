@@ -743,7 +743,7 @@ end
 
 local function drawWeaponCards()
         local availWidth = imgui.GetContentRegionAvail().x
-        local cardWidth, cardHeight = 60, 20
+        local cardWidth, cardHeight = 60, 40 -- 60x20 icon on top + text below
         local spacingX, spacingY = 8, 8
         local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
         local x0 = imgui.GetCursorScreenPos().x
@@ -769,11 +769,16 @@ local function drawWeaponCards()
                 dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 4)
                 dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 4)
                 local spr = sprite_idx_by_weapon[id] or unknown_sprite_idx
+                -- draw sprite at top
                 imgui.SetCursorScreenPos(pmin)
                 mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, spr, imgui.ImVec2(60,20), 1.0)
+                -- draw label below sprite
                 local label = g.short or g.name or ("Weapon " .. id)
                 local txt = imgui.CalcTextSize(label)
-                local txt_pos = imgui.ImVec2(pmin.x + (cardWidth - txt.x)/2, pmin.y + (cardHeight - txt.y)/2)
+                local txt_pos = imgui.ImVec2(
+                        pmin.x + (cardWidth - txt.x)/2,
+                        pmin.y + 20 + ((cardHeight - 20 - txt.y)/2)
+                )
                 dl:AddText(txt_pos, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Text]), label)
                 if hovered then
                         dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,0.5)), 4)
