@@ -743,7 +743,8 @@ end
 
 local function drawWeaponCards()
         local availWidth = imgui.GetContentRegionAvail().x
-        local cardWidth, cardHeight = 60, 40 -- 60x20 icon on top + text below
+        -- card is ~1.5x wider than sprite to leave room around the 60x20 image
+        local cardWidth, cardHeight = 90, 40 -- 60x20 icon on top + text below
         local spacingX, spacingY = 8, 8
         local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
         local x0 = imgui.GetCursorScreenPos().x
@@ -769,8 +770,8 @@ local function drawWeaponCards()
                 dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 4)
                 dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 4)
                 local spr = sprite_idx_by_weapon[id] or unknown_sprite_idx
-                -- draw sprite at top
-                imgui.SetCursorScreenPos(pmin)
+                -- draw sprite at top centered horizontally
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 60) / 2, pmin.y))
                 mimgui_funcs.drawWeaponZoom(mimgui_funcs.weapon_standard, spr, imgui.ImVec2(60,20), 1.0)
                 -- draw label below sprite
                 local label = g.short or g.name or ("Weapon " .. id)
