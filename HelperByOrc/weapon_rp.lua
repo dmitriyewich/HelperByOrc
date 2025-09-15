@@ -161,8 +161,18 @@ local function load_cfg()
 end
 
 local function save_cfg()
-  -- сохраняем как есть
-  funcs.saveTableToJson(M.config, CONFIG_PATH)
+  -- таблица оружий может иметь пропуски в индексах,
+  -- из-за чего JSON-преобразование обрезает её как массив.
+  -- Перед сохранением конвертируем ключи оружий в строки.
+  local cfg = funcs.deepcopy(M.config)
+  if cfg.weapons then
+    local weapons = {}
+    for id, w in pairs(cfg.weapons) do
+      weapons[tostring(id)] = w
+    end
+    cfg.weapons = weapons
+  end
+  funcs.saveTableToJson(cfg, CONFIG_PATH)
 end
 
 M.save = save_cfg
