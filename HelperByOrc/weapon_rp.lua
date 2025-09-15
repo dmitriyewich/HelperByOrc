@@ -6,36 +6,9 @@ local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
--- внешние вспомогалки (с фолбэком)
-local ok_funcs, funcs = pcall(require, "HelperByOrc.funcs")
-if not ok_funcs then
-  funcs = {
-    loadTableFromJson = function() return {} end,
-    saveTableToJson = function() end,
-    parseList = function(s)
-      local t = {}
-      s = tostring(s or "")
-      for part in s:gmatch("[^,]+") do
-        part = part:gsub("^%s+", ""):gsub("%s+$", "")
-        if #part > 0 then table.insert(t, part) end
-      end
-      return t
-    end,
-    parseLines = function(s)
-      local t = {}
-      s = tostring(s or "")
-      for line in (s.."\n"):gmatch("([^\n]*)\n") do
-        line = line:gsub("\r",""):gsub("^%s+",""):gsub("%s+$","")
-        if #line > 0 then table.insert(t, line) end
-      end
-      return t
-    end
-  }
-end
-
--- чтобы иконки оружия рисовать (не обязательно, просто красиво)
-local ok_mf, mimgui_funcs = pcall(require, "HelperByOrc.mimgui_funcs")
-local has_sprites = ok_mf and type(mimgui_funcs) == "table" and mimgui_funcs.drawWeaponZoom ~= nil
+local funcs = require("HelperByOrc.funcs")
+local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
+local has_sprites = type(mimgui_funcs) == "table" and mimgui_funcs.drawWeaponZoom ~= nil
 
 -- ===== базовая конфигурация =====
 M.config = {
@@ -132,12 +105,6 @@ M.config = {
 local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
 
 -- ===== внутренняя служебка =====
-local function deepcopy(t)
-  if type(t) ~= "table" then return t end
-  local r = {}
-  for k,v in pairs(t) do r[k] = deepcopy(v) end
-  return r
-end
 
 -- дефолт для неизвестного оружия
 local DEFAULT_WEAPON = {
@@ -158,52 +125,21 @@ local function normalize_weapon(id, w)
   r.from   = w.from   or DEFAULT_WEAPON.from
   r.to     = w.to     or DEFAULT_WEAPON.to
   r.verbs  = r.verbs or {}
-  r.verbs.show = (w.verbs and w.verbs.show) or deepcopy(DEFAULT_WEAPON.verbs.show)
-  r.verbs.hide = (w.verbs and w.verbs.hide) or deepcopy(DEFAULT_WEAPON.verbs.hide)
+  r.verbs.show = (w.verbs and w.verbs.show) or funcs.deepcopy(DEFAULT_WEAPON.verbs.show)
+  r.verbs.hide = (w.verbs and w.verbs.hide) or funcs.deepcopy(DEFAULT_WEAPON.verbs.hide)
   return r
 end
 
--- ===== миграция старых конфигов (rp_guns -> weapons) =====
-local function migrate_old_to_new(cfg)
-  if cfg.weapons and next(cfg.weapons) then return cfg end
-  local new = deepcopy(M.config)
-  -- перенести старые поля если есть
-  for k,v in pairs(cfg) do
-    if new[k] ~= nil and k ~= "weapons" and k ~= "rp_guns" then
-      new[k] = v
-    end
-  end
-  -- собрать weapons из rp_guns (старый формат)
-  if cfg.rp_guns then
-    new.weapons = {}
-    for id, g in pairs(cfg.rp_guns) do
-      local w = {
-        enable = (g.enable ~= false),
-        name   = g.name,
-        short  = g.short or g.name,
-        from   = (g.rpTakeNames and g.rpTakeNames[1]) or "из кармана",
-        to     = (g.rpTakeNames and g.rpTakeNames[2]) or "в карман",
-        verbs  = {
-          show = (g.verb_map and g.verb_map.show) or { "достал" },
-          hide = (g.verb_map and g.verb_map.hide) or { "убрал" }
-        }
-      }
-      new.weapons[id] = normalize_weapon(id, w)
-    end
-  end
-  return new
-end
 
 -- ===== загрузка/сохранение =====
 local function load_cfg()
   local tbl = funcs.loadTableFromJson(CONFIG_PATH)
   if type(tbl) ~= "table" then tbl = {} end
-  tbl = migrate_old_to_new(tbl)
   -- скопировать в M.config c нормализацией
   for k,v in pairs(M.config) do
     if tbl[k] ~= nil then
       if type(v) == "table" then
-        M.config[k] = deepcopy(tbl[k])
+        M.config[k] = funcs.deepcopy(tbl[k])
       else
         M.config[k] = tbl[k]
       end
@@ -272,11 +208,8 @@ end
 
 -- ===== утилиты генерации =====
 local function str_len(s)
-  local ok, utf8 = pcall(require, "lua-utf8")
-  if ok and utf8 and utf8.len then
-    local ok2, n = pcall(utf8.len, s)
-    if ok2 and n then return n end
-  end
+  local ok, n = pcall(u8.len, u8, s)
+  if ok and n then return n end
   return #s
 end
 
@@ -694,6 +627,11 @@ function M.DrawSettingsInline()
       M._new_hide = M._new_hide or imgui.new.char[128]("убрал, спрятал")
 
       imgui.InputInt("ID", M._new_id)
+      imgui.SameLine()
+      if imgui.Button("Текущее") then
+        local ped = PLAYER_PED
+        if ped then M._new_id[0] = getCurrentCharWeapon(ped) or 0 end
+      end
       imgui.InputText("Имя", M._new_name, ffi.sizeof(M._new_name))
       imgui.InputText("Коротко", M._new_short, ffi.sizeof(M._new_short))
       imgui.InputText("Откуда", M._new_from, ffi.sizeof(M._new_from))
