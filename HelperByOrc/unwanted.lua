@@ -213,30 +213,13 @@ local function normalize_cp1251(s)
 	return t
 end
 
--- === Резервные копии (ротация .bak1..bak3) ===
-local function rotate_backups(path)
-	local function exists(p)
-		local f = io.open(p, "rb")
-		if f then
-			f:close()
-			return true
-		end
-		return false
-	end
-	local b1, b2, b3 = path .. ".bak1", path .. ".bak2", path .. ".bak3"
-	if exists(b3) then
-		os.remove(b3)
-	end
-	if exists(b2) then
-		os.rename(b2, b3)
-	end
-	if exists(b1) then
-		os.rename(b1, b2)
-	end
-	local data = read_file(path)
-	if data then
-		write_file(b1, data)
-	end
+-- === Резервная копия (.bak) ===
+local function backup_file(path)
+        local bak = path .. ".bak"
+        local data = read_file(path)
+        if data then
+                write_file(bak, data)
+        end
 end
 
 -- === Загрузка/сохранение ===
@@ -265,8 +248,8 @@ local function load_cfg()
 end
 
 local function save_cfg()
-	rotate_backups(CONFIG_PATH)
-	write_file(CONFIG_PATH, json_encode(cfg))
+        backup_file(CONFIG_PATH)
+        write_file(CONFIG_PATH, json_encode(cfg))
 end
 
 -- === Утилиты ===
