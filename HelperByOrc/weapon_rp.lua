@@ -6,36 +6,8 @@ local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
--- внешние вспомогалки (с фолбэком)
-local ok_funcs, funcs = pcall(require, "HelperByOrc.funcs")
-if not ok_funcs then
-  funcs = {
-    loadTableFromJson = function() return {} end,
-    saveTableToJson = function() end,
-    parseList = function(s)
-      local t = {}
-      s = tostring(s or "")
-      for part in s:gmatch("[^,]+") do
-        part = part:gsub("^%s+", ""):gsub("%s+$", "")
-        if #part > 0 then table.insert(t, part) end
-      end
-      return t
-    end,
-    parseLines = function(s)
-      local t = {}
-      s = tostring(s or "")
-      for line in (s.."\n"):gmatch("([^\n]*)\n") do
-        line = line:gsub("\r",""):gsub("^%s+",""):gsub("%s+$","")
-        if #line > 0 then table.insert(t, line) end
-      end
-      return t
-    end
-  }
-end
-
--- чтобы иконки оружия рисовать (не обязательно, просто красиво)
-local ok_mf, mimgui_funcs = pcall(require, "HelperByOrc.mimgui_funcs")
-local has_sprites = ok_mf and type(mimgui_funcs) == "table" and mimgui_funcs.drawWeaponZoom ~= nil
+local funcs, mimgui_funcs
+local has_sprites = false
 
 -- ===== базовая конфигурация =====
 M.config = {
@@ -68,26 +40,70 @@ M.config = {
 
   -- единая таблица оружий
   weapons = {
-    -- [id] = {
-    --   enable = true,
-    --   name   = "пистолет Desert Eagle",
-    --   short  = "Deagle",
-    --   from   = "из кобуры",
-    --   to     = "в кобуру",
-    --   verbs  = { show = {"достал","вытащил"}, hide = {"убрал","спрятал"} }
-    -- }
+    -- ближний бой
+    [1]  = { name = "кастет",          short = "кастет" },
+    [2]  = { name = "клюшку для гольфа",short = "клюшка",     from = "со спины",    to = "за спину" },
+    [3]  = { name = "дубинку",         short = "дубинка",    from = "со спины",    to = "за спину" },
+    [4]  = { name = "нож",             short = "нож",        from = "из-за пояса", to = "за пояс" },
+    [5]  = { name = "бейсбольную биту",short = "бита",       from = "со спины",    to = "за спину" },
+    [6]  = { name = "лопату",          short = "лопата",     from = "со спины",    to = "за спину" },
+    [7]  = { name = "кий",             short = "кий",        from = "со спины",    to = "за спину" },
+    [8]  = { name = "катану",          short = "катана",     from = "со спины",    to = "за спину" },
+    [9]  = { name = "бензопилу",       short = "бензопила",  from = "со спины",    to = "за спину" },
+    [10] = { name = "фиолетовый дилдо",short = "дилдо" },
+    [11] = { name = "дилдо",           short = "дилдо" },
+    [12] = { name = "вибратор",        short = "вибратор" },
+    [13] = { name = "серебристый вибратор", short = "вибратор" },
+    [14] = { name = "цветы",           short = "цветы" },
+    [15] = { name = "трость",          short = "трость" },
+
+    -- взрывчатка и гранаты
+    [16] = { name = "гранату",         short = "граната" },
+    [17] = { name = "газовую гранату", short = "газ" },
+    [18] = { name = "коктейль Молотова", short = "Молотов" },
+    [39] = { name = "взрывчатку",      short = "сатчел",     from = "из сумки",    to = "в сумку" },
+    [40] = { name = "детонатор",       short = "детонатор" },
+
+    -- пистолеты
+    [22] = { name = "пистолет 9mm",    short = "9mm",        from = "из кобуры",   to = "в кобуру" },
+    [23] = { name = "пистолет с глушителем", short = "s9mm",   from = "из кобуры",   to = "в кобуру" },
+    [24] = { name = "пистолет Desert Eagle", short = "Deagle",from = "из кобуры",   to = "в кобуру" },
+
+    -- дробовики
+    [25] = { name = "дробовик",        short = "дробовик",   from = "со спины",    to = "за спину" },
+    [26] = { name = "обрез",           short = "обрез",      from = "со спины",    to = "за спину" },
+    [27] = { name = "боевой дробовик", short = "боевой",     from = "со спины",    to = "за спину" },
+
+    -- пистолеты-пулемёты
+    [28] = { name = "Micro Uzi",       short = "Uzi",        from = "с плеча",     to = "на плечо" },
+    [29] = { name = "MP5",             short = "MP5",        from = "с плеча",     to = "на плечо" },
+    [32] = { name = "Tec-9",           short = "Tec-9",      from = "с плеча",     to = "на плечо" },
+
+    -- автоматы и винтовки
+    [30] = { name = "AK-47",           short = "AK-47",      from = "со спины",    to = "за спину" },
+    [31] = { name = "M4",              short = "M4",         from = "со спины",    to = "за спину" },
+    [33] = { name = "винтовку",        short = "винтовка",   from = "со спины",    to = "за спину" },
+    [34] = { name = "снайперскую винтовку", short = "снайпа",from = "со спины",    to = "за спину" },
+
+    -- тяжёлое
+    [35] = { name = "РПГ",             short = "РПГ",        from = "со спины",    to = "за спину" },
+    [36] = { name = "наводящийся РПГ", short = "РПГ",        from = "со спины",    to = "за спину" },
+    [37] = { name = "огнемёт",         short = "огнемёт",    from = "со спины",    to = "за спину" },
+    [38] = { name = "миниган",         short = "миниган",    from = "со спины",    to = "за спину" },
+
+    -- утилиты
+    [41] = { name = "баллончик с краской", short = "краска", from = "из рюкзака",  to = "в рюкзак" },
+    [42] = { name = "огнетушитель",    short = "огнетушитель", from = "из рюкзака", to = "в рюкзак" },
+    [43] = { name = "фотоаппарат",     short = "камера",     from = "из рюкзака",  to = "в рюкзак" },
+    [44] = { name = "прибор ночного видения", short = "ПНВ", from = "из рюкзака",  to = "в рюкзак" },
+    [45] = { name = "тепловизор",      short = "тепловизор", from = "из рюкзака",  to = "в рюкзак" },
+    [46] = { name = "парашют",         short = "парашют",    from = "из рюкзака",  to = "в рюкзак" }
   }
 }
 
 local CONFIG_PATH = "moonloader/HelperByOrc/weapon_rp.json"
 
 -- ===== внутренняя служебка =====
-local function deepcopy(t)
-  if type(t) ~= "table" then return t end
-  local r = {}
-  for k,v in pairs(t) do r[k] = deepcopy(v) end
-  return r
-end
 
 -- дефолт для неизвестного оружия
 local DEFAULT_WEAPON = {
@@ -108,52 +124,21 @@ local function normalize_weapon(id, w)
   r.from   = w.from   or DEFAULT_WEAPON.from
   r.to     = w.to     or DEFAULT_WEAPON.to
   r.verbs  = r.verbs or {}
-  r.verbs.show = (w.verbs and w.verbs.show) or deepcopy(DEFAULT_WEAPON.verbs.show)
-  r.verbs.hide = (w.verbs and w.verbs.hide) or deepcopy(DEFAULT_WEAPON.verbs.hide)
+  r.verbs.show = (w.verbs and w.verbs.show) or funcs.deepcopy(DEFAULT_WEAPON.verbs.show)
+  r.verbs.hide = (w.verbs and w.verbs.hide) or funcs.deepcopy(DEFAULT_WEAPON.verbs.hide)
   return r
 end
 
--- ===== миграция старых конфигов (rp_guns -> weapons) =====
-local function migrate_old_to_new(cfg)
-  if cfg.weapons and next(cfg.weapons) then return cfg end
-  local new = deepcopy(M.config)
-  -- перенести старые поля если есть
-  for k,v in pairs(cfg) do
-    if new[k] ~= nil and k ~= "weapons" and k ~= "rp_guns" then
-      new[k] = v
-    end
-  end
-  -- собрать weapons из rp_guns (старый формат)
-  if cfg.rp_guns then
-    new.weapons = {}
-    for id, g in pairs(cfg.rp_guns) do
-      local w = {
-        enable = (g.enable ~= false),
-        name   = g.name,
-        short  = g.short or g.name,
-        from   = (g.rpTakeNames and g.rpTakeNames[1]) or "из кармана",
-        to     = (g.rpTakeNames and g.rpTakeNames[2]) or "в карман",
-        verbs  = {
-          show = (g.verb_map and g.verb_map.show) or { "достал" },
-          hide = (g.verb_map and g.verb_map.hide) or { "убрал" }
-        }
-      }
-      new.weapons[id] = normalize_weapon(id, w)
-    end
-  end
-  return new
-end
 
 -- ===== загрузка/сохранение =====
 local function load_cfg()
   local tbl = funcs.loadTableFromJson(CONFIG_PATH)
   if type(tbl) ~= "table" then tbl = {} end
-  tbl = migrate_old_to_new(tbl)
   -- скопировать в M.config c нормализацией
   for k,v in pairs(M.config) do
     if tbl[k] ~= nil then
       if type(v) == "table" then
-        M.config[k] = deepcopy(tbl[k])
+        M.config[k] = funcs.deepcopy(tbl[k])
       else
         M.config[k] = tbl[k]
       end
@@ -181,7 +166,15 @@ local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
 local pending_old, pending_new
 local cb_any, cb_show, cb_hide, cb_change
 
-function M.attachModules(mod) end -- больше не требуется ничего подтягивать
+function M.attachModules(mod)
+  funcs = mod.funcs
+  mimgui_funcs = mod.mimgui_funcs
+  has_sprites = type(mimgui_funcs) == "table" and mimgui_funcs.drawWeaponZoom ~= nil
+  if not M._cfg_loaded then
+    load_cfg()
+    M._cfg_loaded = true
+  end
+end
 
 function M.onAny(fn)    cb_any = fn end
 function M.onShow(fn)   cb_show = fn end
@@ -222,11 +215,8 @@ end
 
 -- ===== утилиты генерации =====
 local function str_len(s)
-  local ok, utf8 = pcall(require, "lua-utf8")
-  if ok and utf8 and utf8.len then
-    local ok2, n = pcall(utf8.len, s)
-    if ok2 and n then return n end
-  end
+  local ok, n = pcall(u8.len, u8, s)
+  if ok and n then return n end
   return #s
 end
 
@@ -644,6 +634,11 @@ function M.DrawSettingsInline()
       M._new_hide = M._new_hide or imgui.new.char[128]("убрал, спрятал")
 
       imgui.InputInt("ID", M._new_id)
+      imgui.SameLine()
+      if imgui.Button("Текущее") then
+        local ped = PLAYER_PED
+        if ped then M._new_id[0] = getCurrentCharWeapon(ped) or 0 end
+      end
       imgui.InputText("Имя", M._new_name, ffi.sizeof(M._new_name))
       imgui.InputText("Коротко", M._new_short, ffi.sizeof(M._new_short))
       imgui.InputText("Откуда", M._new_from, ffi.sizeof(M._new_from))
@@ -708,8 +703,5 @@ function M.bindExample()
     end
   end)
 end
-
--- стартовая загрузка
-load_cfg()
 
 return M
