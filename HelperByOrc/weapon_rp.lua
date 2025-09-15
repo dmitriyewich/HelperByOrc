@@ -215,8 +215,7 @@ end
 
 -- ===== утилиты генерации =====
 local function str_len(s)
-  local ok, n = pcall(u8.len, u8, s)
-  if ok and n then return n end
+  local s = u8:decode(s)
   return #s
 end
 
