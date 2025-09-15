@@ -723,18 +723,19 @@ end
 function module.onPlayerCommand(cmd)
 	local nowMs = os.clock() * 1000
 	local handled = false
-	for _, hk in ipairs(hotkeys) do
-		if hk.command_enabled and hk.command and hk.command ~= "" then
-			local len = #hk.command
-			if cmd:sub(1, len) == hk.command and (cmd:len() == len or cmd:sub(len + 1, len + 1) == " ") then
-				if not hk._debounce_until or nowMs >= hk._debounce_until then
-					module.enqueueHotkey(hk)
-					hk._debounce_until = nowMs + DEBOUNCE_MS
-					handled = true
-				end
-			end
-		end
-	end
+        for _, hk in ipairs(hotkeys) do
+                -- если бинд уже выполняется, не перехватываем повторно его команду
+                if hk.command_enabled and hk.command and hk.command ~= "" and not hk.is_running then
+                        local len = #hk.command
+                        if cmd:sub(1, len) == hk.command and (cmd:len() == len or cmd:sub(len + 1, len + 1) == " ") then
+                                if not hk._debounce_until or nowMs >= hk._debounce_until then
+                                        module.enqueueHotkey(hk)
+                                        hk._debounce_until = nowMs + DEBOUNCE_MS
+                                        handled = true
+                                end
+                        end
+                end
+        end
 	return handled
 end
 
