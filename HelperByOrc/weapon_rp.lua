@@ -132,6 +132,12 @@ end
 
 
 -- ===== загрузка/сохранение =====
+local running, thr = false, nil
+local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
+local pending_old, pending_new
+local cb_any, cb_show, cb_hide, cb_change
+local reset_state
+
 local function load_cfg()
   local tbl = funcs.loadTableFromJson(CONFIG_PATH)
   if type(tbl) ~= "table" then tbl = {} end
@@ -151,6 +157,7 @@ local function load_cfg()
     out[tonumber(id) or id] = normalize_weapon(tonumber(id) or id, w)
   end
   M.config.weapons = out
+  if running then reset_state() end
 end
 
 local function save_cfg()
@@ -165,10 +172,14 @@ load_cfg()
 M._cfg_loaded = true
 
 -- ===== события/детектор =====
-local running, thr = false, nil
-local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
-local pending_old, pending_new
-local cb_any, cb_show, cb_hide, cb_change
+
+function reset_state()
+  local ped = PLAYER_PED
+  local w = 0
+  if ped then w = getCurrentCharWeapon(ped) or 0 end
+  prev_weapon, candidate_weapon, stable_count, cooldown = w, w, 0, 0
+  pending_old, pending_new = nil, nil
+end
 
 function M.attachModules(mod)
   if mod.funcs then funcs = mod.funcs end
@@ -396,8 +407,7 @@ function M.start(interval_ms)
   end
   if running then return end
   running = true
-  prev_weapon, candidate_weapon, stable_count, cooldown = 0, 0, 0, 0
-  pending_old, pending_new = nil, nil
+  reset_state()
   if interval_ms then M.config.tick_ms = interval_ms end
   ensure_send_thread()
   thr = lua_thread.create(function()
