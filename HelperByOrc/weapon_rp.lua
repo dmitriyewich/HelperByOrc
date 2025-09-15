@@ -6,7 +6,8 @@ local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
-local funcs, mimgui_funcs
+local funcs = require('HelperByOrc.funcs')
+local mimgui_funcs
 local has_sprites = false
 
 -- ===== базовая конфигурация =====
@@ -160,6 +161,9 @@ end
 M.save = save_cfg
 M.reload = load_cfg
 
+load_cfg()
+M._cfg_loaded = true
+
 -- ===== события/детектор =====
 local running, thr = false, nil
 local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
@@ -167,7 +171,7 @@ local pending_old, pending_new
 local cb_any, cb_show, cb_hide, cb_change
 
 function M.attachModules(mod)
-  funcs = mod.funcs
+  if mod.funcs then funcs = mod.funcs end
   mimgui_funcs = mod.mimgui_funcs
   has_sprites = type(mimgui_funcs) == "table" and mimgui_funcs.drawWeaponZoom ~= nil
   if not M._cfg_loaded then
@@ -215,7 +219,10 @@ end
 
 -- ===== утилиты генерации =====
 local function str_len(s)
-  local s = u8:decode(s)
+  s = u8:decode(s)
+  local prefix = M.config.prefix or "/me"
+  prefix = prefix:gsub("(%W)", "%%%1")
+  s = s:gsub("^%s*" .. prefix .. "%s*", "")
   return #s
 end
 
@@ -383,6 +390,10 @@ local function update_once()
 end
 
 function M.start(interval_ms)
+  if not M._cfg_loaded then
+    load_cfg()
+    M._cfg_loaded = true
+  end
   if running then return end
   running = true
   prev_weapon, candidate_weapon, stable_count, cooldown = 0, 0, 0, 0
