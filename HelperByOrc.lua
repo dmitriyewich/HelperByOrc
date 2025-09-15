@@ -215,47 +215,47 @@ imgui.OnFrame(
 						imgui.EndGroup()
 					end
 				elseif miscPage == 1 and tags and tags.DrawSettingsPage then
-					imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+					imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
 					if imgui.Button(fa.ARROW_LEFT .. " Назад") then
 						miscPage = 0
 					end
 					imgui.SameLine()
 					imgui.Text("Переменные")
 					imgui.EndChild()
-					imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+					imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 					tags.DrawSettingsPage()
 					imgui.EndChild()
 				elseif miscPage == 2 and VIPandADchat and VIPandADchat.DrawSettingsInline then
-					imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+					imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
 					if imgui.Button(fa.ARROW_LEFT .. " Назад") then
 						miscPage = 0
 					end
 					imgui.SameLine()
 					imgui.Text("VIP/AD чат")
 					imgui.EndChild()
-					imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+					imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 					VIPandADchat.DrawSettingsInline()
 					imgui.EndChild()
                                 elseif miscPage == 3 and Unwanted and Unwanted.DrawWindowInline then
-                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
                                         if imgui.Button(fa.ARROW_LEFT .. " Назад") then
                                                 miscPage = 0
                                         end
                                         imgui.SameLine()
                                         imgui.Text("Игнорируемые сообщения")
                                         imgui.EndChild()
-                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
                                         Unwanted.DrawWindowInline()
                                         imgui.EndChild()
                                 elseif miscPage == 4 and weapon_rp and weapon_rp.DrawSettingsInline then
-                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 40), false)
+                                        imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
                                         if imgui.Button(fa.ARROW_LEFT .. " Назад") then
                                                 miscPage = 0
                                         end
                                         imgui.SameLine()
                                         imgui.Text("Оружие RP")
                                         imgui.EndChild()
-                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, -42), true)
+                                        imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
                                         weapon_rp.DrawSettingsInline()
                                         imgui.EndChild()
                                 end
