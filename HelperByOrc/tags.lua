@@ -965,7 +965,7 @@ function module.change_tags(text, thisbind_value, depth)
 		end
 		return ""
 	end)
-	text = text:gsub("[%]%)]*$", "")
+-- text = text:gsub("%]*$", "")
 	if text:match("^%s*$") then
 		text = ""
 	end
