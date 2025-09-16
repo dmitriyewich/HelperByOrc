@@ -25,6 +25,19 @@ local custom_vars, parse_cache = {}, {}
 local PARSE_CACHE_MAX = 200
 local parse_cache_order = {}
 
+-- буферы ввода для UI и $call-хендлеров
+local cvar_bufs = {}
+
+local function rebuild_cvar_buffers()
+  if not (imgui and imgui.new) then return end
+  for k in pairs(cvar_bufs) do
+    cvar_bufs[k] = nil
+  end
+  for k, v in pairs(custom_vars) do
+    cvar_bufs[k] = imgui.new.char[256](tostring(v or ""))
+  end
+end
+
 -- настройки модуля
 local settings = {
   show_target_notice = true,
@@ -157,6 +170,7 @@ local function load_custom_vars()
   if settings.show_target_notice == nil then settings.show_target_notice = true end
   if settings.allow_unsafe == nil then settings.allow_unsafe = true end
   if not tonumber(settings.wait_timeout_sec) then settings.wait_timeout_sec = 30 end
+  rebuild_cvar_buffers()
 end
 
 local function save_custom_vars()
@@ -233,12 +247,16 @@ end
 -- фоновый поток слежения за таргетом
 if not module._target_tracker_started then
   module._target_tracker_started = true
-  lua_thread.create(function()
-    while true do
-      pcall(read_target_once)
-      wait(0)
-    end
-  end)
+  if lua_thread and lua_thread.create then
+    lua_thread.create(function()
+      while true do
+        pcall(read_target_once)
+        wait(0)
+      end
+    end)
+  else
+    log_chat("[Tags] Предупреждение: lua_thread.create недоступен, трекинг цели отключён", 0xAA8800)
+  end
 end
 
 -- получить ник по ID через SAMP-обёртку
@@ -498,7 +516,7 @@ end
 -- командные теги для справки
 local command_tags = {
   { name = "$wait(expr)", desc = "Ждать до выполнения условия (строка полностью: $wait(...))", example = "$wait(time() % 2 == 0)" },
-  { name = "$call(expr)", desc = "Выполнить Lua-выражение/код без вставки текста (строка полностью: $call(...))", example = "$call(module.save_config())" },
+  { name = "$call(expr)", desc = "Выполнить Lua-выражение/код в безопасном окружении без вставки текста (строка полностью: $call(...))", example = "$call(tags.save())" },
 }
 
 -- внешние переменные (API)
@@ -738,30 +756,159 @@ local function parse_multi_tags(text, thisbind_value, depth)
 end
 
 -- ========== $wait / $call — БЕЗОПАСНАЯ СРЕДА ==========
-local function make_safe_env()
-  local env = {
-    tonumber = tonumber,
-    tostring = tostring,
-    type = type,
-    pairs = pairs,
-    ipairs = ipairs,
-    select = select,
-    unpack = unpack or table.unpack,
-    math = math,
-    string = string,
-    table = table,
-    module = module,
-    time = os.time,
+local function copy_public_api(tbl)
+  local out = {}
+  for k, v in pairs(tbl) do
+    local t = type(v)
+    if t == "function" or t == "number" or t == "boolean" or t == "string" then
+      out[k] = v
+    end
+  end
+  return out
+end
+
+local SAFE_ENV_TEMPLATE = {
+  tonumber = tonumber,
+  tostring = tostring,
+  type = type,
+  pairs = pairs,
+  ipairs = ipairs,
+  next = next,
+  select = select,
+  unpack = unpack or table.unpack,
+  assert = assert,
+  error = error,
+  pcall = pcall,
+  xpcall = xpcall,
+  rawequal = rawequal,
+  rawget = rawget,
+  rawset = rawset,
+  math = copy_public_api(math),
+  string = copy_public_api(string),
+  table = copy_public_api(table),
+  os = {
     clock = os.clock,
-    target_last_id = function() return target.last_id end,
+    date = os.date,
+    difftime = os.difftime,
+    time = os.time,
+  },
+  time = os.time,
+  clock = os.clock,
+  date = os.date,
+  difftime = os.difftime,
+}
+
+if type(bit) == "table" then
+  SAFE_ENV_TEMPLATE.bit = copy_public_api(bit)
+end
+if type(utf8) == "table" then
+  SAFE_ENV_TEMPLATE.utf8 = copy_public_api(utf8)
+end
+if type(coroutine) == "table" then
+  SAFE_ENV_TEMPLATE.coroutine = copy_public_api(coroutine)
+end
+if type(rawlen) == "function" then
+  SAFE_ENV_TEMPLATE.rawlen = rawlen
+end
+SAFE_ENV_TEMPLATE._VERSION = _VERSION
+
+local function deep_copy(src)
+  local dst = {}
+  for k, v in pairs(src) do
+    if type(v) == "table" then
+      dst[k] = deep_copy(v)
+    else
+      dst[k] = v
+    end
+  end
+  return dst
+end
+
+local function normalize_var_name(name)
+  if type(name) ~= "string" then return nil end
+  local trimmed = name:match("^%s*(.-)%s*$")
+  if not trimmed or trimmed == "" then return nil end
+  return trimmed
+end
+
+local function safe_tags_save()
+  save_config()
+  return true
+end
+
+local function safe_tags_reload()
+  local fn = module.reload_config
+  if type(fn) ~= "function" then return false end
+  local ok, err = pcall(fn)
+  if not ok then return nil, err end
+  return true
+end
+
+local function safe_tags_get(name)
+  local key = normalize_var_name(name)
+  if not key then return nil end
+  local val = custom_vars[key]
+  if val == nil then return nil end
+  return type(val) == "string" and val or tostring(val)
+end
+
+local function safe_tags_has(name)
+  local key = normalize_var_name(name)
+  if not key then return false end
+  return custom_vars[key] ~= nil
+end
+
+local function safe_tags_list()
+  local copy = {}
+  for k, v in pairs(custom_vars) do
+    copy[k] = (type(v) == "string") and v or tostring(v)
+  end
+  return copy
+end
+
+local function safe_tags_set(name, value)
+  local key = normalize_var_name(name)
+  if not key then return false end
+  local str = tostring(value or "")
+  custom_vars[key] = str
+  save_config()
+  clear_parse_cache()
+  if imgui and imgui.new then
+    cvar_bufs[key] = imgui.new.char[256](str)
+  end
+  return true
+end
+
+local function safe_tags_remove(name)
+  local key = normalize_var_name(name)
+  if not key or custom_vars[key] == nil then return false end
+  custom_vars[key] = nil
+  save_config()
+  clear_parse_cache()
+  cvar_bufs[key] = nil
+  return true
+end
+
+local function make_safe_env()
+  local env = deep_copy(SAFE_ENV_TEMPLATE)
+  env.tags = {
+    save = safe_tags_save,
+    reload = safe_tags_reload,
+    get = safe_tags_get,
+    has = safe_tags_has,
+    list = safe_tags_list,
+    set = safe_tags_set,
+    remove = safe_tags_remove,
   }
-  return setmetatable(env, { __index = _G })
+  env.target_last_id = function() return target.last_id end
+  env.target_current_id = function() return target.current_id end
+  return env
 end
 
 local function safe_load_expr(expr)
-  local chunk, err = load("return (" .. expr .. ")")
+  local chunk, err = load("return (" .. expr .. ")", "@tags_expr")
   if not chunk then
-    chunk, err = load(expr)
+    chunk, err = load(expr, "@tags_stmt")
     if not chunk then return nil, err end
   end
   setfenv(chunk, make_safe_env())
@@ -777,22 +924,32 @@ local function execute_special_commands(text)
     local expr = line:match("^%$wait%((.+)%)$")
     if expr then
       local timeout = tonumber(settings.wait_timeout_sec) or 30
-      local finished, timed_out = false, false
+      local finished, timed_out, failed = false, false, false
       local chunk, err = safe_load_expr(expr)
       if not chunk then
         log_chat("[Tags] Ошибка в $wait: " .. tostring(err), 0xAA3333)
       else
-        lua_thread.create(function()
-          local t0 = os.clock()
-          while true do
-            local ok, res = pcall(chunk)
-            if ok and res then finished = true break end
-            if (os.clock() - t0) > timeout then timed_out = true break end
-            wait(50)
-          end
-        end)
-        while not finished and not timed_out do wait(25) end
-        if timed_out then log_chat("[Tags] $wait: истёк таймаут " .. timeout .. " сек", 0xAA3333) end
+        if not (lua_thread and lua_thread.create) then
+          log_chat("[Tags] $wait: lua_thread.create недоступен", 0xAA3333)
+        else
+          lua_thread.create(function()
+            local t0 = os.clock()
+            while true do
+              local ok, res = pcall(chunk)
+              if ok then
+                if res then finished = true break end
+              else
+                failed = true
+                log_chat("[Tags] Ошибка во время $wait: " .. tostring(res), 0xAA3333)
+                break
+              end
+              if (os.clock() - t0) > timeout then timed_out = true break end
+              wait(50)
+            end
+          end)
+          while not finished and not timed_out and not failed do wait(25) end
+          if timed_out then log_chat("[Tags] $wait: истёк таймаут " .. timeout .. " сек", 0xAA3333) end
+        end
       end
     else
       local expr2 = line:match("^%$call%((.+)%)$")
@@ -804,7 +961,17 @@ local function execute_special_commands(text)
           if not chunk then
             log_chat("[Tags] Ошибка в $call: " .. tostring(err), 0xAA3333)
           else
-            lua_thread.create(function() pcall(chunk) end)
+            local function run_chunk()
+              local ok_exec, exec_err = pcall(chunk)
+              if not ok_exec then
+                log_chat("[Tags] Ошибка во время $call: " .. tostring(exec_err), 0xAA3333)
+              end
+            end
+            if lua_thread and lua_thread.create then
+              lua_thread.create(run_chunk)
+            else
+              run_chunk()
+            end
           end
         end
       else
@@ -937,7 +1104,6 @@ local function Badge(txt)
 end
 
 -- локальные буферы для поиска/ввода
-local cvar_bufs = {}
 local filter_vars = imgui.new.char[96]()
 local filter_funcs = imgui.new.char[96]()
 local new_var_name = imgui.new.char[64]()
@@ -992,6 +1158,12 @@ function module.DrawSettingsPage()
 
       imgui.EndChild()
 
+      imgui.TextWrapped(
+        "Подсказка: $call выполняется в безопасном окружении (доступны только базовые функции Lua, " ..
+        "target_last_id()/target_current_id() и таблица tags.{save,reload,get,set,has,list,remove})."
+      )
+      imgui.Spacing()
+
       -- Управление конфигом
       imgui.Text("Конфиг")
       imgui.BeginChild("cfg_ops", imgui.ImVec2(0, 70), true)
@@ -1011,6 +1183,7 @@ function module.DrawSettingsPage()
         settings.show_target_notice = true
         settings.allow_unsafe = true
         settings.wait_timeout_sec = 30
+        rebuild_cvar_buffers()
         save_config()
         clear_parse_cache()
         flash_copied("Сброшено к дефолту")
@@ -1269,6 +1442,10 @@ imgui.OnFrame(function() return showTagsWindow[0] end, function()
   for _, t in ipairs(command_tags) do
     imgui.BulletText(t.name .. " — " .. t.desc .. "  Пример: " .. t.example)
   end
+  imgui.TextWrapped(
+    "Примечание: $call выполняется в ограниченном окружении — доступны базовые функции Lua, " ..
+    "target_last_id()/target_current_id() и таблица tags.{save,reload,get,set,has,list,remove}."
+  )
 
   do
     local dt = os.clock() - (ui_state.copied_time or 0)
