@@ -86,88 +86,69 @@ local function ensure_parent_dir(file_path)
   end
 end
 
--- JSON fallback encode/decode
-local function json_decode_fallback(str)
-  local ok, dk = pcall(require, "dkjson")
-  if ok and dk and dk.decode then
-    local obj, pos, err = dk.decode(str, 1, nil)
-    if err == nil then return obj end
-  end
-  return nil
-end
-
-local function json_encode_fallback(tbl)
-  local ok, dk = pcall(require, "dkjson")
-  if ok and dk and dk.encode then
-    return dk.encode(tbl, { indent = true })
-  end
-  local function esc(s)
-    return tostring(s):gsub("\\", "\\\\"):gsub('"', '\\"')
-  end
-  local function dump(v)
-    local t = type(v)
-    if t == "table" then
-      local isArr, idx = true, 1
-      for k, _ in pairs(v) do
-        if k ~= idx then isArr = false break end
-        idx = idx + 1
-      end
-      if isArr then
-        local parts = {}
-        for i = 1, #v do parts[#parts + 1] = dump(v[i]) end
-        return "[" .. table.concat(parts, ",") .. "]"
-      else
-        local parts = {}
-        for k, val in pairs(v) do parts[#parts + 1] = '"' .. esc(k) .. '":' .. dump(val) end
-        return "{" .. table.concat(parts, ",") .. "}"
-      end
-    elseif t == "string" then
-      return '"' .. esc(v) .. '"'
-    elseif t == "number" or t == "boolean" then
-      return tostring(v)
-    else
-      return "null"
-    end
-  end
-  return dump(tbl)
-end
-
 local function save_config()
   local data = { vars = custom_vars, settings = settings }
-  local json
-  if funcs and funcs.convertTableToJsonString then
-    json = funcs.convertTableToJsonString(data)
-  else
-    json = json_encode_fallback(data)
-  end
   ensure_parent_dir(config_path)
+  local f_mod = funcs
+  if f_mod and f_mod.saveTableToJson then
+    local ok, saved = pcall(f_mod.saveTableToJson, data, config_path)
+    if ok and saved then
+      return
+    end
+  end
+  if type(encodeJson) ~= "function" then return end
+  local ok, encoded = pcall(encodeJson, data)
+  if not (ok and type(encoded) == "string") then return end
   local f = io.open(config_path, "w+")
   if f then
-    f:write(json or "")
+    f:write(encoded)
     f:close()
   end
 end
 
 local function load_custom_vars()
-  if doesFileExist and doesFileExist(config_path) then
+  local tbl
+  local f_mod = funcs
+  local has_file
+  if type(doesFileExist) == "function" then
+    has_file = doesFileExist(config_path)
+  else
+    local f = io.open(config_path, "r")
+    if f then
+      has_file = true
+      f:close()
+    else
+      has_file = false
+    end
+  end
+  if f_mod and f_mod.loadTableFromJson then
+    local defaults = {}
+    local ok, loaded = pcall(f_mod.loadTableFromJson, config_path, defaults)
+    if ok and type(loaded) == "table" then
+      if loaded ~= defaults then
+        tbl = loaded
+      elseif not has_file then
+        tbl = defaults
+      end
+    end
+  end
+  if not tbl and has_file then
     local f = io.open(config_path, "r")
     if f then
       local content = f:read("*a")
       f:close()
-      local tbl
       if type(decodeJson) == "function" then
         local ok, parsed = pcall(decodeJson, content)
         if ok and type(parsed) == "table" then tbl = parsed end
       end
-      if not tbl then tbl = json_decode_fallback(content) end
-      if type(tbl) == "table" then
-        if tbl.vars or tbl.settings then
-          custom_vars = type(tbl.vars) == "table" and tbl.vars or {}
-          settings = type(tbl.settings) == "table" and tbl.settings or settings
-        else
-          custom_vars = tbl
-        end
-      end
+    end
+  end
+  if type(tbl) == "table" then
+    if tbl.vars or tbl.settings then
+      custom_vars = type(tbl.vars) == "table" and tbl.vars or {}
+      settings = type(tbl.settings) == "table" and tbl.settings or settings
+    else
+      custom_vars = tbl
     end
   end
   for k, v in pairs(builtin_custom_vars) do
