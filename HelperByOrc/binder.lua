@@ -168,7 +168,7 @@ imgui.OnInitialize(
 )
 
 -- === Данные ===
-local folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}}}
+local folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true}}
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, {__mode = "k"})
@@ -255,7 +255,12 @@ local function folderNameUnique(parentArr, name)
 end
 
 local function serializeFolder(folder)
-	local node = {name = folder.name, children = {}, quick_conditions = folder.quick_conditions or {}}
+        local node = {
+                name = folder.name,
+                children = {},
+                quick_conditions = folder.quick_conditions or {},
+                quick_menu = folder.quick_menu ~= false
+        }
 	for _, child in ipairs(folder.children) do
 		table.insert(node.children, serializeFolder(child))
 	end
@@ -263,12 +268,13 @@ local function serializeFolder(folder)
 end
 
 local function deserializeFolder(tbl, parent)
-	local node = {
-		name = sanitizeFolderName(tbl.name),
-		children = {},
-		parent = parent,
-		quick_conditions = tbl.quick_conditions or {}
-	}
+        local node = {
+                name = sanitizeFolderName(tbl.name),
+                children = {},
+                parent = parent,
+                quick_conditions = tbl.quick_conditions or {},
+                quick_menu = tbl.quick_menu ~= false
+        }
 	for _, child in ipairs(tbl.children or {}) do
 		local c = deserializeFolder(child, node)
 		table.insert(node.children, c)
@@ -368,7 +374,7 @@ function module.loadHotkeys()
 				table.insert(folders, folder)
 			end
 		else
-			folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}}}
+                       folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true}}
 		end
 		selectedFolder = folders[1]
 		for _, hk in ipairs(tbl.hotkeys or {}) do
@@ -528,13 +534,16 @@ local check_quick_visibility = conditions_ok
 
 -- Проверка видимости папки с учётом ВСЕХ предков
 local function isFolderChainVisible(folder)
-	local node = folder
-	while node do
-		if not check_quick_visibility(node.quick_conditions or {}) then
-			return false
-		end
-		node = node.parent
-	end
+        local node = folder
+        while node do
+                if node.quick_menu == false then
+                        return false
+                end
+                if not check_quick_visibility(node.quick_conditions or {}) then
+                        return false
+                end
+                node = node.parent
+        end
 	return true
 end
 
@@ -1922,7 +1931,7 @@ local function drawFolderTabs()
 				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok" .. tostring(f)) then
 					local subName = sanitizeFolderName(ffi.string(subBuf))
 					if #subName > 0 and folderNameUnique(f.children, subName) then
-						table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}})
+                                                table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true})
 						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 						module.saveHotkeys()
 					end
@@ -1951,19 +1960,37 @@ local function drawFolderTabs()
 					end
 				end
 
-				imgui.Separator()
-				-- Условия быстрого меню ДЛЯ ПАПКИ
-				imgui.Text((fa.BOLT and fa.BOLT .. " " or "") .. "Папка: условия быстрого меню")
-				f._quick_cond_bools = f._quick_cond_bools or {}
-				for ii = 1, quick_cond_count do
-					local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
-					f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
-					if imgui.Checkbox(quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f), f._quick_cond_bools[ii]) then
-						f.quick_conditions = f.quick_conditions or {}
-						f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
-						module.saveHotkeys()
-					end
-				end
+                                imgui.Separator()
+                                local quickMenuLabel =
+                                        (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu" .. tostring(f)
+                                f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+                                if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+                                        f.quick_menu = f._quick_menu_bool[0]
+                                        module.saveHotkeys()
+                                end
+
+                                local headerLabel =
+                                        (fa.BOLT and fa.BOLT .. " " or "")
+                                        .. "Папка: условия быстрого меню##folder_quick_conditions"
+                                        .. tostring(f)
+                                imgui.SetNextItemOpen(false, imgui.Cond.Once)
+                                if imgui.CollapsingHeader(headerLabel) then
+                                        f._quick_cond_bools = f._quick_cond_bools or {}
+                                        for ii = 1, quick_cond_count do
+                                                local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+                                                f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+                                                if
+                                                        imgui.Checkbox(
+                                                                quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
+                                                                f._quick_cond_bools[ii]
+                                                        )
+                                                 then
+                                                        f.quick_conditions = f.quick_conditions or {}
+                                                        f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+                                                        module.saveHotkeys()
+                                                end
+                                        end
+                                end
 
 				if not isRoot then
 					imgui.Separator()
@@ -2003,9 +2030,9 @@ local function drawFolderTabs()
 			imgui.SameLine()
 			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok" .. (folder and folder.name or "root")) then
 				local name = sanitizeFolderName(ffi.string(subBuf))
-				local list = isRoot and folders or (folder and folder.children or {})
-				if #name > 0 and folderNameUnique(list, name) then
-					table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}})
+                                local list = isRoot and folders or (folder and folder.children or {})
+                                if #name > 0 and folderNameUnique(list, name) then
+                                        table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true})
 					imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 					module.saveHotkeys()
 				end
