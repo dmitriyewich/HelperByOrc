@@ -157,6 +157,7 @@ end
 module.binderWindow = imgui.new.bool(false)
 module.showQuickMenu = imgui.new.bool(false)
 module.quickMenuOpen = false
+local quickMenuTabIndex = 1
 
 imgui.OnInitialize(
 	function()
@@ -811,8 +812,9 @@ function module.DrawQuickMenu()
 	quickMenuPos = imgui.GetWindowPos()
 	quickMenuSize = imgui.GetWindowSize()
 
-	local ICON_FOLDER = (fa.FOLDER ~= "" and (fa.FOLDER .. " ") or "")
-	local ICON_KEYB = (fa.KEYBOARD ~= "" and (fa.KEYBOARD .. " ") or "")
+        local ICON_FOLDER = (fa.FOLDER ~= "" and (fa.FOLDER .. " ") or "")
+        local ICON_KEYB = (fa.KEYBOARD ~= "" and (fa.KEYBOARD .. " ") or "")
+        local io = imgui.GetIO()
 
 	local function quickMenuItem(label, shortcut, enabled)
 		imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
@@ -862,17 +864,53 @@ function module.DrawQuickMenu()
 		end
 	end
 
-	if imgui.BeginTabBar("##quickbinder_tabbar") then
-		for _, folder in ipairs(folders) do
-			if folderHasQuickBindsVisible(folder) then
-				if imgui.BeginTabItem(folder.name) then
-					drawRec(folder)
-					imgui.EndTabItem()
-				end
-			end
-		end
-		imgui.EndTabBar()
-	end
+        local visibleFolders = {}
+        for _, folder in ipairs(folders) do
+                if folderHasQuickBindsVisible(folder) then
+                        visibleFolders[#visibleFolders + 1] = folder
+                end
+        end
+
+        local hoveredQuickMenu = imgui.IsWindowHovered((imgui.HoveredFlags and imgui.HoveredFlags.RootAndChildWindows) or 0)
+
+        if #visibleFolders == 0 then
+                quickMenuTabIndex = 1
+        else
+                if quickMenuTabIndex < 1 or quickMenuTabIndex > #visibleFolders then
+                        quickMenuTabIndex = math.min(math.max(quickMenuTabIndex, 1), #visibleFolders)
+                end
+
+                if hoveredQuickMenu and io.MouseWheel ~= 0 then
+                        if io.MouseWheel > 0 then
+                                quickMenuTabIndex = quickMenuTabIndex - 1
+                        else
+                                quickMenuTabIndex = quickMenuTabIndex + 1
+                        end
+                end
+
+                if quickMenuTabIndex < 1 then
+                        quickMenuTabIndex = #visibleFolders
+                elseif quickMenuTabIndex > #visibleFolders then
+                        quickMenuTabIndex = 1
+                end
+        end
+
+        if imgui.BeginTabBar("##quickbinder_tabbar") then
+                for idx, folder in ipairs(visibleFolders) do
+                        local tabFlags = 0
+                        if idx == quickMenuTabIndex and mimgui_funcs and mimgui_funcs.TabItemFlags and mimgui_funcs.TabItemFlags.SetSelected then
+                                tabFlags = flags_or(tabFlags, mimgui_funcs.TabItemFlags.SetSelected)
+                        end
+                        if imgui.BeginTabItem(folder.name, nil, tabFlags) then
+                                if quickMenuTabIndex ~= idx then
+                                        quickMenuTabIndex = idx
+                                end
+                                drawRec(folder)
+                                imgui.EndTabItem()
+                        end
+                end
+                imgui.EndTabBar()
+        end
 	imgui.End()
 	imgui.PopStyleVar(3)
 
