@@ -158,6 +158,7 @@ module.binderWindow = imgui.new.bool(false)
 module.showQuickMenu = imgui.new.bool(false)
 module.quickMenuOpen = false
 local quickMenuTabIndex = 1
+local quickMenuScrollQueued = 0
 
 imgui.OnInitialize(
 	function()
@@ -873,25 +874,32 @@ function module.DrawQuickMenu()
 
         local hoveredQuickMenu = imgui.IsWindowHovered((imgui.HoveredFlags and imgui.HoveredFlags.RootAndChildWindows) or 0)
 
-        if #visibleFolders == 0 then
+        local visibleCount = #visibleFolders
+        if visibleCount == 0 then
                 quickMenuTabIndex = 1
         else
-                if quickMenuTabIndex < 1 or quickMenuTabIndex > #visibleFolders then
-                        quickMenuTabIndex = math.min(math.max(quickMenuTabIndex, 1), #visibleFolders)
+                if quickMenuTabIndex < 1 or quickMenuTabIndex > visibleCount then
+                        quickMenuTabIndex = math.min(math.max(quickMenuTabIndex, 1), visibleCount)
                 end
 
-                if hoveredQuickMenu and io.MouseWheel ~= 0 then
-                        if io.MouseWheel > 0 then
-                                quickMenuTabIndex = quickMenuTabIndex - 1
-                        else
-                                quickMenuTabIndex = quickMenuTabIndex + 1
+                local scrollSteps = quickMenuScrollQueued
+                quickMenuScrollQueued = 0
+
+                if hoveredQuickMenu then
+                        local wheel = io.MouseWheel
+                        if wheel ~= 0 then
+                                local steps = math.max(1, math.floor(math.abs(wheel) + 0.5))
+                                if wheel > 0 then
+                                        scrollSteps = scrollSteps - steps
+                                else
+                                        scrollSteps = scrollSteps + steps
+                                end
                         end
                 end
 
-                if quickMenuTabIndex < 1 then
-                        quickMenuTabIndex = #visibleFolders
-                elseif quickMenuTabIndex > #visibleFolders then
-                        quickMenuTabIndex = 1
+                if scrollSteps ~= 0 then
+                        quickMenuTabIndex = quickMenuTabIndex + scrollSteps
+                        quickMenuTabIndex = ((quickMenuTabIndex - 1) % visibleCount) + 1
                 end
         end
 
@@ -2194,18 +2202,34 @@ addEventHandler(
 			return
 		end
 
-		if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-			if isKeyboardKey(wparam) then
-				pressedKeysSet[normalizeKey(wparam)] = true
-				rebuildPressedList()
-			end
-		elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
-			if isKeyboardKey(wparam) then
-				pressedKeysSet[normalizeKey(wparam)] = false
-				rebuildPressedList()
-			end
-		end
-	end
+                if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                        if isKeyboardKey(wparam) then
+                                pressedKeysSet[normalizeKey(wparam)] = true
+                                rebuildPressedList()
+                        end
+                elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+                        if isKeyboardKey(wparam) then
+                                pressedKeysSet[normalizeKey(wparam)] = false
+                                rebuildPressedList()
+                        end
+                elseif msg == wm.WM_MOUSEWHEEL then
+                        if module.quickMenuOpen then
+                                local delta = bit.rshift(bit.band(wparam, 0xFFFF0000), 16)
+                                if delta >= 0x8000 then
+                                        delta = delta - 0x10000
+                                end
+                                if delta ~= 0 then
+                                        local steps = math.max(1, math.floor(math.abs(delta) / 120 + 0.5))
+                                        if delta > 0 then
+                                                quickMenuScrollQueued = quickMenuScrollQueued - steps
+                                        else
+                                                quickMenuScrollQueued = quickMenuScrollQueued + steps
+                                        end
+                                        consumeWindowMessage(true, true)
+                                end
+                        end
+                end
+        end
 )
 
 local function processHotkeys()
@@ -2251,7 +2275,11 @@ end
 
 -- Быстрое меню по боковой кнопке мыши
 function module.CheckQuickMenuKey()
-	module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+        local isOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+        if not isOpen then
+                quickMenuScrollQueued = 0
+        end
+        module.quickMenuOpen = isOpen
 end
 
 function module.OnTick()
