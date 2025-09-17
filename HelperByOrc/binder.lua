@@ -889,17 +889,7 @@ function module.DrawQuickMenu()
                 local scrollSteps = quickMenuScrollQueued
                 quickMenuScrollQueued = 0
 
-                if hoveredQuickMenu then
-                        local wheel = io.MouseWheel
-                        if wheel ~= 0 then
-                                local steps = math.max(1, math.floor(math.abs(wheel) + 0.5))
-                                if wheel > 0 then
-                                        scrollSteps = scrollSteps - steps
-                                else
-                                        scrollSteps = scrollSteps + steps
-                                end
-                        end
-                end
+                if hoveredQuickMenu then scrollSteps = io.MouseWheel end
 
                 if scrollSteps ~= 0 then
                         local previousIndex = quickMenuTabIndex
