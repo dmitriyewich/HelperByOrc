@@ -157,6 +157,9 @@ end
 module.binderWindow = imgui.new.bool(false)
 module.showQuickMenu = imgui.new.bool(false)
 module.quickMenuOpen = false
+local quickMenuTabIndex = 1
+local quickMenuScrollQueued = 0
+local quickMenuSelectRequest = nil
 
 imgui.OnInitialize(
 	function()
@@ -168,7 +171,7 @@ imgui.OnInitialize(
 )
 
 -- === Данные ===
-local folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}}}
+local folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true}}
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, {__mode = "k"})
@@ -255,7 +258,12 @@ local function folderNameUnique(parentArr, name)
 end
 
 local function serializeFolder(folder)
-	local node = {name = folder.name, children = {}, quick_conditions = folder.quick_conditions or {}}
+        local node = {
+                name = folder.name,
+                children = {},
+                quick_conditions = folder.quick_conditions or {},
+                quick_menu = folder.quick_menu ~= false
+        }
 	for _, child in ipairs(folder.children) do
 		table.insert(node.children, serializeFolder(child))
 	end
@@ -263,12 +271,13 @@ local function serializeFolder(folder)
 end
 
 local function deserializeFolder(tbl, parent)
-	local node = {
-		name = sanitizeFolderName(tbl.name),
-		children = {},
-		parent = parent,
-		quick_conditions = tbl.quick_conditions or {}
-	}
+        local node = {
+                name = sanitizeFolderName(tbl.name),
+                children = {},
+                parent = parent,
+                quick_conditions = tbl.quick_conditions or {},
+                quick_menu = tbl.quick_menu ~= false
+        }
 	for _, child in ipairs(tbl.children or {}) do
 		local c = deserializeFolder(child, node)
 		table.insert(node.children, c)
@@ -368,7 +377,7 @@ function module.loadHotkeys()
 				table.insert(folders, folder)
 			end
 		else
-			folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}}}
+                       folders = {{name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true}}
 		end
 		selectedFolder = folders[1]
 		for _, hk in ipairs(tbl.hotkeys or {}) do
@@ -528,13 +537,16 @@ local check_quick_visibility = conditions_ok
 
 -- Проверка видимости папки с учётом ВСЕХ предков
 local function isFolderChainVisible(folder)
-	local node = folder
-	while node do
-		if not check_quick_visibility(node.quick_conditions or {}) then
-			return false
-		end
-		node = node.parent
-	end
+        local node = folder
+        while node do
+                if node.quick_menu == false then
+                        return false
+                end
+                if not check_quick_visibility(node.quick_conditions or {}) then
+                        return false
+                end
+                node = node.parent
+        end
 	return true
 end
 
@@ -802,8 +814,9 @@ function module.DrawQuickMenu()
 	quickMenuPos = imgui.GetWindowPos()
 	quickMenuSize = imgui.GetWindowSize()
 
-	local ICON_FOLDER = (fa.FOLDER ~= "" and (fa.FOLDER .. " ") or "")
-	local ICON_KEYB = (fa.KEYBOARD ~= "" and (fa.KEYBOARD .. " ") or "")
+        local ICON_FOLDER = (fa.FOLDER ~= "" and (fa.FOLDER .. " ") or "")
+        local ICON_KEYB = (fa.KEYBOARD ~= "" and (fa.KEYBOARD .. " ") or "")
+        local io = imgui.GetIO()
 
 	local function quickMenuItem(label, shortcut, enabled)
 		imgui.PushStyleVarVec2(imgui.StyleVar.SelectableTextAlign, imgui.ImVec2(0, 0.5))
@@ -853,17 +866,79 @@ function module.DrawQuickMenu()
 		end
 	end
 
-	if imgui.BeginTabBar("##quickbinder_tabbar") then
-		for _, folder in ipairs(folders) do
-			if folderHasQuickBindsVisible(folder) then
-				if imgui.BeginTabItem(folder.name) then
-					drawRec(folder)
-					imgui.EndTabItem()
-				end
-			end
-		end
-		imgui.EndTabBar()
-	end
+        local visibleFolders = {}
+        for _, folder in ipairs(folders) do
+                if folderHasQuickBindsVisible(folder) then
+                        visibleFolders[#visibleFolders + 1] = folder
+                end
+        end
+
+        local hoveredQuickMenu = imgui.IsWindowHovered((imgui.HoveredFlags and imgui.HoveredFlags.RootAndChildWindows) or 0)
+
+        local visibleCount = #visibleFolders
+        if visibleCount == 0 then
+                quickMenuTabIndex = 1
+                quickMenuSelectRequest = nil
+        else
+                local clampedIndex = math.min(math.max(quickMenuTabIndex, 1), visibleCount)
+                if clampedIndex ~= quickMenuTabIndex then
+                        quickMenuTabIndex = clampedIndex
+                        quickMenuSelectRequest = clampedIndex
+                end
+
+                local scrollSteps = quickMenuScrollQueued
+                quickMenuScrollQueued = 0
+
+                if hoveredQuickMenu then
+                        local wheel = io.MouseWheel
+                        if wheel ~= 0 then
+                                local steps = math.max(1, math.floor(math.abs(wheel) + 0.5))
+                                if wheel > 0 then
+                                        scrollSteps = scrollSteps - steps
+                                else
+                                        scrollSteps = scrollSteps + steps
+                                end
+                        end
+                end
+
+                if scrollSteps ~= 0 then
+                        local previousIndex = quickMenuTabIndex
+                        quickMenuTabIndex = quickMenuTabIndex + scrollSteps
+                        quickMenuTabIndex = ((quickMenuTabIndex - 1) % visibleCount) + 1
+                        if quickMenuTabIndex ~= previousIndex then
+                                quickMenuSelectRequest = quickMenuTabIndex
+                        end
+                end
+        end
+
+        if imgui.BeginTabBar("##quickbinder_tabbar") then
+                for idx, folder in ipairs(visibleFolders) do
+                        local tabFlags = 0
+                        local hasSelectFlag =
+                                mimgui_funcs and mimgui_funcs.TabItemFlags and mimgui_funcs.TabItemFlags.SetSelected
+                        if quickMenuSelectRequest == idx and hasSelectFlag then
+                                tabFlags = flags_or(tabFlags, mimgui_funcs.TabItemFlags.SetSelected)
+                        end
+                        local tabOpened = imgui.BeginTabItem(folder.name, nil, tabFlags)
+                        if tabOpened then
+                                if quickMenuTabIndex ~= idx then
+                                        quickMenuTabIndex = idx
+                                end
+                                if quickMenuSelectRequest == idx then
+                                        quickMenuSelectRequest = nil
+                                end
+                                drawRec(folder)
+                                imgui.EndTabItem()
+                        end
+                        if imgui.IsItemHovered() and imgui.IsMouseClicked(0) then
+                                if quickMenuTabIndex ~= idx then
+                                        quickMenuTabIndex = idx
+                                end
+                                quickMenuSelectRequest = idx
+                        end
+                end
+                imgui.EndTabBar()
+        end
 	imgui.End()
 	imgui.PopStyleVar(3)
 
@@ -1922,7 +1997,7 @@ local function drawFolderTabs()
 				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok" .. tostring(f)) then
 					local subName = sanitizeFolderName(ffi.string(subBuf))
 					if #subName > 0 and folderNameUnique(f.children, subName) then
-						table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}})
+                                                table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true})
 						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 						module.saveHotkeys()
 					end
@@ -1951,19 +2026,37 @@ local function drawFolderTabs()
 					end
 				end
 
-				imgui.Separator()
-				-- Условия быстрого меню ДЛЯ ПАПКИ
-				imgui.Text((fa.BOLT and fa.BOLT .. " " or "") .. "Папка: условия быстрого меню")
-				f._quick_cond_bools = f._quick_cond_bools or {}
-				for ii = 1, quick_cond_count do
-					local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
-					f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
-					if imgui.Checkbox(quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f), f._quick_cond_bools[ii]) then
-						f.quick_conditions = f.quick_conditions or {}
-						f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
-						module.saveHotkeys()
-					end
-				end
+                                imgui.Separator()
+                                local quickMenuLabel =
+                                        (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu" .. tostring(f)
+                                f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+                                if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+                                        f.quick_menu = f._quick_menu_bool[0]
+                                        module.saveHotkeys()
+                                end
+
+                                local headerLabel =
+                                        (fa.BOLT and fa.BOLT .. " " or "")
+                                        .. "Папка: условия быстрого меню##folder_quick_conditions"
+                                        .. tostring(f)
+                                imgui.SetNextItemOpen(false, imgui.Cond.Once)
+                                if imgui.CollapsingHeader(headerLabel) then
+                                        f._quick_cond_bools = f._quick_cond_bools or {}
+                                        for ii = 1, quick_cond_count do
+                                                local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+                                                f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+                                                if
+                                                        imgui.Checkbox(
+                                                                quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
+                                                                f._quick_cond_bools[ii]
+                                                        )
+                                                 then
+                                                        f.quick_conditions = f.quick_conditions or {}
+                                                        f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+                                                        module.saveHotkeys()
+                                                end
+                                        end
+                                end
 
 				if not isRoot then
 					imgui.Separator()
@@ -2003,9 +2096,9 @@ local function drawFolderTabs()
 			imgui.SameLine()
 			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok" .. (folder and folder.name or "root")) then
 				local name = sanitizeFolderName(ffi.string(subBuf))
-				local list = isRoot and folders or (folder and folder.children or {})
-				if #name > 0 and folderNameUnique(list, name) then
-					table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}})
+                                local list = isRoot and folders or (folder and folder.children or {})
+                                if #name > 0 and folderNameUnique(list, name) then
+                                        table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true})
 					imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 					module.saveHotkeys()
 				end
@@ -2129,18 +2222,34 @@ addEventHandler(
 			return
 		end
 
-		if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-			if isKeyboardKey(wparam) then
-				pressedKeysSet[normalizeKey(wparam)] = true
-				rebuildPressedList()
-			end
-		elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
-			if isKeyboardKey(wparam) then
-				pressedKeysSet[normalizeKey(wparam)] = false
-				rebuildPressedList()
-			end
-		end
-	end
+                if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                        if isKeyboardKey(wparam) then
+                                pressedKeysSet[normalizeKey(wparam)] = true
+                                rebuildPressedList()
+                        end
+                elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+                        if isKeyboardKey(wparam) then
+                                pressedKeysSet[normalizeKey(wparam)] = false
+                                rebuildPressedList()
+                        end
+                elseif msg == wm.WM_MOUSEWHEEL then
+                        if module.quickMenuOpen then
+                                local delta = bit.rshift(bit.band(wparam, 0xFFFF0000), 16)
+                                if delta >= 0x8000 then
+                                        delta = delta - 0x10000
+                                end
+                                if delta ~= 0 then
+                                        local steps = math.max(1, math.floor(math.abs(delta) / 120 + 0.5))
+                                        if delta > 0 then
+                                                quickMenuScrollQueued = quickMenuScrollQueued - steps
+                                        else
+                                                quickMenuScrollQueued = quickMenuScrollQueued + steps
+                                        end
+                                        consumeWindowMessage(true, true)
+                                end
+                        end
+                end
+        end
 )
 
 local function processHotkeys()
@@ -2186,7 +2295,17 @@ end
 
 -- Быстрое меню по боковой кнопке мыши
 function module.CheckQuickMenuKey()
-	module.quickMenuOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+        local isOpen = isKeyDown(vk.VK_XBUTTON1) and true or false
+        if not isOpen then
+                quickMenuScrollQueued = 0
+        end
+        local wasOpen = module.quickMenuOpen
+        module.quickMenuOpen = isOpen
+        if isOpen and not wasOpen then
+                quickMenuSelectRequest = quickMenuTabIndex
+        elseif not isOpen and wasOpen then
+                quickMenuSelectRequest = nil
+        end
 end
 
 function module.OnTick()
