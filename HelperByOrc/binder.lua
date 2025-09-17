@@ -159,6 +159,7 @@ module.showQuickMenu = imgui.new.bool(false)
 module.quickMenuOpen = false
 local quickMenuTabIndex = 1
 local quickMenuScrollQueued = 0
+local quickMenuSelectRequest = nil
 
 imgui.OnInitialize(
 	function()
@@ -877,9 +878,12 @@ function module.DrawQuickMenu()
         local visibleCount = #visibleFolders
         if visibleCount == 0 then
                 quickMenuTabIndex = 1
+                quickMenuSelectRequest = nil
         else
-                if quickMenuTabIndex < 1 or quickMenuTabIndex > visibleCount then
-                        quickMenuTabIndex = math.min(math.max(quickMenuTabIndex, 1), visibleCount)
+                local clampedIndex = math.min(math.max(quickMenuTabIndex, 1), visibleCount)
+                if clampedIndex ~= quickMenuTabIndex then
+                        quickMenuTabIndex = clampedIndex
+                        quickMenuSelectRequest = clampedIndex
                 end
 
                 local scrollSteps = quickMenuScrollQueued
@@ -898,23 +902,39 @@ function module.DrawQuickMenu()
                 end
 
                 if scrollSteps ~= 0 then
+                        local previousIndex = quickMenuTabIndex
                         quickMenuTabIndex = quickMenuTabIndex + scrollSteps
                         quickMenuTabIndex = ((quickMenuTabIndex - 1) % visibleCount) + 1
+                        if quickMenuTabIndex ~= previousIndex then
+                                quickMenuSelectRequest = quickMenuTabIndex
+                        end
                 end
         end
 
         if imgui.BeginTabBar("##quickbinder_tabbar") then
                 for idx, folder in ipairs(visibleFolders) do
                         local tabFlags = 0
-                        if idx == quickMenuTabIndex and mimgui_funcs and mimgui_funcs.TabItemFlags and mimgui_funcs.TabItemFlags.SetSelected then
+                        local hasSelectFlag =
+                                mimgui_funcs and mimgui_funcs.TabItemFlags and mimgui_funcs.TabItemFlags.SetSelected
+                        if quickMenuSelectRequest == idx and hasSelectFlag then
                                 tabFlags = flags_or(tabFlags, mimgui_funcs.TabItemFlags.SetSelected)
                         end
-                        if imgui.BeginTabItem(folder.name, nil, tabFlags) then
+                        local tabOpened = imgui.BeginTabItem(folder.name, nil, tabFlags)
+                        if tabOpened then
                                 if quickMenuTabIndex ~= idx then
                                         quickMenuTabIndex = idx
                                 end
+                                if quickMenuSelectRequest == idx then
+                                        quickMenuSelectRequest = nil
+                                end
                                 drawRec(folder)
                                 imgui.EndTabItem()
+                        end
+                        if imgui.IsItemHovered() and imgui.IsMouseClicked(0) then
+                                if quickMenuTabIndex ~= idx then
+                                        quickMenuTabIndex = idx
+                                end
+                                quickMenuSelectRequest = idx
                         end
                 end
                 imgui.EndTabBar()
@@ -2279,7 +2299,13 @@ function module.CheckQuickMenuKey()
         if not isOpen then
                 quickMenuScrollQueued = 0
         end
+        local wasOpen = module.quickMenuOpen
         module.quickMenuOpen = isOpen
+        if isOpen and not wasOpen then
+                quickMenuSelectRequest = quickMenuTabIndex
+        elseif not isOpen and wasOpen then
+                quickMenuSelectRequest = nil
+        end
 end
 
 function module.OnTick()
