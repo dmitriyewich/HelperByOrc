@@ -211,6 +211,25 @@ local function drawInputDialog()
         if not dialog.open then
                 dialog.open = imgui.new.bool(true)
         end
+        if not dialog.pos_set then
+                local centerX, centerY = 0, 0
+                if imgui.GetMainViewport then
+                        local vp = imgui.GetMainViewport()
+                        centerX = vp.Pos.x + vp.Size.x * 0.5
+                        centerY = vp.Pos.y + vp.Size.y * 0.5
+                else
+                        local io = imgui.GetIO()
+                        centerX = io.DisplaySize.x * 0.5
+                        centerY = io.DisplaySize.y * 0.5
+                end
+                local pos = imgui.ImVec2(centerX + 80, centerY)
+                local pivot = imgui.ImVec2(0.5, 0.5)
+                local ok = pcall(imgui.SetNextWindowPos, pos, imgui.Cond.Appearing, pivot)
+                if not ok then
+                        imgui.SetNextWindowPos(pos, imgui.Cond.Appearing)
+                end
+                dialog.pos_set = true
+        end
         imgui.SetNextWindowSize(imgui.ImVec2(460, 0), imgui.Cond.Appearing)
         imgui.PushStyleVar(imgui.StyleVar.WindowMinSize, imgui.ImVec2(420, 120))
         if
