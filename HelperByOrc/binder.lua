@@ -1811,12 +1811,40 @@ local function ensureEditBuffers(hk)
 		end
 		hk.editMultiText = table.concat(lines, "\n")
 	end
-	hk._bools.multi = ensure_bool(hk._bools.multi, hk.editMultiline)
-	hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
-	hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
-	hk._bools.triggerEnabled = ensure_bool(hk._bools.triggerEnabled, hk.editTriggerEnabled)
-	hk._bools.triggerPattern = ensure_bool(hk._bools.triggerPattern, hk.editTriggerPattern)
-	hk._bools.commandEnabled = ensure_bool(hk._bools.commandEnabled, hk.editCommandEnabled)
+        hk._bools.quick = ensure_bool(hk._bools.quick, hk.editQuickMenu)
+        hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
+        hk._bools.triggerEnabled = ensure_bool(hk._bools.triggerEnabled, hk.editTriggerEnabled)
+        hk._bools.triggerPattern = ensure_bool(hk._bools.triggerPattern, hk.editTriggerPattern)
+        hk._bools.commandEnabled = ensure_bool(hk._bools.commandEnabled, hk.editCommandEnabled)
+        if hk._activeTab == nil then
+                hk._activeTab = hk.editMultiline and 1 or 0
+        end
+end
+
+local function syncMessagesToMulti(hk)
+        hk.editMultiline = true
+        local lines = {}
+        for _, m in ipairs(hk.editMsgs or {}) do
+                table.insert(lines, m.text or "")
+        end
+        hk.editMultiText = table.concat(lines, "\n")
+end
+
+local function syncMultiToMessages(hk)
+        if not hk.editMultiline then
+                return
+        end
+        hk.editMultiline = false
+        hk.editMsgs = {}
+        local text = hk.editMultiText or ""
+        local defaultInterval = hk.editBulkInterval or "0"
+        local defaultMethod = hk.editBulkMethod or 0
+        for line in text:gmatch("[^\r\n]+") do
+                if line ~= "" then
+                        table.insert(hk.editMsgs, {text = line, interval = defaultInterval, method = defaultMethod})
+                end
+        end
+        module.saveHotkeys()
 end
 
 local function openComboPopupNow()
@@ -2049,211 +2077,243 @@ local function drawEditHotkey(idx)
 	end
 
 	imgui.Separator()
-	imgui.Text((fa.TABLE_LIST or fa.CLIPBOARD or "") .. "	  " .. "Поля ввода")
-	imgui.SameLine()
-	imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
-	if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
-		table.insert(hk.editInputs, {label = "", hint = "", key = ""})
-		module.saveHotkeys()
-	end
-	if #hk.editInputs == 0 then
-		imgui.TextDisabled("Полей ввода нет")
-	else
-                local childHeight = math.min(260, 110 * #hk.editInputs)
-		imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
-		for i, input in ipairs(hk.editInputs) do
-			imgui.PushIDStr("input" .. i)
-			if imgui.Button(fa.ARROW_UP .. "##input_up", imgui.ImVec2(28, 20)) and i > 1 then
-				hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
-				module.saveHotkeys()
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.ARROW_DOWN .. "##input_down", imgui.ImVec2(28, 20)) and i < #hk.editInputs then
-				hk.editInputs[i], hk.editInputs[i + 1] = hk.editInputs[i + 1], hk.editInputs[i]
-				module.saveHotkeys()
-			end
-			imgui.SameLine()
-			imgui.BeginGroup()
-			imgui.TextDisabled("Текст над полем")
-			imgui.PushItemWidth(-1)
-			local labelBuf = imgui.new.char[512](input.label or "")
-			if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
-				input.label = ffi.string(labelBuf)
-				module.saveHotkeys()
-			end
-			imgui.PopItemWidth()
-			imgui.TextDisabled("Подсказка внутри поля")
-			imgui.PushItemWidth(-1)
-			local hintBuf = imgui.new.char[256](input.hint or "")
-			if imgui.InputTextWithHint("##input_hint", "Например координаты", hintBuf, ffi.sizeof(hintBuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-				input.hint = ffi.string(hintBuf)
-				module.saveHotkeys()
-			end
-			imgui.PopItemWidth()
-			imgui.TextDisabled("Ключ подстановки")
-			imgui.PushItemWidth(-1)
-			local keyBuf = imgui.new.char[128](input.key or "")
-			if imgui.InputTextWithHint("##input_key", "Ключ (например CALLSIGN)", keyBuf, ffi.sizeof(keyBuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-				input.key = ffi.string(keyBuf)
-				module.saveHotkeys()
-			end
-			imgui.PopItemWidth()
-			imgui.TextDisabled("Используйте латинские буквы, цифры и _")
-			imgui.EndGroup()
-			imgui.SameLine()
-			if imgui.Button(fa.TRASH .. "##input_del", imgui.ImVec2(46, 20)) then
-				table.remove(hk.editInputs, i)
-				module.saveHotkeys()
-				imgui.PopID()
-				goto continue_inputs
-			end
-                        imgui.PopID()
-                        imgui.Separator()
-			::continue_inputs::
-		end
-		imgui.EndChild()
-	end
-
-	imgui.Separator()
-	imgui.Text(fa.LIST_UL .. "	  " .. "Сообщения")
-	imgui.SameLine()
-	if imgui.Checkbox("Мульти-ввод##multi_mode", hk._bools.multi) then
-		hk.editMultiline = hk._bools.multi[0]
-		if hk.editMultiline then
-			local lines = {}
-			for _, m in ipairs(hk.editMsgs) do
-				table.insert(lines, m.text or "")
-			end
-			hk.editMultiText = table.concat(lines, "\n")
-		else
-			hk.editMsgs = {}
-			for line in (hk.editMultiText or ""):gmatch("[^\r\n]+") do
-				if line ~= "" then
-					table.insert(hk.editMsgs, {text = line, interval = hk.editBulkInterval or "0", method = hk.editBulkMethod or 0})
+	if imgui.BeginTabBar("edit_bind_tabs") then
+		if imgui.BeginTabItem("Строки") then
+			if hk._activeTab ~= 0 then
+				hk._activeTab = 0
+				if hk.editMultiline then
+					syncMultiToMessages(hk)
 				end
 			end
-			module.saveHotkeys()
-		end
-	end
-	imgui.SameLine()
-	imgui.PushItemWidth(120)
-	local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
-	if imgui.Combo("Куда##allm", allMBuf, send_labels_ffi, #send_labels) then
-		hk.editBulkMethod = allMBuf[0]
-		if not hk.editMultiline then
-			for _, m in ipairs(hk.editMsgs) do
-				m.method = hk.editBulkMethod
-			end
-			module.saveHotkeys()
-		end
-	end
-	imgui.PopItemWidth()
-	imgui.SameLine()
-	imgui.PushItemWidth(70)
-	local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
-	if
-		imgui.InputText(
-			"мс##alli",
-			allIBuf,
-			ffi.sizeof(allIBuf),
-			flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
-		)
-	 then
-		local s = ffi.string(allIBuf)
-		if s == "" or tonumber(s) then
-			hk.editBulkInterval = s
-			if not hk.editMultiline then
+
+			imgui.PushItemWidth(120)
+			local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
+			if imgui.Combo("Куда##allm", allMBuf, send_labels_ffi, #send_labels) then
+				hk.editBulkMethod = allMBuf[0]
 				for _, m in ipairs(hk.editMsgs) do
-					m.interval = s
+					m.method = hk.editBulkMethod
 				end
 				module.saveHotkeys()
 			end
-		end
-	end
-	imgui.PopItemWidth()
-
-	if hk.editMultiline then
-		imgui.PushItemWidth(-1)
-		local buf = imgui.new.char[4096](hk.editMultiText or "")
-		if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 200)) then
-			hk.editMultiText = ffi.string(buf)
-		end
-		imgui.PopItemWidth()
-	else
-		if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
-			table.insert(hk.editMsgs, {text = "", interval = "0", method = 0})
-			module.saveHotkeys()
-		end
-		imgui.SameLine()
-		imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
-
-		imgui.Spacing()
-		imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
-		for i, m in ipairs(hk.editMsgs) do
-			imgui.PushIDStr("row" .. i)
-			imgui.BeginGroup()
-			if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
-				hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
-				module.saveHotkeys()
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
-				hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
-				module.saveHotkeys()
-			end
-			imgui.SameLine()
-
-			imgui.PushItemWidth(430)
-			local tbuf = imgui.new.char[256](m.text or "")
-			if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-				m.text = ffi.string(tbuf)
-				module.saveHotkeys()
-			end
 			imgui.PopItemWidth()
-
 			imgui.SameLine()
-			imgui.PushItemWidth(50)
-			local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
+			imgui.PushItemWidth(70)
+			local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
 			if
 				imgui.InputText(
-					"мс##i",
-					ibuf,
-					ffi.sizeof(ibuf),
+					"мс##alli",
+					allIBuf,
+					ffi.sizeof(allIBuf),
 					flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
 				)
 			 then
-				local s = ffi.string(ibuf)
-				if tonumber(s) then
-					m.interval = s
-				elseif s == "" then
-					m.interval = "0"
+				local s = ffi.string(allIBuf)
+				if s == "" or tonumber(s) then
+					hk.editBulkInterval = s
+					for _, m in ipairs(hk.editMsgs) do
+						m.interval = s
+					end
+					module.saveHotkeys()
 				end
-				module.saveHotkeys()
 			end
 			imgui.PopItemWidth()
 
-			imgui.SameLine()
-			imgui.PushItemWidth(100)
-			local mbuf = imgui.new.int(m.method or 0)
-			if imgui.Combo("##m", mbuf, send_labels_ffi, #send_labels) then
-				m.method = mbuf[0]
+			if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку") then
+				table.insert(hk.editMsgs, {text = "", interval = "0", method = 0})
 				module.saveHotkeys()
 			end
-			imgui.PopItemWidth()
-
 			imgui.SameLine()
-			if imgui.Button(fa.TRASH .. "##del", imgui.ImVec2(46, 20)) then
-				table.remove(hk.editMsgs, i)
-				module.saveHotkeys()
+			imgui.TextDisabled("Подсказки: можно использовать [waitif(expr)]")
+
+			imgui.Spacing()
+			imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
+			for i, m in ipairs(hk.editMsgs) do
+				imgui.PushIDStr("row" .. i)
+				imgui.BeginGroup()
+				if imgui.Button(fa.ARROW_UP .. "##up", imgui.ImVec2(28, 20)) and i > 1 then
+					hk.editMsgs[i], hk.editMsgs[i - 1] = hk.editMsgs[i - 1], hk.editMsgs[i]
+					module.saveHotkeys()
+				end
+				imgui.SameLine()
+				if imgui.Button(fa.ARROW_DOWN .. "##down", imgui.ImVec2(28, 20)) and i < #hk.editMsgs then
+					hk.editMsgs[i], hk.editMsgs[i + 1] = hk.editMsgs[i + 1], hk.editMsgs[i]
+					module.saveHotkeys()
+				end
+				imgui.SameLine()
+
+				imgui.PushItemWidth(430)
+				local tbuf = imgui.new.char[256](m.text or "")
+				if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
+					m.text = ffi.string(tbuf)
+					module.saveHotkeys()
+				end
+				imgui.PopItemWidth()
+
+				imgui.SameLine()
+				imgui.PushItemWidth(50)
+				local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
+				if
+					imgui.InputText(
+						"мс##i",
+						ibuf,
+						ffi.sizeof(ibuf),
+						flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
+					)
+				 then
+					local s = ffi.string(ibuf)
+					if tonumber(s) then
+						m.interval = s
+					elseif s == "" then
+						m.interval = "0"
+					end
+					module.saveHotkeys()
+				end
+				imgui.PopItemWidth()
+
+				imgui.SameLine()
+				imgui.PushItemWidth(100)
+				local mbuf = imgui.new.int(m.method or 0)
+				if imgui.Combo("##m", mbuf, send_labels_ffi, #send_labels) then
+					m.method = mbuf[0]
+					module.saveHotkeys()
+				end
+				imgui.PopItemWidth()
+
+				imgui.SameLine()
+				if imgui.Button(fa.TRASH .. " Удалить##del", imgui.ImVec2(120, 20)) then
+					table.remove(hk.editMsgs, i)
+					module.saveHotkeys()
+					imgui.EndGroup()
+					imgui.PopID()
+					goto continue_msgs
+				end
 				imgui.EndGroup()
 				imgui.PopID()
-				goto continue_msgs
+				::continue_msgs::
 			end
-			imgui.EndGroup()
-			imgui.PopID()
-			::continue_msgs::
+			imgui.EndChild()
+			imgui.EndTabItem()
 		end
-		imgui.EndChild()
+		if imgui.BeginTabItem("Мульти-ввод") then
+			if hk._activeTab ~= 1 then
+				hk._activeTab = 1
+				if not hk.editMultiline then
+					syncMessagesToMulti(hk)
+				end
+			end
+
+			imgui.PushItemWidth(120)
+			local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
+			if imgui.Combo("Куда##allm_multi", allMBuf, send_labels_ffi, #send_labels) then
+				hk.editBulkMethod = allMBuf[0]
+			end
+			imgui.PopItemWidth()
+			imgui.SameLine()
+			imgui.PushItemWidth(70)
+			local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
+			if
+				imgui.InputText(
+					"мс##alli_multi",
+					allIBuf,
+					ffi.sizeof(allIBuf),
+					flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
+				)
+			 then
+				local s = ffi.string(allIBuf)
+				if s == "" or tonumber(s) then
+					hk.editBulkInterval = s
+				end
+			end
+			imgui.PopItemWidth()
+
+			imgui.PushItemWidth(-1)
+			local buf = imgui.new.char[4096](hk.editMultiText or "")
+			if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 280)) then
+				hk.editMultiText = ffi.string(buf)
+			end
+			imgui.PopItemWidth()
+			imgui.TextDisabled("Каждая строка будет отправлена отдельно. Пустые строки игнорируются.")
+			imgui.EndTabItem()
+		end
+		if imgui.BeginTabItem("Поля ввода") then
+			hk._activeTab = 2
+			imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
+			if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
+				table.insert(hk.editInputs, {label = "", hint = "", key = ""})
+				module.saveHotkeys()
+			end
+			if #hk.editInputs == 0 then
+				imgui.TextDisabled("Полей ввода нет")
+			else
+				local childHeight = math.min(260, 110 * #hk.editInputs)
+				imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
+				for i, input in ipairs(hk.editInputs) do
+					imgui.PushIDStr("input" .. i)
+					if imgui.Button(fa.ARROW_UP .. "##input_up", imgui.ImVec2(28, 20)) and i > 1 then
+						hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
+						module.saveHotkeys()
+					end
+					imgui.SameLine()
+					if imgui.Button(fa.ARROW_DOWN .. "##input_down", imgui.ImVec2(28, 20)) and i < #hk.editInputs then
+						hk.editInputs[i], hk.editInputs[i + 1] = hk.editInputs[i + 1], hk.editInputs[i]
+						module.saveHotkeys()
+					end
+					imgui.SameLine()
+					imgui.BeginGroup()
+					imgui.TextDisabled("Текст над полем")
+					imgui.PushItemWidth(-1)
+					local labelBuf = imgui.new.char[512](input.label or "")
+					if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
+						input.label = ffi.string(labelBuf)
+						module.saveHotkeys()
+					end
+					imgui.PopItemWidth()
+					imgui.TextDisabled("Подсказка внутри поля")
+					imgui.PushItemWidth(-1)
+					local hintBuf = imgui.new.char[256](input.hint or "")
+					if imgui.InputTextWithHint(
+						"##input_hint",
+						"Например координаты",
+						 hintBuf,
+						 ffi.sizeof(hintBuf),
+						 flags_or(imgui.InputTextFlags.AutoSelectAll)
+					) then
+						input.hint = ffi.string(hintBuf)
+						module.saveHotkeys()
+					end
+					imgui.PopItemWidth()
+					imgui.TextDisabled("Ключ подстановки")
+					imgui.PushItemWidth(-1)
+					local keyBuf = imgui.new.char[128](input.key or "")
+					if imgui.InputTextWithHint(
+						"##input_key",
+						"Ключ (например CALLSIGN)",
+						 keyBuf,
+						 ffi.sizeof(keyBuf),
+						 flags_or(imgui.InputTextFlags.AutoSelectAll)
+					) then
+						input.key = ffi.string(keyBuf)
+						module.saveHotkeys()
+					end
+					imgui.PopItemWidth()
+					imgui.TextDisabled("Используйте латинские буквы, цифры и _")
+					imgui.EndGroup()
+					imgui.SameLine()
+					if imgui.Button(fa.TRASH .. " Удалить##input_del", imgui.ImVec2(120, 20)) then
+						table.remove(hk.editInputs, i)
+						module.saveHotkeys()
+						imgui.PopID()
+						goto continue_inputs
+					end
+					imgui.PopID()
+					imgui.Separator()
+					::continue_inputs::
+				end
+				imgui.EndChild()
+			end
+			imgui.EndTabItem()
+		end
+		imgui.EndTabBar()
 	end
 
 	imgui.EndChild()
