@@ -178,12 +178,12 @@ local labelInputs = setmetatable({}, {__mode = "k"})
 
 -- кэш булевых для imgui
 local function ensure_bool(buf, val)
-	if not buf then
-		buf = imgui.new.bool(val and true or false)
-	else
-		buf[0] = val and true or false
-	end
-	return buf
+        if not buf then
+                buf = imgui.new.bool(val and true or false)
+        else
+                buf[0] = val and true or false
+        end
+        return buf
 end
 
 local editHotkey = {active = false, idx = -1}
@@ -198,6 +198,45 @@ local open_quick_conditions_popup = false
 -- Подписи
 local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+
+local function hotkeyFolderString(hk)
+        if not hk or type(hk.folderPath) ~= "table" then
+                return ""
+        end
+        return table.concat(hk.folderPath, "/")
+end
+
+local function refreshHotkeyNumbers()
+        for i, hk in ipairs(hotkeys) do
+                hk._number = i
+        end
+end
+
+local function findHotkeyByNumberInScope(num, folderLower)
+        if type(num) ~= "number" then
+                return nil
+        end
+        num = math.floor(num)
+        if num < 1 then
+                return nil
+        end
+        refreshHotkeyNumbers()
+        if folderLower and folderLower ~= "" then
+                folderLower = tostring(folderLower):lower()
+                local count = 0
+                for _, hk in ipairs(hotkeys) do
+                        local fstr = hotkeyFolderString(hk):lower()
+                        if fstr:find(folderLower, 1, true) then
+                                count = count + 1
+                                if count == num then
+                                        return hk
+                                end
+                        end
+                end
+                return nil
+        end
+        return hotkeys[num]
+end
 
 local cond_labels = {
 	"Не сработает в воде",
@@ -296,16 +335,17 @@ end
 
 -- === JSON save/load ===
 function module.saveHotkeys()
-	config.hotkeys, config.folders = {}, {}
-	for _, f in ipairs(folders) do
-		table.insert(config.folders, serializeFolder(f))
-	end
-	for _, hk in ipairs(hotkeys) do
-		local msgs = {}
-		for _, m in ipairs(hk.messages or {}) do
-			table.insert(msgs, {text = m.text, interval = m.interval, method = m.method})
-		end
-		table.insert(
+        refreshHotkeyNumbers()
+        config.hotkeys, config.folders = {}, {}
+        for _, f in ipairs(folders) do
+                table.insert(config.folders, serializeFolder(f))
+        end
+        for idx, hk in ipairs(hotkeys) do
+                local msgs = {}
+                for _, m in ipairs(hk.messages or {}) do
+                        table.insert(msgs, {text = m.text, interval = m.interval, method = m.method})
+                end
+                table.insert(
 			config.hotkeys,
 			{
 				label = hk.label,
@@ -316,15 +356,16 @@ function module.saveHotkeys()
 				quick_menu = hk.quick_menu or false,
 				messages = msgs,
 				conditions = hk.conditions,
-			       quick_conditions = hk.quick_conditions,
-			       command = hk.command or "",
-			       command_enabled = hk.command_enabled or false,
-			       folderPath = hk.folderPath,
-			       text_trigger = hk.text_trigger
-			}
-		)
-	end
-	funcs.saveTableToJson(config, json_path)
+                               quick_conditions = hk.quick_conditions,
+                               command = hk.command or "",
+                               command_enabled = hk.command_enabled or false,
+                               folderPath = hk.folderPath,
+                               text_trigger = hk.text_trigger,
+                               number = hk._number or idx
+                        }
+                )
+        end
+        funcs.saveTableToJson(config, json_path)
 end
 
 local function newHotkeyBase()
@@ -354,22 +395,23 @@ local function newHotkeyBase()
 end
 
 function module.registerHotkey(keys, messages, label, repeat_mode, conditions, command, folderPath, text_trigger, command_enabled)
-	local hk = newHotkeyBase()
-	hk.keys = keys or {}
-	hk.messages = messages or {}
-	hk.label = label or hk.label
+        local hk = newHotkeyBase()
+        hk.keys = keys or {}
+        hk.messages = messages or {}
+        hk.label = label or hk.label
 	hk.repeat_mode = not (not repeat_mode)
 	hk.conditions = conditions or {}
-	hk.command = command or ""
-	hk.command_enabled = not not command_enabled
-	hk.folderPath = folderPath or {folders[1].name}
-	hk.text_trigger = text_trigger or {text = "", enabled = false, pattern = false}
-	hotkeys[#hotkeys + 1] = hk
+        hk.command = command or ""
+        hk.command_enabled = not not command_enabled
+        hk.folderPath = folderPath or {folders[1].name}
+        hk.text_trigger = text_trigger or {text = "", enabled = false, pattern = false}
+        hotkeys[#hotkeys + 1] = hk
+        refreshHotkeyNumbers()
 end
 
 function module.loadHotkeys()
-	local tbl = funcs.loadTableFromJson(json_path)
-	if type(tbl) == "table" then
+        local tbl = funcs.loadTableFromJson(json_path)
+        if type(tbl) == "table" then
 		hotkeys, folders = {}, {}
 		if tbl.folders and #tbl.folders > 0 then
 			for _, f in ipairs(tbl.folders) do
@@ -396,11 +438,12 @@ function module.loadHotkeys()
 		       last.enabled = hk.enabled == nil and true or hk.enabled
 		       last.quick_menu = hk.quick_menu or hk.fast_menu or false
 		       last.repeat_interval_ms = tonumber(hk.repeat_interval_ms) or nil
-		       last.quick_conditions = hk.quick_conditions or {}
-		       last.text_trigger = hk.text_trigger or {text = "", enabled = false, pattern = false}
-		       last.command_enabled = hk.command_enabled == nil and (hk.command ~= "") or hk.command_enabled
-		end
-	end
+                       last.quick_conditions = hk.quick_conditions or {}
+                       last.text_trigger = hk.text_trigger or {text = "", enabled = false, pattern = false}
+                       last.command_enabled = hk.command_enabled == nil and (hk.command ~= "") or hk.command_enabled
+                end
+                refreshHotkeyNumbers()
+        end
 end
 
 -- === Комбо и клавиши ===
@@ -795,10 +838,11 @@ local function folderHasQuickBindsVisible(folder)
 end
 
 function module.DrawQuickMenu()
-	if not module.quickMenuOpen then
-		return
-	end
-	local resX, resY = getScreenResolution()
+        if not module.quickMenuOpen then
+                return
+        end
+        refreshHotkeyNumbers()
+        local resX, resY = getScreenResolution()
 	if quickMenuPos.x == 0 and quickMenuPos.y == 0 then
 		quickMenuPos = imgui.ImVec2(resX / 2 - quickMenuSize.x / 2, resY / 2 - quickMenuSize.y / 2)
 	end
@@ -846,11 +890,13 @@ function module.DrawQuickMenu()
 				hk.quick_menu and pathEquals(hk.folderPath, folderFullPath(node)) and
 					check_quick_visibility(hk.quick_conditions or {})
 			 then
-				local label = ICON_KEYB .. (hk.label or ("bind" .. i)) .. "##quick_bind" .. i
-				local shortcut = (hk.keys and #hk.keys > 0) and hotkeyToString(hk.keys) or nil
-				if quickMenuItem(label, shortcut, hk.enabled) then
-					module.enqueueHotkey(hk)
-				end
+                                local displayNumber = hk._number or i
+                                local visibleLabel = ICON_KEYB .. string.format("%d. %s", displayNumber, hk.label or ("bind" .. displayNumber))
+                                local label = visibleLabel .. "##quick_bind" .. i
+                                local shortcut = (hk.keys and #hk.keys > 0) and hotkeyToString(hk.keys) or nil
+                                if quickMenuItem(label, shortcut, hk.enabled) then
+                                        module.enqueueHotkey(hk)
+                                end
 			end
 		end
 		for _, child in ipairs(node.children or {}) do
@@ -937,28 +983,35 @@ end
 
 -- === API поиска/управления ===
 function module.findBind(name, folder)
-	if not name then
-		return nil
-	end
-	name = tostring(name):lower()
-	local folderLower = folder and tostring(folder):lower() or nil
-	local partial
-	for _, hk in ipairs(hotkeys) do
-		local inFolder = true
-		if folderLower and folderLower ~= "" then
-			local fstr = table.concat(hk.folderPath or {}, "/"):lower()
-			inFolder = fstr:find(folderLower, 1, true) and true or false
-		end
-		if inFolder and hk.label then
-			local lbl = hk.label:lower()
-			if lbl == name then
-				return hk
-			elseif not partial and lbl:find(name, 1, true) then
-				partial = hk
-			end
-		end
-	end
-	return partial
+        if not name then
+                return nil
+        end
+        local numericName = tonumber(name)
+        name = tostring(name):lower()
+        local folderLower = folder and tostring(folder):lower() or nil
+        local partial
+        for _, hk in ipairs(hotkeys) do
+                local inFolder = true
+                if folderLower and folderLower ~= "" then
+                        local fstr = hotkeyFolderString(hk):lower()
+                        inFolder = fstr:find(folderLower, 1, true) and true or false
+                end
+                if inFolder and hk.label then
+                        local lbl = hk.label:lower()
+                        if lbl == name then
+                                return hk
+                        elseif not partial and lbl:find(name, 1, true) then
+                                partial = hk
+                        end
+                end
+        end
+        if numericName then
+                local hkByNumber = findHotkeyByNumberInScope(numericName, folderLower)
+                if hkByNumber then
+                        return hkByNumber
+                end
+        end
+        return partial
 end
 
 function module.startBind(name, folder)
@@ -1108,18 +1161,20 @@ local function cloneHotkey(hk)
 end
 
 local function drawBindsGrid()
-	local availWidth = imgui.GetContentRegionAvail().x
-	local cardWidth, cardHeight = 138, 56
-	local spacingX, spacingY = 16, 16
-	local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
-	local x0 = imgui.GetCursorScreenPos().x
-	local y = imgui.GetCursorScreenPos().y
+        local availWidth = imgui.GetContentRegionAvail().x
+        local cardWidth, cardHeight = 138, 56
+        local spacingX, spacingY = 16, 16
+        local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
+        local x0 = imgui.GetCursorScreenPos().x
+        local y = imgui.GetCursorScreenPos().y
 
-	local cards = {}
-	local curPath = folderFullPath(selectedFolder)
-	for i, hk in ipairs(hotkeys) do
-		if pathEquals(hk.folderPath, curPath) then
-			table.insert(cards, {hk = hk, idx = i})
+        refreshHotkeyNumbers()
+
+        local cards = {}
+        local curPath = folderFullPath(selectedFolder)
+        for i, hk in ipairs(hotkeys) do
+                if pathEquals(hk.folderPath, curPath) then
+                        table.insert(cards, {hk = hk, idx = i})
 		end
 	end
 
@@ -1151,12 +1206,14 @@ local function drawBindsGrid()
 			local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
 			local bolt_x = dot_cx - dot_r - 4 - bolt_w
 			local max_text_w = bolt_x - text_start - 4
-			local label = hk.label or ("bind" .. i)
-			if imgui.CalcTextSize(label).x > max_text_w then
-				local ell = "..."
-				local ell_w = imgui.CalcTextSize(ell).x
-				local t = label
-				while #t > 0 and imgui.CalcTextSize(t).x > (max_text_w - ell_w) do
+                        local displayNumber = hk._number or i
+                        local label = hk.label or ("bind" .. displayNumber)
+                        label = tostring(displayNumber) .. ". " .. label
+                        if imgui.CalcTextSize(label).x > max_text_w then
+                                local ell = "..."
+                                local ell_w = imgui.CalcTextSize(ell).x
+                                local t = label
+                                while #t > 0 and imgui.CalcTextSize(t).x > (max_text_w - ell_w) do
 					t = t:sub(1, -2)
 				end
 				label = t .. ell
@@ -1210,12 +1267,13 @@ local function drawBindsGrid()
 				end
 			end
 			imgui.SameLine(0, spacing)
-			if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				table.remove(hotkeys, i)
-				module.saveHotkeys()
-				imgui.EndGroup()
-				goto after_card
-			end
+                        if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                table.remove(hotkeys, i)
+                                refreshHotkeyNumbers()
+                                module.saveHotkeys()
+                                imgui.EndGroup()
+                                goto after_card
+                        end
 			imgui.SameLine(0, spacing)
 			if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
 				imgui.OpenPopup("ctx_card_" .. i)
@@ -1223,11 +1281,12 @@ local function drawBindsGrid()
 		end
 
 		if imgui.BeginPopup("ctx_card_" .. i) then
-			if imgui.MenuItemBool("Дублировать", false) then
-				local newhk = cloneHotkey(hk)
-				table.insert(hotkeys, i + 1, newhk)
-				module.saveHotkeys()
-			end
+                        if imgui.MenuItemBool("Дублировать", false) then
+                                local newhk = cloneHotkey(hk)
+                                table.insert(hotkeys, i + 1, newhk)
+                                refreshHotkeyNumbers()
+                                module.saveHotkeys()
+                        end
 			if imgui.MenuItemBool("Переместить в...", false) then
 				_G.moveBindPopup.active = true
 				_G.moveBindPopup.hkidx = i
@@ -1243,9 +1302,11 @@ local function drawBindsGrid()
 		if imgui.BeginDragDropSource() then
 			local payload = ffi.new("int[1]", i)
 			imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-			imgui.Text(hk.label or ("bind" .. i))
-			imgui.EndDragDropSource()
-		end
+                        local dragLabelNumber = hk._number or i
+                        local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+                        imgui.Text(string.format("%d. %s", dragLabelNumber, dragLabel))
+                        imgui.EndDragDropSource()
+                end
 		if imgui.BeginDragDropTarget() then
 			local payload = imgui.AcceptDragDropPayload()
 			if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
@@ -1256,10 +1317,11 @@ local function drawBindsGrid()
 					if dst_idx > src_idx then
 						dst_idx = dst_idx - 1
 					end
-					table.insert(hotkeys, dst_idx, moved)
-					module.saveHotkeys()
-				end
-			end
+                                        table.insert(hotkeys, dst_idx, moved)
+                                        refreshHotkeyNumbers()
+                                        module.saveHotkeys()
+                                end
+                        end
 			imgui.EndDragDropTarget()
 		end
 
@@ -1277,12 +1339,13 @@ local function drawBindsGrid()
 	dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
 	dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
 	imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
-	if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
-		local hk = newHotkeyBase()
-		hk.folderPath = folderFullPath(selectedFolder)
-		table.insert(hotkeys, hk)
-		module.saveHotkeys()
-	end
+        if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
+                local hk = newHotkeyBase()
+                hk.folderPath = folderFullPath(selectedFolder)
+                table.insert(hotkeys, hk)
+                refreshHotkeyNumbers()
+                module.saveHotkeys()
+        end
 	imgui.EndGroup()
 
 	-- Popup перемещения
@@ -1918,12 +1981,13 @@ editHotkey.active = false
 return
 end
 	imgui.SameLine()
-	if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
-		table.remove(hotkeys, idx)
-		editHotkey.active = false
-		module.saveHotkeys()
-		return
-	end
+        if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
+                table.remove(hotkeys, idx)
+                editHotkey.active = false
+                refreshHotkeyNumbers()
+                module.saveHotkeys()
+                return
+        end
 	if tags and tags.showTagsWindow then
 		imgui.SameLine()
 		if imgui.Button(fa.TAGS .. " Переменные##open_tags") then
