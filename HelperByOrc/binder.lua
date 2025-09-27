@@ -2247,14 +2247,25 @@ local function drawEditHotkey(idx)
 			else
 				local childHeight = math.min(260, 110 * #hk.editInputs)
 				imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
-				for i, input in ipairs(hk.editInputs) do
-					imgui.PushIDStr("input" .. i)
-					if imgui.Button(fa.ARROW_UP .. "##input_up", imgui.ImVec2(28, 20)) and i > 1 then
-						hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
-						module.saveHotkeys()
-					end
-					imgui.SameLine()
-					if imgui.Button(fa.ARROW_DOWN .. "##input_down", imgui.ImVec2(28, 20)) and i < #hk.editInputs then
+                                for i, input in ipairs(hk.editInputs) do
+                                        imgui.PushIDStr("input" .. i)
+                                        local trashLabel = fa.TRASH
+                                        if not trashLabel or trashLabel == "" then
+                                                trashLabel = "X"
+                                        end
+                                        if imgui.Button(trashLabel .. "##input_del", imgui.ImVec2(28, 20)) then
+                                                table.remove(hk.editInputs, i)
+                                                module.saveHotkeys()
+                                                imgui.PopID()
+                                                goto continue_inputs
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.Button(fa.ARROW_UP .. "##input_up", imgui.ImVec2(28, 20)) and i > 1 then
+                                                hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.Button(fa.ARROW_DOWN .. "##input_down", imgui.ImVec2(28, 20)) and i < #hk.editInputs then
 						hk.editInputs[i], hk.editInputs[i + 1] = hk.editInputs[i + 1], hk.editInputs[i]
 						module.saveHotkeys()
 					end
@@ -2295,20 +2306,13 @@ local function drawEditHotkey(idx)
 						input.key = ffi.string(keyBuf)
 						module.saveHotkeys()
 					end
-					imgui.PopItemWidth()
-					imgui.TextDisabled("Используйте латинские буквы, цифры и _")
-					imgui.EndGroup()
-					imgui.SameLine()
-					if imgui.Button(fa.TRASH .. " Удалить##input_del", imgui.ImVec2(120, 20)) then
-						table.remove(hk.editInputs, i)
-						module.saveHotkeys()
-						imgui.PopID()
-						goto continue_inputs
-					end
-					imgui.PopID()
-					imgui.Separator()
-					::continue_inputs::
-				end
+                                        imgui.PopItemWidth()
+                                        imgui.TextDisabled("Используйте латинские буквы, цифры и _")
+                                        imgui.EndGroup()
+                                        imgui.PopID()
+                                        imgui.Separator()
+                                        ::continue_inputs::
+                                end
 				imgui.EndChild()
 			end
 			imgui.EndTabItem()
