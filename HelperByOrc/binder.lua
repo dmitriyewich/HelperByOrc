@@ -64,6 +64,7 @@ local function pushToast(text, kind, dur)
 	toasts[#toasts + 1] = {text = tostring(text or ""), kind = kind or "ok", t = os.clock(), dur = dur or 3.0}
 end
 local active_coroutines = {} -- { hk, co, state, wake }
+local activeInputDialog = nil
 
 local function log_error(err)
 	print("[binder] " .. tostring(err))
@@ -293,7 +294,6 @@ local folders = {{name = "Основные", children = {}, parent = nil, quick_
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, {__mode = "k"})
-local activeInputDialog = nil
 local startHotkeyCoroutine
 
 -- кэш булевых для imgui
