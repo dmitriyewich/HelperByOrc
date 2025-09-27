@@ -891,14 +891,20 @@ function module.DrawQuickMenu()
 					check_quick_visibility(hk.quick_conditions or {})
 			 then
                                 local displayNumber = hk._number or i
-                                local visibleLabel = ICON_KEYB .. string.format("%d. %s", displayNumber, hk.label or ("bind" .. displayNumber))
+                                local numberLabel = string.format("#%d", displayNumber)
+                                local visibleLabel = ICON_KEYB .. (hk.label or ("bind" .. displayNumber))
                                 local label = visibleLabel .. "##quick_bind" .. i
-                                local shortcut = (hk.keys and #hk.keys > 0) and hotkeyToString(hk.keys) or nil
+                                local shortcut
+                                if hk.keys and #hk.keys > 0 then
+                                        shortcut = numberLabel .. " · " .. hotkeyToString(hk.keys)
+                                else
+                                        shortcut = numberLabel
+                                end
                                 if quickMenuItem(label, shortcut, hk.enabled) then
                                         module.enqueueHotkey(hk)
                                 end
-			end
-		end
+                        end
+                end
 		for _, child in ipairs(node.children or {}) do
 			if folderHasQuickBindsVisible(child) then
 				local path = table.concat(folderFullPath(child), "/")
@@ -986,9 +992,15 @@ function module.findBind(name, folder)
         if not name then
                 return nil
         end
-        local numericName = tonumber(name)
-        name = tostring(name):lower()
         local folderLower = folder and tostring(folder):lower() or nil
+        local numericName = tonumber(name)
+        if numericName then
+                local hkByNumber = findHotkeyByNumberInScope(numericName, folderLower)
+                if hkByNumber then
+                        return hkByNumber
+                end
+        end
+        local query = tostring(name):lower()
         local partial
         for _, hk in ipairs(hotkeys) do
                 local inFolder = true
@@ -998,29 +1010,34 @@ function module.findBind(name, folder)
                 end
                 if inFolder and hk.label then
                         local lbl = hk.label:lower()
-                        if lbl == name then
+                        if lbl == query then
                                 return hk
-                        elseif not partial and lbl:find(name, 1, true) then
+                        elseif not partial and lbl:find(query, 1, true) then
                                 partial = hk
                         end
-                end
-        end
-        if numericName then
-                local hkByNumber = findHotkeyByNumberInScope(numericName, folderLower)
-                if hkByNumber then
-                        return hkByNumber
                 end
         end
         return partial
 end
 
+local function resolveBindForExecution(name, folder)
+        if name == nil then
+                return nil
+        end
+        local numericName = tonumber(name)
+        if numericName and (folder == nil or folder == "") then
+                return findHotkeyByNumberInScope(numericName, nil)
+        end
+        return module.findBind(name, folder)
+end
+
 function module.startBind(name, folder)
-	local hk = module.findBind(name, folder)
-	if hk and not hk.is_running and hk.enabled then
-		module.enqueueHotkey(hk)
-		return true
-	end
-	return false
+        local hk = resolveBindForExecution(name, folder)
+        if hk and not hk.is_running and hk.enabled then
+                module.enqueueHotkey(hk)
+                return true
+        end
+        return false
 end
 
 function module.stopBind(name, folder)
@@ -1090,18 +1107,18 @@ end
 -- Запустить бинд по имени с необязательной задержкой (мс)
 -- opts: { delay_ms = number, _depth = number }
 function module.runBind(name, folder, opts)
-	opts = opts or {}
-	local depth = tonumber(opts._depth or 0) or 0
-	if depth > MAX_BIND_DEPTH then
-		pushToast("runBind: превышена глубина (" .. MAX_BIND_DEPTH .. ")", "warn", 3.0)
-		return false
-	end
-	local delay = tonumber(opts.delay_ms or 0) or 0
-	local hk = module.findBind(name, folder)
-	if not hk then
-		pushToast(("Бинд не найден: %s (%s)"):format(tostring(name), tostring(folder or "")), "warn", 3.0)
-		return false
-	end
+        opts = opts or {}
+        local depth = tonumber(opts._depth or 0) or 0
+        if depth > MAX_BIND_DEPTH then
+                pushToast("runBind: превышена глубина (" .. MAX_BIND_DEPTH .. ")", "warn", 3.0)
+                return false
+        end
+        local delay = tonumber(opts.delay_ms or 0) or 0
+        local hk = resolveBindForExecution(name, folder)
+        if not hk then
+                pushToast(("Бинд не найден: %s (%s)"):format(tostring(name), tostring(folder or "")), "warn", 3.0)
+                return false
+        end
 	if not hk.enabled then
 		pushToast(("Бинд выключен: %s"):format(hk.label or "?"), "warn", 3.0)
 		return false
@@ -1207,23 +1224,47 @@ local function drawBindsGrid()
 			local bolt_x = dot_cx - dot_r - 4 - bolt_w
 			local max_text_w = bolt_x - text_start - 4
                         local displayNumber = hk._number or i
+                        local numberLabel = string.format("#%d", displayNumber)
+                        local numberWidth = imgui.CalcTextSize(numberLabel).x
                         local label = hk.label or ("bind" .. displayNumber)
-                        label = tostring(displayNumber) .. ". " .. label
-                        if imgui.CalcTextSize(label).x > max_text_w then
+                        local labelMaxWidth = max_text_w - numberWidth - 6
+                        if labelMaxWidth < 0 then
+                                labelMaxWidth = 0
+                        end
+                        if imgui.CalcTextSize(label).x > labelMaxWidth then
                                 local ell = "..."
                                 local ell_w = imgui.CalcTextSize(ell).x
                                 local t = label
-                                while #t > 0 and imgui.CalcTextSize(t).x > (max_text_w - ell_w) do
-					t = t:sub(1, -2)
-				end
-				label = t .. ell
-			end
-			imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
-			imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
-			if hk.quick_menu then
-				imgui.SetCursorScreenPos(imgui.ImVec2(bolt_x, pmin.y + 7))
-				imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.BOLT)
-			end
+                                while #t > 0 and imgui.CalcTextSize(t).x > (labelMaxWidth - ell_w) do
+                                        t = t:sub(1, -2)
+                                end
+                                label = t .. ell
+                        end
+                        local numberX = bolt_x - numberWidth - 6
+                        if numberX < text_start then
+                                numberX = text_start
+                        end
+                        local textWidthLimit = numberX - text_start - 4
+                        if textWidthLimit < 0 then
+                                textWidthLimit = 0
+                        end
+                        if imgui.CalcTextSize(label).x > textWidthLimit then
+                                local ell = "..."
+                                local ell_w = imgui.CalcTextSize(ell).x
+                                local t = label
+                                while #t > 0 and imgui.CalcTextSize(t).x > (textWidthLimit - ell_w) do
+                                        t = t:sub(1, -2)
+                                end
+                                label = t .. ell
+                        end
+                        imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
+                        imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
+                        imgui.SetCursorScreenPos(imgui.ImVec2(numberX, pmin.y + 7))
+                        imgui.TextDisabled(numberLabel)
+                        if hk.quick_menu then
+                                imgui.SetCursorScreenPos(imgui.ImVec2(bolt_x, pmin.y + 7))
+                                imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.BOLT)
+                        end
 			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 25))
 			imgui.TextDisabled(fa.LIST_UL .. " " .. tostring(#(hk.messages or {})))
 			if hk.command and hk.command ~= "" then
@@ -1304,7 +1345,8 @@ local function drawBindsGrid()
 			imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
                         local dragLabelNumber = hk._number or i
                         local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-                        imgui.Text(string.format("%d. %s", dragLabelNumber, dragLabel))
+                        imgui.Text(dragLabel)
+                        imgui.TextDisabled(string.format("#%d", dragLabelNumber))
                         imgui.EndDragDropSource()
                 end
 		if imgui.BeginDragDropTarget() then
