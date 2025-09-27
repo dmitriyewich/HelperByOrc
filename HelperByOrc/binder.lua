@@ -231,7 +231,7 @@ local function drawInputDialog()
                 dialog.pos_set = true
         end
         imgui.SetNextWindowSize(imgui.ImVec2(460, 0), imgui.Cond.Appearing)
-        imgui.PushStyleVar(imgui.StyleVar.WindowMinSize, imgui.ImVec2(420, 120))
+        imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, imgui.ImVec2(420, 120))
         if
                 imgui.Begin(
                         "Заполните данные##binder_input",
