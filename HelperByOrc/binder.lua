@@ -65,6 +65,7 @@ local function pushToast(text, kind, dur)
 end
 local active_coroutines = {} -- { hk, co, state, wake }
 local activeInputDialog = nil
+local startHotkeyCoroutine -- forward declaration for dialog handlers
 
 local function log_error(err)
 	print("[binder] " .. tostring(err))
@@ -210,12 +211,13 @@ local function drawInputDialog()
         if not dialog.open then
                 dialog.open = imgui.new.bool(true)
         end
-        imgui.SetNextWindowSize(imgui.ImVec2(420, 0), imgui.Cond.FirstUseEver)
+        imgui.SetNextWindowSize(imgui.ImVec2(460, 0), imgui.Cond.Appearing)
+        imgui.PushStyleVar(imgui.StyleVar.WindowMinSize, imgui.ImVec2(420, 120))
         if
                 imgui.Begin(
                         "Заполните данные##binder_input",
                         dialog.open,
-                        imgui.WindowFlags.NoCollapse + imgui.WindowFlags.AlwaysAutoResize
+                        imgui.WindowFlags.NoCollapse
                 )
          then
                 if hk.label and hk.label ~= "" then
@@ -256,6 +258,8 @@ local function drawInputDialog()
                         end
                         if startHotkeyCoroutine and startHotkeyCoroutine(hk, dialog.delay, values) then
                                 cancelInputDialog()
+                        elseif startHotkeyCoroutine then
+                                pushToast("Не удалось запустить бинд", "err", 3.0)
                         end
                 end
                 imgui.SameLine()
@@ -264,6 +268,7 @@ local function drawInputDialog()
                 end
         end
         imgui.End()
+        imgui.PopStyleVar()
         if dialog.open and not dialog.open[0] then
                 cancelInputDialog()
         end
@@ -294,7 +299,6 @@ local folders = {{name = "Основные", children = {}, parent = nil, quick_
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, {__mode = "k"})
-local startHotkeyCoroutine
 
 -- кэш булевых для imgui
 local function ensure_bool(buf, val)
