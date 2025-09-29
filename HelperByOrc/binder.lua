@@ -86,22 +86,26 @@ local scheduler =
                                         item.hk._awaiting_input = false
                                         table.remove(active_coroutines, i)
                                 elseif now >= item.wake then
-                                        local ok, wait_ms = coroutine.resume(item.co)
-                                        if not ok then
-                                                log_error(wait_ms)
-                                                item.hk.is_running = false
-                                                item.hk._co_state = nil
-                                                item.hk._awaiting_input = false
-                                                table.remove(active_coroutines, i)
-                                        elseif coroutine.status(item.co) == "dead" then
-                                                item.hk.is_running = false
-                                                item.hk._co_state = nil
-                                                item.hk._awaiting_input = false
-                                                table.remove(active_coroutines, i)
+                                        if state.paused then
+                                                item.wake = now + 50
                                         else
-                                                item.wake = now + (wait_ms or 0)
+                                                local ok, wait_ms = coroutine.resume(item.co)
+                                                if not ok then
+                                                        log_error(wait_ms)
+                                                        item.hk.is_running = false
+                                                        item.hk._co_state = nil
+                                                        item.hk._awaiting_input = false
+                                                        table.remove(active_coroutines, i)
+                                                elseif coroutine.status(item.co) == "dead" then
+                                                        item.hk.is_running = false
+                                                        item.hk._co_state = nil
+                                                        item.hk._awaiting_input = false
+                                                        table.remove(active_coroutines, i)
+                                                else
+                                                        item.wake = now + (wait_ms or 0)
+                                                end
                                         end
-				end
+                                end
 			end
 			coroutine.yield()
 		end
