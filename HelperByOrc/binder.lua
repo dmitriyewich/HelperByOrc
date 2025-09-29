@@ -1113,14 +1113,13 @@ function module.DrawQuickMenu()
 					check_quick_visibility(hk.quick_conditions or {})
 			 then
                                 local displayNumber = hk._number or i
-                                local numberLabel = string.format("#%d", displayNumber)
                                 local visibleLabel = ICON_KEYB .. (hk.label or ("bind" .. displayNumber))
                                 local label = visibleLabel .. "##quick_bind" .. i
                                 local shortcut
                                 if hk.keys and #hk.keys > 0 then
-                                        shortcut = numberLabel .. " · " .. hotkeyToString(hk.keys)
+                                        shortcut = hotkeyToString(hk.keys)
                                 else
-                                        shortcut = numberLabel
+                                        shortcut = ""
                                 end
                                 if quickMenuItem(label, shortcut, hk.enabled) then
                                         module.enqueueHotkey(hk)
@@ -1374,14 +1373,57 @@ end
 
 -- === UI: карточки ===
 if not _G.moveBindPopup then
-	_G.moveBindPopup = {active = false, hkidx = nil}
+        _G.moveBindPopup = {active = false, hkidx = nil}
+end
+
+local function utf8_trim_last_char(s)
+        s = tostring(s or "")
+        local len = #s
+        while len > 0 do
+                local byte = s:byte(len)
+                len = len - 1
+                if byte < 0x80 or byte >= 0xC0 then
+                        break
+                end
+        end
+        return s:sub(1, len)
+end
+
+local function ellipsize_utf8(text, maxWidth)
+        text = tostring(text or "")
+        if maxWidth == nil then
+                return text
+        end
+        if maxWidth <= 0 then
+                return "..."
+        end
+        if imgui.CalcTextSize(text).x <= maxWidth then
+                return text
+        end
+        local ell = "..."
+        local ell_w = imgui.CalcTextSize(ell).x
+        local available = maxWidth - ell_w
+        if available <= 0 then
+                return ell
+        end
+        local base = text
+        if base:sub(-3) == ell then
+                base = base:sub(1, -4)
+        end
+        while base ~= "" and imgui.CalcTextSize(base).x > available do
+                base = utf8_trim_last_char(base)
+        end
+        if base == "" then
+                return ell
+        end
+        return base .. ell
 end
 
 local function drawQuickIndicator(dl, pos_min, enabled)
-	local r = 5
-	local pad = 8
-	local cx = pos_min.x + 138 - pad - r
-	local cy = pos_min.y + pad + r
+        local r = 5
+        local pad = 8
+        local cx = pos_min.x + 138 - pad - r
+        local cy = pos_min.y + pad + r
 	local col = enabled and imgui.ImVec4(0.95, 0.75, 0.1, 1.0) or imgui.ImVec4(0.35, 0.35, 0.35, 1.0)
 	dl:AddCircleFilled(imgui.ImVec2(cx, cy), r, imgui.GetColorU32Vec4(col), 12)
 end
@@ -1442,9 +1484,9 @@ local function drawBindsGrid()
 			local dot_pad, dot_r = 8, 5
 			local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
 			local text_start = pmin.x + 11
-			local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
-			local bolt_x = dot_cx - dot_r - 4 - bolt_w
-			local max_text_w = bolt_x - text_start - 4
+                        local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
+                        local bolt_x = dot_cx - dot_r - 4 - bolt_w
+                        local max_text_w = bolt_x - text_start - 4
                         local displayNumber = hk._number or i
                         local numberLabel = string.format("#%d", displayNumber)
                         local numberWidth = imgui.CalcTextSize(numberLabel).x
@@ -1452,15 +1494,6 @@ local function drawBindsGrid()
                         local labelMaxWidth = max_text_w - numberWidth - 6
                         if labelMaxWidth < 0 then
                                 labelMaxWidth = 0
-                        end
-                        if imgui.CalcTextSize(label).x > labelMaxWidth then
-                                local ell = "..."
-                                local ell_w = imgui.CalcTextSize(ell).x
-                                local t = label
-                                while #t > 0 and imgui.CalcTextSize(t).x > (labelMaxWidth - ell_w) do
-                                        t = t:sub(1, -2)
-                                end
-                                label = t .. ell
                         end
                         local numberX = bolt_x - numberWidth - 6
                         if numberX < text_start then
@@ -1470,15 +1503,11 @@ local function drawBindsGrid()
                         if textWidthLimit < 0 then
                                 textWidthLimit = 0
                         end
-                        if imgui.CalcTextSize(label).x > textWidthLimit then
-                                local ell = "..."
-                                local ell_w = imgui.CalcTextSize(ell).x
-                                local t = label
-                                while #t > 0 and imgui.CalcTextSize(t).x > (textWidthLimit - ell_w) do
-                                        t = t:sub(1, -2)
-                                end
-                                label = t .. ell
+                        local labelWidthLimit = math.min(labelMaxWidth, textWidthLimit)
+                        if labelWidthLimit < 0 then
+                                labelWidthLimit = 0
                         end
+                        label = ellipsize_utf8(label, labelWidthLimit)
                         imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
                         imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
                         imgui.SetCursorScreenPos(imgui.ImVec2(numberX, pmin.y + 7))
