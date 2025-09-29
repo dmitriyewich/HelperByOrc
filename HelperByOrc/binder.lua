@@ -1113,14 +1113,13 @@ function module.DrawQuickMenu()
 					check_quick_visibility(hk.quick_conditions or {})
 			 then
                                 local displayNumber = hk._number or i
-                                local numberLabel = string.format("#%d", displayNumber)
                                 local visibleLabel = ICON_KEYB .. (hk.label or ("bind" .. displayNumber))
                                 local label = visibleLabel .. "##quick_bind" .. i
                                 local shortcut
                                 if hk.keys and #hk.keys > 0 then
-                                        shortcut = numberLabel .. " · " .. hotkeyToString(hk.keys)
+                                        shortcut = hotkeyToString(hk.keys)
                                 else
-                                        shortcut = numberLabel
+                                        shortcut = ""
                                 end
                                 if quickMenuItem(label, shortcut, hk.enabled) then
                                         module.enqueueHotkey(hk)
