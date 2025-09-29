@@ -1527,10 +1527,15 @@ local function drawBindsGrid()
 				imgui.TextDisabled(fa.KEYBOARD .. " " .. hotkeyToString(hk.keys))
 			end
 		else
-			local padX = 6
-			local spacing = imgui.GetStyle().ItemSpacing.x
-			local buttonW = (cardWidth - padX * 2 - spacing * 3) / 4
-			local buttonH = cardHeight - 16
+                        local padX = 6
+                        local spacing = imgui.GetStyle().ItemSpacing.x
+                        local buttonCount = hk.is_running and 5 or 4
+                        local totalSpacing = spacing * (buttonCount - 1)
+                        local buttonW = (cardWidth - padX * 2 - totalSpacing) / buttonCount
+                        if buttonW < 0 then
+                                buttonW = 0
+                        end
+                        local buttonH = cardHeight - 16
 			local btnY = pmin.y + 8
 			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
 			if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
