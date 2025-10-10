@@ -90,10 +90,10 @@ end
 
 -- ===================== ПОДСВЕТКА ТЕКСТА =====================
 local function draw_text_with_highlight(text, highlightWordsLower, rect_color, text_alpha)
-	local draw = imgui.GetWindowDrawList()
-	local font = imgui.GetFont()
-	local fsize = imgui.GetFontSize()
-	local lh = line_height()
+        local draw = imgui.GetWindowDrawList()
+        local font = imgui.GetFont()
+        local fsize = imgui.GetFontSize()
+        local lh = line_height()
 
 	local pos = imgui.GetCursorScreenPos()
 	local x, y = pos.x, pos.y
@@ -106,15 +106,25 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
 	local i, n = 1, #text
 	while i <= n do
 		local tag_s, tag_e, tag = text:find("{([%xX]+)}", i)
-		if tag_s == i then
-			cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
-			i = tag_e + 1
-		else
-			local next_tag_s = text:find("{[%xX]+}", i)
-			local hit_s, hit_e
-			for _, w in ipairs(highlightWordsLower) do
-				local s, e = lower:find(w, i, true)
-				if s and (not hit_s or s < hit_s) then hit_s, hit_e = s, e end
+                if tag_s == i then
+                        cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
+                        i = tag_e + 1
+                else
+                        local timestamp = text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
+                        if timestamp then
+                                local scaled_size = fsize * 0.5
+                                local col_u32 = imgui.ColorConvertFloat4ToU32(cur_col)
+                                draw:AddText(font, scaled_size, imgui.ImVec2(x, y + (fsize - scaled_size)), col_u32, timestamp)
+                                x = x + text_size(timestamp, font, scaled_size)
+                                i = i + #timestamp
+                                goto continue
+                        end
+
+                        local next_tag_s = text:find("{[%xX]+}", i)
+                        local hit_s, hit_e
+                        for _, w in ipairs(highlightWordsLower) do
+                                local s, e = lower:find(w, i, true)
+                                if s and (not hit_s or s < hit_s) then hit_s, hit_e = s, e end
 			end
 			if hit_s and (not next_tag_s or hit_s < next_tag_s) then
 				if hit_s > i then
@@ -134,11 +144,12 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
 				local part = text:sub(i, next_pos-1)
 				draw:AddText(imgui.ImVec2(x, y), imgui.ColorConvertFloat4ToU32(cur_col), part)
 				x = x + text_size(part, font, fsize)
-				i = next_pos
-			end
-		end
-	end
-	imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + lh))
+                                i = next_pos
+                        end
+                end
+                ::continue::
+        end
+        imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + lh))
 end
 
 -- ===================== СОСТОЯНИЕ ПОПАПА ВЫДЕЛЕНИЯ =====================
