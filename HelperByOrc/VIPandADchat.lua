@@ -85,23 +85,45 @@ end
 
 local add_text_with_font
 do
-        local function wrap_font_add(fn)
-                return function(draw, font, font_size, pos, col, text)
-                        fn(draw, font, font_size, pos, col, text, nil, 0.0, nil)
-                end
+        local function try_get(name)
+                local ok, fn = pcall(function()
+                        return imgui.lib[name]
+                end)
+                if ok and fn then return fn end
         end
 
-        local ok, fn = pcall(function()
-                return imgui.lib.ImDrawList_AddText_FontPtr
-        end)
-        if ok and fn then
-                add_text_with_font = wrap_font_add(fn)
+        local add_text_fontptr = try_get('ImDrawList_AddText_FontPtr')
+        if add_text_fontptr then
+                add_text_with_font = function(draw, font, font_size, pos, col, text)
+                        add_text_fontptr(draw, font, font_size, pos, col, text, nil, 0.0, nil)
+                end
         else
-                ok, fn = pcall(function()
-                        return imgui.lib.ImDrawList_AddText
-                end)
-                if ok and fn then
-                        add_text_with_font = wrap_font_add(fn)
+                local add_text_vec2 = try_get('ImDrawList_AddText')
+                if add_text_vec2 then
+                        add_text_with_font = function(draw, font, font_size, pos, col, text)
+                                if not font then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local base_size = imgui.GetFontSize()
+                                if base_size <= 0 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local io = imgui.GetIO()
+                                local original_global = io.FontGlobalScale
+                                local ratio = font_size / base_size
+                                if ratio <= 0 then ratio = 1 end
+
+                                io.FontGlobalScale = original_global * ratio
+                                imgui.PushFont(font)
+                                local ok, err = pcall(add_text_vec2, draw, pos, col, text, nil)
+                                imgui.PopFont()
+                                io.FontGlobalScale = original_global
+                                if not ok then error(err, 0) end
+                        end
                 else
                         add_text_with_font = function(draw, _, _, pos, col, text)
                                 draw:AddText(pos, col, text)
