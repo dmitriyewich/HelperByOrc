@@ -48,18 +48,33 @@ local function string_lower(str)
 	end)
 end
 local function passFilter(str, filterRaw)
-	local target = string_lower(str or "")
-	filterRaw = string_lower(filterRaw or "")
-	if filterRaw == "" then return true end
-	for word in filterRaw:gmatch("[^,]+") do
-		word = word:match("^%s*(.-)%s*$")
-		local ex = word:sub(1,1) == "-"
-		local val = ex and word:sub(2) or word
-		local found = target:find(val, 1, true)
-		if ex and found then return false
-		elseif not ex and found then return true end
-	end
-	return false
+        local target = string_lower(str or "")
+        filterRaw = string_lower(filterRaw or "")
+        if filterRaw == "" then return true end
+
+        local hasInclude = false
+        for word in filterRaw:gmatch("[^,]+") do
+                word = word:match("^%s*(.-)%s*$")
+                if word ~= "" then
+                        local isExclude = word:sub(1, 1) == "-"
+                        local val = isExclude and word:sub(2) or word
+                        if val ~= "" then
+                                local found = target:find(val, 1, true)
+                                if isExclude then
+                                        if found then
+                                                return false
+                                        end
+                                else
+                                        hasInclude = true
+                                        if found then
+                                                return true
+                                        end
+                                end
+                        end
+                end
+        end
+
+        return not hasInclude
 end
 
 local txt_cache, txt_threads, tree_root, tree_flat = {}, {}, {}, {}
