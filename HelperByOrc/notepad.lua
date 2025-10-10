@@ -53,6 +53,7 @@ local function passFilter(str, filterRaw)
         if filterRaw == "" then return true end
 
         local hasInclude = false
+        local includeMatched = false
         for word in filterRaw:gmatch("[^,]+") do
                 word = word:match("^%s*(.-)%s*$")
                 if word ~= "" then
@@ -67,14 +68,18 @@ local function passFilter(str, filterRaw)
                                 else
                                         hasInclude = true
                                         if found then
-                                                return true
+                                                includeMatched = true
                                         end
                                 end
                         end
                 end
         end
 
-        return not hasInclude
+        if hasInclude then
+                return includeMatched
+        end
+
+        return true
 end
 
 local txt_cache, txt_threads, tree_root, tree_flat = {}, {}, {}, {}
