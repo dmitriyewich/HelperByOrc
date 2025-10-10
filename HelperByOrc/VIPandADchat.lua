@@ -80,7 +80,89 @@ end
 
 -- ширина текста
 local function text_size(s, font, fsize)
-	return font:CalcTextSizeA(fsize, 10000, -1, s).x
+        return font:CalcTextSizeA(fsize, 10000, -1, s).x
+end
+
+local add_text_with_font
+do
+        local function try_get(name)
+                local ok, fn = pcall(function()
+                        return imgui.lib[name]
+                end)
+                if ok and fn then return fn end
+        end
+
+        local add_text_fontptr = try_get('ImDrawList_AddText_FontPtr')
+        if add_text_fontptr then
+                add_text_with_font = function(draw, font, font_size, pos, col, text)
+                        add_text_fontptr(draw, font, font_size, pos, col, text, nil, 0.0, nil)
+                end
+        else
+                local add_text_vec2 = try_get('ImDrawList_AddText')
+                if add_text_vec2 then
+                        add_text_with_font = function(draw, font, font_size, pos, col, text)
+                                if not font then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local current_size = imgui.GetFontSize()
+                                if current_size <= 0 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local ratio = font_size / current_size
+                                if ratio <= 0 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                if math.abs(ratio - 1.0) < 0.001 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                if not imgui.SetWindowFontScale then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local io = imgui.GetIO()
+                                local window_scale = 1.0
+
+                                local ok_fontsize, base_font_size = pcall(function() return font.FontSize end)
+                                if not ok_fontsize or not base_font_size or base_font_size == 0 then
+                                        base_font_size = current_size
+                                end
+
+                                local ok_fontscale, font_scale = pcall(function() return font.Scale end)
+                                if not ok_fontscale or not font_scale or font_scale == 0 then
+                                        font_scale = 1.0
+                                end
+
+                                local denom = base_font_size * font_scale * (io.FontGlobalScale ~= 0 and io.FontGlobalScale or 1)
+                                if denom ~= 0 then
+                                        window_scale = current_size / denom
+                                end
+
+                                if window_scale <= 0 then window_scale = 1.0 end
+
+                                local new_window_scale = window_scale * ratio
+
+                                imgui.PushFont(font)
+                                imgui.SetWindowFontScale(new_window_scale)
+                                local ok, err = pcall(add_text_vec2, draw, pos, col, text, nil)
+                                imgui.SetWindowFontScale(window_scale)
+                                imgui.PopFont()
+                                if not ok then error(err, 0) end
+                        end
+                else
+                        add_text_with_font = function(draw, _, _, pos, col, text)
+                                draw:AddText(pos, col, text)
+                        end
+                end
+        end
 end
 
 -- высота строки с интервалом — чтобы не «резало» низ символов
@@ -90,10 +172,10 @@ end
 
 -- ===================== ПОДСВЕТКА ТЕКСТА =====================
 local function draw_text_with_highlight(text, highlightWordsLower, rect_color, text_alpha)
-	local draw = imgui.GetWindowDrawList()
-	local font = imgui.GetFont()
-	local fsize = imgui.GetFontSize()
-	local lh = line_height()
+        local draw = imgui.GetWindowDrawList()
+        local font = imgui.GetFont()
+        local fsize = imgui.GetFontSize()
+        local lh = line_height()
 
 	local pos = imgui.GetCursorScreenPos()
 	local x, y = pos.x, pos.y
@@ -106,15 +188,25 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
 	local i, n = 1, #text
 	while i <= n do
 		local tag_s, tag_e, tag = text:find("{([%xX]+)}", i)
-		if tag_s == i then
-			cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
-			i = tag_e + 1
-		else
-			local next_tag_s = text:find("{[%xX]+}", i)
-			local hit_s, hit_e
-			for _, w in ipairs(highlightWordsLower) do
-				local s, e = lower:find(w, i, true)
-				if s and (not hit_s or s < hit_s) then hit_s, hit_e = s, e end
+                if tag_s == i then
+                        cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
+                        i = tag_e + 1
+                else
+                        local timestamp = text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
+                        if timestamp then
+                                local scaled_size = fsize * 0.5
+                                local col_u32 = imgui.ColorConvertFloat4ToU32(cur_col)
+                                add_text_with_font(draw, font, scaled_size, imgui.ImVec2(x, y + (fsize - scaled_size)), col_u32, timestamp)
+                                x = x + text_size(timestamp, font, scaled_size)
+                                i = i + #timestamp
+                                goto continue
+                        end
+
+                        local next_tag_s = text:find("{[%xX]+}", i)
+                        local hit_s, hit_e
+                        for _, w in ipairs(highlightWordsLower) do
+                                local s, e = lower:find(w, i, true)
+                                if s and (not hit_s or s < hit_s) then hit_s, hit_e = s, e end
 			end
 			if hit_s and (not next_tag_s or hit_s < next_tag_s) then
 				if hit_s > i then
@@ -134,11 +226,12 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
 				local part = text:sub(i, next_pos-1)
 				draw:AddText(imgui.ImVec2(x, y), imgui.ColorConvertFloat4ToU32(cur_col), part)
 				x = x + text_size(part, font, fsize)
-				i = next_pos
-			end
-		end
-	end
-	imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + lh))
+                                i = next_pos
+                        end
+                end
+                ::continue::
+        end
+        imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + lh))
 end
 
 -- ===================== СОСТОЯНИЕ ПОПАПА ВЫДЕЛЕНИЯ =====================
