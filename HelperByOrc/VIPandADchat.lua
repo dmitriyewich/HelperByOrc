@@ -80,7 +80,23 @@ end
 
 -- ширина текста
 local function text_size(s, font, fsize)
-	return font:CalcTextSizeA(fsize, 10000, -1, s).x
+        return font:CalcTextSizeA(fsize, 10000, -1, s).x
+end
+
+local add_text_with_font
+do
+        local ok, fn = pcall(function()
+                return imgui.lib.ImDrawList_AddText_FontPtr
+        end)
+        if ok and fn then
+                add_text_with_font = function(draw, font, font_size, pos, col, text)
+                        fn(draw, font, font_size, pos, col, text, nil, 0.0, nil)
+                end
+        else
+                add_text_with_font = function(draw, _, _, pos, col, text)
+                        draw:AddText(pos, col, text)
+                end
+        end
 end
 
 -- высота строки с интервалом — чтобы не «резало» низ символов
@@ -114,7 +130,7 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
                         if timestamp then
                                 local scaled_size = fsize * 0.5
                                 local col_u32 = imgui.ColorConvertFloat4ToU32(cur_col)
-                                draw:AddText(font, scaled_size, imgui.ImVec2(x, y + (fsize - scaled_size)), col_u32, timestamp)
+                                add_text_with_font(draw, font, scaled_size, imgui.ImVec2(x, y + (fsize - scaled_size)), col_u32, timestamp)
                                 x = x + text_size(timestamp, font, scaled_size)
                                 i = i + #timestamp
                                 goto continue
