@@ -85,16 +85,27 @@ end
 
 local add_text_with_font
 do
+        local function wrap_font_add(fn)
+                return function(draw, font, font_size, pos, col, text)
+                        fn(draw, font, font_size, pos, col, text, nil, 0.0, nil)
+                end
+        end
+
         local ok, fn = pcall(function()
                 return imgui.lib.ImDrawList_AddText_FontPtr
         end)
         if ok and fn then
-                add_text_with_font = function(draw, font, font_size, pos, col, text)
-                        fn(draw, font, font_size, pos, col, text, nil, 0.0, nil)
-                end
+                add_text_with_font = wrap_font_add(fn)
         else
-                add_text_with_font = function(draw, _, _, pos, col, text)
-                        draw:AddText(pos, col, text)
+                ok, fn = pcall(function()
+                        return imgui.lib.ImDrawList_AddText
+                end)
+                if ok and fn then
+                        add_text_with_font = wrap_font_add(fn)
+                else
+                        add_text_with_font = function(draw, _, _, pos, col, text)
+                                draw:AddText(pos, col, text)
+                        end
                 end
         end
 end
