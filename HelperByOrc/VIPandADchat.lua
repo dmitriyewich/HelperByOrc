@@ -106,22 +106,55 @@ do
                                         return
                                 end
 
-                                local base_size = imgui.GetFontSize()
-                                if base_size <= 0 then
+                                local current_size = imgui.GetFontSize()
+                                if current_size <= 0 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                local ratio = font_size / current_size
+                                if ratio <= 0 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                if math.abs(ratio - 1.0) < 0.001 then
+                                        draw:AddText(pos, col, text)
+                                        return
+                                end
+
+                                if not imgui.SetWindowFontScale then
                                         draw:AddText(pos, col, text)
                                         return
                                 end
 
                                 local io = imgui.GetIO()
-                                local original_global = io.FontGlobalScale
-                                local ratio = font_size / base_size
-                                if ratio <= 0 then ratio = 1 end
+                                local window_scale = 1.0
 
-                                io.FontGlobalScale = original_global * ratio
+                                local ok_fontsize, base_font_size = pcall(function() return font.FontSize end)
+                                if not ok_fontsize or not base_font_size or base_font_size == 0 then
+                                        base_font_size = current_size
+                                end
+
+                                local ok_fontscale, font_scale = pcall(function() return font.Scale end)
+                                if not ok_fontscale or not font_scale or font_scale == 0 then
+                                        font_scale = 1.0
+                                end
+
+                                local denom = base_font_size * font_scale * (io.FontGlobalScale ~= 0 and io.FontGlobalScale or 1)
+                                if denom ~= 0 then
+                                        window_scale = current_size / denom
+                                end
+
+                                if window_scale <= 0 then window_scale = 1.0 end
+
+                                local new_window_scale = window_scale * ratio
+
                                 imgui.PushFont(font)
+                                imgui.SetWindowFontScale(new_window_scale)
                                 local ok, err = pcall(add_text_vec2, draw, pos, col, text, nil)
+                                imgui.SetWindowFontScale(window_scale)
                                 imgui.PopFont()
-                                io.FontGlobalScale = original_global
                                 if not ok then error(err, 0) end
                         end
                 else
