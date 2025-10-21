@@ -1303,19 +1303,25 @@ end, function()
 	end
 	imgui.PushItemWidth(-1)
 
-	if State.want_focus_input then
+	local focus_requested = State.want_focus_input
+	if focus_requested and not imgui.IsMouseDown(0) then
 		imgui.SetKeyboardFocusHere(0)
 		State.want_focus_input = false
 		State.collapse_selection_after_focus = true
 	end
 
 	local flags = bit.bor(
-		imgui.InputTextFlags.CallbackHistory,
-		imgui.InputTextFlags.CallbackAlways,
-		imgui.InputTextFlags.CallbackCharFilter
-	)
+                imgui.InputTextFlags.CallbackHistory,
+                imgui.InputTextFlags.CallbackAlways,
+                imgui.InputTextFlags.CallbackCharFilter
+        )
 	local changed =
 		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
+
+	if focus_requested and State.want_focus_input and imgui.IsItemActive() then
+		State.want_focus_input = false
+		State.collapse_selection_after_focus = false
+	end
 
 	imgui.Spacing()
 	if imgui.SmallButton("Копировать текст") then
