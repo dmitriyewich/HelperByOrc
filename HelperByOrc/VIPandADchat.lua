@@ -11,6 +11,26 @@ local mimgui_funcs = require 'HelperByOrc.mimgui_funcs'
 
 local funcs
 local deepcopy = function(t) return t end
+
+local function clone_table(tbl)
+        if type(tbl) ~= 'table' then return tbl end
+        local res = {}
+        for k, v in pairs(tbl) do
+                res[k] = clone_table(v)
+        end
+        return res
+end
+
+local function merge_defaults(dst, defaults)
+        if type(dst) ~= 'table' or type(defaults) ~= 'table' then return end
+        for k, v in pairs(defaults) do
+                if dst[k] == nil then
+                        dst[k] = clone_table(v)
+                elseif type(v) == 'table' and type(dst[k]) == 'table' then
+                        merge_defaults(dst[k], v)
+                end
+        end
+end
 local json_path = getWorkingDirectory().."\\HelperByOrc\\VIPandADchat.json"
 
 local samp
@@ -35,6 +55,13 @@ local default_config = {
         width = 900,
         vip_height = 7, ad_height = 7,
         highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
+        timestamp = {
+                enabled = true,
+                scale = 0.5,
+                align_baseline = true,
+                offset_y = 0.0,
+                padding = 0.0,
+        },
         vip = {
                 '%[VIP ADV%]', '%[VIP%]', '%[PREMIUM%]', '%[FOREVER%]', '%[SERVER%]',
                 '%[ADMIN%]', u8:decode('%{......%}%[Семья%]'), u8:decode('%[Альянс%]'), '%[Family Car%]',
@@ -177,9 +204,18 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
         local fsize = imgui.GetFontSize()
         local lh = line_height()
 
-	local pos = imgui.GetCursorScreenPos()
-	local x, y = pos.x, pos.y
-	local style = imgui.GetStyle()
+        local timestamp_cfg = config.timestamp or default_config.timestamp or {}
+        local ts_enabled = not (timestamp_cfg.enabled == false)
+        local ts_scale = clamp(tonumber(timestamp_cfg.scale) or (default_config.timestamp and default_config.timestamp.scale) or 0.5, 0.2, 1.0)
+        local ts_padding = math.max(0.0, tonumber(timestamp_cfg.padding) or (default_config.timestamp and default_config.timestamp.padding) or 0.0)
+        local ts_offset_y = tonumber(timestamp_cfg.offset_y) or 0.0
+        local ts_align_baseline = timestamp_cfg.align_baseline ~= false
+        local ts_font_size = fsize * ts_scale
+        local ts_baseline_shift = ts_align_baseline and (fsize - ts_font_size) or 0.0
+
+        local pos = imgui.GetCursorScreenPos()
+        local x, y = pos.x, pos.y
+        local style = imgui.GetStyle()
 
 	local default_col = mul_alpha(imgui.GetStyle().Colors[ffi.C.ImGuiCol_Text], text_alpha or 1.0)
 	local cur_col = default_col
@@ -192,12 +228,12 @@ local function draw_text_with_highlight(text, highlightWordsLower, rect_color, t
                         cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
                         i = tag_e + 1
                 else
-                        local timestamp = text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
-                        if timestamp then
-                                local scaled_size = fsize * 0.5
+                        local timestamp = ts_enabled and text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
+                        if timestamp and ts_font_size > 0 then
+                                local draw_pos = imgui.ImVec2(x, y + ts_baseline_shift + ts_offset_y)
                                 local col_u32 = imgui.ColorConvertFloat4ToU32(cur_col)
-                                add_text_with_font(draw, font, scaled_size, imgui.ImVec2(x, y + (fsize - scaled_size)), col_u32, timestamp)
-                                x = x + text_size(timestamp, font, scaled_size)
+                                add_text_with_font(draw, font, ts_font_size, draw_pos, col_u32, timestamp)
+                                x = x + text_size(timestamp, font, ts_font_size) + ts_padding
                                 i = i + #timestamp
                                 goto continue
                         end
@@ -262,14 +298,18 @@ end
 
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
 function module.load()
-config = deepcopy(default_config)
-	local loaded = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(json_path) or nil
-if type(loaded) == "table" and next(loaded) then
-	for k, v in pairs(loaded) do config[k] = v end
-end
-config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
-config.table_config.vip_text = config.table_config.vip_text or {}
-config.table_config.ad_text = config.table_config.ad_text or {}
+        config = deepcopy(default_config)
+        local loaded = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(json_path) or nil
+        if type(loaded) == "table" and next(loaded) then
+                for k, v in pairs(loaded) do config[k] = v end
+        end
+
+        merge_defaults(config, default_config)
+        config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
+        config.table_config.vip_text = config.table_config.vip_text or {}
+        config.table_config.ad_text = config.table_config.ad_text or {}
+        config.timestamp = config.timestamp or clone_table(default_config.timestamp)
+        merge_defaults(config.timestamp, default_config.timestamp)
 end
 
 
@@ -636,10 +676,48 @@ local function draw_settings_content()
 		if imgui.InputInt("AD-строк", ad_h) then config.ad_height = math.max(1, ad_h[0]); changed_basic = true end
 		imgui.PopItemWidth()
 
-		if changed_basic and imgui.IsMouseReleased(0) then module.save() end
+                if changed_basic and imgui.IsMouseReleased(0) then module.save() end
 
-		imgui.Separator()
-		imgui.Text("Ключевые слова для подсветки:")
+                imgui.Separator()
+                imgui.Text("Настройки отображения времени")
+                config.timestamp = config.timestamp or clone_table(default_config.timestamp)
+                local ts = config.timestamp
+                local ts_enabled = imgui.new.bool(ts.enabled ~= false)
+                if imgui.Checkbox("Уменьшать шрифт времени", ts_enabled) then
+                        ts.enabled = ts_enabled[0]
+                        module.save()
+                end
+
+                local ts_changed = false
+                imgui.PushItemWidth(220)
+                local ts_scale = ffi.new("float[1]", ts.scale or (default_config.timestamp and default_config.timestamp.scale) or 0.5)
+                if imgui.SliderFloat("Масштаб шрифта", ts_scale, 0.2, 1.0, "%.2f") then
+                        ts.scale = clamp(ts_scale[0], 0.2, 1.0)
+                        ts_changed = true
+                end
+                local ts_align = imgui.new.bool(ts.align_baseline ~= false)
+                if imgui.Checkbox("Выравнивание по нижней линии", ts_align) then
+                        ts.align_baseline = ts_align[0]
+                        ts_changed = true
+                end
+                local ts_offset = ffi.new("float[1]", ts.offset_y or 0.0)
+                if imgui.SliderFloat("Вертикальный сдвиг", ts_offset, -20.0, 20.0, "%.1f") then
+                        ts.offset_y = ts_offset[0]
+                        ts_changed = true
+                end
+                local ts_padding = ffi.new("float[1]", ts.padding or 0.0)
+                if imgui.SliderFloat("Отступ после времени", ts_padding, 0.0, 20.0, "%.1f") then
+                        ts.padding = math.max(0.0, ts_padding[0])
+                        ts_changed = true
+                end
+                imgui.PopItemWidth()
+
+                if ts_changed then
+                        module.save()
+                end
+
+                imgui.Separator()
+                imgui.Text("Ключевые слова для подсветки:")
 		for i, word in ipairs(config.highlightWords) do
 			imgui.PushIDInt(i)
 			local buf = imgui.new.char[64](word)
