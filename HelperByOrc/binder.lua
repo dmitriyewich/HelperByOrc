@@ -38,6 +38,8 @@ local json_path = "moonloader/HelperByOrc/binder.json"
 local DEBOUNCE_MS = 40 -- антидребезг
 local MAX_BIND_DEPTH = 5 -- защита от рекурсии при внешних вызовах runBind*
 local MAX_ACTIVE_HOTKEYS = 10 -- limit of active coroutines
+local MULTI_BUF_MIN = 4096
+local MULTI_BUF_PAD = 1024
 
 -- === Утилиты ===
 local function flags_or(...)
@@ -331,6 +333,32 @@ local function ensure_bool(buf, val)
                 buf[0] = val and true or false
         end
         return buf
+end
+
+local function reset_multi_buffer(hk)
+        if hk then
+                hk._multiBuf, hk._multiBufSize, hk._multiBufText = nil, nil, nil
+        end
+end
+
+local function ensure_multi_buffer(hk)
+        local text = hk.editMultiText or ""
+        local len = #text
+        local desired = math.max(MULTI_BUF_MIN, len + MULTI_BUF_PAD)
+        local currentSize = hk._multiBufSize or 0
+
+        if not hk._multiBuf or currentSize < desired then
+                currentSize = desired
+                hk._multiBuf = imgui.new.char[currentSize](text)
+                hk._multiBufSize = currentSize
+        else
+                if hk._multiBufText ~= text then
+                        imgui.StrCopy(hk._multiBuf, text, currentSize)
+                end
+        end
+
+        hk._multiBufText = text
+        return hk._multiBuf
 end
 
 local editHotkey = {active = false, idx = -1}
@@ -1993,6 +2021,7 @@ local function drawEditHotkey(idx)
                 hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
                 hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
                 hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+                reset_multi_buffer(hk)
                 hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
                 hk.editInputs = nil
                 editHotkey.active = false
@@ -2283,13 +2312,21 @@ local function drawEditHotkey(idx)
 			end
 			imgui.PopItemWidth()
 
-			imgui.PushItemWidth(-1)
-			local buf = imgui.new.char[4096](hk.editMultiText or "")
-			if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 280)) then
-				hk.editMultiText = ffi.string(buf)
-			end
-			imgui.PopItemWidth()
-			imgui.TextDisabled("Каждая строка будет отправлена отдельно. Пустые строки игнорируются.")
+                        imgui.PushItemWidth(-1)
+                        local buf = ensure_multi_buffer(hk)
+                        if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 280)) then
+                                local newText = ffi.string(buf)
+                                hk.editMultiText = newText
+                                hk._multiBufText = newText
+                                local needed = math.max(MULTI_BUF_MIN, #newText + MULTI_BUF_PAD)
+                                if needed > (hk._multiBufSize or 0) then
+                                        hk._multiBuf = imgui.new.char[needed](newText)
+                                        hk._multiBufSize = needed
+                                        hk._multiBufText = newText
+                                end
+                        end
+                        imgui.PopItemWidth()
+                        imgui.TextDisabled("Каждая строка будет отправлена отдельно. Пустые строки игнорируются.")
 			imgui.EndTabItem()
 		end
 		if imgui.BeginTabItem("Поля ввода") then
@@ -2436,6 +2473,7 @@ hk.command_enabled = hk.editCommandEnabled
                 hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled = nil, nil, nil, nil, nil, nil
                 hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
                 hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+                reset_multi_buffer(hk)
                 hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
                 hk.editInputs = nil
                 editHotkey.active = false
@@ -2448,6 +2486,7 @@ if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
 hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled = nil, nil, nil, nil, nil, nil
 hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
 hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+reset_multi_buffer(hk)
 hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
 hk.editInputs = nil
 editHotkey.active = false
