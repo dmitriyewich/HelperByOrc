@@ -60,6 +60,18 @@ local function trim(s)
         return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function clone_buttons(arr)
+        local copy = {}
+        for _, btn in ipairs(arr or {}) do
+                copy[#copy + 1] = {
+                        label = btn.label or "",
+                        text = btn.text or "",
+                        hint = btn.hint or ""
+                }
+        end
+        return copy
+end
+
 -- === Toasts ===
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local function pushToast(text, kind, dur)
@@ -186,7 +198,32 @@ local function openInputDialog(hk, delay_ms)
         for _, input in ipairs(hk.inputs or {}) do
                 local key = trim(input.key or "")
                 if key ~= "" then
-                        fields[#fields + 1] = {label = input.label or "", hint = input.hint or "", key = key}
+                        local mode = input.mode == "buttons" and "buttons" or "text"
+                        local buttons
+                        if mode == "buttons" then
+                                buttons = {}
+                                for _, btn in ipairs(input.buttons or {}) do
+                                        local text = trim(btn.text or "")
+                                        if text ~= "" then
+                                                buttons[#buttons + 1] = {
+                                                        label = btn.label or "",
+                                                        text = btn.text or "",
+                                                        hint = btn.hint or ""
+                                                }
+                                        end
+                                end
+                                if #buttons == 0 then
+                                        mode = "text"
+                                        buttons = nil
+                                end
+                        end
+                        fields[#fields + 1] = {
+                                label = input.label or "",
+                                hint = input.hint or "",
+                                key = key,
+                                mode = mode,
+                                buttons = buttons
+                        }
                 end
         end
         if #fields == 0 then
@@ -197,6 +234,7 @@ local function openInputDialog(hk, delay_ms)
                 delay = delay_ms,
                 fields = fields,
                 buffers = {},
+                button_selected = {},
                 open = imgui.new.bool(true),
                 focus_requested = true
         }
@@ -253,17 +291,59 @@ local function drawInputDialog()
                         if field.label and field.label ~= "" then
                                 imgui.TextWrapped(field.label)
                         end
+
                         local buf = dialog.buffers[idx]
                         if not buf then
-                                buf = imgui.new.char[512]()
+                                buf = imgui.new.char[2048]()
                                 dialog.buffers[idx] = buf
                                 imgui.StrCopy(buf, "", ffi.sizeof(buf))
                         end
-                        if dialog.focus_requested and idx == 1 then
+
+                        local hasButtons = field.mode == "buttons" and field.buttons and #field.buttons > 0
+                        if hasButtons then
+                                imgui.TextDisabled("Быстрые варианты")
+                                local selectedIdx = dialog.button_selected[idx]
+                                for j, btn in ipairs(field.buttons) do
+                                        local label = trim(btn.label or "")
+                                        if label == "" then
+                                                label = ("Кнопка %d"):format(j)
+                                        end
+                                        local pushed = false
+                                        if selectedIdx == j then
+                                                local style = imgui.GetStyle()
+                                                imgui.PushStyleColor(imgui.Col.Button, style.Colors[imgui.Col.ButtonActive])
+                                                imgui.PushStyleColor(imgui.Col.ButtonHovered, style.Colors[imgui.Col.ButtonActive])
+                                                imgui.PushStyleColor(imgui.Col.ButtonActive, style.Colors[imgui.Col.ButtonActive])
+                                                pushed = true
+                                        end
+                                        if imgui.Button(label .. "##dialog_btn" .. idx .. "_" .. j) then
+                                                imgui.StrCopy(buf, btn.text or "", ffi.sizeof(buf))
+                                                dialog.button_selected[idx] = j
+                                                selectedIdx = j
+                                        end
+                                        if pushed then
+                                                imgui.PopStyleColor(3)
+                                        end
+                                        if btn.hint and btn.hint ~= "" and imgui.IsItemHovered() then
+                                                imgui.SetTooltip(btn.hint)
+                                        end
+                                end
+                                imgui.Spacing()
+                                imgui.TextDisabled("Можно выбрать кнопку или ввести текст ниже")
+                        end
+
+                        if field.hint and field.hint ~= "" then
+                                imgui.PushTextWrapPos()
+                                imgui.TextDisabled(field.hint)
+                                imgui.PopTextWrapPos()
+                        end
+
+                        if dialog.focus_requested then
                                 imgui.SetKeyboardFocusHere()
+                                dialog.focus_requested = false
                         end
                         imgui.PushItemWidth(-1)
-                        imgui.InputTextWithHint("##dialog_input" .. idx, field.hint or "", buf, ffi.sizeof(buf))
+                        imgui.InputTextMultiline("Свой текст##dialog_input" .. idx, buf, ffi.sizeof(buf), imgui.ImVec2(0, 96))
                         imgui.PopItemWidth()
                         imgui.Spacing()
                 end
@@ -373,6 +453,8 @@ local open_quick_conditions_popup = false
 -- Подписи
 local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+local input_mode_labels = {"Поле ввода", "Кнопки"}
+local input_mode_labels_ffi = imgui.new["const char*"][#input_mode_labels](input_mode_labels)
 
 local function hotkeyFolderString(hk)
         if not hk or type(hk.folderPath) ~= "table" then
@@ -522,12 +604,32 @@ function module.saveHotkeys()
                 end
                 local inputs = {}
                 for _, input in ipairs(hk.inputs or {}) do
+                        local mode = input.mode == "buttons" and "buttons" or "text"
+                        local buttons
+                        if mode == "buttons" then
+                                buttons = {}
+                                for _, btn in ipairs(input.buttons or {}) do
+                                        local text = trim(btn.text or "")
+                                        if text ~= "" then
+                                                buttons[#buttons + 1] = {
+                                                        label = btn.label or "",
+                                                        text = btn.text or "",
+                                                        hint = btn.hint or ""
+                                                }
+                                        end
+                                end
+                                if #buttons == 0 then
+                                        buttons = nil
+                                end
+                        end
                         table.insert(
                                 inputs,
                                 {
                                         label = input.label or "",
                                         hint = input.hint or "",
-                                        key = input.key or ""
+                                        key = input.key or "",
+                                        mode = mode,
+                                        buttons = buttons
                                 }
                         )
                 end
@@ -602,12 +704,33 @@ function module.registerHotkey(
         for _, input in ipairs(inputs or {}) do
                 local key = trim(input.key or "")
                 if key ~= "" then
+                        local mode = input.mode == "buttons" and "buttons" or "text"
+                        local buttons
+                        if mode == "buttons" then
+                                buttons = {}
+                                for _, btn in ipairs(input.buttons or {}) do
+                                        local text = trim(btn.text or "")
+                                        if text ~= "" then
+                                                buttons[#buttons + 1] = {
+                                                        label = btn.label or "",
+                                                        text = btn.text or "",
+                                                        hint = btn.hint or ""
+                                                }
+                                        end
+                                end
+                                if #buttons == 0 then
+                                        buttons = nil
+                                        mode = "text"
+                                end
+                        end
                         table.insert(
                                 hk.inputs,
                                 {
                                         label = input.label or "",
                                         hint = input.hint or "",
-                                        key = key
+                                        key = key,
+                                        mode = mode,
+                                        buttons = buttons
                                 }
                         )
                 end
@@ -1803,6 +1926,18 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
                                         keysSeen[lower] = true
                                 end
                         end
+                        if (input.mode or "text") == "buttons" then
+                                local hasButtons = false
+                                for _, btn in ipairs(input.buttons or {}) do
+                                        if trim(btn.text or "") ~= "" then
+                                                hasButtons = true
+                                                break
+                                        end
+                                end
+                                if not hasButtons then
+                                        errs[#errs + 1] = ("Поле ввода %d: добавьте хотя бы одну кнопку с текстом"):format(i)
+                                end
+                        end
                 end
         end
 
@@ -1834,7 +1969,13 @@ local function ensureEditBuffers(hk)
                 for _, input in ipairs(hk.inputs or {}) do
                         table.insert(
                                 hk.editInputs,
-                                {label = input.label or "", hint = input.hint or "", key = input.key or ""}
+                                {
+                                        label = input.label or "",
+                                        hint = input.hint or "",
+                                        key = input.key or "",
+                                        mode = input.mode == "buttons" and "buttons" or "text",
+                                        buttons = clone_buttons(input.buttons)
+                                }
                         )
                 end
         end
@@ -2331,11 +2472,11 @@ local function drawEditHotkey(idx)
 		end
 		if imgui.BeginTabItem("Поля ввода") then
 			hk._activeTab = 2
-			imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
-			if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
-				table.insert(hk.editInputs, {label = "", hint = "", key = ""})
-				module.saveHotkeys()
-			end
+                        imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
+                        if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
+                                table.insert(hk.editInputs, {label = "", hint = "", key = "", mode = "text", buttons = {}})
+                                module.saveHotkeys()
+                        end
 			if #hk.editInputs == 0 then
 				imgui.TextDisabled("Полей ввода нет")
 			else
@@ -2364,44 +2505,139 @@ local function drawEditHotkey(idx)
 						module.saveHotkeys()
 					end
 					imgui.SameLine()
-					imgui.BeginGroup()
-					imgui.TextDisabled("Текст над полем")
-					imgui.PushItemWidth(-1)
-					local labelBuf = imgui.new.char[512](input.label or "")
-					if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
-						input.label = ffi.string(labelBuf)
-						module.saveHotkeys()
-					end
-					imgui.PopItemWidth()
-					imgui.TextDisabled("Подсказка внутри поля")
-					imgui.PushItemWidth(-1)
-					local hintBuf = imgui.new.char[256](input.hint or "")
-					if imgui.InputTextWithHint(
-						"##input_hint",
-						"Например координаты",
-						 hintBuf,
-						 ffi.sizeof(hintBuf),
-						 flags_or(imgui.InputTextFlags.AutoSelectAll)
-					) then
-						input.hint = ffi.string(hintBuf)
-						module.saveHotkeys()
-					end
-					imgui.PopItemWidth()
-					imgui.TextDisabled("Ключ подстановки")
-					imgui.PushItemWidth(-1)
-					local keyBuf = imgui.new.char[128](input.key or "")
-					if imgui.InputTextWithHint(
-						"##input_key",
-						"Ключ (например CALLSIGN)",
-						 keyBuf,
-						 ffi.sizeof(keyBuf),
-						 flags_or(imgui.InputTextFlags.AutoSelectAll)
-					) then
-						input.key = ffi.string(keyBuf)
-						module.saveHotkeys()
-					end
+                                        imgui.BeginGroup()
+                                        local mode = input.mode == "buttons" and "buttons" or "text"
+                                        input.mode = mode
+                                        input.buttons = input.buttons or {}
+                                        imgui.TextDisabled("Тип поля")
+                                        imgui.PushItemWidth(-1)
+                                        local modeBuf = imgui.new.int(mode == "buttons" and 1 or 0)
+                                        if imgui.Combo("##input_mode", modeBuf, input_mode_labels_ffi, #input_mode_labels) then
+                                                input.mode = modeBuf[0] == 1 and "buttons" or "text"
+                                                mode = input.mode
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.PopItemWidth()
+                                        imgui.TextDisabled("Текст над полем")
+                                        imgui.PushItemWidth(-1)
+                                        local labelBuf = imgui.new.char[512](input.label or "")
+                                        if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
+                                                input.label = ffi.string(labelBuf)
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.PopItemWidth()
+                                        imgui.TextDisabled("Подсказка к полю ввода")
+                                        imgui.PushItemWidth(-1)
+                                        local hintBuf = imgui.new.char[256](input.hint or "")
+                                        if imgui.InputTextWithHint(
+                                                "##input_hint",
+                                                "Например координаты",
+                                                hintBuf,
+                                                ffi.sizeof(hintBuf),
+                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                        ) then
+                                                input.hint = ffi.string(hintBuf)
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.PopItemWidth()
+                                        if mode == "buttons" then
+                                                imgui.TextDisabled("При показе кнопок поле \"Свой текст\" остаётся доступным для ввода")
+                                        end
+                                        imgui.TextDisabled("Ключ подстановки")
+                                        imgui.PushItemWidth(-1)
+                                        local keyBuf = imgui.new.char[128](input.key or "")
+                                        if imgui.InputTextWithHint(
+                                                "##input_key",
+                                                "Ключ (например CALLSIGN)",
+                                                keyBuf,
+                                                ffi.sizeof(keyBuf),
+                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                        ) then
+                                                input.key = ffi.string(keyBuf)
+                                                module.saveHotkeys()
+                                        end
                                         imgui.PopItemWidth()
                                         imgui.TextDisabled("Используйте латинские буквы, цифры и _")
+                                        if mode == "buttons" then
+                                                imgui.Separator()
+                                                imgui.TextDisabled("Кнопки")
+                                                if imgui.Button(fa.SQUARE_PLUS .. " Добавить кнопку##addbtn") then
+                                                        table.insert(input.buttons, {label = "", text = "", hint = ""})
+                                                        module.saveHotkeys()
+                                                end
+                                                if #input.buttons == 0 then
+                                                        imgui.TextDisabled("Кнопок нет")
+                                                else
+                                                        local btnChildHeight = math.min(200, 120 * #input.buttons)
+                                                        imgui.BeginChild("buttons_list", imgui.ImVec2(0, btnChildHeight), true)
+                                                        for j, btn in ipairs(input.buttons) do
+                                                                imgui.PushIDInt(j)
+                                                                local btnTrash = fa.TRASH
+                                                                if not btnTrash or btnTrash == "" then
+                                                                        btnTrash = "X"
+                                                                end
+                                                                if imgui.Button(btnTrash .. "##btn_del", imgui.ImVec2(28, 20)) then
+                                                                        table.remove(input.buttons, j)
+                                                                        module.saveHotkeys()
+                                                                        imgui.PopID()
+                                                                        goto continue_buttons
+                                                                end
+                                                                imgui.SameLine()
+                                                                if imgui.Button(fa.ARROW_UP .. "##btn_up", imgui.ImVec2(28, 20)) and j > 1 then
+                                                                        input.buttons[j], input.buttons[j - 1] = input.buttons[j - 1], input.buttons[j]
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                imgui.SameLine()
+                                                                if imgui.Button(fa.ARROW_DOWN .. "##btn_down", imgui.ImVec2(28, 20)) and j < #input.buttons then
+                                                                        input.buttons[j], input.buttons[j + 1] = input.buttons[j + 1], input.buttons[j]
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                imgui.SameLine()
+                                                                imgui.BeginGroup()
+                                                                imgui.TextDisabled("Название кнопки")
+                                                                imgui.PushItemWidth(-1)
+                                                                local btnLabelBuf = imgui.new.char[256](btn.label or "")
+                                                                if imgui.InputTextWithHint(
+                                                                        "##btn_label",
+                                                                        "Например Кнопка 1",
+                                                                        btnLabelBuf,
+                                                                        ffi.sizeof(btnLabelBuf),
+                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                                ) then
+                                                                        btn.label = ffi.string(btnLabelBuf)
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                imgui.PopItemWidth()
+                                                                imgui.TextDisabled("Текст для вставки")
+                                                                imgui.PushItemWidth(-1)
+                                                                local btnTextBuf = imgui.new.char[512](btn.text or "")
+                                                                if imgui.InputTextMultiline("##btn_text", btnTextBuf, ffi.sizeof(btnTextBuf), imgui.ImVec2(0, 64)) then
+                                                                        btn.text = ffi.string(btnTextBuf)
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                imgui.PopItemWidth()
+                                                                imgui.TextDisabled("Подсказка кнопки")
+                                                                imgui.PushItemWidth(-1)
+                                                                local btnHintBuf = imgui.new.char[256](btn.hint or "")
+                                                                if imgui.InputTextWithHint(
+                                                                        "##btn_hint",
+                                                                        "Подсказка",
+                                                                        btnHintBuf,
+                                                                        ffi.sizeof(btnHintBuf),
+                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                                ) then
+                                                                        btn.hint = ffi.string(btnHintBuf)
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                imgui.PopItemWidth()
+                                                                imgui.EndGroup()
+                                                                imgui.PopID()
+                                                                imgui.Separator()
+                                                                ::continue_buttons::
+                                                        end
+                                                        imgui.EndChild()
+                                                end
+                                        end
                                         imgui.EndGroup()
                                         imgui.PopID()
                                         imgui.Separator()
@@ -2446,9 +2682,34 @@ hk.command_enabled = hk.editCommandEnabled
                 for _, input in ipairs(hk.editInputs or {}) do
                         local key = trim(input.key or "")
                         if key ~= "" then
+                                local mode = input.mode == "buttons" and "buttons" or "text"
+                                local buttons
+                                if mode == "buttons" then
+                                        buttons = {}
+                                        for _, btn in ipairs(input.buttons or {}) do
+                                                local text = trim(btn.text or "")
+                                                if text ~= "" then
+                                                        buttons[#buttons + 1] = {
+                                                                label = btn.label or "",
+                                                                text = btn.text or "",
+                                                                hint = btn.hint or ""
+                                                        }
+                                                end
+                                        end
+                                        if #buttons == 0 then
+                                                buttons = nil
+                                                mode = "text"
+                                        end
+                                end
                                 table.insert(
                                         hk.inputs,
-                                        {label = input.label or "", hint = input.hint or "", key = key}
+                                        {
+                                                label = input.label or "",
+                                                hint = input.hint or "",
+                                                key = key,
+                                                mode = mode,
+                                                buttons = buttons
+                                        }
                                 )
                         end
                 end
