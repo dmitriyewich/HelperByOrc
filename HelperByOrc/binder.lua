@@ -234,7 +234,6 @@ local function openInputDialog(hk, delay_ms)
                 delay = delay_ms,
                 fields = fields,
                 buffers = {},
-                button_values = {},
                 button_selected = {},
                 open = imgui.new.bool(true),
                 focus_requested = true
@@ -292,8 +291,17 @@ local function drawInputDialog()
                         if field.label and field.label ~= "" then
                                 imgui.TextWrapped(field.label)
                         end
-                        local mode = field.mode == "buttons" and "buttons" or "text"
-                        if mode == "buttons" and field.buttons and #field.buttons > 0 then
+
+                        local buf = dialog.buffers[idx]
+                        if not buf then
+                                buf = imgui.new.char[2048]()
+                                dialog.buffers[idx] = buf
+                                imgui.StrCopy(buf, "", ffi.sizeof(buf))
+                        end
+
+                        local hasButtons = field.mode == "buttons" and field.buttons and #field.buttons > 0
+                        if hasButtons then
+                                imgui.TextDisabled("Быстрые варианты")
                                 local selectedIdx = dialog.button_selected[idx]
                                 for j, btn in ipairs(field.buttons) do
                                         local label = trim(btn.label or "")
@@ -309,7 +317,7 @@ local function drawInputDialog()
                                                 pushed = true
                                         end
                                         if imgui.Button(label .. "##dialog_btn" .. idx .. "_" .. j) then
-                                                dialog.button_values[idx] = btn.text or ""
+                                                imgui.StrCopy(buf, btn.text or "", ffi.sizeof(buf))
                                                 dialog.button_selected[idx] = j
                                                 selectedIdx = j
                                         end
@@ -320,44 +328,32 @@ local function drawInputDialog()
                                                 imgui.SetTooltip(btn.hint)
                                         end
                                 end
-                                local value = dialog.button_values[idx]
-                                if value and value ~= "" then
-                                        imgui.PushTextWrapPos()
-                                        imgui.TextDisabled("Выбрано: " .. value)
-                                        imgui.PopTextWrapPos()
-                                else
-                                        imgui.TextDisabled("Выберите кнопку, чтобы вставить текст")
-                                end
                                 imgui.Spacing()
-                        else
-                                local buf = dialog.buffers[idx]
-                                if not buf then
-                                        buf = imgui.new.char[512]()
-                                        dialog.buffers[idx] = buf
-                                        imgui.StrCopy(buf, "", ffi.sizeof(buf))
-                                end
-                                if dialog.focus_requested then
-                                        imgui.SetKeyboardFocusHere()
-                                        dialog.focus_requested = false
-                                end
-                                imgui.PushItemWidth(-1)
-                                imgui.InputTextWithHint("##dialog_input" .. idx, field.hint or "", buf, ffi.sizeof(buf))
-                                imgui.PopItemWidth()
-                                imgui.Spacing()
+                                imgui.TextDisabled("Можно выбрать кнопку или ввести текст ниже")
                         end
+
+                        if field.hint and field.hint ~= "" then
+                                imgui.PushTextWrapPos()
+                                imgui.TextDisabled(field.hint)
+                                imgui.PopTextWrapPos()
+                        end
+
+                        if dialog.focus_requested then
+                                imgui.SetKeyboardFocusHere()
+                                dialog.focus_requested = false
+                        end
+                        imgui.PushItemWidth(-1)
+                        imgui.InputTextMultiline("Свой текст##dialog_input" .. idx, buf, ffi.sizeof(buf), imgui.ImVec2(0, 96))
+                        imgui.PopItemWidth()
+                        imgui.Spacing()
                 end
                 dialog.focus_requested = false
                 if imgui.Button((fa.PAPER_PLANE or fa.CHECK or "") .. " Отправить") then
                         local values = {}
                         for idx, field in ipairs(dialog.fields) do
                                 local key = field.key
-                                local value
-                                if field.mode == "buttons" and field.buttons and #field.buttons > 0 then
-                                        value = dialog.button_values[idx] or ""
-                                else
-                                        local buf = dialog.buffers[idx]
-                                        value = buf and ffi.string(buf) or ""
-                                end
+                                local buf = dialog.buffers[idx]
+                                local value = buf and ffi.string(buf) or ""
                                 if key and key ~= "" then
                                         values[key] = value
                                         values[key:lower()] = value
@@ -2530,23 +2526,22 @@ local function drawEditHotkey(idx)
                                                 module.saveHotkeys()
                                         end
                                         imgui.PopItemWidth()
-                                        if mode ~= "buttons" then
-                                                imgui.TextDisabled("Подсказка внутри поля")
-                                                imgui.PushItemWidth(-1)
-                                                local hintBuf = imgui.new.char[256](input.hint or "")
-                                                if imgui.InputTextWithHint(
-                                                        "##input_hint",
-                                                        "Например координаты",
-                                                        hintBuf,
-                                                        ffi.sizeof(hintBuf),
-                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
-                                                ) then
-                                                        input.hint = ffi.string(hintBuf)
-                                                        module.saveHotkeys()
-                                                end
-                                                imgui.PopItemWidth()
-                                        else
-                                                imgui.TextDisabled("Значение выбирается по кнопке")
+                                        imgui.TextDisabled("Подсказка к полю ввода")
+                                        imgui.PushItemWidth(-1)
+                                        local hintBuf = imgui.new.char[256](input.hint or "")
+                                        if imgui.InputTextWithHint(
+                                                "##input_hint",
+                                                "Например координаты",
+                                                hintBuf,
+                                                ffi.sizeof(hintBuf),
+                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                        ) then
+                                                input.hint = ffi.string(hintBuf)
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.PopItemWidth()
+                                        if mode == "buttons" then
+                                                imgui.TextDisabled("При показе кнопок поле \"Свой текст\" остаётся доступным для ввода")
                                         end
                                         imgui.TextDisabled("Ключ подстановки")
                                         imgui.PushItemWidth(-1)
@@ -2576,7 +2571,7 @@ local function drawEditHotkey(idx)
                                                         local btnChildHeight = math.min(200, 120 * #input.buttons)
                                                         imgui.BeginChild("buttons_list", imgui.ImVec2(0, btnChildHeight), true)
                                                         for j, btn in ipairs(input.buttons) do
-                                                                imgui.PushID(j)
+                                                                imgui.PushIDInt(j)
                                                                 local btnTrash = fa.TRASH
                                                                 if not btnTrash or btnTrash == "" then
                                                                         btnTrash = "X"
