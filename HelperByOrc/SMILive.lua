@@ -6,6 +6,12 @@ local ffi = require("ffi")
 local str = ffi.string
 
 local math_random = math.random
+local math_floor = math.floor
+local math_min = math.min
+local math_max = math.max
+local os_clock = os.clock
+local os_date = os.date
+local os_time = os.time
 
 local function format_status(fmt, ...)
         local ok, msg = pcall(string.format, fmt, ...)
@@ -13,6 +19,10 @@ local function format_status(fmt, ...)
                 return msg
         end
         return fmt
+end
+
+local function trim(s)
+        return (s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 
 local function generate_math_problem()
@@ -200,7 +210,7 @@ function SMILive.DrawMathQuiz()
                 imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
                 if imgui.Button("Проверить ответ") then
                         local name = str(MathQuiz.player_name_buf)
-                        name = (name or ""):gsub("^%s*(.-)%s*$", "%1")
+                        name = trim(name)
                         local answer_str = str(MathQuiz.player_answer_buf)
                         local provided = tonumber(answer_str)
                         if name == "" then
@@ -262,6 +272,562 @@ function SMILive.DrawMathQuiz()
                 end
         end
 end
+
+local buffer_constructors = {
+        [24] = function()
+                return new.char[24]()
+        end,
+        [48] = function()
+                return new.char[48]()
+        end,
+        [64] = function()
+                return new.char[64]()
+        end,
+        [160] = function()
+                return new.char[160]()
+        end,
+        [200] = function()
+                return new.char[200]()
+        end,
+        [256] = function()
+                return new.char[256]()
+        end,
+}
+
+local function make_buffer(len, value)
+        local ctor = buffer_constructors[len]
+        if not ctor then
+                error("Unsupported buffer length: " .. tostring(len))
+        end
+        local holder = { buf = ctor(), size = len }
+        imgui.StrCopy(holder.buf, value or "")
+        return holder
+end
+
+local STATUS_INFO = {
+        { name = "Подготовка", color = imgui.ImVec4(0.75, 0.75, 0.75, 1) },
+        { name = "В эфире", color = imgui.ImVec4(0.4, 0.9, 0.5, 1) },
+        { name = "Пауза", color = imgui.ImVec4(0.95, 0.7, 0.35, 1) },
+        { name = "Завершён", color = imgui.ImVec4(0.7, 0.7, 0.7, 1) },
+}
+
+local LiveWindow = {
+        show = new.bool(false),
+        segments = {},
+        selected_index = 0,
+        new_title = make_buffer(64),
+        new_host = make_buffer(48),
+        new_time = make_buffer(24),
+        new_note = make_buffer(160),
+        custom_message = make_buffer(256),
+        templates = {
+                "В эфире: %s",
+                "Готовим к эфиру: %s",
+                "Сегмент \"%s\" завершён. Спасибо, что были с нами!",
+                "%s — старт через минуту!",
+        },
+        template_idx = 1,
+        event_log = {},
+        log_limit = 80,
+        feedback = "",
+        feedback_color = imgui.ImVec4(0.75, 0.75, 0.75, 1),
+        feedback_clock = 0,
+}
+
+local function log_event(message)
+        message = trim(message or "")
+        if message == "" then
+                return
+        end
+        table.insert(LiveWindow.event_log, 1, { time = os_date("%H:%M:%S"), text = message })
+        while #LiveWindow.event_log > LiveWindow.log_limit do
+                table.remove(LiveWindow.event_log)
+        end
+end
+
+local function set_feedback(text, kind)
+        LiveWindow.feedback = text or ""
+        LiveWindow.feedback_clock = os_clock()
+        if kind == "error" then
+                LiveWindow.feedback_color = imgui.ImVec4(1.0, 0.45, 0.45, 1)
+        elseif kind == "success" then
+                LiveWindow.feedback_color = imgui.ImVec4(0.55, 0.85, 0.55, 1)
+        else
+                LiveWindow.feedback_color = imgui.ImVec4(0.75, 0.75, 0.75, 1)
+        end
+end
+
+local function create_segment(title, host, time_slot, note)
+        local seg = {
+                status = 1,
+                title = make_buffer(64, title),
+                host = make_buffer(48, host),
+                time = make_buffer(24, time_slot),
+                notes = make_buffer(256, note),
+                created_at = os_time(),
+                last_status_change = os_time(),
+        }
+        return seg
+end
+
+local function get_segment_title(seg)
+        if not seg then
+                return ""
+        end
+        return trim(str(seg.title.buf))
+end
+
+local function get_segment_host(seg)
+        if not seg then
+                return ""
+        end
+        return trim(str(seg.host.buf))
+end
+
+local function get_segment_time(seg)
+        if not seg then
+                return ""
+        end
+        return trim(str(seg.time.buf))
+end
+
+local function get_segment_notes(seg)
+        if not seg then
+                return ""
+        end
+        return trim(str(seg.notes.buf))
+end
+
+local function ensure_selection()
+        local count = #LiveWindow.segments
+        if count == 0 then
+                LiveWindow.selected_index = 0
+                return
+        end
+        if LiveWindow.selected_index < 1 then
+                LiveWindow.selected_index = 1
+        elseif LiveWindow.selected_index > count then
+                LiveWindow.selected_index = count
+        end
+end
+
+local function build_segment_summary(seg, idx)
+        local lines = {}
+        local title = get_segment_title(seg)
+        if title == "" then
+                title = format_status("Сегмент %d", idx)
+        end
+        table.insert(lines, format_status("Сегмент: %s", title))
+        local host = get_segment_host(seg)
+        if host ~= "" then
+                table.insert(lines, format_status("Ведущий: %s", host))
+        end
+        local time_slot = get_segment_time(seg)
+        if time_slot ~= "" then
+                table.insert(lines, format_status("Слот: %s", time_slot))
+        end
+        local info = STATUS_INFO[seg.status] or STATUS_INFO[1]
+        if info then
+                table.insert(lines, format_status("Статус: %s", info.name))
+        end
+        local note = get_segment_notes(seg)
+        if note ~= "" then
+                table.insert(lines, format_status("Заметки: %s", note))
+        end
+        return table.concat(lines, "\n")
+end
+
+local function add_segment()
+        local title = trim(str(LiveWindow.new_title.buf))
+        local host = trim(str(LiveWindow.new_host.buf))
+        local time_slot = trim(str(LiveWindow.new_time.buf))
+        local note = trim(str(LiveWindow.new_note.buf))
+        if title == "" then
+                set_feedback("Введите название сегмента.", "error")
+                return
+        end
+        local seg = create_segment(title, host, time_slot, note)
+        table.insert(LiveWindow.segments, seg)
+        LiveWindow.selected_index = #LiveWindow.segments
+        ensure_selection()
+        log_event(format_status("Добавлен сегмент \"%s\".", title))
+        set_feedback("Сегмент добавлен в сетку эфира.", "success")
+        imgui.StrCopy(LiveWindow.new_title.buf, "")
+        imgui.StrCopy(LiveWindow.new_host.buf, "")
+        imgui.StrCopy(LiveWindow.new_time.buf, "")
+        imgui.StrCopy(LiveWindow.new_note.buf, "")
+end
+
+local function remove_segment(idx)
+        local seg = LiveWindow.segments[idx]
+        if not seg then
+                return false
+        end
+        local title = get_segment_title(seg)
+        if title == "" then
+                title = format_status("Сегмент %d", idx)
+        end
+        table.remove(LiveWindow.segments, idx)
+        ensure_selection()
+        log_event(format_status("Удалён сегмент \"%s\".", title))
+        set_feedback("Сегмент удалён из сетки.", "info")
+        return true
+end
+
+local function reorder_segment(idx, delta)
+        local new_idx = idx + delta
+        if new_idx < 1 or new_idx > #LiveWindow.segments then
+                return
+        end
+        LiveWindow.segments[idx], LiveWindow.segments[new_idx] = LiveWindow.segments[new_idx], LiveWindow.segments[idx]
+        LiveWindow.selected_index = new_idx
+        local seg = LiveWindow.segments[new_idx]
+        local title = get_segment_title(seg)
+        if title == "" then
+                title = format_status("Сегмент %d", new_idx)
+        end
+        log_event(format_status("Сегмент \"%s\" перемещён на позицию %d.", title, new_idx))
+        set_feedback("Порядок сегментов обновлён.", "info")
+end
+
+local function set_segment_status(idx, status)
+        local seg = LiveWindow.segments[idx]
+        if not seg or seg.status == status then
+                return
+        end
+        seg.status = status
+        seg.last_status_change = os_time()
+        local title = get_segment_title(seg)
+        if title == "" then
+                title = format_status("Сегмент %d", idx)
+        end
+        local info = STATUS_INFO[status] or STATUS_INFO[1]
+        log_event(format_status("Статус \"%s\": %s.", title, info.name))
+        set_feedback(format_status("Статус обновлён: %s.", info.name), "success")
+end
+
+local function apply_template_to_message(template_idx)
+        local template = LiveWindow.templates[template_idx]
+        if not template then
+                return
+        end
+        local placeholder = "эфир"
+        local seg = LiveWindow.segments[LiveWindow.selected_index]
+        if seg then
+                local title = get_segment_title(seg)
+                if title ~= "" then
+                        placeholder = title
+                end
+        end
+        local message = format_status(template, placeholder)
+        imgui.StrCopy(LiveWindow.custom_message.buf, message)
+        set_feedback("Шаблон подставлен в черновик.", "info")
+end
+
+local function add_custom_message()
+        local message = trim(str(LiveWindow.custom_message.buf))
+        if message == "" then
+                set_feedback("Введите текст сообщения перед добавлением.", "error")
+                return
+        end
+        log_event(message)
+        set_feedback("Сообщение добавлено в журнал.", "success")
+        imgui.StrCopy(LiveWindow.custom_message.buf, "")
+end
+
+local function draw_segments_list()
+        imgui.Text("Новый сегмент")
+        imgui.InputText("Название", LiveWindow.new_title.buf, LiveWindow.new_title.size)
+        imgui.InputText("Ведущий", LiveWindow.new_host.buf, LiveWindow.new_host.size)
+        imgui.InputText("Время/слот", LiveWindow.new_time.buf, LiveWindow.new_time.size)
+        imgui.InputTextMultiline("Комментарий", LiveWindow.new_note.buf, LiveWindow.new_note.size, imgui.ImVec2(0, 60))
+        if imgui.Button("Добавить сегмент") then
+                add_segment()
+        end
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.Text("Сетка эфира")
+        imgui.BeginChild("live_segments_scroll", imgui.ImVec2(0, 0), true)
+        if #LiveWindow.segments == 0 then
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Список пуст. Добавьте сегмент выше.")
+        else
+                local i = 1
+                while i <= #LiveWindow.segments do
+                        local seg = LiveWindow.segments[i]
+                        imgui.PushID(i)
+                        local display = get_segment_title(seg)
+                        if display == "" then
+                                display = format_status("Сегмент %d", i)
+                        end
+                        if imgui.Selectable(display .. "##live_segment_select", LiveWindow.selected_index == i) then
+                                LiveWindow.selected_index = i
+                        end
+                        local status_info = STATUS_INFO[seg.status] or STATUS_INFO[1]
+                        imgui.PushStyleColor(imgui.Col.Text, status_info.color)
+                        imgui.Text(status_info.name)
+                        imgui.PopStyleColor()
+                        local list_changed = false
+                        imgui.SameLine()
+                        if imgui.SmallButton("▲##live_seg_up") then
+                                reorder_segment(i, -1)
+                                list_changed = true
+                        end
+                        imgui.SameLine()
+                        if imgui.SmallButton("▼##live_seg_down") then
+                                reorder_segment(i, 1)
+                                list_changed = true
+                        end
+                        if list_changed then
+                                imgui.PopID()
+                                break
+                        end
+                        imgui.SameLine()
+                        local removed = false
+                        if imgui.SmallButton("✖##live_seg_remove") then
+                                removed = remove_segment(i)
+                        end
+                        if not removed then
+                                local host = get_segment_host(seg)
+                                local time_slot = get_segment_time(seg)
+                                if host ~= "" or time_slot ~= "" then
+                                        imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.75, 0.75, 0.75, 1))
+                                        local meta = {}
+                                        if host ~= "" then
+                                                table.insert(meta, format_status("Ведущий: %s", host))
+                                        end
+                                        if time_slot ~= "" then
+                                                table.insert(meta, time_slot)
+                                        end
+                                        imgui.Text(table.concat(meta, " • "))
+                                        imgui.PopStyleColor()
+                                end
+                                local note = get_segment_notes(seg)
+                                if note ~= "" then
+                                        imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.65, 0.65, 0.65, 1))
+                                        imgui.TextWrapped(note)
+                                        imgui.PopStyleColor()
+                                end
+                                imgui.Separator()
+                                imgui.PopID()
+                                i = i + 1
+                        else
+                                imgui.PopID()
+                        end
+                        if removed then
+                                -- не увеличиваем индекс, чтобы проверить новый элемент на этой позиции
+                        end
+                end
+        end
+        imgui.EndChild()
+end
+
+local function draw_segment_details()
+        ensure_selection()
+        local idx = LiveWindow.selected_index
+        local seg = LiveWindow.segments[idx]
+        if not seg then
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Выберите сегмент слева, чтобы увидеть детали.")
+                return
+        end
+        local title = get_segment_title(seg)
+        if title == "" then
+                title = format_status("Сегмент %d", idx)
+        end
+        local status_info = STATUS_INFO[seg.status] or STATUS_INFO[1]
+        imgui.TextColored(status_info.color, format_status("«%s»", title))
+        imgui.TextColored(imgui.ImVec4(0.65, 0.65, 0.65, 1), format_status("Создан: %s", os_date("%d.%m %H:%M", seg.created_at)))
+        if imgui.BeginCombo("Статус", status_info.name) then
+                for status_idx, info in ipairs(STATUS_INFO) do
+                        local sel = (seg.status == status_idx)
+                        if imgui.Selectable(info.name, sel) then
+                                set_segment_status(idx, status_idx)
+                        end
+                end
+                imgui.EndCombo()
+        end
+        imgui.InputText("Название", seg.title.buf, seg.title.size)
+        imgui.InputText("Ведущий", seg.host.buf, seg.host.size)
+        imgui.InputText("Время/слот", seg.time.buf, seg.time.size)
+        imgui.InputTextMultiline("Заметки", seg.notes.buf, seg.notes.size, imgui.ImVec2(0, 100))
+        if imgui.Button("Скопировать карточку") then
+                local summary = build_segment_summary(seg, idx)
+                imgui.SetClipboardText(summary)
+                set_feedback("Карточка скопирована в буфер обмена.", "success")
+        end
+        imgui.SameLine()
+        if imgui.Button("Удалить сегмент##live_detail_remove") then
+                remove_segment(idx)
+        end
+end
+
+local function draw_log_section()
+        imgui.Text("Журнал эфира")
+        imgui.BeginChild("live_log_scroll", imgui.ImVec2(0, 140), true)
+        if #LiveWindow.event_log == 0 then
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Журнал пуст. Добавьте сообщения через черновик.")
+        else
+                imgui.Columns(3, "live_log_columns", false)
+                imgui.SetColumnWidth(0, 80)
+                imgui.SetColumnWidth(2, 70)
+                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1), "Время")
+                imgui.NextColumn()
+                imgui.Text("Сообщение")
+                imgui.NextColumn()
+                imgui.Text("Копия")
+                imgui.NextColumn()
+                imgui.Separator()
+                for idx, entry in ipairs(LiveWindow.event_log) do
+                        imgui.PushID(idx)
+                        imgui.TextColored(imgui.ImVec4(0.8, 0.8, 0.8, 1), entry.time)
+                        imgui.NextColumn()
+                        imgui.TextWrapped(entry.text)
+                        imgui.NextColumn()
+                        if imgui.SmallButton("Копия##live_log_copy") then
+                                imgui.SetClipboardText(entry.text or "")
+                                set_feedback("Сообщение скопировано в буфер обмена.", "success")
+                        end
+                        imgui.NextColumn()
+                        imgui.Separator()
+                        imgui.PopID()
+                end
+                imgui.Columns(1)
+        end
+        imgui.EndChild()
+        if #LiveWindow.event_log > 0 then
+                if imgui.Button("Очистить журнал") then
+                        LiveWindow.event_log = {}
+                        set_feedback("Журнал очищен.", "info")
+                end
+        end
+end
+
+local function draw_message_tools()
+        imgui.Text("Сообщения и заметки")
+        local current_template = LiveWindow.templates[LiveWindow.template_idx] or LiveWindow.templates[1] or ""
+        if imgui.BeginCombo("Шаблон сообщения", current_template) then
+                for idx, template in ipairs(LiveWindow.templates) do
+                        if imgui.Selectable(template, LiveWindow.template_idx == idx) then
+                                LiveWindow.template_idx = idx
+                        end
+                end
+                imgui.EndCombo()
+        end
+        imgui.SameLine()
+        if imgui.Button("Подставить шаблон") then
+                apply_template_to_message(LiveWindow.template_idx)
+        end
+        imgui.InputTextMultiline("Черновик", LiveWindow.custom_message.buf, LiveWindow.custom_message.size, imgui.ImVec2(0, 80))
+        if imgui.Button("Добавить в журнал") then
+                add_custom_message()
+        end
+        imgui.SameLine()
+        if imgui.Button("Скопировать в буфер") then
+                local text = trim(str(LiveWindow.custom_message.buf))
+                if text == "" then
+                        set_feedback("Сообщение пустое — нечего копировать.", "error")
+                else
+                        imgui.SetClipboardText(text)
+                        set_feedback("Сообщение скопировано в буфер обмена.", "success")
+                end
+        end
+        imgui.Spacing()
+        draw_log_section()
+end
+
+local function draw_right_panel()
+        imgui.Text("Карточка сегмента")
+        imgui.Separator()
+        draw_segment_details()
+        imgui.Spacing()
+        imgui.Separator()
+        draw_message_tools()
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.PushID("live_math_window")
+        if imgui.CollapsingHeader("Интерактив \"Математика\"##live_window") then
+                SMILive.DrawMathQuiz()
+        end
+        imgui.PopID()
+end
+
+local function draw_live_window()
+        ensure_selection()
+        if LiveWindow.feedback ~= "" then
+                if LiveWindow.feedback_clock > 0 and (os_clock() - LiveWindow.feedback_clock) > 8 then
+                        LiveWindow.feedback = ""
+                else
+                        imgui.TextColored(LiveWindow.feedback_color, LiveWindow.feedback)
+                        imgui.Spacing()
+                end
+        end
+        local avail = imgui.GetContentRegionAvail()
+        local left_width = math_floor(math_max(260, avail.x * 0.38))
+        if left_width > (avail.x - 200) then
+                left_width = math_floor(math_max(220, avail.x * 0.55))
+        end
+        if left_width < 220 then
+                left_width = 220
+        end
+        if left_width > avail.x then
+                left_width = avail.x
+        end
+        imgui.BeginChild("live_left_panel", imgui.ImVec2(left_width, 0), true)
+        draw_segments_list()
+        imgui.EndChild()
+        imgui.SameLine()
+        imgui.BeginChild("live_right_panel", imgui.ImVec2(0, 0), false)
+        draw_right_panel()
+        imgui.EndChild()
+end
+
+function SMILive.DrawHelperSection()
+        if not imgui.CollapsingHeader("SMI Live") then
+                return
+        end
+
+        imgui.TextWrapped("Инструменты для организации прямых эфиров: планирование сегментов, заметки и журнал сообщений.")
+        if imgui.Button("Открыть окно SMI Live") then
+                LiveWindow.show[0] = true
+        end
+        if #LiveWindow.segments > 0 then
+                imgui.Spacing()
+                imgui.Text("Ближайшие сегменты:")
+                local preview = math_min(#LiveWindow.segments, 3)
+                for idx = 1, preview do
+                        local seg = LiveWindow.segments[idx]
+                        local title = get_segment_title(seg)
+                        if title == "" then
+                                title = format_status("Сегмент %d", idx)
+                        end
+                        local info = STATUS_INFO[seg.status] or STATUS_INFO[1]
+                        imgui.PushStyleColor(imgui.Col.Text, info.color)
+                        imgui.Text(format_status("%d. %s — %s", idx, title, info.name))
+                        imgui.PopStyleColor()
+                end
+                if #LiveWindow.segments > preview then
+                        imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), format_status("…ещё %d сегмент(ов)", #LiveWindow.segments - preview))
+                end
+        else
+                imgui.Spacing()
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Сетка эфира пока пуста.")
+        end
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.PushID("smi_live_inline_math")
+        SMILive.DrawMathQuiz()
+        imgui.PopID()
+end
+
+imgui.OnFrame(function()
+        return LiveWindow.show[0]
+end, function()
+        imgui.SetNextWindowSize(imgui.ImVec2(720, 520), imgui.Cond.FirstUseEver)
+        local opened = imgui.Begin("SMI Live — эфирный помощник", LiveWindow.show, imgui.WindowFlags.NoCollapse)
+        if opened then
+                draw_live_window()
+        end
+        imgui.End()
+end)
 
 function SMILive.attachModules(modules)
         -- зарезервировано для будущей интеграции

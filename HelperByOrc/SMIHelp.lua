@@ -1860,10 +1860,14 @@ function SMIHelp.DrawSettingsUI()
 			imgui.EndTabBar()
 		end
 	end
-        if SMILive and SMILive.DrawMathQuiz then
+        if SMILive and (SMILive.DrawHelperSection or SMILive.DrawMathQuiz) then
                 imgui.Separator()
-                if imgui.CollapsingHeader("SMI Live") then
-                        SMILive.DrawMathQuiz()
+                if SMILive.DrawHelperSection then
+                        SMILive.DrawHelperSection()
+                else
+                        if imgui.CollapsingHeader("SMI Live") then
+                                SMILive.DrawMathQuiz()
+                        end
                 end
         end
         if imgui.Button("Сохранить") then
