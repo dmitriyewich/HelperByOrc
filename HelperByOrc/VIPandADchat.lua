@@ -360,16 +360,34 @@ end
 -- ===================== ОКНО ЛЕНТЫ =====================
 module.showFeedWindow = imgui.new.bool(false)
 
+local function compute_feed_interaction_state(is_chat_open)
+	local allow_interaction = is_chat_open == true
+	local window_flags = bit.bor(
+		imgui.WindowFlags.NoCollapse,
+		imgui.WindowFlags.NoTitleBar,
+		imgui.WindowFlags.NoScrollbar,
+		imgui.WindowFlags.NoBackground
+	)
+	local child_flags = 0
+
+	if not allow_interaction then
+		window_flags = bit.bor(window_flags, imgui.WindowFlags.NoInputs)
+		child_flags = bit.bor(child_flags, imgui.WindowFlags.NoInputs)
+	end
+
+	return window_flags, child_flags, allow_interaction
+end
+
 imgui.OnFrame(
         function() return module.showFeedWindow[0] and config.enabled end,
-        function(VIPandADchat)
-				local is_chat = samp and samp.is_chat_opened and samp.is_chat_opened() or false
-		VIPandADchat.HideCursor = not is_chat
+        function()
+				local is_chat_open = samp and samp.is_chat_opened and samp.is_chat_opened() or false
+				local window_flags, child_flags_mask, allow_interaction = compute_feed_interaction_state(is_chat_open)
 		if not config then return end
 
 		-- Альфы по ТЗ
-		local bg_alpha = is_chat and config.bg_alpha_chat		or config.bg_alpha_idle
-		local text_alpha = is_chat and config.text_alpha_chat or config.text_alpha_idle
+		local bg_alpha = is_chat_open and config.bg_alpha_chat or config.bg_alpha_idle
+		local text_alpha = is_chat_open and config.text_alpha_chat or config.text_alpha_idle
 
 		local font = imgui.GetFont()
 		local fsize = imgui.GetFontSize()
@@ -415,15 +433,7 @@ imgui.OnFrame(
 		imgui.PushStyleColor(imgui.Col.ScrollbarGrabHovered, imgui.ImVec4(0, 0, 0, bg_alpha))
 		imgui.PushStyleColor(imgui.Col.ScrollbarGrabActive, imgui.ImVec4(0, 0, 0, bg_alpha))
 
-		local flags = bit.bor(
-			imgui.WindowFlags.NoCollapse,
-			imgui.WindowFlags.NoTitleBar,
-			imgui.WindowFlags.NoScrollbar,
-			imgui.WindowFlags.NoBackground
-		)
-		if not is_chat then
-			flags = bit.bor(flags, imgui.WindowFlags.NoInputs)
-		end
+		local flags = window_flags
 
 				if imgui.Begin("##VIPADFEED", module.showFeedWindow, flags) then
 					feedPos = imgui.GetWindowPos()
@@ -431,7 +441,7 @@ imgui.OnFrame(
 					config.pos_x = feedPos.x
 					config.pos_y = feedPos.y
 					config.width = feedSize.x
-			local child_flags = not is_chat and imgui.WindowFlags.NoInputs or 0
+			local child_flags = child_flags_mask
 
 			-- список слов для подсветки (lower)
 			local highlightLower = {}
@@ -464,7 +474,7 @@ imgui.OnFrame(
 						local row_pos = imgui.GetCursorScreenPos()
 						draw_text_with_highlight(text, highlightLower, rect_highlight, text_alpha)
 
-						if is_chat then
+						if allow_interaction then
 							local clean = strip_color_tags(text)
 							local w = text_size(clean, font, fsize)
 							imgui.SetCursorScreenPos(row_pos)
@@ -522,7 +532,7 @@ imgui.OnFrame(
 				end
 			end
 
-			if (not is_chat) or vip_at_bottom then
+			if (not allow_interaction) or vip_at_bottom then
 				imgui.SetScrollHereY(1.0)
 			end
 			imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y * 0.5))
@@ -556,7 +566,7 @@ imgui.OnFrame(
 						local row_pos = imgui.GetCursorScreenPos()
 						draw_text_with_highlight(main, highlightLower, rect_highlight, text_alpha)
 
-						if is_chat then
+						if allow_interaction then
 							local clean = strip_color_tags(main)
 							local w = text_size(clean, font, fsize)
 
@@ -630,7 +640,7 @@ imgui.OnFrame(
 				end
 			end
 
-			if (not is_chat) or ad_at_bottom then
+			if (not allow_interaction) or ad_at_bottom then
 				imgui.SetScrollHereY(1.0)
 			end
 			imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y * 0.5))
