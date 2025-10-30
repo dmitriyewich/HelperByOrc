@@ -40,10 +40,12 @@ local vk = require("vkeys")
 -- опциональные зависимости (совместимость/сейв конфига)
 local mimgui_funcs
 local funcs
+local SMILive
 
 function SMIHelp.attachModules(mod)
-	mimgui_funcs = mod.mimgui_funcs
-	funcs = mod.funcs
+        mimgui_funcs = mod.mimgui_funcs
+        funcs = mod.funcs
+        SMILive = mod.SMILive
 end
 local trim = (funcs and funcs.trim) and funcs.trim or function(s)
 	return (s or ""):gsub("^%s*(.-)%s*$", "%1")
@@ -1858,7 +1860,13 @@ function SMIHelp.DrawSettingsUI()
 			imgui.EndTabBar()
 		end
 	end
-	if imgui.Button("Сохранить") then
+        if SMILive and SMILive.DrawMathQuiz then
+                imgui.Separator()
+                if imgui.CollapsingHeader("SMI Live") then
+                        SMILive.DrawMathQuiz()
+                end
+        end
+        if imgui.Button("Сохранить") then
 		Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
 		Config.data.objects = funcs.parseList(str(S.objects))
 		Config.data.prices = funcs.parseList(str(S.prices))
