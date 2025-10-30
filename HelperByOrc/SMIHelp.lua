@@ -1865,7 +1865,14 @@ function SMIHelp.DrawSettingsUI()
                 if SMILive.DrawHelperSection then
                         SMILive.DrawHelperSection()
                 else
-                        if imgui.CollapsingHeader("SMI Live") then
+                        imgui.TextWrapped("Эфир-викторина доступна в отдельном окне.")
+                        if imgui.Button("Открыть эфир-викторину") then
+                                if SMILive.OpenWindow then
+                                        SMILive.OpenWindow()
+                                end
+                        end
+                        if SMILive.DrawMathQuiz then
+                                imgui.Spacing()
                                 SMILive.DrawMathQuiz()
                         end
                 end
