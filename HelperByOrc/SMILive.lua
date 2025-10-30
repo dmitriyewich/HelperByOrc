@@ -148,8 +148,8 @@ function SMILive.DrawMathQuiz()
                         if idx > 1 then
                                 imgui.SameLine()
                         end
-                        imgui.PushID(idx)
-                        if imgui.RadioButton(string.format("%d очка", target), MathQuiz.target_index == idx) then
+                        imgui.PushIDInt(idx)
+                        if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
                                 MathQuiz.target_index = idx
                         end
                         imgui.PopID()
@@ -224,31 +224,32 @@ function SMILive.DrawMathQuiz()
         if next(MathQuiz.players) then
                 imgui.Separator()
                 imgui.Text("Таблица очков")
-                if imgui.BeginTable("scoreboard", 3, imgui.TableFlags.Borders + imgui.TableFlags.RowBg) then
-                        imgui.TableSetupColumn("Игрок")
-                        imgui.TableSetupColumn("Очки", imgui.TableColumnFlags.WidthFixed)
-                        imgui.TableSetupColumn("Последний ответ", imgui.TableColumnFlags.WidthStretch)
-                        imgui.TableHeadersRow()
-                        for _, row in ipairs(iterate_players_sorted()) do
-                                imgui.TableNextRow()
-                                imgui.TableSetColumnIndex(0)
-                                imgui.Text(row.name)
-                                if MathQuiz.winner and MathQuiz.winner == row.name then
-                                        imgui.SameLine()
-                                        imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
-                                end
-                                imgui.TableSetColumnIndex(1)
-                                imgui.Text(tostring(row.score))
-                                imgui.TableSetColumnIndex(2)
-                                if row.last_answer ~= nil then
-                                        local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
-                                        imgui.TextColored(color, tostring(row.last_answer))
-                                else
-                                        imgui.Text("—")
-                                end
+                imgui.Columns(3, "math_quiz_scoreboard", true)
+                imgui.Text("Игрок")
+                imgui.NextColumn()
+                imgui.Text("Очки")
+                imgui.NextColumn()
+                imgui.Text("Последний ответ")
+                imgui.NextColumn()
+                imgui.Separator()
+                for _, row in ipairs(iterate_players_sorted()) do
+                        imgui.Text(row.name)
+                        if MathQuiz.winner and MathQuiz.winner == row.name then
+                                imgui.SameLine()
+                                imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
                         end
-                        imgui.EndTable()
+                        imgui.NextColumn()
+                        imgui.Text(tostring(row.score))
+                        imgui.NextColumn()
+                        if row.last_answer ~= nil then
+                                local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
+                                imgui.TextColored(color, tostring(row.last_answer))
+                        else
+                                imgui.Text("—")
+                        end
+                        imgui.NextColumn()
                 end
+                imgui.Columns(1)
         end
 
         if MathQuiz.active then
