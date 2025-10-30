@@ -381,8 +381,8 @@ local function is_cursor_active()
         return false
 end
 
-local function compute_feed_interaction_state(is_chat_open)
-        local allow_interaction = is_chat_open == true and is_cursor_active()
+local function compute_feed_interaction_state(is_chat_open, cursor_active)
+        local allow_interaction = is_chat_open == true and cursor_active == true
 	local window_flags = bit.bor(
 		imgui.WindowFlags.NoCollapse,
 		imgui.WindowFlags.NoTitleBar,
@@ -401,9 +401,14 @@ end
 
 imgui.OnFrame(
         function() return module.showFeedWindow[0] and config.enabled end,
-        function()
-				local is_chat_open = samp and samp.is_chat_opened and samp.is_chat_opened() or false
-				local window_flags, child_flags_mask, allow_interaction = compute_feed_interaction_state(is_chat_open)
+        function(VIPandADchat)
+                local cursor_active = is_cursor_active()
+                if VIPandADchat then
+                        VIPandADchat.HideCursor = cursor_active ~= true
+                end
+
+                                local is_chat_open = samp and samp.is_chat_opened and samp.is_chat_opened() or false
+                                local window_flags, child_flags_mask, allow_interaction = compute_feed_interaction_state(is_chat_open, cursor_active)
 		if not config then return end
 
 		-- Альфы по ТЗ
