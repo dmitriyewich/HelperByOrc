@@ -360,8 +360,29 @@ end
 -- ===================== ОКНО ЛЕНТЫ =====================
 module.showFeedWindow = imgui.new.bool(false)
 
+local function is_cursor_active()
+        local ok, result
+
+        if samp and samp.is_cursor_active then
+                ok, result = pcall(samp.is_cursor_active)
+                if ok then return result and result ~= 0 end
+        end
+
+        if type(sampIsCursorActive) == 'function' then
+                ok, result = pcall(sampIsCursorActive)
+                if ok then return result and result ~= 0 end
+        end
+
+        if type(isCursorActive) == 'function' then
+                ok, result = pcall(isCursorActive)
+                if ok then return result and result ~= 0 end
+        end
+
+        return false
+end
+
 local function compute_feed_interaction_state(is_chat_open)
-	local allow_interaction = is_chat_open == true
+        local allow_interaction = is_chat_open == true and is_cursor_active()
 	local window_flags = bit.bor(
 		imgui.WindowFlags.NoCollapse,
 		imgui.WindowFlags.NoTitleBar,
