@@ -198,6 +198,10 @@ local function format_status(fmt, ...)
         return fmt
 end
 
+local function update_status(text, ...)
+        MathQuiz.status_text = format_status(text, ...)
+end
+
 local function trim(s)
         return (s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
@@ -336,9 +340,6 @@ local function generate_math_problem()
         return generate_multi_step_problem()
 end
 
-local update_status
-local handle_server_sms
-
 local sms_listener_active = false
 local my_hooks_module = nil
 
@@ -348,50 +349,9 @@ local function can_use_sms_listener()
                 and type(my_hooks_module.removeServerMessageListener) == "function"
 end
 
-local function start_sms_listener(silent)
-        if sms_listener_active then
-                return true
-        end
-        if not can_use_sms_listener() then
-                if not silent then
-                        update_status("Модуль приёма SMS недоступен.")
-                end
-                return false
-        end
-        my_hooks_module.addServerMessageListener(handle_server_sms)
-        sms_listener_active = true
-        if not silent then
-                update_status("Приём SMS-сообщений активирован. Ждите ответы слушателей.")
-        end
-        return true
-end
-
-local function stop_sms_listener(silent)
-        if not sms_listener_active then
-                return true
-        end
-        if not can_use_sms_listener() then
-                sms_listener_active = false
-                if not silent then
-                        update_status("Приём SMS-сообщений недоступен.")
-                end
-                return false
-        end
-        my_hooks_module.removeServerMessageListener(handle_server_sms)
-        sms_listener_active = false
-        if not silent then
-                update_status("Приём SMS-сообщений остановлен.")
-        end
-        return true
-end
-
 local function reset_buffers()
         imgui.StrCopy(MathQuiz.player_name_buf, "")
         imgui.StrCopy(MathQuiz.player_answer_buf, "")
-end
-
-update_status = function(text, ...)
-        MathQuiz.status_text = format_status(text, ...)
 end
 
 local function reset_scoreboard()
@@ -592,12 +552,49 @@ local function record_response_from_sms(player_name, player_id, message)
         end
 end
 
-handle_server_sms = function(color, text)
+local function handle_server_sms(color, text)
         local name, player_id, message = parse_sms_message(text)
         if not name then
                 return
         end
         record_response_from_sms(name, player_id, message)
+end
+
+local function start_sms_listener(silent)
+        if sms_listener_active then
+                return true
+        end
+        if not can_use_sms_listener() then
+                if not silent then
+                        update_status("Модуль приёма SMS недоступен.")
+                end
+                return false
+        end
+        my_hooks_module.addServerMessageListener(handle_server_sms)
+        sms_listener_active = true
+        if not silent then
+                update_status("Приём SMS-сообщений активирован. Ждите ответы слушателей.")
+        end
+        return true
+end
+
+local function stop_sms_listener(silent)
+        if not sms_listener_active then
+                return true
+        end
+        if not can_use_sms_listener() then
+                sms_listener_active = false
+                if not silent then
+                        update_status("Приём SMS-сообщений недоступен.")
+                end
+                return false
+        end
+        my_hooks_module.removeServerMessageListener(handle_server_sms)
+        sms_listener_active = false
+        if not silent then
+                update_status("Приём SMS-сообщений остановлен.")
+        end
+        return true
 end
 
 
