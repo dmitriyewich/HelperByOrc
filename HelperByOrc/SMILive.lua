@@ -5,12 +5,166 @@ local new = imgui.new
 local ffi = require("ffi")
 local str = ffi.string
 
+local binder = require("HelperByOrc.binder")
+
 local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
 local math_random = math.random
 local os_clock = os.clock
+
+local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
+local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+local NEWS_PREFIX = "/news"
+
+local function pluralize_points(value)
+        local amount = math.floor(tonumber(value) or 0)
+        local abs_amount = math.abs(amount)
+        local n100 = abs_amount % 100
+        local n10 = abs_amount % 10
+        local suffix
+        if n100 >= 11 and n100 <= 14 then
+                suffix = "баллов"
+        elseif n10 == 1 then
+                suffix = "балл"
+        elseif n10 >= 2 and n10 <= 4 then
+                suffix = "балла"
+        else
+                suffix = "баллов"
+        end
+        return string.format("%d %s", amount, suffix)
+end
+
+local function format_score_progress(total, gained)
+        gained = math.max(0, math.floor(tonumber(gained) or 0))
+        total = math.max(0, math.floor(tonumber(total) or 0))
+        if total <= gained then
+                if gained > 0 then
+                        return string.format("Заработал %s!", pluralize_points(gained))
+                end
+                return "Заработал 0 баллов!"
+        end
+
+        local parts = {}
+        if gained > 0 then
+                parts[#parts + 1] = string.format("Заработал %s!", pluralize_points(gained))
+        end
+        parts[#parts + 1] = string.format("У него уже %s!", pluralize_points(total))
+        return table.concat(parts, " ")
+end
+
+local function get_selected_method()
+        local method = tonumber(MathQuiz.chat_method) or 0
+        if method < 0 then
+                method = 0
+        elseif method > 3 then
+                method = 3
+        end
+        return method
+end
+
+local function get_interval_ms()
+        local value = tonumber(MathQuiz.chat_interval_ms) or 0
+        if value < 0 then
+                value = 0
+        end
+        return math.floor(value + 0.5)
+end
+
+local function send_chat_message(text, method)
+        if type(text) ~= "string" or text == "" then
+                return
+        end
+        local target = method or get_selected_method()
+        local send_fn = binder and binder.doSend
+        if type(send_fn) == "function" then
+                send_fn(text, target)
+                return
+        end
+
+        local decoded = u8:decode(text)
+        if target == 0 then
+                sampAddChatMessage(decoded, 0x00DD00)
+        elseif target == 1 then
+                sampProcessChatInput(decoded)
+        elseif target == 2 then
+                sampSendChat(decoded)
+        end
+end
+
+local function send_sequence(messages, method, interval)
+        if type(messages) ~= "table" or #messages == 0 then
+                return
+        end
+        local delay = math.max(0, tonumber(interval) or 0)
+        delay = math.floor(delay + 0.5)
+        local target = method or get_selected_method()
+        local function worker()
+                for idx, msg in ipairs(messages) do
+                        send_chat_message(msg, target)
+                        if idx < #messages and delay > 0 then
+                                wait(delay)
+                        end
+                end
+        end
+        if lua_thread and lua_thread.create then
+                lua_thread.create(worker)
+        else
+                worker()
+        end
+end
+
+local function should_auto_broadcast()
+        return MathQuiz.auto_broadcast and true or false
+end
+
+local function broadcast_sequence(messages, force)
+        if not force then
+                if not should_auto_broadcast() then
+                        return
+                end
+                if get_selected_method() == 3 then
+                        return
+                end
+        end
+        send_sequence(messages, get_selected_method(), get_interval_ms())
+end
+
+local function broadcast_problem(problem, force)
+        if type(problem) ~= "string" or problem == "" then
+                return
+        end
+        local messages = {
+                string.format("%s И так, следующий пример...", NEWS_PREFIX),
+                string.format("%s *%s*", NEWS_PREFIX, problem)
+        }
+        broadcast_sequence(messages, force)
+end
+
+local function broadcast_correct_answer(player_name, answer, score, is_final, force)
+        if type(player_name) ~= "string" or player_name == "" then
+                return
+        end
+        local answer_text = answer ~= nil and tostring(answer) or "—"
+        local gained = 1
+        local score_phrase = format_score_progress(score or 0, gained)
+        local messages = {
+                string.format("%s Стоп!", NEWS_PREFIX),
+                string.format("%s У нас есть правильный ответ! И это: *%s*", NEWS_PREFIX, answer_text),
+                string.format("%s Верный ответ прислал..", NEWS_PREFIX),
+                string.format("%s *%s*! %s", NEWS_PREFIX, player_name, score_phrase)
+        }
+        if is_final then
+                messages[#messages + 1] = string.format(
+                        "%s Викторина завершена! %s набирает %s и побеждает!",
+                        NEWS_PREFIX,
+                        player_name,
+                        pluralize_points(score or 0)
+                )
+        end
+        broadcast_sequence(messages, force)
+end
 
 local function format_status(fmt, ...)
         local ok, msg = pcall(string.format, fmt, ...)
@@ -177,6 +331,9 @@ local MathQuiz = {
         first_correct = nil,
         latest_round_stats = nil,
         awaiting_next_round = false,
+        auto_broadcast = true,
+        chat_method = 2,
+        chat_interval_ms = 750,
 }
 
 local update_status
@@ -288,6 +445,7 @@ local function begin_round()
         MathQuiz.latest_round_stats = nil
         MathQuiz.awaiting_next_round = false
         update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
+        broadcast_problem(problem, false)
         reset_buffers()
 end
 
@@ -388,6 +546,7 @@ local function record_response_from_sms(player_name, player_id, message)
                 local correct_value = MathQuiz.current_answer
                 handle_correct_answer(player_name)
 
+                local player_entry = ensure_player(player_name)
                 local lead = compute_lead_time(entry)
                 MathQuiz.latest_round_stats = {
                         winner = player_name,
@@ -396,9 +555,11 @@ local function record_response_from_sms(player_name, player_id, message)
                         lead = lead,
                         total_responses = #MathQuiz.current_responses,
                         correct_answer = correct_value,
+                        score = player_entry and player_entry.score or 0,
+                        points_awarded = 1,
+                        game_finished = not MathQuiz.active,
                 }
 
-                local player_entry = ensure_player(player_name)
                 local target = MathQuiz.target_scores[MathQuiz.target_index]
                 if MathQuiz.active then
                         if lead then
@@ -413,6 +574,8 @@ local function record_response_from_sms(player_name, player_id, message)
                                 update_status("%s завершает игру, ответив верно за %.2f с. Итог: %d очков.", player_name, entry.response_time, player_entry.score)
                         end
                 end
+
+                broadcast_correct_answer(player_name, correct_value, player_entry and player_entry.score or 0, MathQuiz.latest_round_stats.game_finished, false)
 
                 return
         end
@@ -518,6 +681,43 @@ function SMILive.DrawMathQuiz()
                 end
                 imgui.Spacing()
         end
+
+        imgui.Separator()
+        imgui.Text("Объявления /news")
+        local auto_flag = imgui.new.bool(MathQuiz.auto_broadcast and true or false)
+        if imgui.Checkbox("Автоматически отправлять сообщения", auto_flag) then
+                MathQuiz.auto_broadcast = auto_flag[0]
+        end
+
+        imgui.PushItemWidth(200)
+        local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
+        if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, #send_labels) then
+                MathQuiz.chat_method = method_buf[0]
+        end
+        imgui.PopItemWidth()
+
+        imgui.PushItemWidth(200)
+        local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
+        if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
+                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
+        end
+        imgui.PopItemWidth()
+
+        if MathQuiz.current_problem then
+                if imgui.Button("Отправить текущий пример в чат") then
+                        broadcast_problem(MathQuiz.current_problem, true)
+                end
+        end
+        if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
+                if MathQuiz.current_problem then
+                        imgui.SameLine()
+                end
+                if imgui.Button("Объявить правильный ответ в чат") then
+                        local stats = MathQuiz.latest_round_stats
+                        broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, true)
+                end
+        end
+        imgui.Spacing()
 
         if MathQuiz.active and MathQuiz.current_problem then
                 imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)

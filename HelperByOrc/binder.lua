@@ -902,6 +902,8 @@ local function doSend(msg, method)
 	end
 end
 
+module.doSend = doSend
+
 -- === Условия ===
 local cond_funcs = {
 	function()
