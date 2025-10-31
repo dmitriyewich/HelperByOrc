@@ -15,6 +15,10 @@ local function format_status(fmt, ...)
         return fmt
 end
 
+local function trim(s)
+        return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
 local function generate_math_problem()
         local a = math_random(2, 25)
         local b = math_random(2, 25)
@@ -138,6 +142,10 @@ local function iterate_players_sorted()
         return list
 end
 
+local function has_players()
+        return next(MathQuiz.players) ~= nil
+end
+
 function SMILive.DrawMathQuiz()
         imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
         imgui.Separator()
@@ -199,8 +207,7 @@ function SMILive.DrawMathQuiz()
                 imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)
                 imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
                 if imgui.Button("Проверить ответ") then
-                        local name = str(MathQuiz.player_name_buf)
-                        name = (name or ""):gsub("^%s*(.-)%s*$", "%1")
+                        local name = trim(str(MathQuiz.player_name_buf))
                         local answer_str = str(MathQuiz.player_answer_buf)
                         local provided = tonumber(answer_str)
                         if name == "" then
@@ -221,7 +228,7 @@ function SMILive.DrawMathQuiz()
         end
 
         imgui.Spacing()
-        if next(MathQuiz.players) then
+        if has_players() then
                 imgui.Separator()
                 imgui.Text("Таблица очков")
                 imgui.Columns(3, "math_quiz_scoreboard", true)
@@ -262,6 +269,67 @@ function SMILive.DrawMathQuiz()
                 end
         end
 end
+
+local LiveWindow = {
+        show = new.bool(false),
+}
+
+local function draw_live_window()
+        imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
+        imgui.Spacing()
+        imgui.Separator()
+        SMILive.DrawMathQuiz()
+end
+
+function SMILive.OpenWindow()
+        LiveWindow.show[0] = true
+end
+
+function SMILive.DrawHelperSection()
+        imgui.TextWrapped("Эфир-викторина доступна в отдельном окне. Нажмите кнопку, чтобы открыть помощника эфира.")
+        if imgui.Button("Открыть эфир-викторину") then
+                SMILive.OpenWindow()
+        end
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.TextWrapped(MathQuiz.status_text)
+        if has_players() or MathQuiz.winner then
+                imgui.Spacing()
+                imgui.Text("Краткая сводка игроков")
+                local preview = {}
+                for _, row in ipairs(iterate_players_sorted()) do
+                        table.insert(preview, format_status("%s — %d", row.name, row.score))
+                        if #preview == 3 then
+                                break
+                        end
+                end
+                if #preview == 0 then
+                        imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Данных пока нет.")
+                else
+                        for _, line in ipairs(preview) do
+                                imgui.Text(line)
+                        end
+                        local total = 0
+                        for _ in pairs(MathQuiz.players) do
+                                total = total + 1
+                        end
+                        if total > #preview then
+                                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), format_status("…и ещё %d участник(ов)", total - #preview))
+                        end
+                end
+        end
+end
+
+imgui.OnFrame(function()
+        return LiveWindow.show[0]
+end, function()
+        imgui.SetNextWindowSize(imgui.ImVec2(520, 480), imgui.Cond.FirstUseEver)
+        local opened = imgui.Begin("SMI Live — эфир-викторина", LiveWindow.show, imgui.WindowFlags.NoCollapse)
+        if opened then
+                draw_live_window()
+        end
+        imgui.End()
+end)
 
 function SMILive.attachModules(modules)
         -- зарезервировано для будущей интеграции
