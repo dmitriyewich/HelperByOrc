@@ -7,6 +7,8 @@ local str = ffi.string
 
 local binder = require("HelperByOrc.binder")
 
+local MathQuiz = {}
+
 local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -312,7 +314,7 @@ local function generate_math_problem()
         return generate_multi_step_problem()
 end
 
-local MathQuiz = {
+MathQuiz = {
         target_scores = { 3, 5 },
         target_index = 1,
         active = false,
