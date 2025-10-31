@@ -65,7 +65,7 @@ local function onServerMessage(color, text)
         local suppress
         if #server_message_listeners > 0 then
                 for _, listener in ipairs(server_message_listeners) do
-                        local ok, result = pcall(listener, color, text2)
+                        local ok, result = pcall(listener, color1, text2)
                         if ok and result == false then
                                 suppress = true
                         end
@@ -126,10 +126,6 @@ local function onServerMessage(color, text)
 	-- print(text)
         if unwanted and unwanted.isEnabled and unwanted.isEnabled() and unwanted.should_ignore(text) then
                 return false -- глушим сообщение
-        end
-
-        if suppress then
-                return false
         end
 
         return { color, text }

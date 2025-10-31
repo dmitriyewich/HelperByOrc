@@ -5,6 +5,10 @@ local new = imgui.new
 local ffi = require("ffi")
 local str = ffi.string
 
+local encoding = require "encoding"
+encoding.default = "CP1251"
+local u8 = encoding.UTF8
+
 local math_random = math.random
 local os_clock = os.clock
 
@@ -24,7 +28,9 @@ local function parse_sms_message(text)
         if type(text) ~= "string" then
                 return nil
         end
-        local name, id, message = text:match("^%[S[МM]S на студию%]%{FFFFFF%}%s*Слушатель:%s*%{[%da-fA-F]+%}([^%[%]]+)%[(%d+)%]%{[%da-fA-F]+%}%s*:%s*(.+)$")
+		local pattern = "%[SМS на студию%]%s*{FFFFFF}%s*Слушатель:%s*{%x%x%x%x%x%x}([%w_]+)%[(%d+)%]%s*{FFFFFF}:%s*(.+)"
+		local name, id, message = text:match(pattern)
+
         if not name then
                 return nil
         end
