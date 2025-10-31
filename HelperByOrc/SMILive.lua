@@ -99,6 +99,8 @@ local MathQuiz = {
         latest_round_stats = nil,
 }
 
+local update_status
+
 local sms_listener_active = false
 local my_hooks_module = nil
 
@@ -150,7 +152,7 @@ local function reset_buffers()
         imgui.StrCopy(MathQuiz.player_answer_buf, "")
 end
 
-local function update_status(text, ...)
+update_status = function(text, ...)
         MathQuiz.status_text = format_status(text, ...)
 end
 
