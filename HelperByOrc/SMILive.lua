@@ -100,6 +100,7 @@ local MathQuiz = {
 }
 
 local update_status
+local handle_server_sms
 
 local sms_listener_active = false
 local my_hooks_module = nil
@@ -343,7 +344,7 @@ local function record_response_from_sms(player_name, player_id, message)
         end
 end
 
-local function handle_server_sms(color, text)
+handle_server_sms = function(color, text)
         local name, player_id, message = parse_sms_message(text)
         if not name then
                 return
