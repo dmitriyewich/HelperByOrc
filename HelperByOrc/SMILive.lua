@@ -176,6 +176,7 @@ local MathQuiz = {
         current_responses = {},
         first_correct = nil,
         latest_round_stats = nil,
+        awaiting_next_round = false,
 }
 
 local update_status
@@ -248,6 +249,7 @@ local function reset_scoreboard()
         MathQuiz.current_responses = {}
         MathQuiz.first_correct = nil
         MathQuiz.latest_round_stats = nil
+        MathQuiz.awaiting_next_round = false
         update_status("Игра сброшена. Сгенерируйте пример, чтобы начать раунд.")
         reset_buffers()
 end
@@ -266,6 +268,7 @@ local function end_game(winner)
         MathQuiz.current_answer = nil
         MathQuiz.answer_start_time = nil
         MathQuiz.accepting_answers = false
+        MathQuiz.awaiting_next_round = false
 end
 
 local function ensure_player(name)
@@ -277,14 +280,14 @@ local function begin_round()
         local problem, answer = generate_math_problem()
         MathQuiz.current_problem = problem
         MathQuiz.current_answer = answer
-        MathQuiz.round = MathQuiz.round + 1
         MathQuiz.show_answer[0] = false
         MathQuiz.answer_start_time = os_clock()
         MathQuiz.accepting_answers = true
         MathQuiz.current_responses = {}
         MathQuiz.first_correct = nil
         MathQuiz.latest_round_stats = nil
-        update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round)
+        MathQuiz.awaiting_next_round = false
+        update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
         reset_buffers()
 end
 
@@ -294,10 +297,19 @@ local function handle_correct_answer(player_name)
         entry.last_correct = true
         entry.last_answer = MathQuiz.current_answer
 
+        MathQuiz.round = MathQuiz.round + 1
+        MathQuiz.current_problem = nil
+        MathQuiz.current_answer = nil
+        MathQuiz.show_answer[0] = false
+        MathQuiz.answer_start_time = nil
+        MathQuiz.accepting_answers = false
+
         local target = MathQuiz.target_scores[MathQuiz.target_index]
         if entry.score >= target then
+                MathQuiz.awaiting_next_round = false
                 end_game(player_name)
         else
+                MathQuiz.awaiting_next_round = true
                 update_status("%s получает балл (%d/%d). Запустите следующий пример.", player_name, entry.score, target)
         end
 end
@@ -375,8 +387,6 @@ local function record_response_from_sms(player_name, player_id, message)
                 MathQuiz.first_correct = entry
                 local correct_value = MathQuiz.current_answer
                 handle_correct_answer(player_name)
-                MathQuiz.accepting_answers = false
-                MathQuiz.answer_start_time = nil
 
                 local lead = compute_lead_time(entry)
                 MathQuiz.latest_round_stats = {
@@ -403,10 +413,6 @@ local function record_response_from_sms(player_name, player_id, message)
                                 update_status("%s завершает игру, ответив верно за %.2f с. Итог: %d очков.", player_name, entry.response_time, player_entry.score)
                         end
                 end
-
-                MathQuiz.current_problem = nil
-                MathQuiz.current_answer = nil
-                MathQuiz.show_answer[0] = false
 
                 return
         end
@@ -457,9 +463,13 @@ function SMILive.DrawMathQuiz()
         else
                 imgui.Text(string.format("Цель: %d очка", MathQuiz.target_scores[MathQuiz.target_index]))
                 if imgui.Button("Сгенерировать пример") then
-                        begin_round()
+                        if MathQuiz.awaiting_next_round then
+                                update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
+                        else
+                                begin_round()
+                        end
                 end
-                if MathQuiz.current_problem then
+                if MathQuiz.awaiting_next_round then
                         imgui.SameLine()
                         if imgui.Button("Следующий пример") then
                                 begin_round()
@@ -473,6 +483,7 @@ function SMILive.DrawMathQuiz()
                         MathQuiz.current_answer = nil
                         MathQuiz.answer_start_time = nil
                         MathQuiz.accepting_answers = false
+                        MathQuiz.awaiting_next_round = false
                 end
         end
 
@@ -522,10 +533,6 @@ function SMILive.DrawMathQuiz()
                         else
                                 if MathQuiz.current_answer and provided == MathQuiz.current_answer then
                                         handle_correct_answer(name)
-                                        MathQuiz.current_problem = nil
-                                        MathQuiz.current_answer = nil
-                                        MathQuiz.answer_start_time = nil
-                                        MathQuiz.accepting_answers = false
                                 else
                                         handle_wrong_answer(name, provided)
                                 end
