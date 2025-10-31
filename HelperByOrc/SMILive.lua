@@ -6,6 +6,7 @@ local ffi = require("ffi")
 local str = ffi.string
 
 local math_random = math.random
+local os_clock = os.clock
 
 local function format_status(fmt, ...)
         local ok, msg = pcall(string.format, fmt, ...)
@@ -17,6 +18,35 @@ end
 
 local function trim(s)
         return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function parse_sms_message(text)
+        if type(text) ~= "string" then
+                return nil
+        end
+        local name, id, message = text:match("^%[S[МM]S на студию%]%{FFFFFF%}%s*Слушатель:%s*%{[%da-fA-F]+%}([^%[%]]+)%[(%d+)%]%{[%da-fA-F]+%}%s*:%s*(.+)$")
+        if not name then
+                return nil
+        end
+        return trim(name), tonumber(id), trim(message)
+end
+
+local function extract_numeric_answer(text)
+        if type(text) ~= "string" then
+                return nil
+        end
+        local candidate = text:match("[-+]?%d+")
+        if candidate then
+                return tonumber(candidate)
+        end
+        return nil
+end
+
+local function format_seconds(value)
+        if not value then
+                return "—"
+        end
+        return string.format("%.2f с", value)
 end
 
 local function generate_math_problem()
@@ -56,7 +86,14 @@ local MathQuiz = {
         status_text = "Нажмите \"Начать новую игру\"",
         players = {},
         winner = nil,
+        answer_start_time = nil,
+        accepting_answers = false,
+        current_responses = {},
+        first_correct = nil,
+        latest_round_stats = nil,
 }
+
+local sms_listener_registered = false
 
 local function reset_buffers()
         imgui.StrCopy(MathQuiz.player_name_buf, "")
@@ -74,6 +111,11 @@ local function reset_scoreboard()
         MathQuiz.current_problem = nil
         MathQuiz.current_answer = nil
         MathQuiz.show_answer[0] = false
+        MathQuiz.answer_start_time = nil
+        MathQuiz.accepting_answers = false
+        MathQuiz.current_responses = {}
+        MathQuiz.first_correct = nil
+        MathQuiz.latest_round_stats = nil
         update_status("Игра сброшена. Сгенерируйте пример, чтобы начать раунд.")
         reset_buffers()
 end
@@ -90,6 +132,8 @@ local function end_game(winner)
         update_status("%s достигает %d очков и побеждает!", winner, MathQuiz.target_scores[MathQuiz.target_index])
         MathQuiz.current_problem = nil
         MathQuiz.current_answer = nil
+        MathQuiz.answer_start_time = nil
+        MathQuiz.accepting_answers = false
 end
 
 local function ensure_player(name)
@@ -103,6 +147,11 @@ local function begin_round()
         MathQuiz.current_answer = answer
         MathQuiz.round = MathQuiz.round + 1
         MathQuiz.show_answer[0] = false
+        MathQuiz.answer_start_time = os_clock()
+        MathQuiz.accepting_answers = true
+        MathQuiz.current_responses = {}
+        MathQuiz.first_correct = nil
+        MathQuiz.latest_round_stats = nil
         update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round)
         reset_buffers()
 end
@@ -146,6 +195,111 @@ local function has_players()
         return next(MathQuiz.players) ~= nil
 end
 
+local function update_player_last_answer(name, provided, is_correct)
+        local entry = ensure_player(name)
+        entry.last_correct = is_correct and true or false
+        entry.last_answer = provided
+        return entry
+end
+
+local function compute_lead_time(first_response)
+        local best
+        for _, resp in ipairs(MathQuiz.current_responses) do
+                if resp ~= first_response and resp.response_time and first_response.response_time and resp.response_time > first_response.response_time then
+                        local diff = resp.response_time - first_response.response_time
+                        if diff > 0 and (not best or diff < best) then
+                                best = diff
+                        end
+                end
+        end
+        return best
+end
+
+local function record_response_from_sms(player_name, player_id, message)
+        if not (MathQuiz.active and MathQuiz.current_answer and MathQuiz.answer_start_time and MathQuiz.accepting_answers) then
+                return
+        end
+
+        local response_time = os_clock() - MathQuiz.answer_start_time
+        if response_time < 0 then
+                response_time = 0
+        end
+
+        local numeric_answer = extract_numeric_answer(message)
+        local is_correct = numeric_answer ~= nil and MathQuiz.current_answer == numeric_answer
+        local entry = {
+                name = player_name,
+                player_id = player_id,
+                text = message,
+                numeric = numeric_answer,
+                response_time = response_time,
+                correct = is_correct,
+                outcome = "attempt",
+        }
+        table.insert(MathQuiz.current_responses, entry)
+
+        if is_correct and not MathQuiz.first_correct then
+                entry.outcome = "first"
+                MathQuiz.first_correct = entry
+                local correct_value = MathQuiz.current_answer
+                handle_correct_answer(player_name)
+                MathQuiz.accepting_answers = false
+                MathQuiz.answer_start_time = nil
+
+                local lead = compute_lead_time(entry)
+                MathQuiz.latest_round_stats = {
+                        winner = player_name,
+                        player_id = player_id,
+                        response_time = entry.response_time,
+                        lead = lead,
+                        total_responses = #MathQuiz.current_responses,
+                        correct_answer = correct_value,
+                }
+
+                local player_entry = ensure_player(player_name)
+                local target = MathQuiz.target_scores[MathQuiz.target_index]
+                if MathQuiz.active then
+                        if lead then
+                                update_status("%s отвечает верно за %.2f с и опережает соперников на %.2f с. Счёт: %d/%d.", player_name, entry.response_time, lead, player_entry.score, target)
+                        else
+                                update_status("%s отвечает верно за %.2f с. Других ответов пока нет. Счёт: %d/%d.", player_name, entry.response_time, player_entry.score, target)
+                        end
+                else
+                        if lead then
+                                update_status("%s завершает игру, ответив верно за %.2f с и опередив соперников на %.2f с. Итог: %d очков.", player_name, entry.response_time, lead, player_entry.score)
+                        else
+                                update_status("%s завершает игру, ответив верно за %.2f с. Итог: %d очков.", player_name, entry.response_time, player_entry.score)
+                        end
+                end
+
+                MathQuiz.current_problem = nil
+                MathQuiz.current_answer = nil
+                MathQuiz.show_answer[0] = false
+
+                return
+        end
+
+        if is_correct then
+                entry.outcome = "late"
+                update_player_last_answer(player_name, MathQuiz.current_answer, false)
+                update_status("%s прислал верный ответ через %.2f с, но уже после завершения раунда.", player_name, entry.response_time)
+        else
+                entry.outcome = "wrong"
+                local provided = message ~= "" and message or "—"
+                update_player_last_answer(player_name, provided, false)
+                update_status("%s отвечает через %.2f с: %s (неверно).", player_name, entry.response_time, provided)
+        end
+end
+
+local function handle_server_sms(color, text)
+        local name, player_id, message = parse_sms_message(text)
+        if not name then
+                return
+        end
+        record_response_from_sms(name, player_id, message)
+end
+
+
 function SMILive.DrawMathQuiz()
         imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
         imgui.Separator()
@@ -185,6 +339,8 @@ function SMILive.DrawMathQuiz()
                         update_status("Игра завершена вручную.")
                         MathQuiz.current_problem = nil
                         MathQuiz.current_answer = nil
+                        MathQuiz.answer_start_time = nil
+                        MathQuiz.accepting_answers = false
                 end
         end
 
@@ -203,6 +359,23 @@ function SMILive.DrawMathQuiz()
         imgui.TextWrapped(MathQuiz.status_text)
         imgui.Spacing()
 
+        if MathQuiz.latest_round_stats then
+                local stats = MathQuiz.latest_round_stats
+                imgui.TextColored(imgui.ImVec4(0.7, 0.9, 1.0, 1), format_status("Первый верный ответ: %s[%s] — %s", stats.winner, stats.player_id or "—", format_seconds(stats.response_time)))
+                if stats.lead then
+                        imgui.Text(format_status("Преимущество по времени: %s", format_seconds(stats.lead)))
+                else
+                        imgui.Text("Преимущество по времени: —")
+                end
+                if stats.total_responses then
+                        imgui.Text(format_status("Всего ответов: %d", stats.total_responses))
+                end
+                if stats.correct_answer ~= nil then
+                        imgui.Text(format_status("Правильный ответ: %s", tostring(stats.correct_answer)))
+                end
+                imgui.Spacing()
+        end
+
         if MathQuiz.active and MathQuiz.current_problem then
                 imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)
                 imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
@@ -219,6 +392,8 @@ function SMILive.DrawMathQuiz()
                                         handle_correct_answer(name)
                                         MathQuiz.current_problem = nil
                                         MathQuiz.current_answer = nil
+                                        MathQuiz.answer_start_time = nil
+                                        MathQuiz.accepting_answers = false
                                 else
                                         handle_wrong_answer(name, provided)
                                 end
@@ -251,6 +426,51 @@ function SMILive.DrawMathQuiz()
                         if row.last_answer ~= nil then
                                 local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
                                 imgui.TextColored(color, tostring(row.last_answer))
+                        else
+                                imgui.Text("—")
+                        end
+                        imgui.NextColumn()
+                end
+                imgui.Columns(1)
+        end
+
+        if #MathQuiz.current_responses > 0 then
+                imgui.Separator()
+                imgui.Text("Ответы текущего раунда")
+                imgui.Columns(4, "math_quiz_responses", true)
+                imgui.Text("Игрок")
+                imgui.NextColumn()
+                imgui.Text("ID")
+                imgui.NextColumn()
+                imgui.Text("Ответ")
+                imgui.NextColumn()
+                imgui.Text("Время")
+                imgui.NextColumn()
+                imgui.Separator()
+                for _, resp in ipairs(MathQuiz.current_responses) do
+                        imgui.Text(resp.name)
+                        if resp.outcome == "first" then
+                                imgui.SameLine()
+                                imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
+                        end
+                        imgui.NextColumn()
+                        imgui.Text(resp.player_id and tostring(resp.player_id) or "—")
+                        imgui.NextColumn()
+                        local display_answer = resp.text ~= "" and resp.text or "—"
+                        local color
+                        if resp.outcome == "first" then
+                                color = imgui.ImVec4(0.4, 1.0, 0.4, 1)
+                        elseif resp.outcome == "late" then
+                                color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
+                        elseif resp.correct then
+                                color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
+                        else
+                                color = imgui.ImVec4(1.0, 0.4, 0.4, 1)
+                        end
+                        imgui.TextColored(color, display_answer)
+                        imgui.NextColumn()
+                        if resp.response_time then
+                                imgui.Text(format_seconds(resp.response_time))
                         else
                                 imgui.Text("—")
                         end
@@ -332,7 +552,10 @@ end, function()
 end)
 
 function SMILive.attachModules(modules)
-        -- зарезервировано для будущей интеграции
+        if not sms_listener_registered and modules and modules.my_hooks and modules.my_hooks.addServerMessageListener then
+                modules.my_hooks.addServerMessageListener(handle_server_sms)
+                sms_listener_registered = true
+        end
 end
 
 return SMILive

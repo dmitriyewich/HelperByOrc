@@ -16,14 +16,28 @@ local unwanted
 local samp_mod
 local binder
 
+local server_message_listeners = {}
+
 function module.attachModules(mod)
-	tags = mod.tags
-	SMIHelp = mod.SMIHelp
-	VIPandADchat = mod.VIPandADchat
+        tags = mod.tags
+        SMIHelp = mod.SMIHelp
+        VIPandADchat = mod.VIPandADchat
         funcs = mod.funcs
         unwanted = mod.unwanted
         samp_mod = mod.samp
         binder = mod.binder
+end
+
+function module.addServerMessageListener(listener)
+        if type(listener) ~= 'function' then
+                return
+        end
+        for _, existing in ipairs(server_message_listeners) do
+                if existing == listener then
+                        return
+                end
+        end
+        table.insert(server_message_listeners, listener)
 end
 
 -- 1. SAMP EVENTS HOOK (через samp.events)
@@ -46,6 +60,16 @@ local function onServerMessage(color, text)
 
         if binder and binder.onServerMessage then
                 binder.onServerMessage(text2)
+        end
+
+        local suppress
+        if #server_message_listeners > 0 then
+                for _, listener in ipairs(server_message_listeners) do
+                        local ok, result = pcall(listener, color, text2)
+                        if ok and result == false then
+                                suppress = true
+                        end
+                end
         end
 
         if SMIHelp and SMIHelp.timer_send_enabled and (string.match(text2, '^%[VIP%] Объявление:.') or string.match(text2, '^{FCAA4D}%[VIP%] Объявление:.')) then
@@ -104,7 +128,11 @@ local function onServerMessage(color, text)
                 return false -- глушим сообщение
         end
 
-	return { color, text }
+        if suppress then
+                return false
+        end
+
+        return { color, text }
 end
 
 local function onShowDialog(dialogid, style, title, button1, button2, text, placeholder)
