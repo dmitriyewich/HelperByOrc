@@ -7,8 +7,6 @@ local str = ffi.string
 
 local binder = require("HelperByOrc.binder")
 
-local MathQuiz = {}
-
 local encoding = require "encoding"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -19,6 +17,30 @@ local os_clock = os.clock
 local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
 local NEWS_PREFIX = "/news"
+
+local MathQuiz = {
+        target_scores = { 3, 5 },
+        target_index = 1,
+        active = false,
+        round = 0,
+        current_problem = nil,
+        current_answer = nil,
+        show_answer = new.bool(false),
+        player_name_buf = new.char[48](),
+        player_answer_buf = new.char[32](),
+        status_text = "Нажмите \"Начать новую игру\"",
+        players = {},
+        winner = nil,
+        answer_start_time = nil,
+        accepting_answers = false,
+        current_responses = {},
+        first_correct = nil,
+        latest_round_stats = nil,
+        awaiting_next_round = false,
+        auto_broadcast = true,
+        chat_method = 2,
+        chat_interval_ms = 750,
+}
 
 local function pluralize_points(value)
         local amount = math.floor(tonumber(value) or 0)
@@ -313,30 +335,6 @@ local function generate_math_problem()
         end
         return generate_multi_step_problem()
 end
-
-MathQuiz = {
-        target_scores = { 3, 5 },
-        target_index = 1,
-        active = false,
-        round = 0,
-        current_problem = nil,
-        current_answer = nil,
-        show_answer = new.bool(false),
-        player_name_buf = new.char[48](),
-        player_answer_buf = new.char[32](),
-        status_text = "Нажмите \"Начать новую игру\"",
-        players = {},
-        winner = nil,
-        answer_start_time = nil,
-        accepting_answers = false,
-        current_responses = {},
-        first_correct = nil,
-        latest_round_stats = nil,
-        awaiting_next_round = false,
-        auto_broadcast = true,
-        chat_method = 2,
-        chat_interval_ms = 750,
-}
 
 local update_status
 local handle_server_sms
