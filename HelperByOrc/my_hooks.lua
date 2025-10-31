@@ -40,6 +40,19 @@ function module.addServerMessageListener(listener)
         table.insert(server_message_listeners, listener)
 end
 
+function module.removeServerMessageListener(listener)
+        if type(listener) ~= 'function' then
+                return false
+        end
+        for index = #server_message_listeners, 1, -1 do
+                if server_message_listeners[index] == listener then
+                        table.remove(server_message_listeners, index)
+                        return true
+                end
+        end
+        return false
+end
+
 -- 1. SAMP EVENTS HOOK (через samp.events)
 local sampev = require('samp.events')
 

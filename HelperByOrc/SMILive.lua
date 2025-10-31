@@ -99,14 +99,60 @@ local MathQuiz = {
         latest_round_stats = nil,
 }
 
-local sms_listener_registered = false
+local update_status
+
+local sms_listener_active = false
+local my_hooks_module = nil
+
+local function can_use_sms_listener()
+        return my_hooks_module
+                and type(my_hooks_module.addServerMessageListener) == "function"
+                and type(my_hooks_module.removeServerMessageListener) == "function"
+end
+
+local function start_sms_listener(silent)
+        if sms_listener_active then
+                return true
+        end
+        if not can_use_sms_listener() then
+                if not silent then
+                        update_status("Модуль приёма SMS недоступен.")
+                end
+                return false
+        end
+        my_hooks_module.addServerMessageListener(handle_server_sms)
+        sms_listener_active = true
+        if not silent then
+                update_status("Приём SMS-сообщений активирован. Ждите ответы слушателей.")
+        end
+        return true
+end
+
+local function stop_sms_listener(silent)
+        if not sms_listener_active then
+                return true
+        end
+        if not can_use_sms_listener() then
+                sms_listener_active = false
+                if not silent then
+                        update_status("Приём SMS-сообщений недоступен.")
+                end
+                return false
+        end
+        my_hooks_module.removeServerMessageListener(handle_server_sms)
+        sms_listener_active = false
+        if not silent then
+                update_status("Приём SMS-сообщений остановлен.")
+        end
+        return true
+end
 
 local function reset_buffers()
         imgui.StrCopy(MathQuiz.player_name_buf, "")
         imgui.StrCopy(MathQuiz.player_answer_buf, "")
 end
 
-local function update_status(text, ...)
+update_status = function(text, ...)
         MathQuiz.status_text = format_status(text, ...)
 end
 
@@ -500,8 +546,50 @@ local LiveWindow = {
         show = new.bool(false),
 }
 
+local function draw_sms_listener_controls()
+        imgui.Text("Приём SMS-сообщений")
+        imgui.Spacing()
+
+        local controls_available = can_use_sms_listener()
+        local button_label
+        local action
+
+        if sms_listener_active then
+                button_label = "Закончить прием сообщений"
+                action = function()
+                        stop_sms_listener(false)
+                end
+        else
+                button_label = "Начать прием сообщений"
+                action = function()
+                        start_sms_listener(false)
+                end
+        end
+
+        if imgui.Button(button_label) then
+                if controls_available or sms_listener_active then
+                        action()
+                else
+                        update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
+                end
+        end
+
+        imgui.SameLine()
+        local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
+        local status_label = sms_listener_active and "приём активен" or "приём отключён"
+        imgui.TextColored(status_color, status_label)
+
+        if not controls_available then
+                imgui.Spacing()
+                imgui.TextColored(imgui.ImVec4(0.9, 0.6, 0.4, 1), "Управление доступно после загрузки модуля my_hooks.")
+        end
+end
+
 local function draw_live_window()
         imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
+        imgui.Spacing()
+        imgui.Separator()
+        draw_sms_listener_controls()
         imgui.Spacing()
         imgui.Separator()
         SMILive.DrawMathQuiz()
@@ -558,9 +646,17 @@ end, function()
 end)
 
 function SMILive.attachModules(modules)
-        if not sms_listener_registered and modules and modules.my_hooks and modules.my_hooks.addServerMessageListener then
-                modules.my_hooks.addServerMessageListener(handle_server_sms)
-                sms_listener_registered = true
+        local resume_listener = sms_listener_active
+        if sms_listener_active and can_use_sms_listener() then
+                stop_sms_listener(true)
+        else
+                sms_listener_active = false
+        end
+
+        my_hooks_module = modules and modules.my_hooks or nil
+
+        if resume_listener then
+                start_sms_listener(true)
         end
 end
 
