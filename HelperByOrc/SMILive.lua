@@ -31,6 +31,17 @@ local function parse_sms_message(text)
         return trim(name), tonumber(id), trim(message)
 end
 
+local function extract_numeric_answer(text)
+        if type(text) ~= "string" then
+                return nil
+        end
+        local candidate = text:match("[-+]?%d+")
+        if candidate then
+                return tonumber(candidate)
+        end
+        return nil
+end
+
 local function format_seconds(value)
         if not value then
                 return "—"
@@ -214,7 +225,7 @@ local function record_response_from_sms(player_name, player_id, message)
                 response_time = 0
         end
 
-        local numeric_answer = tonumber(message)
+        local numeric_answer = extract_numeric_answer(message)
         local is_correct = numeric_answer ~= nil and MathQuiz.current_answer == numeric_answer
         local entry = {
                 name = player_name,
