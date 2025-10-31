@@ -55,28 +55,107 @@ local function format_seconds(value)
         return string.format("%.2f с", value)
 end
 
-local function generate_math_problem()
-        local a = math_random(2, 25)
-        local b = math_random(2, 25)
-        local ops = {
-                {"+", function(x, y)
-                        return x + y
-                end},
-                {"-", function(x, y)
-                        return x - y
-                end},
-                {"×", function(x, y)
-                        return x * y
-                end},
-        }
-        local op = ops[math_random(1, #ops)]
-        local symbol, fn = op[1], op[2]
-        if symbol == "-" and a < b then
-                a, b = b, a
+local function pick_divisor(n)
+        local divisors = {}
+        for i = 2, n - 1 do
+                if n % i == 0 then
+                        divisors[#divisors + 1] = i
+                end
         end
-        local answer = fn(a, b)
-        local text = string.format("%d %s %d", a, symbol, b)
+        if #divisors == 0 then
+                return 1
+        end
+        return divisors[math_random(1, #divisors)]
+end
+
+local function generate_two_operand_problem()
+        local ops = {"+", "-", "×", "/"}
+        local op = ops[math_random(1, #ops)]
+        local a, b, answer
+        if op == "+" then
+                a = math_random(2, 30)
+                b = math_random(2, 30)
+                answer = a + b
+        elseif op == "-" then
+                b = math_random(2, 25)
+                a = math_random(b + 1, 35)
+                answer = a - b
+        elseif op == "×" then
+                a = math_random(2, 12)
+                b = math_random(2, 12)
+                answer = a * b
+        else
+                b = math_random(2, 12)
+                local quotient = math_random(2, 12)
+                a = b * quotient
+                answer = quotient
+        end
+        local text = string.format("%d %s %d", a, op, b)
         return text, answer
+end
+
+local function generate_multi_step_problem()
+        local builders = {
+                function()
+                        local a = math_random(2, 20)
+                        local b = math_random(2, 10)
+                        local c = math_random(2, 10)
+                        local answer = a + b * c
+                        return string.format("%d + %d * %d", a, b, c), answer
+                end,
+                function()
+                        local a = math_random(2, 10)
+                        local b = math_random(2, 10)
+                        local c = math_random(2, 8)
+                        local answer = (a + b) * c
+                        return string.format("(%d + %d) * %d", a, b, c), answer
+                end,
+                function()
+                        local a = math_random(2, 9)
+                        local b = math_random(2, 9)
+                        local product = a * b
+                        local c = pick_divisor(product)
+                        if c == 1 then
+                                c = 2
+                        end
+                        local answer = product / c
+                        return string.format("(%d * %d) / %d", a, b, c), answer
+                end,
+                function()
+                        local a = math_random(2, 10)
+                        local b = math_random(2, 10)
+                        local product = a * b
+                        local c = math_random(2, product - 1)
+                        local answer = product - c
+                        return string.format("(%d * %d) - %d", a, b, c), answer
+                end,
+                function()
+                        local c = math_random(2, 9)
+                        local quotient = math_random(2, 9)
+                        local total = c * quotient
+                        local a = math_random(2, total - 2)
+                        local b = total - a
+                        if b <= 1 then
+                                b = 2
+                                a = total - b
+                        end
+                        local answer = quotient
+                        return string.format("(%d + %d) / %d", a, b, c), answer
+                end,
+        }
+        local builder = builders[math_random(1, #builders)]
+        local text, answer = builder()
+        if answer <= 0 or answer ~= math.floor(answer) then
+                return generate_multi_step_problem()
+        end
+        return text, answer
+end
+
+local function generate_math_problem()
+        if math_random() < 0.5 then
+                return generate_two_operand_problem()
+        end
+        return generate_multi_step_problem()
 end
 
 local MathQuiz = {
