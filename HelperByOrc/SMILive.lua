@@ -7,15 +7,9 @@ local str = ffi.string
 
 local binder = require("HelperByOrc.binder")
 
-local encoding = require "encoding"
-encoding.default = "CP1251"
-local u8 = encoding.UTF8
-
 local math_random = math.random
 local os_clock = os.clock
 
-local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
-local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
 local NEWS_PREFIX = "/news"
 
 local MathQuiz = {
@@ -37,10 +31,26 @@ local MathQuiz = {
         first_correct = nil,
         latest_round_stats = nil,
         awaiting_next_round = false,
-        auto_broadcast = true,
         chat_method = 2,
         chat_interval_ms = 750,
 }
+
+local default_send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
+local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
+
+local function get_send_targets()
+        if binder then
+                if type(binder.getSendTargets) == "function" then
+                        local labels, labels_ffi = binder.getSendTargets()
+                        if type(labels) == "table" and labels_ffi then
+                                return labels, labels_ffi
+                        end
+                elseif type(binder.send_labels) == "table" and binder.send_labels_ffi then
+                        return binder.send_labels, binder.send_labels_ffi
+                end
+        end
+        return default_send_labels, default_send_labels_ffi
+end
 
 local function pluralize_points(value)
         local amount = math.floor(tonumber(value) or 0)
@@ -80,10 +90,15 @@ end
 
 local function get_selected_method()
         local method = tonumber(MathQuiz.chat_method) or 0
+        local send_labels = get_send_targets()
+        local max_index = 0
+        if type(send_labels) == "table" then
+                max_index = math.max(0, #send_labels - 1)
+        end
         if method < 0 then
                 method = 0
-        elseif method > 3 then
-                method = 3
+        elseif method > max_index then
+                method = max_index
         end
         return method
 end
@@ -96,25 +111,16 @@ local function get_interval_ms()
         return math.floor(value + 0.5)
 end
 
-local function send_chat_message(text, method)
-        if type(text) ~= "string" or text == "" then
-                return
+local function format_status(fmt, ...)
+        local ok, msg = pcall(string.format, fmt, ...)
+        if ok then
+                return msg
         end
-        local target = method or get_selected_method()
-        local send_fn = binder and binder.doSend
-        if type(send_fn) == "function" then
-                send_fn(text, target)
-                return
-        end
+        return fmt
+end
 
-        local decoded = u8:decode(text)
-        if target == 0 then
-                sampAddChatMessage(decoded, 0x00DD00)
-        elseif target == 1 then
-                sampProcessChatInput(decoded)
-        elseif target == 2 then
-                sampSendChat(decoded)
-        end
+local function update_status(text, ...)
+        MathQuiz.status_text = format_status(text, ...)
 end
 
 local function send_sequence(messages, method, interval)
@@ -124,9 +130,16 @@ local function send_sequence(messages, method, interval)
         local delay = math.max(0, tonumber(interval) or 0)
         delay = math.floor(delay + 0.5)
         local target = method or get_selected_method()
+        local send_fn = binder and binder.doSend
+        if type(send_fn) ~= "function" then
+                update_status("Отправка недоступна: функция binder.doSend не найдена.")
+                return
+        end
         local function worker()
                 for idx, msg in ipairs(messages) do
-                        send_chat_message(msg, target)
+                        if type(msg) == "string" and msg ~= "" then
+                                send_fn(msg, target)
+                        end
                         if idx < #messages and delay > 0 then
                                 wait(delay)
                         end
@@ -139,23 +152,14 @@ local function send_sequence(messages, method, interval)
         end
 end
 
-local function should_auto_broadcast()
-        return MathQuiz.auto_broadcast and true or false
-end
-
-local function broadcast_sequence(messages, force)
-        if not force then
-                if not should_auto_broadcast() then
-                        return
-                end
-                if get_selected_method() == 3 then
-                        return
-                end
+local function broadcast_sequence(messages)
+        if get_selected_method() == 3 then
+                return
         end
         send_sequence(messages, get_selected_method(), get_interval_ms())
 end
 
-local function broadcast_problem(problem, force)
+local function broadcast_problem(problem)
         if type(problem) ~= "string" or problem == "" then
                 return
         end
@@ -163,10 +167,10 @@ local function broadcast_problem(problem, force)
                 string.format("%s И так, следующий пример...", NEWS_PREFIX),
                 string.format("%s *%s*", NEWS_PREFIX, problem)
         }
-        broadcast_sequence(messages, force)
+        broadcast_sequence(messages)
 end
 
-local function broadcast_correct_answer(player_name, answer, score, is_final, force)
+local function broadcast_correct_answer(player_name, answer, score, is_final)
         if type(player_name) ~= "string" or player_name == "" then
                 return
         end
@@ -187,19 +191,7 @@ local function broadcast_correct_answer(player_name, answer, score, is_final, fo
                         pluralize_points(score or 0)
                 )
         end
-        broadcast_sequence(messages, force)
-end
-
-local function format_status(fmt, ...)
-        local ok, msg = pcall(string.format, fmt, ...)
-        if ok then
-                return msg
-        end
-        return fmt
-end
-
-local function update_status(text, ...)
-        MathQuiz.status_text = format_status(text, ...)
+        broadcast_sequence(messages)
 end
 
 local function trim(s)
@@ -405,7 +397,6 @@ local function begin_round()
         MathQuiz.latest_round_stats = nil
         MathQuiz.awaiting_next_round = false
         update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
-        broadcast_problem(problem, false)
         reset_buffers()
 end
 
@@ -534,8 +525,6 @@ local function record_response_from_sms(player_name, player_id, message)
                                 update_status("%s завершает игру, ответив верно за %.2f с. Итог: %d очков.", player_name, entry.response_time, player_entry.score)
                         end
                 end
-
-                broadcast_correct_answer(player_name, correct_value, player_entry and player_entry.score or 0, MathQuiz.latest_round_stats.game_finished, false)
 
                 return
         end
@@ -681,15 +670,27 @@ function SMILive.DrawMathQuiz()
 
         imgui.Separator()
         imgui.Text("Объявления /news")
-        local auto_flag = imgui.new.bool(MathQuiz.auto_broadcast and true or false)
-        if imgui.Checkbox("Автоматически отправлять сообщения", auto_flag) then
-                MathQuiz.auto_broadcast = auto_flag[0]
-        end
 
         imgui.PushItemWidth(200)
         local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
-        if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, #send_labels) then
-                MathQuiz.chat_method = method_buf[0]
+        local send_labels, send_labels_ffi = get_send_targets()
+        local send_count = 0
+        if type(send_labels) == "table" then
+                send_count = #send_labels
+        end
+        if send_labels_ffi and send_count > 0 then
+                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
+                        local max_index = math.max(0, send_count - 1)
+                        local new_method = method_buf[0]
+                        if new_method < 0 then
+                                new_method = 0
+                        elseif new_method > max_index then
+                                new_method = max_index
+                        end
+                        MathQuiz.chat_method = new_method
+                end
+        else
+                imgui.TextDisabled("Методы отправки недоступны")
         end
         imgui.PopItemWidth()
 
@@ -702,7 +703,7 @@ function SMILive.DrawMathQuiz()
 
         if MathQuiz.current_problem then
                 if imgui.Button("Отправить текущий пример в чат") then
-                        broadcast_problem(MathQuiz.current_problem, true)
+                        broadcast_problem(MathQuiz.current_problem)
                 end
         end
         if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
@@ -711,7 +712,7 @@ function SMILive.DrawMathQuiz()
                 end
                 if imgui.Button("Объявить правильный ответ в чат") then
                         local stats = MathQuiz.latest_round_stats
-                        broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, true)
+                        broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished)
                 end
         end
         imgui.Spacing()

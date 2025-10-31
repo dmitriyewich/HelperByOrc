@@ -453,6 +453,10 @@ local open_quick_conditions_popup = false
 -- Подписи
 local send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+
+function module.getSendTargets()
+        return send_labels, send_labels_ffi
+end
 local input_mode_labels = {"Поле ввода", "Кнопки"}
 local input_mode_labels_ffi = imgui.new["const char*"][#input_mode_labels](input_mode_labels)
 
