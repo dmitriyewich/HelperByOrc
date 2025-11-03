@@ -165,7 +165,7 @@ local function broadcast_problem(problem)
         end
         local messages = {
                 string.format("%s И так, следующий пример...", NEWS_PREFIX),
-                string.format("%s *%s*", NEWS_PREFIX, problem)
+                string.format("%s %s", NEWS_PREFIX, problem)
         }
         broadcast_sequence(messages)
 end
@@ -174,14 +174,15 @@ local function broadcast_correct_answer(player_name, answer, score, is_final)
         if type(player_name) ~= "string" or player_name == "" then
                 return
         end
-        local answer_text = answer ~= nil and tostring(answer) or "—"
+        local answer_text = answer ~= nil and tostring(answer) or "-"
         local gained = 1
         local score_phrase = format_score_progress(score or 0, gained)
         local messages = {
                 string.format("%s Стоп!", NEWS_PREFIX),
-                string.format("%s У нас есть правильный ответ! И это: *%s*", NEWS_PREFIX, answer_text),
+                string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+                string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
                 string.format("%s Верный ответ прислал..", NEWS_PREFIX),
-                string.format("%s *%s*! %s", NEWS_PREFIX, player_name, score_phrase)
+                string.format("%s %s! %s", NEWS_PREFIX, player_name, score_phrase)
         }
         if is_final then
                 messages[#messages + 1] = string.format(
@@ -224,7 +225,7 @@ end
 
 local function format_seconds(value)
         if not value then
-                return "—"
+                return "-"
         end
         return string.format("%.2f с", value)
 end
@@ -243,7 +244,7 @@ local function pick_divisor(n)
 end
 
 local function generate_two_operand_problem()
-        local ops = {"+", "-", "×", "/"}
+        local ops = {"+", "-", "*", "/"}
         local op = ops[math_random(1, #ops)]
         local a, b, answer
         if op == "+" then
@@ -254,7 +255,7 @@ local function generate_two_operand_problem()
                 b = math_random(2, 25)
                 a = math_random(b + 1, 35)
                 answer = a - b
-        elseif op == "×" then
+        elseif op == "*" then
                 a = math_random(2, 12)
                 b = math_random(2, 12)
                 answer = a * b
@@ -366,7 +367,7 @@ end
 local function start_new_game()
         MathQuiz.active = true
         reset_scoreboard()
-        update_status("Игра началась. Цель — %d очка(ов).", MathQuiz.target_scores[MathQuiz.target_index])
+        update_status("Игра началась. Цель - %d очка(ов).", MathQuiz.target_scores[MathQuiz.target_index])
 end
 
 local function end_game(winner)
@@ -535,7 +536,7 @@ local function record_response_from_sms(player_name, player_id, message)
                 update_status("%s прислал верный ответ через %.2f с, но уже после завершения раунда.", player_name, entry.response_time)
         else
                 entry.outcome = "wrong"
-                local provided = message ~= "" and message or "—"
+                local provided = message ~= "" and message or "-"
                 update_player_last_answer(player_name, provided, false)
                 update_status("%s отвечает через %.2f с: %s (неверно).", player_name, entry.response_time, provided)
         end
@@ -653,11 +654,11 @@ function SMILive.DrawMathQuiz()
 
         if MathQuiz.latest_round_stats then
                 local stats = MathQuiz.latest_round_stats
-                imgui.TextColored(imgui.ImVec4(0.7, 0.9, 1.0, 1), format_status("Первый верный ответ: %s[%s] — %s", stats.winner, stats.player_id or "—", format_seconds(stats.response_time)))
+                imgui.TextColored(imgui.ImVec4(0.7, 0.9, 1.0, 1), format_status("Первый верный ответ: %s[%s] - %s", stats.winner, stats.player_id or "-", format_seconds(stats.response_time)))
                 if stats.lead then
                         imgui.Text(format_status("Преимущество по времени: %s", format_seconds(stats.lead)))
                 else
-                        imgui.Text("Преимущество по времени: —")
+                        imgui.Text("Преимущество по времени: -")
                 end
                 if stats.total_responses then
                         imgui.Text(format_status("Всего ответов: %d", stats.total_responses))
@@ -764,7 +765,7 @@ function SMILive.DrawMathQuiz()
                                 local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
                                 imgui.TextColored(color, tostring(row.last_answer))
                         else
-                                imgui.Text("—")
+                                imgui.Text("-")
                         end
                         imgui.NextColumn()
                 end
@@ -791,9 +792,9 @@ function SMILive.DrawMathQuiz()
                                 imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
                         end
                         imgui.NextColumn()
-                        imgui.Text(resp.player_id and tostring(resp.player_id) or "—")
+                        imgui.Text(resp.player_id and tostring(resp.player_id) or "-")
                         imgui.NextColumn()
-                        local display_answer = resp.text ~= "" and resp.text or "—"
+                        local display_answer = resp.text ~= "" and resp.text or "-"
                         local color
                         if resp.outcome == "first" then
                                 color = imgui.ImVec4(0.4, 1.0, 0.4, 1)
@@ -809,7 +810,7 @@ function SMILive.DrawMathQuiz()
                         if resp.response_time then
                                 imgui.Text(format_seconds(resp.response_time))
                         else
-                                imgui.Text("—")
+                                imgui.Text("-")
                         end
                         imgui.NextColumn()
                 end
@@ -897,7 +898,7 @@ function SMILive.DrawHelperSection()
                 imgui.Text("Краткая сводка игроков")
                 local preview = {}
                 for _, row in ipairs(iterate_players_sorted()) do
-                        table.insert(preview, format_status("%s — %d", row.name, row.score))
+                        table.insert(preview, format_status("%s - %d", row.name, row.score))
                         if #preview == 3 then
                                 break
                         end
@@ -923,7 +924,7 @@ imgui.OnFrame(function()
         return LiveWindow.show[0]
 end, function()
         imgui.SetNextWindowSize(imgui.ImVec2(520, 480), imgui.Cond.FirstUseEver)
-        local opened = imgui.Begin("SMI Live — эфир-викторина", LiveWindow.show, imgui.WindowFlags.NoCollapse)
+        local opened = imgui.Begin("SMI Live - эфир-викторина", LiveWindow.show, imgui.WindowFlags.NoCollapse)
         if opened then
                 draw_live_window()
         end
