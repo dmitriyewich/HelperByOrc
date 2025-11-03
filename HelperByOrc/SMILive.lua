@@ -20,6 +20,7 @@ local MathQuiz = {
         round = 0,
         current_problem = nil,
         current_answer = nil,
+        round_answer = nil,
         show_answer = new.bool(false),
         player_name_buf = new.char[48](),
         player_answer_buf = new.char[32](),
@@ -189,6 +190,7 @@ local function broadcast_problem(problem)
                 string.format("%s %s", NEWS_PREFIX, problem)
         }
         broadcast_sequence(messages)
+        start_sms_listener(true)
 end
 
 local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
@@ -375,6 +377,7 @@ local function reset_scoreboard()
         MathQuiz.winner = nil
         MathQuiz.current_problem = nil
         MathQuiz.current_answer = nil
+        MathQuiz.round_answer = nil
         MathQuiz.show_answer[0] = false
         MathQuiz.answer_start_time = nil
         MathQuiz.accepting_answers = false
@@ -398,6 +401,7 @@ local function end_game(winner)
         update_status("%s достигает %d очков и побеждает!", winner, MathQuiz.target_scores[MathQuiz.target_index])
         MathQuiz.current_problem = nil
         MathQuiz.current_answer = nil
+        MathQuiz.round_answer = nil
         MathQuiz.answer_start_time = nil
         MathQuiz.accepting_answers = false
         MathQuiz.awaiting_next_round = false
@@ -416,6 +420,7 @@ local function begin_round()
         local problem, answer = generate_math_problem()
         MathQuiz.current_problem = problem
         MathQuiz.current_answer = answer
+        MathQuiz.round_answer = answer
         MathQuiz.show_answer[0] = false
         MathQuiz.answer_start_time = os_clock()
         MathQuiz.accepting_answers = true
@@ -438,10 +443,10 @@ local function handle_correct_answer(player_name)
         entry.last_answer = MathQuiz.current_answer
 
         MathQuiz.round = MathQuiz.round + 1
+        MathQuiz.round_answer = MathQuiz.round_answer or MathQuiz.current_answer
         MathQuiz.current_problem = nil
         MathQuiz.current_answer = nil
         MathQuiz.show_answer[0] = false
-        MathQuiz.answer_start_time = nil
         MathQuiz.accepting_answers = false
 
         local target = MathQuiz.target_scores[MathQuiz.target_index]
@@ -507,7 +512,24 @@ local function compute_lead_time(first_response)
 end
 
 local function record_response_from_sms(player_name, player_id, message)
-        if not (MathQuiz.active and MathQuiz.current_answer and MathQuiz.answer_start_time and MathQuiz.accepting_answers) then
+        if not MathQuiz.active then
+                return
+        end
+
+        if not MathQuiz.answer_start_time then
+                return
+        end
+
+        if not (MathQuiz.accepting_answers or MathQuiz.awaiting_next_round) then
+                return
+        end
+
+        local correct_value_reference = MathQuiz.current_answer or MathQuiz.round_answer
+        if not correct_value_reference and MathQuiz.latest_round_stats then
+                correct_value_reference = MathQuiz.latest_round_stats.correct_answer
+        end
+
+        if not correct_value_reference then
                 return
         end
 
@@ -524,7 +546,8 @@ local function record_response_from_sms(player_name, player_id, message)
         end
 
         local numeric_answer = extract_numeric_answer(message)
-        local is_correct = numeric_answer ~= nil and MathQuiz.current_answer == numeric_answer
+        local is_correct = numeric_answer ~= nil and correct_value_reference == numeric_answer
+        local stored_correct_answer = correct_value_reference
         local entry = {
                 name = player_name,
                 player_id = player_id,
@@ -539,7 +562,7 @@ local function record_response_from_sms(player_name, player_id, message)
         if is_correct and not MathQuiz.first_correct then
                 entry.outcome = "first"
                 MathQuiz.first_correct = entry
-                local correct_value = MathQuiz.current_answer
+                local correct_value = correct_value_reference
                 handle_correct_answer(player_name)
 
                 local player_entry = ensure_player(player_name)
@@ -576,7 +599,7 @@ local function record_response_from_sms(player_name, player_id, message)
 
         if is_correct then
                 entry.outcome = "late"
-                update_player_last_answer(player_name, MathQuiz.current_answer, false)
+                update_player_last_answer(player_name, stored_correct_answer, false)
                 update_status("%s прислал верный ответ через %.2f с, но уже после завершения раунда.", player_name, entry.response_time)
         else
                 entry.outcome = "wrong"
@@ -675,6 +698,7 @@ function SMILive.DrawMathQuiz()
                         update_status("Игра завершена вручную.")
                         MathQuiz.current_problem = nil
                         MathQuiz.current_answer = nil
+                        MathQuiz.round_answer = nil
                         MathQuiz.answer_start_time = nil
                         MathQuiz.accepting_answers = false
                         MathQuiz.awaiting_next_round = false
