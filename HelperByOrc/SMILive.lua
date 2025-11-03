@@ -7,6 +7,8 @@ local str = ffi.string
 
 local binder
 local tags_module
+local start_sms_listener
+local stop_sms_listener
 
 local math_random = math.random
 local os_clock = os.clock
