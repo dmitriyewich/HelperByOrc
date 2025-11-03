@@ -5,7 +5,8 @@ local new = imgui.new
 local ffi = require("ffi")
 local str = ffi.string
 
-local binder = require("HelperByOrc.binder")
+local binder
+local tags_module
 
 local math_random = math.random
 local os_clock = os.clock
@@ -159,6 +160,26 @@ local function broadcast_sequence(messages)
         send_sequence(messages, get_selected_method(), get_interval_ms())
 end
 
+local function trim(s)
+        return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function normalize_player_name(name)
+        local cleaned = trim(name)
+        if cleaned == "" then
+                return ""
+        end
+        return cleaned:gsub("_+", " ")
+end
+
+local function format_broadcast_name(name, player_id)
+        local id = tonumber(player_id)
+        if id and tags_module then
+                return string.format("[rpnick(%d)]", id)
+        end
+        return normalize_player_name(name)
+end
+
 local function broadcast_problem(problem)
         if type(problem) ~= "string" or problem == "" then
                 return
@@ -170,33 +191,34 @@ local function broadcast_problem(problem)
         broadcast_sequence(messages)
 end
 
-local function broadcast_correct_answer(player_name, answer, score, is_final)
-        if type(player_name) ~= "string" or player_name == "" then
+local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
+        local normalized = normalize_player_name(player_name)
+        if normalized == "" then
+                normalized = trim(player_name)
+        end
+        if type(normalized) ~= "string" or normalized == "" then
                 return
         end
         local answer_text = answer ~= nil and tostring(answer) or "-"
         local gained = 1
         local score_phrase = format_score_progress(score or 0, gained)
+        local broadcast_name = format_broadcast_name(normalized, player_id)
         local messages = {
                 string.format("%s Стоп!", NEWS_PREFIX),
                 string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
                 string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
                 string.format("%s Верный ответ прислал..", NEWS_PREFIX),
-                string.format("%s %s! %s", NEWS_PREFIX, player_name, score_phrase)
+                string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
         }
         if is_final then
                 messages[#messages + 1] = string.format(
                         "%s Викторина завершена! %s набирает %s и побеждает!",
                         NEWS_PREFIX,
-                        player_name,
+                        broadcast_name,
                         pluralize_points(score or 0)
                 )
         end
         broadcast_sequence(messages)
-end
-
-local function trim(s)
-        return (s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 
 local function parse_sms_message(text)
@@ -382,8 +404,12 @@ local function end_game(winner)
 end
 
 local function ensure_player(name)
-        MathQuiz.players[name] = MathQuiz.players[name] or { score = 0, last_answer = nil, last_correct = false }
-        return MathQuiz.players[name]
+        local normalized = normalize_player_name(name)
+        if normalized == "" then
+                return nil, normalized
+        end
+        MathQuiz.players[normalized] = MathQuiz.players[normalized] or { score = 0, last_answer = nil, last_correct = false }
+        return MathQuiz.players[normalized], normalized
 end
 
 local function begin_round()
@@ -402,7 +428,11 @@ local function begin_round()
 end
 
 local function handle_correct_answer(player_name)
-        local entry = ensure_player(player_name)
+        local entry, normalized = ensure_player(player_name)
+        if not entry then
+                return
+        end
+        player_name = normalized
         entry.score = entry.score + 1
         entry.last_correct = true
         entry.last_answer = MathQuiz.current_answer
@@ -425,7 +455,11 @@ local function handle_correct_answer(player_name)
 end
 
 local function handle_wrong_answer(player_name, provided)
-        local entry = ensure_player(player_name)
+        local entry, normalized = ensure_player(player_name)
+        if not entry then
+                return
+        end
+        player_name = normalized
         entry.last_correct = false
         entry.last_answer = provided
         update_status("Ответ %s неверный (%s).", player_name, tostring(provided))
@@ -450,10 +484,13 @@ local function has_players()
 end
 
 local function update_player_last_answer(name, provided, is_correct)
-        local entry = ensure_player(name)
+        local entry, normalized = ensure_player(name)
+        if not entry then
+                return nil, normalized
+        end
         entry.last_correct = is_correct and true or false
         entry.last_answer = provided
-        return entry
+        return entry, normalized
 end
 
 local function compute_lead_time(first_response)
@@ -472,6 +509,13 @@ end
 local function record_response_from_sms(player_name, player_id, message)
         if not (MathQuiz.active and MathQuiz.current_answer and MathQuiz.answer_start_time and MathQuiz.accepting_answers) then
                 return
+        end
+
+        local normalized_name = normalize_player_name(player_name)
+        if normalized_name ~= "" then
+                player_name = normalized_name
+        else
+                player_name = trim(player_name)
         end
 
         local response_time = os_clock() - MathQuiz.answer_start_time
@@ -713,7 +757,7 @@ function SMILive.DrawMathQuiz()
                 end
                 if imgui.Button("Объявить правильный ответ в чат") then
                         local stats = MathQuiz.latest_round_stats
-                        broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished)
+                        broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id)
                 end
         end
         imgui.Spacing()
@@ -722,7 +766,7 @@ function SMILive.DrawMathQuiz()
                 imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)
                 imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
                 if imgui.Button("Проверить ответ") then
-                        local name = trim(str(MathQuiz.player_name_buf))
+                        local name = normalize_player_name(str(MathQuiz.player_name_buf))
                         local answer_str = str(MathQuiz.player_answer_buf)
                         local provided = tonumber(answer_str)
                         if name == "" then
@@ -939,6 +983,8 @@ function SMILive.attachModules(modules)
                 sms_listener_active = false
         end
 
+        binder = modules and modules.binder or nil
+        tags_module = modules and modules.tags or nil
         my_hooks_module = modules and modules.my_hooks or nil
 
         if resume_listener then
