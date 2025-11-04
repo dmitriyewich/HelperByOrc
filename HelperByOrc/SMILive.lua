@@ -619,7 +619,7 @@ local function handle_server_sms(color, text)
         record_response_from_sms(name, player_id, message)
 end
 
-local function start_sms_listener(silent)
+start_sms_listener = function(silent)
         if sms_listener_active then
                 return true
         end
@@ -637,7 +637,7 @@ local function start_sms_listener(silent)
         return true
 end
 
-local function stop_sms_listener(silent)
+stop_sms_listener = function(silent)
         if not sms_listener_active then
                 return true
         end
