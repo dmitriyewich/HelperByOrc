@@ -39,12 +39,100 @@ local MathQuiz = {
         chat_interval_ms = 750,
 }
 
-local LIVE_MESSAGE_BUFFER_SIZE = 512
+local LIVE_BUFFER_MIN = 4096
+local LIVE_BUFFER_PAD = 1024
 local LiveBroadcast = {
-        intro_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
-        outro_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
-        reminder_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
+        intro = {text = ""},
+        outro = {text = ""},
+        reminder = {text = ""},
 }
+
+local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
+local liveInputResizeCallbackPtr = nil
+local currentLiveSection = nil
+
+if INPUTTEXT_CALLBACK_RESIZE then
+        local function liveInputResizeCallback(data)
+                if not currentLiveSection or data.EventFlag ~= INPUTTEXT_CALLBACK_RESIZE then
+                        return 0
+                end
+
+                local section = currentLiveSection
+                local len = data.BufTextLen or 0
+                local text = ffi.string(data.Buf, len)
+                local desired = math.max(LIVE_BUFFER_MIN, len + 1 + LIVE_BUFFER_PAD)
+
+                section.buf = imgui.new.char[desired](text)
+                section.buf_size = desired
+                section.buf_text = text
+                data.Buf = section.buf
+                data.BufSize = desired
+
+                return 0
+        end
+
+        liveInputResizeCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData*)", liveInputResizeCallback)
+end
+
+local function ensure_live_buffer(section)
+        section = section or {}
+        local text = section.text or ""
+        local len = #text
+        local desired = math.max(LIVE_BUFFER_MIN, len + LIVE_BUFFER_PAD)
+        local currentSize = section.buf_size or 0
+
+        if not section.buf or currentSize < desired then
+                currentSize = desired
+                section.buf = imgui.new.char[currentSize](text)
+                section.buf_size = currentSize
+        elseif section.buf_text ~= text then
+                imgui.StrCopy(section.buf, text, currentSize)
+        end
+
+        section.buf_text = text
+        return section.buf, section.buf_size
+end
+
+local function update_live_buffer_from_imgui(section, label, height)
+        local buf, bufSize = ensure_live_buffer(section)
+        local changed
+        if liveInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE then
+                currentLiveSection = section
+                changed =
+                        imgui.InputTextMultiline(
+                        label,
+                        buf,
+                        bufSize,
+                        imgui.ImVec2(0, height),
+                        INPUTTEXT_CALLBACK_RESIZE,
+                        liveInputResizeCallbackPtr
+                )
+                currentLiveSection = nil
+        else
+                changed = imgui.InputTextMultiline(label, buf, bufSize, imgui.ImVec2(0, height))
+        end
+
+        local activeBuf = section.buf or buf
+        if changed then
+                local newText = ffi.string(activeBuf)
+                section.text = newText
+                section.buf_text = newText
+                if not (liveInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE) then
+                        local needed = math.max(LIVE_BUFFER_MIN, #newText + LIVE_BUFFER_PAD)
+                        if needed > (section.buf_size or 0) then
+                                section.buf = imgui.new.char[needed](newText)
+                                section.buf_size = needed
+                                section.buf_text = newText
+                                activeBuf = section.buf
+                        end
+                end
+                section.buf_size = section.buf_size or bufSize
+        end
+
+        if not section.text then
+                section.text = section.buf_text or ""
+        end
+end
 
 local default_send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
@@ -199,8 +287,13 @@ local function create_news_messages_from_text(text)
         return messages
 end
 
-local function send_live_sequence_from_buffer(buffer, section_name)
-        local text = str(buffer)
+local function send_live_sequence_from_section(section, section_name)
+        local text
+        if type(section) == "table" then
+                text = section.text or section.buf_text or ""
+        else
+                text = str(section)
+        end
         local messages = create_news_messages_from_text(text)
         if not messages then
                 update_status("Добавьте текст для раздела \"%s\".", section_name)
@@ -959,38 +1052,23 @@ local function draw_live_broadcast_controls()
         imgui.Text("Управление эфиром")
         imgui.Spacing()
 
-        imgui.InputTextMultiline(
-                "Вступление##live_intro_text",
-                LiveBroadcast.intro_buf,
-                LIVE_MESSAGE_BUFFER_SIZE,
-                imgui.ImVec2(0, 80)
-        )
+        update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
         if imgui.Button("Начать эфир") then
-                send_live_sequence_from_buffer(LiveBroadcast.intro_buf, "Вступление")
+                send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
         end
 
         imgui.Spacing()
 
-        imgui.InputTextMultiline(
-                "Завершение##live_outro_text",
-                LiveBroadcast.outro_buf,
-                LIVE_MESSAGE_BUFFER_SIZE,
-                imgui.ImVec2(0, 80)
-        )
+        update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
         if imgui.Button("Закончить эфир") then
-                send_live_sequence_from_buffer(LiveBroadcast.outro_buf, "Завершение эфира")
+                send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
         end
 
         imgui.Spacing()
 
-        imgui.InputTextMultiline(
-                "Напоминание##live_reminder_text",
-                LiveBroadcast.reminder_buf,
-                LIVE_MESSAGE_BUFFER_SIZE,
-                imgui.ImVec2(0, 80)
-        )
+        update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
         if imgui.Button("Напоминание") then
-                send_live_sequence_from_buffer(LiveBroadcast.reminder_buf, "Напоминание")
+                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
         end
 end
 
