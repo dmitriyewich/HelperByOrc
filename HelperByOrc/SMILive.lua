@@ -39,6 +39,101 @@ local MathQuiz = {
         chat_interval_ms = 750,
 }
 
+local LIVE_BUFFER_MIN = 4096
+local LIVE_BUFFER_PAD = 1024
+local LiveBroadcast = {
+        intro = {text = ""},
+        outro = {text = ""},
+        reminder = {text = ""},
+}
+
+local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
+local liveInputResizeCallbackPtr = nil
+local currentLiveSection = nil
+
+if INPUTTEXT_CALLBACK_RESIZE then
+        local function liveInputResizeCallback(data)
+                if not currentLiveSection or data.EventFlag ~= INPUTTEXT_CALLBACK_RESIZE then
+                        return 0
+                end
+
+                local section = currentLiveSection
+                local len = data.BufTextLen or 0
+                local text = ffi.string(data.Buf, len)
+                local desired = math.max(LIVE_BUFFER_MIN, len + 1 + LIVE_BUFFER_PAD)
+
+                section.buf = imgui.new.char[desired](text)
+                section.buf_size = desired
+                section.buf_text = text
+                data.Buf = section.buf
+                data.BufSize = desired
+
+                return 0
+        end
+
+        liveInputResizeCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData*)", liveInputResizeCallback)
+end
+
+local function ensure_live_buffer(section)
+        section = section or {}
+        local text = section.text or ""
+        local len = #text
+        local desired = math.max(LIVE_BUFFER_MIN, len + LIVE_BUFFER_PAD)
+        local currentSize = section.buf_size or 0
+
+        if not section.buf or currentSize < desired then
+                currentSize = desired
+                section.buf = imgui.new.char[currentSize](text)
+                section.buf_size = currentSize
+        elseif section.buf_text ~= text then
+                imgui.StrCopy(section.buf, text, currentSize)
+        end
+
+        section.buf_text = text
+        return section.buf, section.buf_size
+end
+
+local function update_live_buffer_from_imgui(section, label, height)
+        local buf, bufSize = ensure_live_buffer(section)
+        local changed
+        if liveInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE then
+                currentLiveSection = section
+                changed =
+                        imgui.InputTextMultiline(
+                        label,
+                        buf,
+                        bufSize,
+                        imgui.ImVec2(0, height),
+                        INPUTTEXT_CALLBACK_RESIZE,
+                        liveInputResizeCallbackPtr
+                )
+                currentLiveSection = nil
+        else
+                changed = imgui.InputTextMultiline(label, buf, bufSize, imgui.ImVec2(0, height))
+        end
+
+        local activeBuf = section.buf or buf
+        if changed then
+                local newText = ffi.string(activeBuf)
+                section.text = newText
+                section.buf_text = newText
+                if not (liveInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE) then
+                        local needed = math.max(LIVE_BUFFER_MIN, #newText + LIVE_BUFFER_PAD)
+                        if needed > (section.buf_size or 0) then
+                                section.buf = imgui.new.char[needed](newText)
+                                section.buf_size = needed
+                                section.buf_text = newText
+                                activeBuf = section.buf
+                        end
+                end
+                section.buf_size = section.buf_size or bufSize
+        end
+
+        if not section.text then
+                section.text = section.buf_text or ""
+        end
+end
+
 local default_send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
 
@@ -165,6 +260,57 @@ end
 
 local function trim(s)
         return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function create_news_messages_from_text(text)
+        local cleaned = trim(text)
+        if cleaned == "" then
+                return nil
+        end
+
+        local messages = {}
+        for line in text:gmatch("[^\r\n]+") do
+                local stripped = trim(line)
+                if stripped ~= "" then
+                        if stripped:sub(1, #NEWS_PREFIX) == NEWS_PREFIX then
+                                messages[#messages + 1] = stripped
+                        else
+                                messages[#messages + 1] = string.format("%s %s", NEWS_PREFIX, stripped)
+                        end
+                end
+        end
+
+        if #messages == 0 then
+                return nil
+        end
+
+        return messages
+end
+
+local function send_live_sequence_from_section(section, section_name)
+        local text
+        if type(section) == "table" then
+                text = section.text or section.buf_text or ""
+        else
+                text = str(section)
+        end
+        local messages = create_news_messages_from_text(text)
+        if not messages then
+                update_status("Добавьте текст для раздела \"%s\".", section_name)
+                return false
+        end
+
+        if get_selected_method() == 3 then
+                update_status(
+                        "Сообщения для раздела \"%s\" не отправлены: выбран режим \"В пустоту\".",
+                        section_name
+                )
+                return false
+        end
+
+        broadcast_sequence(messages)
+        update_status("%s отправлено в эфир.", section_name)
+        return true
 end
 
 local function normalize_player_name(name)
@@ -902,6 +1048,30 @@ local LiveWindow = {
         show = new.bool(false),
 }
 
+local function draw_live_broadcast_controls()
+        imgui.Text("Управление эфиром")
+        imgui.Spacing()
+
+        update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+        if imgui.Button("Начать эфир") then
+                send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
+        end
+
+        imgui.Spacing()
+
+        update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+        if imgui.Button("Закончить эфир") then
+                send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
+        end
+
+        imgui.Spacing()
+
+        update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+        if imgui.Button("Напоминание") then
+                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+        end
+end
+
 local function draw_sms_listener_controls()
         imgui.Text("Приём SMS-сообщений")
         imgui.Spacing()
@@ -943,6 +1113,9 @@ end
 
 local function draw_live_window()
         imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
+        imgui.Spacing()
+        imgui.Separator()
+        draw_live_broadcast_controls()
         imgui.Spacing()
         imgui.Separator()
         draw_sms_listener_controls()
