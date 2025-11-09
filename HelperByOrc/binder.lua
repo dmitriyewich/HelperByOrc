@@ -40,6 +40,33 @@ local MAX_BIND_DEPTH = 5 -- защита от рекурсии при внешн
 local MAX_ACTIVE_HOTKEYS = 10 -- limit of active coroutines
 local MULTI_BUF_MIN = 4096
 local MULTI_BUF_PAD = 1024
+local currentMultiInputHK = nil
+local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
+
+local multiInputResizeCallbackPtr = nil
+
+if INPUTTEXT_CALLBACK_RESIZE then
+        local function multiInputResizeCallback(data)
+                if not currentMultiInputHK or data.EventFlag ~= INPUTTEXT_CALLBACK_RESIZE then
+                        return 0
+                end
+
+                local hk = currentMultiInputHK
+                local len = data.BufTextLen or 0
+                local text = ffi.string(data.Buf, len)
+                local desired = math.max(MULTI_BUF_MIN, len + 1 + MULTI_BUF_PAD)
+
+                hk._multiBuf = imgui.new.char[desired](text)
+                hk._multiBufSize = desired
+                hk._multiBufText = text
+                data.Buf = hk._multiBuf
+                data.BufSize = desired
+
+                return 0
+        end
+
+        multiInputResizeCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData*)", multiInputResizeCallback)
+end
 
 -- === Утилиты ===
 local function flags_or(...)
@@ -2461,16 +2488,39 @@ local function drawEditHotkey(idx)
 
                         imgui.PushItemWidth(-1)
                         local buf = ensure_multi_buffer(hk)
-                        if imgui.InputTextMultiline("##multi_text", buf, ffi.sizeof(buf), imgui.ImVec2(0, 280)) then
-                                local newText = ffi.string(buf)
+                        local bufSize = hk._multiBufSize or ffi.sizeof(buf)
+                        local flags = INPUTTEXT_CALLBACK_RESIZE and flags_or(INPUTTEXT_CALLBACK_RESIZE) or nil
+                        local changed
+                        if multiInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE then
+                                currentMultiInputHK = hk
+                                changed =
+                                        imgui.InputTextMultiline(
+                                        "##multi_text",
+                                        buf,
+                                        bufSize,
+                                        imgui.ImVec2(0, 280),
+                                        flags,
+                                        multiInputResizeCallbackPtr
+                                )
+                                currentMultiInputHK = nil
+                        else
+                                changed = imgui.InputTextMultiline("##multi_text", buf, bufSize, imgui.ImVec2(0, 280))
+                        end
+                        local activeBuf = hk._multiBuf or buf
+                        if changed then
+                                local newText = ffi.string(activeBuf)
                                 hk.editMultiText = newText
                                 hk._multiBufText = newText
-                                local needed = math.max(MULTI_BUF_MIN, #newText + MULTI_BUF_PAD)
-                                if needed > (hk._multiBufSize or 0) then
-                                        hk._multiBuf = imgui.new.char[needed](newText)
-                                        hk._multiBufSize = needed
-                                        hk._multiBufText = newText
+                                if not (multiInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE) then
+                                        local needed = math.max(MULTI_BUF_MIN, #newText + MULTI_BUF_PAD)
+                                        if needed > (hk._multiBufSize or 0) then
+                                                hk._multiBuf = imgui.new.char[needed](newText)
+                                                hk._multiBufSize = needed
+                                                hk._multiBufText = newText
+                                                activeBuf = hk._multiBuf
+                                        end
                                 end
+                                hk._multiBufSize = hk._multiBufSize or bufSize
                         end
                         imgui.PopItemWidth()
                         imgui.TextDisabled("Каждая строка будет отправлена отдельно. Пустые строки игнорируются.")
