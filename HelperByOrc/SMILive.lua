@@ -39,6 +39,13 @@ local MathQuiz = {
         chat_interval_ms = 750,
 }
 
+local LIVE_MESSAGE_BUFFER_SIZE = 512
+local LiveBroadcast = {
+        intro_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
+        outro_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
+        reminder_buf = new.char[LIVE_MESSAGE_BUFFER_SIZE](),
+}
+
 local default_send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
 
@@ -165,6 +172,52 @@ end
 
 local function trim(s)
         return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function create_news_messages_from_text(text)
+        local cleaned = trim(text)
+        if cleaned == "" then
+                return nil
+        end
+
+        local messages = {}
+        for line in text:gmatch("[^\r\n]+") do
+                local stripped = trim(line)
+                if stripped ~= "" then
+                        if stripped:sub(1, #NEWS_PREFIX) == NEWS_PREFIX then
+                                messages[#messages + 1] = stripped
+                        else
+                                messages[#messages + 1] = string.format("%s %s", NEWS_PREFIX, stripped)
+                        end
+                end
+        end
+
+        if #messages == 0 then
+                return nil
+        end
+
+        return messages
+end
+
+local function send_live_sequence_from_buffer(buffer, section_name)
+        local text = str(buffer)
+        local messages = create_news_messages_from_text(text)
+        if not messages then
+                update_status("Добавьте текст для раздела \"%s\".", section_name)
+                return false
+        end
+
+        if get_selected_method() == 3 then
+                update_status(
+                        "Сообщения для раздела \"%s\" не отправлены: выбран режим \"В пустоту\".",
+                        section_name
+                )
+                return false
+        end
+
+        broadcast_sequence(messages)
+        update_status("%s отправлено в эфир.", section_name)
+        return true
 end
 
 local function normalize_player_name(name)
@@ -902,6 +955,45 @@ local LiveWindow = {
         show = new.bool(false),
 }
 
+local function draw_live_broadcast_controls()
+        imgui.Text("Управление эфиром")
+        imgui.Spacing()
+
+        imgui.InputTextMultiline(
+                "Вступление##live_intro_text",
+                LiveBroadcast.intro_buf,
+                LIVE_MESSAGE_BUFFER_SIZE,
+                imgui.ImVec2(0, 80)
+        )
+        if imgui.Button("Начать эфир") then
+                send_live_sequence_from_buffer(LiveBroadcast.intro_buf, "Вступление")
+        end
+
+        imgui.Spacing()
+
+        imgui.InputTextMultiline(
+                "Завершение##live_outro_text",
+                LiveBroadcast.outro_buf,
+                LIVE_MESSAGE_BUFFER_SIZE,
+                imgui.ImVec2(0, 80)
+        )
+        if imgui.Button("Закончить эфир") then
+                send_live_sequence_from_buffer(LiveBroadcast.outro_buf, "Завершение эфира")
+        end
+
+        imgui.Spacing()
+
+        imgui.InputTextMultiline(
+                "Напоминание##live_reminder_text",
+                LiveBroadcast.reminder_buf,
+                LIVE_MESSAGE_BUFFER_SIZE,
+                imgui.ImVec2(0, 80)
+        )
+        if imgui.Button("Напоминание") then
+                send_live_sequence_from_buffer(LiveBroadcast.reminder_buf, "Напоминание")
+        end
+end
+
 local function draw_sms_listener_controls()
         imgui.Text("Приём SMS-сообщений")
         imgui.Spacing()
@@ -943,6 +1035,9 @@ end
 
 local function draw_live_window()
         imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
+        imgui.Spacing()
+        imgui.Separator()
+        draw_live_broadcast_controls()
         imgui.Spacing()
         imgui.Separator()
         draw_sms_listener_controls()
