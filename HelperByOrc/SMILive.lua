@@ -1401,27 +1401,27 @@ local function draw_live_broadcast_controls()
 
         imgui.Spacing()
 
-        if imgui.CollapsingHeader("Настройки сообщений кнопок##live_message_settings") then
-                imgui.Spacing()
+        imgui.Separator()
+        imgui.Text("Настройки сообщений кнопок")
+        imgui.Spacing()
 
-                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-                if intro_changed then
-                        Config:save()
-                end
+        local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+        if intro_changed then
+                Config:save()
+        end
 
-                imgui.Spacing()
+        imgui.Spacing()
 
-                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-                if outro_changed then
-                        Config:save()
-                end
+        local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+        if outro_changed then
+                Config:save()
+        end
 
-                imgui.Spacing()
+        imgui.Spacing()
 
-                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-                if reminder_changed then
-                        Config:save()
-                end
+        local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+        if reminder_changed then
+                Config:save()
         end
 end
 
@@ -1545,14 +1545,19 @@ end
 local function draw_live_window_content()
         imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
         imgui.Spacing()
-        imgui.Separator()
-        draw_live_broadcast_controls()
-        imgui.Spacing()
-        imgui.Separator()
-        draw_sms_listener_controls()
-        imgui.Spacing()
-        imgui.Separator()
-        SMILive.DrawMathQuiz()
+
+        if imgui.SetNextItemOpen and imgui.Cond and imgui.Cond.FirstUseEver then
+                imgui.SetNextItemOpen(true, imgui.Cond.FirstUseEver)
+        end
+        if imgui.CollapsingHeader("Настройки эфира##smilive_all_settings") then
+                draw_live_broadcast_controls()
+                imgui.Spacing()
+                imgui.Separator()
+                draw_sms_listener_controls()
+                imgui.Spacing()
+                imgui.Separator()
+                SMILive.DrawMathQuiz()
+        end
 end
 
 local function draw_live_window()
