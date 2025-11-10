@@ -4,6 +4,7 @@ local imgui = require("mimgui")
 local new = imgui.new
 local ffi = require("ffi")
 local str = ffi.string
+local bit = require("bit")
 
 local binder
 local tags_module
@@ -16,6 +17,21 @@ local os_clock = os.clock
 
 local NEWS_PREFIX = "/news"
 
+local bor = bit and bit.bor or function(a, b)
+        return (a or 0) + (b or 0)
+end
+
+local function flags_or(...)
+        local sum = 0
+        for i = 1, select("#", ...) do
+                local flag = select(i, ...)
+                if flag then
+                        sum = bor(sum, flag)
+                end
+        end
+        return sum
+end
+
 local MathQuiz = {
         target_scores = { 3, 5 },
         target_index = 1,
@@ -27,6 +43,7 @@ local MathQuiz = {
         show_answer = new.bool(false),
         player_name_buf = new.char[48](),
         player_answer_buf = new.char[32](),
+        custom_problem_buf = new.char[128](),
         status_text = "Нажмите \"Начать новую игру\"",
         players = {},
         winner = nil,
@@ -39,6 +56,17 @@ local MathQuiz = {
         chat_method = 2,
         chat_interval_ms = 750,
 }
+
+local NewsInput = {
+        buf = new.char[128](),
+        text = "",
+}
+
+local NEWS_INPUT_FLAGS = flags_or(
+        imgui.InputTextFlags and imgui.InputTextFlags.NoHorizontalScroll,
+        imgui.InputTextFlags and imgui.InputTextFlags.AllowTabInput,
+        imgui.InputTextFlags and imgui.InputTextFlags.CtrlEnterForNewLine
+)
 
 local LIVE_BUFFER_MIN = 4096
 local LIVE_BUFFER_PAD = 1024
@@ -432,6 +460,63 @@ local function create_news_messages_from_text(text)
         return messages
 end
 
+local function flatten_news_text(text)
+        local cleaned = tostring(text or "")
+        cleaned = cleaned:gsub("\r\n", "\n")
+        cleaned = cleaned:gsub("\r", "\n")
+        cleaned = cleaned:gsub("\t", " ")
+        cleaned = cleaned:gsub("\n+", " ")
+        return trim(cleaned)
+end
+
+local function apply_tags(text)
+        if type(text) ~= "string" or text == "" then
+                return text
+        end
+        if tags_module and type(tags_module.change_tags) == "function" then
+                local ok, result = pcall(tags_module.change_tags, text)
+                if ok and type(result) == "string" then
+                        return result
+                end
+        end
+        return text
+end
+
+local function prepare_news_payload(raw_text)
+        local flattened = flatten_news_text(raw_text)
+        if flattened == "" then
+                return nil, "Введите текст объявления перед отправкой."
+        end
+
+        local processed = apply_tags(flattened)
+        processed = flatten_news_text(processed)
+
+        if processed == "" then
+                return nil, "После обработки тегов текст объявления пуст."
+        end
+
+        local length = #processed
+        if length > 90 then
+                return nil, string.format("Текст объявления превышает лимит (%d/90)", length)
+        end
+
+        return processed, length
+end
+
+local function send_news_from_input()
+        local raw_text = NewsInput.text or str(NewsInput.buf)
+        local prepared, err = prepare_news_payload(raw_text)
+        if not prepared then
+                update_status(err)
+                return false
+        end
+        broadcast_sequence({ string.format("%s %s", NEWS_PREFIX, prepared) })
+        update_status("Отправлено объявление: %s", prepared)
+        imgui.StrCopy(NewsInput.buf, "")
+        NewsInput.text = ""
+        return true
+end
+
 local function send_live_sequence_from_section(section, section_name)
         local text
         if type(section) == "table" then
@@ -650,6 +735,42 @@ local function generate_math_problem()
         return generate_multi_step_problem()
 end
 
+local function normalize_problem_expression(expr)
+        local cleaned = trim(expr)
+        cleaned = cleaned:gsub("%s+", " ")
+        return cleaned
+end
+
+local function evaluate_custom_problem(expression)
+        local cleaned = trim(expression)
+        if cleaned == "" then
+                return nil, nil, "Введите выражение для собственного примера."
+        end
+        if cleaned:find("[^%d%+%-%*/%(%)%s]") then
+                return nil, nil, "Допустимы только цифры, пробелы и операции + - * /."
+        end
+        local normalized = normalize_problem_expression(cleaned)
+        local chunk, err = loadstring("return " .. normalized)
+        if not chunk then
+                return nil, nil, string.format("Не удалось разобрать выражение: %s", tostring(err or ""))
+        end
+        setfenv(chunk, {})
+        local ok, result = pcall(chunk)
+        if not ok then
+                return nil, nil, string.format("Ошибка вычисления: %s", tostring(result))
+        end
+        if type(result) ~= "number" then
+                return nil, nil, "Выражение должно возвращать число."
+        end
+        if result <= 0 then
+                return nil, nil, "Ответ должен быть положительным числом."
+        end
+        if math.floor(result) ~= result then
+                return nil, nil, "Ответ должен быть целым числом."
+        end
+        return normalized, result, nil
+end
+
 local sms_listener_active = false
 local my_hooks_module = nil
 
@@ -709,8 +830,7 @@ local function ensure_player(name)
         return MathQuiz.players[normalized], normalized
 end
 
-local function begin_round()
-        local problem, answer = generate_math_problem()
+local function begin_round_with(problem, answer)
         MathQuiz.current_problem = problem
         MathQuiz.current_answer = answer
         MathQuiz.round_answer = answer
@@ -723,6 +843,25 @@ local function begin_round()
         MathQuiz.awaiting_next_round = false
         update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
         reset_buffers()
+end
+
+local function begin_round()
+        local problem, answer = generate_math_problem()
+        begin_round_with(problem, answer)
+end
+
+local function apply_custom_problem(raw_expression)
+        if not MathQuiz.active then
+                update_status("Начните игру, чтобы задать собственный пример.")
+                return false
+        end
+        local expression, answer, err = evaluate_custom_problem(raw_expression)
+        if not expression then
+                update_status(err)
+                return false
+        end
+        begin_round_with(expression, answer)
+        return true
 end
 
 local function handle_correct_answer(player_name)
@@ -1066,6 +1205,17 @@ function SMILive.DrawMathQuiz()
         end
         imgui.PopItemWidth()
 
+        imgui.PushItemWidth(200)
+        imgui.InputText("Свой пример", MathQuiz.custom_problem_buf, 128)
+        imgui.PopItemWidth()
+        imgui.SameLine()
+        if imgui.Button("Применить##custom_problem") then
+                local raw_expression = str(MathQuiz.custom_problem_buf)
+                if apply_custom_problem(raw_expression) then
+                        imgui.StrCopy(MathQuiz.custom_problem_buf, "")
+                end
+        end
+
         if MathQuiz.current_problem then
                 if imgui.Button("Отправить текущий пример в чат") then
                         broadcast_problem(MathQuiz.current_problem)
@@ -1180,6 +1330,39 @@ function SMILive.DrawMathQuiz()
                 end
                 imgui.Columns(1)
         end
+
+        imgui.Spacing()
+        imgui.Separator()
+        if imgui.BeginChild("news_input_section", imgui.ImVec2(0, 150), true) then
+                imgui.Text("Быстрое объявление /news")
+                imgui.PushItemWidth(-1)
+                local changed = imgui.InputTextMultiline(
+                        "##news_input",
+                        NewsInput.buf,
+                        ffi.sizeof(NewsInput.buf),
+                        imgui.ImVec2(0, 90),
+                        NEWS_INPUT_FLAGS
+                )
+                if changed then
+                        NewsInput.text = str(NewsInput.buf)
+                elseif not NewsInput.text then
+                        NewsInput.text = str(NewsInput.buf)
+                end
+                imgui.PopItemWidth()
+
+                local flattened = flatten_news_text(NewsInput.text)
+                local processed_preview = apply_tags(flattened)
+                processed_preview = flatten_news_text(processed_preview)
+                local preview_length = #processed_preview
+                local within_limit = preview_length <= 90
+                local length_color = within_limit and imgui.ImVec4(0.6, 0.9, 0.6, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
+                imgui.TextColored(length_color, string.format("Длина после обработки: %d/90", preview_length))
+
+                if imgui.Button("Отправить /news") then
+                        send_news_from_input()
+                end
+        end
+        imgui.EndChild()
 
         if MathQuiz.active then
                 if imgui.Button("Сбросить игру") then
