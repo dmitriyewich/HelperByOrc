@@ -27,6 +27,8 @@ local MathQuiz = {
         show_answer = new.bool(false),
         player_name_buf = new.char[48](),
         player_answer_buf = new.char[32](),
+        custom_problem_buf = new.char[128](),
+        custom_error = nil,
         status_text = "Нажмите \"Начать новую игру\"",
         players = {},
         winner = nil,
@@ -678,6 +680,7 @@ local function reset_scoreboard()
         MathQuiz.first_correct = nil
         MathQuiz.latest_round_stats = nil
         MathQuiz.awaiting_next_round = false
+        MathQuiz.custom_error = nil
         update_status("Игра сброшена. Сгенерируйте пример, чтобы начать раунд.")
         reset_buffers()
 end
@@ -698,6 +701,7 @@ local function end_game(winner)
         MathQuiz.answer_start_time = nil
         MathQuiz.accepting_answers = false
         MathQuiz.awaiting_next_round = false
+        MathQuiz.custom_error = nil
 end
 
 local function ensure_player(name)
@@ -709,8 +713,7 @@ local function ensure_player(name)
         return MathQuiz.players[normalized], normalized
 end
 
-local function begin_round()
-        local problem, answer = generate_math_problem()
+local function start_round(problem, answer)
         MathQuiz.current_problem = problem
         MathQuiz.current_answer = answer
         MathQuiz.round_answer = answer
@@ -721,8 +724,61 @@ local function begin_round()
         MathQuiz.first_correct = nil
         MathQuiz.latest_round_stats = nil
         MathQuiz.awaiting_next_round = false
+        MathQuiz.custom_error = nil
         update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
         reset_buffers()
+end
+
+local function begin_round()
+        local problem, answer = generate_math_problem()
+        start_round(problem, answer)
+end
+
+local function evaluate_custom_problem(problem_text)
+        local trimmed = trim(problem_text or "")
+        if trimmed == "" then
+                return nil, "Введите текст примера."
+        end
+
+        if not trimmed:match("^[%d%+%-%*/%(%)%s]+$") then
+                local invalid = trimmed:match("[^%d%+%-%*/%(%)%s]") or "?"
+                return nil, string.format("Недопустимый символ: %s", invalid)
+        end
+
+        local chunk, err = load("return " .. trimmed, "MathQuizCustom", "t", {})
+        if not chunk then
+                return nil, string.format("Не удалось разобрать пример: %s", err or "ошибка")
+        end
+
+        local ok, result = pcall(chunk)
+        if not ok then
+                return nil, string.format("Ошибка при вычислении: %s", result)
+        end
+
+        if type(result) ~= "number" or result ~= result or result == math.huge or result == -math.huge then
+                return nil, "Результат должен быть числом."
+        end
+
+        if result <= 0 or math.floor(result) ~= result then
+                return nil, "Ответ должен быть положительным целым числом."
+        end
+
+        return trimmed, result
+end
+
+local function begin_custom_round(problem_text)
+        local cleaned_problem = trim(problem_text)
+        if cleaned_problem == "" then
+                return false, "Введите текст примера."
+        end
+
+        local parsed_problem, numeric_answer = evaluate_custom_problem(cleaned_problem)
+        if not parsed_problem then
+                return false, numeric_answer
+        end
+
+        start_round(parsed_problem, numeric_answer)
+        return true
 end
 
 local function handle_correct_answer(player_name)
@@ -996,6 +1052,30 @@ function SMILive.DrawMathQuiz()
                         MathQuiz.answer_start_time = nil
                         MathQuiz.accepting_answers = false
                         MathQuiz.awaiting_next_round = false
+                        MathQuiz.custom_error = nil
+                end
+                imgui.Spacing()
+                imgui.Text("или задайте свой пример")
+                imgui.PushItemWidth(250)
+                imgui.InputText("Пример##MathQuizCustom", MathQuiz.custom_problem_buf, 128)
+                imgui.PopItemWidth()
+                if imgui.Button("Использовать пример") then
+                        if MathQuiz.awaiting_next_round then
+                                local message = "Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\"."
+                                update_status(message)
+                                MathQuiz.custom_error = message
+                        else
+                                local ok, err = begin_custom_round(str(MathQuiz.custom_problem_buf))
+                                if ok then
+                                        MathQuiz.custom_error = nil
+                                        imgui.StrCopy(MathQuiz.custom_problem_buf, "")
+                                else
+                                        MathQuiz.custom_error = err or "Не удалось установить пример."
+                                end
+                        end
+                end
+                if MathQuiz.custom_error then
+                        imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), MathQuiz.custom_error)
                 end
         end
 
