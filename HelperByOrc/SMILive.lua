@@ -142,23 +142,31 @@ end
 
 function Config:load()
         local data
-        if doesFileExist(CONFIG_PATH) then
-                local ok, loaded = pcall(function()
-                        local f = io.open(CONFIG_PATH, "rb")
-                        if not f then
-                                return
+        if funcs and funcs.loadTableFromJson then
+                data = funcs.loadTableFromJson(CONFIG_PATH, {})
+        else
+                if doesFileExist(CONFIG_PATH) then
+                        local ok, loaded = pcall(function()
+                                local f = io.open(CONFIG_PATH, "rb")
+                                if not f then
+                                        return
+                                end
+                                local content = f:read("*a")
+                                f:close()
+                                local ok_decode, parsed = pcall(decodeJson, content)
+                                if ok_decode and type(parsed) == "table" then
+                                        return parsed
+                                end
+                        end)
+                        if ok and type(loaded) == "table" then
+                                data = loaded
                         end
-                        local content = f:read("*a")
-                        f:close()
-                        local ok_decode, parsed = pcall(decodeJson, content)
-                        if ok_decode and type(parsed) == "table" then
-                                return parsed
-                        end
-                end)
-                if ok and type(loaded) == "table" then
-                        data = loaded
+                end
+                if type(data) ~= "table" then
+                        data = {}
                 end
         end
+
         if type(data) ~= "table" then
                 data = {}
         end
