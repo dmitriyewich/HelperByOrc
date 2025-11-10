@@ -1200,32 +1200,43 @@ local function draw_live_broadcast_controls()
         imgui.Text("Управление эфиром")
         imgui.Spacing()
 
-        local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-        if intro_changed then
-                Config:save()
-        end
         if imgui.Button("Начать эфир") then
                 send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
         end
 
         imgui.Spacing()
-
-        local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-        if outro_changed then
-                Config:save()
-        end
         if imgui.Button("Закончить эфир") then
                 send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
         end
 
         imgui.Spacing()
-
-        local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-        if reminder_changed then
-                Config:save()
-        end
         if imgui.Button("Напоминание") then
                 send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+        end
+
+        imgui.Spacing()
+
+        if imgui.CollapsingHeader("Настройки сообщений кнопок##live_message_settings") then
+                imgui.Spacing()
+
+                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+                if intro_changed then
+                        Config:save()
+                end
+
+                imgui.Spacing()
+
+                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+                if outro_changed then
+                        Config:save()
+                end
+
+                imgui.Spacing()
+
+                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+                if reminder_changed then
+                        Config:save()
+                end
         end
 end
 
