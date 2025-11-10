@@ -132,7 +132,7 @@ local function draw_button_row(id, buttons)
                         imgui.EndTable()
                 end
         else
-                imgui.PushID(id)
+                imgui.PushIDStr(id)
                 for index, info in ipairs(buttons) do
                         if index > 1 then
                                 imgui.SameLine()
@@ -1575,35 +1575,52 @@ local function draw_math_quiz_responses()
         imgui.Columns(1)
 end
 
+local function draw_math_quiz_sidebar()
+        separator_text("Игроки")
+        draw_math_quiz_scoreboard()
+        imgui.Spacing()
+        draw_math_quiz_reset_controls()
+        imgui.Spacing()
+        separator_text("Ответы")
+        draw_math_quiz_responses()
+end
+
 function SMILive.DrawMathQuiz()
         imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
         imgui.Separator()
 
-        if imgui.BeginTabBar and imgui.BeginTabBar("math_quiz_tabs") then
-                if imgui.BeginTabItem("Раунд") then
+        local table_flags = 0
+        if imgui.TableFlags then
+                if imgui.TableFlags.Resizable then
+                        table_flags = bor(table_flags, imgui.TableFlags.Resizable)
+                end
+                if imgui.TableFlags.BordersInnerV then
+                        table_flags = bor(table_flags, imgui.TableFlags.BordersInnerV)
+                end
+        end
+
+        if begin_stretch_table("math_quiz_layout", 2, table_flags) then
+                imgui.TableNextRow()
+
+                imgui.TableSetColumnIndex(0)
+                if imgui.BeginChild("math_quiz_round", imgui.ImVec2(0, 0), false) then
+                        separator_text("Раунд")
                         draw_math_quiz_round_section()
-                        imgui.EndTabItem()
                 end
-                if imgui.BeginTabItem("Игроки") then
-                        draw_math_quiz_scoreboard()
-                        imgui.Spacing()
-                        draw_math_quiz_reset_controls()
-                        imgui.EndTabItem()
+                imgui.EndChild()
+
+                imgui.TableSetColumnIndex(1)
+                if imgui.BeginChild("math_quiz_sidebar", imgui.ImVec2(0, 0), false) then
+                        draw_math_quiz_sidebar()
                 end
-                if imgui.BeginTabItem("Ответы") then
-                        draw_math_quiz_responses()
-                        imgui.EndTabItem()
-                end
-                imgui.EndTabBar()
+                imgui.EndChild()
+
+                imgui.EndTable()
         else
                 separator_text("Раунд")
                 draw_math_quiz_round_section()
-                separator_text("Игроки")
-                draw_math_quiz_scoreboard()
                 imgui.Spacing()
-                draw_math_quiz_reset_controls()
-                separator_text("Ответы")
-                draw_math_quiz_responses()
+                draw_math_quiz_sidebar()
         end
 end
 
