@@ -9,6 +9,7 @@ local binder
 local tags_module
 local start_sms_listener
 local stop_sms_listener
+local funcs
 
 local math_random = math.random
 local os_clock = os.clock
@@ -46,6 +47,10 @@ local LiveBroadcast = {
         outro = {text = ""},
         reminder = {text = ""},
 }
+
+local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\SMILive.json"
+
+local Config = { data = {} }
 
 local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
 local liveInputResizeCallbackPtr = nil
@@ -132,7 +137,139 @@ local function update_live_buffer_from_imgui(section, label, height)
         if not section.text then
                 section.text = section.buf_text or ""
         end
+        return not not changed
 end
+
+function Config:load()
+        local data
+        if doesFileExist(CONFIG_PATH) then
+                local ok, loaded = pcall(function()
+                        local f = io.open(CONFIG_PATH, "rb")
+                        if not f then
+                                return
+                        end
+                        local content = f:read("*a")
+                        f:close()
+                        local ok_decode, parsed = pcall(decodeJson, content)
+                        if ok_decode and type(parsed) == "table" then
+                                return parsed
+                        end
+                end)
+                if ok and type(loaded) == "table" then
+                        data = loaded
+                end
+        end
+        if type(data) ~= "table" then
+                data = {}
+        end
+
+        local live_cfg = type(data.live_broadcast) == "table" and data.live_broadcast or {}
+        live_cfg.intro = tostring(live_cfg.intro or "")
+        live_cfg.outro = tostring(live_cfg.outro or "")
+        live_cfg.reminder = tostring(live_cfg.reminder or "")
+        data.live_broadcast = live_cfg
+
+        LiveBroadcast.intro.text = live_cfg.intro
+        LiveBroadcast.outro.text = live_cfg.outro
+        LiveBroadcast.reminder.text = live_cfg.reminder
+        ensure_live_buffer(LiveBroadcast.intro)
+        ensure_live_buffer(LiveBroadcast.outro)
+        ensure_live_buffer(LiveBroadcast.reminder)
+
+        local quiz_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
+        local saved_method = tonumber(quiz_cfg.chat_method)
+        if saved_method then
+                saved_method = math.floor(saved_method)
+                if saved_method < 0 then
+                        saved_method = 0
+                end
+        else
+                saved_method = MathQuiz.chat_method or 0
+        end
+        MathQuiz.chat_method = saved_method
+        quiz_cfg.chat_method = saved_method
+
+        local saved_interval = tonumber(quiz_cfg.chat_interval_ms)
+        if saved_interval then
+                saved_interval = math.floor(saved_interval + 0.5)
+                if saved_interval < 0 then
+                        saved_interval = 0
+                end
+        else
+                saved_interval = MathQuiz.chat_interval_ms or 0
+        end
+        MathQuiz.chat_interval_ms = saved_interval
+        quiz_cfg.chat_interval_ms = saved_interval
+
+        local saved_target = tonumber(quiz_cfg.target_index)
+        if saved_target then
+                saved_target = math.floor(saved_target)
+        else
+                saved_target = MathQuiz.target_index or 1
+        end
+        if saved_target < 1 then
+                saved_target = 1
+        end
+        local max_target = #MathQuiz.target_scores
+        if max_target > 0 and saved_target > max_target then
+                saved_target = max_target
+        end
+        MathQuiz.target_index = saved_target
+        quiz_cfg.target_index = saved_target
+
+        data.math_quiz = quiz_cfg
+        self.data = data
+end
+
+function Config:save()
+        local data = self.data or {}
+
+        local live_cfg = type(data.live_broadcast) == "table" and data.live_broadcast or {}
+        live_cfg.intro = tostring((LiveBroadcast.intro and LiveBroadcast.intro.text) or "")
+        live_cfg.outro = tostring((LiveBroadcast.outro and LiveBroadcast.outro.text) or "")
+        live_cfg.reminder = tostring((LiveBroadcast.reminder and LiveBroadcast.reminder.text) or "")
+        data.live_broadcast = live_cfg
+
+        local quiz_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
+        local method = math.floor(tonumber(MathQuiz.chat_method) or 0)
+        if method < 0 then
+                method = 0
+        end
+        quiz_cfg.chat_method = method
+
+        local interval = math.floor(tonumber(MathQuiz.chat_interval_ms) or 0)
+        if interval < 0 then
+                interval = 0
+        end
+        quiz_cfg.chat_interval_ms = interval
+
+        local target_index = math.floor(tonumber(MathQuiz.target_index) or 1)
+        if target_index < 1 then
+                target_index = 1
+        end
+        local max_target = #MathQuiz.target_scores
+        if max_target > 0 and target_index > max_target then
+                target_index = max_target
+        end
+        quiz_cfg.target_index = target_index
+
+        data.math_quiz = quiz_cfg
+        self.data = data
+
+        if funcs and funcs.saveTableToJson then
+                funcs.saveTableToJson(data, CONFIG_PATH)
+        else
+                local ok, encoded = pcall(encodeJson, data)
+                local content = ok and encoded or "{}"
+                local f = io.open(CONFIG_PATH, "w+b")
+                if f then
+                        f:write(content)
+                        f:close()
+                end
+        end
+end
+
+Config:load()
 
 local default_send_labels = {"В чат", "Клиенту", "Серверу", "В пустоту"}
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
@@ -816,6 +953,7 @@ function SMILive.DrawMathQuiz()
                         imgui.PushIDInt(idx)
                         if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
                                 MathQuiz.target_index = idx
+                                Config:save()
                         end
                         imgui.PopID()
                 end
@@ -905,6 +1043,7 @@ function SMILive.DrawMathQuiz()
                                 new_method = max_index
                         end
                         MathQuiz.chat_method = new_method
+                        Config:save()
                 end
         else
                 imgui.TextDisabled("Методы отправки недоступны")
@@ -915,6 +1054,7 @@ function SMILive.DrawMathQuiz()
         local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
         if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
                 MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
+                Config:save()
         end
         imgui.PopItemWidth()
 
@@ -1052,21 +1192,30 @@ local function draw_live_broadcast_controls()
         imgui.Text("Управление эфиром")
         imgui.Spacing()
 
-        update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+        local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+        if intro_changed then
+                Config:save()
+        end
         if imgui.Button("Начать эфир") then
                 send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
         end
 
         imgui.Spacing()
 
-        update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+        local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+        if outro_changed then
+                Config:save()
+        end
         if imgui.Button("Закончить эфир") then
                 send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
         end
 
         imgui.Spacing()
 
-        update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+        local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+        if reminder_changed then
+                Config:save()
+        end
         if imgui.Button("Напоминание") then
                 send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
         end
@@ -1185,6 +1334,7 @@ function SMILive.attachModules(modules)
         binder = modules and modules.binder or nil
         tags_module = modules and modules.tags or nil
         my_hooks_module = modules and modules.my_hooks or nil
+        funcs = modules and modules.funcs or funcs
 
         if resume_listener then
                 start_sms_listener(true)
