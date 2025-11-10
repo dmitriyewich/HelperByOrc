@@ -4,6 +4,7 @@ local imgui = require("mimgui")
 local new = imgui.new
 local ffi = require("ffi")
 local str = ffi.string
+local ok_bit, bit = pcall(require, "bit")
 
 local binder
 local tags_module
@@ -15,6 +16,49 @@ local math_random = math.random
 local os_clock = os.clock
 
 local NEWS_PREFIX = "/news"
+
+local function flags_or(...)
+        local sum = 0
+        for i = 1, select("#", ...) do
+                local flag = select(i, ...)
+                if flag then
+                        if ok_bit and bit and bit.bor then
+                                if sum == 0 then
+                                        sum = flag
+                                else
+                                        sum = bit.bor(sum, flag)
+                                end
+                        else
+                                sum = sum + flag
+                        end
+                end
+        end
+        return sum
+end
+
+local NEWS_INPUT_MAX_LENGTH = 90
+local NEWS_INPUT_PANEL_HEIGHT = 150
+local NEWS_INPUT_BUFFER_SIZE = 512
+
+local NewsInput = {
+        buf = new.char[NEWS_INPUT_BUFFER_SIZE](),
+        buf_size = NEWS_INPUT_BUFFER_SIZE,
+        raw_text = "",
+        flattened_full = "",
+        body_text = "",
+        processed_text = "",
+        processed_len = 0,
+        preview = "",
+        tag_error = nil,
+        over_limit = false,
+        had_prefix = false,
+}
+
+local NEWS_INPUT_FLAGS = flags_or(
+        imgui.InputTextFlags and imgui.InputTextFlags.NoHorizontalScroll,
+        imgui.InputTextFlags and imgui.InputTextFlags.AllowTabInput,
+        imgui.InputTextFlags and imgui.InputTextFlags.CtrlEnterForNewLine
+)
 
 local MathQuiz = {
         target_scores = { 3, 5 },
@@ -409,6 +453,42 @@ local function trim(s)
         return (s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 
+local function flatten_news_text(text)
+        text = tostring(text or "")
+        text = text:gsub("\t", " ")
+        text = text:gsub("\r\n", "\n")
+        text = text:gsub("\r", "\n")
+        text = text:gsub("\n+", " ")
+        return trim(text)
+end
+
+local function strip_news_prefix(text)
+        local cleaned = trim(text or "")
+        local lower = cleaned:lower()
+        if lower:sub(1, #NEWS_PREFIX) == NEWS_PREFIX then
+                local next_char = cleaned:sub(#NEWS_PREFIX + 1, #NEWS_PREFIX + 1)
+                if next_char == "" or next_char:match("%s") then
+                        return trim(cleaned:sub(#NEWS_PREFIX + 1)), true
+                end
+        end
+        return cleaned, false
+end
+
+local function apply_tags_for_news(text)
+        if not text or text == "" then
+                return "", nil
+        end
+        if tags_module and type(tags_module.change_tags) == "function" then
+                local ok, result = pcall(tags_module.change_tags, text)
+                if ok and type(result) == "string" then
+                        return result, nil
+                elseif not ok then
+                        return text, tostring(result)
+                end
+        end
+        return text, nil
+end
+
 local function create_news_messages_from_text(text)
         local cleaned = trim(text)
         if cleaned == "" then
@@ -432,6 +512,31 @@ local function create_news_messages_from_text(text)
         end
 
         return messages
+end
+
+local function update_news_input_state()
+        local buf = NewsInput.buf
+        local raw = buf and str(buf) or ""
+        NewsInput.raw_text = raw
+
+        local flattened = flatten_news_text(raw)
+        NewsInput.flattened_full = flattened
+
+        local body, had_prefix = strip_news_prefix(flattened)
+        NewsInput.body_text = body
+        NewsInput.had_prefix = had_prefix
+
+        local processed, tag_error = apply_tags_for_news(body)
+        NewsInput.processed_text = processed
+        NewsInput.tag_error = tag_error
+        NewsInput.processed_len = #processed
+        NewsInput.over_limit = NewsInput.processed_len > NEWS_INPUT_MAX_LENGTH
+
+        if processed ~= "" then
+                NewsInput.preview = string.format("%s %s", NEWS_PREFIX, processed)
+        else
+                NewsInput.preview = ""
+        end
 end
 
 local function send_live_sequence_from_section(section, section_name)
@@ -1359,7 +1464,85 @@ local function draw_sms_listener_controls()
         end
 end
 
-local function draw_live_window()
+local function send_custom_news_message()
+        update_news_input_state()
+
+        local body = NewsInput.body_text or ""
+        if body == "" then
+                update_status("Введите текст объявления.")
+                return
+        end
+
+        if NewsInput.over_limit then
+                update_status("Объявление не отправлено: превышен лимит %d символов.", NEWS_INPUT_MAX_LENGTH)
+                return
+        end
+
+        local method = get_selected_method()
+        if method == 3 then
+                update_status("Объявление не отправлено: выбран режим \"В пустоту\".")
+                return
+        end
+
+        local send_fn = binder and binder.doSend
+        if type(send_fn) ~= "function" then
+                update_status("Отправка недоступна: функция binder.doSend не найдена.")
+                return
+        end
+
+        local message = string.format("%s %s", NEWS_PREFIX, body)
+        send_fn(message, method)
+        update_status("Объявление отправлено.")
+end
+
+local function draw_news_input_panel()
+        imgui.Text("Отправить /news")
+        imgui.Spacing()
+
+        local avail = imgui.GetContentRegionAvail()
+        local input_height = math.max(40, avail.y - 70)
+
+        imgui.InputTextMultiline(
+                "##live_news_input",
+                NewsInput.buf,
+                NewsInput.buf_size,
+                imgui.ImVec2(0, input_height),
+                NEWS_INPUT_FLAGS
+        )
+
+        update_news_input_state()
+
+        if NewsInput.had_prefix then
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Префикс /news добавляется автоматически.")
+        end
+
+        local len_color = NewsInput.over_limit and imgui.ImVec4(1.0, 0.4, 0.4, 1) or imgui.ImVec4(0.7, 0.9, 1.0, 1)
+        imgui.TextColored(
+                len_color,
+                string.format("Длина после тегов: %d / %d", NewsInput.processed_len, NEWS_INPUT_MAX_LENGTH)
+        )
+
+        if NewsInput.over_limit then
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), "Сократите текст объявления.")
+        end
+
+        if NewsInput.tag_error then
+                imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.3, 1), "Ошибка обработки тегов, используется исходный текст.")
+        end
+
+        if NewsInput.preview ~= "" then
+                imgui.TextWrapped("Предпросмотр: " .. NewsInput.preview)
+        else
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Введите текст объявления.")
+        end
+
+        imgui.Spacing()
+        if imgui.Button("Отправить /news") then
+                send_custom_news_message()
+        end
+end
+
+local function draw_live_window_content()
         imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
         imgui.Spacing()
         imgui.Separator()
@@ -1370,6 +1553,22 @@ local function draw_live_window()
         imgui.Spacing()
         imgui.Separator()
         SMILive.DrawMathQuiz()
+end
+
+local function draw_live_window()
+        local bottom_height = NEWS_INPUT_PANEL_HEIGHT
+
+        if imgui.BeginChild("smilive_main", imgui.ImVec2(0, -bottom_height), true) then
+                draw_live_window_content()
+        end
+        imgui.EndChild()
+
+        imgui.Spacing()
+
+        if imgui.BeginChild("smilive_news_input", imgui.ImVec2(0, bottom_height), true) then
+                draw_news_input_panel()
+        end
+        imgui.EndChild()
 end
 
 function SMILive.OpenWindow()
@@ -1434,6 +1633,8 @@ function SMILive.attachModules(modules)
         tags_module = modules and modules.tags or nil
         my_hooks_module = modules and modules.my_hooks or nil
         funcs = modules and modules.funcs or funcs
+
+        update_news_input_state()
 
         if resume_listener then
                 start_sms_listener(true)
