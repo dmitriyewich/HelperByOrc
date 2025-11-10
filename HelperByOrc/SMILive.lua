@@ -28,7 +28,6 @@ local MathQuiz = {
         player_name_buf = new.char[48](),
         player_answer_buf = new.char[32](),
         custom_problem_buf = new.char[128](),
-        custom_answer_buf = new.char[16](),
         custom_error = nil,
         status_text = "Нажмите \"Начать новую игру\"",
         players = {},
@@ -735,18 +734,50 @@ local function begin_round()
         start_round(problem, answer)
 end
 
-local function begin_custom_round(problem_text, answer_text)
+local function evaluate_custom_problem(problem_text)
+        local trimmed = trim(problem_text or "")
+        if trimmed == "" then
+                return nil, "Введите текст примера."
+        end
+
+        if not trimmed:match("^[%d%+%-%*/%(%)%s]+$") then
+                local invalid = trimmed:match("[^%d%+%-%*/%(%)%s]") or "?"
+                return nil, string.format("Недопустимый символ: %s", invalid)
+        end
+
+        local chunk, err = load("return " .. trimmed, "MathQuizCustom", "t", {})
+        if not chunk then
+                return nil, string.format("Не удалось разобрать пример: %s", err or "ошибка")
+        end
+
+        local ok, result = pcall(chunk)
+        if not ok then
+                return nil, string.format("Ошибка при вычислении: %s", result)
+        end
+
+        if type(result) ~= "number" or result ~= result or result == math.huge or result == -math.huge then
+                return nil, "Результат должен быть числом."
+        end
+
+        if result <= 0 or math.floor(result) ~= result then
+                return nil, "Ответ должен быть положительным целым числом."
+        end
+
+        return trimmed, result
+end
+
+local function begin_custom_round(problem_text)
         local cleaned_problem = trim(problem_text)
         if cleaned_problem == "" then
                 return false, "Введите текст примера."
         end
 
-        local numeric_answer = tonumber(trim(answer_text))
-        if not numeric_answer or numeric_answer <= 0 or math.floor(numeric_answer) ~= numeric_answer then
-                return false, "Ответ должен быть положительным целым числом."
+        local parsed_problem, numeric_answer = evaluate_custom_problem(cleaned_problem)
+        if not parsed_problem then
+                return false, numeric_answer
         end
 
-        start_round(cleaned_problem, numeric_answer)
+        start_round(parsed_problem, numeric_answer)
         return true
 end
 
@@ -1028,25 +1059,16 @@ function SMILive.DrawMathQuiz()
                 imgui.PushItemWidth(250)
                 imgui.InputText("Пример##MathQuizCustom", MathQuiz.custom_problem_buf, 128)
                 imgui.PopItemWidth()
-                imgui.PushItemWidth(120)
-                imgui.InputText(
-                        "Ответ##MathQuizCustom",
-                        MathQuiz.custom_answer_buf,
-                        16,
-                        imgui.InputTextFlags.CharsDecimal
-                )
-                imgui.PopItemWidth()
                 if imgui.Button("Использовать пример") then
                         if MathQuiz.awaiting_next_round then
                                 local message = "Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\"."
                                 update_status(message)
                                 MathQuiz.custom_error = message
                         else
-                                local ok, err = begin_custom_round(str(MathQuiz.custom_problem_buf), str(MathQuiz.custom_answer_buf))
+                                local ok, err = begin_custom_round(str(MathQuiz.custom_problem_buf))
                                 if ok then
                                         MathQuiz.custom_error = nil
                                         imgui.StrCopy(MathQuiz.custom_problem_buf, "")
-                                        imgui.StrCopy(MathQuiz.custom_answer_buf, "")
                                 else
                                         MathQuiz.custom_error = err or "Не удалось установить пример."
                                 end
