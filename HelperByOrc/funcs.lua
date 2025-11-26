@@ -4,6 +4,7 @@ encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
+local dlstatus = require("moonloader").download_status
 -- recursive table copy
 function module.deepcopy(obj, seen)
 	seen = seen or {}
@@ -764,12 +765,288 @@ function module.parseList(s)
         s = tostring(s or "")
         local t = {}
         for part in s:gmatch("[^,\n]+") do
-		local p = module.trim(part)
+                local p = module.trim(part)
 		if p ~= "" then
 			table.insert(t, p)
 		end
 	end
 	return t
+end
+
+-- ========= АВТОКОРРЕКЦИЯ =========
+local cacheSpeller = {}
+local cacheLT = {}
+
+local ltLimits = {
+        windowStart = 0,
+        reqCount = 0,
+        bytesThisMin = 0,
+        MAX_REQ_PER_MIN = 20,
+        MAX_BYTES_PER_MIN = 75 * 1024,
+        MAX_BYTES_PER_REQ = 20 * 1024,
+}
+
+local function ac_trim(s)
+        return (s or ""):match("^%s*(.-)%s*$")
+end
+
+local function urlencode(text)
+        text = tostring(text)
+        text = text:gsub('{......}', '')
+                :gsub(' ', '+')
+                :gsub('\n', '%%0A')
+                :gsub('&gt;', '>')
+                :gsub('&lt;', '<')
+                :gsub('&quot;', '"')
+        return text
+end
+
+local function asyncRequest(url, resolve, reject)
+        reject = reject or function() end
+
+        local tmpPath = getWorkingDirectory()
+                .. '\\cw_req_' .. tostring(os.clock()):gsub('%.', '') .. '_' .. tostring(math.random(1000, 9999)) .. '.tmp'
+
+        downloadUrlToFile(url, tmpPath, function(id, status, p1, p2)
+                if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+                        local f = io.open(tmpPath, 'rb')
+                        if not f then
+                                os.remove(tmpPath)
+                                reject('cannot open temp file')
+                                return
+                        end
+                        local data = f:read('*a') or ''
+                        f:close()
+                        os.remove(tmpPath)
+
+                        if #data > 0 then
+                                resolve(data)
+                        else
+                                reject('empty response')
+                        end
+                elseif status == dlstatus.STATUS_ERROR then
+                        os.remove(tmpPath)
+                        reject('download error')
+                end
+        end)
+end
+
+local function ltReserve(bytes)
+        local now = os.clock()
+        if ltLimits.windowStart == 0 or (now - ltLimits.windowStart) >= 60.0 then
+                        ltLimits.windowStart = now
+                        ltLimits.reqCount = 0
+                        ltLimits.bytesThisMin = 0
+        end
+
+        if bytes > ltLimits.MAX_BYTES_PER_REQ then
+                return false, 'text_too_long'
+        end
+        if ltLimits.reqCount + 1 > ltLimits.MAX_REQ_PER_MIN then
+                return false, 'too_many_requests'
+        end
+        if ltLimits.bytesThisMin + bytes > ltLimits.MAX_BYTES_PER_MIN then
+                return false, 'too_much_text'
+        end
+
+        ltLimits.reqCount = ltLimits.reqCount + 1
+        ltLimits.bytesThisMin = ltLimits.bytesThisMin + bytes
+        return true
+end
+
+local function ltSanitizeMessage(msg)
+        msg = ac_trim(msg or '')
+        if msg == '' then return '' end
+        msg = msg:gsub('{......}', '')
+        return msg
+end
+
+local function urlencode_utf8(str)
+        return (str:gsub("([^%w%-_%.%~ ])", function(c)
+                return string.format("%%%02X", string.byte(c))
+        end):gsub(" ", "+"))
+end
+
+local function buildUtf8Index(str)
+        local index = {}
+        local len = 0
+        local i = 1
+        local strLen = #str
+        while i <= strLen do
+                len = len + 1
+                index[len] = i
+                local c = str:byte(i)
+                if c < 0x80 then
+                        i = i + 1
+                elseif c < 0xE0 then
+                        i = i + 2
+                elseif c < 0xF0 then
+                        i = i + 3
+                else
+                        i = i + 4
+                end
+        end
+        index[len + 1] = strLen + 1
+        return index, len
+end
+
+local function applyLanguageToolMatches(originalUtf8, matches)
+        if not matches or #matches == 0 then
+                return originalUtf8
+        end
+
+        local index, _ = buildUtf8Index(originalUtf8)
+        local strLenBytes = #originalUtf8
+
+        table.sort(matches, function(a, b)
+                return (a.offset or 0) < (b.offset or 0)
+        end)
+
+        local parts = {}
+        local currBytePos = 1
+        local used = 0
+
+        for _, m in ipairs(matches) do
+                if used >= 30 then break end
+
+                local repls = m.replacements
+                local offset = m.offset
+                local length = m.length
+
+                if type(offset) == 'number' and type(length) == 'number'
+                        and repls and repls[1] and repls[1].value then
+
+                        local repl = repls[1].value
+                        local charStart = offset + 1
+                        local charEnd = offset + length
+
+                        local byteStart = index[charStart]
+                        local byteEndPlus1 = index[charEnd + 1] or (strLenBytes + 1)
+
+                        if byteStart and byteEndPlus1 and byteStart >= currBytePos then
+                                table.insert(parts, originalUtf8:sub(currBytePos, byteStart - 1))
+                                table.insert(parts, repl)
+                                currBytePos = byteEndPlus1
+                                used = used + 1
+                        end
+                end
+        end
+
+        table.insert(parts, originalUtf8:sub(currBytePos))
+        return table.concat(parts)
+end
+
+local function handleYandexSpeller(message, setText, callbacks)
+        message = ac_trim(message or '')
+        if message == '' then
+                return
+        end
+
+        callbacks.onStart()
+
+        if cacheSpeller[message] then
+                setText(cacheSpeller[message])
+                callbacks.onFinally()
+                return
+        end
+
+        local url = "http://speller.yandex.net/services/spellservice.json/checkText?text=" .. u8(urlencode(message))
+
+        asyncRequest(url, function(response)
+                local words = decodeJson(response)
+                if words and type(words) == 'table' and #words > 0 then
+                        local used = {}
+                        local corrected = message
+
+                        for _, word_data in ipairs(words) do
+                                local incorrect = u8:decode(word_data.word)
+                                local correct = word_data.s and word_data.s[1] and u8:decode(word_data.s[1]) or incorrect
+                                if not used[incorrect] and correct then
+                                        corrected = corrected:gsub(incorrect, correct)
+                                        used[incorrect] = true
+                                end
+                        end
+
+                        corrected = corrected:gsub('//', '/')
+                        cacheSpeller[message] = corrected
+                        setText(corrected)
+                end
+                callbacks.onFinally()
+        end, function(err)
+                callbacks.onError(tostring(err or 'Ошибка запроса'))
+                callbacks.onFinally()
+        end)
+end
+
+local function handleLanguageTool(message, setText, callbacks)
+        message = ltSanitizeMessage(message)
+        if message == '' then
+                return
+        end
+
+        callbacks.onStart()
+
+        if cacheLT[message] then
+                setText(cacheLT[message])
+                callbacks.onFinally()
+                return
+        end
+
+        local textUtf8 = u8(message)
+        local textBytes = #textUtf8
+
+        local allowed, reason = ltReserve(textBytes)
+        if not allowed then
+                local reasonText
+                if reason == 'text_too_long' then
+                        reasonText = 'LanguageTool: текст длиннее 20KB'
+                elseif reason == 'too_many_requests' then
+                        reasonText = 'LanguageTool: превышен лимит 20 запросов в минуту'
+                elseif reason == 'too_much_text' then
+                        reasonText = 'LanguageTool: превышен лимит 75KB текста в минуту'
+                else
+                        reasonText = 'LanguageTool: лимит, запрос отклонён'
+                end
+                callbacks.onError(reasonText)
+                callbacks.onFinally()
+                return
+        end
+
+        local encodedText = urlencode_utf8(textUtf8)
+        local url = 'https://api.languagetool.org/v2/check?language=ru-RU&text=' .. encodedText
+
+        asyncRequest(url, function(response)
+                local data = decodeJson(response)
+                if data and type(data) == 'table' and type(data.matches) == 'table' and #data.matches > 0 then
+                        local fixedUtf8 = applyLanguageToolMatches(textUtf8, data.matches)
+                        local resultCp = u8:decode(fixedUtf8)
+
+                        cacheLT[message] = resultCp
+                        setText(resultCp)
+                end
+                callbacks.onFinally()
+        end, function()
+                callbacks.onError('LanguageTool: ошибка запроса')
+                callbacks.onFinally()
+        end)
+end
+
+function module.handleCorrectionLite(opts)
+        opts = opts or {}
+        local message = opts.message or ''
+        local provider = opts.provider or 'yandex'
+        local setText = opts.setText or function() end
+        local callbacks = {
+                onStart = opts.onStart or function() end,
+                onError = opts.onError or function() end,
+                onFinally = opts.onFinally or function() end,
+        }
+
+        if provider == 'languagetool' or provider == 'lt' then
+                handleLanguageTool(message, setText, callbacks)
+        else
+                handleYandexSpeller(message, setText, callbacks)
+        end
 end
 
 function module.string_rupper(s)

@@ -32,8 +32,6 @@ local new = imgui.new
 local str = ffi.string
 local sizeof = ffi.sizeof
 
-local ok_effil, effil = pcall(require, "effil") -- асинхрон для спеллера
-local ok_https, _ = pcall(require, "ssl.https")
 local bit = require("bit") -- для UTF-8 разборки и флагов
 local vk = require("vkeys")
 
@@ -65,11 +63,9 @@ local OBJ_BTN_MIN_W = 88
 local KBD_BTN_MIN_W = 56
 local NUMPAD = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0" }
 
-local SPELLER_DEBOUNCE_SEC = 0.5 -- дребезг запуска автокорректора
-
 -- ========= УТИЛИТЫ =========
 local function safe(s)
-	return s or ""
+        return s or ""
 end
 
 -- атомарная запись файла (насколько возможно в Windows)
@@ -234,11 +230,14 @@ function Config:load()
 	ensure_table("history", {})
 	t.history_limit = (type(t.history_limit) == "number" and t.history_limit) or 100
 
-	ensure_table("autocorrect", {
-		{ "!тт", "TwinTurbo" },
-		{ "!см", "Санта-Мария" },
-		{ "!лс", "г. Лос-Сантос" },
-	})
+        ensure_table("autocorrect", {
+                { "!тт", "TwinTurbo" },
+                { "!см", "Санта-Мария" },
+                { "!лс", "г. Лос-Сантос" },
+        })
+        if t.autocorrect_service ~= "languagetool" then
+                t.autocorrect_service = "yandex"
+        end
 
 	-- память по никнеймам (MRU)
 	ensure_table("nick_memory", {}) -- формат: nick -> { last_incoming=string, last_sent=string, ts=number }
@@ -391,13 +390,11 @@ local State = {
 	collapse_selection_after_focus = false,
 	cursor_action = nil, -- 'to_next_quote' | 'to_end' | 'to_first_empty_quotes' | 'to_addon_end'
 	cursor_action_data = nil,
-	hist_index = nil,
+        hist_index = nil,
 
-	-- спеллер
-	last_speller_call = 0,
-	corr_cache = {},
-	corr_in_progress = false,
-	corr_error = nil,
+        -- спеллер
+        corr_in_progress = false,
+        corr_error = nil,
 
 	win_pos = imgui.ImVec2(100, 100),
 	win_size = imgui.ImVec2(1280, 650),
@@ -710,105 +707,6 @@ local function ButtonGrid(id, items, btnH, columns, onClick)
 		end
 	end
 	imgui.SetCursorPosX(start_x)
-end
-
--- ========= АВТОКОРРЕКТОР (Яндекс, асинхрон + дребезг) =========
-local function urlencode(text)
-	text = tostring(text or "")
-	text = text:gsub("{......}", ""):gsub("\r", "")
-	text = text:gsub("\n", "%%0A")
-	text = text:gsub(" ", "+"):gsub("&", "%%26"):gsub("%%", "%%25")
-	text = text:gsub("<", "%%3C"):gsub(">", "%%3E"):gsub('"', "%%22")
-	return text
-end
-
-local function asyncRequest(url, resolve, reject)
-	if not ok_effil then
-		if reject then
-			reject("effil not found")
-		end
-		return
-	end
-	reject = reject or function() end
-	lua_thread.create(function()
-		local thread = effil.thread(function(u)
-			local https = require("ssl.https")
-			local ok, result = pcall(https.request, u)
-			return { ok, result }
-		end)(url)
-
-		local timeout = os.clock() + 30
-		while true do
-			local res = thread:get(0)
-			if res then
-				local ok, response = res[1], res[2]
-				if ok then
-					resolve(response)
-				else
-					reject(response)
-				end
-				break
-			end
-			if os.clock() > timeout then
-				reject("Request timed out")
-				break
-			end
-			wait(0)
-		end
-		pcall(thread.cancel, thread)
-		collectgarbage()
-	end)
-end
-
-local function handleCorrectionLite()
-	if not ok_effil or not ok_https then
-		State.corr_error = "Нет effil или ssl.https"
-		return
-	end
-	local now = os.clock()
-	if (now - (State.last_speller_call or 0)) < SPELLER_DEBOUNCE_SEC then
-		return
-	end
-	State.last_speller_call = now
-
-	local message = str(State.edit_buf)
-	if message == "" then
-		return
-	end
-	if State.corr_cache[message] then
-		imgui.StrCopy(State.edit_buf, State.corr_cache[message])
-		return
-	end
-	local url = "https://speller.yandex.net/services/spellservice.json/checkText?text=" .. (urlencode(message))
-	State.corr_in_progress, State.corr_error = true, nil
-
-	asyncRequest(url, function(response)
-		State.corr_in_progress = false
-		local ok, words = pcall(decodeJson, response)
-		if not ok or type(words) ~= "table" then
-			return
-		end
-		if #words == 0 then
-			return
-		end
-
-		local used = {}
-		local corrected = message
-		for _, wd in ipairs(words) do
-			local incorrect = wd.word
-			local suggestion = wd.s and wd.s[1] and wd.s[1] or incorrect
-			if incorrect and suggestion and not used[incorrect] then
-				corrected = corrected:gsub(incorrect, suggestion, 1)
-				used[incorrect] = true
-			end
-		end
-		corrected = corrected:gsub("//", "/")
-		State.corr_cache[message] = corrected
-		imgui.StrCopy(State.edit_buf, corrected)
-	end, function(err)
-		State.corr_in_progress = false
-		State.corr_error = tostring(err or "Ошибка запроса")
-	end)
 end
 
 -- ========= ШАБЛОНЫ: ГРУППЫ =========
@@ -1330,11 +1228,28 @@ end, function()
 		imgui.SetClipboardText(str(State.edit_buf))
 	end
 	imgui.SameLine()
-	if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
-		if not State.corr_in_progress then
-			handleCorrectionLite()
-		end
-	end
+        if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
+                if not State.corr_in_progress and funcs and funcs.handleCorrectionLite then
+                        funcs.handleCorrectionLite({
+                                message = str(State.edit_buf),
+                                provider = Config.data.autocorrect_service,
+                                setText = function(newText)
+                                        newText = clamp80(newText or "")
+                                        imgui.StrCopy(State.edit_buf, newText)
+                                end,
+                                onStart = function()
+                                        State.corr_in_progress = true
+                                        State.corr_error = nil
+                                end,
+                                onError = function(err)
+                                        State.corr_error = err
+                                end,
+                                onFinally = function()
+                                        State.corr_in_progress = false
+                                end,
+                        })
+                end
+        end
 	imgui.SameLine()
 	if imgui.SmallButton("К следующей кавычке") then
 		State.cursor_action = "to_next_quote"
@@ -1697,12 +1612,13 @@ function SMIHelp.DrawSettingsUI()
 		SMIHelp._settings = {
 			type_buttons = new.char[512](),
 			objects = new.char[512](),
-			prices = new.char[512](),
-			currencies = new.char[512](),
-			addons = new.char[512](),
-			autocorrect = new.char[1024](),
-			history_limit = new.int(Config.data.history_limit or 100),
-			nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
+                        prices = new.char[512](),
+                        currencies = new.char[512](),
+                        addons = new.char[512](),
+                        autocorrect_service = new.int(Config.data.autocorrect_service == "languagetool" and 1 or 0),
+                        autocorrect = new.char[1024](),
+                        history_limit = new.int(Config.data.history_limit or 100),
+                        nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
 			vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
 			vip_timer_delay = new.int(SMIHelp.timer_send_delay or 10),
 			btn_timer_enabled = new.bool(SMIHelp.btn_timer_enabled),
@@ -1755,11 +1671,13 @@ function SMIHelp.DrawSettingsUI()
 	imgui.InputInt("Задержка новостей", S.timer_news_delay, 1, 60)
 	imgui.InputTextMultiline("Типы", S.type_buttons, 512, imgui.ImVec2(0, 60))
 	imgui.InputTextMultiline("Объекты", S.objects, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Цены", S.prices, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Валюты", S.currencies, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Дополнения", S.addons, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, imgui.ImVec2(0, 60))
-	if imgui.CollapsingHeader("Шаблоны") then
+        imgui.InputTextMultiline("Цены", S.prices, 512, imgui.ImVec2(0, 60))
+        imgui.InputTextMultiline("Валюты", S.currencies, 512, imgui.ImVec2(0, 60))
+        imgui.InputTextMultiline("Дополнения", S.addons, 512, imgui.ImVec2(0, 60))
+        local autocorrect_options = { "Yandex Speller", "LanguageTool" }
+        imgui.Combo("Сервис автокоррекции", S.autocorrect_service, autocorrect_options, #autocorrect_options)
+        imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, imgui.ImVec2(0, 60))
+        if imgui.CollapsingHeader("Шаблоны") then
 		if imgui.BeginTabBar("tpl_tabs") then
 			for idx, tpl in ipairs(S.templates_list) do
 				local cat = tpl.category or ("Категория " .. idx)
@@ -1880,12 +1798,13 @@ function SMIHelp.DrawSettingsUI()
         if imgui.Button("Сохранить") then
 		Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
 		Config.data.objects = funcs.parseList(str(S.objects))
-		Config.data.prices = funcs.parseList(str(S.prices))
-		Config.data.currencies = funcs.parseList(str(S.currencies))
-		Config.data.addons = funcs.parseList(str(S.addons))
-		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
-		Config.data.templates = S.templates_list
-		Config.data.history_limit = S.history_limit[0]
+                Config.data.prices = funcs.parseList(str(S.prices))
+                Config.data.currencies = funcs.parseList(str(S.currencies))
+                Config.data.addons = funcs.parseList(str(S.addons))
+                Config.data.autocorrect_service = (S.autocorrect_service[0] == 1) and "languagetool" or "yandex"
+                Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
+                Config.data.templates = S.templates_list
+                Config.data.history_limit = S.history_limit[0]
 		Config.data.nick_memory_limit = S.nick_memory_limit[0]
 		Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
 		Config.data.vip_timer_delay = S.vip_timer_delay[0]
