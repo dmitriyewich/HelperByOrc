@@ -1674,8 +1674,12 @@ function SMIHelp.DrawSettingsUI()
         imgui.InputTextMultiline("Цены", S.prices, 512, imgui.ImVec2(0, 60))
         imgui.InputTextMultiline("Валюты", S.currencies, 512, imgui.ImVec2(0, 60))
         imgui.InputTextMultiline("Дополнения", S.addons, 512, imgui.ImVec2(0, 60))
-        local autocorrect_options = { "Yandex Speller", "LanguageTool" }
-        imgui.Combo("Сервис автокоррекции", S.autocorrect_service, autocorrect_options, #autocorrect_options)
+        if not S.autocorrect_items then
+                local autocorrect_options = { "Yandex Speller", "LanguageTool" }
+                S.autocorrect_items = imgui.new['const char*'][#autocorrect_options](autocorrect_options)
+                S.autocorrect_count = #autocorrect_options
+        end
+        imgui.Combo("Сервис автокоррекции", S.autocorrect_service, S.autocorrect_items, S.autocorrect_count)
         imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, imgui.ImVec2(0, 60))
         if imgui.CollapsingHeader("Шаблоны") then
 		if imgui.BeginTabBar("tpl_tabs") then
