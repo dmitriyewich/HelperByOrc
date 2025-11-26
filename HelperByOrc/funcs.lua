@@ -937,12 +937,13 @@ local function applyLanguageToolMatches(originalUtf8, matches)
 end
 
 local function handleYandexSpeller(message, setText, callbacks)
+        callbacks.onStart()
         message = ac_trim(message or '')
         if message == '' then
+                callbacks.onError('Пустой текст')
+                callbacks.onFinally()
                 return
         end
-
-        callbacks.onStart()
 
         if cacheSpeller[message] then
                 setText(cacheSpeller[message])
@@ -979,12 +980,13 @@ local function handleYandexSpeller(message, setText, callbacks)
 end
 
 local function handleLanguageTool(message, setText, callbacks)
+        callbacks.onStart()
         message = ltSanitizeMessage(message)
         if message == '' then
+                callbacks.onError('Пустой текст')
+                callbacks.onFinally()
                 return
         end
-
-        callbacks.onStart()
 
         if cacheLT[message] then
                 setText(cacheLT[message])
