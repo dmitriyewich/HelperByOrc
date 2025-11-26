@@ -17,13 +17,95 @@ local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
 
 -- === Интерфейсные переменные ===
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\HelperByOrc.json"
-local projectConfig =
-        funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(CONFIG_PATH, { renderHotkeyWnd = false })
-        or { renderHotkeyWnd = false }
+local function normalizeKey(k)
+        if k == vk.VK_LSHIFT or k == vk.VK_RSHIFT then
+                return vk.VK_SHIFT
+        end
+        if k == vk.VK_LCONTROL or k == vk.VK_RCONTROL then
+                return vk.VK_CONTROL
+        end
+        if k == vk.VK_LMENU or k == vk.VK_RMENU then
+                return vk.VK_MENU
+        end
+        return k
+end
+
+local function isKeyboardKey(k)
+        if k >= vk.VK_LBUTTON and k <= vk.VK_XBUTTON2 then
+                return false
+        end
+        return k >= 0 and k <= 255
+end
+
+local function keysMatchCombo(current, combo)
+        if #combo == 0 then
+                return false
+        end
+        for i = 1, #combo do
+                local target = combo[i]
+                local found = false
+                for j = 1, #current do
+                        if normalizeKey(current[j]) == normalizeKey(target) then
+                                found = true
+                                break
+                        end
+                end
+                if not found then
+                        return false
+                end
+        end
+        return true
+end
+
+local function cloneKeys(list)
+        local res = {}
+        for _, k in ipairs(list or {}) do
+                if type(k) == "number" then
+                        res[#res + 1] = normalizeKey(k)
+                end
+        end
+        return res
+end
+
+local defaultOpenHotkey = {vk.VK_CONTROL, vk.VK_Z}
+local CONFIG_DEFAULTS = {renderHotkeyWnd = false, openHotkey = cloneKeys(defaultOpenHotkey)}
+
+local projectConfig = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(CONFIG_PATH, CONFIG_DEFAULTS)
+        or CONFIG_DEFAULTS
 
 if type(projectConfig.renderHotkeyWnd) ~= "boolean" then
         projectConfig.renderHotkeyWnd = false
 end
+
+local function normalizeHotkeyTable(tbl)
+        local combo = {}
+        if type(tbl) ~= "table" then
+                return nil
+        end
+        for _, k in ipairs(tbl) do
+                if isKeyboardKey(k) then
+                        local nk = normalizeKey(k)
+                        local dup = false
+                        for _, cur in ipairs(combo) do
+                                if cur == nk then
+                                        dup = true
+                                        break
+                                end
+                        end
+                        if not dup then
+                                combo[#combo + 1] = nk
+                        end
+                end
+        end
+        if #combo == 0 then
+                return nil
+        end
+        return combo
+end
+
+local openHotkey = normalizeHotkeyTable(projectConfig.openHotkey) or cloneKeys(defaultOpenHotkey)
+projectConfig.openHotkey = cloneKeys(openHotkey)
+local openHotkeyActive = false
 
 local renderHotkeyWnd = imgui.new.bool(projectConfig.renderHotkeyWnd)
 local function saveProjectConfig()
@@ -41,11 +123,40 @@ local function setRenderHotkeyWnd(state)
         end
 end
 
+local function setOpenHotkey(combo)
+        local normalized = normalizeHotkeyTable(combo) or cloneKeys(defaultOpenHotkey)
+        openHotkey = normalized
+        projectConfig.openHotkey = cloneKeys(normalized)
+        openHotkeyActive = false
+        saveProjectConfig()
+end
+
 local function toggleRenderHotkeyWnd()
         setRenderHotkeyWnd(not renderHotkeyWnd[0])
 end
 
 saveProjectConfig()
+local openHotkeyCapture = false
+local openHotkeyDraft = {}
+local pressedKeysSet = {}
+local pressedKeysList = {}
+
+local function rebuildPressedList()
+        pressedKeysList = {}
+        for k, v in pairs(pressedKeysSet) do
+                if v then
+                        table.insert(pressedKeysList, k)
+                end
+        end
+end
+
+local function hotkeyToString(keys)
+        local t = {}
+        for _, k in ipairs(keys or {}) do
+                t[#t + 1] = vk.id_to_name and vk.id_to_name(k) or tostring(k)
+        end
+        return #t > 0 and table.concat(t, " + ") or "[не назначено]"
+end
 local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 local mainPos = imgui.ImVec2(10, 10)
@@ -200,10 +311,10 @@ imgui.OnFrame(
 				SMIHelp.DrawSettingsUI()
 			elseif currentTab == 4 and notepad and notepad.drawNotepadPanel then
 				notepad.drawNotepadPanel()
-			elseif currentTab == 5 then
-				if miscPage == 0 then
-					imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "Прочее")
-					imgui.Separator()
+                        elseif currentTab == 5 then
+                                if miscPage == 0 then
+                                        imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "Прочее")
+                                        imgui.Separator()
                                         local items = {}
                                         if tags and tags.DrawSettingsPage then
                                                 table.insert(items, {id = 1, name = "Переменные"})
@@ -289,9 +400,47 @@ imgui.OnFrame(
                                         weapon_rp.DrawSettingsInline()
                                         imgui.EndChild()
                                 end
-			else
-				imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "HelperByOrc")
-				imgui.Separator()
+                        elseif currentTab == 6 then
+                                imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), "Настройки")
+                                imgui.Separator()
+                                imgui.Text("Хоткей открытия главного окна:")
+                                imgui.SameLine()
+                                imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.6, 1), hotkeyToString(openHotkey))
+                                imgui.Separator()
+                                if openHotkeyCapture then
+                                        imgui.TextColored(
+                                                imgui.ImVec4(0.8, 0.8, 1, 1),
+                                                "Нажмите нужные клавиши, Enter — сохранить, Backspace — очистить, Esc — отмена"
+                                        )
+                                        imgui.Text("Текущая комбинация:")
+                                        imgui.SameLine()
+                                        imgui.TextColored(imgui.ImVec4(0.6, 1, 0.6, 1), hotkeyToString(openHotkeyDraft))
+                                        if imgui.Button("Сохранить комбинацию") then
+                                                if #openHotkeyDraft > 0 then
+                                                        setOpenHotkey(openHotkeyDraft)
+                                                end
+                                                openHotkeyDraft = {}
+                                                openHotkeyCapture = false
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.Button("Отменить") then
+                                                openHotkeyDraft = {}
+                                                openHotkeyCapture = false
+                                        end
+                                else
+                                        if imgui.Button("Изменить комбинацию") then
+                                                openHotkeyDraft = {}
+                                                openHotkeyCapture = true
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.Button("Сбросить на Ctrl + Z") then
+                                                setOpenHotkey(defaultOpenHotkey)
+                                        end
+                                        imgui.Text("Комбинация используется для открытия/закрытия окна HelperByOrc.")
+                                end
+                        else
+                                imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "HelperByOrc")
+                                imgui.Separator()
 				imgui.Text("Вкладка в разработке. Тут будет контент.")
 			end
 			imgui.EndChild()
@@ -300,13 +449,58 @@ imgui.OnFrame(
 	end
 )
 
--- === Глобальный хоткей (X) для вызова главного окна ===
+-- === Глобальный хоткей для вызова главного окна ===
 addEventHandler(
         "onWindowMessage",
         function(msg, wparam, lparam)
-                if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-                        if wparam == vk.VK_Z and isKeyDown(vk.VK_CONTROL) then
+                local isKeyDownMsg = msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN
+                local isKeyUpMsg = msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP
+
+                if (isKeyDownMsg or isKeyUpMsg) and isKeyboardKey(wparam) then
+                        pressedKeysSet[normalizeKey(wparam)] = isKeyDownMsg
+                        rebuildPressedList()
+                end
+
+                if openHotkeyCapture and isKeyDownMsg then
+                        if wparam == vk.VK_ESCAPE then
+                                openHotkeyDraft = {}
+                                openHotkeyCapture = false
+                        elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
+                                if #openHotkeyDraft > 0 then
+                                        setOpenHotkey(openHotkeyDraft)
+                                end
+                                openHotkeyDraft = {}
+                                openHotkeyCapture = false
+                        elseif wparam == vk.VK_BACK then
+                                openHotkeyDraft = {}
+                        elseif isKeyboardKey(wparam) then
+                                local nk = normalizeKey(wparam)
+                                local dup = false
+                                for _, k in ipairs(openHotkeyDraft) do
+                                        if k == nk then
+                                                dup = true
+                                                break
+                                        end
+                                end
+                                if not dup then
+                                        table.insert(openHotkeyDraft, nk)
+                                end
+                        end
+
+                        if type(consumeWindowMessage) == "function" then
+                                consumeWindowMessage(true, true)
+                        end
+
+                        return
+                end
+
+                if isKeyDownMsg or isKeyUpMsg then
+                        local comboNow = keysMatchCombo(pressedKeysList, openHotkey)
+                        if comboNow and not openHotkeyActive then
                                 toggleRenderHotkeyWnd()
+                                openHotkeyActive = true
+                        elseif not comboNow and openHotkeyActive then
+                                openHotkeyActive = false
                         end
                 end
         end
