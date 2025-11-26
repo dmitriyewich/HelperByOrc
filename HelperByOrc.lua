@@ -3,6 +3,7 @@ local ffi = require "ffi"
 local wm = require("windows.message")
 local vk = require "vkeys"
 local encoding = require "encoding"
+local funcs = require "HelperByOrc.funcs"
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
@@ -15,7 +16,36 @@ local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp
 local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
 
 -- === Интерфейсные переменные ===
-local renderHotkeyWnd = imgui.new.bool(false)
+local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\HelperByOrc.json"
+local projectConfig =
+        funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(CONFIG_PATH, { renderHotkeyWnd = false })
+        or { renderHotkeyWnd = false }
+
+if type(projectConfig.renderHotkeyWnd) ~= "boolean" then
+        projectConfig.renderHotkeyWnd = false
+end
+
+local renderHotkeyWnd = imgui.new.bool(projectConfig.renderHotkeyWnd)
+local function saveProjectConfig()
+        if funcs and funcs.saveTableToJson then
+                funcs.saveTableToJson(projectConfig, CONFIG_PATH)
+        end
+end
+
+local function setRenderHotkeyWnd(state)
+        local normalized = not not state
+        if renderHotkeyWnd[0] ~= normalized then
+                renderHotkeyWnd[0] = normalized
+                projectConfig.renderHotkeyWnd = normalized
+                saveProjectConfig()
+        end
+end
+
+local function toggleRenderHotkeyWnd()
+        setRenderHotkeyWnd(not renderHotkeyWnd[0])
+end
+
+saveProjectConfig()
 local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 local mainPos = imgui.ImVec2(10, 10)
@@ -87,26 +117,26 @@ imgui.OnFrame(
 		local closeSize = imgui.ImVec2(titleH - 6, titleH - 6)
 		local closePos = imgui.ImVec2(pmax.x - pad.x - closeSize.x, pmin.y + (titleH - closeSize.y) / 2)
 		imgui.SetCursorScreenPos(closePos)
-		if mimgui_funcs and mimgui_funcs.close_window then
-			imgui.PushStyleVarFloat(imgui.StyleVar.FrameBorderSize, 0.0)
-			imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.00, 0.00, 0.00, 0.0))
-			imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
-			imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.76, 0.76, 0.76, 1.00))
-			if imgui.ImageButton(mimgui_funcs.close_window, closeSize, _, _, 1, imgui.ImVec4(0, 0, 0, 0), ImageButton_color) then
-				renderHotkeyWnd[0] = false
-			end
-			if imgui.IsItemHovered() then
-				ImageButton_color = imgui.ImVec4(1, 1, 1, 0.5)
-			else
-				ImageButton_color = imgui.ImVec4(1, 1, 1, 1)
-			end
-			imgui.PopStyleColor(3)
-			imgui.PopStyleVar()
-		else
-			if imgui.Button("X", closeSize) then
-				renderHotkeyWnd[0] = false
-			end
-		end
+                if mimgui_funcs and mimgui_funcs.close_window then
+                        imgui.PushStyleVarFloat(imgui.StyleVar.FrameBorderSize, 0.0)
+                        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.00, 0.00, 0.00, 0.0))
+                        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+                        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.76, 0.76, 0.76, 1.00))
+                        if imgui.ImageButton(mimgui_funcs.close_window, closeSize, _, _, 1, imgui.ImVec4(0, 0, 0, 0), ImageButton_color) then
+                                setRenderHotkeyWnd(false)
+                        end
+                        if imgui.IsItemHovered() then
+                                ImageButton_color = imgui.ImVec4(1, 1, 1, 0.5)
+                        else
+                                ImageButton_color = imgui.ImVec4(1, 1, 1, 1)
+                        end
+                        imgui.PopStyleColor(3)
+                        imgui.PopStyleVar()
+                else
+                        if imgui.Button("X", closeSize) then
+                                setRenderHotkeyWnd(false)
+                        end
+                end
 
 		imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
@@ -272,14 +302,14 @@ imgui.OnFrame(
 
 -- === Глобальный хоткей (X) для вызова главного окна ===
 addEventHandler(
-	"onWindowMessage",
-	function(msg, wparam, lparam)
-		if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
-			if wparam == vk.VK_Z and isKeyDown(vk.VK_CONTROL) then
-				renderHotkeyWnd[0] = not renderHotkeyWnd[0]
-			end
-		end
-	end
+        "onWindowMessage",
+        function(msg, wparam, lparam)
+                if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                        if wparam == vk.VK_Z and isKeyDown(vk.VK_CONTROL) then
+                                toggleRenderHotkeyWnd()
+                        end
+                end
+        end
 )
 
 -- === onTick: обработка быстрого меню биндер-модуля ===
