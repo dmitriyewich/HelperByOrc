@@ -935,35 +935,102 @@ end
 
 module.doSend = doSend
 
--- === Условия ===
-local cond_funcs = {
-	function()
-		return isCharInWater(PLAYER_PED)
-	end,
-	function()
-		return isCharDead(PLAYER_PED)
-	end,
-	function()
-		return isCharInAir(PLAYER_PED)
-	end
+local condition_keys = {
+        "in_water",
+        "dead",
+        "in_air"
 }
 
-local function safe_call(fn)
-	local ok, res = pcall(fn)
-	return ok and not (not res)
-end
+local ConditionSystem = {
+        conditions = {
+                -- Базовые условия
+                in_water = {
+                        check = function()
+                                return isCharInWater(PLAYER_PED)
+                        end,
+                        priority = 1,
+                        message = "Нельзя использовать в воде"
+                },
+                dead = {
+                        check = function()
+                                return isCharDead(PLAYER_PED)
+                        end,
+                        priority = 2,
+                        message = "Нельзя использовать будучи мертвым"
+                },
+                in_air = {
+                        check = function()
+                                return isCharInAir(PLAYER_PED)
+                        end,
+                        priority = 3,
+                        message = "Нельзя использовать в воздухе"
+                },
 
-local function conditions_ok(conds)
-	for idx, v in ipairs(conds or {}) do
-		if v and cond_funcs[idx] and safe_call(cond_funcs[idx]) then
-			return false
-		end
-	end
-	return true
+                -- Динамически добавляемые условия
+                custom = {}
+        },
+
+        register_condition = function(self, name, check_fn, priority, message)
+                self.conditions.custom[name] = {
+                        check = check_fn,
+                        priority = priority or 10,
+                        message = message or "Условие не выполнено"
+                }
+        end,
+
+        check_all = function(self, condition_list, context)
+                local results = {}
+
+                for _, cond_name in ipairs(condition_list or {}) do
+                        local cond = self.conditions[cond_name] or self.conditions.custom[cond_name]
+                        if cond then
+                                local ok, result = pcall(cond.check, context)
+                                if ok and result then
+                                        table.insert(results, {
+                                                name = cond_name,
+                                                failed = true,
+                                                message = cond.message,
+                                                priority = cond.priority
+                                        })
+                                end
+                        end
+                end
+
+                -- Сортировка по приоритету
+                table.sort(results, function(a, b)
+                        return (a.priority or 0) < (b.priority or 0)
+                end)
+
+                return results
+        end
+}
+
+local function conditions_ok(conds, opts)
+        local cond_names = {}
+        for idx, v in ipairs(conds or {}) do
+                if v and condition_keys[idx] then
+                        table.insert(cond_names, condition_keys[idx])
+                end
+        end
+
+        local results = ConditionSystem:check_all(cond_names)
+        if results and #results > 0 then
+                if not (opts and opts.silent) then
+                        local top = results[1]
+                        if top and top.message then
+                                pushToast(top.message, "warn", 3.0)
+                        end
+                end
+                return false
+        end
+
+        return true
 end
 
 local check_conditions = conditions_ok
-local check_quick_visibility = conditions_ok
+local function check_quick_visibility(conds)
+        return conditions_ok(conds, {silent = true})
+end
 
 -- Проверка видимости папки с учётом ВСЕХ предков
 local function isFolderChainVisible(folder)
