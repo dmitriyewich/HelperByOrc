@@ -526,20 +526,6 @@ local function findHotkeyByNumberInScope(num, folderLower)
         return hotkeys[num]
 end
 
-local cond_labels = {
-	"Не сработает в воде",
-	"Не сработает если игрок мертв",
-	"Не сработает в воздухе"
-}
-local cond_count = #cond_labels
-
--- Условия появления в быстром меню для биндов/папок
-local quick_cond_labels = {
-	"Скрывать если в воде",
-	"Скрывать если игрок мертв",
-	"Скрывать если в воздухе"
-}
-local quick_cond_count = #quick_cond_labels
 
 -- JSON
 local config = {hotkeys = {}, folders = {}}
@@ -935,35 +921,158 @@ end
 
 module.doSend = doSend
 
--- === Условия ===
-local cond_funcs = {
-	function()
-		return isCharInWater(PLAYER_PED)
-	end,
-	function()
-		return isCharDead(PLAYER_PED)
-	end,
-	function()
-		return isCharInAir(PLAYER_PED)
-	end
+local cond_labels, quick_cond_labels, cond_count, quick_cond_count
+
+local ConditionSystem = {
+        order = {
+                "in_water",
+                "dead",
+                "in_air"
+        },
+
+        conditions = {
+                -- Базовые условия
+                in_water = {
+                        check = function()
+                                return isCharInWater(PLAYER_PED)
+                        end,
+                        priority = 1,
+                        message = "Нельзя использовать в воде",
+                        label = "Не сработает в воде",
+                        quick_label = "Скрывать если в воде"
+                },
+                dead = {
+                        check = function()
+                                return isCharDead(PLAYER_PED)
+                        end,
+                        priority = 2,
+                        message = "Нельзя использовать будучи мертвым",
+                        label = "Не сработает если игрок мертв",
+                        quick_label = "Скрывать если игрок мертв"
+                },
+                in_air = {
+                        check = function()
+                                return isCharInAir(PLAYER_PED)
+                        end,
+                        priority = 3,
+                        message = "Нельзя использовать в воздухе",
+                        label = "Не сработает в воздухе",
+                        quick_label = "Скрывать если в воздухе"
+                },
+
+                -- Динамически добавляемые условия
+                custom = {}
+        },
+
+        register_condition = function(self, name, check_fn, priority, message, label, quick_label)
+                self.conditions.custom[name] = {
+                        check = check_fn,
+                        priority = priority or 10,
+                        message = message or "Условие не выполнено",
+                        label = label,
+                        quick_label = quick_label
+                }
+
+                table.insert(self.order, name)
+                self:refresh_labels()
+        end,
+
+        refresh_labels = function(self)
+                self.labels = {}
+                self.quick_labels = {}
+
+                for _, cond_name in ipairs(self.order) do
+                        local cond = self.conditions[cond_name] or self.conditions.custom[cond_name]
+                        if cond then
+                                table.insert(self.labels, cond.label or cond.message or cond_name)
+                                table.insert(self.quick_labels, cond.quick_label or cond.label or cond.message or cond_name)
+                        end
+                end
+
+                cond_labels = self.labels
+                quick_cond_labels = self.quick_labels
+                cond_count = #self.labels
+                quick_cond_count = #self.quick_labels
+        end,
+
+        flags_to_names = function(self, flags)
+                local names = {}
+                if not flags then
+                        return names
+                end
+
+                for idx, cond_name in ipairs(self.order) do
+                        local value = flags[idx]
+                        local enabled = value
+                        if type(value) == "table" then
+                                enabled = value[0]
+                        end
+
+                        if enabled then
+                                table.insert(names, cond_name)
+                        end
+                end
+
+                return names
+        end,
+
+        check_all = function(self, condition_list, context)
+                local results = {}
+
+                for _, cond_name in ipairs(condition_list or {}) do
+                        local cond = self.conditions[cond_name] or self.conditions.custom[cond_name]
+                        if cond then
+                                local ok, result = pcall(cond.check, context)
+                                if ok and result then
+                                        table.insert(results, {
+                                                name = cond_name,
+                                                failed = true,
+                                                message = cond.message,
+                                                priority = cond.priority or 0
+                                        })
+                                end
+                        end
+                end
+
+                -- Сортировка по приоритету
+                table.sort(results, function(a, b)
+                        return (a.priority or 0) < (b.priority or 0)
+                end)
+
+                return results
+        end
 }
 
-local function safe_call(fn)
-	local ok, res = pcall(fn)
-	return ok and not (not res)
-end
+ConditionSystem:refresh_labels()
 
-local function conditions_ok(conds)
-	for idx, v in ipairs(conds or {}) do
-		if v and cond_funcs[idx] and safe_call(cond_funcs[idx]) then
-			return false
-		end
-	end
-	return true
+local cond_labels = ConditionSystem.labels or {}
+local cond_count = #cond_labels
+
+-- Условия появления в быстром меню для биндов/папок
+local quick_cond_labels = ConditionSystem.quick_labels or {}
+local quick_cond_count = #quick_cond_labels
+
+local function conditions_ok(conds, opts)
+        local cond_names = ConditionSystem:flags_to_names(conds)
+
+        local results = ConditionSystem:check_all(cond_names)
+        if results and #results > 0 then
+                if not (opts and opts.silent) then
+                        local top = results[1]
+                        if top and top.message then
+                                pushToast(top.message, "warn", 3.0)
+                        end
+                end
+                return false
+        end
+
+        return true
 end
 
 local check_conditions = conditions_ok
-local check_quick_visibility = conditions_ok
+local function check_quick_visibility(conds)
+        return conditions_ok(conds, {silent = true})
+end
 
 -- Проверка видимости папки с учётом ВСЕХ предков
 local function isFolderChainVisible(folder)
