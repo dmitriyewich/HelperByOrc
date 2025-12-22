@@ -824,17 +824,88 @@ local function normalizeKey(k)
 end
 
 local function isKeyboardKey(k)
-	if k >= vk.VK_LBUTTON and k <= vk.VK_XBUTTON2 then
-		return false
-	end
-	return k >= 0 and k <= 255
+        if k >= vk.VK_LBUTTON and k <= vk.VK_XBUTTON2 then
+                return false
+        end
+        return k >= 0 and k <= 255
+end
+
+local InputManager = {
+        -- Кэш состояний клавиш с временными метками
+        key_states = {},
+        key_timestamps = {},
+
+        -- Группировка клавиш для быстрой проверки
+        key_groups = {
+                modifiers = {vk.VK_SHIFT, vk.VK_CONTROL, vk.VK_MENU},
+                mouse = {vk.VK_LBUTTON, vk.VK_RBUTTON, vk.VK_MBUTTON, vk.VK_XBUTTON1, vk.VK_XBUTTON2}
+        },
+
+        -- Дебаунс
+        debounce_threshold = 0.1 -- 100ms
+}
+
+function InputManager:is_key_pressed(key_code)
+        local state = self.key_states[key_code]
+        local timestamp = self.key_timestamps[key_code] or 0
+
+        if state and (os.clock() - timestamp) > self.debounce_threshold then
+                return true
+        end
+        return false
+end
+
+function InputManager:is_modifier_pressed()
+        for _, mod_key in ipairs(self.key_groups.modifiers) do
+                if self.key_states[mod_key] then
+                        return true
+                end
+        end
+        return false
+end
+
+function InputManager:update(msg, wparam, lparam)
+        local key_code = normalizeKey(wparam)
+        if not key_code or not isKeyboardKey(key_code) then
+                return
+        end
+
+        local now = os.clock()
+
+        if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                self.key_states[key_code] = true
+                self.key_timestamps[key_code] = now
+        elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+                self.key_states[key_code] = false
+        end
+end
+
+function InputManager:check_combo(combo_keys)
+        if not combo_keys or #combo_keys == 0 then
+                return false
+        end
+
+        for _, key in ipairs(combo_keys) do
+                if not self.key_states[key] then
+                        return false
+                end
+        end
+
+        local pressed_count = 0
+        for _, pressed in pairs(self.key_states) do
+                if pressed then
+                        pressed_count = pressed_count + 1
+                end
+        end
+
+        return pressed_count == #combo_keys
 end
 
 local function keysMatchCombo(current, combo)
-	if #combo == 0 then
-		return false
-	end
-	for i = 1, #combo do
+        if #combo == 0 then
+                return false
+        end
+        for i = 1, #combo do
 		local target = combo[i]
 		local found = false
 		for j = 1, #current do
@@ -846,17 +917,17 @@ local function keysMatchCombo(current, combo)
 		if not found then
 			return false
 		end
-	end
-	return true
+        end
+        return true
 end
 
 -- Живое состояние нажатых клавиш (без сканирования 0..255)
-local pressedKeysSet = {} -- k -> true
+local pressedKeysSet = InputManager.key_states -- k -> true
 local pressedKeysList = {} -- список актуальных
 local function rebuildPressedList()
-	pressedKeysList = {}
-	for k, v in pairs(pressedKeysSet) do
-		if v then
+        pressedKeysList = {}
+        for k, v in pairs(pressedKeysSet) do
+                if v then
 			table.insert(pressedKeysList, k)
 		end
 	end
@@ -3273,13 +3344,13 @@ addEventHandler(
 		end
 
                 if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
+                        InputManager:update(msg, wparam, lparam)
                         if isKeyboardKey(wparam) then
-                                pressedKeysSet[normalizeKey(wparam)] = true
                                 rebuildPressedList()
                         end
                 elseif msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP then
+                        InputManager:update(msg, wparam, lparam)
                         if isKeyboardKey(wparam) then
-                                pressedKeysSet[normalizeKey(wparam)] = false
                                 rebuildPressedList()
                         end
                 elseif msg == wm.WM_MOUSEWHEEL then
