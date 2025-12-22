@@ -69,7 +69,40 @@ local SPELLER_DEBOUNCE_SEC = 0.5 -- дребезг запуска автокор
 
 -- ========= УТИЛИТЫ =========
 local function safe(s)
-	return s or ""
+        return s or ""
+end
+
+-- безопасное копирование строк в C-буферы (FFI)
+local function safe_str_copy(dst, src, max_size)
+        if not dst then
+                return
+        end
+        src = tostring(src or "")
+
+        local size = max_size
+        if not size then
+                local ok, computed = pcall(sizeof, dst)
+                size = (ok and computed) or nil
+        end
+
+        if not size or size <= 0 then
+                return
+        end
+
+        local limit = size - 1
+        if limit < 0 then
+                return
+        end
+
+        local trimmed = src
+        local len = #trimmed
+        if len > limit then
+                trimmed = trimmed:sub(1, limit)
+                len = limit
+        end
+
+        ffi.copy(dst, trimmed, len)
+        ffi.fill(dst + len, size - len, 0)
 end
 
 -- атомарная запись файла (насколько возможно в Windows)
@@ -462,7 +495,7 @@ local function ad_commit_to_editbuf()
 	refresh_object_value_from_editbuf()
 	local built = ad_build()
 	built = clamp80(built)
-	imgui.StrCopy(State.edit_buf, built)
+	safe_str_copy(State.edit_buf, built)
 end
 
 -- ========= ПОМОЩНИКИ ПО ТЕКСТУ/ПОИСКУ =========
@@ -599,14 +632,14 @@ function SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, pl
 			and rec.last_sent ~= ""
 		then
 			local paste = clamp80(rec.last_sent)
-			imgui.StrCopy(State.edit_buf, paste)
+			safe_str_copy(State.edit_buf, paste)
 			State.auto_memory_used = true
 			State.cursor_action = "to_end"
 			State.cursor_action_data = nil
 			State.want_focus_input = true
 			State.collapse_selection_after_focus = true
 		else
-			imgui.StrCopy(State.edit_buf, apply_autocorrect_local(State.original_ad_text))
+			safe_str_copy(State.edit_buf, apply_autocorrect_local(State.original_ad_text))
 			State.cursor_action = nil
 		end
 
@@ -626,7 +659,7 @@ function SMIHelp.OpenEditPreview(text, nick)
 	State.original_ad_text = text or ""
 	State.auto_memory_used = false
 	State.cursor_action = nil
-	imgui.StrCopy(State.edit_buf, clamp80(text or ""))
+	safe_str_copy(State.edit_buf, clamp80(text or ""))
 	State.want_focus_input = true
 	State.collapse_selection_after_focus = true
 	history_reset_index()
@@ -776,7 +809,7 @@ local function handleCorrectionLite()
 		return
 	end
 	if State.corr_cache[message] then
-		imgui.StrCopy(State.edit_buf, State.corr_cache[message])
+		safe_str_copy(State.edit_buf, State.corr_cache[message])
 		return
 	end
 	local url = "https://speller.yandex.net/services/spellservice.json/checkText?text=" .. (urlencode(message))
@@ -804,7 +837,7 @@ local function handleCorrectionLite()
 		end
 		corrected = corrected:gsub("//", "/")
 		State.corr_cache[message] = corrected
-		imgui.StrCopy(State.edit_buf, corrected)
+		safe_str_copy(State.edit_buf, corrected)
 	end, function(err)
 		State.corr_in_progress = false
 		State.corr_error = tostring(err or "Ошибка запроса")
@@ -910,7 +943,7 @@ local function DrawTemplatesPanel(width, height)
 						seed_once()
 						local pick = group[math.random(1, #group)] or ""
 						pick = clamp80(pick)
-						imgui.StrCopy(State.edit_buf, pick)
+						safe_str_copy(State.edit_buf, pick)
 						State.cursor_action = "to_first_empty_quotes"
 						State.cursor_action_data = nil
 						State.want_place_cursor = false
@@ -940,7 +973,7 @@ local function DrawHistoryPanel(width, height)
 		if passFilter(v, filter_str) then
 			if imgui.Selectable(v, false) then
 				local txt = clamp80(v)
-				imgui.StrCopy(State.edit_buf, txt)
+				safe_str_copy(State.edit_buf, txt)
 				State.cursor_action = "to_end"
 				State.cursor_action_data = nil
 				history_reset_index()
@@ -1163,7 +1196,7 @@ end
 -- ========= СБРОС UI-СОСТОЯНИЯ =========
 local function reset_ui_state()
 	State.selected_category = "Все"
-	imgui.StrCopy(State.filter_buf, "")
+	safe_str_copy(State.filter_buf, "")
 end
 
 -- ========= Таймеры отправки =========
@@ -1215,7 +1248,7 @@ local function DrawCenteredFilter()
 	if show_clear then
 		imgui.SameLine()
 		if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
-			imgui.StrCopy(State.filter_buf, "")
+			safe_str_copy(State.filter_buf, "")
 		end
 	end
 end
@@ -1371,7 +1404,7 @@ end, function()
 		local newtxt = apply_autocorrect_local(old)
 		if newtxt ~= old then
 			newtxt = clamp80(newtxt)
-			imgui.StrCopy(State.edit_buf, newtxt)
+			safe_str_copy(State.edit_buf, newtxt)
 		end
 	end
 
@@ -1400,7 +1433,7 @@ end, function()
 		end
 		if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
 			local orig = clamp80(State.original_ad_text or "")
-			imgui.StrCopy(State.edit_buf, orig)
+			safe_str_copy(State.edit_buf, orig)
 			AD:reset()
 			history_reset_index()
 			State.want_focus_input = true
@@ -1512,7 +1545,7 @@ end, function()
 		local txt = str(State.edit_buf)
 		if not txt:find('%b""') then
 			txt = clamp80(txt .. ' ""')
-			imgui.StrCopy(State.edit_buf, txt)
+			safe_str_copy(State.edit_buf, txt)
 		end
 
 		State.want_place_cursor = true
@@ -1668,7 +1701,7 @@ local function buf_ensure(tbl, key, size)
 	elseif entry.size < size then
 		local content = str(entry.buf)
 		local new_buf = new.char[size]()
-		imgui.StrCopy(new_buf, content)
+		safe_str_copy(new_buf, content)
 		entry.buf = new_buf
 		entry.size = size
 	end
@@ -1677,7 +1710,7 @@ end
 
 local function buf_set(tbl, key, text)
 	local entry = buf_ensure(tbl, key, #text + 1)
-	imgui.StrCopy(entry.buf, text)
+	safe_str_copy(entry.buf, text)
 	return entry
 end
 
@@ -1686,7 +1719,7 @@ local function buf_maybe_grow(entry)
 	if #content + 1 >= entry.size then
 		local new_size = entry.size * 2
 		local new_buf = new.char[new_size]()
-		imgui.StrCopy(new_buf, content)
+		safe_str_copy(new_buf, content)
 		entry.buf = new_buf
 		entry.size = new_size
 	end
@@ -1714,12 +1747,12 @@ function SMIHelp.DrawSettingsUI()
 			tpl_edit_mode = {},
 			tpl_edit_buf = {},
 		}
-		imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
+		safe_str_copy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ","))
+		safe_str_copy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ","))
+		safe_str_copy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ","))
+		safe_str_copy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ","))
+		safe_str_copy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ","))
+		safe_str_copy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
 		for _, tpl in ipairs(Config.data.templates or {}) do
 			local copy = { category = tpl.category, texts = {} }
 			if type(tpl.texts) == "table" then
@@ -1851,7 +1884,7 @@ function SMIHelp.DrawSettingsUI()
                                                        else
                                                                table.insert(tpl.texts, { val })
                                                        end
-                                                       imgui.StrCopy(S.tpl_input[idx].buf, "")
+                                                       safe_str_copy(S.tpl_input[idx].buf, "")
                                                end
                                        end
 					imgui.EndTabItem()
