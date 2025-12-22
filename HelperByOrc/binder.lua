@@ -936,34 +936,122 @@ end
 module.doSend = doSend
 
 -- === Условия ===
-local cond_funcs = {
-	function()
-		return isCharInWater(PLAYER_PED)
-	end,
-	function()
-		return isCharDead(PLAYER_PED)
-	end,
-	function()
-		return isCharInAir(PLAYER_PED)
-	end
+local condition_keys = {"in_water", "dead", "in_air"}
+
+local ConditionSystem = {
+        conditions = {
+                in_water = {
+                        check = function()
+                                return isCharInWater(PLAYER_PED)
+                        end,
+                        priority = 1,
+                        message = "Нельзя использовать в воде"
+                },
+                dead = {
+                        check = function()
+                                return isCharDead(PLAYER_PED)
+                        end,
+                        priority = 2,
+                        message = "Нельзя использовать будучи мертвым"
+                },
+                in_air = {
+                        check = function()
+                                return isCharInAir(PLAYER_PED)
+                        end,
+                        priority = 3,
+                        message = "Нельзя использовать в воздухе"
+                },
+
+                custom = {}
+        },
+
+        register_condition = function(self, name, check_fn, priority, message)
+                self.conditions.custom[name] = {
+                        check = check_fn,
+                        priority = priority or 10,
+                        message = message or "Условие не выполнено"
+                }
+        end,
+
+        check_all = function(self, condition_list, context)
+                local results = {}
+
+                for _, cond_name in ipairs(condition_list or {}) do
+                        local cond = self.conditions[cond_name] or self.conditions.custom[cond_name]
+                        if cond then
+                                local ok, result = pcall(cond.check, context)
+                                if ok and result then
+                                        table.insert(
+                                                results,
+                                                {
+                                                        name = cond_name,
+                                                        failed = true,
+                                                        message = cond.message,
+                                                        priority = cond.priority
+                                                }
+                                        )
+                                elseif not ok then
+                                        log_error(result)
+                                end
+                        end
+                end
+
+                table.sort(results, function(a, b)
+                        return a.priority < b.priority
+                end)
+
+                return results
+        end
 }
 
-local function safe_call(fn)
-	local ok, res = pcall(fn)
-	return ok and not (not res)
+local function collect_condition_names(conds)
+        if type(conds) ~= "table" then
+                return {}
+        end
+        local names = {}
+        local has_boolean = false
+        for _, v in ipairs(conds) do
+                if type(v) == "boolean" then
+                        has_boolean = true
+                        break
+                end
+        end
+        if has_boolean then
+                for i, enabled in ipairs(conds) do
+                        if enabled and condition_keys[i] then
+                                names[#names + 1] = condition_keys[i]
+                        end
+                end
+        else
+                for _, name in ipairs(conds) do
+                        if type(name) == "string" and name ~= "" then
+                                names[#names + 1] = name
+                        end
+                end
+        end
+        return names
 end
 
-local function conditions_ok(conds)
-	for idx, v in ipairs(conds or {}) do
-		if v and cond_funcs[idx] and safe_call(cond_funcs[idx]) then
-			return false
-		end
-	end
-	return true
+local function evaluate_conditions(conds, context, opts)
+        local cond_names = collect_condition_names(conds)
+        local results = ConditionSystem:check_all(cond_names, context)
+        if results[1] and not (opts and opts.silent) then
+                pushToast(results[1].message or "Условие не выполнено", "warn", 3.0)
+        end
+        return #results == 0
 end
 
-local check_conditions = conditions_ok
-local check_quick_visibility = conditions_ok
+local function check_conditions(conds, context)
+        return evaluate_conditions(conds, context, {silent = false})
+end
+
+local function check_quick_visibility(conds, context)
+        return evaluate_conditions(conds, context, {silent = true})
+end
+
+function module.registerCondition(name, check_fn, priority, message)
+        ConditionSystem:register_condition(name, check_fn, priority, message)
+end
 
 -- Проверка видимости папки с учётом ВСЕХ предков
 local function isFolderChainVisible(folder)
@@ -1607,6 +1695,52 @@ local function ellipsize_utf8(text, maxWidth)
         return base .. ell
 end
 
+local VirtualizedGrid = {
+        item_width = 138,
+        item_height = 56,
+        spacing_x = 16,
+        spacing_y = 16,
+
+        -- Кэш рендеринга
+        render_cache = {},
+        cache_version = 0,
+
+        prepare = function(self, columns, total_items)
+                if self.render_cache.columns ~= columns or self.render_cache.total_items ~= total_items then
+                        self.render_cache = {columns = columns, total_items = total_items, positions = {}}
+                        self.cache_version = self.cache_version + 1
+                end
+        end,
+
+        calculate_visible = function(self, scroll_y, window_height)
+                local start_index = math.floor(scroll_y / (self.item_height + self.spacing_y))
+                local visible_rows = math.ceil(window_height / (self.item_height + self.spacing_y)) + 2
+
+                return {
+                        start = math.max(1, start_index),
+                        count = visible_rows
+                }
+        end,
+
+        get_card_position = function(self, index, columns)
+                local cache = self.render_cache.positions
+                if cache and cache[index] then
+                        return cache[index][1], cache[index][2], self.item_width, self.item_height
+                end
+                local row = math.floor((index - 1) / columns)
+                local col = (index - 1) % columns
+
+                local x = col * (self.item_width + self.spacing_x)
+                local y = row * (self.item_height + self.spacing_y)
+
+                if self.render_cache.positions then
+                        self.render_cache.positions[index] = {x, y}
+                end
+
+                return x, y, self.item_width, self.item_height
+        end
+}
+
 local function drawQuickIndicator(dl, pos_min, enabled)
         local r = 5
         local pad = 8
@@ -1631,8 +1765,8 @@ end
 
 local function drawBindsGrid()
         local availWidth = imgui.GetContentRegionAvail().x
-        local cardWidth, cardHeight = 138, 56
-        local spacingX, spacingY = 16, 16
+        local cardWidth, cardHeight = VirtualizedGrid.item_width, VirtualizedGrid.item_height
+        local spacingX, spacingY = VirtualizedGrid.spacing_x, VirtualizedGrid.spacing_y
         local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
         local x0 = imgui.GetCursorScreenPos().x
         local y = imgui.GetCursorScreenPos().y
@@ -1644,13 +1778,37 @@ local function drawBindsGrid()
         for i, hk in ipairs(hotkeys) do
                 if pathEquals(hk.folderPath, curPath) then
                         table.insert(cards, {hk = hk, idx = i})
-		end
-	end
+                end
+        end
 
-	for n, card in ipairs(cards) do
-		local hk, i = card.hk, card.idx
-		local x = x0 + (((n - 1) % columns) * (cardWidth + spacingX))
-		local yPos = y + (math.floor((n - 1) / columns)) * (cardHeight + spacingY)
+        local totalItems = #cards + 1 -- include "+" button
+        VirtualizedGrid:prepare(columns, totalItems)
+        local totalRows = math.max(1, math.ceil(totalItems / columns))
+        local scrollY = imgui.GetScrollY()
+        local windowHeight = imgui.GetWindowHeight()
+        local visible = VirtualizedGrid:calculate_visible(scrollY, windowHeight)
+        local startRow = math.max(0, (visible.start or 1) - 1)
+        startRow = math.min(startRow, totalRows - 1)
+        local endRow = math.min(totalRows - 1, startRow + (visible.count or totalRows))
+
+        local contentHeight = totalRows * (cardHeight + spacingY) - spacingY
+        if contentHeight < 0 then
+                contentHeight = 0
+        end
+
+        local cursorBase = imgui.GetCursorScreenPos()
+        imgui.Dummy(imgui.ImVec2(1, contentHeight))
+        imgui.SetCursorScreenPos(cursorBase)
+
+        local startIndex = startRow * columns + 1
+        local endIndex = math.min(#cards, (endRow + 1) * columns)
+
+        for idx = startIndex, endIndex do
+                local card = cards[idx]
+                local hk, i = card.hk, card.idx
+                local offsetX, offsetY = VirtualizedGrid:get_card_position(idx, columns)
+                local x = x0 + offsetX
+                local yPos = y + offsetY
 
 		imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
 		local pmin = imgui.GetCursorScreenPos()
@@ -1814,25 +1972,29 @@ local function drawBindsGrid()
 		::after_card::
 	end
 
-	-- Кнопка "+"
-	local add_x = x0 + ((#cards % columns) * (cardWidth + spacingX))
-	local add_y = y + (math.floor((#cards) / columns)) * (cardHeight + spacingY)
-	imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
-	imgui.BeginGroup()
-	local pmin = imgui.GetCursorScreenPos()
-	local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
-	local dl = imgui.GetWindowDrawList()
-	dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
-	dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
-	imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
-        if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
-                local hk = newHotkeyBase()
-                hk.folderPath = folderFullPath(selectedFolder)
-                table.insert(hotkeys, hk)
-                refreshHotkeyNumbers()
-                module.saveHotkeys()
+        local addIndex = #cards + 1
+        local addRow = math.floor((addIndex - 1) / columns)
+        if addRow >= startRow and addRow <= endRow then
+                local add_offset_x, add_offset_y = VirtualizedGrid:get_card_position(addIndex, columns)
+                local add_x = x0 + add_offset_x
+                local add_y = y + add_offset_y
+                imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
+                imgui.BeginGroup()
+                local pmin = imgui.GetCursorScreenPos()
+                local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+                local dl = imgui.GetWindowDrawList()
+                dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
+                dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+                imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
+                if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
+                        local hk = newHotkeyBase()
+                        hk.folderPath = folderFullPath(selectedFolder)
+                        table.insert(hotkeys, hk)
+                        refreshHotkeyNumbers()
+                        module.saveHotkeys()
+                end
+                imgui.EndGroup()
         end
-	imgui.EndGroup()
 
 	-- Popup перемещения
 	if _G.moveBindPopup.active then
