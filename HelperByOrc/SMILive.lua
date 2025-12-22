@@ -106,24 +106,28 @@ local liveInputResizeCallbackPtr = nil
 local currentLiveSection = nil
 
 if INPUTTEXT_CALLBACK_RESIZE then
-		local function liveInputResizeCallback(data)
-				if not currentLiveSection or data.EventFlag ~= INPUTTEXT_CALLBACK_RESIZE then
-						return 0
-				end
+                local function liveInputResizeCallback(data)
+                                if not currentLiveSection then
+                                                return 0
+                                end
 
-				local section = currentLiveSection
-				local len = data.BufTextLen or 0
-				local text = ffi.string(data.Buf, len)
-				local desired = math.max(LIVE_BUFFER_MIN, len + 1 + LIVE_BUFFER_PAD)
+                                if data.EventFlag and data.EventFlag ~= INPUTTEXT_CALLBACK_RESIZE then
+                                                return 0
+                                end
 
-				section.buf = imgui.new.char[desired](text)
-				section.buf_size = desired
-				section.buf_text = text
-				data.Buf = section.buf
-				data.BufSize = desired
+                                local section = currentLiveSection
+                                local len = data.BufTextLen or 0
+                                local text = ffi.string(data.Buf, len)
+                                local desired = math.max(LIVE_BUFFER_MIN, len + 1 + LIVE_BUFFER_PAD)
 
-				return 0
-		end
+                                section.buf = imgui.new.char[desired](text)
+                                section.buf_size = desired
+                                section.buf_text = text
+                                data.Buf = section.buf
+                                data.BufSize = desired
+
+                                return 0
+                end
 
 		liveInputResizeCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData*)", liveInputResizeCallback)
 end
