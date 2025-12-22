@@ -14,6 +14,7 @@ local tags_module
 local start_sms_listener
 local stop_sms_listener
 local funcs
+local update_status
 
 local math_random = math.random
 local os_clock = os.clock
@@ -42,6 +43,29 @@ end
 local NEWS_INPUT_MAX_LENGTH = 90
 local NEWS_INPUT_PANEL_HEIGHT = 150
 local NEWS_INPUT_BUFFER_SIZE = 512
+
+local function run_async(label, fn)
+                if not fn then
+                                return
+                end
+
+                local function wrapped()
+                                local ok, err = xpcall(fn, debug.traceback)
+                                if not ok then
+                                                update_status("Ошибка %s: %s", label or "в фоновом задании", err)
+                                end
+                end
+
+                if lua_thread and lua_thread.create then
+                                local ok, err = pcall(lua_thread.create, wrapped)
+                                if ok then
+                                                return
+                                end
+                                update_status("Не удалось создать поток %s: %s", label or "", err)
+                end
+
+                wrapped()
+end
 
 local NewsInput = {
 		buf = new.char[NEWS_INPUT_BUFFER_SIZE](),
@@ -409,9 +433,9 @@ local function get_interval_ms()
 end
 
 local function format_status(fmt, ...)
-		local ok, msg = pcall(string.format, fmt, ...)
-		if ok then
-				return msg
+                local ok, msg = pcall(string.format, fmt, ...)
+                if ok then
+                                return msg
 		end
 		return fmt
 end
@@ -420,33 +444,56 @@ local function update_status(text, ...)
 		MathQuiz.status_text = format_status(text, ...)
 end
 
+local send_sequence_running = false
+
 local function send_sequence(messages, method, interval)
-		if type(messages) ~= "table" or #messages == 0 then
-				return
-		end
-		local delay = math.max(0, tonumber(interval) or 0)
-		delay = math.floor(delay + 0.5)
-		local target = method or get_selected_method()
-		local send_fn = binder and binder.doSend
-		if type(send_fn) ~= "function" then
-				update_status("Отправка недоступна: функция binder.doSend не найдена.")
-				return
-		end
-		local function worker()
-				for idx, msg in ipairs(messages) do
-						if type(msg) == "string" and msg ~= "" then
-								send_fn(msg, target)
-						end
-						if idx < #messages and delay > 0 then
-								wait(delay)
-						end
-				end
-		end
-		if lua_thread and lua_thread.create then
-				lua_thread.create(worker)
-		else
-				worker()
-		end
+                if type(messages) ~= "table" or #messages == 0 then
+                                return
+                end
+
+                if send_sequence_running then
+                                update_status("Уже выполняется отправка сообщений. Дождитесь завершения текущей очереди.")
+                                return
+                end
+
+                local safe_messages = {}
+                for _, msg in ipairs(messages) do
+                                if type(msg) == "string" and msg ~= "" then
+                                                safe_messages[#safe_messages + 1] = msg
+                                end
+                end
+
+                if #safe_messages == 0 then
+                                return
+                end
+
+                local delay = math.max(0, tonumber(interval) or 0)
+                delay = math.floor(delay + 0.5)
+                local target = method or get_selected_method()
+                local send_fn = binder and binder.doSend
+
+                if type(send_fn) ~= "function" then
+                                update_status("Отправка недоступна: функция binder.doSend не найдена.")
+                                return
+                end
+
+                send_sequence_running = true
+
+                run_async("отправки сообщений", function()
+                                for idx, msg in ipairs(safe_messages) do
+                                                local ok, err = pcall(send_fn, msg, target)
+                                                if not ok then
+                                                                update_status("Не удалось отправить сообщение #%d: %s", idx, err)
+                                                                break
+                                                end
+
+                                                if idx < #safe_messages and delay > 0 and wait then
+                                                                wait(delay)
+                                                end
+                                end
+
+                                send_sequence_running = false
+                end)
 end
 
 local function broadcast_sequence(messages)
