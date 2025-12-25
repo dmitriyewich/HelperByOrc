@@ -516,6 +516,8 @@ local Builder = {
         },
 }
 
+local ButtonGrid
+
 local function builder_reset_addon(target)
         target.addon = nil
 end
@@ -1355,7 +1357,7 @@ local function LabelSeparator(text)
 	imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + imgui.GetTextLineHeight() + style.ItemSpacing.y))
 end
 
-local function ButtonGrid(id, items, btnH, columns, onClick)
+ButtonGrid = function(id, items, btnH, columns, onClick)
 	local spacing = imgui.GetStyle().ItemSpacing.x
 	local start_x = imgui.GetCursorPosX()
 	local availW = imgui.GetContentRegionAvail().x
