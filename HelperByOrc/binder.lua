@@ -2819,16 +2819,15 @@ local function drawEditHotkey(idx)
                                                 goto continue_inputs
                                         end
 
-                                        if open and imgui.BeginTable("input_fields", 2, imgui.TableFlags.SizingStretchProp + imgui.TableFlags.BordersInnerV) then
-                                                imgui.TableSetupColumn("label", imgui.TableColumnFlags.WidthFixed, 170)
-                                                imgui.TableSetupColumn("value", imgui.TableColumnFlags.WidthStretch)
+                                        if open then
+                                                imgui.Columns(2, "input_fields", false)
+                                                imgui.SetColumnWidth(0, 170)
 
                                                 local function fieldRow(caption, render)
-                                                        imgui.TableNextRow()
-                                                        imgui.TableNextColumn()
                                                         imgui.TextDisabled(caption)
-                                                        imgui.TableNextColumn()
+                                                        imgui.NextColumn()
                                                         render()
+                                                        imgui.NextColumn()
                                                 end
 
                                                 fieldRow("Тип поля", function()
@@ -2971,7 +2970,7 @@ local function drawEditHotkey(idx)
                                                         end)
                                                 end
 
-                                                imgui.EndTable()
+                                                imgui.Columns(1)
                                         end
 
                                         imgui.Separator()
