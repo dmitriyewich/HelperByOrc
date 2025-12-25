@@ -665,7 +665,7 @@ local function builder_join(parts)
         local res = {}
         for _, part in ipairs(parts) do
                 if part and trim(part) ~= "" then
-                        table.insert(res, trim(part))
+                        res[#res + 1] = trim(part)
                 end
         end
         return table.concat(res, " ")
