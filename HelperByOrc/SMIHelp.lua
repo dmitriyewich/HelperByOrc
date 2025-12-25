@@ -409,10 +409,10 @@ end
 
 -- ========= ТЕКСТ/КОНСТРУКТОР ОБЪЯВЛЕНИЯ =========
 local AD = {
-	type = nil,
-	object = nil,
-	object_value = nil,
-	price_label = nil,
+        type = nil,
+        object = nil,
+        object_value = nil,
+        price_label = nil,
 	value = nil,
 	currency = nil,
 	addon = nil,
@@ -425,6 +425,678 @@ function AD:reset()
 	self.value = nil
 	self.currency = nil
 	self.addon = nil
+end
+
+-- Новый пошаговый конструктор объявлений
+local BUILDER_MODES = {
+        { id = "Recruit", label = "Набор" },
+        { id = "BuySell", label = "Купля/Продажа" },
+        { id = "Rent", label = "Аренда" },
+        { id = "Exchange", label = "Обмен" },
+        { id = "Services", label = "Услуги" },
+}
+
+local BUILDER_LOCATIONS = {
+        "г. Лос-Сантос",
+        "г. Лас-Вентурас",
+        "г. Сан-Фиерро",
+        "любой город",
+        "любая точка",
+}
+
+local BUILDER_PERIODS = { "за час", "за сутки" }
+
+local BUILDER_UNITS = { "разово", "за шт", "за час", "за сутки" }
+
+local BUILDER_KIND = { "Цена", "Бюджет", "Доплата" }
+
+local DEFAULT_ADDONS = {
+        { template = "с гравировкой +{N}", param = "number" },
+        { template = "с вышивкой {N}", param = "number" },
+        { template = "с биркой {text}", param = "text" },
+        { template = "в кол-ве {N}", param = "number" },
+}
+
+local ADDON_RESTRICT = {
+        ["б/з"] = true,
+        ["д/т"] = true,
+        ["дом"] = true,
+        ["трейлер"] = true,
+}
+
+local function builder_clone_money(kind)
+        return {
+                kind = kind or "Цена",
+                unit = "разово",
+                value = "",
+                suffix = "$",
+                free = false,
+                negotiable = false,
+                value_buf = new.char[32](),
+        }
+end
+
+local Builder = {
+        mode = "BuySell",
+        mode_locked = false,
+        numpad_target = nil,
+        buySell = {
+                action = "Куплю",
+                object = "",
+                name_buf = new.char[64](),
+                location = "",
+                features_buf = new.char[96](),
+                quantity_buf = new.char[32](),
+                addon = nil,
+                money = builder_clone_money("Цена"),
+        },
+        rent = {
+                action = "Сдам в аренду",
+                object = "",
+                name_buf = new.char[64](),
+                period = BUILDER_PERIODS[1],
+                addon = nil,
+                money = builder_clone_money("Цена"),
+        },
+        exchange = {
+                give_buf = new.char[64](),
+                take_buf = new.char[64](),
+                addon = nil,
+                money = builder_clone_money("Доплата"),
+        },
+        recruit = {
+                org_type_buf = new.char[48](),
+                name_buf = new.char[96](),
+        },
+        services = {
+                action = "Предоставляю",
+                service_buf = new.char[96](),
+                clarification_buf = new.char[96](),
+                money = builder_clone_money("Бюджет"),
+        },
+}
+
+local function builder_reset_addon(target)
+        target.addon = nil
+end
+
+local function builder_reset_mode(mode)
+        Builder.mode = mode or Builder.mode
+        Builder.numpad_target = nil
+end
+
+local function builder_autodetect_mode(action)
+        if Builder.mode_locked then
+                return
+        end
+        local map = {
+                ["Обменяю"] = "Exchange",
+                ["Арендую"] = "Rent",
+                ["Сдам в аренду"] = "Rent",
+                ["Куплю"] = "BuySell",
+                ["Продам"] = "BuySell",
+                ["Предоставляю"] = "Services",
+                ["Нуждаюсь"] = "Services",
+                ["Ищу"] = "Services",
+                ["Собеседование"] = "Recruit",
+        }
+        local guessed = map[action]
+        if guessed then
+                builder_reset_mode(guessed)
+        end
+end
+
+local function builder_list_from_config(predicate, defaults)
+        local res = {}
+        for _, v in ipairs(Config.data.type_buttons or {}) do
+                if predicate(v) then
+                        table.insert(res, v)
+                end
+        end
+        if #res == 0 then
+                for _, v in ipairs(defaults or {}) do
+                        table.insert(res, v)
+                end
+        end
+        return res
+end
+
+local function normalize_currency(label)
+        label = trim(label)
+        local map = {
+                ["тыс.$"] = "тыс$",
+                ["млн.$"] = "млн$",
+                ["млрд.$"] = "млрд$",
+                ["тыс$"] = "тыс$",
+                ["млн$"] = "млн$",
+                ["млрд$"] = "млрд$",
+        }
+        return map[label] or label
+end
+
+local function builder_currencies()
+        local res = {}
+        for _, c in ipairs(Config.data.currencies or {}) do
+                local normalized = normalize_currency(c)
+                if normalized ~= "" then
+                        table.insert(res, normalized)
+                end
+        end
+        if #res == 0 then
+                res = { "$", "тыс$", "млн$", "млрд$" }
+        end
+        return res
+end
+
+local function builder_addons()
+        local res = {}
+        local function push(template, param)
+                table.insert(res, { template = template, param = param })
+        end
+        for _, addon in ipairs(Config.data.addons or {}) do
+                addon = trim(addon)
+                if addon ~= "" then
+                        if addon:find("{text}") then
+                                push(addon, "text")
+                        elseif addon:find("{N}") then
+                                push(addon, "number")
+                        elseif addon:sub(-1) == "+" or addon:sub(-1) == " " then
+                                push(addon .. "{N}", "number")
+                        else
+                                push(addon, nil)
+                        end
+                end
+        end
+        if #res == 0 then
+                for _, v in ipairs(DEFAULT_ADDONS) do
+                        table.insert(res, v)
+                end
+        end
+        return res
+end
+
+local function builder_addon_label(addon)
+        if not addon then
+                return nil
+        end
+        if addon.param and addon.value then
+                local formatted = addon.template
+                formatted = formatted:gsub("{N}", addon.value)
+                formatted = formatted:gsub("{text}", addon.value)
+                return formatted
+        end
+        if addon.param then
+                return addon.template:gsub("{N}", "?"):gsub("{text}", "?")
+        end
+        return addon.template
+end
+
+local function builder_money_to_string(money)
+        if not money then
+                return ""
+        end
+        if money.free then
+                return trim((money.kind or "") .. " Свободный")
+        end
+        if money.negotiable then
+                return trim((money.kind or "") .. " Договорная")
+        end
+        local val = trim(money.value or "")
+        if val == "" then
+                return ""
+        end
+        local suffix = money.suffix or ""
+        local unit = money.unit or "разово"
+        local parts = { money.kind or "" }
+        local val_part = val
+        if suffix ~= "" then
+                val_part = val_part .. " " .. suffix
+        end
+        table.insert(parts, val_part)
+        if unit ~= "разово" then
+                table.insert(parts, unit)
+        end
+        return trim(table.concat(parts, " "))
+end
+
+local function builder_join(parts)
+        local res = {}
+        for _, part in ipairs(parts) do
+                if part and trim(part) ~= "" then
+                        table.insert(res, trim(part))
+                end
+        end
+        return table.concat(res, " ")
+end
+
+local function builder_build_buy_sell()
+        local s = Builder.buySell
+        local addon_txt = builder_addon_label(s.addon)
+        local money_txt = builder_money_to_string(s.money)
+        local parts = {
+                s.action,
+                s.object,
+                str(s.name_buf) ~= "" and ('"' .. str(s.name_buf) .. '"') or nil,
+                s.location,
+                str(s.features_buf),
+                (str(s.quantity_buf) ~= "" and ("в кол-ве " .. str(s.quantity_buf))) or nil,
+                addon_txt,
+                money_txt,
+        }
+        return clamp80(builder_join(parts))
+end
+
+local function builder_build_rent()
+        local s = Builder.rent
+        local addon_txt = builder_addon_label(s.addon)
+        local money_txt = builder_money_to_string(s.money)
+        local parts = {
+                s.action,
+                s.object,
+                str(s.name_buf) ~= "" and ('"' .. str(s.name_buf) .. '"') or nil,
+                s.period,
+                addon_txt,
+                money_txt,
+        }
+        return clamp80(builder_join(parts))
+end
+
+local function builder_build_exchange()
+        local s = Builder.exchange
+        local addon_txt = builder_addon_label(s.addon)
+        local give = str(s.give_buf)
+        local take = str(s.take_buf)
+        local money_txt = builder_money_to_string(s.money)
+        local base = {}
+        if give ~= "" and take ~= "" then
+                table.insert(base, string.format("Обменяю %s на %s", give, take))
+        elseif give ~= "" then
+                table.insert(base, "Обменяю " .. give)
+        else
+                table.insert(base, "Обменяю")
+        end
+        if addon_txt then
+                table.insert(base, addon_txt)
+        end
+        if money_txt ~= "" then
+                table.insert(base, "(" .. money_txt .. ")")
+        end
+        return clamp80(builder_join(base))
+end
+
+local function builder_build_recruit()
+        local s = Builder.recruit
+        local org_type = str(s.org_type_buf)
+        local name = str(s.name_buf)
+        if org_type == "" and name == "" then
+                return ""
+        end
+        local text = string.format(
+                "Проходит набор/собеседование в %s «%s», мы в навигаторе (место в /gps)!",
+                org_type ~= "" and org_type or "организацию",
+                name ~= "" and name or ""
+        )
+        return clamp80(text)
+end
+
+local function builder_build_services()
+        local s = Builder.services
+        local money_txt = builder_money_to_string(s.money)
+        local parts = {
+                s.action,
+                str(s.service_buf),
+                str(s.clarification_buf),
+                money_txt ~= "" and money_txt or nil,
+                "Просьба связаться",
+        }
+        return clamp80(builder_join(parts))
+end
+
+local function builder_build()
+        if Builder.mode == "Recruit" then
+                return builder_build_recruit()
+        elseif Builder.mode == "Exchange" then
+                return builder_build_exchange()
+        elseif Builder.mode == "Rent" then
+                return builder_build_rent()
+        elseif Builder.mode == "Services" then
+                return builder_build_services()
+        end
+        return builder_build_buy_sell()
+end
+
+local function builder_apply(replace)
+        local built = builder_build()
+        if built == "" then
+                return
+        end
+        local current = str(State.edit_buf)
+        if replace or current == "" then
+                imgui.StrCopy(State.edit_buf, built)
+        else
+                local merged = clamp80(builder_join({ current, built }))
+                imgui.StrCopy(State.edit_buf, merged)
+        end
+        State.want_focus_input = true
+        State.collapse_selection_after_focus = true
+        history_reset_index()
+end
+
+local function builder_addon_allowed(object)
+        if not object or object == "" then
+                return false
+        end
+        return not ADDON_RESTRICT[object]
+end
+
+local function builder_render_modes()
+        local avail = imgui.GetContentRegionAvail().x
+        local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x * (#BUILDER_MODES - 1)) / #BUILDER_MODES)
+        for i, mode in ipairs(BUILDER_MODES) do
+                local active = Builder.mode == mode.id
+                if active then
+                        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.35, 0.6, 0.95, 0.8))
+                        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.4, 0.65, 0.98, 0.9))
+                        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.25, 0.55, 0.9, 1))
+                end
+                if imgui.Button(mode.label .. "##mode" .. i, imgui.ImVec2(btnW, BTN_H)) then
+                        Builder.mode_locked = true
+                        builder_reset_mode(mode.id)
+                end
+                if active then
+                        imgui.PopStyleColor(3)
+                end
+                if i < #BUILDER_MODES then
+                        imgui.SameLine()
+                end
+        end
+end
+
+local function builder_money_input(money, id)
+        local flags = imgui.InputTextFlags.CharsDecimal
+        if money.free or money.negotiable then
+                flags = bit.bor(flags, imgui.InputTextFlags.ReadOnly)
+                imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.6)
+        end
+        imgui.PushItemWidth(100)
+        local changed = imgui.InputText("##moneyval" .. id, money.value_buf, sizeof(money.value_buf), flags)
+        imgui.PopItemWidth()
+        if money.free or money.negotiable then
+                imgui.PopStyleVar(1)
+        end
+        if changed then
+                money.value = trim(str(money.value_buf))
+        end
+        local active = imgui.IsItemActive() or (not money.free and not money.negotiable and money.value == "")
+        if active then
+                Builder.numpad_target = money
+        elseif Builder.numpad_target == money and not imgui.IsItemActive() then
+                Builder.numpad_target = nil
+        end
+end
+
+local function builder_render_money_block(money, id)
+        local currencies = builder_currencies()
+        imgui.Text("Деньги")
+        imgui.SameLine()
+        imgui.BeginChild("##money" .. id, imgui.ImVec2(0, 72), true)
+        imgui.Text("Тип")
+        for i, k in ipairs(BUILDER_KIND) do
+                if i > 1 then
+                        imgui.SameLine()
+                end
+                if imgui.SmallButton(k .. "##kind" .. id .. i) then
+                        money.kind = k
+                end
+        end
+
+        imgui.Spacing()
+        imgui.Text("Ед.")
+        for i, unit in ipairs(BUILDER_UNITS) do
+                if i > 1 then
+                        imgui.SameLine()
+                end
+                if imgui.SmallButton(unit .. "##unit" .. id .. i) then
+                        money.unit = unit
+                end
+        end
+
+        imgui.Spacing()
+        imgui.Text("Значение")
+        builder_money_input(money, id)
+        imgui.SameLine()
+        for i, c in ipairs(currencies) do
+                if imgui.SmallButton(c .. "##curr" .. id .. i) then
+                        money.suffix = c
+                        if c == "Свободный" then
+                                money.free = true
+                                money.negotiable = false
+                                imgui.StrCopy(money.value_buf, "")
+                                money.value = ""
+                        elseif c == "Договорная" then
+                                money.negotiable = true
+                                money.free = false
+                                imgui.StrCopy(money.value_buf, "")
+                                money.value = ""
+                        else
+                                money.free = false
+                                money.negotiable = false
+                        end
+                end
+                if i < #currencies then
+                        imgui.SameLine()
+                end
+        end
+
+        imgui.Spacing()
+        local free_ptr = new.bool(money.free)
+        local free_changed = imgui.Checkbox("Свободный##free" .. id, free_ptr)
+        if free_changed then
+                money.free = free_ptr[0]
+                if money.free then
+                        money.negotiable = false
+                        imgui.StrCopy(money.value_buf, "")
+                        money.value = ""
+                        Builder.numpad_target = nil
+                end
+        end
+        imgui.SameLine()
+        local deal_ptr = new.bool(money.negotiable)
+        local deal_changed = imgui.Checkbox("Договорная##deal" .. id, deal_ptr)
+        if deal_changed then
+                money.negotiable = deal_ptr[0]
+                if money.negotiable then
+                        money.free = false
+                        imgui.StrCopy(money.value_buf, "")
+                        money.value = ""
+                        Builder.numpad_target = nil
+                end
+        end
+        imgui.EndChild()
+end
+
+local function builder_render_addons(selected_object, target)
+        if not builder_addon_allowed(selected_object) then
+                return
+        end
+        local addons = builder_addons()
+        if #addons == 0 then
+                return
+        end
+        imgui.Text("Дополнения")
+        for i, addon in ipairs(addons) do
+                if imgui.SmallButton((addon.template or "Доп") .. "##addon" .. i) then
+                        target.addon = { template = addon.template, param = addon.param, value = "" }
+                end
+                if i < #addons then
+                        imgui.SameLine()
+                end
+        end
+        if target.addon and target.addon.param then
+                imgui.Spacing()
+                imgui.Text("Параметр")
+                local buf = target.addon.buf or new.char[48]()
+                target.addon.buf = buf
+                local flags = target.addon.param == "number" and imgui.InputTextFlags.CharsDecimal or 0
+                if imgui.InputText("##addonparam", buf, sizeof(buf), flags) then
+                        target.addon.value = trim(str(buf))
+                end
+        end
+        local label = builder_addon_label(target.addon)
+        if label then
+                imgui.BulletText(label)
+        end
+end
+
+local function builder_render_numpad()
+        local target = Builder.numpad_target
+        if not target or target.free or target.negotiable then
+                return
+        end
+        imgui.Spacing()
+        imgui.Text("Клавиатура")
+        ButtonGrid("builder_numpad", NUMPAD, BTN_H, 3, function(val)
+                local cur = trim(str(target.value_buf))
+                cur = cur .. val
+                cur = cur:sub(1, sizeof(target.value_buf) - 1)
+                imgui.StrCopy(target.value_buf, cur)
+                target.value = trim(cur)
+        end)
+end
+
+local function builder_render_buy_sell()
+        local actions = builder_list_from_config(function(v)
+                return v:find("Куплю") or v:find("Продам")
+        end, { "Куплю", "Продам" })
+        imgui.Text("Шаг 1. Действие")
+        ButtonGrid("bs_action", actions, BTN_H, 2, function(val)
+                Builder.buySell.action = val
+                builder_autodetect_mode(val)
+        end)
+
+        imgui.Spacing()
+        imgui.Text("Шаг 2. Объект")
+        ButtonGrid("bs_object", Config.data.objects or {}, BTN_H, 3, function(val)
+                Builder.buySell.object = val
+                builder_reset_addon(Builder.buySell)
+        end)
+
+        imgui.Spacing()
+        imgui.Text("Шаг 3. Детали")
+        imgui.InputText("Название/описание", Builder.buySell.name_buf, sizeof(Builder.buySell.name_buf))
+        imgui.InputText("Признаки", Builder.buySell.features_buf, sizeof(Builder.buySell.features_buf))
+        imgui.InputText("Количество", Builder.buySell.quantity_buf, sizeof(Builder.buySell.quantity_buf), imgui.InputTextFlags.CharsDecimal)
+        ButtonGrid("bs_location", BUILDER_LOCATIONS, BTN_H, 3, function(val)
+                Builder.buySell.location = val
+        end)
+
+        imgui.Spacing()
+        imgui.Text("Шаг 4. Цена/бюджет")
+        builder_render_money_block(Builder.buySell.money, "bs")
+        builder_render_addons(Builder.buySell.object, Builder.buySell)
+end
+
+local function builder_render_rent()
+        local actions = builder_list_from_config(function(v)
+                return v:find("Арендую") or v:find("Сдам")
+        end, { "Сдам в аренду", "Арендую" })
+        imgui.Text("Шаг 1. Действие")
+        ButtonGrid("rent_action", actions, BTN_H, 2, function(val)
+                Builder.rent.action = val
+                builder_autodetect_mode(val)
+        end)
+
+        imgui.Spacing()
+        imgui.Text("Шаг 2. Объект")
+        ButtonGrid("rent_object", Config.data.objects or {}, BTN_H, 3, function(val)
+                Builder.rent.object = val
+                builder_reset_addon(Builder.rent)
+        end)
+        imgui.InputText("Название/описание", Builder.rent.name_buf, sizeof(Builder.rent.name_buf))
+
+        imgui.Spacing()
+        imgui.Text("Шаг 3. Период")
+        ButtonGrid("rent_period", BUILDER_PERIODS, BTN_H, 2, function(val)
+                Builder.rent.period = val
+        end)
+
+        imgui.Spacing()
+        imgui.Text("Шаг 4. Стоимость")
+        builder_render_money_block(Builder.rent.money, "rent")
+        builder_render_addons(Builder.rent.object, Builder.rent)
+end
+
+local function builder_render_exchange()
+        imgui.Text("Шаг 1. Отдаю")
+        imgui.InputText("##give", Builder.exchange.give_buf, sizeof(Builder.exchange.give_buf))
+        imgui.Text("Шаг 2. Получаю")
+        imgui.InputText("##take", Builder.exchange.take_buf, sizeof(Builder.exchange.take_buf))
+
+        imgui.Spacing()
+        imgui.Text("Шаг 3. Доплата")
+        builder_render_money_block(Builder.exchange.money, "ex")
+        builder_render_addons("обмен", Builder.exchange)
+end
+
+local function builder_render_recruit()
+        imgui.Text("Категория: Собеседование")
+        imgui.InputText("Тип организации", Builder.recruit.org_type_buf, sizeof(Builder.recruit.org_type_buf))
+        imgui.InputText("Название", Builder.recruit.name_buf, sizeof(Builder.recruit.name_buf))
+        if imgui.Button("Собрать##recruit") then
+                Builder.recruit.preview = builder_build_recruit()
+        end
+        if Builder.recruit.preview and Builder.recruit.preview ~= "" then
+                imgui.BulletText(Builder.recruit.preview)
+        end
+end
+
+local function builder_render_services()
+        local actions = builder_list_from_config(function(v)
+                return v:find("Предоставляю") or v:find("Нуждаюсь") or v:find("Ищу")
+        end, { "Предоставляю", "Нуждаюсь" })
+        imgui.Text("Шаг 1. Тип услуги")
+        ButtonGrid("serv_action", actions, BTN_H, 3, function(val)
+                Builder.services.action = val
+                builder_autodetect_mode(val)
+        end)
+        imgui.InputText("Услуга", Builder.services.service_buf, sizeof(Builder.services.service_buf))
+        imgui.InputText("Уточнение", Builder.services.clarification_buf, sizeof(Builder.services.clarification_buf))
+
+        imgui.Spacing()
+        imgui.Text("Шаг 2. Бюджет")
+        builder_render_money_block(Builder.services.money, "serv")
+end
+
+local function builder_render_steps()
+        if Builder.mode == "Recruit" then
+                builder_render_recruit()
+        elseif Builder.mode == "Exchange" then
+                builder_render_exchange()
+        elseif Builder.mode == "Rent" then
+                builder_render_rent()
+        elseif Builder.mode == "Services" then
+                builder_render_services()
+        else
+                builder_render_buy_sell()
+        end
+        builder_render_numpad()
+end
+
+local function builder_render_preview()
+        local preview = builder_build()
+        imgui.Text("Результат")
+        imgui.BeginChild("##builder_preview", imgui.ImVec2(0, 60), true)
+        imgui.TextWrapped(preview ~= "" and preview or "-" )
+        imgui.EndChild()
+        local replace = imgui.Button("Заменить текст")
+        imgui.SameLine()
+        local insert = imgui.Button("Вставить в текст")
+        if replace then
+                builder_apply(true)
+        end
+        if insert then
+                builder_apply(false)
+        end
 end
 
 local function ad_build()
@@ -1444,183 +2116,16 @@ end, function()
 		end
 	end
 
-	imgui.Spacing()
-	LabelSeparator("Конструктор")
+        imgui.Spacing()
+        LabelSeparator("Конструктор")
+        builder_render_modes()
+        imgui.Spacing()
+        builder_render_steps()
+        imgui.Spacing()
+        builder_render_preview()
 
-	-- Конструктор: вычисление ширин секций
-	local c_availX = imgui.GetContentRegionAvail().x
-	local spacing = imgui.GetStyle().ItemSpacing.x
-
-	local NEED_OBJ_W3 = 3 * OBJ_BTN_MIN_W + 2 * spacing
-	local NEED_KBD_W3 = 3 * KBD_BTN_MIN_W + 2 * spacing
-
-	local typeW = TYPEW_BASE
-	local priceW = PRICEW_BASE
-	local remain = c_availX - typeW - priceW - spacing * 3
-
-	if remain < (NEED_OBJ_W3 + NEED_KBD_W3) then
-		local deficit = (NEED_OBJ_W3 + NEED_KBD_W3) - remain
-		local cutType = math.min(deficit * 0.5, typeW - TYPEW_MIN)
-		typeW = typeW - cutType
-		deficit = deficit - cutType
-		local cutPrice = math.min(deficit, priceW - PRICEW_MIN)
-		priceW = priceW - cutPrice
-		deficit = deficit - cutPrice
-		remain = c_availX - typeW - priceW - spacing * 3
-	end
-
-	local objW = math.max(NEED_OBJ_W3, math.floor(remain * 0.58))
-	local kbdW = math.max(NEED_KBD_W3, remain - objW)
-
-	local over = objW + kbdW - remain
-	if over > 0 then
-		local cutO = math.min(over * 0.5, objW - NEED_OBJ_W3)
-		objW = objW - cutO
-		over = over - cutO
-		local cutK = math.min(over, kbdW - NEED_KBD_W3)
-		kbdW = kbdW - cutK
-	end
-
-	local type_btns = Config.data.type_buttons
-	local obj_btns = Config.data.objects
-	local price_btns = Config.data.prices
-	local numpad = NUMPAD
-	local currencies = Config.data.currencies
-	local addons = Config.data.addons
-
-	-- Тип
-	imgui.BeginChild("##type", imgui.ImVec2(typeW + 4, SECTION_H), true)
-	ButtonGrid("type", type_btns, BTN_H, 1, function(val)
-		AD:reset()
-		AD.type = val
-		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
-	end)
-	imgui.EndChild()
-	imgui.SameLine()
-
-	-- Объект (3 колонки)
-	imgui.BeginChild("##object", imgui.ImVec2(objW - 115, SECTION_H), true)
-	ButtonGrid("object", obj_btns, BTN_H, 3, function(val)
-		refresh_object_value_from_editbuf()
-		AD.object = val
-		AD.addon = nil
-		ad_commit_to_editbuf()
-
-		local txt = str(State.edit_buf)
-		if not txt:find('%b""') then
-			txt = clamp80(txt .. ' ""')
-			imgui.StrCopy(State.edit_buf, txt)
-		end
-
-		State.want_place_cursor = true
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
-	end)
-	imgui.EndChild()
-	imgui.SameLine()
-
-	-- Цена
-	imgui.BeginChild("##price", imgui.ImVec2(priceW + 4, SECTION_H), true)
-	ButtonGrid("price", price_btns, BTN_H, 1, function(val)
-		refresh_object_value_from_editbuf()
-		AD.price_label = val
-		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
-	end)
-	imgui.EndChild()
-	imgui.SameLine()
-
-	-- Numpad + валюта + дополнения (3 колонки)
-	imgui.BeginChild("##kbd", imgui.ImVec2(kbdW, SECTION_H), true)
-	ButtonGrid("numpad", numpad, BTN_H, 3, function(key)
-		refresh_object_value_from_editbuf()
-		AD.value = (AD.value or "") .. key
-		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
-	end)
-
-	imgui.Spacing()
-	imgui.Separator()
-	imgui.Spacing()
-	local cur_label = AD.currency or (currencies[1] or "-")
-	local addon_label = AD.addon or "- выбрать дополнение -"
-	imgui.BeginChild("##currency_addon", imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
-	if imgui.BeginMenuBar() then
-		-- currency menu
-		local cur_menu_hover, cur_popup_hover = false, false
-		local cur_open = imgui.BeginMenu(cur_label)
-		if cur_open then
-			for _, item in ipairs(currencies) do
-				local sel = (AD.currency == item)
-				if imgui.MenuItemBool(item, nil, sel) then
-					refresh_object_value_from_editbuf()
-					AD.currency = item
-					ad_commit_to_editbuf()
-					State.cursor_action = "to_end"
-					State.cursor_action_data = nil
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
-				end
-			end
-			cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			cur_menu_hover = imgui.IsItemHovered()
-		else
-			cur_menu_hover = imgui.IsItemHovered()
-			if cur_menu_hover then
-				imgui.OpenPopup(cur_label)
-			end
-		end
-		if cur_open and not cur_menu_hover and not cur_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		-- addon menu
-		local addon_menu_hover, addon_popup_hover = false, false
-		local addon_open = imgui.BeginMenu(addon_label)
-		if addon_open then
-			for _, item in ipairs(addons) do
-				local sel = (AD.addon == item)
-				if imgui.MenuItemBool(item, nil, sel) then
-					refresh_object_value_from_editbuf()
-					AD.addon = item
-					ad_commit_to_editbuf()
-					State.cursor_action = "to_addon_end"
-					State.cursor_action_data = item
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
-				end
-			end
-			addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			addon_menu_hover = imgui.IsItemHovered()
-		else
-			addon_menu_hover = imgui.IsItemHovered()
-			if addon_menu_hover then
-				imgui.OpenPopup(addon_label)
-			end
-		end
-		if addon_open and not addon_menu_hover and not addon_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		imgui.EndMenuBar()
-	end
-	imgui.EndChild()
-	imgui.EndChild()
-
-	imgui.EndChild()
-	imgui.EndGroup()
+        imgui.EndChild()
+        imgui.EndGroup()
 
 	imgui.SameLine()
 
