@@ -2764,183 +2764,223 @@ local function drawEditHotkey(idx)
                         imgui.TextDisabled("Каждая строка будет отправлена отдельно. Пустые строки игнорируются.")
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem("Поля ввода") then
-			hk._activeTab = 2
+                if imgui.BeginTabItem("Поля ввода") then
+                        hk._activeTab = 2
                         imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
                         if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
                                 table.insert(hk.editInputs, {label = "", hint = "", key = "", mode = "text", buttons = {}})
                                 module.saveHotkeys()
                         end
-			if #hk.editInputs == 0 then
-				imgui.TextDisabled("Полей ввода нет")
-			else
-				local childHeight = math.min(260, 110 * #hk.editInputs)
-				imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
+                        imgui.SameLine()
+                        imgui.TextDisabled("Ключ виден в заголовке карточки")
+
+                        if #hk.editInputs == 0 then
+                                imgui.TextDisabled("Полей ввода нет")
+                        else
+                                local childHeight = math.min(320, 140 * #hk.editInputs)
+                                imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
                                 for i, input in ipairs(hk.editInputs) do
                                         imgui.PushIDStr("input" .. i)
+                                        local mode = input.mode == "buttons" and "buttons" or "text"
+                                        input.mode = mode
+                                        input.buttons = input.buttons or {}
+                                        local previewLabel = trim(input.label or "")
+                                        if previewLabel == "" then
+                                                previewLabel = string.format("Поле #%d", i)
+                                        end
+                                        local previewKey = trim(input.key or "")
+                                        if previewKey ~= "" then
+                                                previewLabel = previewLabel .. "  {{" .. previewKey .. "}}"
+                                        end
+                                        if mode == "buttons" then
+                                                previewLabel = previewLabel .. "  [кнопки]"
+                                        end
+
+                                        local open = imgui.CollapsingHeader(previewLabel .. "##input_header", imgui.TreeNodeFlags.DefaultOpen)
+                                        imgui.SameLine()
+                                        if imgui.SmallButton(fa.ARROW_UP .. "##input_up") and i > 1 then
+                                                hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.SameLine()
+                                        if imgui.SmallButton(fa.ARROW_DOWN .. "##input_down") and i < #hk.editInputs then
+                                                hk.editInputs[i], hk.editInputs[i + 1] = hk.editInputs[i + 1], hk.editInputs[i]
+                                                module.saveHotkeys()
+                                        end
+                                        imgui.SameLine()
                                         local trashLabel = fa.TRASH
                                         if not trashLabel or trashLabel == "" then
                                                 trashLabel = "X"
                                         end
-                                        if imgui.Button(trashLabel .. "##input_del", imgui.ImVec2(28, 20)) then
+                                        if imgui.SmallButton(trashLabel .. "##input_del") then
                                                 table.remove(hk.editInputs, i)
                                                 module.saveHotkeys()
                                                 imgui.PopID()
                                                 goto continue_inputs
                                         end
-                                        imgui.SameLine()
-                                        if imgui.Button(fa.ARROW_UP .. "##input_up", imgui.ImVec2(28, 20)) and i > 1 then
-                                                hk.editInputs[i], hk.editInputs[i - 1] = hk.editInputs[i - 1], hk.editInputs[i]
-                                                module.saveHotkeys()
-                                        end
-                                        imgui.SameLine()
-                                        if imgui.Button(fa.ARROW_DOWN .. "##input_down", imgui.ImVec2(28, 20)) and i < #hk.editInputs then
-						hk.editInputs[i], hk.editInputs[i + 1] = hk.editInputs[i + 1], hk.editInputs[i]
-						module.saveHotkeys()
-					end
-					imgui.SameLine()
-                                        imgui.BeginGroup()
-                                        local mode = input.mode == "buttons" and "buttons" or "text"
-                                        input.mode = mode
-                                        input.buttons = input.buttons or {}
-                                        imgui.TextDisabled("Тип поля")
-                                        imgui.PushItemWidth(-1)
-                                        local modeBuf = imgui.new.int(mode == "buttons" and 1 or 0)
-                                        if imgui.Combo("##input_mode", modeBuf, input_mode_labels_ffi, #input_mode_labels) then
-                                                input.mode = modeBuf[0] == 1 and "buttons" or "text"
-                                                mode = input.mode
-                                                module.saveHotkeys()
-                                        end
-                                        imgui.PopItemWidth()
-                                        imgui.TextDisabled("Текст над полем")
-                                        imgui.PushItemWidth(-1)
-                                        local labelBuf = imgui.new.char[512](input.label or "")
-                                        if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
-                                                input.label = ffi.string(labelBuf)
-                                                module.saveHotkeys()
-                                        end
-                                        imgui.PopItemWidth()
-                                        imgui.TextDisabled("Подсказка к полю ввода")
-                                        imgui.PushItemWidth(-1)
-                                        local hintBuf = imgui.new.char[256](input.hint or "")
-                                        if imgui.InputTextWithHint(
-                                                "##input_hint",
-                                                "Например координаты",
-                                                hintBuf,
-                                                ffi.sizeof(hintBuf),
-                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
-                                        ) then
-                                                input.hint = ffi.string(hintBuf)
-                                                module.saveHotkeys()
-                                        end
-                                        imgui.PopItemWidth()
-                                        if mode == "buttons" then
-                                                imgui.TextDisabled("При показе кнопок поле \"Свой текст\" остаётся доступным для ввода")
-                                        end
-                                        imgui.TextDisabled("Ключ подстановки")
-                                        imgui.PushItemWidth(-1)
-                                        local keyBuf = imgui.new.char[128](input.key or "")
-                                        if imgui.InputTextWithHint(
-                                                "##input_key",
-                                                "Ключ (например CALLSIGN)",
-                                                keyBuf,
-                                                ffi.sizeof(keyBuf),
-                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
-                                        ) then
-                                                input.key = ffi.string(keyBuf)
-                                                module.saveHotkeys()
-                                        end
-                                        imgui.PopItemWidth()
-                                        imgui.TextDisabled("Используйте латинские буквы, цифры и _")
-                                        if mode == "buttons" then
-                                                imgui.Separator()
-                                                imgui.TextDisabled("Кнопки")
-                                                if imgui.Button(fa.SQUARE_PLUS .. " Добавить кнопку##addbtn") then
-                                                        table.insert(input.buttons, {label = "", text = "", hint = ""})
-                                                        module.saveHotkeys()
+
+                                        if open then
+                                                imgui.Columns(2, "input_fields", false)
+                                                imgui.SetColumnWidth(0, 170)
+
+                                                local function fieldRow(caption, render)
+                                                        imgui.TextDisabled(caption)
+                                                        imgui.NextColumn()
+                                                        render()
+                                                        imgui.NextColumn()
                                                 end
-                                                if #input.buttons == 0 then
-                                                        imgui.TextDisabled("Кнопок нет")
-                                                else
-                                                        local btnChildHeight = math.min(200, 120 * #input.buttons)
-                                                        imgui.BeginChild("buttons_list", imgui.ImVec2(0, btnChildHeight), true)
-                                                        for j, btn in ipairs(input.buttons) do
-                                                                imgui.PushIDInt(j)
-                                                                local btnTrash = fa.TRASH
-                                                                if not btnTrash or btnTrash == "" then
-                                                                        btnTrash = "X"
-                                                                end
-                                                                if imgui.Button(btnTrash .. "##btn_del", imgui.ImVec2(28, 20)) then
-                                                                        table.remove(input.buttons, j)
-                                                                        module.saveHotkeys()
-                                                                        imgui.PopID()
-                                                                        goto continue_buttons
-                                                                end
-                                                                imgui.SameLine()
-                                                                if imgui.Button(fa.ARROW_UP .. "##btn_up", imgui.ImVec2(28, 20)) and j > 1 then
-                                                                        input.buttons[j], input.buttons[j - 1] = input.buttons[j - 1], input.buttons[j]
-                                                                        module.saveHotkeys()
-                                                                end
-                                                                imgui.SameLine()
-                                                                if imgui.Button(fa.ARROW_DOWN .. "##btn_down", imgui.ImVec2(28, 20)) and j < #input.buttons then
-                                                                        input.buttons[j], input.buttons[j + 1] = input.buttons[j + 1], input.buttons[j]
-                                                                        module.saveHotkeys()
-                                                                end
-                                                                imgui.SameLine()
-                                                                imgui.BeginGroup()
-                                                                imgui.TextDisabled("Название кнопки")
-                                                                imgui.PushItemWidth(-1)
-                                                                local btnLabelBuf = imgui.new.char[256](btn.label or "")
-                                                                if imgui.InputTextWithHint(
-                                                                        "##btn_label",
-                                                                        "Например Кнопка 1",
-                                                                        btnLabelBuf,
-                                                                        ffi.sizeof(btnLabelBuf),
-                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
-                                                                ) then
-                                                                        btn.label = ffi.string(btnLabelBuf)
-                                                                        module.saveHotkeys()
-                                                                end
-                                                                imgui.PopItemWidth()
-                                                                imgui.TextDisabled("Текст для вставки")
-                                                                imgui.PushItemWidth(-1)
-                                                                local btnTextBuf = imgui.new.char[512](btn.text or "")
-                                                                if imgui.InputTextMultiline("##btn_text", btnTextBuf, ffi.sizeof(btnTextBuf), imgui.ImVec2(0, 64)) then
-                                                                        btn.text = ffi.string(btnTextBuf)
-                                                                        module.saveHotkeys()
-                                                                end
-                                                                imgui.PopItemWidth()
-                                                                imgui.TextDisabled("Подсказка кнопки")
-                                                                imgui.PushItemWidth(-1)
-                                                                local btnHintBuf = imgui.new.char[256](btn.hint or "")
-                                                                if imgui.InputTextWithHint(
-                                                                        "##btn_hint",
-                                                                        "Подсказка",
-                                                                        btnHintBuf,
-                                                                        ffi.sizeof(btnHintBuf),
-                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
-                                                                ) then
-                                                                        btn.hint = ffi.string(btnHintBuf)
-                                                                        module.saveHotkeys()
-                                                                end
-                                                                imgui.PopItemWidth()
-                                                                imgui.EndGroup()
-                                                                imgui.PopID()
-                                                                imgui.Separator()
-                                                                ::continue_buttons::
+
+                                                fieldRow("Тип поля", function()
+                                                        imgui.PushItemWidth(-1)
+                                                        local modeBuf = imgui.new.int(mode == "buttons" and 1 or 0)
+                                                        if imgui.Combo("##input_mode", modeBuf, input_mode_labels_ffi, #input_mode_labels) then
+                                                                input.mode = modeBuf[0] == 1 and "buttons" or "text"
+                                                                module.saveHotkeys()
                                                         end
-                                                        imgui.EndChild()
+                                                        imgui.PopItemWidth()
+                                                        mode = input.mode
+                                                end)
+
+                                                fieldRow("Текст над полем", function()
+                                                        imgui.PushItemWidth(-1)
+                                                        local labelBuf = imgui.new.char[512](input.label or "")
+                                                        if imgui.InputTextMultiline("##input_label", labelBuf, ffi.sizeof(labelBuf), imgui.ImVec2(0, 64)) then
+                                                                input.label = ffi.string(labelBuf)
+                                                                module.saveHotkeys()
+                                                        end
+                                                        imgui.PopItemWidth()
+                                                end)
+
+                                                fieldRow("Подсказка", function()
+                                                        imgui.PushItemWidth(-1)
+                                                        local hintBuf = imgui.new.char[256](input.hint or "")
+                                                        if imgui.InputTextWithHint(
+                                                                "##input_hint",
+                                                                "Например координаты",
+                                                                hintBuf,
+                                                                ffi.sizeof(hintBuf),
+                                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                        ) then
+                                                                input.hint = ffi.string(hintBuf)
+                                                                module.saveHotkeys()
+                                                        end
+                                                        imgui.PopItemWidth()
+                                                end)
+
+                                                fieldRow("Ключ подстановки", function()
+                                                        imgui.PushItemWidth(-1)
+                                                        local keyBuf = imgui.new.char[128](input.key or "")
+                                                        if imgui.InputTextWithHint(
+                                                                "##input_key",
+                                                                "Ключ (например CALLSIGN)",
+                                                                keyBuf,
+                                                                ffi.sizeof(keyBuf),
+                                                                flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                        ) then
+                                                                input.key = ffi.string(keyBuf)
+                                                                module.saveHotkeys()
+                                                        end
+                                                        imgui.PopItemWidth()
+                                                        imgui.TextDisabled("Используйте латинские буквы, цифры и _")
+                                                end)
+
+                                                if mode == "buttons" then
+                                                        fieldRow("Кнопки", function()
+                                                                imgui.TextDisabled("Поле \"Свой текст\" остаётся доступным для ввода")
+                                                                if imgui.Button(fa.SQUARE_PLUS .. " Добавить кнопку##addbtn") then
+                                                                        table.insert(input.buttons, {label = "", text = "", hint = ""})
+                                                                        module.saveHotkeys()
+                                                                end
+                                                                if #input.buttons == 0 then
+                                                                        imgui.TextDisabled("Кнопок нет")
+                                                                else
+                                                                        local btnChildHeight = math.min(220, 128 * #input.buttons)
+                                                                        imgui.BeginChild("buttons_list", imgui.ImVec2(0, btnChildHeight), true)
+                                                                        for j, btn in ipairs(input.buttons) do
+                                                                                imgui.PushIDInt(j)
+                                                                                local header = string.format("Кнопка #%d", j)
+                                                                                if btn.label and btn.label ~= "" then
+                                                                                        header = header .. " — " .. btn.label
+                                                                                end
+                                                                                imgui.TextDisabled(header)
+                                                                                imgui.SameLine()
+                                                                                if imgui.SmallButton(fa.ARROW_UP .. "##btn_up") and j > 1 then
+                                                                                        input.buttons[j], input.buttons[j - 1] = input.buttons[j - 1], input.buttons[j]
+                                                                                        module.saveHotkeys()
+                                                                                end
+                                                                                imgui.SameLine()
+                                                                                if imgui.SmallButton(fa.ARROW_DOWN .. "##btn_down") and j < #input.buttons then
+                                                                                        input.buttons[j], input.buttons[j + 1] = input.buttons[j + 1], input.buttons[j]
+                                                                                        module.saveHotkeys()
+                                                                                end
+                                                                                imgui.SameLine()
+                                                                                local btnTrash = fa.TRASH
+                                                                                if not btnTrash or btnTrash == "" then
+                                                                                        btnTrash = "X"
+                                                                                end
+                                                                                if imgui.SmallButton(btnTrash .. "##btn_del") then
+                                                                                        table.remove(input.buttons, j)
+                                                                                        module.saveHotkeys()
+                                                                                        imgui.PopID()
+                                                                                        goto continue_buttons
+                                                                                end
+
+                                                                                imgui.TextDisabled("Название")
+                                                                                imgui.PushItemWidth(-1)
+                                                                                local btnLabelBuf = imgui.new.char[256](btn.label or "")
+                                                                                if imgui.InputTextWithHint(
+                                                                                        "##btn_label",
+                                                                                        "Например Кнопка 1",
+                                                                                        btnLabelBuf,
+                                                                                        ffi.sizeof(btnLabelBuf),
+                                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                                                ) then
+                                                                                        btn.label = ffi.string(btnLabelBuf)
+                                                                                        module.saveHotkeys()
+                                                                                end
+                                                                                imgui.PopItemWidth()
+                                                                                imgui.TextDisabled("Текст для вставки")
+                                                                                imgui.PushItemWidth(-1)
+                                                                                local btnTextBuf = imgui.new.char[512](btn.text or "")
+                                                                                if imgui.InputTextMultiline("##btn_text", btnTextBuf, ffi.sizeof(btnTextBuf), imgui.ImVec2(0, 64)) then
+                                                                                        btn.text = ffi.string(btnTextBuf)
+                                                                                        module.saveHotkeys()
+                                                                                end
+                                                                                imgui.PopItemWidth()
+                                                                                imgui.TextDisabled("Подсказка")
+                                                                                imgui.PushItemWidth(-1)
+                                                                                local btnHintBuf = imgui.new.char[256](btn.hint or "")
+                                                                                if imgui.InputTextWithHint(
+                                                                                        "##btn_hint",
+                                                                                        "Подсказка",
+                                                                                        btnHintBuf,
+                                                                                        ffi.sizeof(btnHintBuf),
+                                                                                        flags_or(imgui.InputTextFlags.AutoSelectAll)
+                                                                                ) then
+                                                                                        btn.hint = ffi.string(btnHintBuf)
+                                                                                        module.saveHotkeys()
+                                                                                end
+                                                                                imgui.PopItemWidth()
+                                                                                imgui.Separator()
+                                                                                imgui.PopID()
+                                                                                ::continue_buttons::
+                                                                        end
+                                                                        imgui.EndChild()
+                                                                end
+                                                        end)
                                                 end
+
+                                                imgui.Columns(1)
                                         end
-                                        imgui.EndGroup()
-                                        imgui.PopID()
+
                                         imgui.Separator()
+                                        imgui.PopID()
                                         ::continue_inputs::
                                 end
-				imgui.EndChild()
-			end
-			imgui.EndTabItem()
-		end
+                                imgui.EndChild()
+                        end
+                        imgui.EndTabItem()
+                end
 		imgui.EndTabBar()
 	end
 
