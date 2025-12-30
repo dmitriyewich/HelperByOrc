@@ -2642,11 +2642,14 @@ local function drawEditHotkey(idx)
 				end
 				imgui.SameLine()
 
-                                local spacing = imgui.GetStyle().ItemSpacing.x
+                                local style = imgui.GetStyle()
+                                local spacing = style.ItemSpacing.x
                                 local charCountLabel = string.format("%d", #(m.text or ""))
-                                local reservedWidth = 50 + 100 + 120 + imgui.CalcTextSize(charCountLabel).x
+                                local reservedWidth = 50 + 100 + 120
                                 local reservedSpacing = spacing * 4
-                                local dynamicWidth = imgui.GetContentRegionAvail().x - reservedWidth - reservedSpacing
+                                local childPadding = style.WindowPadding.x * 2
+                                local scrollbarWidth = imgui.GetScrollMaxY() > 0 and style.ScrollbarSize or 0
+                                local dynamicWidth = imgui.GetContentRegionAvail().x - reservedWidth - reservedSpacing - childPadding - scrollbarWidth
                                 if dynamicWidth < 50 then
                                         dynamicWidth = 50
                                 end
@@ -2659,8 +2662,12 @@ local function drawEditHotkey(idx)
                                 end
                                 imgui.PopItemWidth()
 
-                                imgui.SameLine()
-                                imgui.TextDisabled(charCountLabel)
+                                local rectMin, rectMax = imgui.GetItemRectMin(), imgui.GetItemRectMax()
+                                local textSize = imgui.CalcTextSize(charCountLabel)
+                                local padding = style.FramePadding
+                                local overlayPos = imgui.ImVec2(rectMax.x - padding.x - textSize.x, rectMin.y + padding.y)
+                                local disabledColor = style.Colors[imgui.Col.TextDisabled]
+                                imgui.GetWindowDrawList():AddText(overlayPos, imgui.GetColorU32(disabledColor), charCountLabel)
 
                                 imgui.SameLine()
                                 imgui.PushItemWidth(50)
