@@ -2642,16 +2642,39 @@ local function drawEditHotkey(idx)
 				end
 				imgui.SameLine()
 
-				imgui.PushItemWidth(430)
-				local tbuf = imgui.new.char[256](m.text or "")
-				if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-					m.text = ffi.string(tbuf)
-					module.saveHotkeys()
-				end
-				imgui.PopItemWidth()
+                                local style = imgui.GetStyle()
+                                local spacing = style.ItemSpacing.x
+                                local charCountLabel = string.format("%d", #(m.text or ""))
+                                local reservedWidth = 50 + 100 + 120
+                                local reservedSpacing = spacing * 4
+                                local childPadding = style.WindowPadding.x * 2
+                                local scrollbarWidth = imgui.GetScrollMaxY() > 0 and style.ScrollbarSize or 0
+                                local dynamicWidth = imgui.GetContentRegionAvail().x - reservedWidth - reservedSpacing - childPadding - scrollbarWidth
+                                if dynamicWidth < 50 then
+                                        dynamicWidth = 50
+                                end
 
-				imgui.SameLine()
-				imgui.PushItemWidth(50)
+                                imgui.PushItemWidth(dynamicWidth)
+                                local tbuf = imgui.new.char[256](m.text or "")
+                                if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
+                                        m.text = ffi.string(tbuf)
+                                        module.saveHotkeys()
+                                end
+                                imgui.PopItemWidth()
+
+                                local rectMin, rectMax = imgui.GetItemRectMin(), imgui.GetItemRectMax()
+                                local textSize = imgui.CalcTextSize(charCountLabel)
+                                local padding = style.FramePadding
+                                local overlayPos = imgui.ImVec2(rectMax.x - padding.x - textSize.x, rectMin.y + padding.y)
+                                local disabledColor = style.Colors[imgui.Col.TextDisabled]
+                                imgui.GetWindowDrawList():AddText(
+                                        overlayPos,
+                                        imgui.GetColorU32Vec4(disabledColor),
+                                        charCountLabel
+                                )
+
+                                imgui.SameLine()
+                                imgui.PushItemWidth(50)
 				local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
 				if
 					imgui.InputText(
