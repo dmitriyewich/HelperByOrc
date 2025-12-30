@@ -3219,17 +3219,20 @@ local function drawFolderTabs()
                                         end
                                 end
 
-				if not isRoot then
-					imgui.Separator()
-					if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
-						removeFolder(f.parent and f.parent.children or folders, f)
-						if selectedFolder == f then
-							selectedFolder = f.parent or folders[1]
-						end
-						module.saveHotkeys()
-						imgui.CloseCurrentPopup()
-					end
-				end
+                                imgui.Separator()
+                                local canDelete = not (isRoot and f.name == "Основные")
+                                if canDelete then
+                                        if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+                                                removeFolder(f.parent and f.parent.children or folders, f)
+                                                if selectedFolder == f then
+                                                        selectedFolder = f.parent or folders[1]
+                                                end
+                                                module.saveHotkeys()
+                                                imgui.CloseCurrentPopup()
+                                        end
+                                else
+                                        imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+                                end
 				imgui.EndPopup()
 			end
 		end
