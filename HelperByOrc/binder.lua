@@ -2667,7 +2667,11 @@ local function drawEditHotkey(idx)
                                 local padding = style.FramePadding
                                 local overlayPos = imgui.ImVec2(rectMax.x - padding.x - textSize.x, rectMin.y + padding.y)
                                 local disabledColor = style.Colors[imgui.Col.TextDisabled]
-                                imgui.GetWindowDrawList():AddText(overlayPos, imgui.GetColorU32(disabledColor), charCountLabel)
+                                imgui.GetWindowDrawList():AddText(
+                                        overlayPos,
+                                        imgui.GetColorU32Vec4(disabledColor),
+                                        charCountLabel
+                                )
 
                                 imgui.SameLine()
                                 imgui.PushItemWidth(50)
