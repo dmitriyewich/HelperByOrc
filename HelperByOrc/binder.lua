@@ -2642,16 +2642,28 @@ local function drawEditHotkey(idx)
 				end
 				imgui.SameLine()
 
-				imgui.PushItemWidth(430)
-				local tbuf = imgui.new.char[256](m.text or "")
-				if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
-					m.text = ffi.string(tbuf)
-					module.saveHotkeys()
-				end
-				imgui.PopItemWidth()
+                                local spacing = imgui.GetStyle().ItemSpacing.x
+                                local charCountLabel = string.format("%d", #(m.text or ""))
+                                local reservedWidth = 50 + 100 + 120 + imgui.CalcTextSize(charCountLabel).x
+                                local reservedSpacing = spacing * 4
+                                local dynamicWidth = imgui.GetContentRegionAvail().x - reservedWidth - reservedSpacing
+                                if dynamicWidth < 50 then
+                                        dynamicWidth = 50
+                                end
 
-				imgui.SameLine()
-				imgui.PushItemWidth(50)
+                                imgui.PushItemWidth(dynamicWidth)
+                                local tbuf = imgui.new.char[256](m.text or "")
+                                if imgui.InputText("##t", tbuf, ffi.sizeof(tbuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
+                                        m.text = ffi.string(tbuf)
+                                        module.saveHotkeys()
+                                end
+                                imgui.PopItemWidth()
+
+                                imgui.SameLine()
+                                imgui.TextDisabled(charCountLabel)
+
+                                imgui.SameLine()
+                                imgui.PushItemWidth(50)
 				local ibuf = imgui.new.char[16](tostring(m.interval or "0"))
 				if
 					imgui.InputText(
