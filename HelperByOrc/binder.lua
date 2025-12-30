@@ -2644,7 +2644,8 @@ local function drawEditHotkey(idx)
 
                                 local style = imgui.GetStyle()
                                 local spacing = style.ItemSpacing.x
-                                local charCountLabel = string.format("%d", #(m.text or ""))
+								local charCountText = u8:decode(m.text)
+                                local charCountLabel = string.format("%d", #charCountText or "")
                                 local reservedWidth = 50 + 100 + 120
                                 local reservedSpacing = spacing * 4
                                 local childPadding = style.WindowPadding.x * 2
