@@ -1743,6 +1743,12 @@ end
 if not _G.moveBindPopup then
         _G.moveBindPopup = {active = false, hkidx = nil}
 end
+if not _G.deleteBindPopup then
+        _G.deleteBindPopup = {active = false, idx = nil, from_edit = false}
+end
+if not _G.deleteFolderPopup then
+        _G.deleteFolderPopup = {active = false, folder = nil}
+end
 
 local function utf8_trim_last_char(s)
         s = tostring(s or "")
@@ -1984,19 +1990,17 @@ local function drawBindsGrid()
 				if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
 					module.stopHotkey(hk)
 				end
-			end
-			imgui.SameLine(0, spacing)
-                        if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-                                table.remove(hotkeys, i)
-                                refreshHotkeyNumbers()
-                                module.saveHotkeys()
-                                imgui.EndGroup()
-                                goto after_card
                         end
-			imgui.SameLine(0, spacing)
-			if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				imgui.OpenPopup("ctx_card_" .. i)
-			end
+                        imgui.SameLine(0, spacing)
+                        if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                _G.deleteBindPopup.idx = i
+                                _G.deleteBindPopup.from_edit = false
+                                _G.deleteBindPopup.active = true
+                        end
+                        imgui.SameLine(0, spacing)
+                        if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
+                                imgui.OpenPopup("ctx_card_" .. i)
+                        end
 		end
 
 		if imgui.BeginPopup("ctx_card_" .. i) then
@@ -2045,8 +2049,7 @@ local function drawBindsGrid()
 			imgui.EndDragDropTarget()
 		end
 
-		::after_card::
-	end
+        end
 
         local addIndex = #cards + 1
         local addRow = math.floor((addIndex - 1) / columns)
@@ -3087,20 +3090,85 @@ hk.editInputs = nil
 editHotkey.active = false
 return
 end
-	imgui.SameLine()
+        imgui.SameLine()
         if imgui.Button(fa.TRASH .. " " .. "[DEL]", imgui.ImVec2(120, 0)) then
-                table.remove(hotkeys, idx)
-                editHotkey.active = false
-                refreshHotkeyNumbers()
-                module.saveHotkeys()
-                return
+                _G.deleteBindPopup.idx = idx
+                _G.deleteBindPopup.from_edit = true
+                _G.deleteBindPopup.active = true
         end
-	if tags and tags.showTagsWindow then
-		imgui.SameLine()
-		if imgui.Button(fa.TAGS .. " Переменные##open_tags") then
-			tags.showTagsWindow[0] = true
-		end
-	end
+        if tags and tags.showTagsWindow then
+                imgui.SameLine()
+                if imgui.Button(fa.TAGS .. " Переменные##open_tags") then
+                        tags.showTagsWindow[0] = true
+                end
+        end
+end
+
+local function drawDeletePopups()
+        if _G.deleteBindPopup.active then
+                imgui.OpenPopup("binder_delete_bind")
+                _G.deleteBindPopup.active = false
+        end
+        if imgui.BeginPopupModal("binder_delete_bind", nil, imgui.WindowFlags.AlwaysAutoResize) then
+                local idx = _G.deleteBindPopup.idx
+                local hk = idx and hotkeys[idx]
+                local label = hk and trim(hk.label or "")
+                if not label or label == "" then
+                        label = string.format("#%d", idx or 0)
+                end
+                imgui.Text(("Удалить бинд \"%s\"?"):format(label))
+                imgui.Separator()
+                if imgui.Button("Удалить##bind_confirm", imgui.ImVec2(100, 0)) then
+                        if idx and hotkeys[idx] then
+                                table.remove(hotkeys, idx)
+                                refreshHotkeyNumbers()
+                                module.saveHotkeys()
+                        end
+                        if _G.deleteBindPopup.from_edit then
+                                editHotkey.active = false
+                                editHotkey.idx = nil
+                        end
+                        _G.deleteBindPopup.idx = nil
+                        _G.deleteBindPopup.from_edit = false
+                        imgui.CloseCurrentPopup()
+                end
+                imgui.SameLine()
+                if imgui.Button("Отмена##bind_confirm", imgui.ImVec2(100, 0)) then
+                        _G.deleteBindPopup.idx = nil
+                        _G.deleteBindPopup.from_edit = false
+                        imgui.CloseCurrentPopup()
+                end
+                imgui.EndPopup()
+        end
+
+        if _G.deleteFolderPopup.active then
+                imgui.OpenPopup("binder_delete_folder")
+                _G.deleteFolderPopup.active = false
+        end
+        if imgui.BeginPopupModal("binder_delete_folder", nil, imgui.WindowFlags.AlwaysAutoResize) then
+                local folder = _G.deleteFolderPopup.folder
+                local name = folder and folder.name or ""
+                imgui.Text(("Удалить папку \"%s\"?"):format(name))
+                imgui.TextDisabled("Будут удалены все дочерние папки.")
+                imgui.Separator()
+                if imgui.Button("Удалить##folder_confirm", imgui.ImVec2(100, 0)) then
+                        if folder then
+                                removeFolder(folder.parent and folder.parent.children or folders, folder)
+                                if selectedFolder == folder then
+                                        selectedFolder = folder.parent or folders[1]
+                                end
+                                module.saveHotkeys()
+                        end
+                        _G.deleteFolderPopup.folder = nil
+                        imgui.CloseCurrentPopup()
+                end
+                imgui.SameLine()
+                if imgui.Button("Отмена##folder_confirm", imgui.ImVec2(100, 0)) then
+                        _G.deleteFolderPopup.folder = nil
+                        imgui.CloseCurrentPopup()
+                end
+                imgui.EndPopup()
+        end
 end
 
 -- === Вкладки папок (с условиями быстрого меню) ===
@@ -3237,21 +3305,18 @@ local function drawFolderTabs()
 					end
 				end
 
-				imgui.Separator()
-				local canDelete = not (isRoot and f.name == "Основные")
-				if canDelete then
-					if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
-						removeFolder(f.parent and f.parent.children or folders, f)
-						if selectedFolder == f then
-							selectedFolder = f.parent or folders[1]
-						end
-						module.saveHotkeys()
-						imgui.CloseCurrentPopup()
-					end
-				else
-					imgui.TextDisabled(fa.TRASH .. " Удалить папку")
-				end
-				imgui.EndPopup()
+                                imgui.Separator()
+                                local canDelete = not (isRoot and f.name == "Основные")
+                                if canDelete then
+                                        if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+                                                _G.deleteFolderPopup.folder = f
+                                                _G.deleteFolderPopup.active = true
+                                                imgui.CloseCurrentPopup()
+                                        end
+                                else
+                                        imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+                                end
+                                imgui.EndPopup()
 			end
 		end
 
@@ -3363,11 +3428,12 @@ function module.DrawBinder()
 		imgui.BeginChild("binds_panel##main", imgui.ImVec2(0, 0), true)
 		drawBindsGrid()
 		imgui.EndChild()
-	else
-		drawEditHotkey(editHotkey.idx)
-	end
+        else
+                drawEditHotkey(editHotkey.idx)
+        end
 
-	drawToasts()
+        drawDeletePopups()
+        drawToasts()
 end
 
 -- === События и ввод ===
