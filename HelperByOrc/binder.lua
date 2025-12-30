@@ -3109,10 +3109,28 @@ local function drawFolderTabs()
 	local tabPad = 2
 
 	local function drawFolderRow(folder, isRoot)
-		imgui.BeginChild("folders_row_" .. (folder and folder.name or "root"), imgui.ImVec2(0, tabHeight + 6), false)
 		local list = isRoot and folders or (folder and folder.children or {})
+		local itemWidth = 110 + tabHeight
+		local itemsCount = #list + 1
+		local availWidth = imgui.GetContentRegionAvail().x
+		local columns = math.max(1, math.floor((availWidth + tabPad) / (itemWidth + tabPad)))
+		local rows = math.max(1, math.ceil(itemsCount / columns))
+		local childHeight = rows * (tabHeight + tabPad) + 4
+
+		imgui.BeginChild("folders_row_" .. (folder and folder.name or "root"), imgui.ImVec2(0, childHeight), false)
+
+		local startPos = imgui.GetCursorScreenPos()
+		local function setItemPos(idx)
+			local zeroBased = idx - 1
+			local row = math.floor(zeroBased / columns)
+			local col = zeroBased % columns
+			local posX = startPos.x + col * (itemWidth + tabPad)
+			local posY = startPos.y + row * (tabHeight + tabPad)
+			imgui.SetCursorScreenPos(imgui.ImVec2(posX, posY))
+		end
+
 		for i, f in ipairs(list) do
-			imgui.SameLine(0, tabPad)
+			setItemPos(i)
 			local isSel = (selectedFolder == f)
 			if isSel then
 				imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.FrameBgHovered])
@@ -3158,7 +3176,7 @@ local function drawFolderTabs()
 				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok" .. tostring(f)) then
 					local subName = sanitizeFolderName(ffi.string(subBuf))
 					if #subName > 0 and folderNameUnique(f.children, subName) then
-                                                table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true})
+						table.insert(f.children, {name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true})
 						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 						module.saveHotkeys()
 					end
@@ -3187,60 +3205,58 @@ local function drawFolderTabs()
 					end
 				end
 
-                                imgui.Separator()
-                                local quickMenuLabel =
-                                        (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu" .. tostring(f)
-                                f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
-                                if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
-                                        f.quick_menu = f._quick_menu_bool[0]
-                                        module.saveHotkeys()
-                                end
+				imgui.Separator()
+				local quickMenuLabel =
+					(fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu" .. tostring(f)
+				f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+				if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+					f.quick_menu = f._quick_menu_bool[0]
+					module.saveHotkeys()
+				end
 
-                                local headerLabel =
-                                        (fa.BOLT and fa.BOLT .. " " or "")
-                                        .. "Папка: условия быстрого меню##folder_quick_conditions"
-                                        .. tostring(f)
-                                imgui.SetNextItemOpen(false, imgui.Cond.Once)
-                                if imgui.CollapsingHeader(headerLabel) then
-                                        f._quick_cond_bools = f._quick_cond_bools or {}
-                                        for ii = 1, quick_cond_count do
-                                                local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
-                                                f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
-                                                if
-                                                        imgui.Checkbox(
-                                                                quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
-                                                                f._quick_cond_bools[ii]
-                                                        )
-                                                 then
-                                                        f.quick_conditions = f.quick_conditions or {}
-                                                        f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
-                                                        module.saveHotkeys()
-                                                end
-                                        end
-                                end
+				local headerLabel =
+					(fa.BOLT and fa.BOLT .. " " or "")
+					.. "Папка: условия быстрого меню##folder_quick_conditions"
+					.. tostring(f)
+				imgui.SetNextItemOpen(false, imgui.Cond.Once)
+				if imgui.CollapsingHeader(headerLabel) then
+					f._quick_cond_bools = f._quick_cond_bools or {}
+					for ii = 1, quick_cond_count do
+						local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+						f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+						if
+							imgui.Checkbox(
+								quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
+								f._quick_cond_bools[ii]
+							)
+						 then
+							f.quick_conditions = f.quick_conditions or {}
+							f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+							module.saveHotkeys()
+						end
+					end
+				end
 
-                                imgui.Separator()
-                                local canDelete = not (isRoot and f.name == "Основные")
-                                if canDelete then
-                                        if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
-                                                removeFolder(f.parent and f.parent.children or folders, f)
-                                                if selectedFolder == f then
-                                                        selectedFolder = f.parent or folders[1]
-                                                end
-                                                module.saveHotkeys()
-                                                imgui.CloseCurrentPopup()
-                                        end
-                                else
-                                        imgui.TextDisabled(fa.TRASH .. " Удалить папку")
-                                end
+				imgui.Separator()
+				local canDelete = not (isRoot and f.name == "Основные")
+				if canDelete then
+					if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+						removeFolder(f.parent and f.parent.children or folders, f)
+						if selectedFolder == f then
+							selectedFolder = f.parent or folders[1]
+						end
+						module.saveHotkeys()
+						imgui.CloseCurrentPopup()
+					end
+				else
+					imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+				end
 				imgui.EndPopup()
 			end
 		end
 
-		imgui.SameLine(0, tabPad)
-		if
-			imgui.Button(fa.SQUARE_PLUS .. "##add_sub" .. (folder and folder.name or "root"), imgui.ImVec2(tabHeight, tabHeight))
-		 then
+		setItemPos(itemsCount)
+		if imgui.Button(fa.SQUARE_PLUS .. "##add_sub" .. (folder and folder.name or "root"), imgui.ImVec2(itemWidth, tabHeight)) then
 			imgui.OpenPopup("popup_add_sub_" .. (folder and folder.name or "root"))
 		end
 		if imgui.BeginPopup("popup_add_sub_" .. (folder and folder.name or "root")) then
@@ -3260,9 +3276,9 @@ local function drawFolderTabs()
 			imgui.SameLine()
 			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok" .. (folder and folder.name or "root")) then
 				local name = sanitizeFolderName(ffi.string(subBuf))
-                                local list = isRoot and folders or (folder and folder.children or {})
-                                if #name > 0 and folderNameUnique(list, name) then
-                                        table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true})
+				local list = isRoot and folders or (folder and folder.children or {})
+				if #name > 0 and folderNameUnique(list, name) then
+					table.insert(list, {name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true})
 					imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 					module.saveHotkeys()
 				end
@@ -3271,7 +3287,6 @@ local function drawFolderTabs()
 		end
 		imgui.EndChild()
 	end
-
 	drawFolderRow(nil, true)
 	local cur = selectedFolder
 	while cur and #cur.children > 0 do
