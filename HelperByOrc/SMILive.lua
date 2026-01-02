@@ -1495,15 +1495,23 @@ local function draw_sms_listener_controls()
                                 end
                 end
 
-                imgui.BeginDisabled(not controls_available and not sms_listener_active)
-                if imgui.Button(button_label) then
-                                if controls_available or sms_listener_active then
-                                                action()
-                                else
-                                                update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
-                                end
-                end
-                imgui.EndDisabled()
+		local button_disabled = (not controls_available and not sms_listener_active)
+		if button_disabled then
+			local alpha = imgui.GetStyle().Alpha
+			imgui.PushStyleVar(imgui.StyleVar_Alpha, alpha * 0.5)
+		end
+
+		if imgui.Button(button_label) and not button_disabled then
+			if controls_available or sms_listener_active then
+				action()
+			else
+				update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
+			end
+		end
+
+		if button_disabled then
+			imgui.PopStyleVar()
+		end
 
                 imgui.SameLine()
                 local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
