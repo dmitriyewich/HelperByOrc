@@ -145,18 +145,27 @@ local WinMessageBuffers = { male = nil, female = nil }
 
 local function set_win_message_buffer(key, text)
                 local entry = WinMessageBuffers[key] or { size = WIN_MESSAGE_MIN_BUFFER }
-                local required = math.max(WIN_MESSAGE_MIN_BUFFER, #text + 1)
+                local safe_text = tostring(text or "")
+                local required = math.max(WIN_MESSAGE_MIN_BUFFER, #safe_text + 1)
                 if not entry.buf or entry.size < required then
                                 entry.buf = imgui.new.char[required]()
                                 entry.size = required
                 end
-                imgui.StrCopy(entry.buf, text)
+                imgui.StrCopy(entry.buf, safe_text)
                 entry.size = required
                 WinMessageBuffers[key] = entry
 end
 
 local function load_win_message_buffers_from_config()
-                local win_cfg = Config.data and Config.data.win_messages or {}
+                if type(Config.data) ~= "table" then
+                                Config.data = {}
+                end
+
+                if type(Config.data.win_messages) ~= "table" then
+                                Config.data.win_messages = {}
+                end
+
+                local win_cfg = Config.data.win_messages
                 set_win_message_buffer("male", table.concat(win_cfg.male or {}, "\n"))
                 set_win_message_buffer("female", table.concat(win_cfg.female or {}, "\n"))
 end
