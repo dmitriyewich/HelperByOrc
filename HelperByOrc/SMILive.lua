@@ -1363,44 +1363,9 @@ function SMILive.DrawMathQuiz(show_tables)
 				imgui.Spacing()
 		end
 
-		imgui.Separator()
-		imgui.Text("Объявления /news")
-
-		imgui.PushItemWidth(200)
-		local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
-		local send_labels, send_labels_ffi = get_send_targets()
-		local send_count = 0
-		if type(send_labels) == "table" then
-				send_count = #send_labels
-		end
-		if send_labels_ffi and send_count > 0 then
-				if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
-						local max_index = math.max(0, send_count - 1)
-						local new_method = method_buf[0]
-						if new_method < 0 then
-								new_method = 0
-						elseif new_method > max_index then
-								new_method = max_index
-						end
-						MathQuiz.chat_method = new_method
-						Config:save()
-				end
-		else
-				imgui.TextDisabled("Методы отправки недоступны")
-		end
-		imgui.PopItemWidth()
-
-		imgui.PushItemWidth(200)
-		local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
-		if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
-				MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
-				Config:save()
-		end
-		imgui.PopItemWidth()
-
-		if MathQuiz.current_problem then
-				if imgui.Button("Отправить текущий пример в чат") then
-						broadcast_problem(MathQuiz.current_problem)
+                if MathQuiz.current_problem then
+                                if imgui.Button("Отправить текущий пример в чат") then
+                                                broadcast_problem(MathQuiz.current_problem)
 				end
 		end
 		if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
@@ -1448,86 +1413,102 @@ local LiveWindow = {
 }
 
 local function draw_live_broadcast_controls()
-		imgui.Text("Управление эфиром")
-		imgui.Spacing()
+                if imgui.Button("Начать эфир") then
+                                send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
+                end
 
-		if imgui.Button("Начать эфир") then
-				send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
-		end
+                imgui.SameLine()
+                if imgui.Button("Закончить эфир") then
+                                send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Закончить эфир") then
-				send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
-		end
+                imgui.SameLine()
+                if imgui.Button("Напоминание") then
+                                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Напоминание") then
-				send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
-		end
+                imgui.SetNextItemOpen(false, imgui.Cond.Once)
+                if imgui.CollapsingHeader("Настройки сообщений##live_message_settings") then
+                                imgui.PushItemWidth(200)
+                                local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
+                                local send_labels, send_labels_ffi = get_send_targets()
+                                local send_count = 0
+                                if type(send_labels) == "table" then
+                                                send_count = #send_labels
+                                end
+                                if send_labels_ffi and send_count > 0 then
+                                                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
+                                                                local max_index = math.max(0, send_count - 1)
+                                                                local new_method = method_buf[0]
+                                                                if new_method < 0 then
+                                                                                new_method = 0
+                                                                elseif new_method > max_index then
+                                                                                new_method = max_index
+                                                                end
+                                                                MathQuiz.chat_method = new_method
+                                                                Config:save()
+                                                end
+                                else
+                                                imgui.TextDisabled("Методы отправки недоступны")
+                                end
+                                imgui.PopItemWidth()
 
-		imgui.Spacing()
+                                imgui.PushItemWidth(200)
+                                local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
+                                if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
+                                                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
+                                                Config:save()
+                                end
+                                imgui.PopItemWidth()
 
-		if imgui.CollapsingHeader("Настройки сообщений кнопок##live_message_settings") then
-				imgui.Spacing()
+                                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+                                if intro_changed then
+                                                Config:save()
+                                end
 
-				local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-				if intro_changed then
-						Config:save()
-				end
+                                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+                                if outro_changed then
+                                                Config:save()
+                                end
 
-				imgui.Spacing()
-
-				local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-				if outro_changed then
-						Config:save()
-				end
-
-				imgui.Spacing()
-
-				local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-				if reminder_changed then
-						Config:save()
-				end
-		end
+                                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+                                if reminder_changed then
+                                                Config:save()
+                                end
+                end
 end
 
 local function draw_sms_listener_controls()
-		imgui.Text("Приём SMS-сообщений")
-		imgui.Spacing()
+                local controls_available = can_use_sms_listener()
+                local button_label
+                local action
 
-		local controls_available = can_use_sms_listener()
-		local button_label
-		local action
+                if sms_listener_active then
+                                button_label = "Закончить прием сообщений"
+                                action = function()
+                                                stop_sms_listener(false)
+                                end
+                else
+                                button_label = "Начать прием сообщений"
+                                action = function()
+                                                start_sms_listener(false)
+                                end
+                end
 
-		if sms_listener_active then
-				button_label = "Закончить прием сообщений"
-				action = function()
-						stop_sms_listener(false)
-				end
-		else
-				button_label = "Начать прием сообщений"
-				action = function()
-						start_sms_listener(false)
-				end
-		end
+                imgui.BeginDisabled(not controls_available and not sms_listener_active)
+                if imgui.Button(button_label) then
+                                if controls_available or sms_listener_active then
+                                                action()
+                                else
+                                                update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
+                                end
+                end
+                imgui.EndDisabled()
 
-		if imgui.Button(button_label) then
-				if controls_available or sms_listener_active then
-						action()
-				else
-						update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
-				end
-		end
-
-		imgui.SameLine()
-		local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
-		local status_label = sms_listener_active and "приём активен" or "приём отключён"
-		imgui.TextColored(status_color, status_label)
-
-		if not controls_available then
-				imgui.Spacing()
-				imgui.TextColored(imgui.ImVec4(0.9, 0.6, 0.4, 1), "Управление доступно после загрузки модуля my_hooks.")
-		end
+                imgui.SameLine()
+                local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
+                local status_label = sms_listener_active and "активен" or "не активен"
+                imgui.TextColored(status_color, status_label)
 end
 
 local function send_custom_news_message()
@@ -1611,12 +1592,8 @@ end
 local function draw_live_window_content()
                 if imgui.BeginTabBar("smilive_tabs") then
                                 if imgui.BeginTabItem("Эфир") then
-                                                imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
-                                                imgui.Spacing()
-                                                imgui.Separator()
                                                 draw_live_broadcast_controls()
-                                                imgui.Spacing()
-                                                imgui.Separator()
+                                                imgui.Dummy(imgui.ImVec2(0, 4))
                                                 draw_sms_listener_controls()
                                                 imgui.EndTabItem()
                                 end
