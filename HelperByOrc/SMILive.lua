@@ -703,6 +703,36 @@ local function broadcast_correct_answer(player_name, answer, score, is_final, pl
                 broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, "male")
 end
 
+local function broadcast_winner_gender(player_name, score, player_id, gender)
+                local normalized_gender = gender == "female" and "female" or "male"
+                local normalized = normalize_player_name(player_name)
+                if normalized == "" then
+                                normalized = trim(player_name)
+                end
+                if type(normalized) ~= "string" or normalized == "" then
+                                return
+                end
+
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                local score_text = pluralize_points(score or 0)
+                local progress_verb = "набирает"
+                local victory_verb = "побеждает"
+                if normalized_gender == "female" then
+                                progress_verb = "набирает"
+                                victory_verb = "побеждает"
+                end
+                local victory_message = string.format(
+                                "%s Викторина завершена! %s %s %s и %s!",
+                                NEWS_PREFIX,
+                                broadcast_name,
+                                progress_verb,
+                                score_text,
+                                victory_verb
+                )
+
+                broadcast_sequence({ victory_message })
+end
+
 local function parse_sms_message(text)
 		if type(text) ~= "string" then
 				return nil
@@ -1454,12 +1484,23 @@ function SMILive.DrawMathQuiz(show_tables)
 
         if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
                 local stats = MathQuiz.latest_round_stats
-                if imgui.Button("Объявить ответ (м)", imgui.ImVec2(175, 0)) then
-                        broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "male")
+                local has_winner = MathQuiz.winner ~= nil
+                local male_label = has_winner and "Объявить ответ и победителя (м)" or "Объявить ответ (м)"
+                local female_label = has_winner and "Объявить ответ и победителя (ж)" or "Объявить ответ (ж)"
+                if imgui.Button(male_label, imgui.ImVec2(175, 0)) then
+                        if has_winner then
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "male")
+                        else
+                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "male")
+                        end
                 end
                 imgui.SameLine()
-                if imgui.Button("Объявить ответ (ж)", imgui.ImVec2(175, 0)) then
-                        broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "female")
+                if imgui.Button(female_label, imgui.ImVec2(175, 0)) then
+                        if has_winner then
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "female")
+                        else
+                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "female")
+                        end
                 end
         end
 
