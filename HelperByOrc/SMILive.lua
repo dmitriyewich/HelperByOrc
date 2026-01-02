@@ -1510,7 +1510,7 @@ end
 
 local function draw_win_message_settings()
         imgui.Text("Настройки сообщений победителя")
-        imgui.TextWrapped("Каждое сообщение на новой строке. Используйте %s для имени и %s для счёта.")
+        imgui.TextWrapped("Каждое сообщение на новой строке. Используйте %%s для имени и %%s для счёта.")
 
         local male_buf = ensure_win_message_buffer("male")
         local female_buf = ensure_win_message_buffer("female")
