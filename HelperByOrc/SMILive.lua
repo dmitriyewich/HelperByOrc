@@ -1500,22 +1500,30 @@ end
 
 
 local function draw_win_message_settings()
-        imgui.Text("Сообщения о победителе")
-        imgui.TextWrapped("Каждая строка — отдельное объявление. Используйте %s для имени и %s для счёта.")
+        imgui.Text("Настройки сообщений победителя")
+        imgui.TextWrapped("Каждое сообщение на новой строке. Используйте %s для имени и %s для счёта.")
 
         local male_buf = ensure_win_message_buffer("male")
         local female_buf = ensure_win_message_buffer("female")
 
-        local male_changed = imgui.InputTextMultiline("Победитель (м)", male_buf.buf, male_buf.size, imgui.ImVec2(0, 70))
+        imgui.Text("Сообщения для победителя (м)")
+        imgui.InputTextMultiline("##win_male", male_buf.buf, male_buf.size, imgui.ImVec2(0, 100))
         maybe_grow_win_buffer(male_buf)
-        if male_changed then
+
+        imgui.Text("Сообщения для победительницы (ж)")
+        imgui.InputTextMultiline("##win_female", female_buf.buf, female_buf.size, imgui.ImVec2(0, 100))
+        maybe_grow_win_buffer(female_buf)
+
+        if imgui.Button("Сохранить настройки") then
                 update_win_messages_from_buffer("male", male_buf)
+                update_win_messages_from_buffer("female", female_buf)
         end
 
-        local female_changed = imgui.InputTextMultiline("Победительница (ж)", female_buf.buf, female_buf.size, imgui.ImVec2(0, 70))
-        maybe_grow_win_buffer(female_buf)
-        if female_changed then
-                update_win_messages_from_buffer("female", female_buf)
+        imgui.SameLine()
+        if imgui.Button("Сбросить к стандартным") then
+                Config.data.win_messages = { male = {}, female = {} }
+                load_win_message_buffers_from_config()
+                Config:save()
         end
 
         imgui.TextDisabled("Если список пустой, используется стандартное сообщение.")
@@ -1664,68 +1672,18 @@ local function draw_live_broadcast_controls()
                 end
                 pop_button_palette()
 
-                imgui.SameLine()
-                push_button_palette(COLOR_ACCENT_PRIMARY)
-                if imgui.Button("Напоминание") then
-                                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
-                end
-                pop_button_palette()
-
-                imgui.SetNextItemOpen(false, imgui.Cond.Once)
-                if imgui.CollapsingHeader("Настройки сообщений##live_message_settings") then
-                                imgui.PushItemWidth(200)
-                                local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
-                                local send_labels, send_labels_ffi = get_send_targets()
-                                local send_count = 0
-                                if type(send_labels) == "table" then
-                                                send_count = #send_labels
-                                end
-                                if send_labels_ffi and send_count > 0 then
-                                                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
-                                                                local max_index = math.max(0, send_count - 1)
-                                                                local new_method = method_buf[0]
-                                                                if new_method < 0 then
-                                                                                new_method = 0
-                                                                elseif new_method > max_index then
-                                                                                new_method = max_index
-                                                                end
-                                                                MathQuiz.chat_method = new_method
-                                                                Config:save()
-                                                end
-                                else
-                                                imgui.TextDisabled("Методы отправки недоступны")
-                                end
-                                imgui.PopItemWidth()
-
-                                imgui.PushItemWidth(200)
-                                local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
-                                if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
-                                                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
-                                                Config:save()
-                                end
-                                imgui.PopItemWidth()
-
-                                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-                                if intro_changed then
-                                                Config:save()
-                                end
-
-                                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-                                if outro_changed then
-                                                Config:save()
-                                end
-
-                                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-                                if reminder_changed then
-                                                Config:save()
-                                end
-                end
+imgui.SameLine()
+push_button_palette(COLOR_ACCENT_PRIMARY)
+if imgui.Button("Напоминание") then
+send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+end
+pop_button_palette()
 end
 
 local function draw_sms_listener_controls()
-                local controls_available = can_use_sms_listener()
-                local button_label
-                local action
+local controls_available = can_use_sms_listener()
+local button_label
+local action
 
                 if sms_listener_active then
                                 button_label = "Закончить прием сообщений"
@@ -1840,6 +1798,60 @@ local function draw_news_input_panel()
                 end
 end
 
+local function draw_live_settings_tab()
+                imgui.Text("Настройки эфира")
+
+                imgui.PushItemWidth(200)
+                local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
+                local send_labels, send_labels_ffi = get_send_targets()
+                local send_count = 0
+                if type(send_labels) == "table" then
+                                send_count = #send_labels
+                end
+                if send_labels_ffi and send_count > 0 then
+                                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
+                                                local max_index = math.max(0, send_count - 1)
+                                                local new_method = method_buf[0]
+                                                if new_method < 0 then
+                                                                new_method = 0
+                                                elseif new_method > max_index then
+                                                                new_method = max_index
+                                                end
+                                                MathQuiz.chat_method = new_method
+                                                Config:save()
+                                end
+                else
+                                imgui.TextDisabled("Методы отправки недоступны")
+                end
+                imgui.PopItemWidth()
+
+                imgui.PushItemWidth(200)
+                local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
+                if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
+                                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
+                                Config:save()
+                end
+                imgui.PopItemWidth()
+
+                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+                if intro_changed then
+                                Config:save()
+                end
+
+                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+                if outro_changed then
+                                Config:save()
+                end
+
+                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+                if reminder_changed then
+                                Config:save()
+                end
+
+                imgui.Separator()
+                draw_win_message_settings()
+end
+
 local function draw_live_window_content()
                 if imgui.BeginTabBar("smilive_tabs") then
                                 if imgui.BeginTabItem("Эфир") then
@@ -1849,15 +1861,20 @@ local function draw_live_window_content()
                                                 imgui.EndTabItem()
                                 end
 
-if imgui.BeginTabItem("Викторина") then
-SMILive.DrawMathQuiz(false)
-imgui.EndTabItem()
-end
+                                if imgui.BeginTabItem("Викторина") then
+                                                SMILive.DrawMathQuiz(false)
+                                                imgui.EndTabItem()
+                                end
 
-if imgui.BeginTabItem("Таблица") then
-draw_math_quiz_tables_section()
-imgui.EndTabItem()
-end
+                                if imgui.BeginTabItem("Таблица") then
+                                                draw_math_quiz_tables_section()
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Настройки") then
+                                                draw_live_settings_tab()
+                                                imgui.EndTabItem()
+                                end
 
                                 imgui.EndTabBar()
                 end
