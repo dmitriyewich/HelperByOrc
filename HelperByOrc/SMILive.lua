@@ -41,7 +41,6 @@ local function flags_or(...)
 end
 
 local NEWS_INPUT_MAX_LENGTH = 90
-local NEWS_INPUT_PANEL_HEIGHT = 150
 local NEWS_INPUT_BUFFER_SIZE = 512
 
 local function run_async(label, fn)
@@ -1597,32 +1596,31 @@ local function draw_news_input_panel()
 end
 
 local function draw_live_window_content()
-		imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
-		imgui.Spacing()
-		imgui.Separator()
-		draw_live_broadcast_controls()
-		imgui.Spacing()
-		imgui.Separator()
-		draw_sms_listener_controls()
-		imgui.Spacing()
-		imgui.Separator()
-		SMILive.DrawMathQuiz()
+                if imgui.BeginTabBar("smilive_tabs") then
+                                if imgui.BeginTabItem("Эфир") then
+                                                draw_live_broadcast_controls()
+                                                imgui.Spacing()
+                                                imgui.Separator()
+                                                draw_sms_listener_controls()
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Викторина") then
+                                                SMILive.DrawMathQuiz()
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Объявления") then
+                                                draw_news_input_panel()
+                                                imgui.EndTabItem()
+                                end
+
+                                imgui.EndTabBar()
+                end
 end
 
 local function draw_live_window()
-		local bottom_height = NEWS_INPUT_PANEL_HEIGHT
-
-		if imgui.BeginChild("smilive_main", imgui.ImVec2(0, -bottom_height), true) then
-				draw_live_window_content()
-		end
-		imgui.EndChild()
-
-		imgui.Spacing()
-
-		if imgui.BeginChild("smilive_news_input", imgui.ImVec2(0, bottom_height), true) then
-				draw_news_input_panel()
-		end
-		imgui.EndChild()
+                draw_live_window_content()
 end
 
 function SMILive.OpenWindow()
