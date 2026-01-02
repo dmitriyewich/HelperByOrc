@@ -94,9 +94,9 @@ local COLOR_ACCENT_DANGER = imgui.ImVec4(0.85, 0.35, 0.35, 1)
 local function push_button_palette(base)
                 local hover = imgui.ImVec4(math.min(base.x + 0.1, 1), math.min(base.y + 0.1, 1), math.min(base.z + 0.1, 1), base.w)
                 local active = imgui.ImVec4(math.max(base.x - 0.05, 0), math.max(base.y - 0.05, 0), math.max(base.z - 0.05, 0), base.w)
-                imgui.PushStyleColor(imgui.Col_Button, base)
-                imgui.PushStyleColor(imgui.Col_ButtonHovered, hover)
-                imgui.PushStyleColor(imgui.Col_ButtonActive, active)
+                imgui.PushStyleColor(imgui.Col.Button, base)
+                imgui.PushStyleColor(imgui.Col.ButtonHovered, hover)
+                imgui.PushStyleColor(imgui.Col.ButtonActive, active)
 end
 
 local function pop_button_palette()
