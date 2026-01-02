@@ -1257,155 +1257,105 @@ end
 
 
 function SMILive.DrawMathQuiz(show_tables)
-                imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
-                imgui.Separator()
-
-		if not MathQuiz.active then
-				imgui.Text("Выберите цель по очкам:")
-				for idx, target in ipairs(MathQuiz.target_scores) do
-						if idx > 1 then
-								imgui.SameLine()
-						end
-						imgui.PushIDInt(idx)
-						if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
-								MathQuiz.target_index = idx
-								Config:save()
-						end
-						imgui.PopID()
-				end
-				if imgui.Button("Начать новую игру") then
-						start_new_game()
-				end
-				if MathQuiz.winner then
-						imgui.TextColored(imgui.ImVec4(0.6, 1.0, 0.6, 1), format_status("Прошлый победитель: %s", MathQuiz.winner))
-				end
-		else
-				imgui.Text(string.format("Цель: %d очка", MathQuiz.target_scores[MathQuiz.target_index]))
-				if imgui.Button("Сгенерировать пример") then
-						if MathQuiz.awaiting_next_round then
-								update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
-						else
-								begin_round()
-						end
-				end
-				if MathQuiz.awaiting_next_round then
-						imgui.SameLine()
-						if imgui.Button("Следующий пример") then
-								begin_round()
-						end
-				end
+	if not MathQuiz.active then
+		for idx, target in ipairs(MathQuiz.target_scores) do
+			if idx > 1 then
 				imgui.SameLine()
-				if imgui.Button("Завершить игру") then
-						MathQuiz.active = false
-						update_status("Игра завершена вручную.")
-						MathQuiz.current_problem = nil
-						MathQuiz.current_answer = nil
-						MathQuiz.round_answer = nil
-						MathQuiz.answer_start_time = nil
-						MathQuiz.accepting_answers = false
-						MathQuiz.awaiting_next_round = false
-						MathQuiz.custom_error = nil
-				end
-				imgui.Spacing()
-				imgui.Text("или задайте свой пример")
-				imgui.PushItemWidth(250)
-				imgui.InputText("Пример##MathQuizCustom", MathQuiz.custom_problem_buf, 128)
-				imgui.PopItemWidth()
-				if imgui.Button("Использовать пример") then
-						if MathQuiz.awaiting_next_round then
-								local message = "Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\"."
-								update_status(message)
-								MathQuiz.custom_error = message
-						else
-								local ok, err = begin_custom_round(str(MathQuiz.custom_problem_buf))
-								if ok then
-										MathQuiz.custom_error = nil
-										imgui.StrCopy(MathQuiz.custom_problem_buf, "")
-								else
-										MathQuiz.custom_error = err or "Не удалось установить пример."
-								end
-						end
-				end
-				if MathQuiz.custom_error then
-						imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), MathQuiz.custom_error)
-				end
+			end
+			imgui.PushIDInt(idx)
+			if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
+				MathQuiz.target_index = idx
+				Config:save()
+			end
+			imgui.PopID()
+		end
+
+		imgui.SameLine()
+		if imgui.Button("Начать игру") then
+			start_new_game()
+		end
+	else
+		if imgui.Button("Сгенерировать пример") then
+			if MathQuiz.awaiting_next_round then
+				update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
+			else
+				begin_round()
+			end
+		end
+
+		if MathQuiz.awaiting_next_round then
+			imgui.SameLine()
+			if imgui.Button("Следующий пример") then
+				begin_round()
+			end
+		end
+
+		imgui.SameLine()
+		if imgui.Button("Завершить игру") then
+			MathQuiz.active = false
+			update_status("Игра завершена вручную.")
+			MathQuiz.current_problem = nil
+			MathQuiz.current_answer = nil
+			MathQuiz.round_answer = nil
+			MathQuiz.answer_start_time = nil
+			MathQuiz.accepting_answers = false
+			MathQuiz.awaiting_next_round = false
+			MathQuiz.custom_error = nil
 		end
 
 		if MathQuiz.current_problem then
-				imgui.Spacing()
-				imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
+			imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
+			imgui.SameLine()
+			imgui.Checkbox("Показать ответ", MathQuiz.show_answer)
+			if MathQuiz.show_answer[0] and MathQuiz.current_answer then
 				imgui.SameLine()
-				imgui.Checkbox("Показать ответ", MathQuiz.show_answer)
-				if MathQuiz.show_answer[0] and MathQuiz.current_answer then
-						imgui.SameLine()
-						imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1), string.format("= %s", tostring(MathQuiz.current_answer)))
-				end
+				imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1), string.format("= %s", tostring(MathQuiz.current_answer)))
+			end
 		end
 
-		imgui.Spacing()
-		imgui.TextWrapped(MathQuiz.status_text)
-		imgui.Spacing()
-
-		if MathQuiz.latest_round_stats then
-				local stats = MathQuiz.latest_round_stats
-				imgui.TextColored(imgui.ImVec4(0.7, 0.9, 1.0, 1), format_status("Первый верный ответ: %s[%s] - %s", stats.winner, stats.player_id or "-", format_seconds(stats.response_time)))
-				if stats.lead then
-						imgui.Text(format_status("Преимущество по времени: %s", format_seconds(stats.lead)))
+		imgui.Text("или задайте свой пример:")
+		imgui.PushItemWidth(250)
+		imgui.InputText("##MathQuizCustom", MathQuiz.custom_problem_buf, 128)
+		imgui.PopItemWidth()
+		imgui.SameLine()
+		if imgui.Button("Использовать пример") then
+			if MathQuiz.awaiting_next_round then
+				local message = "Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\"."
+				update_status(message)
+				MathQuiz.custom_error = message
+			else
+				local ok, err = begin_custom_round(str(MathQuiz.custom_problem_buf))
+				if ok then
+					MathQuiz.custom_error = nil
+					imgui.StrCopy(MathQuiz.custom_problem_buf, "")
 				else
-						imgui.Text("Преимущество по времени: -")
+					MathQuiz.custom_error = err or "Не удалось установить пример."
 				end
-				if stats.total_responses then
-						imgui.Text(format_status("Всего ответов: %d", stats.total_responses))
-				end
-				if stats.correct_answer ~= nil then
-						imgui.Text(format_status("Правильный ответ: %s", tostring(stats.correct_answer)))
-				end
-				imgui.Spacing()
+			end
 		end
-
-                if MathQuiz.current_problem then
-                                if imgui.Button("Отправить текущий пример в чат") then
-                                                broadcast_problem(MathQuiz.current_problem)
-				end
+		if MathQuiz.custom_error then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), MathQuiz.custom_error)
 		end
-		if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
-				if MathQuiz.current_problem then
-						imgui.SameLine()
-				end
-				if imgui.Button("Объявить правильный ответ в чат") then
-						local stats = MathQuiz.latest_round_stats
-						broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id)
-				end
+	end
+
+	if MathQuiz.current_problem then
+		if imgui.Button("Отправить пример в чат") then
+			broadcast_problem(MathQuiz.current_problem)
 		end
-		imgui.Spacing()
+		imgui.SameLine()
+	end
 
-		if MathQuiz.active and MathQuiz.current_problem then
-				imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)
-				imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
-                                if imgui.Button("Проверить ответ") then
-                                                local name = normalize_player_name(str(MathQuiz.player_name_buf))
-                                                local answer_str = str(MathQuiz.player_answer_buf)
-                                                local provided = tonumber(answer_str)
-						if name == "" then
-								update_status("Введите ник игрока.")
-						elseif not provided then
-								update_status("Введите числовой ответ.")
-						else
-								if MathQuiz.current_answer and provided == MathQuiz.current_answer then
-										handle_correct_answer(name)
-								else
-										handle_wrong_answer(name, provided)
-								end
-								reset_buffers()
-                                                end
-                                end
-                end
+	if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
+		if imgui.Button("Объявить ответ в чат") then
+			local stats = MathQuiz.latest_round_stats
+			broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id)
+		end
+	end
 
-                if show_tables ~= false then
-                                draw_math_quiz_tables_section()
-                end
-
-                draw_math_quiz_reset_controls()
+	if show_tables ~= false then
+		draw_math_quiz_tables_section()
+		draw_math_quiz_reset_controls()
+	end
 end
 
 local LiveWindow = {
