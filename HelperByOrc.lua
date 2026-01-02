@@ -452,29 +452,32 @@ imgui.OnFrame(
 -- === Глобальный хоткей для вызова главного окна ===
 addEventHandler(
         "onWindowMessage",
-        function(msg, wparam, lparam)
+        function(msg, wparam)
                 local isKeyDownMsg = msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN
                 local isKeyUpMsg = msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP
+                if not (isKeyDownMsg or isKeyUpMsg) then
+                        return
+                end
 
-                if (isKeyDownMsg or isKeyUpMsg) and isKeyboardKey(wparam) then
-                        pressedKeysSet[normalizeKey(wparam)] = isKeyDownMsg
-                        rebuildPressedList()
+                local keyCode = normalizeKey(wparam)
+                if not isKeyboardKey(keyCode) then
+                        return
                 end
 
                 if openHotkeyCapture and isKeyDownMsg then
-                        if wparam == vk.VK_ESCAPE then
+                        if keyCode == vk.VK_ESCAPE then
                                 openHotkeyDraft = {}
                                 openHotkeyCapture = false
-                        elseif wparam == vk.VK_RETURN or wparam == vk.VK_NUMPADENTER then
+                        elseif keyCode == vk.VK_RETURN or keyCode == vk.VK_NUMPADENTER then
                                 if #openHotkeyDraft > 0 then
                                         setOpenHotkey(openHotkeyDraft)
                                 end
                                 openHotkeyDraft = {}
                                 openHotkeyCapture = false
-                        elseif wparam == vk.VK_BACK then
+                        elseif keyCode == vk.VK_BACK then
                                 openHotkeyDraft = {}
-                        elseif isKeyboardKey(wparam) then
-                                local nk = normalizeKey(wparam)
+                        else
+                                local nk = normalizeKey(keyCode)
                                 local dup = false
                                 for _, k in ipairs(openHotkeyDraft) do
                                         if k == nk then
@@ -494,14 +497,25 @@ addEventHandler(
                         return
                 end
 
-                if isKeyDownMsg or isKeyUpMsg then
-                        local comboNow = keysMatchCombo(pressedKeysList, openHotkey)
-                        if comboNow and not openHotkeyActive then
-                                toggleRenderHotkeyWnd()
-                                openHotkeyActive = true
-                        elseif not comboNow and openHotkeyActive then
+                if keyCode == vk.VK_ESCAPE and renderHotkeyWnd[0] then
+                        if isKeyDownMsg and type(consumeWindowMessage) == "function" then
+                                consumeWindowMessage(true, false)
+                        elseif isKeyUpMsg then
+                                setRenderHotkeyWnd(false)
                                 openHotkeyActive = false
                         end
+                        return
+                end
+
+                pressedKeysSet[keyCode] = isKeyDownMsg
+                rebuildPressedList()
+
+                local comboNow = keysMatchCombo(pressedKeysList, openHotkey)
+                if comboNow and not openHotkeyActive then
+                        toggleRenderHotkeyWnd()
+                        openHotkeyActive = true
+                elseif not comboNow and openHotkeyActive then
+                        openHotkeyActive = false
                 end
         end
 )
