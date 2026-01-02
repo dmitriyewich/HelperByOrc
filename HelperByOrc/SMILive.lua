@@ -1144,9 +1144,9 @@ start_sms_listener = function(silent)
 end
 
 stop_sms_listener = function(silent)
-		if not sms_listener_active then
-				return true
-		end
+                if not sms_listener_active then
+                                return true
+                end
 		if not can_use_sms_listener() then
 				sms_listener_active = false
 				if not silent then
@@ -1158,14 +1158,107 @@ stop_sms_listener = function(silent)
 		sms_listener_active = false
 		if not silent then
 				update_status("Приём SMS-сообщений остановлен.")
-		end
-		return true
+                end
+                return true
 end
 
 
-function SMILive.DrawMathQuiz()
-		imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
-		imgui.Separator()
+local function draw_math_quiz_tables_section()
+                imgui.Spacing()
+
+                if has_players() then
+                                imgui.Separator()
+                                imgui.Text("Таблица очков")
+                                imgui.Columns(3, "math_quiz_scoreboard", true)
+                                imgui.Text("Игрок")
+                                imgui.NextColumn()
+                                imgui.Text("Очки")
+                                imgui.NextColumn()
+                                imgui.Text("Последний ответ")
+                                imgui.NextColumn()
+                                imgui.Separator()
+                                for _, row in ipairs(iterate_players_sorted()) do
+                                                imgui.Text(row.name)
+                                                if MathQuiz.winner and MathQuiz.winner == row.name then
+                                                                imgui.SameLine()
+                                                                imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
+                                                end
+                                                imgui.NextColumn()
+                                                imgui.Text(tostring(row.score))
+                                                imgui.NextColumn()
+                                                if row.last_answer ~= nil then
+                                                                local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
+                                                                imgui.TextColored(color, tostring(row.last_answer))
+                                                else
+                                                                imgui.Text("-")
+                                                end
+                                                imgui.NextColumn()
+                                end
+                                imgui.Columns(1)
+                end
+
+                if #MathQuiz.current_responses > 0 then
+                                imgui.Separator()
+                                imgui.Text("Ответы текущего раунда")
+                                imgui.Columns(4, "math_quiz_responses", true)
+                                imgui.Text("Игрок")
+                                imgui.NextColumn()
+                                imgui.Text("ID")
+                                imgui.NextColumn()
+                                imgui.Text("Ответ")
+                                imgui.NextColumn()
+                                imgui.Text("Время")
+                                imgui.NextColumn()
+                                imgui.Separator()
+                                for _, resp in ipairs(MathQuiz.current_responses) do
+                                                imgui.Text(resp.name)
+                                                if resp.outcome == "first" then
+                                                                imgui.SameLine()
+                                                                imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
+                                                end
+                                                imgui.NextColumn()
+                                                imgui.Text(resp.player_id and tostring(resp.player_id) or "-")
+                                                imgui.NextColumn()
+                                                local display_answer = resp.text ~= "" and resp.text or "-"
+                                                local color
+                                                if resp.outcome == "first" then
+                                                                color = imgui.ImVec4(0.4, 1.0, 0.4, 1)
+                                                elseif resp.outcome == "late" then
+                                                                color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
+                                                elseif resp.correct then
+                                                                color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
+                                                else
+                                                                color = imgui.ImVec4(1.0, 0.4, 0.4, 1)
+                                                end
+                                                imgui.TextColored(color, display_answer)
+                                                imgui.NextColumn()
+                                                if resp.response_time then
+                                                                imgui.Text(format_seconds(resp.response_time))
+                                                else
+                                                                imgui.Text("-")
+                                                end
+                                                imgui.NextColumn()
+                                end
+                                imgui.Columns(1)
+                end
+end
+
+local function draw_math_quiz_reset_controls()
+                if MathQuiz.active then
+                                if imgui.Button("Сбросить игру") then
+                                                start_new_game()
+                                end
+                else
+                                if imgui.Button("Сбросить таблицу") then
+                                                reset_scoreboard()
+                                end
+                end
+end
+
+
+function SMILive.DrawMathQuiz(show_tables)
+                imgui.TextColored(imgui.ImVec4(0.9, 0.75, 0.2, 1), "Эфир-викторина \"Математика\"")
+                imgui.Separator()
 
 		if not MathQuiz.active then
 				imgui.Text("Выберите цель по очкам:")
@@ -1324,10 +1417,10 @@ function SMILive.DrawMathQuiz()
 		if MathQuiz.active and MathQuiz.current_problem then
 				imgui.InputText("Ник игрока", MathQuiz.player_name_buf, 48)
 				imgui.InputText("Ответ", MathQuiz.player_answer_buf, 32, imgui.InputTextFlags.CharsDecimal)
-				if imgui.Button("Проверить ответ") then
-						local name = normalize_player_name(str(MathQuiz.player_name_buf))
-						local answer_str = str(MathQuiz.player_answer_buf)
-						local provided = tonumber(answer_str)
+                                if imgui.Button("Проверить ответ") then
+                                                local name = normalize_player_name(str(MathQuiz.player_name_buf))
+                                                local answer_str = str(MathQuiz.player_answer_buf)
+                                                local provided = tonumber(answer_str)
 						if name == "" then
 								update_status("Введите ник игрока.")
 						elseif not provided then
@@ -1339,96 +1432,15 @@ function SMILive.DrawMathQuiz()
 										handle_wrong_answer(name, provided)
 								end
 								reset_buffers()
-						end
-				end
-		end
+                                                end
+                                end
+                end
 
-		imgui.Spacing()
-		if has_players() then
-				imgui.Separator()
-				imgui.Text("Таблица очков")
-				imgui.Columns(3, "math_quiz_scoreboard", true)
-				imgui.Text("Игрок")
-				imgui.NextColumn()
-				imgui.Text("Очки")
-				imgui.NextColumn()
-				imgui.Text("Последний ответ")
-				imgui.NextColumn()
-				imgui.Separator()
-				for _, row in ipairs(iterate_players_sorted()) do
-						imgui.Text(row.name)
-						if MathQuiz.winner and MathQuiz.winner == row.name then
-								imgui.SameLine()
-								imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
-						end
-						imgui.NextColumn()
-						imgui.Text(tostring(row.score))
-						imgui.NextColumn()
-						if row.last_answer ~= nil then
-								local color = row.last_correct and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.4, 0.4, 1)
-								imgui.TextColored(color, tostring(row.last_answer))
-						else
-								imgui.Text("-")
-						end
-						imgui.NextColumn()
-				end
-				imgui.Columns(1)
-		end
+                if show_tables ~= false then
+                                draw_math_quiz_tables_section()
+                end
 
-		if #MathQuiz.current_responses > 0 then
-				imgui.Separator()
-				imgui.Text("Ответы текущего раунда")
-				imgui.Columns(4, "math_quiz_responses", true)
-				imgui.Text("Игрок")
-				imgui.NextColumn()
-				imgui.Text("ID")
-				imgui.NextColumn()
-				imgui.Text("Ответ")
-				imgui.NextColumn()
-				imgui.Text("Время")
-				imgui.NextColumn()
-				imgui.Separator()
-				for _, resp in ipairs(MathQuiz.current_responses) do
-						imgui.Text(resp.name)
-						if resp.outcome == "first" then
-								imgui.SameLine()
-								imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1), "★")
-						end
-						imgui.NextColumn()
-						imgui.Text(resp.player_id and tostring(resp.player_id) or "-")
-						imgui.NextColumn()
-						local display_answer = resp.text ~= "" and resp.text or "-"
-						local color
-						if resp.outcome == "first" then
-								color = imgui.ImVec4(0.4, 1.0, 0.4, 1)
-						elseif resp.outcome == "late" then
-								color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
-						elseif resp.correct then
-								color = imgui.ImVec4(0.6, 0.8, 0.6, 1)
-						else
-								color = imgui.ImVec4(1.0, 0.4, 0.4, 1)
-						end
-						imgui.TextColored(color, display_answer)
-						imgui.NextColumn()
-						if resp.response_time then
-								imgui.Text(format_seconds(resp.response_time))
-						else
-								imgui.Text("-")
-						end
-						imgui.NextColumn()
-				end
-				imgui.Columns(1)
-		end
-
-		if MathQuiz.active then
-				if imgui.Button("Сбросить игру") then
-						start_new_game()
-				end
-		else
-				if imgui.Button("Сбросить таблицу") then
-						reset_scoreboard()
-				end
-		end
+                draw_math_quiz_reset_controls()
 end
 
 local LiveWindow = {
@@ -1597,16 +1609,32 @@ local function draw_news_input_panel()
 end
 
 local function draw_live_window_content()
-		imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
-		imgui.Spacing()
-		imgui.Separator()
-		draw_live_broadcast_controls()
-		imgui.Spacing()
-		imgui.Separator()
-		draw_sms_listener_controls()
-		imgui.Spacing()
-		imgui.Separator()
-		SMILive.DrawMathQuiz()
+                if imgui.BeginTabBar("smilive_tabs") then
+                                if imgui.BeginTabItem("Эфир") then
+                                                imgui.TextWrapped("Окно SMI Live помогает вести эфир-викторину и контролировать ход раундов.")
+                                                imgui.Spacing()
+                                                imgui.Separator()
+                                                draw_live_broadcast_controls()
+                                                imgui.Spacing()
+                                                imgui.Separator()
+                                                draw_sms_listener_controls()
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Викторина") then
+                                                SMILive.DrawMathQuiz(false)
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Таблица") then
+                                                imgui.TextWrapped(MathQuiz.status_text)
+                                                draw_math_quiz_tables_section()
+                                                draw_math_quiz_reset_controls()
+                                                imgui.EndTabItem()
+                                end
+
+                                imgui.EndTabBar()
+                end
 end
 
 local function draw_live_window()
