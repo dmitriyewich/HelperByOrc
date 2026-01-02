@@ -407,22 +407,26 @@ local function pluralize_points(value)
 		return string.format("%d %s", amount, suffix)
 end
 
-local function format_score_progress(total, gained)
-		gained = math.max(0, math.floor(tonumber(gained) or 0))
-		total = math.max(0, math.floor(tonumber(total) or 0))
-		if total <= gained then
-				if gained > 0 then
-						return string.format("Заработал %s!", pluralize_points(gained))
-				end
-				return "Заработал 0 баллов!"
-		end
+local function format_score_progress(total, gained, gender)
+                gender = gender == "female" and "female" or "male"
+                local earned_verb = gender == "female" and "Заработала" or "Заработал"
+                local possessive_phrase = gender == "female" and "У неё уже" or "У него уже"
 
-		local parts = {}
-		if gained > 0 then
-				parts[#parts + 1] = string.format("Заработал %s!", pluralize_points(gained))
-		end
-		parts[#parts + 1] = string.format("У него уже %s!", pluralize_points(total))
-		return table.concat(parts, " ")
+                gained = math.max(0, math.floor(tonumber(gained) or 0))
+                total = math.max(0, math.floor(tonumber(total) or 0))
+                if total <= gained then
+                                if gained > 0 then
+                                                return string.format("%s %s!", earned_verb, pluralize_points(gained))
+                                end
+                                return string.format("%s 0 баллов!", earned_verb)
+                end
+
+                local parts = {}
+                if gained > 0 then
+                                parts[#parts + 1] = string.format("%s %s!", earned_verb, pluralize_points(gained))
+                end
+                parts[#parts + 1] = string.format("%s %s!", possessive_phrase, pluralize_points(total))
+                return table.concat(parts, " ")
 end
 
 local function get_selected_method()
@@ -663,34 +667,40 @@ local function broadcast_problem(problem)
 		start_sms_listener(true)
 end
 
-local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
-		local normalized = normalize_player_name(player_name)
-		if normalized == "" then
-				normalized = trim(player_name)
+local function broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, gender)
+                local normalized_gender = gender == "female" and "female" or "male"
+                local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+                local normalized = normalize_player_name(player_name)
+                if normalized == "" then
+                                normalized = trim(player_name)
 		end
-		if type(normalized) ~= "string" or normalized == "" then
-				return
-		end
-		local answer_text = answer ~= nil and tostring(answer) or "-"
-		local gained = 1
-		local score_phrase = format_score_progress(score or 0, gained)
-		local broadcast_name = format_broadcast_name(normalized, player_id)
-		local messages = {
-				string.format("%s Стоп!", NEWS_PREFIX),
-				string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
-				string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
-				string.format("%s Верный ответ прислал..", NEWS_PREFIX),
-				string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
-		}
-		if is_final then
-				messages[#messages + 1] = string.format(
-						"%s Викторина завершена! %s набирает %s и побеждает!",
+                if type(normalized) ~= "string" or normalized == "" then
+                                return
+                end
+                local answer_text = answer ~= nil and tostring(answer) or "-"
+                local gained = 1
+                local score_phrase = format_score_progress(score or 0, gained, normalized_gender)
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                local messages = {
+                                string.format("%s Стоп!", NEWS_PREFIX),
+                                string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+                                string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
+                                string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb),
+                                string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
+                }
+                if is_final then
+                                messages[#messages + 1] = string.format(
+                                                "%s Викторина завершена! %s набирает %s и побеждает!",
 						NEWS_PREFIX,
 						broadcast_name,
 						pluralize_points(score or 0)
-				)
-		end
-		broadcast_sequence(messages)
+                                )
+                end
+                broadcast_sequence(messages)
+end
+
+local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
+                broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, "male")
 end
 
 local function parse_sms_message(text)
@@ -1442,12 +1452,16 @@ function SMILive.DrawMathQuiz(show_tables)
 		imgui.SameLine()
 	end
 
-	if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
-		if imgui.Button("Объявить ответ в чат") then
-			local stats = MathQuiz.latest_round_stats
-			broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id)
-		end
-	end
+        if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
+                local stats = MathQuiz.latest_round_stats
+                if imgui.Button("Объявить ответ (м)", imgui.ImVec2(175, 0)) then
+                        broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "male")
+                end
+                imgui.SameLine()
+                if imgui.Button("Объявить ответ (ж)", imgui.ImVec2(175, 0)) then
+                        broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "female")
+                end
+        end
 
 if show_tables ~= false then
 draw_math_quiz_tables_section()
