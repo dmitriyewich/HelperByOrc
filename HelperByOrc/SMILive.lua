@@ -44,6 +44,12 @@ local NEWS_INPUT_MAX_LENGTH = 90
 local NEWS_INPUT_PANEL_HEIGHT = 120
 local NEWS_INPUT_BUFFER_SIZE = 512
 
+local function show_tooltip(text)
+                if imgui.IsItemHovered() then
+                                imgui.SetTooltip(text)
+                end
+end
+
 local function run_async(label, fn)
                 if not fn then
                                 return
@@ -851,6 +857,48 @@ local function broadcast_winner_gender(player_name, score, player_id, gender, an
                 broadcast_sequence(messages)
 end
 
+local function format_display_name(name, player_id)
+                local normalized = normalize_player_name(name)
+                if normalized == "" then
+                                normalized = trim(name)
+                end
+                if normalized == "" then
+                                return "игрок"
+                end
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                return broadcast_name ~= "" and broadcast_name or normalized
+end
+
+local function announce_latest_stats(gender)
+                local stats = MathQuiz.latest_round_stats
+                if not stats or not stats.winner then
+                                update_status("Нет данных для объявления ответа.")
+                                return
+                end
+
+                local normalized_gender = gender == "female" and "female" or "male"
+                local has_winner = MathQuiz.winner ~= nil
+                local display_name = format_display_name(stats.winner, stats.player_id)
+                local subject_label = has_winner and "победителе" or "ответе"
+
+                stop_sms_for_announcement()
+                update_status("Отправляем сообщение об %s для %s (%s)...", subject_label, display_name, normalized_gender == "female" and "ж" or "м")
+
+                if has_winner then
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, normalized_gender, stats.correct_answer, stats.points_awarded)
+                else
+                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, normalized_gender)
+                end
+
+                update_status("Сообщение об %s отправлено для %s.", subject_label, display_name)
+end
+
+local function stop_sms_for_announcement()
+                if stop_sms_listener then
+                                stop_sms_listener(true)
+                end
+end
+
 local function parse_sms_message(text)
 		if type(text) ~= "string" then
 				return nil
@@ -1545,6 +1593,9 @@ end
 
 
 function SMILive.DrawMathQuiz(show_tables)
+        imgui.TextWrapped(MathQuiz.status_text or "")
+        imgui.Dummy(imgui.ImVec2(0, 4))
+
         if not MathQuiz.active then
                 for idx, target in ipairs(MathQuiz.target_scores) do
                         if idx > 1 then
@@ -1594,6 +1645,9 @@ function SMILive.DrawMathQuiz(show_tables)
                 end
                 pop_button_palette()
 
+                imgui.Dummy(imgui.ImVec2(0, 4))
+                imgui.Separator()
+
                 if MathQuiz.current_problem then
                         imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
 			imgui.SameLine()
@@ -1637,25 +1691,32 @@ function SMILive.DrawMathQuiz(show_tables)
 	end
 
         if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
+                imgui.Separator()
+                imgui.Text("Объявление результата")
+                imgui.Dummy(imgui.ImVec2(0, 2))
+
                 local stats = MathQuiz.latest_round_stats
                 local has_winner = MathQuiz.winner ~= nil
                 local male_label = has_winner and "Объявить ответ и победителя (м)" or "Объявить ответ (м)"
                 local female_label = has_winner and "Объявить ответ и победителя (ж)" or "Объявить ответ (ж)"
-                if imgui.Button(male_label, imgui.ImVec2(175, 0)) then
-                        if has_winner then
-                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "male", stats.correct_answer, stats.points_awarded)
-                        else
-                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "male")
-                        end
+                local announce_size = imgui.ImVec2(165, 0)
+                local display_name = format_display_name(stats.winner, stats.player_id)
+
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button(male_label, announce_size) then
+                        announce_latest_stats("male")
                 end
+                show_tooltip(string.format("Отправить сообщение для игрока мужского пола, %s", display_name))
+                pop_button_palette()
+
                 imgui.SameLine()
-                if imgui.Button(female_label, imgui.ImVec2(175, 0)) then
-                        if has_winner then
-                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "female", stats.correct_answer, stats.points_awarded)
-                        else
-                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "female")
-                        end
+
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button(female_label, announce_size) then
+                        announce_latest_stats("female")
                 end
+                show_tooltip(string.format("Отправить сообщение для игрока женского пола, %s", display_name))
+                pop_button_palette()
         end
 
 if show_tables ~= false then
@@ -1672,10 +1733,10 @@ local function draw_live_broadcast_controls()
                 if imgui.Button("Начать эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
                 end
-                pop_button_palette()
+                        pop_button_palette()
 
-                imgui.SameLine()
-                push_button_palette(COLOR_ACCENT_DANGER)
+                        imgui.SameLine()
+                        push_button_palette(COLOR_ACCENT_DANGER)
                 if imgui.Button("Закончить эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
                 end
