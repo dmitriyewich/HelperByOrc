@@ -41,7 +41,7 @@ local function flags_or(...)
 end
 
 local NEWS_INPUT_MAX_LENGTH = 90
-local NEWS_INPUT_PANEL_HEIGHT = 150
+local NEWS_INPUT_PANEL_HEIGHT = 120
 local NEWS_INPUT_BUFFER_SIZE = 512
 
 local function run_async(label, fn)
@@ -82,10 +82,26 @@ local NewsInput = {
 }
 
 local NEWS_INPUT_FLAGS = flags_or(
-		imgui.InputTextFlags and imgui.InputTextFlags.NoHorizontalScroll,
-		imgui.InputTextFlags and imgui.InputTextFlags.AllowTabInput,
-		imgui.InputTextFlags and imgui.InputTextFlags.CtrlEnterForNewLine
+                imgui.InputTextFlags and imgui.InputTextFlags.NoHorizontalScroll,
+                imgui.InputTextFlags and imgui.InputTextFlags.AllowTabInput,
+                imgui.InputTextFlags and imgui.InputTextFlags.CtrlEnterForNewLine
 )
+
+local COLOR_ACCENT_PRIMARY = imgui.ImVec4(0.25, 0.55, 0.9, 1)
+local COLOR_ACCENT_SUCCESS = imgui.ImVec4(0.32, 0.64, 0.32, 1)
+local COLOR_ACCENT_DANGER = imgui.ImVec4(0.85, 0.35, 0.35, 1)
+
+local function push_button_palette(base)
+                local hover = imgui.ImVec4(math.min(base.x + 0.1, 1), math.min(base.y + 0.1, 1), math.min(base.z + 0.1, 1), base.w)
+                local active = imgui.ImVec4(math.max(base.x - 0.05, 0), math.max(base.y - 0.05, 0), math.max(base.z - 0.05, 0), base.w)
+                imgui.PushStyleColor(imgui.Col_Button, base)
+                imgui.PushStyleColor(imgui.Col_ButtonHovered, hover)
+                imgui.PushStyleColor(imgui.Col_ButtonActive, active)
+end
+
+local function pop_button_palette()
+                imgui.PopStyleColor(3)
+end
 
 local MathQuiz = {
 		target_scores = { 3, 5 },
@@ -1335,54 +1351,62 @@ end
 
 
 function SMILive.DrawMathQuiz(show_tables)
-	if not MathQuiz.active then
-		for idx, target in ipairs(MathQuiz.target_scores) do
-			if idx > 1 then
-				imgui.SameLine()
-			end
+        if not MathQuiz.active then
+                for idx, target in ipairs(MathQuiz.target_scores) do
+                        if idx > 1 then
+                                imgui.SameLine()
+                        end
 			imgui.PushIDInt(idx)
 			if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
 				MathQuiz.target_index = idx
 				Config:save()
 			end
-			imgui.PopID()
-		end
+                        imgui.PopID()
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Начать игру") then
-			start_new_game()
-		end
-	else
-		if imgui.Button("Сгенерировать пример") then
-			if MathQuiz.awaiting_next_round then
-				update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
-			else
-				begin_round()
-			end
-		end
+                imgui.SameLine()
+                push_button_palette(COLOR_ACCENT_SUCCESS)
+                if imgui.Button("Начать игру") then
+                        start_new_game()
+                end
+                pop_button_palette()
+        else
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button("Сгенерировать пример") then
+                        if MathQuiz.awaiting_next_round then
+                                update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
+                        else
+                                begin_round()
+                        end
+                end
+                pop_button_palette()
 
-		if MathQuiz.awaiting_next_round then
-			imgui.SameLine()
-			if imgui.Button("Следующий пример") then
-				begin_round()
-			end
-		end
+                if MathQuiz.awaiting_next_round then
+                        imgui.SameLine()
+                        push_button_palette(COLOR_ACCENT_PRIMARY)
+                        if imgui.Button("Следующий пример") then
+                                begin_round()
+                        end
+                        pop_button_palette()
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Завершить игру") then
-			MathQuiz.active = false
-			update_status("Игра завершена вручную.")
-			MathQuiz.current_problem = nil
-			MathQuiz.current_answer = nil
-			MathQuiz.round_answer = nil
-			MathQuiz.answer_start_time = nil
-			MathQuiz.accepting_answers = false
-			MathQuiz.awaiting_next_round = false
-			MathQuiz.custom_error = nil
-		end
+                imgui.SameLine()
+                push_button_palette(COLOR_ACCENT_DANGER)
+                if imgui.Button("Завершить игру") then
+                        MathQuiz.active = false
+                        update_status("Игра завершена вручную.")
+                        MathQuiz.current_problem = nil
+                        MathQuiz.current_answer = nil
+                        MathQuiz.round_answer = nil
+                        MathQuiz.answer_start_time = nil
+                        MathQuiz.accepting_answers = false
+                        MathQuiz.awaiting_next_round = false
+                        MathQuiz.custom_error = nil
+                end
+                pop_button_palette()
 
-		if MathQuiz.current_problem then
-			imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
+                if MathQuiz.current_problem then
+                        imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
 			imgui.SameLine()
 			imgui.Checkbox("Показать ответ", MathQuiz.show_answer)
 			if MathQuiz.show_answer[0] and MathQuiz.current_answer then
@@ -1440,19 +1464,25 @@ local LiveWindow = {
 }
 
 local function draw_live_broadcast_controls()
+                push_button_palette(COLOR_ACCENT_SUCCESS)
                 if imgui.Button("Начать эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
                 end
+                pop_button_palette()
 
                 imgui.SameLine()
+                push_button_palette(COLOR_ACCENT_DANGER)
                 if imgui.Button("Закончить эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
                 end
+                pop_button_palette()
 
                 imgui.SameLine()
+                push_button_palette(COLOR_ACCENT_PRIMARY)
                 if imgui.Button("Напоминание") then
                                 send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
                 end
+                pop_button_palette()
 
                 imgui.SetNextItemOpen(false, imgui.Cond.Once)
                 if imgui.CollapsingHeader("Настройки сообщений##live_message_settings") then
@@ -1578,50 +1608,49 @@ local function send_custom_news_message()
 end
 
 local function draw_news_input_panel()
-		imgui.Text("Отправить /news")
-		imgui.Spacing()
+                imgui.Text("Отправить /news")
+                imgui.Dummy(imgui.ImVec2(0, 2))
 
-		local avail = imgui.GetContentRegionAvail()
-		local input_height = math.max(40, avail.y - 70)
+                local avail = imgui.GetContentRegionAvail()
+                local input_height = math.max(50, math.min(80, avail.y - 50))
 
-		imgui.InputTextMultiline(
-				"##live_news_input",
-				NewsInput.buf,
-				NewsInput.buf_size,
-				imgui.ImVec2(0, input_height),
-				NEWS_INPUT_FLAGS
-		)
+                imgui.InputTextMultiline(
+                                "##live_news_input",
+                                NewsInput.buf,
+                                NewsInput.buf_size,
+                                imgui.ImVec2(0, input_height),
+                                NEWS_INPUT_FLAGS
+                )
 
-		update_news_input_state()
+                update_news_input_state()
 
-		if NewsInput.had_prefix then
-				imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Префикс /news добавляется автоматически.")
-		end
+                if NewsInput.had_prefix then
+                                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Префикс /news добавляется автоматически.")
+                end
 
-		local len_color = NewsInput.over_limit and imgui.ImVec4(1.0, 0.4, 0.4, 1) or imgui.ImVec4(0.7, 0.9, 1.0, 1)
-		imgui.TextColored(
-				len_color,
-				string.format("Длина после тегов: %d / %d", NewsInput.processed_len, NEWS_INPUT_MAX_LENGTH)
-		)
+                if NewsInput.tag_error then
+                                imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.3, 1), "Ошибка обработки тегов, используется исходный текст.")
+                end
 
-		if NewsInput.over_limit then
-				imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), "Сократите текст объявления.")
-		end
+                if NewsInput.preview ~= "" then
+                                imgui.TextWrapped("Предпросмотр: " .. NewsInput.preview)
+                end
 
-		if NewsInput.tag_error then
-				imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.3, 1), "Ошибка обработки тегов, используется исходный текст.")
-		end
+                local len_color = NewsInput.over_limit and imgui.ImVec4(1.0, 0.4, 0.4, 1) or imgui.ImVec4(0.7, 0.9, 1.0, 1)
+                imgui.TextColored(
+                                len_color,
+                                string.format("Длина после тегов: %d / %d", NewsInput.processed_len, NEWS_INPUT_MAX_LENGTH)
+                )
+                imgui.SameLine()
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button("Отправить /news") then
+                                send_custom_news_message()
+                end
+                pop_button_palette()
 
-		if NewsInput.preview ~= "" then
-				imgui.TextWrapped("Предпросмотр: " .. NewsInput.preview)
-		else
-				imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Введите текст объявления.")
-		end
-
-		imgui.Spacing()
-		if imgui.Button("Отправить /news") then
-				send_custom_news_message()
-		end
+                if NewsInput.over_limit then
+                                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), "Сократите текст объявления.")
+                end
 end
 
 local function draw_live_window_content()
