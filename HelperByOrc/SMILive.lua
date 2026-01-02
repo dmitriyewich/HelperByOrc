@@ -44,6 +44,12 @@ local NEWS_INPUT_MAX_LENGTH = 90
 local NEWS_INPUT_PANEL_HEIGHT = 120
 local NEWS_INPUT_BUFFER_SIZE = 512
 
+local function show_tooltip(text)
+                if imgui.IsItemHovered() then
+                                imgui.SetTooltip(text)
+                end
+end
+
 local function run_async(label, fn)
                 if not fn then
                                 return
@@ -140,6 +146,50 @@ local LiveBroadcast = {
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\SMILive.json"
 
 local Config = { data = {} }
+local WIN_MESSAGE_MIN_BUFFER = 256
+local WinMessageBuffers = { male = nil, female = nil }
+
+local function set_win_message_buffer(key, text)
+                local entry = WinMessageBuffers[key] or { size = WIN_MESSAGE_MIN_BUFFER }
+                local safe_text = tostring(text or "")
+                local required = math.max(WIN_MESSAGE_MIN_BUFFER, #safe_text + 1)
+                if not entry.buf or entry.size < required then
+                                entry.buf = imgui.new.char[required]()
+                                entry.size = required
+                end
+                imgui.StrCopy(entry.buf, safe_text)
+                entry.size = required
+                WinMessageBuffers[key] = entry
+end
+
+local function load_win_message_buffers_from_config()
+                if type(Config.data) ~= "table" then
+                                Config.data = {}
+                end
+
+                if type(Config.data.win_messages) ~= "table" then
+                                Config.data.win_messages = {}
+                end
+
+                local win_cfg = Config.data.win_messages
+                set_win_message_buffer("male", table.concat(win_cfg.male or {}, "\n"))
+                set_win_message_buffer("female", table.concat(win_cfg.female or {}, "\n"))
+end
+
+local function sanitize_message_list(list)
+                local sanitized = {}
+                if type(list) == "table" then
+                                for _, msg in ipairs(list) do
+                                                if type(msg) == "string" then
+                                                                local cleaned = msg:gsub("^%s*(.-)%s*$", "%1")
+                                                                if cleaned ~= "" then
+                                                                                sanitized[#sanitized + 1] = cleaned
+                                                                end
+                                                end
+                                end
+                end
+                return sanitized
+end
 
 local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
 local liveInputResizeCallbackPtr = nil
@@ -302,8 +352,8 @@ function Config:load()
 		MathQuiz.chat_interval_ms = saved_interval
 		quiz_cfg.chat_interval_ms = saved_interval
 
-		local saved_target = tonumber(quiz_cfg.target_index)
-		if saved_target then
+                local saved_target = tonumber(quiz_cfg.target_index)
+                if saved_target then
 				saved_target = math.floor(saved_target)
 		else
 				saved_target = MathQuiz.target_index or 1
@@ -315,11 +365,17 @@ function Config:load()
 		if max_target > 0 and saved_target > max_target then
 				saved_target = max_target
 		end
-		MathQuiz.target_index = saved_target
-		quiz_cfg.target_index = saved_target
+                MathQuiz.target_index = saved_target
+                quiz_cfg.target_index = saved_target
 
-		data.math_quiz = quiz_cfg
-		self.data = data
+                local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+                win_cfg.male = sanitize_message_list(win_cfg.male)
+                win_cfg.female = sanitize_message_list(win_cfg.female)
+                data.win_messages = win_cfg
+
+                data.math_quiz = quiz_cfg
+                self.data = data
+                load_win_message_buffers_from_config()
 end
 
 function Config:save()
@@ -348,14 +404,19 @@ function Config:save()
 		if target_index < 1 then
 				target_index = 1
 		end
-		local max_target = #MathQuiz.target_scores
-		if max_target > 0 and target_index > max_target then
-				target_index = max_target
-		end
-		quiz_cfg.target_index = target_index
+                local max_target = #MathQuiz.target_scores
+                if max_target > 0 and target_index > max_target then
+                                target_index = max_target
+                end
+                quiz_cfg.target_index = target_index
 
-		data.math_quiz = quiz_cfg
-		self.data = data
+                local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+                win_cfg.male = sanitize_message_list(win_cfg.male)
+                win_cfg.female = sanitize_message_list(win_cfg.female)
+                data.win_messages = win_cfg
+
+                data.math_quiz = quiz_cfg
+                self.data = data
 
 		if funcs and funcs.saveTableToJson then
 				funcs.saveTableToJson(data, CONFIG_PATH)
@@ -407,22 +468,26 @@ local function pluralize_points(value)
 		return string.format("%d %s", amount, suffix)
 end
 
-local function format_score_progress(total, gained)
-		gained = math.max(0, math.floor(tonumber(gained) or 0))
-		total = math.max(0, math.floor(tonumber(total) or 0))
-		if total <= gained then
-				if gained > 0 then
-						return string.format("Заработал %s!", pluralize_points(gained))
-				end
-				return "Заработал 0 баллов!"
-		end
+local function format_score_progress(total, gained, gender)
+                gender = gender == "female" and "female" or "male"
+                local earned_verb = gender == "female" and "Заработала" or "Заработал"
+                local possessive_phrase = gender == "female" and "У неё уже" or "У него уже"
 
-		local parts = {}
-		if gained > 0 then
-				parts[#parts + 1] = string.format("Заработал %s!", pluralize_points(gained))
-		end
-		parts[#parts + 1] = string.format("У него уже %s!", pluralize_points(total))
-		return table.concat(parts, " ")
+                gained = math.max(0, math.floor(tonumber(gained) or 0))
+                total = math.max(0, math.floor(tonumber(total) or 0))
+                if total <= gained then
+                                if gained > 0 then
+                                                return string.format("%s %s!", earned_verb, pluralize_points(gained))
+                                end
+                                return string.format("%s 0 баллов!", earned_verb)
+                end
+
+                local parts = {}
+                if gained > 0 then
+                                parts[#parts + 1] = string.format("%s %s!", earned_verb, pluralize_points(gained))
+                end
+                parts[#parts + 1] = string.format("%s %s!", possessive_phrase, pluralize_points(total))
+                return table.concat(parts, " ")
 end
 
 local function get_selected_method()
@@ -520,7 +585,57 @@ local function broadcast_sequence(messages)
 end
 
 local function trim(s)
-		return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+return tostring(s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function ensure_win_message_buffer(key)
+                local entry = WinMessageBuffers[key]
+                if not entry then
+                                entry = { buf = imgui.new.char[WIN_MESSAGE_MIN_BUFFER](), size = WIN_MESSAGE_MIN_BUFFER }
+                                WinMessageBuffers[key] = entry
+                end
+                return entry
+end
+
+local function maybe_grow_win_buffer(entry)
+                if not entry or not entry.buf or not entry.size then
+                                return
+                end
+
+                local content = str(entry.buf)
+                if #content + 1 >= entry.size then
+                                local new_size = entry.size * 2
+                                entry.buf = imgui.new.char[new_size](content)
+                                entry.size = new_size
+                end
+end
+
+local function update_win_messages_from_buffer(key, entry)
+                if not entry or not entry.buf then
+                                return
+                end
+
+                local parsed = {}
+                for line in str(entry.buf):gmatch("[^\r\n]+") do
+                                local cleaned = trim(line)
+                                if cleaned ~= "" then
+                                                parsed[#parsed + 1] = cleaned
+                                end
+                end
+
+                Config.data.win_messages = Config.data.win_messages or {}
+                Config.data.win_messages[key] = parsed
+                set_win_message_buffer(key, table.concat(parsed, "\n"))
+                Config:save()
+end
+
+local function get_win_messages_for_gender(gender)
+                local win_cfg = Config.data and Config.data.win_messages or {}
+                if gender == "female" then
+                                return sanitize_message_list(win_cfg.female)
+                end
+
+                return sanitize_message_list(win_cfg.male)
 end
 
 local function flatten_news_text(text)
@@ -663,34 +778,125 @@ local function broadcast_problem(problem)
 		start_sms_listener(true)
 end
 
-local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
-		local normalized = normalize_player_name(player_name)
-		if normalized == "" then
-				normalized = trim(player_name)
+local function broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, gender)
+                local normalized_gender = gender == "female" and "female" or "male"
+                local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+                local normalized = normalize_player_name(player_name)
+                if normalized == "" then
+                                normalized = trim(player_name)
 		end
-		if type(normalized) ~= "string" or normalized == "" then
-				return
-		end
-		local answer_text = answer ~= nil and tostring(answer) or "-"
-		local gained = 1
-		local score_phrase = format_score_progress(score or 0, gained)
-		local broadcast_name = format_broadcast_name(normalized, player_id)
-		local messages = {
-				string.format("%s Стоп!", NEWS_PREFIX),
-				string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
-				string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
-				string.format("%s Верный ответ прислал..", NEWS_PREFIX),
-				string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
-		}
-		if is_final then
-				messages[#messages + 1] = string.format(
-						"%s Викторина завершена! %s набирает %s и побеждает!",
+                if type(normalized) ~= "string" or normalized == "" then
+                                return
+                end
+                local answer_text = answer ~= nil and tostring(answer) or "-"
+                local gained = 1
+                local score_phrase = format_score_progress(score or 0, gained, normalized_gender)
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                local messages = {
+                                string.format("%s Стоп!", NEWS_PREFIX),
+                                string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+                                string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
+                                string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb),
+                                string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
+                }
+                if is_final then
+                                messages[#messages + 1] = string.format(
+                                                "%s Викторина завершена! %s набирает %s и побеждает!",
 						NEWS_PREFIX,
 						broadcast_name,
 						pluralize_points(score or 0)
-				)
-		end
-		broadcast_sequence(messages)
+                                )
+                end
+                broadcast_sequence(messages)
+end
+
+local function broadcast_correct_answer(player_name, answer, score, is_final, player_id)
+                broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, "male")
+end
+
+local function broadcast_winner_gender(player_name, score, player_id, gender, answer, points_awarded)
+                local normalized_gender = gender == "female" and "female" or "male"
+                local normalized = normalize_player_name(player_name)
+                if normalized == "" then
+                                normalized = trim(player_name)
+                end
+                if type(normalized) ~= "string" or normalized == "" then
+                                return
+                end
+
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                local score_text = pluralize_points(score or 0)
+                local answer_text = trim(answer)
+                local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+                local gained = math.max(0, math.floor(tonumber(points_awarded) or 1))
+                local score_phrase = format_score_progress(score or 0, gained, normalized_gender)
+
+                local messages = {
+                                string.format("%s Стоп!", NEWS_PREFIX),
+                                string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+                }
+
+                if answer_text ~= "" then
+                                messages[#messages + 1] = string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text)
+                end
+
+                messages[#messages + 1] = string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb)
+                messages[#messages + 1] = string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
+
+                local gendered_messages = get_win_messages_for_gender(normalized_gender)
+                local template = gendered_messages and #gendered_messages > 0 and gendered_messages[math_random(1, #gendered_messages)]
+                                or "Викторина завершена! %s набирает %s и побеждает!"
+                local ok_template, formatted_template = pcall(string.format, template, broadcast_name, score_text)
+                if not ok_template then
+                                formatted_template = string.format("Викторина завершена! %s набирает %s и побеждает!", broadcast_name, score_text)
+                end
+                local victory_message = string.format("%s %s", NEWS_PREFIX, formatted_template)
+
+                messages[#messages + 1] = victory_message
+
+                broadcast_sequence(messages)
+end
+
+local function format_display_name(name, player_id)
+                local normalized = normalize_player_name(name)
+                if normalized == "" then
+                                normalized = trim(name)
+                end
+                if normalized == "" then
+                                return "игрок"
+                end
+                local broadcast_name = format_broadcast_name(normalized, player_id)
+                return broadcast_name ~= "" and broadcast_name or normalized
+end
+
+local function stop_sms_for_announcement()
+                if stop_sms_listener then
+                                stop_sms_listener(true)
+                end
+end
+
+local function announce_latest_stats(gender)
+                local stats = MathQuiz.latest_round_stats
+                if not stats or not stats.winner then
+                                update_status("Нет данных для объявления ответа.")
+                                return
+                end
+
+                local normalized_gender = gender == "female" and "female" or "male"
+                local has_winner = MathQuiz.winner ~= nil
+                local display_name = format_display_name(stats.winner, stats.player_id)
+                local subject_label = has_winner and "победителе" or "ответе"
+
+                stop_sms_for_announcement()
+                update_status("Отправляем сообщение об %s для %s (%s)...", subject_label, display_name, normalized_gender == "female" and "ж" or "м")
+
+                if has_winner then
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, normalized_gender, stats.correct_answer, stats.points_awarded)
+                else
+                                broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, normalized_gender)
+                end
+
+                update_status("Сообщение об %s отправлено для %s.", subject_label, display_name)
 end
 
 local function parse_sms_message(text)
@@ -1350,7 +1556,46 @@ end
 end
 
 
+local function draw_win_message_settings()
+        imgui.Text("Настройки сообщений победителя")
+        imgui.TextWrapped("Каждое сообщение на новой строке. Используйте %%s для имени и %%s для счёта.")
+
+        local male_buf = ensure_win_message_buffer("male")
+        local female_buf = ensure_win_message_buffer("female")
+
+        imgui.Text("Сообщения для победителя (м)")
+        imgui.InputTextMultiline("##win_male", male_buf.buf, male_buf.size, imgui.ImVec2(0, 100))
+        maybe_grow_win_buffer(male_buf)
+
+        imgui.Text("Сообщения для победительницы (ж)")
+        imgui.InputTextMultiline("##win_female", female_buf.buf, female_buf.size, imgui.ImVec2(0, 100))
+        maybe_grow_win_buffer(female_buf)
+
+        if imgui.Button("Сохранить настройки") then
+                update_win_messages_from_buffer("male", male_buf)
+                update_win_messages_from_buffer("female", female_buf)
+        end
+
+        imgui.SameLine()
+        if imgui.Button("Сбросить к стандартным") then
+                Config.data.win_messages = { male = {}, female = {} }
+                load_win_message_buffers_from_config()
+                Config:save()
+        end
+
+        imgui.TextDisabled("Если список пустой, используется стандартное сообщение.")
+end
+
+
+function SMILive.DrawWinMessageSettings()
+        draw_win_message_settings()
+end
+
+
 function SMILive.DrawMathQuiz(show_tables)
+        imgui.TextWrapped(MathQuiz.status_text or "")
+        imgui.Dummy(imgui.ImVec2(0, 4))
+
         if not MathQuiz.active then
                 for idx, target in ipairs(MathQuiz.target_scores) do
                         if idx > 1 then
@@ -1371,20 +1616,15 @@ function SMILive.DrawMathQuiz(show_tables)
                 end
                 pop_button_palette()
         else
-                push_button_palette(COLOR_ACCENT_PRIMARY)
-                if imgui.Button("Сгенерировать пример") then
-                        if MathQuiz.awaiting_next_round then
-                                update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
-                        else
-                                begin_round()
-                        end
-                end
-                pop_button_palette()
-
                 if MathQuiz.awaiting_next_round then
-                        imgui.SameLine()
                         push_button_palette(COLOR_ACCENT_PRIMARY)
                         if imgui.Button("Следующий пример") then
+                                begin_round()
+                        end
+                        pop_button_palette()
+                else
+                        push_button_palette(COLOR_ACCENT_PRIMARY)
+                        if imgui.Button("Сгенерировать пример") then
                                 begin_round()
                         end
                         pop_button_palette()
@@ -1404,6 +1644,9 @@ function SMILive.DrawMathQuiz(show_tables)
                         MathQuiz.custom_error = nil
                 end
                 pop_button_palette()
+
+                imgui.Dummy(imgui.ImVec2(0, 4))
+                imgui.Separator()
 
                 if MathQuiz.current_problem then
                         imgui.Text(string.format("Текущий пример: %s", MathQuiz.current_problem))
@@ -1447,12 +1690,34 @@ function SMILive.DrawMathQuiz(show_tables)
 		imgui.SameLine()
 	end
 
-	if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
-		if imgui.Button("Объявить ответ в чат") then
-			local stats = MathQuiz.latest_round_stats
-			broadcast_correct_answer(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id)
-		end
-	end
+        if MathQuiz.latest_round_stats and MathQuiz.latest_round_stats.winner then
+                imgui.Separator()
+                imgui.Text("Объявление результата")
+                imgui.Dummy(imgui.ImVec2(0, 2))
+
+                local stats = MathQuiz.latest_round_stats
+                local has_winner = MathQuiz.winner ~= nil
+                local male_label = has_winner and "Объявить ответ и победителя (м)" or "Объявить ответ (м)"
+                local female_label = has_winner and "Объявить ответ и победителя (ж)" or "Объявить ответ (ж)"
+                local announce_size = imgui.ImVec2(165, 0)
+                local display_name = format_display_name(stats.winner, stats.player_id)
+
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button(male_label, announce_size) then
+                        announce_latest_stats("male")
+                end
+                show_tooltip(string.format("Отправить сообщение для игрока мужского пола, %s", display_name))
+                pop_button_palette()
+
+                imgui.SameLine()
+
+                push_button_palette(COLOR_ACCENT_PRIMARY)
+                if imgui.Button(female_label, announce_size) then
+                        announce_latest_stats("female")
+                end
+                show_tooltip(string.format("Отправить сообщение для игрока женского пола, %s", display_name))
+                pop_button_palette()
+        end
 
 if show_tables ~= false then
 draw_math_quiz_tables_section()
@@ -1468,77 +1733,27 @@ local function draw_live_broadcast_controls()
                 if imgui.Button("Начать эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
                 end
-                pop_button_palette()
+                        pop_button_palette()
 
-                imgui.SameLine()
-                push_button_palette(COLOR_ACCENT_DANGER)
+                        imgui.SameLine()
+                        push_button_palette(COLOR_ACCENT_DANGER)
                 if imgui.Button("Закончить эфир") then
                                 send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
                 end
                 pop_button_palette()
 
-                imgui.SameLine()
-                push_button_palette(COLOR_ACCENT_PRIMARY)
-                if imgui.Button("Напоминание") then
-                                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
-                end
-                pop_button_palette()
-
-                imgui.SetNextItemOpen(false, imgui.Cond.Once)
-                if imgui.CollapsingHeader("Настройки сообщений##live_message_settings") then
-                                imgui.PushItemWidth(200)
-                                local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
-                                local send_labels, send_labels_ffi = get_send_targets()
-                                local send_count = 0
-                                if type(send_labels) == "table" then
-                                                send_count = #send_labels
-                                end
-                                if send_labels_ffi and send_count > 0 then
-                                                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
-                                                                local max_index = math.max(0, send_count - 1)
-                                                                local new_method = method_buf[0]
-                                                                if new_method < 0 then
-                                                                                new_method = 0
-                                                                elseif new_method > max_index then
-                                                                                new_method = max_index
-                                                                end
-                                                                MathQuiz.chat_method = new_method
-                                                                Config:save()
-                                                end
-                                else
-                                                imgui.TextDisabled("Методы отправки недоступны")
-                                end
-                                imgui.PopItemWidth()
-
-                                imgui.PushItemWidth(200)
-                                local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
-                                if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
-                                                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
-                                                Config:save()
-                                end
-                                imgui.PopItemWidth()
-
-                                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-                                if intro_changed then
-                                                Config:save()
-                                end
-
-                                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-                                if outro_changed then
-                                                Config:save()
-                                end
-
-                                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-                                if reminder_changed then
-                                                Config:save()
-                                end
-                end
+imgui.SameLine()
+push_button_palette(COLOR_ACCENT_PRIMARY)
+if imgui.Button("Напоминание") then
+send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+end
+pop_button_palette()
 end
 
 local function draw_sms_listener_controls()
-                local controls_available = can_use_sms_listener()
-                local button_label
-                local action
+local controls_available = can_use_sms_listener()
+local button_label
+local action
 
                 if sms_listener_active then
                                 button_label = "Закончить прием сообщений"
@@ -1653,6 +1868,60 @@ local function draw_news_input_panel()
                 end
 end
 
+local function draw_live_settings_tab()
+                imgui.Text("Настройки эфира")
+
+                imgui.PushItemWidth(200)
+                local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
+                local send_labels, send_labels_ffi = get_send_targets()
+                local send_count = 0
+                if type(send_labels) == "table" then
+                                send_count = #send_labels
+                end
+                if send_labels_ffi and send_count > 0 then
+                                if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
+                                                local max_index = math.max(0, send_count - 1)
+                                                local new_method = method_buf[0]
+                                                if new_method < 0 then
+                                                                new_method = 0
+                                                elseif new_method > max_index then
+                                                                new_method = max_index
+                                                end
+                                                MathQuiz.chat_method = new_method
+                                                Config:save()
+                                end
+                else
+                                imgui.TextDisabled("Методы отправки недоступны")
+                end
+                imgui.PopItemWidth()
+
+                imgui.PushItemWidth(200)
+                local interval_buf = ffi.new("int[1]", MathQuiz.chat_interval_ms)
+                if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
+                                MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
+                                Config:save()
+                end
+                imgui.PopItemWidth()
+
+                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+                if intro_changed then
+                                Config:save()
+                end
+
+                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+                if outro_changed then
+                                Config:save()
+                end
+
+                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+                if reminder_changed then
+                                Config:save()
+                end
+
+                imgui.Separator()
+                draw_win_message_settings()
+end
+
 local function draw_live_window_content()
                 if imgui.BeginTabBar("smilive_tabs") then
                                 if imgui.BeginTabItem("Эфир") then
@@ -1662,15 +1931,20 @@ local function draw_live_window_content()
                                                 imgui.EndTabItem()
                                 end
 
-if imgui.BeginTabItem("Викторина") then
-SMILive.DrawMathQuiz(false)
-imgui.EndTabItem()
-end
+                                if imgui.BeginTabItem("Викторина") then
+                                                SMILive.DrawMathQuiz(false)
+                                                imgui.EndTabItem()
+                                end
 
-if imgui.BeginTabItem("Таблица") then
-draw_math_quiz_tables_section()
-imgui.EndTabItem()
-end
+                                if imgui.BeginTabItem("Таблица") then
+                                                draw_math_quiz_tables_section()
+                                                imgui.EndTabItem()
+                                end
+
+                                if imgui.BeginTabItem("Настройки") then
+                                                draw_live_settings_tab()
+                                                imgui.EndTabItem()
+                                end
 
                                 imgui.EndTabBar()
                 end

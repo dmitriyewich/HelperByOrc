@@ -1859,7 +1859,7 @@ function SMIHelp.DrawSettingsUI()
 			end
 			imgui.EndTabBar()
 		end
-	end
+        end
         if SMILive and (SMILive.DrawHelperSection or SMILive.DrawMathQuiz) then
                 imgui.Separator()
                 if SMILive.DrawHelperSection then
