@@ -1435,86 +1435,75 @@ local LiveWindow = {
 }
 
 local function draw_live_broadcast_controls()
-		imgui.Text("Управление эфиром")
-		imgui.Spacing()
+                if imgui.Button("Начать эфир") then
+                                send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
+                end
 
-		if imgui.Button("Начать эфир") then
-				send_live_sequence_from_section(LiveBroadcast.intro, "Вступление")
-		end
+                imgui.SameLine()
+                if imgui.Button("Закончить эфир") then
+                                send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Закончить эфир") then
-				send_live_sequence_from_section(LiveBroadcast.outro, "Завершение эфира")
-		end
+                imgui.SameLine()
+                if imgui.Button("Напоминание") then
+                                send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
+                end
 
-		imgui.SameLine()
-		if imgui.Button("Напоминание") then
-				send_live_sequence_from_section(LiveBroadcast.reminder, "Напоминание")
-		end
+                imgui.Spacing()
 
-		imgui.Spacing()
+                if imgui.CollapsingHeader("Настройки сообщений##live_message_settings") then
+                                imgui.Spacing()
 
-		if imgui.CollapsingHeader("Настройки сообщений кнопок##live_message_settings") then
-				imgui.Spacing()
+                                local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+                                if intro_changed then
+                                                Config:save()
+                                end
 
-				local intro_changed = update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-				if intro_changed then
-						Config:save()
-				end
+                                imgui.Spacing()
 
-				imgui.Spacing()
+                                local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+                                if outro_changed then
+                                                Config:save()
+                                end
 
-				local outro_changed = update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-				if outro_changed then
-						Config:save()
-				end
+                                imgui.Spacing()
 
-				imgui.Spacing()
-
-				local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-				if reminder_changed then
-						Config:save()
-				end
-		end
+                                local reminder_changed = update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+                                if reminder_changed then
+                                                Config:save()
+                                end
+                end
 end
 
 local function draw_sms_listener_controls()
-		imgui.Text("Приём SMS-сообщений")
-		imgui.Spacing()
+                local controls_available = can_use_sms_listener()
+                local button_label
+                local action
 
-		local controls_available = can_use_sms_listener()
-		local button_label
-		local action
+                if sms_listener_active then
+                                button_label = "Выключить приём SMS"
+                                action = function()
+                                                stop_sms_listener(false)
+                                end
+                else
+                                button_label = "Включить приём SMS"
+                                action = function()
+                                                start_sms_listener(false)
+                                end
+                end
 
-		if sms_listener_active then
-				button_label = "Закончить прием сообщений"
-				action = function()
-						stop_sms_listener(false)
-				end
-		else
-				button_label = "Начать прием сообщений"
-				action = function()
-						start_sms_listener(false)
-				end
-		end
+                if imgui.Button(button_label) then
+                                if controls_available or sms_listener_active then
+                                                action()
+                                else
+                                                update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
+                                end
+                end
 
-		if imgui.Button(button_label) then
-				if controls_available or sms_listener_active then
-						action()
-				else
-						update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
-				end
-		end
-
-		imgui.SameLine()
-		local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
-		local status_label = sms_listener_active and "приём активен" or "приём отключён"
-		imgui.TextColored(status_color, status_label)
-
-		if not controls_available then
-				imgui.Spacing()
-				imgui.TextColored(imgui.ImVec4(0.9, 0.6, 0.4, 1), "Управление доступно после загрузки модуля my_hooks.")
-		end
+                imgui.SameLine()
+                local status_color = sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
+                local status_label = sms_listener_active and "приём активен" or "приём отключён"
+                imgui.TextColored(status_color, status_label)
 end
 
 local function send_custom_news_message()
