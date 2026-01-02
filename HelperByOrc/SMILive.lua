@@ -585,7 +585,7 @@ local function broadcast_sequence(messages)
 end
 
 local function trim(s)
-                return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+return tostring(s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 
 local function ensure_win_message_buffer(key)
