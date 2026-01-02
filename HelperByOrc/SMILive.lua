@@ -1371,20 +1371,15 @@ function SMILive.DrawMathQuiz(show_tables)
                 end
                 pop_button_palette()
         else
-                push_button_palette(COLOR_ACCENT_PRIMARY)
-                if imgui.Button("Сгенерировать пример") then
-                        if MathQuiz.awaiting_next_round then
-                                update_status("Следующий раунд начнётся после объявления победителя. Нажмите \"Следующий пример\".")
-                        else
-                                begin_round()
-                        end
-                end
-                pop_button_palette()
-
                 if MathQuiz.awaiting_next_round then
-                        imgui.SameLine()
                         push_button_palette(COLOR_ACCENT_PRIMARY)
                         if imgui.Button("Следующий пример") then
+                                begin_round()
+                        end
+                        pop_button_palette()
+                else
+                        push_button_palette(COLOR_ACCENT_PRIMARY)
+                        if imgui.Button("Сгенерировать пример") then
                                 begin_round()
                         end
                         pop_button_palette()
