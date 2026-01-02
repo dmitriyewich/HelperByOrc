@@ -1862,6 +1862,10 @@ function SMIHelp.DrawSettingsUI()
 	end
         if SMILive and (SMILive.DrawHelperSection or SMILive.DrawMathQuiz) then
                 imgui.Separator()
+                if SMILive.DrawWinMessageSettings then
+                        SMILive.DrawWinMessageSettings()
+                        imgui.Separator()
+                end
                 if SMILive.DrawHelperSection then
                         SMILive.DrawHelperSection()
                 else

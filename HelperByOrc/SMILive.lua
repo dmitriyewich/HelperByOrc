@@ -140,6 +140,41 @@ local LiveBroadcast = {
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\SMILive.json"
 
 local Config = { data = {} }
+local WIN_MESSAGE_MIN_BUFFER = 256
+local WinMessageBuffers = { male = nil, female = nil }
+
+local function set_win_message_buffer(key, text)
+                local entry = WinMessageBuffers[key] or { size = WIN_MESSAGE_MIN_BUFFER }
+                local required = math.max(WIN_MESSAGE_MIN_BUFFER, #text + 1)
+                if not entry.buf or entry.size < required then
+                                entry.buf = imgui.new.char[required]()
+                                entry.size = required
+                end
+                imgui.StrCopy(entry.buf, text)
+                entry.size = required
+                WinMessageBuffers[key] = entry
+end
+
+local function load_win_message_buffers_from_config()
+                local win_cfg = Config.data and Config.data.win_messages or {}
+                set_win_message_buffer("male", table.concat(win_cfg.male or {}, "\n"))
+                set_win_message_buffer("female", table.concat(win_cfg.female or {}, "\n"))
+end
+
+local function sanitize_message_list(list)
+                local sanitized = {}
+                if type(list) == "table" then
+                                for _, msg in ipairs(list) do
+                                                if type(msg) == "string" then
+                                                                local cleaned = msg:gsub("^%s*(.-)%s*$", "%1")
+                                                                if cleaned ~= "" then
+                                                                                sanitized[#sanitized + 1] = cleaned
+                                                                end
+                                                end
+                                end
+                end
+                return sanitized
+end
 
 local INPUTTEXT_CALLBACK_RESIZE = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize
 local liveInputResizeCallbackPtr = nil
@@ -302,8 +337,8 @@ function Config:load()
 		MathQuiz.chat_interval_ms = saved_interval
 		quiz_cfg.chat_interval_ms = saved_interval
 
-		local saved_target = tonumber(quiz_cfg.target_index)
-		if saved_target then
+                local saved_target = tonumber(quiz_cfg.target_index)
+                if saved_target then
 				saved_target = math.floor(saved_target)
 		else
 				saved_target = MathQuiz.target_index or 1
@@ -315,11 +350,17 @@ function Config:load()
 		if max_target > 0 and saved_target > max_target then
 				saved_target = max_target
 		end
-		MathQuiz.target_index = saved_target
-		quiz_cfg.target_index = saved_target
+                MathQuiz.target_index = saved_target
+                quiz_cfg.target_index = saved_target
 
-		data.math_quiz = quiz_cfg
-		self.data = data
+                local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+                win_cfg.male = sanitize_message_list(win_cfg.male)
+                win_cfg.female = sanitize_message_list(win_cfg.female)
+                data.win_messages = win_cfg
+
+                data.math_quiz = quiz_cfg
+                self.data = data
+                load_win_message_buffers_from_config()
 end
 
 function Config:save()
@@ -348,14 +389,19 @@ function Config:save()
 		if target_index < 1 then
 				target_index = 1
 		end
-		local max_target = #MathQuiz.target_scores
-		if max_target > 0 and target_index > max_target then
-				target_index = max_target
-		end
-		quiz_cfg.target_index = target_index
+                local max_target = #MathQuiz.target_scores
+                if max_target > 0 and target_index > max_target then
+                                target_index = max_target
+                end
+                quiz_cfg.target_index = target_index
 
-		data.math_quiz = quiz_cfg
-		self.data = data
+                local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+                win_cfg.male = sanitize_message_list(win_cfg.male)
+                win_cfg.female = sanitize_message_list(win_cfg.female)
+                data.win_messages = win_cfg
+
+                data.math_quiz = quiz_cfg
+                self.data = data
 
 		if funcs and funcs.saveTableToJson then
 				funcs.saveTableToJson(data, CONFIG_PATH)
@@ -524,7 +570,57 @@ local function broadcast_sequence(messages)
 end
 
 local function trim(s)
-		return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+                return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function ensure_win_message_buffer(key)
+                local entry = WinMessageBuffers[key]
+                if not entry then
+                                entry = { buf = imgui.new.char[WIN_MESSAGE_MIN_BUFFER](), size = WIN_MESSAGE_MIN_BUFFER }
+                                WinMessageBuffers[key] = entry
+                end
+                return entry
+end
+
+local function maybe_grow_win_buffer(entry)
+                if not entry or not entry.buf or not entry.size then
+                                return
+                end
+
+                local content = str(entry.buf)
+                if #content + 1 >= entry.size then
+                                local new_size = entry.size * 2
+                                entry.buf = imgui.new.char[new_size](content)
+                                entry.size = new_size
+                end
+end
+
+local function update_win_messages_from_buffer(key, entry)
+                if not entry or not entry.buf then
+                                return
+                end
+
+                local parsed = {}
+                for line in str(entry.buf):gmatch("[^\r\n]+") do
+                                local cleaned = trim(line)
+                                if cleaned ~= "" then
+                                                parsed[#parsed + 1] = cleaned
+                                end
+                end
+
+                Config.data.win_messages = Config.data.win_messages or {}
+                Config.data.win_messages[key] = parsed
+                set_win_message_buffer(key, table.concat(parsed, "\n"))
+                Config:save()
+end
+
+local function get_win_messages_for_gender(gender)
+                local win_cfg = Config.data and Config.data.win_messages or {}
+                if gender == "female" then
+                                return sanitize_message_list(win_cfg.female)
+                end
+
+                return sanitize_message_list(win_cfg.male)
 end
 
 local function flatten_news_text(text)
@@ -703,7 +799,7 @@ local function broadcast_correct_answer(player_name, answer, score, is_final, pl
                 broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, "male")
 end
 
-local function broadcast_winner_gender(player_name, score, player_id, gender)
+local function broadcast_winner_gender(player_name, score, player_id, gender, answer, points_awarded)
                 local normalized_gender = gender == "female" and "female" or "male"
                 local normalized = normalize_player_name(player_name)
                 if normalized == "" then
@@ -715,22 +811,35 @@ local function broadcast_winner_gender(player_name, score, player_id, gender)
 
                 local broadcast_name = format_broadcast_name(normalized, player_id)
                 local score_text = pluralize_points(score or 0)
-                local progress_verb = "набирает"
-                local victory_verb = "побеждает"
-                if normalized_gender == "female" then
-                                progress_verb = "набирает"
-                                victory_verb = "побеждает"
-                end
-                local victory_message = string.format(
-                                "%s Викторина завершена! %s %s %s и %s!",
-                                NEWS_PREFIX,
-                                broadcast_name,
-                                progress_verb,
-                                score_text,
-                                victory_verb
-                )
+                local answer_text = trim(answer)
+                local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+                local gained = math.max(0, math.floor(tonumber(points_awarded) or 1))
+                local score_phrase = format_score_progress(score or 0, gained, normalized_gender)
 
-                broadcast_sequence({ victory_message })
+                local messages = {
+                                string.format("%s Стоп!", NEWS_PREFIX),
+                                string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+                }
+
+                if answer_text ~= "" then
+                                messages[#messages + 1] = string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text)
+                end
+
+                messages[#messages + 1] = string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb)
+                messages[#messages + 1] = string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
+
+                local gendered_messages = get_win_messages_for_gender(normalized_gender)
+                local template = gendered_messages and #gendered_messages > 0 and gendered_messages[math_random(1, #gendered_messages)]
+                                or "Викторина завершена! %s набирает %s и побеждает!"
+                local ok_template, formatted_template = pcall(string.format, template, broadcast_name, score_text)
+                if not ok_template then
+                                formatted_template = string.format("Викторина завершена! %s набирает %s и побеждает!", broadcast_name, score_text)
+                end
+                local victory_message = string.format("%s %s", NEWS_PREFIX, formatted_template)
+
+                messages[#messages + 1] = victory_message
+
+                broadcast_sequence(messages)
 end
 
 local function parse_sms_message(text)
@@ -1390,6 +1499,34 @@ end
 end
 
 
+local function draw_win_message_settings()
+        imgui.Text("Сообщения о победителе")
+        imgui.TextWrapped("Каждая строка — отдельное объявление. Используйте %s для имени и %s для счёта.")
+
+        local male_buf = ensure_win_message_buffer("male")
+        local female_buf = ensure_win_message_buffer("female")
+
+        local male_changed = imgui.InputTextMultiline("Победитель (м)", male_buf.buf, male_buf.size, imgui.ImVec2(0, 70))
+        maybe_grow_win_buffer(male_buf)
+        if male_changed then
+                update_win_messages_from_buffer("male", male_buf)
+        end
+
+        local female_changed = imgui.InputTextMultiline("Победительница (ж)", female_buf.buf, female_buf.size, imgui.ImVec2(0, 70))
+        maybe_grow_win_buffer(female_buf)
+        if female_changed then
+                update_win_messages_from_buffer("female", female_buf)
+        end
+
+        imgui.TextDisabled("Если список пустой, используется стандартное сообщение.")
+end
+
+
+function SMILive.DrawWinMessageSettings()
+        draw_win_message_settings()
+end
+
+
 function SMILive.DrawMathQuiz(show_tables)
         if not MathQuiz.active then
                 for idx, target in ipairs(MathQuiz.target_scores) do
@@ -1489,7 +1626,7 @@ function SMILive.DrawMathQuiz(show_tables)
                 local female_label = has_winner and "Объявить ответ и победителя (ж)" or "Объявить ответ (ж)"
                 if imgui.Button(male_label, imgui.ImVec2(175, 0)) then
                         if has_winner then
-                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "male")
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "male", stats.correct_answer, stats.points_awarded)
                         else
                                 broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "male")
                         end
@@ -1497,7 +1634,7 @@ function SMILive.DrawMathQuiz(show_tables)
                 imgui.SameLine()
                 if imgui.Button(female_label, imgui.ImVec2(175, 0)) then
                         if has_winner then
-                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "female")
+                                broadcast_winner_gender(stats.winner, stats.score, stats.player_id, "female", stats.correct_answer, stats.points_awarded)
                         else
                                 broadcast_correct_answer_gender(stats.winner, stats.correct_answer, stats.score, stats.game_finished, stats.player_id, "female")
                         end
