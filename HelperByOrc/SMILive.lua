@@ -869,6 +869,12 @@ local function format_display_name(name, player_id)
                 return broadcast_name ~= "" and broadcast_name or normalized
 end
 
+local function stop_sms_for_announcement()
+                if stop_sms_listener then
+                                stop_sms_listener(true)
+                end
+end
+
 local function announce_latest_stats(gender)
                 local stats = MathQuiz.latest_round_stats
                 if not stats or not stats.winner then
@@ -891,12 +897,6 @@ local function announce_latest_stats(gender)
                 end
 
                 update_status("Сообщение об %s отправлено для %s.", subject_label, display_name)
-end
-
-local function stop_sms_for_announcement()
-                if stop_sms_listener then
-                                stop_sms_listener(true)
-                end
 end
 
 local function parse_sms_message(text)
