@@ -107,6 +107,21 @@ local openHotkey = normalizeHotkeyTable(projectConfig.openHotkey) or cloneKeys(d
 projectConfig.openHotkey = cloneKeys(openHotkey)
 local openHotkeyActive = false
 
+local function isAnyProjectWindowOpen()
+        if renderHotkeyWnd and renderHotkeyWnd[0] then
+                return true
+        end
+
+        if imgui.GetFrameCount and imgui.GetFrameCount() > 0 and imgui.GetIO then
+                local ok, io = pcall(imgui.GetIO)
+                if ok and io and (io.WantCaptureKeyboard or io.WantTextInput or io.WantCaptureMouse) then
+                        return true
+                end
+        end
+
+        return false
+end
+
 local renderHotkeyWnd = imgui.new.bool(projectConfig.renderHotkeyWnd)
 local function saveProjectConfig()
         if funcs and funcs.saveTableToJson then
@@ -497,14 +512,21 @@ addEventHandler(
                         return
                 end
 
-                if keyCode == vk.VK_ESCAPE and renderHotkeyWnd[0] then
-                        if isKeyDownMsg and type(consumeWindowMessage) == "function" then
+                if keyCode == vk.VK_ESCAPE then
+                        local anyMimguiOpen = isAnyProjectWindowOpen()
+
+                        if anyMimguiOpen and isKeyDownMsg and type(consumeWindowMessage) == "function" then
                                 consumeWindowMessage(true, false)
-                        elseif isKeyUpMsg then
+                        end
+
+                        if renderHotkeyWnd[0] and isKeyUpMsg then
                                 setRenderHotkeyWnd(false)
                                 openHotkeyActive = false
                         end
-                        return
+
+                        if anyMimguiOpen then
+                                return
+                        end
                 end
 
                 pressedKeysSet[keyCode] = isKeyDownMsg
