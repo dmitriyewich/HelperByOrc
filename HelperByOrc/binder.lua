@@ -2808,8 +2808,13 @@ local function drawEditHotkey(idx)
                         if #hk.editInputs == 0 then
                                 imgui.TextDisabled("Полей ввода нет")
                         else
-                                local childHeight = math.min(320, 140 * #hk.editInputs)
-                                imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
+                                -- local childHeight = math.min(320, 140 * #hk.editInputs)
+								local hintHeight = imgui.GetTextLineHeightWithSpacing()
+								local availHeight = imgui.GetContentRegionAvail().y - hintHeight
+								local multilineHeight = math.max(80, availHeight)
+								local multilineSize = imgui.ImVec2(0, multilineHeight)
+                                -- imgui.BeginChild("inputs_list", imgui.ImVec2(0, childHeight), true)
+                                imgui.BeginChild("inputs_list", multilineSize, true)
                                 for i, input in ipairs(hk.editInputs) do
                                         imgui.PushIDStr("input" .. i)
                                         local mode = input.mode == "buttons" and "buttons" or "text"
