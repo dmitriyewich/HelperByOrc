@@ -1230,11 +1230,11 @@ end, function()
 	end
 	imgui.SameLine()
 	if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
-		if not State.corr_in_progress then
-			funcs.handleCorrection(str(State.edit_buf), function(newText)
-				imgui.StrCopy(State.edit_buf, newText)
+		-- if not State.corr_in_progress then
+			funcs.handleCorrection(u8:decode(str(State.edit_buf)), function(newText)
+				imgui.StrCopy(State.edit_buf, u8(newText))
 			end)
-		end
+		-- end
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("К следующей кавычке") then
