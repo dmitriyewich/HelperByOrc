@@ -2756,6 +2756,10 @@ local function drawEditHotkey(idx)
                         local bufSize = hk._multiBufSize or ffi.sizeof(buf)
                         local flags = INPUTTEXT_CALLBACK_RESIZE and flags_or(INPUTTEXT_CALLBACK_RESIZE) or nil
                         local changed
+                        local hintHeight = imgui.GetTextLineHeightWithSpacing()
+                        local availHeight = imgui.GetContentRegionAvail().y - hintHeight
+                        local multilineHeight = math.max(80, availHeight)
+                        local multilineSize = imgui.ImVec2(0, multilineHeight)
                         if multiInputResizeCallbackPtr and INPUTTEXT_CALLBACK_RESIZE then
                                 currentMultiInputHK = hk
                                 changed =
@@ -2763,13 +2767,13 @@ local function drawEditHotkey(idx)
                                         "##multi_text",
                                         buf,
                                         bufSize,
-                                        imgui.ImVec2(0, 280),
+                                        multilineSize,
                                         flags,
                                         multiInputResizeCallbackPtr
                                 )
                                 currentMultiInputHK = nil
                         else
-                                changed = imgui.InputTextMultiline("##multi_text", buf, bufSize, imgui.ImVec2(0, 280))
+                                changed = imgui.InputTextMultiline("##multi_text", buf, bufSize, multilineSize)
                         end
                         local activeBuf = hk._multiBuf or buf
                         if changed then
