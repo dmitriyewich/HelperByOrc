@@ -32,8 +32,6 @@ local new = imgui.new
 local str = ffi.string
 local sizeof = ffi.sizeof
 
-local ok_effil, effil = pcall(require, "effil") -- асинхрон для спеллера
-local ok_https, _ = pcall(require, "ssl.https")
 local bit = require("bit") -- для UTF-8 разборки и флагов
 local vk = require("vkeys")
 
@@ -712,105 +710,6 @@ local function ButtonGrid(id, items, btnH, columns, onClick)
 	imgui.SetCursorPosX(start_x)
 end
 
--- ========= АВТОКОРРЕКТОР (Яндекс, асинхрон + дребезг) =========
-local function urlencode(text)
-	text = tostring(text or "")
-	text = text:gsub("{......}", ""):gsub("\r", "")
-	text = text:gsub("\n", "%%0A")
-	text = text:gsub(" ", "+"):gsub("&", "%%26"):gsub("%%", "%%25")
-	text = text:gsub("<", "%%3C"):gsub(">", "%%3E"):gsub('"', "%%22")
-	return text
-end
-
-local function asyncRequest(url, resolve, reject)
-	if not ok_effil then
-		if reject then
-			reject("effil not found")
-		end
-		return
-	end
-	reject = reject or function() end
-	lua_thread.create(function()
-		local thread = effil.thread(function(u)
-			local https = require("ssl.https")
-			local ok, result = pcall(https.request, u)
-			return { ok, result }
-		end)(url)
-
-		local timeout = os.clock() + 30
-		while true do
-			local res = thread:get(0)
-			if res then
-				local ok, response = res[1], res[2]
-				if ok then
-					resolve(response)
-				else
-					reject(response)
-				end
-				break
-			end
-			if os.clock() > timeout then
-				reject("Request timed out")
-				break
-			end
-			wait(0)
-		end
-		pcall(thread.cancel, thread)
-		collectgarbage()
-	end)
-end
-
-local function handleCorrectionLite()
-	if not ok_effil or not ok_https then
-		State.corr_error = "Нет effil или ssl.https"
-		return
-	end
-	local now = os.clock()
-	if (now - (State.last_speller_call or 0)) < SPELLER_DEBOUNCE_SEC then
-		return
-	end
-	State.last_speller_call = now
-
-	local message = str(State.edit_buf)
-	if message == "" then
-		return
-	end
-	if State.corr_cache[message] then
-		imgui.StrCopy(State.edit_buf, State.corr_cache[message])
-		return
-	end
-	local url = "https://speller.yandex.net/services/spellservice.json/checkText?text=" .. (urlencode(message))
-	State.corr_in_progress, State.corr_error = true, nil
-
-	asyncRequest(url, function(response)
-		State.corr_in_progress = false
-		local ok, words = pcall(decodeJson, response)
-		if not ok or type(words) ~= "table" then
-			return
-		end
-		if #words == 0 then
-			return
-		end
-
-		local used = {}
-		local corrected = message
-		for _, wd in ipairs(words) do
-			local incorrect = wd.word
-			local suggestion = wd.s and wd.s[1] and wd.s[1] or incorrect
-			if incorrect and suggestion and not used[incorrect] then
-				corrected = corrected:gsub(incorrect, suggestion, 1)
-				used[incorrect] = true
-			end
-		end
-		corrected = corrected:gsub("//", "/")
-		State.corr_cache[message] = corrected
-		imgui.StrCopy(State.edit_buf, corrected)
-	end, function(err)
-		State.corr_in_progress = false
-		State.corr_error = tostring(err or "Ошибка запроса")
-	end)
-end
-
 -- ========= ШАБЛОНЫ: ГРУППЫ =========
 local seeded = false
 local function seed_once()
@@ -1332,7 +1231,9 @@ end, function()
 	imgui.SameLine()
 	if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
 		if not State.corr_in_progress then
-			handleCorrectionLite()
+			funcs.handleCorrection(str(State.edit_buf), function(newText)
+				imgui.StrCopy(State.edit_buf, newText)
+			end)
 		end
 	end
 	imgui.SameLine()

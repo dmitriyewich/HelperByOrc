@@ -3887,17 +3887,8 @@ local function drawEditHotkey(idx)
 								bulk.lastPreview = nil
 							end
 							imgui.SameLine()
-							if imgui.Button("Пример##bulk_ex") then
+							if imgui.Button("Шаблон##bulk_ex") then
 								bulk_append_line(bulk, "Принять | /accept | Быстро принять")
-								bulk.lastPreview = nil
-							end
-							imgui.SameLine()
-							if imgui.Button("Шаблон##bulk_tpl") then
-								bulk_append_line(bulk, "# Название | Текст | Подсказка")
-								bulk_append_line(
-									bulk,
-									"# Пример: Принять | /accept | Быстро принять"
-								)
 								bulk.lastPreview = nil
 							end
 
