@@ -2247,7 +2247,6 @@ end
 -------------------------------------------------
 
 function module.handleCorrection(message, setText)
-	print(message)
     if message == '' then return end
     message = trim(message)
 
@@ -2276,7 +2275,6 @@ function module.handleCorrection(message, setText)
 
             corrected = corrected:gsub('//', '/')
             cacheSpeller[message] = corrected
-			print(corrected)
             setText(corrected)
 			
         end

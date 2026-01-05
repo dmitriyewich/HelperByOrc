@@ -14,7 +14,9 @@ local ok_bit32, bit32 = pcall(require, "bit32")
 
 local function bor(...)
 	local n = select("#", ...)
-	if n == 0 then return 0 end
+	if n == 0 then
+		return 0
+	end
 	local v = select(1, ...)
 	for i = 2, n do
 		local a = select(i, ...)
@@ -30,10 +32,14 @@ local function bor(...)
 end
 
 local funcs
-local deepcopy = function(t) return t end
+local deepcopy = function(t)
+	return t
+end
 
 local function clone_table(tbl)
-	if type(tbl) ~= "table" then return tbl end
+	if type(tbl) ~= "table" then
+		return tbl
+	end
 	local res = {}
 	for k, v in pairs(tbl) do
 		res[k] = clone_table(v)
@@ -42,7 +48,9 @@ local function clone_table(tbl)
 end
 
 local function merge_defaults(dst, defaults)
-	if type(dst) ~= "table" or type(defaults) ~= "table" then return end
+	if type(dst) ~= "table" or type(defaults) ~= "table" then
+		return
+	end
 	for k, v in pairs(defaults) do
 		if dst[k] == nil then
 			dst[k] = clone_table(v)
@@ -107,7 +115,7 @@ local default_config = {
 
 	popup = {
 		auto_select_all = false, -- false = не выделять всё при фокусе
-		focus_on_open = false,   -- true = фокусить инпут при открытии
+		focus_on_open = false, -- true = фокусить инпут при открытии
 		min_w = 320,
 		max_w = 900,
 		min_lines = 3,
@@ -126,8 +134,12 @@ local function strip_color_tags(str)
 end
 
 local function clamp(v, lo, hi)
-	if v < lo then return lo end
-	if v > hi then return hi end
+	if v < lo then
+		return lo
+	end
+	if v > hi then
+		return hi
+	end
 	return v
 end
 
@@ -157,7 +169,9 @@ end
 local function get_is_chat_open()
 	if samp and samp.is_chat_opened then
 		local ok, v = pcall(samp.is_chat_opened)
-		if ok then return v and true or false end
+		if ok then
+			return v and true or false
+		end
 	end
 	return false
 end
@@ -173,27 +187,41 @@ end
 local function item_right_clicked()
 	if imgui.IsItemClicked then
 		local ok, v = pcall(imgui.IsItemClicked, 1)
-		if ok then return v end
+		if ok then
+			return v
+		end
 	end
 	if imgui.IsMouseClicked then
 		local ok, v = pcall(imgui.IsMouseClicked, 1)
-		if ok then return v end
+		if ok then
+			return v
+		end
 	end
 	return false
 end
 
 local function tooltip_text(s)
 	s = tostring(s or "")
-	if s == "" then return end
-	if imgui.TextUnformatted then imgui.TextUnformatted(s) else imgui.Text(s) end
+	if s == "" then
+		return
+	end
+	if imgui.TextUnformatted then
+		imgui.TextUnformatted(s)
+	else
+		imgui.Text(s)
+	end
 end
 
 local function begin_tooltip_wrap(px)
-	if imgui.PushTextWrapPos then imgui.PushTextWrapPos(px or 520) end
+	if imgui.PushTextWrapPos then
+		imgui.PushTextWrapPos(px or 520)
+	end
 end
 
 local function end_tooltip_wrap()
-	if imgui.PopTextWrapPos then imgui.PopTextWrapPos() end
+	if imgui.PopTextWrapPos then
+		imgui.PopTextWrapPos()
+	end
 end
 
 -- ===================== ДОБАВЛЕНИЕ ТЕКСТА С РАЗМЕРОМ =====================
@@ -203,7 +231,9 @@ do
 		local ok, fn = pcall(function()
 			return imgui.lib[name]
 		end)
-		if ok and fn then return fn end
+		if ok and fn then
+			return fn
+		end
 	end
 
 	local add_text_fontptr = try_get("ImDrawList_AddText_FontPtr")
@@ -215,9 +245,15 @@ do
 		local add_text_vec2 = try_get("ImDrawList_AddText")
 		if add_text_vec2 then
 			add_text_with_font = function(draw, font, font_size, pos, col, text)
-				if not font then draw:AddText(pos, col, text) return end
+				if not font then
+					draw:AddText(pos, col, text)
+					return
+				end
 				local current_size = imgui.GetFontSize()
-				if current_size <= 0 then draw:AddText(pos, col, text) return end
+				if current_size <= 0 then
+					draw:AddText(pos, col, text)
+					return
+				end
 
 				local ratio = font_size / current_size
 				if ratio <= 0 or math.abs(ratio - 1.0) < 0.001 then
@@ -233,15 +269,27 @@ do
 				local io = imgui.GetIO()
 				local window_scale = 1.0
 
-				local ok_fontsize, base_font_size = pcall(function() return font.FontSize end)
-				if not ok_fontsize or not base_font_size or base_font_size == 0 then base_font_size = current_size end
+				local ok_fontsize, base_font_size = pcall(function()
+					return font.FontSize
+				end)
+				if not ok_fontsize or not base_font_size or base_font_size == 0 then
+					base_font_size = current_size
+				end
 
-				local ok_fontscale, font_scale = pcall(function() return font.Scale end)
-				if not ok_fontscale or not font_scale or font_scale == 0 then font_scale = 1.0 end
+				local ok_fontscale, font_scale = pcall(function()
+					return font.Scale
+				end)
+				if not ok_fontscale or not font_scale or font_scale == 0 then
+					font_scale = 1.0
+				end
 
 				local denom = base_font_size * font_scale * (io.FontGlobalScale ~= 0 and io.FontGlobalScale or 1)
-				if denom ~= 0 then window_scale = current_size / denom end
-				if window_scale <= 0 then window_scale = 1.0 end
+				if denom ~= 0 then
+					window_scale = current_size / denom
+				end
+				if window_scale <= 0 then
+					window_scale = 1.0
+				end
 
 				local new_window_scale = window_scale * ratio
 
@@ -250,7 +298,9 @@ do
 				local ok, err = pcall(add_text_vec2, draw, pos, col, text, nil)
 				imgui.SetWindowFontScale(window_scale)
 				imgui.PopFont()
-				if not ok then error(err, 0) end
+				if not ok then
+					error(err, 0)
+				end
 			end
 		else
 			add_text_with_font = function(draw, _, _, pos, col, text)
@@ -368,7 +418,9 @@ local function fill_char_buffer_from_string(buf, s_cp1251)
 	local us = u8(s_cp1251 or "")
 	local maxlen = ffi.sizeof(buf)
 	local n = math.min(#us, maxlen - 1)
-	if n > 0 then ffi.copy(buf, us, n) end
+	if n > 0 then
+		ffi.copy(buf, us, n)
+	end
 	buf[n] = 0
 end
 
@@ -397,9 +449,13 @@ local function calc_popup_input_size(text_utf8, max_w)
 	for line in (s .. "\n"):gmatch("(.-)\n") do
 		lines = lines + 1
 		local w = text_size(line, font, fsize)
-		if w > longest_w then longest_w = w end
+		if w > longest_w then
+			longest_w = w
+		end
 	end
-	if lines <= 0 then lines = 1 end
+	if lines <= 0 then
+		lines = 1
+	end
 
 	local len = utf8_len(s)
 	local est_lines = math.max(lines, math.ceil(len / math.max(1, cpl)))
@@ -471,23 +527,33 @@ end
 
 -- ===================== ПУБЛИЧНОЕ API =====================
 function module.AddVIPMessage(text)
-	if not config.enabled then return end
+	if not config.enabled then
+		return
+	end
 	local t = config.table_config.vip_text
 	t[#t + 1] = text
-	if #t > 100 then table.remove(t, 1) end
+	if #t > 100 then
+		table.remove(t, 1)
+	end
 	module.save()
 end
 
 function module.AddADMessage(main, edited, toredact)
-	if not config.enabled then return end
+	if not config.enabled then
+		return
+	end
 	local t = config.table_config.ad_text
 	t[#t + 1] = { main, edited or "", toredact or "" }
-	if #t > 100 then table.remove(t, 1) end
+	if #t > 100 then
+		table.remove(t, 1)
+	end
 	module.save()
 end
 
 function module.SetLastADEdited(text)
-	if not config.enabled then return end
+	if not config.enabled then
+		return
+	end
 	local ad = config.table_config.ad_text
 	if #ad > 0 then
 		ad[#ad][2] = text
@@ -496,7 +562,9 @@ function module.SetLastADEdited(text)
 end
 
 function module.SetLastADPreEdit(text)
-	if not config.enabled then return end
+	if not config.enabled then
+		return
+	end
 	local ad = config.table_config.ad_text
 	if #ad > 0 then
 		ad[#ad][3] = text
@@ -515,7 +583,9 @@ function module.ClearAD()
 end
 
 function module.VIP()
-	if not config.enabled then return {} end
+	if not config.enabled then
+		return {}
+	end
 	return config.vip
 end
 
@@ -526,22 +596,34 @@ local scroll = { vip = 0.0, ad = 0.0 }
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
 	return bor(
-		wf.NoTitleBar, wf.NoResize, wf.NoMove, wf.NoScrollbar, wf.NoSavedSettings,
-		wf.NoBringToFrontOnFocus, wf.NoFocusOnAppearing
+		wf.NoTitleBar,
+		wf.NoResize,
+		wf.NoMove,
+		wf.NoScrollbar,
+		wf.NoSavedSettings,
+		wf.NoBringToFrontOnFocus,
+		wf.NoFocusOnAppearing
 	)
 end
 
 local function get_interact_flags()
 	local wf = imgui.WindowFlags
 	return bor(
-		wf.NoTitleBar, wf.NoResize, wf.NoMove, wf.NoScrollbar, wf.NoSavedSettings,
-		wf.NoBringToFrontOnFocus, wf.NoFocusOnAppearing,
+		wf.NoTitleBar,
+		wf.NoResize,
+		wf.NoMove,
+		wf.NoScrollbar,
+		wf.NoSavedSettings,
+		wf.NoBringToFrontOnFocus,
+		wf.NoFocusOnAppearing,
 		wf.NoBackground
 	)
 end
 
 local function draw_feed()
-	if not config then return false, false end
+	if not config then
+		return false, false
+	end
 
 	local is_chat_open = get_is_chat_open()
 
@@ -575,13 +657,17 @@ local function draw_feed()
 		for i = 1, #vip do
 			local s = strip_color_tags(u8(vip[i]))
 			local w = text_size(s, font, fsize) + 24
-			if w > max_width then max_width = w end
+			if w > max_width then
+				max_width = w
+			end
 		end
 		local ad = config.table_config.ad_text or {}
 		for i = 1, #ad do
 			local s = strip_color_tags(u8(ad[i] and ad[i][1] or ""))
 			local w = text_size(s, font, fsize) + 24
-			if w > max_width then max_width = w end
+			if w > max_width then
+				max_width = w
+			end
 		end
 	end
 
@@ -622,7 +708,7 @@ local function draw_feed()
 			local vip_max = math.max(0, vip_lines - vip_h)
 			local ad_max = math.max(0, ad_lines - ad_h)
 			scroll.vip = clamp(scroll.vip + wheel * step, 0.0, vip_max)
-			scroll.ad  = clamp(scroll.ad  + wheel * step, 0.0, ad_max)
+			scroll.ad = clamp(scroll.ad + wheel * step, 0.0, ad_max)
 		end
 	else
 		scroll.vip = 0.0
@@ -669,7 +755,7 @@ local function draw_feed()
 	local vip_count = #vip
 	local vip_scroll = math.floor(scroll.vip + 0.5)
 	local vip_first = math.max(1, vip_count - vip_h - vip_scroll + 1)
-	local vip_last  = math.min(vip_count, vip_first + vip_h - 1)
+	local vip_last = math.min(vip_count, vip_first + vip_h - 1)
 
 	local y = y0
 	for i = vip_first, vip_last do
@@ -696,7 +782,7 @@ local function draw_feed()
 	local ad_count = #ad
 	local ad_scroll = math.floor(scroll.ad + 0.5)
 	local ad_first = math.max(1, ad_count - ad_h - ad_scroll + 1)
-	local ad_last  = math.min(ad_count, ad_first + ad_h - 1)
+	local ad_last = math.min(ad_count, ad_first + ad_h - 1)
 
 	y = y0 + vip_h * lh + gap
 	for i = ad_first, ad_last do
@@ -752,13 +838,13 @@ local function draw_feed()
 					row = row + 1
 
 					local entry = ad[i] or {}
-					local main_cp   = entry[1] or ""
+					local main_cp = entry[1] or ""
 					local edited_cp = entry[2] or ""
-					local pre_cp    = entry[3] or ""
+					local pre_cp = entry[3] or ""
 
-					local main_u8   = strip_color_tags(u8(main_cp))
+					local main_u8 = strip_color_tags(u8(main_cp))
 					local edited_u8 = strip_color_tags(u8(edited_cp))
-					local pre_u8    = strip_color_tags(u8(pre_cp))
+					local pre_u8 = strip_color_tags(u8(pre_cp))
 
 					local w = math.min(row_w_limit, text_size(main_u8, font, fsize) + 6)
 
@@ -829,7 +915,8 @@ local function draw_feed()
 					imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
 					imgui.Spacing()
 
-					local label = st.show_raw and "Источник: С ТЕГАМИ" or "Источник: БЕЗ ТЕГОВ"
+					local label = st.show_raw and "Источник: С ТЕГАМИ"
+						or "Источник: БЕЗ ТЕГОВ"
 					if imgui.SmallButton(label) then
 						st.show_raw = not st.show_raw
 						st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
@@ -883,7 +970,10 @@ local function draw_feed()
 		popup_target.key = nil
 	end
 
-	local allow_process = is_chat_open or popup_target.pending_open or popup_open_this_frame or popup_target.was_open_last
+	local allow_process = is_chat_open
+		or popup_target.pending_open
+		or popup_open_this_frame
+		or popup_target.was_open_last
 	local want_cursor = popup_target.pending_open or popup_open_this_frame
 
 	return allow_process, want_cursor, popup_open_this_frame
@@ -937,7 +1027,9 @@ local function draw_settings_content()
 end
 
 function module.DrawSettingsWindow()
-	if not settings_open[0] then return end
+	if not settings_open[0] then
+		return
+	end
 	imgui.SetNextWindowSize(imgui.ImVec2(520, 220), imgui.Cond.FirstUseEver)
 	if imgui.Begin("VIP/AD чат - настройки", settings_open) then
 		draw_settings_content()

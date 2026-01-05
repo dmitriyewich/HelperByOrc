@@ -391,12 +391,6 @@ local State = {
 	cursor_action_data = nil,
 	hist_index = nil,
 
-	-- спеллер
-	last_speller_call = 0,
-	corr_cache = {},
-	corr_in_progress = false,
-	corr_error = nil,
-
 	win_pos = imgui.ImVec2(100, 100),
 	win_size = imgui.ImVec2(1280, 650),
 }
@@ -1229,12 +1223,10 @@ end, function()
 		imgui.SetClipboardText(str(State.edit_buf))
 	end
 	imgui.SameLine()
-	if imgui.SmallButton(State.corr_in_progress and "Идёт проверка..." or "Автокоррекция") then
-		-- if not State.corr_in_progress then
-			funcs.handleCorrection(u8:decode(str(State.edit_buf)), function(newText)
-				imgui.StrCopy(State.edit_buf, u8(newText))
-			end)
-		-- end
+	if imgui.SmallButton("Автокоррекция") then
+		funcs.handleCorrection(u8:decode(str(State.edit_buf)), function(newText)
+			imgui.StrCopy(State.edit_buf, u8(newText))
+		end)
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("К следующей кавычке") then
@@ -1249,10 +1241,6 @@ end, function()
 		State.cursor_action_data = nil
 		State.want_focus_input = true
 		State.collapse_selection_after_focus = true
-	end
-	if State.corr_error then
-		imgui.SameLine()
-		imgui.TextColored(imgui.ImVec4(1, 0.4, 0.4, 1), "[Ошибка: " .. State.corr_error .. "]")
 	end
 
 	local cur_text = str(State.edit_buf)
