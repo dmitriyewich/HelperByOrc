@@ -745,25 +745,25 @@ function module.randomed(min, max)
 end
 
 function module.trim(s)
-        return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
+	return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
 end
 
 function module.parseLines(s, keep_spaces)
-        s = tostring(s or "")
-        local t = {}
-        for line in s:gmatch("[^\n]+") do
-                local p = keep_spaces and line or module.trim(line)
-                if p ~= "" then
-                        table.insert(t, p)
-                end
-        end
-        return t
+	s = tostring(s or "")
+	local t = {}
+	for line in s:gmatch("[^\n]+") do
+		local p = keep_spaces and line or module.trim(line)
+		if p ~= "" then
+			table.insert(t, p)
+		end
+	end
+	return t
 end
 
 function module.parseList(s)
-        s = tostring(s or "")
-        local t = {}
-        for part in s:gmatch("[^,\n]+") do
+	s = tostring(s or "")
+	local t = {}
+	for part in s:gmatch("[^,\n]+") do
 		local p = module.trim(part)
 		if p ~= "" then
 			table.insert(t, p)

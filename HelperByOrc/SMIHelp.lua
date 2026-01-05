@@ -43,9 +43,9 @@ local funcs
 local SMILive
 
 function SMIHelp.attachModules(mod)
-		mimgui_funcs = mod.mimgui_funcs
-		funcs = mod.funcs
-		SMILive = mod.SMILive
+	mimgui_funcs = mod.mimgui_funcs
+	funcs = mod.funcs
+	SMILive = mod.SMILive
 end
 local trim = (funcs and funcs.trim) and funcs.trim or function(s)
 	return (s or ""):gsub("^%s*(.-)%s*$", "%1")
@@ -959,75 +959,75 @@ end
 
 -- ========= КУРСОР: поиск позиций с циклическим обходом =========
 local function normalize_index(pos, len)
-		pos = tonumber(pos) or 0
-		len = tonumber(len) or 0
-		if pos < 0 then
-				pos = 0
-		elseif pos > len then
-				pos = len
-		end
-		return pos
+	pos = tonumber(pos) or 0
+	len = tonumber(len) or 0
+	if pos < 0 then
+		pos = 0
+	elseif pos > len then
+		pos = len
+	end
+	return pos
 end
 
 local function set_cursor_position(data, pos, buf_len_override)
-		local len = buf_len_override or data.BufTextLen or 0
-		len = math.max(0, math.floor(len))
-		local new_pos = normalize_index(math.floor(pos or 0), len)
-		data.CursorPos = new_pos
-		data.SelectionStart = new_pos
-		data.SelectionEnd = new_pos
-		if buf_len_override ~= nil then
-				data.BufTextLen = len
-		end
-		return new_pos
+	local len = buf_len_override or data.BufTextLen or 0
+	len = math.max(0, math.floor(len))
+	local new_pos = normalize_index(math.floor(pos or 0), len)
+	data.CursorPos = new_pos
+	data.SelectionStart = new_pos
+	data.SelectionEnd = new_pos
+	if buf_len_override ~= nil then
+		data.BufTextLen = len
+	end
+	return new_pos
 end
 
 local function find_next_quote_pos_cyclic(s, from_pos0)
-		local len = #s
-		if len == 0 then
-				return nil
-		end
-		local from = normalize_index(from_pos0, len) + 1
-		local p = s:find('"', from + 1, true)
-		if not p then
-				p = s:find('"', 1, true)
-		end
-		if p then
-				return p - 1
-		end
+	local len = #s
+	if len == 0 then
 		return nil
+	end
+	local from = normalize_index(from_pos0, len) + 1
+	local p = s:find('"', from + 1, true)
+	if not p then
+		p = s:find('"', 1, true)
+	end
+	if p then
+		return p - 1
+	end
+	return nil
 end
 
 local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
-		local len = #s
-		if len == 0 then
-				return nil
-		end
-		local from = normalize_index(from_pos0, len) + 1
-		local p = s:find('""', from, true)
-		if not p then
-				p = s:find('""', 1, true)
-		end
-		if p then
-				return p - 1
-		end
+	local len = #s
+	if len == 0 then
 		return nil
+	end
+	local from = normalize_index(from_pos0, len) + 1
+	local p = s:find('""', from, true)
+	if not p then
+		p = s:find('""', 1, true)
+	end
+	if p then
+		return p - 1
+	end
+	return nil
 end
 
 local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
-		local len = #s
-		if not addon_text or addon_text == "" then
-				return len
-		end
-		local from = normalize_index(from_pos0, len) + 1
-		local p = s:find(addon_text, from, true)
-		if not p then
-				p = s:find(addon_text, 1, true)
-		end
-		if p then
-				return p + #addon_text - 1
-		end
+	local len = #s
+	if not addon_text or addon_text == "" then
 		return len
+	end
+	local from = normalize_index(from_pos0, len) + 1
+	local p = s:find(addon_text, from, true)
+	if not p then
+		p = s:find(addon_text, 1, true)
+	end
+	if p then
+		return p + #addon_text - 1
+	end
+	return len
 end
 
 -- ========= INPUTTEXT CALLBACK =========
@@ -1073,22 +1073,22 @@ local function EditBufCallback(data)
 	end
 
 	if flag == imgui.InputTextFlags.CallbackAlways then
-				if State.collapse_selection_after_focus then
-						if data.SelectionStart == 0 and data.SelectionEnd == data.BufTextLen and data.BufTextLen > 0 then
-								set_cursor_position(data, data.BufTextLen)
-						end
-						State.collapse_selection_after_focus = false
-				end
+		if State.collapse_selection_after_focus then
+			if data.SelectionStart == 0 and data.SelectionEnd == data.BufTextLen and data.BufTextLen > 0 then
+				set_cursor_position(data, data.BufTextLen)
+			end
+			State.collapse_selection_after_focus = false
+		end
 
-				local cur = str(data.Buf)
-				local chars = utf8_len(cur)
-				if chars > INPUT_MAX then
-						local truncated = utf8_truncate(cur, INPUT_MAX)
-						data:DeleteChars(0, data.BufTextLen)
-						data:InsertChars(0, truncated)
-						set_cursor_position(data, #truncated, #truncated)
-						return 1
-				end
+		local cur = str(data.Buf)
+		local chars = utf8_len(cur)
+		if chars > INPUT_MAX then
+			local truncated = utf8_truncate(cur, INPUT_MAX)
+			data:DeleteChars(0, data.BufTextLen)
+			data:InsertChars(0, truncated)
+			set_cursor_position(data, #truncated, #truncated)
+			return 1
+		end
 
 		local replaced = cur
 		local ac = Config.data.autocorrect
@@ -1100,45 +1100,45 @@ local function EditBufCallback(data)
 				end
 			end
 		end
-				if replaced ~= cur then
-						replaced = clamp80(replaced)
-						data:DeleteChars(0, data.BufTextLen)
-						data:InsertChars(0, replaced)
-						set_cursor_position(data, #replaced, #replaced)
-						return 1
-				end
+		if replaced ~= cur then
+			replaced = clamp80(replaced)
+			data:DeleteChars(0, data.BufTextLen)
+			data:InsertChars(0, replaced)
+			set_cursor_position(data, #replaced, #replaced)
+			return 1
+		end
 
-				if State.want_place_cursor or State.cursor_action ~= nil then
-						local cur2 = str(data.Buf)
+		if State.want_place_cursor or State.cursor_action ~= nil then
+			local cur2 = str(data.Buf)
 
-						if State.want_place_cursor then
-								local p = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
-								set_cursor_position(data, p or data.BufTextLen)
-								State.want_place_cursor = false
-								return 1
-						end
+			if State.want_place_cursor then
+				local p = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				set_cursor_position(data, p or data.BufTextLen)
+				State.want_place_cursor = false
+				return 1
+			end
 
-						if State.cursor_action == "to_next_quote" then
-								local nxt = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
-								set_cursor_position(data, nxt or data.BufTextLen)
-								State.cursor_action, State.cursor_action_data = nil, nil
-								return 1
-						elseif State.cursor_action == "to_end" then
-								set_cursor_position(data, data.BufTextLen)
-								State.cursor_action, State.cursor_action_data = nil, nil
-								return 1
-						elseif State.cursor_action == "to_first_empty_quotes" then
-								local p = find_first_empty_quotes_pos_cyclic(cur2, data.CursorPos or 0)
-								set_cursor_position(data, p or data.BufTextLen)
-								State.cursor_action, State.cursor_action_data = nil, nil
-								return 1
-						elseif State.cursor_action == "to_addon_end" then
-								local pos = find_addon_end_pos_cyclic(cur2, State.cursor_action_data or "", data.CursorPos or 0)
-								set_cursor_position(data, pos)
-								State.cursor_action, State.cursor_action_data = nil, nil
-								return 1
-						end
-				end
+			if State.cursor_action == "to_next_quote" then
+				local nxt = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				set_cursor_position(data, nxt or data.BufTextLen)
+				State.cursor_action, State.cursor_action_data = nil, nil
+				return 1
+			elseif State.cursor_action == "to_end" then
+				set_cursor_position(data, data.BufTextLen)
+				State.cursor_action, State.cursor_action_data = nil, nil
+				return 1
+			elseif State.cursor_action == "to_first_empty_quotes" then
+				local p = find_first_empty_quotes_pos_cyclic(cur2, data.CursorPos or 0)
+				set_cursor_position(data, p or data.BufTextLen)
+				State.cursor_action, State.cursor_action_data = nil, nil
+				return 1
+			elseif State.cursor_action == "to_addon_end" then
+				local pos = find_addon_end_pos_cyclic(cur2, State.cursor_action_data or "", data.CursorPos or 0)
+				set_cursor_position(data, pos)
+				State.cursor_action, State.cursor_action_data = nil, nil
+				return 1
+			end
+		end
 	end
 
 	return 0
@@ -1313,10 +1313,10 @@ end, function()
 	end
 
 	local flags = bit.bor(
-				imgui.InputTextFlags.CallbackHistory,
-				imgui.InputTextFlags.CallbackAlways,
-				imgui.InputTextFlags.CallbackCharFilter
-		)
+		imgui.InputTextFlags.CallbackHistory,
+		imgui.InputTextFlags.CallbackAlways,
+		imgui.InputTextFlags.CallbackCharFilter
+	)
 	local changed =
 		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
 
@@ -1772,108 +1772,108 @@ function SMIHelp.DrawSettingsUI()
 					while j <= #tpl.texts do
 						S.tpl_edit_mode[idx][j] = S.tpl_edit_mode[idx][j] or new.bool(false)
 						if S.tpl_edit_mode[idx][j][0] then
-													   local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
-													   imgui.InputTextMultiline(
-															   "##tplexisting" .. idx .. "_" .. j,
-															   buf.buf,
-															   buf.size,
-															   imgui.ImVec2(0, 60)
-													   )
-													   buf_maybe_grow(buf)
-													   if imgui.Button("Готово##tplexisting" .. idx .. "_" .. j) then
-															   local val = str(buf.buf)
-															   local group = {}
-															   for line in val:gmatch("[^\r\n]+") do
-																	   table.insert(group, line)
-															   end
-															   tpl.texts[j] = group
-															   S.tpl_edit_mode[idx][j][0] = false
-													   end
-													   j = j + 1
-											   else
-													   local group = tpl.texts[j]
-													   local display = group[1] or ""
-													   if imgui.SmallButton("X##tpldel" .. idx .. "_" .. j) then
-															   table.remove(tpl.texts, j)
-													   else
-															   imgui.SameLine()
-															   if imgui.SmallButton("E##tplexistingbtn" .. idx .. "_" .. j) then
-																	   local edit_str = table.concat(group, "\n")
-																	   buf_set(S.tpl_edit_buf[idx], j, edit_str)
-																	   S.tpl_edit_mode[idx][j][0] = true
-															   else
-																	   j = j + 1
-															   end
-															   imgui.SameLine()
-															   imgui.BulletText(display)
-															   if #group > 1 and imgui.IsItemHovered() then
-																	   imgui.BeginTooltip()
-																	   imgui.TextUnformatted(table.concat(group, "\n"))
-																	   imgui.EndTooltip()
-															   end
-													   end
-											   end
+							local buf = buf_ensure(S.tpl_edit_buf[idx], j, 256)
+							imgui.InputTextMultiline(
+								"##tplexisting" .. idx .. "_" .. j,
+								buf.buf,
+								buf.size,
+								imgui.ImVec2(0, 60)
+							)
+							buf_maybe_grow(buf)
+							if imgui.Button("Готово##tplexisting" .. idx .. "_" .. j) then
+								local val = str(buf.buf)
+								local group = {}
+								for line in val:gmatch("[^\r\n]+") do
+									table.insert(group, line)
+								end
+								tpl.texts[j] = group
+								S.tpl_edit_mode[idx][j][0] = false
+							end
+							j = j + 1
+						else
+							local group = tpl.texts[j]
+							local display = group[1] or ""
+							if imgui.SmallButton("X##tpldel" .. idx .. "_" .. j) then
+								table.remove(tpl.texts, j)
+							else
+								imgui.SameLine()
+								if imgui.SmallButton("E##tplexistingbtn" .. idx .. "_" .. j) then
+									local edit_str = table.concat(group, "\n")
+									buf_set(S.tpl_edit_buf[idx], j, edit_str)
+									S.tpl_edit_mode[idx][j][0] = true
+								else
+									j = j + 1
+								end
+								imgui.SameLine()
+								imgui.BulletText(display)
+								if #group > 1 and imgui.IsItemHovered() then
+									imgui.BeginTooltip()
+									imgui.TextUnformatted(table.concat(group, "\n"))
+									imgui.EndTooltip()
+								end
+							end
+						end
 					end
 					S.tpl_input[idx] = buf_ensure(S.tpl_input, idx, 256)
 					S.tpl_multiline[idx] = S.tpl_multiline[idx] or new.bool(false)
-									   if S.tpl_multiline[idx][0] then
-											   imgui.InputTextMultiline(
-													   "##tplinput" .. idx,
-													   S.tpl_input[idx].buf,
-													   S.tpl_input[idx].size,
-													   imgui.ImVec2(0, 60)
-											   )
-									   else
-											   imgui.InputText("##tplinput" .. idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
-									   end
-									   buf_maybe_grow(S.tpl_input[idx])
-									   if S.tpl_multiline[idx][0] then
-											   if imgui.Button("Одна строка##toggle" .. idx) then
-													   S.tpl_multiline[idx][0] = false
-											   end
-									   else
-											   if imgui.Button("Много строк##toggle" .. idx) then
-													   S.tpl_multiline[idx][0] = true
-											   end
-									   end
-									   imgui.SameLine()
-									   if imgui.Button("Добавить##tpl" .. idx) then
-											   local val = str(S.tpl_input[idx].buf)
-											   if val ~= "" then
-													   tpl.texts = tpl.texts or {}
-													   if S.tpl_multiline[idx][0] then
-															   for line in val:gmatch("[^\r\n]+") do
-																	   line = trim(line)
-																	   if line ~= "" then
-																			   table.insert(tpl.texts, { line })
-																	   end
-															   end
-													   else
-															   table.insert(tpl.texts, { val })
-													   end
-													   imgui.StrCopy(S.tpl_input[idx].buf, "")
-											   end
-									   end
+					if S.tpl_multiline[idx][0] then
+						imgui.InputTextMultiline(
+							"##tplinput" .. idx,
+							S.tpl_input[idx].buf,
+							S.tpl_input[idx].size,
+							imgui.ImVec2(0, 60)
+						)
+					else
+						imgui.InputText("##tplinput" .. idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
+					end
+					buf_maybe_grow(S.tpl_input[idx])
+					if S.tpl_multiline[idx][0] then
+						if imgui.Button("Одна строка##toggle" .. idx) then
+							S.tpl_multiline[idx][0] = false
+						end
+					else
+						if imgui.Button("Много строк##toggle" .. idx) then
+							S.tpl_multiline[idx][0] = true
+						end
+					end
+					imgui.SameLine()
+					if imgui.Button("Добавить##tpl" .. idx) then
+						local val = str(S.tpl_input[idx].buf)
+						if val ~= "" then
+							tpl.texts = tpl.texts or {}
+							if S.tpl_multiline[idx][0] then
+								for line in val:gmatch("[^\r\n]+") do
+									line = trim(line)
+									if line ~= "" then
+										table.insert(tpl.texts, { line })
+									end
+								end
+							else
+								table.insert(tpl.texts, { val })
+							end
+							imgui.StrCopy(S.tpl_input[idx].buf, "")
+						end
+					end
 					imgui.EndTabItem()
 				end
 			end
 			imgui.EndTabBar()
 		end
-		end
-		if SMILive and (SMILive.DrawHelperSection or SMILive.DrawMathQuiz) then
-				imgui.Separator()
-				if SMILive.DrawHelperSection then
-						SMILive.DrawHelperSection()
-				else
-						imgui.TextWrapped("Эфир-викторина доступна в отдельном окне.")
-						if imgui.Button("Открыть эфир-викторину") then
-								if SMILive.OpenWindow then
-										SMILive.OpenWindow()
-								end
-						end
+	end
+	if SMILive and (SMILive.DrawHelperSection or SMILive.DrawMathQuiz) then
+		imgui.Separator()
+		if SMILive.DrawHelperSection then
+			SMILive.DrawHelperSection()
+		else
+			imgui.TextWrapped("Эфир-викторина доступна в отдельном окне.")
+			if imgui.Button("Открыть эфир-викторину") then
+				if SMILive.OpenWindow then
+					SMILive.OpenWindow()
 				end
+			end
 		end
-		if imgui.Button("Сохранить") then
+	end
+	if imgui.Button("Сохранить") then
 		Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
 		Config.data.objects = funcs.parseList(str(S.objects))
 		Config.data.prices = funcs.parseList(str(S.prices))

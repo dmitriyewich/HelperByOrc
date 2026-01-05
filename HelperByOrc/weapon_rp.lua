@@ -31,7 +31,13 @@ M.config = {
 	flavor_level = 2, -- 1 сдержанно, 2 поярче, 3 разнообразнее
 
 	-- общий набор наречий и соединителей (для всех оружий)
-	adverbs_show = { "уверенно", "быстрым движением", "плавно", "ловко", "чётко" },
+	adverbs_show = {
+		"уверенно",
+		"быстрым движением",
+		"плавно",
+		"ловко",
+		"чётко",
+	},
 	adverbs_hide = {
 		"аккуратно",
 		"спокойно",
@@ -1028,13 +1034,25 @@ function M.DrawSettingsInline()
 	if imgui.CollapsingHeader("Слова и связки (общие)") then
 		local adv_show = imgui.new.char[512](table.concat(M.config.adverbs_show or {}, "\n"))
 		if
-			imgui.InputTextMultiline("Наречия (достать)", adv_show, ffi.sizeof(adv_show), imgui.ImVec2(0, 80))
+			imgui.InputTextMultiline(
+				"Наречия (достать)",
+				adv_show,
+				ffi.sizeof(adv_show),
+				imgui.ImVec2(0, 80)
+			)
 		then
 			M.config.adverbs_show = funcs.parseLines(ffi.string(adv_show))
 			save_cfg()
 		end
 		local adv_hide = imgui.new.char[512](table.concat(M.config.adverbs_hide or {}, "\n"))
-		if imgui.InputTextMultiline("Наречия (убрать)", adv_hide, ffi.sizeof(adv_hide), imgui.ImVec2(0, 80)) then
+		if
+			imgui.InputTextMultiline(
+				"Наречия (убрать)",
+				adv_hide,
+				ffi.sizeof(adv_hide),
+				imgui.ImVec2(0, 80)
+			)
+		then
 			M.config.adverbs_hide = funcs.parseLines(ffi.string(adv_hide))
 			save_cfg()
 		end
@@ -1139,7 +1157,9 @@ function M.DrawSettingsInline()
 		imgui.Columns(1, nil, false)
 		for id, w in pairs(M.config.weapons) do
 			local label = (w.short or w.name or ("Weapon " .. id))
-			local match = (query == "") or tostring(id):find(query, 1, true) or (label:lower():find(query, 1, true) ~= nil)
+			local match = (query == "")
+				or tostring(id):find(query, 1, true)
+				or (label:lower():find(query, 1, true) ~= nil)
 			if match then
 				draw_weapon_row(id, w)
 			end
