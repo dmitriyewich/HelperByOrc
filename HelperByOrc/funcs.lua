@@ -2246,7 +2246,7 @@ end
 --            YANDEX SPELLER (Alt+X)           --
 -------------------------------------------------
 
-local function module.handleCorrection(message, setText)
+function module.handleCorrection(message, setText)
     if message == '' then return end
     message = trim(message)
 
@@ -2404,7 +2404,7 @@ local function applyLanguageToolMatches(originalUtf8, matches)
     return table.concat(parts)
 end
 
-local function module.handleLanguageTool(message, setText)
+function module.handleLanguageTool(message, setText)
     message = ltSanitizeMessage(message)
     if message == '' then return end
 
