@@ -2705,7 +2705,7 @@ local function drawEditHotkey(idx)
 				imgui.PopItemWidth()
 
 				imgui.SameLine()
-				if imgui.Button(fa.TRASH .. " Удалить##del", imgui.ImVec2(120, 20)) then
+				if imgui.Button(fa.TRASH .. " Удалить##del", imgui.ImVec2(100, 20)) then
 					table.remove(hk.editMsgs, i)
 					module.saveHotkeys()
 					imgui.EndGroup()
