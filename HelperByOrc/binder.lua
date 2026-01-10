@@ -2635,10 +2635,12 @@ local function drawEditHotkey(idx)
 			imgui.BeginDisabled(true)
 			imgui.Button(label)
 			imgui.EndDisabled()
-		else
-			imgui.PushStyleVar(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+		elseif imgui.PushStyleVarFloat then
+			imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
 			imgui.Button(label)
 			imgui.PopStyleVar()
+		else
+			imgui.Button(label)
 		end
 		return false
 	end
