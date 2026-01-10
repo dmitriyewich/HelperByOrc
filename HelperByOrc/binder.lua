@@ -592,6 +592,19 @@ local function reset_multi_buffer(hk)
 	end
 end
 
+local function reset_edit_state(hk)
+	if not hk then
+		return
+	end
+	hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled =
+		nil, nil, nil, nil, nil, nil
+	hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
+	hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
+	reset_multi_buffer(hk)
+	hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
+	hk.editInputs = nil
+end
+
 local function ensure_multi_buffer(hk)
 	local text = hk.editMultiText or ""
 	local len = #text
@@ -613,6 +626,7 @@ local function ensure_multi_buffer(hk)
 end
 
 local editHotkey = { active = false, idx = -1 }
+local editHotkeyNav = { open = false, targetIdx = nil, direction = nil }
 
 -- Попапы редактора
 local combo_recording = false
@@ -2578,12 +2592,7 @@ local function drawEditHotkey(idx)
 	-- Шапка
 	imgui.BeginChild("edit_header", imgui.ImVec2(0, 25), false)
 	if imgui.Button(fa.ARROW_LEFT .. " Назад") then
-		hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions = nil, nil, nil, nil, nil
-		hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-		hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-		reset_multi_buffer(hk)
-		hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
-		hk.editInputs = nil
+		reset_edit_state(hk)
 		editHotkey.active = false
 		return
 	end
@@ -2592,7 +2601,98 @@ local function drawEditHotkey(idx)
 		imgui.GetStyle().Colors[imgui.Col.Text],
 		fa.PEN .. "	" .. "Редактирование бинда"
 	)
+	local function get_folder_hotkey_indices(path)
+		local list = {}
+		for i, item in ipairs(hotkeys) do
+			if pathEquals(item.folderPath, path) then
+				list[#list + 1] = i
+			end
+		end
+		return list
+	end
+
+	local function get_prev_next_idx(currentIdx)
+		local current = hotkeys[currentIdx]
+		if not current then
+			return nil, nil, 0
+		end
+		local list = get_folder_hotkey_indices(current.folderPath)
+		local pos
+		for i, v in ipairs(list) do
+			if v == currentIdx then
+				pos = i
+				break
+			end
+		end
+		return list[pos and pos - 1 or nil], list[pos and pos + 1 or nil], #list
+	end
+
+	local function disabled_button(label, enabled)
+		if enabled then
+			return imgui.Button(label)
+		end
+		if imgui.BeginDisabled then
+			imgui.BeginDisabled(true)
+			imgui.Button(label)
+			imgui.EndDisabled()
+		elseif imgui.PushStyleVarFloat then
+			imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+			imgui.Button(label)
+			imgui.PopStyleVar()
+		else
+			imgui.Button(label)
+		end
+		return false
+	end
+
+	local prevIdx, nextIdx, totalInFolder = get_prev_next_idx(idx)
+	if totalInFolder > 1 then
+		imgui.SameLine()
+		if disabled_button(fa.ARROW_LEFT .. " Предыдущий", prevIdx ~= nil) then
+			editHotkeyNav.targetIdx = prevIdx
+			editHotkeyNav.direction = "предыдущему"
+			editHotkeyNav.open = true
+		end
+		imgui.SameLine()
+		if disabled_button("Следующий " .. fa.ARROW_RIGHT, nextIdx ~= nil) then
+			editHotkeyNav.targetIdx = nextIdx
+			editHotkeyNav.direction = "следующему"
+			editHotkeyNav.open = true
+		end
+	end
 	imgui.EndChild()
+
+	local navSwitched = false
+	if editHotkeyNav.open then
+		imgui.OpenPopup("binder_nav_confirm")
+		editHotkeyNav.open = false
+	end
+	if imgui.BeginPopupModal("binder_nav_confirm", nil, imgui.WindowFlags.AlwaysAutoResize) then
+		local direction = editHotkeyNav.direction or "следующему"
+		imgui.Text(("Перейти к %s бинду?"):format(direction))
+		imgui.Separator()
+		if imgui.Button("Перейти##bind_nav_ok", imgui.ImVec2(120, 0)) then
+			local target = editHotkeyNav.targetIdx
+			if target and hotkeys[target] then
+				reset_edit_state(hk)
+				editHotkey.idx = target
+				navSwitched = true
+			end
+			editHotkeyNav.targetIdx = nil
+			editHotkeyNav.direction = nil
+			imgui.CloseCurrentPopup()
+		end
+		imgui.SameLine()
+		if imgui.Button("Отмена##bind_nav_cancel", imgui.ImVec2(120, 0)) then
+			editHotkeyNav.targetIdx = nil
+			editHotkeyNav.direction = nil
+			imgui.CloseCurrentPopup()
+		end
+		imgui.EndPopup()
+	end
+	if navSwitched then
+		return
+	end
 
 	imgui.BeginChild("edit_main", imgui.ImVec2(0, -52), true)
 	-- Название
@@ -4054,13 +4154,7 @@ local function drawEditHotkey(idx)
 			pattern = hk.editTriggerPattern,
 		}
 
-		hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled =
-			nil, nil, nil, nil, nil, nil
-		hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-		hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-		reset_multi_buffer(hk)
-		hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
-		hk.editInputs = nil
+		reset_edit_state(hk)
 		editHotkey.active = false
 		module.saveHotkeys()
 		pushToast("Бинд сохранен: " .. (hk.label or ""), "ok", 2.5)
@@ -4068,13 +4162,7 @@ local function drawEditHotkey(idx)
 	end
 	imgui.SameLine()
 	if imgui.Button(fa.XMARK .. "[CANCEL]", imgui.ImVec2(120, 0)) then
-		hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled =
-			nil, nil, nil, nil, nil, nil
-		hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
-		hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
-		reset_multi_buffer(hk)
-		hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
-		hk.editInputs = nil
+		reset_edit_state(hk)
 		editHotkey.active = false
 		return
 	end
