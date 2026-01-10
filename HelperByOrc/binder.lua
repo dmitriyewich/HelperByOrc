@@ -2662,6 +2662,7 @@ local function drawEditHotkey(idx)
 	end
 	imgui.EndChild()
 
+	local navSwitched = false
 	if editHotkeyNav.open then
 		imgui.OpenPopup("binder_nav_confirm")
 		editHotkeyNav.open = false
@@ -2675,6 +2676,7 @@ local function drawEditHotkey(idx)
 			if target and hotkeys[target] then
 				reset_edit_state(hk)
 				editHotkey.idx = target
+				navSwitched = true
 			end
 			editHotkeyNav.targetIdx = nil
 			editHotkeyNav.direction = nil
@@ -2687,6 +2689,9 @@ local function drawEditHotkey(idx)
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()
+	end
+	if navSwitched then
+		return
 	end
 
 	imgui.BeginChild("edit_main", imgui.ImVec2(0, -52), true)
