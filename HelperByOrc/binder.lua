@@ -2042,13 +2042,14 @@ local function drawBindsGrid()
 		imgui.Spacing()
 		imgui.Columns(5, "binds_cols", true)
 		local tableMinX = imgui.GetCursorScreenPos().x
-		local contentWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 		local baseOffset = imgui.GetColumnOffset(0)
 		local col1W = 28
 		local col2W = 28
-		local col3W = math.min(220, math.max(140, math.floor(contentWidth * 0.22)))
-		local col5W = math.min(260, math.max(200, math.floor(contentWidth * 0.25)))
-		local col4W = math.max(140, contentWidth - (col1W + col2W + col3W + col5W))
+		local availableWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
+		local col3W = math.min(220, math.max(140, math.floor(availableWidth * 0.22)))
+		local col5W = math.min(260, math.max(200, math.floor(availableWidth * 0.25)))
+		local col4W = math.max(140, availableWidth - (col1W + col2W + col3W + col5W))
+		local contentWidth = col1W + col2W + col3W + col4W + col5W
 		imgui.SetColumnOffset(1, baseOffset + col1W)
 		imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
 		imgui.SetColumnOffset(3, baseOffset + col1W + col2W + col3W)
