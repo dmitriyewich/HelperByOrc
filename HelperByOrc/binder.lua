@@ -2000,6 +2000,7 @@ local function cloneHotkey(hk)
 end
 
 local bindsSelectedIndex = nil
+local hotkeysDirty = true
 
 local function drawBindsGrid()
 	local useColumnsList = true
@@ -2010,7 +2011,10 @@ local function drawBindsGrid()
 	local x0 = imgui.GetCursorScreenPos().x
 	local y = imgui.GetCursorScreenPos().y
 
-	refreshHotkeyNumbers()
+	if hotkeysDirty then
+		refreshHotkeyNumbers()
+		hotkeysDirty = false
+	end
 
 	local cards = {}
 	local curPath = folderFullPath(selectedFolder)
@@ -2021,6 +2025,21 @@ local function drawBindsGrid()
 	end
 
 	if useColumnsList then
+		local addLabel = (fa.SQUARE_PLUS ~= "" and (fa.SQUARE_PLUS .. " ") or "") .. "Добавить бинд##add_bind_cols"
+		local addSize = imgui.CalcTextSize(addLabel)
+		local rightX = imgui.GetCursorPosX() + imgui.GetContentRegionAvail().x - addSize.x
+			- imgui.GetStyle().FramePadding.x * 2
+		if rightX > imgui.GetCursorPosX() then
+			imgui.SetCursorPosX(rightX)
+		end
+		if imgui.SmallButton(addLabel) then
+			local hk = newHotkeyBase()
+			hk.folderPath = folderFullPath(selectedFolder)
+			table.insert(hotkeys, hk)
+			hotkeysDirty = true
+			module.saveHotkeys()
+		end
+		imgui.Spacing()
 		imgui.Columns(5, "binds_cols", true)
 		local contentWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 		local baseOffset = imgui.GetColumnOffset(0)
@@ -2086,7 +2105,7 @@ local function drawBindsGrid()
 									dst_idx = dst_idx - 1
 								end
 								table.insert(hotkeys, dst_idx, moved)
-								refreshHotkeyNumbers()
+								hotkeysDirty = true
 								module.saveHotkeys()
 							end
 						end
@@ -2155,10 +2174,16 @@ local function drawBindsGrid()
 				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
-				if isQuickMenu then
-					if imgui.SmallButton(quickIcon .. "##bind_quick_" .. i) and isEnabled then
+				if isEnabled then
+					if not isQuickMenu then
+						imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.6)
+					end
+					if imgui.SmallButton(quickIcon .. "##bind_quick_" .. i) then
 						hk.quick_menu = not isQuickMenu
 						module.saveHotkeys()
+					end
+					if not isQuickMenu then
+						imgui.PopStyleVar()
 					end
 				else
 					imgui.TextDisabled(quickIcon)
@@ -2239,36 +2264,61 @@ local function drawBindsGrid()
 				imgui.NextColumn()
 				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
-				local canPlay = isEnabled and not hk.is_running
-				if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
-					module.enqueueHotkey(hk)
+				local function small_action_button(label, enabled, tooltip)
+					local clicked = false
+					if enabled then
+						clicked = imgui.SmallButton(label)
+					else
+						if imgui.BeginDisabled then
+							imgui.BeginDisabled(true)
+							imgui.SmallButton(label)
+							imgui.EndDisabled()
+						else
+							imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+							imgui.SmallButton(label)
+							imgui.PopStyleVar()
+						end
+					end
+					if imgui.IsItemHovered() and tooltip then
+						imgui.SetTooltip(tooltip)
+					end
+					return clicked
 				end
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Воспроизвести")
+				local canAction = isEnabled
+				if not hk.is_running then
+					if small_action_button(fa.PLAY .. "##play_" .. i, canAction, "Воспроизвести") then
+						module.enqueueHotkey(hk)
+					end
+				else
+					if hk._co_state and hk._co_state.paused then
+						if small_action_button(fa.PLAY .. "##resume_" .. i, canAction, "Продолжить") then
+							hk._co_state.paused = false
+						end
+					else
+						if small_action_button(fa.PAUSE .. "##pause_" .. i, canAction, "Пауза") then
+							hk._co_state = hk._co_state or {}
+							hk._co_state.paused = true
+						end
+					end
+					imgui.SameLine()
+					if small_action_button(fa.STOP .. "##stop_" .. i, canAction, "Стоп") then
+						module.stopHotkey(hk)
+					end
 				end
 				imgui.SameLine()
-				if imgui.Button(fa.PEN .. "##edit_" .. i) then
+				if small_action_button(fa.PEN .. "##edit_" .. i, true, "Редактировать") then
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Редактировать")
-				end
 				imgui.SameLine()
-				if imgui.Button(fa.TRASH .. "##del_" .. i) then
+				if small_action_button(fa.TRASH .. "##del_" .. i, true, "Удалить") then
 					_G.deleteBindPopup.idx = i
 					_G.deleteBindPopup.from_edit = false
 					_G.deleteBindPopup.active = true
 				end
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Удалить")
-				end
 				imgui.SameLine()
-				if imgui.Button(fa.BARS .. "##ctx_" .. i) then
+				if small_action_button(fa.BARS .. "##ctx_" .. i, true, "Меню") then
 					imgui.OpenPopup("ctx_card_" .. i)
-				end
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Меню")
 				end
 				imgui.NextColumn()
 
@@ -2276,7 +2326,7 @@ local function drawBindsGrid()
 					if imgui.MenuItemBool("Дублировать", false) then
 						local newhk = cloneHotkey(hk)
 						table.insert(hotkeys, i + 1, newhk)
-						refreshHotkeyNumbers()
+						hotkeysDirty = true
 						module.saveHotkeys()
 					end
 					if imgui.MenuItemBool("Переместить в...", false) then
@@ -2449,7 +2499,7 @@ local function drawBindsGrid()
 				if imgui.MenuItemBool("Дублировать", false) then
 					local newhk = cloneHotkey(hk)
 					table.insert(hotkeys, i + 1, newhk)
-					refreshHotkeyNumbers()
+					hotkeysDirty = true
 					module.saveHotkeys()
 				end
 				if imgui.MenuItemBool("Переместить в...", false) then
@@ -2484,7 +2534,7 @@ local function drawBindsGrid()
 							dst_idx = dst_idx - 1
 						end
 						table.insert(hotkeys, dst_idx, moved)
-						refreshHotkeyNumbers()
+						hotkeysDirty = true
 						module.saveHotkeys()
 					end
 				end
@@ -2510,7 +2560,7 @@ local function drawBindsGrid()
 				local hk = newHotkeyBase()
 				hk.folderPath = folderFullPath(selectedFolder)
 				table.insert(hotkeys, hk)
-				refreshHotkeyNumbers()
+				hotkeysDirty = true
 				module.saveHotkeys()
 			end
 			imgui.EndGroup()
@@ -2529,6 +2579,7 @@ local function drawBindsGrid()
 					local idx = _G.moveBindPopup.hkidx
 					if hotkeys[idx] then
 						hotkeys[idx].folderPath = { table.unpack(path) }
+						hotkeysDirty = true
 						module.saveHotkeys()
 					end
 					imgui.CloseCurrentPopup()
@@ -4487,7 +4538,7 @@ local function drawDeletePopups()
 		if imgui.Button("Удалить##bind_confirm", imgui.ImVec2(100, 0)) then
 			if idx and hotkeys[idx] then
 				table.remove(hotkeys, idx)
-				refreshHotkeyNumbers()
+				hotkeysDirty = true
 				module.saveHotkeys()
 			end
 			if _G.deleteBindPopup.from_edit then
