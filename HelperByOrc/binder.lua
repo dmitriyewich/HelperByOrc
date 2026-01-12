@@ -2137,6 +2137,7 @@ local function drawBindsGrid()
 				local dl = imgui.GetWindowDrawList()
 				local fullMin = rowStart
 				local fullMax = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
+				rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
 				imgui.PushClipRect(fullMin, fullMax, false)
 				if (rowIndex % 2) == 1 then
 					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
