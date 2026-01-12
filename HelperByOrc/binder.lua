@@ -2043,16 +2043,16 @@ local function drawBindsGrid()
 		imgui.Columns(5, "binds_cols", true)
 		local tableMinX = imgui.GetCursorScreenPos().x
 		local baseOffset = imgui.GetColumnOffset(0)
-		local col1W = 28
-		local col2W = 28
+		local btnH = imgui.GetFrameHeight()
+		local btnW = btnH + 6
+		local col1W = btnW + 6
+		local col2W = btnW + 6
 		local availableWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 
 		-- 3-я колонка примерно в 2 раза уже
 		local col3W = math.min(140, math.max(70, math.floor(availableWidth * 0.11)))
 
 		-- 5-я колонка под кнопки
-		local btnH = imgui.GetFrameHeight()
-		local btnW = btnH + 6
 		local btnSpacing = imgui.GetStyle().ItemSpacing.x
 		local maxButtons = 5
 		local col5W = (btnW * maxButtons) + (btnSpacing * (maxButtons - 1)) + 6
