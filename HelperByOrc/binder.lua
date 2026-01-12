@@ -2041,9 +2041,8 @@ local function drawBindsGrid()
 				imgui.PushStyleVar(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
 			end
 
-			local enabledValue = imgui.new.bool(isEnabled)
-			if imgui.RadioButtonBool("##bind_enabled_" .. i, enabledValue) then
-				hk.enabled = enabledValue[0]
+			if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
+				hk.enabled = not isEnabled
 				module.saveHotkeys()
 			end
 			imgui.NextColumn()
