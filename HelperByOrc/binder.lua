@@ -2305,12 +2305,17 @@ local function drawBindsGrid()
 				end
 				imgui.EndDragDropTarget()
 			end
-			imgui.SetCursorScreenPos(dndStart)
-			set_col_y(yTxt)
+				imgui.SetCursorScreenPos(dndStart)
+				set_col_y(yTxt)
 				local rowCount = #(hk.messages or {})
 				local countText = " (" .. tostring(rowCount) .. ")"
-				local countWidth = imgui.CalcTextSize(countText).x
-				local nameWidth = imgui.GetColumnWidth() - countWidth - imgui.GetStyle().ItemSpacing.x
+				local colPos = imgui.GetCursorScreenPos()
+				local colWidth = imgui.GetColumnWidth()
+				local padding = 4
+				local numberText = tostring(displayNumber)
+				local numberSize = imgui.CalcTextSize(numberText)
+				local countSize = imgui.CalcTextSize(countText)
+				local nameWidth = colWidth - numberSize.x - countSize.x - padding * 2
 				if nameWidth < 0 then
 					nameWidth = 0
 				end
@@ -2324,12 +2329,29 @@ local function drawBindsGrid()
 					cache.output = ellipsize_utf8(bindName, nameWidth)
 				end
 				local displayName = cache.output or bindName
-				imgui.Text(displayName)
+				local nameSize = imgui.CalcTextSize(displayName)
+				local nameX = colPos.x + (colWidth - nameSize.x) / 2
+				local nameMinX = colPos.x + numberSize.x + padding
+				local nameMaxX = colPos.x + colWidth - countSize.x - padding - nameSize.x
+				if nameX < nameMinX then
+					nameX = nameMinX
+				end
+				if nameX > nameMaxX then
+					nameX = nameMaxX
+				end
+				local disabledColor = style.Colors[imgui.Col.TextDisabled]
+				dl:AddText(colPos, imgui.GetColorU32Vec4(disabledColor), numberText)
+				dl:AddText(
+					imgui.ImVec2(colPos.x + colWidth - countSize.x, colPos.y),
+					imgui.GetColorU32Vec4(disabledColor),
+					countText
+				)
+				dl:AddText(imgui.ImVec2(nameX, colPos.y), imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), displayName)
+				imgui.SetCursorScreenPos(colPos)
+				imgui.InvisibleButton("##bind_name_" .. i, imgui.ImVec2(colWidth, rowContentH))
 				if displayName ~= bindName and imgui.IsItemHovered() then
 					imgui.SetTooltip(bindName)
 				end
-				imgui.SameLine()
-				imgui.TextDisabled(countText)
 				imgui.NextColumn()
 				set_col_y(yBtn)
 				local canAction = isEnabled
