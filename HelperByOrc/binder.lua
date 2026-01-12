@@ -2066,7 +2066,10 @@ local function drawBindsGrid()
 
 			local selectableFlags = 0
 			if imgui.SelectableFlags then
-				selectableFlags = imgui.SelectableFlags.AllowItemOverlap + imgui.SelectableFlags.SpanAllColumns
+				selectableFlags = imgui.SelectableFlags.SpanAllColumns
+				if imgui.SelectableFlags.AllowDoubleClick then
+					selectableFlags = selectableFlags + imgui.SelectableFlags.AllowDoubleClick
+				end
 			end
 			if imgui.Selectable("##row_select_" .. i, bindsSelectedIndex == i, selectableFlags, imgui.ImVec2(contentWidth, rowHeight)) then
 				bindsSelectedIndex = i
