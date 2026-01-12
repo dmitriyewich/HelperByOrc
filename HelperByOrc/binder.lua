@@ -2033,15 +2033,15 @@ local function drawBindsGrid()
 		imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
 		imgui.SetColumnOffset(3, baseOffset + col1W + col2W + col3W)
 		imgui.SetColumnOffset(4, baseOffset + col1W + col2W + col3W + col4W)
-		imgui.TextDisabled("EN")
+		imgui.TextDisabled("Актив")
 		imgui.NextColumn()
-		imgui.TextDisabled("QM")
+		imgui.TextDisabled("Меню")
 		imgui.NextColumn()
-		imgui.TextDisabled("ACT")
+		imgui.TextDisabled("Запуск")
 		imgui.NextColumn()
-		imgui.TextDisabled("Название")
+		imgui.TextDisabled("Бинд")
 		imgui.NextColumn()
-		imgui.TextDisabled("BTN")
+		imgui.TextDisabled("Действия")
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -2105,7 +2105,15 @@ local function drawBindsGrid()
 					local selCol = imgui.GetStyle().Colors[imgui.Col.Header]
 					local sel = imgui.ImVec4(selCol.x, selCol.y, selCol.z, selCol.w * 0.35)
 					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(sel))
+				elseif rowHovered then
+					local hoverCol = imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
+					local hover = imgui.ImVec4(hoverCol.x, hoverCol.y, hoverCol.z, hoverCol.w * 0.2)
+					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(hover))
 				end
+				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
+				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
+				local lineY = rowStart.y + rowHeight
+				dl:AddLine(rowStart, imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
 
 				local displayNumber = hk._number or i
 				local bindName = hk.label or ("bind" .. displayNumber)
@@ -2125,6 +2133,9 @@ local function drawBindsGrid()
 					)
 				end
 
+				local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
+				local colPos = imgui.GetCursorScreenPos()
+				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
 					local nextEnabled = not isEnabled
 					hk.enabled = nextEnabled
@@ -2135,6 +2146,8 @@ local function drawBindsGrid()
 				end
 				imgui.NextColumn()
 				local isQuickMenu = hk.quick_menu and true or false
+				colPos = imgui.GetCursorScreenPos()
+				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				if isEnabled then
 					if imgui.RadioButtonBool("##bind_quick_" .. i, isQuickMenu) then
 						hk.quick_menu = not isQuickMenu
@@ -2189,6 +2202,7 @@ local function drawBindsGrid()
 					usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
 				end
 				imgui.NextColumn()
+				imgui.AlignTextToFramePadding()
 				local rowCount = #(hk.messages or {})
 				local countText = " (" .. tostring(rowCount) .. ")"
 				local countWidth = imgui.CalcTextSize(countText).x
@@ -2213,8 +2227,7 @@ local function drawBindsGrid()
 				imgui.SameLine()
 				imgui.TextDisabled(countText)
 				imgui.NextColumn()
-				local colPos = imgui.GetCursorScreenPos()
-				local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
+				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local canPlay = isEnabled and not hk.is_running
 				if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
