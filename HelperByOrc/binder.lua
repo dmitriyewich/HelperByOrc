@@ -2034,6 +2034,7 @@ local function drawBindsGrid()
 
 		for _, card in ipairs(cards) do
 			local hk, i = card.hk, card.idx
+			local rowStart = imgui.GetCursorScreenPos()
 			local displayNumber = hk._number or i
 			local bindName = hk.label or ("bind" .. displayNumber)
 			local isEnabled = hk.enabled == nil and true or hk.enabled
@@ -2119,6 +2120,7 @@ local function drawBindsGrid()
 				imgui.OpenPopup("ctx_card_" .. i)
 			end
 			imgui.NextColumn()
+			local rowEnd = imgui.GetCursorScreenPos()
 
 			if imgui.BeginPopup("ctx_card_" .. i) then
 				if imgui.MenuItemBool("Дублировать", false) then
@@ -2134,6 +2136,42 @@ local function drawBindsGrid()
 				end
 				imgui.EndPopup()
 			end
+
+			local rowWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
+			local rowHeight = rowEnd.y - rowStart.y
+			local minHeight = imgui.GetTextLineHeightWithSpacing()
+			if rowHeight < minHeight then
+				rowHeight = minHeight
+			end
+			imgui.SetCursorScreenPos(rowStart)
+			imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(rowWidth, rowHeight))
+			if imgui.BeginDragDropSource() then
+				local payload = ffi.new("int[1]", i)
+				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+				local dragLabelNumber = hk._number or i
+				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+				imgui.Text(dragLabel)
+				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+				imgui.EndDragDropSource()
+			end
+			if imgui.BeginDragDropTarget() then
+				local payload = imgui.AcceptDragDropPayload()
+				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+					local src_idx = ffi.cast("int*", payload.Data)[0]
+					local dst_idx = i
+					if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+						local moved = table.remove(hotkeys, src_idx)
+						if dst_idx > src_idx then
+							dst_idx = dst_idx - 1
+						end
+						table.insert(hotkeys, dst_idx, moved)
+						refreshHotkeyNumbers()
+						module.saveHotkeys()
+					end
+				end
+				imgui.EndDragDropTarget()
+			end
+			imgui.SetCursorScreenPos(rowEnd)
 
 			if not isEnabled then
 				imgui.PopStyleVar()
