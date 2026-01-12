@@ -2062,13 +2062,25 @@ local function drawBindsGrid()
 		imgui.NextColumn()
 		imgui.TextDisabled("Действия")
 		imgui.NextColumn()
-		imgui.Separator()
+		local headerLine = imgui.GetCursorScreenPos()
+		local headerBorder = imgui.GetStyle().Colors[imgui.Col.Border]
+		local headerBorderCol = imgui.ImVec4(headerBorder.x, headerBorder.y, headerBorder.z, headerBorder.w * 0.3)
+		imgui.GetWindowDrawList():AddLine(
+			headerLine,
+			imgui.ImVec2(headerLine.x + contentWidth, headerLine.y),
+			imgui.GetColorU32Vec4(headerBorderCol),
+			1
+		)
+		imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y))
 
 		local rowHeight = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight())
 		local clipper = imgui.ImGuiListClipper(#cards, rowHeight)
 		while clipper:Step() do
 			for localIndex = clipper.DisplayStart, clipper.DisplayEnd - 1 do
 				local card = cards[localIndex + 1]
+				if not card then
+					break
+				end
 				local hk, i = card.hk, card.idx
 				local rowIndex = localIndex
 				local rowStart = imgui.GetCursorScreenPos()
