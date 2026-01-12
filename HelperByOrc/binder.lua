@@ -2176,8 +2176,6 @@ local function drawBindsGrid()
 			local canPlay = isEnabled and not hk.is_running
 			if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
 				module.enqueueHotkey(hk)
-			else
-				imgui.Button(fa.PLAY .. "##play_" .. i)
 			end
 			if imgui.IsItemHovered() then
 				imgui.SetTooltip("Воспроизвести")
