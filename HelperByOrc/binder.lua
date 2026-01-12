@@ -2175,8 +2175,12 @@ local function drawBindsGrid()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
 				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
-				local toggleIcon = isEnabled and toggleOnIcon or toggleOffIcon
-				local toggleClicked = imgui.SmallButton(toggleIcon .. "##bind_enabled_" .. i)
+				if isEnabled then
+					imgui.Text(toggleOnIcon)
+				else
+					imgui.TextDisabled(toggleOffIcon)
+				end
+				local toggleClicked = imgui.IsItemClicked(0)
 				mark_widget_clicked(toggleClicked)
 				if toggleClicked then
 					local nextEnabled = not isEnabled
