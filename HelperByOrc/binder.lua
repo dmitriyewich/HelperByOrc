@@ -2064,8 +2064,6 @@ local function drawBindsGrid()
 				dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(sel))
 			end
 
-			imgui.SetCursorScreenPos(rowStart)
-
 			local displayNumber = hk._number or i
 			local bindName = hk.label or ("bind" .. displayNumber)
 			local isEnabled = hk.enabled == nil and true or hk.enabled
@@ -2225,6 +2223,7 @@ local function drawBindsGrid()
 				imgui.EndPopup()
 			end
 
+			local nextRowPos = imgui.GetCursorScreenPos()
 			imgui.SetCursorScreenPos(rowStart)
 			imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
 			if imgui.SetItemAllowOverlap then
@@ -2264,7 +2263,7 @@ local function drawBindsGrid()
 				end
 				imgui.EndDragDropTarget()
 			end
-			imgui.SetCursorScreenPos(rowEnd)
+			imgui.SetCursorScreenPos(nextRowPos)
 
 			if not isEnabled then
 				imgui.PopStyleColor(2)
