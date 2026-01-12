@@ -2066,12 +2066,12 @@ local function drawBindsGrid()
 		local headerLine = imgui.GetCursorScreenPos()
 		local headerBorder = imgui.GetStyle().Colors[imgui.Col.Border]
 		local headerBorderCol = imgui.ImVec4(headerBorder.x, headerBorder.y, headerBorder.z, headerBorder.w * 0.3)
-		imgui.GetWindowDrawList():AddLine(
-			imgui.ImVec2(tableMinX, headerLine.y),
-			imgui.ImVec2(tableMinX + contentWidth, headerLine.y),
-			imgui.GetColorU32Vec4(headerBorderCol),
-			1
-		)
+		local headerU32 = imgui.GetColorU32Vec4(headerBorderCol)
+		local dl = imgui.GetWindowDrawList()
+		local y = headerLine.y
+		imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), false)
+		dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
+		imgui.PopClipRect()
 		imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y))
 
 		local style = imgui.GetStyle()
