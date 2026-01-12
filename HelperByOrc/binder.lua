@@ -2073,6 +2073,7 @@ local function drawBindsGrid()
 				local rowIndex = localIndex
 				local rowStart = imgui.GetCursorScreenPos()
 				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowHeight)
+				local clickedOnWidget = false
 				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
 				if imgui.SetItemAllowOverlap then
 					imgui.SetItemAllowOverlap()
@@ -2080,6 +2081,11 @@ local function drawBindsGrid()
 				local rowHovered = imgui.IsItemHovered()
 				local rowClicked = imgui.IsItemClicked(0)
 				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
+				local function mark_widget_clicked(clicked)
+					if clicked or imgui.IsItemClicked(0) then
+						clickedOnWidget = true
+					end
+				end
 				if imgui.BeginDragDropSource() then
 					local payload = ffi.new("int[1]", i)
 					imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
@@ -2158,7 +2164,9 @@ local function drawBindsGrid()
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
 				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
 				local toggleIcon = isEnabled and toggleOnIcon or toggleOffIcon
-				if imgui.SmallButton(toggleIcon .. "##bind_enabled_" .. i) then
+				local toggleClicked = imgui.SmallButton(toggleIcon .. "##bind_enabled_" .. i)
+				mark_widget_clicked(toggleClicked)
+				if toggleClicked then
 					local nextEnabled = not isEnabled
 					hk.enabled = nextEnabled
 					if not nextEnabled then
@@ -2178,7 +2186,9 @@ local function drawBindsGrid()
 					if not isQuickMenu then
 						imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.6)
 					end
-					if imgui.SmallButton(quickIcon .. "##bind_quick_" .. i) then
+					local quickClicked = imgui.SmallButton(quickIcon .. "##bind_quick_" .. i)
+					mark_widget_clicked(quickClicked)
+					if quickClicked then
 						hk.quick_menu = not isQuickMenu
 						module.saveHotkeys()
 					end
@@ -2286,50 +2296,68 @@ local function drawBindsGrid()
 				end
 				local canAction = isEnabled
 				if not hk.is_running then
-					if small_action_button(fa.PLAY .. "##play_" .. i, canAction, "Воспроизвести") then
+					local playClicked = small_action_button(fa.PLAY .. "##play_" .. i, canAction, "Воспроизвести")
+					mark_widget_clicked(playClicked)
+					if playClicked then
 						module.enqueueHotkey(hk)
 					end
 				else
 					if hk._co_state and hk._co_state.paused then
-						if small_action_button(fa.PLAY .. "##resume_" .. i, canAction, "Продолжить") then
+						local resumeClicked = small_action_button(fa.PLAY .. "##resume_" .. i, canAction, "Продолжить")
+						mark_widget_clicked(resumeClicked)
+						if resumeClicked then
 							hk._co_state.paused = false
 						end
 					else
-						if small_action_button(fa.PAUSE .. "##pause_" .. i, canAction, "Пауза") then
+						local pauseClicked = small_action_button(fa.PAUSE .. "##pause_" .. i, canAction, "Пауза")
+						mark_widget_clicked(pauseClicked)
+						if pauseClicked then
 							hk._co_state = hk._co_state or {}
 							hk._co_state.paused = true
 						end
 					end
 					imgui.SameLine()
-					if small_action_button(fa.STOP .. "##stop_" .. i, canAction, "Стоп") then
+					local stopClicked = small_action_button(fa.STOP .. "##stop_" .. i, canAction, "Стоп")
+					mark_widget_clicked(stopClicked)
+					if stopClicked then
 						module.stopHotkey(hk)
 					end
 				end
 				imgui.SameLine()
-				if small_action_button(fa.PEN .. "##edit_" .. i, true, "Редактировать") then
+				local editClicked = small_action_button(fa.PEN .. "##edit_" .. i, true, "Редактировать")
+				mark_widget_clicked(editClicked)
+				if editClicked then
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
 				imgui.SameLine()
-				if small_action_button(fa.TRASH .. "##del_" .. i, true, "Удалить") then
+				local delClicked = small_action_button(fa.TRASH .. "##del_" .. i, true, "Удалить")
+				mark_widget_clicked(delClicked)
+				if delClicked then
 					_G.deleteBindPopup.idx = i
 					_G.deleteBindPopup.from_edit = false
 					_G.deleteBindPopup.active = true
 				end
 				imgui.SameLine()
-				if small_action_button(fa.BARS .. "##ctx_" .. i, true, "Меню") then
+				local ctxClicked = small_action_button(fa.BARS .. "##ctx_" .. i, true, "Меню")
+				mark_widget_clicked(ctxClicked)
+				if ctxClicked then
 					imgui.OpenPopup("ctx_card_" .. i)
 				end
 				imgui.NextColumn()
 
 				if imgui.BeginPopup("ctx_card_" .. i) then
-					if imgui.MenuItemBool("Дублировать", false) then
+					local dupClicked = imgui.MenuItemBool("Дублировать", false)
+					mark_widget_clicked(dupClicked)
+					if dupClicked then
 						local newhk = cloneHotkey(hk)
 						table.insert(hotkeys, i + 1, newhk)
 						hotkeysDirty = true
 						module.saveHotkeys()
 					end
-					if imgui.MenuItemBool("Переместить в...", false) then
+					local moveClicked = imgui.MenuItemBool("Переместить в...", false)
+					mark_widget_clicked(moveClicked)
+					if moveClicked then
 						_G.moveBindPopup.active = true
 						_G.moveBindPopup.hkidx = i
 						imgui.CloseCurrentPopup()
@@ -2338,10 +2366,10 @@ local function drawBindsGrid()
 				end
 
 				local nextRowPos = imgui.GetCursorScreenPos()
-				if rowClicked and not imgui.IsAnyItemHovered() then
+				if rowClicked and not clickedOnWidget then
 					bindsSelectedIndex = i
 				end
-				if rowDbl and not imgui.IsAnyItemHovered() then
+				if rowDbl and not clickedOnWidget then
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
