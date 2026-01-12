@@ -2198,21 +2198,21 @@ local function drawBindsGrid()
 				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
+				local quickClicked = false
 				if isEnabled then
-					if not isQuickMenu then
-						imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.6)
+					if isQuickMenu then
+						imgui.Text(quickIcon)
+					else
+						imgui.TextDisabled(quickIcon)
 					end
-					local quickClicked = imgui.SmallButton(quickIcon .. "##bind_quick_" .. i)
-					mark_widget_clicked(quickClicked)
-					if quickClicked then
-						hk.quick_menu = not isQuickMenu
-						module.saveHotkeys()
-					end
-					if not isQuickMenu then
-						imgui.PopStyleVar()
-					end
+					quickClicked = imgui.IsItemClicked(0)
 				else
 					imgui.TextDisabled(quickIcon)
+				end
+				mark_widget_clicked(quickClicked)
+				if quickClicked then
+					hk.quick_menu = not isQuickMenu
+					module.saveHotkeys()
 				end
 				if imgui.IsItemHovered() then
 					imgui.SetTooltip("Показывать в быстром меню")
