@@ -2088,13 +2088,6 @@ local function drawBindsGrid()
 				local rowStart = imgui.GetCursorScreenPos()
 				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
 				local clickedOnWidget = false
-				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowContentH))
-				if imgui.SetItemAllowOverlap then
-					imgui.SetItemAllowOverlap()
-				end
-				local rowHovered = imgui.IsItemHovered()
-				local rowClicked = imgui.IsItemClicked(0)
-				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
 				local function mark_widget_clicked(clicked)
 					if clicked or imgui.IsItemClicked(0) then
 						clickedOnWidget = true
@@ -2105,7 +2098,9 @@ local function drawBindsGrid()
 				local dl = imgui.GetWindowDrawList()
 				local fullMin = rowStart
 				local fullMax = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
-				rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
+				local rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
+				local rowClicked = rowHovered and imgui.IsMouseClicked(0)
+				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
 				imgui.PushClipRect(fullMin, fullMax, false)
 				if (rowIndex % 2) == 1 then
 					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
