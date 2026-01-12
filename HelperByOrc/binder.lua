@@ -2074,10 +2074,11 @@ local function drawBindsGrid()
 		dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
 		imgui.PopClipRect()
 		imgui.Dummy(imgui.ImVec2(0, 1))
+		imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, imgui.GetCursorScreenPos().y))
 
 		local style = imgui.GetStyle()
-		local rowStep = math.max(imgui.GetFrameHeight(), imgui.GetTextLineHeight()) + style.ItemSpacing.y
-		local rowContentH = rowStep - style.ItemSpacing.y
+		local rowContentH = math.max(imgui.GetFrameHeight(), imgui.GetTextLineHeight()) + 6
+		local rowStep = rowContentH
 		local clipper = imgui.ImGuiListClipper(#cards, rowStep)
 		while clipper:Step() do
 			for localIndex = clipper.DisplayStart, clipper.DisplayEnd - 1 do
