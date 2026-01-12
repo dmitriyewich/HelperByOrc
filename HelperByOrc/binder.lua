@@ -2000,6 +2000,7 @@ local function cloneHotkey(hk)
 end
 
 local function drawBindsGrid()
+	local useColumnsList = true
 	local availWidth = imgui.GetContentRegionAvail().x
 	local cardWidth, cardHeight = VirtualizedGrid.item_width, VirtualizedGrid.item_height
 	local spacingX, spacingY = VirtualizedGrid.spacing_x, VirtualizedGrid.spacing_y
@@ -2017,249 +2018,282 @@ local function drawBindsGrid()
 		end
 	end
 
-	local totalItems = #cards + 1 -- include "+" button
-	local totalRows = math.max(1, math.ceil(totalItems / columns))
-	local scrollY = imgui.GetScrollY()
-	local windowHeight = imgui.GetWindowHeight()
-	local visible = VirtualizedGrid:calculate_visible(scrollY, windowHeight)
-	local startRow = math.max(0, (visible.start or 1) - 1)
-	startRow = math.min(startRow, totalRows - 1)
-	local endRow = math.min(totalRows - 1, startRow + (visible.count or totalRows))
+	if useColumnsList then
+		imgui.Columns(5, "binds_cols", true)
+		imgui.TextDisabled("EN")
+		imgui.NextColumn()
+		imgui.TextDisabled("QM")
+		imgui.NextColumn()
+		imgui.TextDisabled("ACT")
+		imgui.NextColumn()
+		imgui.TextDisabled("Название")
+		imgui.NextColumn()
+		imgui.TextDisabled("BTN")
+		imgui.NextColumn()
+		imgui.Separator()
 
-	local contentHeight = totalRows * (cardHeight + spacingY) - spacingY
-	if contentHeight < 0 then
-		contentHeight = 0
-	end
-
-	local cursorBase = imgui.GetCursorScreenPos()
-	imgui.Dummy(imgui.ImVec2(1, contentHeight))
-	imgui.SetCursorScreenPos(cursorBase)
-
-	local startIndex = startRow * columns + 1
-	local endIndex = math.min(#cards, (endRow + 1) * columns)
-
-	for idx = startIndex, endIndex do
-		local card = cards[idx]
-		local hk, i = card.hk, card.idx
-		local offsetX, offsetY = VirtualizedGrid:get_card_position(idx, columns)
-		local x = x0 + offsetX
-		local yPos = y + offsetY
-
-		imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
-		local pmin = imgui.GetCursorScreenPos()
-		local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
-		local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
-
-		imgui.BeginGroup()
-
-		local dl = imgui.GetWindowDrawList()
-		local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
-			or imgui.GetStyle().Colors[imgui.Col.FrameBg]
-
-		dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
-		dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
-
-		drawQuickIndicator(dl, pmin, hk.quick_menu)
-
-		if not hovered then
-			local dot_pad, dot_r = 8, 5
-			local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
-			local text_start = pmin.x + 11
-			local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
-			local bolt_x = dot_cx - dot_r - 4 - bolt_w
-			local max_text_w = bolt_x - text_start - 4
+		for _, card in ipairs(cards) do
+			local hk, i = card.hk, card.idx
 			local displayNumber = hk._number or i
-			local numberLabel = string.format("#%d", displayNumber)
-			local numberWidth = imgui.CalcTextSize(numberLabel).x
-			local label = hk.label or ("bind" .. displayNumber)
-			local labelMaxWidth = max_text_w - numberWidth - 6
-			if labelMaxWidth < 0 then
-				labelMaxWidth = 0
-			end
-			local numberX = bolt_x - numberWidth - 6
-			if numberX < text_start then
-				numberX = text_start
-			end
-			local textWidthLimit = numberX - text_start - 4
-			if textWidthLimit < 0 then
-				textWidthLimit = 0
-			end
-			local labelWidthLimit = math.min(labelMaxWidth, textWidthLimit)
-			if labelWidthLimit < 0 then
-				labelWidthLimit = 0
-			end
-			label = ellipsize_utf8(label, labelWidthLimit)
-			imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
-			imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
-			imgui.SetCursorScreenPos(imgui.ImVec2(numberX, pmin.y + 7))
-			imgui.TextDisabled(numberLabel)
-			if hk.quick_menu then
-				imgui.SetCursorScreenPos(imgui.ImVec2(bolt_x, pmin.y + 7))
-				imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.BOLT)
-			end
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 25))
-			imgui.TextDisabled(fa.LIST_UL .. " " .. tostring(#(hk.messages or {})))
-			if hk.command and hk.command ~= "" then
-				imgui.SameLine()
-				imgui.TextDisabled(fa.TERMINAL .. " " .. hk.command)
-			end
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 39))
-			if #hk.keys > 0 then
-				imgui.TextDisabled(fa.KEYBOARD .. " " .. hotkeyToString(hk.keys))
-			end
-		else
-			local padX = 6
-			local spacing = imgui.GetStyle().ItemSpacing.x
-			local buttonCount = hk.is_running and 5 or 4
-			local totalSpacing = spacing * (buttonCount - 1)
-			local buttonW = (cardWidth - padX * 2 - totalSpacing) / buttonCount
-			if buttonW < 0 then
-				buttonW = 0
-			end
-			local buttonH = cardHeight - 16
-			local btnY = pmin.y + 8
-			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
-			if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				editHotkey.active = true
-				editHotkey.idx = i
-			end
-			imgui.SameLine(0, spacing)
-			if not hk.is_running then
-				if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					module.enqueueHotkey(hk)
+			local bindName = hk.label or ("bind" .. displayNumber)
+			imgui.Text("EN")
+			imgui.NextColumn()
+			imgui.Text("QM")
+			imgui.NextColumn()
+			imgui.Text("ACT")
+			imgui.NextColumn()
+			imgui.Text(bindName)
+			imgui.NextColumn()
+			imgui.Text("BTN")
+			imgui.NextColumn()
+		end
+
+		imgui.Columns(1)
+	else
+		local totalItems = #cards + 1 -- include "+" button
+		local totalRows = math.max(1, math.ceil(totalItems / columns))
+		local scrollY = imgui.GetScrollY()
+		local windowHeight = imgui.GetWindowHeight()
+		local visible = VirtualizedGrid:calculate_visible(scrollY, windowHeight)
+		local startRow = math.max(0, (visible.start or 1) - 1)
+		startRow = math.min(startRow, totalRows - 1)
+		local endRow = math.min(totalRows - 1, startRow + (visible.count or totalRows))
+
+		local contentHeight = totalRows * (cardHeight + spacingY) - spacingY
+		if contentHeight < 0 then
+			contentHeight = 0
+		end
+
+		local cursorBase = imgui.GetCursorScreenPos()
+		imgui.Dummy(imgui.ImVec2(1, contentHeight))
+		imgui.SetCursorScreenPos(cursorBase)
+
+		local startIndex = startRow * columns + 1
+		local endIndex = math.min(#cards, (endRow + 1) * columns)
+
+		for idx = startIndex, endIndex do
+			local card = cards[idx]
+			local hk, i = card.hk, card.idx
+			local offsetX, offsetY = VirtualizedGrid:get_card_position(idx, columns)
+			local x = x0 + offsetX
+			local yPos = y + offsetY
+
+			imgui.SetCursorScreenPos(imgui.ImVec2(x, yPos))
+			local pmin = imgui.GetCursorScreenPos()
+			local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+			local hovered = imgui.IsMouseHoveringRect(pmin, pmax)
+
+			imgui.BeginGroup()
+
+			local dl = imgui.GetWindowDrawList()
+			local bgcol = hovered and imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
+				or imgui.GetStyle().Colors[imgui.Col.FrameBg]
+
+			dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bgcol), 8)
+			dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+
+			drawQuickIndicator(dl, pmin, hk.quick_menu)
+
+			if not hovered then
+				local dot_pad, dot_r = 8, 5
+				local dot_cx = pmin.x + cardWidth - dot_pad - dot_r
+				local text_start = pmin.x + 11
+				local bolt_w = hk.quick_menu and imgui.CalcTextSize(fa.BOLT).x or 0
+				local bolt_x = dot_cx - dot_r - 4 - bolt_w
+				local max_text_w = bolt_x - text_start - 4
+				local displayNumber = hk._number or i
+				local numberLabel = string.format("#%d", displayNumber)
+				local numberWidth = imgui.CalcTextSize(numberLabel).x
+				local label = hk.label or ("bind" .. displayNumber)
+				local labelMaxWidth = max_text_w - numberWidth - 6
+				if labelMaxWidth < 0 then
+					labelMaxWidth = 0
+				end
+				local numberX = bolt_x - numberWidth - 6
+				if numberX < text_start then
+					numberX = text_start
+				end
+				local textWidthLimit = numberX - text_start - 4
+				if textWidthLimit < 0 then
+					textWidthLimit = 0
+				end
+				local labelWidthLimit = math.min(labelMaxWidth, textWidthLimit)
+				if labelWidthLimit < 0 then
+					labelWidthLimit = 0
+				end
+				label = ellipsize_utf8(label, labelWidthLimit)
+				imgui.SetCursorScreenPos(imgui.ImVec2(text_start, pmin.y + 7))
+				imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], label)
+				imgui.SetCursorScreenPos(imgui.ImVec2(numberX, pmin.y + 7))
+				imgui.TextDisabled(numberLabel)
+				if hk.quick_menu then
+					imgui.SetCursorScreenPos(imgui.ImVec2(bolt_x, pmin.y + 7))
+					imgui.TextColored(imgui.GetStyle().Colors[imgui.Col.Text], fa.BOLT)
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 25))
+				imgui.TextDisabled(fa.LIST_UL .. " " .. tostring(#(hk.messages or {})))
+				if hk.command and hk.command ~= "" then
+					imgui.SameLine()
+					imgui.TextDisabled(fa.TERMINAL .. " " .. hk.command)
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + 11, pmin.y + 39))
+				if #hk.keys > 0 then
+					imgui.TextDisabled(fa.KEYBOARD .. " " .. hotkeyToString(hk.keys))
 				end
 			else
-				if hk._co_state and hk._co_state.paused then
-					if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						hk._co_state.paused = false
+				local padX = 6
+				local spacing = imgui.GetStyle().ItemSpacing.x
+				local buttonCount = hk.is_running and 5 or 4
+				local totalSpacing = spacing * (buttonCount - 1)
+				local buttonW = (cardWidth - padX * 2 - totalSpacing) / buttonCount
+				if buttonW < 0 then
+					buttonW = 0
+				end
+				local buttonH = cardHeight - 16
+				local btnY = pmin.y + 8
+				imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + padX, btnY))
+				if imgui.Button(fa.PEN .. "##edit" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					editHotkey.active = true
+					editHotkey.idx = i
+				end
+				imgui.SameLine(0, spacing)
+				if not hk.is_running then
+					if imgui.Button(fa.PLAY .. "##play" .. i, imgui.ImVec2(buttonW, buttonH)) then
+						module.enqueueHotkey(hk)
 					end
 				else
-					if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
-						hk._co_state = hk._co_state or {}
-						hk._co_state.paused = true
+					if hk._co_state and hk._co_state.paused then
+						if imgui.Button(fa.PLAY .. "##resume" .. i, imgui.ImVec2(buttonW, buttonH)) then
+							hk._co_state.paused = false
+						end
+					else
+						if imgui.Button(fa.PAUSE .. "##pause" .. i, imgui.ImVec2(buttonW, buttonH)) then
+							hk._co_state = hk._co_state or {}
+							hk._co_state.paused = true
+						end
+					end
+					imgui.SameLine(0, spacing)
+					if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
+						module.stopHotkey(hk)
 					end
 				end
 				imgui.SameLine(0, spacing)
-				if imgui.Button(fa.STOP .. "##stop" .. i, imgui.ImVec2(buttonW, buttonH)) then
-					module.stopHotkey(hk)
+				if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					_G.deleteBindPopup.idx = i
+					_G.deleteBindPopup.from_edit = false
+					_G.deleteBindPopup.active = true
+				end
+				imgui.SameLine(0, spacing)
+				if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
+					imgui.OpenPopup("ctx_card_" .. i)
 				end
 			end
-			imgui.SameLine(0, spacing)
-			if imgui.Button(fa.TRASH .. "##del" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				_G.deleteBindPopup.idx = i
-				_G.deleteBindPopup.from_edit = false
-				_G.deleteBindPopup.active = true
+
+			if imgui.BeginPopup("ctx_card_" .. i) then
+				if imgui.MenuItemBool("Дублировать", false) then
+					local newhk = cloneHotkey(hk)
+					table.insert(hotkeys, i + 1, newhk)
+					refreshHotkeyNumbers()
+					module.saveHotkeys()
+				end
+				if imgui.MenuItemBool("Переместить в...", false) then
+					_G.moveBindPopup.active = true
+					_G.moveBindPopup.hkidx = i
+					imgui.CloseCurrentPopup()
+				end
+				imgui.EndPopup()
 			end
-			imgui.SameLine(0, spacing)
-			if imgui.Button(fa.BARS .. "##ctx" .. i, imgui.ImVec2(buttonW, buttonH)) then
-				imgui.OpenPopup("ctx_card_" .. i)
+
+			imgui.EndGroup()
+
+			imgui.SetCursorScreenPos(pmin)
+			imgui.InvisibleButton("##card_area" .. i, imgui.ImVec2(cardWidth, cardHeight))
+			if imgui.BeginDragDropSource() then
+				local payload = ffi.new("int[1]", i)
+				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+				local dragLabelNumber = hk._number or i
+				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+				imgui.Text(dragLabel)
+				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+				imgui.EndDragDropSource()
+			end
+			if imgui.BeginDragDropTarget() then
+				local payload = imgui.AcceptDragDropPayload()
+				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+					local src_idx = ffi.cast("int*", payload.Data)[0]
+					local dst_idx = i
+					if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+						local moved = table.remove(hotkeys, src_idx)
+						if dst_idx > src_idx then
+							dst_idx = dst_idx - 1
+						end
+						table.insert(hotkeys, dst_idx, moved)
+						refreshHotkeyNumbers()
+						module.saveHotkeys()
+					end
+				end
+				imgui.EndDragDropTarget()
 			end
 		end
 
-		if imgui.BeginPopup("ctx_card_" .. i) then
-			if imgui.MenuItemBool("Дублировать", false) then
-				local newhk = cloneHotkey(hk)
-				table.insert(hotkeys, i + 1, newhk)
+		local addIndex = #cards + 1
+		local addRow = math.floor((addIndex - 1) / columns)
+		if addRow >= startRow and addRow <= endRow then
+			local add_offset_x, add_offset_y = VirtualizedGrid:get_card_position(addIndex, columns)
+			local add_x = x0 + add_offset_x
+			local add_y = y + add_offset_y
+			imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
+			imgui.BeginGroup()
+			local pmin = imgui.GetCursorScreenPos()
+			local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
+			local dl = imgui.GetWindowDrawList()
+			dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
+			dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
+			imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
+			if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
+				local hk = newHotkeyBase()
+				hk.folderPath = folderFullPath(selectedFolder)
+				table.insert(hotkeys, hk)
 				refreshHotkeyNumbers()
 				module.saveHotkeys()
 			end
-			if imgui.MenuItemBool("Переместить в...", false) then
-				_G.moveBindPopup.active = true
-				_G.moveBindPopup.hkidx = i
+			imgui.EndGroup()
+		end
+
+		-- Popup перемещения
+		if _G.moveBindPopup.active then
+			imgui.OpenPopup("move_bind_popup")
+			_G.moveBindPopup.active = false
+		end
+		if imgui.BeginPopup("move_bind_popup") then
+			imgui.Text("Переместить бинд:")
+			local function drawTree(node, path)
+				path = path or { node.name }
+				if imgui.Selectable(table.concat(path, "/"), false) then
+					local idx = _G.moveBindPopup.hkidx
+					if hotkeys[idx] then
+						hotkeys[idx].folderPath = { table.unpack(path) }
+						module.saveHotkeys()
+					end
+					imgui.CloseCurrentPopup()
+				end
+				for _, child in ipairs(node.children or {}) do
+					local cp = {}
+					for _, v in ipairs(path) do
+						cp[#cp + 1] = v
+					end
+					cp[#cp + 1] = child.name
+					drawTree(child, cp)
+				end
+			end
+			for _, folder in ipairs(folders) do
+				drawTree(folder, { folder.name })
+			end
+			if imgui.Button("Отмена") then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
 		end
-
-		imgui.EndGroup()
-
-		imgui.SetCursorScreenPos(pmin)
-		imgui.InvisibleButton("##card_area" .. i, imgui.ImVec2(cardWidth, cardHeight))
-		if imgui.BeginDragDropSource() then
-			local payload = ffi.new("int[1]", i)
-			imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-			local dragLabelNumber = hk._number or i
-			local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-			imgui.Text(dragLabel)
-			imgui.TextDisabled(string.format("#%d", dragLabelNumber))
-			imgui.EndDragDropSource()
-		end
-		if imgui.BeginDragDropTarget() then
-			local payload = imgui.AcceptDragDropPayload()
-			if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-				local src_idx = ffi.cast("int*", payload.Data)[0]
-				local dst_idx = i
-				if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-					local moved = table.remove(hotkeys, src_idx)
-					if dst_idx > src_idx then
-						dst_idx = dst_idx - 1
-					end
-					table.insert(hotkeys, dst_idx, moved)
-					refreshHotkeyNumbers()
-					module.saveHotkeys()
-				end
-			end
-			imgui.EndDragDropTarget()
-		end
-	end
-
-	local addIndex = #cards + 1
-	local addRow = math.floor((addIndex - 1) / columns)
-	if addRow >= startRow and addRow <= endRow then
-		local add_offset_x, add_offset_y = VirtualizedGrid:get_card_position(addIndex, columns)
-		local add_x = x0 + add_offset_x
-		local add_y = y + add_offset_y
-		imgui.SetCursorScreenPos(imgui.ImVec2(add_x, add_y))
-		imgui.BeginGroup()
-		local pmin = imgui.GetCursorScreenPos()
-		local pmax = imgui.ImVec2(pmin.x + cardWidth, pmin.y + cardHeight)
-		local dl = imgui.GetWindowDrawList()
-		dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.FrameBg]), 8)
-		dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.Border]), 8, 2)
-		imgui.SetCursorScreenPos(imgui.ImVec2(pmin.x + (cardWidth - 32) / 2, pmin.y + (cardHeight - 32) / 2))
-		if imgui.Button(fa.SQUARE_PLUS .. "##add", imgui.ImVec2(32, 32)) then
-			local hk = newHotkeyBase()
-			hk.folderPath = folderFullPath(selectedFolder)
-			table.insert(hotkeys, hk)
-			refreshHotkeyNumbers()
-			module.saveHotkeys()
-		end
-		imgui.EndGroup()
-	end
-
-	-- Popup перемещения
-	if _G.moveBindPopup.active then
-		imgui.OpenPopup("move_bind_popup")
-		_G.moveBindPopup.active = false
-	end
-	if imgui.BeginPopup("move_bind_popup") then
-		imgui.Text("Переместить бинд:")
-		local function drawTree(node, path)
-			path = path or { node.name }
-			if imgui.Selectable(table.concat(path, "/"), false) then
-				local idx = _G.moveBindPopup.hkidx
-				if hotkeys[idx] then
-					hotkeys[idx].folderPath = { table.unpack(path) }
-					module.saveHotkeys()
-				end
-				imgui.CloseCurrentPopup()
-			end
-			for _, child in ipairs(node.children or {}) do
-				local cp = {}
-				for _, v in ipairs(path) do
-					cp[#cp + 1] = v
-				end
-				cp[#cp + 1] = child.name
-				drawTree(child, cp)
-			end
-		end
-		for _, folder in ipairs(folders) do
-			drawTree(folder, { folder.name })
-		end
-		if imgui.Button("Отмена") then
-			imgui.CloseCurrentPopup()
-		end
-		imgui.EndPopup()
 	end
 end
 
