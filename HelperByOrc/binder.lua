@@ -2148,20 +2148,23 @@ local function drawBindsGrid()
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
 				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
 				local togglePos = imgui.GetCursorScreenPos()
-				if isEnabled then
-					imgui.Text(toggleOnIcon)
-				else
-					imgui.TextDisabled(toggleOffIcon)
-				end
 				local toggleIcon = isEnabled and toggleOnIcon or toggleOffIcon
-				local toggleHitW = math.max(18, imgui.CalcTextSize(toggleIcon).x + 6)
-				imgui.SetCursorScreenPos(togglePos)
+				local toggleHitW = math.min(22, rowContentH)
 				imgui.InvisibleButton("##hit_toggle_" .. i, imgui.ImVec2(toggleHitW, rowContentH))
 				if imgui.SetItemAllowOverlap then
 					imgui.SetItemAllowOverlap()
 				end
 				local toggleClicked = imgui.IsItemClicked(0)
-				imgui.SetCursorScreenPos(togglePos)
+				local toggleHovered = imgui.IsItemHovered()
+				local toggleTextH = imgui.CalcTextSize(toggleIcon).y
+				local toggleTextY = togglePos.y + (rowContentH - toggleTextH) / 2
+				local toggleCol = isEnabled and imgui.GetStyle().Colors[imgui.Col.Text]
+					or imgui.GetStyle().Colors[imgui.Col.TextDisabled]
+				dl:AddText(
+					imgui.ImVec2(togglePos.x + 2, toggleTextY),
+					imgui.GetColorU32Vec4(toggleCol),
+					toggleIcon
+				)
 				mark_widget_clicked(toggleClicked)
 				if toggleClicked then
 					local nextEnabled = not isEnabled
@@ -2171,7 +2174,7 @@ local function drawBindsGrid()
 					end
 					module.saveHotkeys()
 				end
-				if imgui.IsItemHovered() then
+				if toggleHovered then
 					imgui.SetTooltip("Включить/выключить бинд")
 				end
 				imgui.NextColumn()
@@ -2180,30 +2183,32 @@ local function drawBindsGrid()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
 				local quickPos = imgui.GetCursorScreenPos()
-				local quickClicked = false
-				if isEnabled then
-					if isQuickMenu then
-						imgui.Text(quickIcon)
-					else
-						imgui.TextDisabled(quickIcon)
-					end
-					local quickHitW = math.max(18, imgui.CalcTextSize(quickIcon).x + 6)
-					imgui.SetCursorScreenPos(quickPos)
-					imgui.InvisibleButton("##hit_quick_" .. i, imgui.ImVec2(quickHitW, rowContentH))
-					if imgui.SetItemAllowOverlap then
-						imgui.SetItemAllowOverlap()
-					end
-					quickClicked = imgui.IsItemClicked(0)
-					imgui.SetCursorScreenPos(quickPos)
-				else
-					imgui.TextDisabled(quickIcon)
+				local quickHitW = math.min(22, rowContentH)
+				imgui.InvisibleButton("##hit_quick_" .. i, imgui.ImVec2(quickHitW, rowContentH))
+				if imgui.SetItemAllowOverlap then
+					imgui.SetItemAllowOverlap()
 				end
+				local quickClicked = imgui.IsItemClicked(0)
+				local quickHovered = imgui.IsItemHovered()
+				local quickTextH = imgui.CalcTextSize(quickIcon).y
+				local quickTextY = quickPos.y + (rowContentH - quickTextH) / 2
+				local quickCol
+				if isEnabled and isQuickMenu then
+					quickCol = imgui.GetStyle().Colors[imgui.Col.Text]
+				else
+					quickCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
+				end
+				dl:AddText(
+					imgui.ImVec2(quickPos.x + 2, quickTextY),
+					imgui.GetColorU32Vec4(quickCol),
+					quickIcon
+				)
 				mark_widget_clicked(quickClicked)
-				if quickClicked then
+				if quickClicked and isEnabled then
 					hk.quick_menu = not isQuickMenu
 					module.saveHotkeys()
 				end
-				if imgui.IsItemHovered() then
+				if quickHovered then
 					imgui.SetTooltip("Показывать в быстром меню")
 				end
 				imgui.NextColumn()
