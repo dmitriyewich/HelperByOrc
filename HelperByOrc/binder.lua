@@ -2038,7 +2038,7 @@ local function drawBindsGrid()
 			local bindName = hk.label or ("bind" .. displayNumber)
 			local isEnabled = hk.enabled == nil and true or hk.enabled
 			if not isEnabled then
-				imgui.PushStyleVar(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+				imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
 			end
 
 			if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
