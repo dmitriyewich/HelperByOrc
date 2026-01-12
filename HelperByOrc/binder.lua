@@ -2202,6 +2202,10 @@ local function drawBindsGrid()
 				local isQuickMenu = hk.quick_menu and true or false
 				set_col_y(yBtn)
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
+				if isEnabled and not isQuickMenu then
+					local disabledCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
+					imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(disabledCol.x, disabledCol.y, disabledCol.z, disabledCol.w))
+				end
 				local quickClicked = action_btn(
 					"##hit_quick_" .. i,
 					quickIcon,
@@ -2209,6 +2213,9 @@ local function drawBindsGrid()
 					"Показывать в быстром меню",
 					actionBtnSize
 				)
+				if isEnabled and not isQuickMenu then
+					imgui.PopStyleColor()
+				end
 				mark_widget_clicked(quickClicked)
 				if quickClicked then
 					hk.quick_menu = not isQuickMenu
