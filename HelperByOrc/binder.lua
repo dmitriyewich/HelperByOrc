@@ -2119,7 +2119,7 @@ local function drawBindsGrid()
 				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
 				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
 				local lineY = rowStart.y + rowContentH
-				dl:AddLine(fullMin, imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
+				dl:AddLine(imgui.ImVec2(rowStart.x, lineY), imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
 				imgui.PopClipRect()
 
 				local displayNumber = hk._number or i
