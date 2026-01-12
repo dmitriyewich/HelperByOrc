@@ -2141,12 +2141,21 @@ local function drawBindsGrid()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
 				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
+				local togglePos = imgui.GetCursorScreenPos()
 				if isEnabled then
 					imgui.Text(toggleOnIcon)
 				else
 					imgui.TextDisabled(toggleOffIcon)
 				end
+				local toggleIcon = isEnabled and toggleOnIcon or toggleOffIcon
+				local toggleHitW = math.max(18, imgui.CalcTextSize(toggleIcon).x + 6)
+				imgui.SetCursorScreenPos(togglePos)
+				imgui.InvisibleButton("##hit_toggle_" .. i, imgui.ImVec2(toggleHitW, rowContentH))
+				if imgui.SetItemAllowOverlap then
+					imgui.SetItemAllowOverlap()
+				end
 				local toggleClicked = imgui.IsItemClicked(0)
+				imgui.SetCursorScreenPos(togglePos)
 				mark_widget_clicked(toggleClicked)
 				if toggleClicked then
 					local nextEnabled = not isEnabled
@@ -2164,6 +2173,7 @@ local function drawBindsGrid()
 				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
+				local quickPos = imgui.GetCursorScreenPos()
 				local quickClicked = false
 				if isEnabled then
 					if isQuickMenu then
@@ -2171,7 +2181,14 @@ local function drawBindsGrid()
 					else
 						imgui.TextDisabled(quickIcon)
 					end
+					local quickHitW = math.max(18, imgui.CalcTextSize(quickIcon).x + 6)
+					imgui.SetCursorScreenPos(quickPos)
+					imgui.InvisibleButton("##hit_quick_" .. i, imgui.ImVec2(quickHitW, rowContentH))
+					if imgui.SetItemAllowOverlap then
+						imgui.SetItemAllowOverlap()
+					end
 					quickClicked = imgui.IsItemClicked(0)
+					imgui.SetCursorScreenPos(quickPos)
 				else
 					imgui.TextDisabled(quickIcon)
 				end
