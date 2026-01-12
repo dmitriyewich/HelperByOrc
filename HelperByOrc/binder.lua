@@ -2045,227 +2045,230 @@ local function drawBindsGrid()
 		imgui.NextColumn()
 		imgui.Separator()
 
-		local rowNumber = 0
-		for _, card in ipairs(cards) do
-			local hk, i = card.hk, card.idx
-			rowNumber = rowNumber + 1
-			local rowStart = imgui.GetCursorScreenPos()
-			local rowHeight = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight())
-			local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowHeight)
-			local dl = imgui.GetWindowDrawList()
-			if rowNumber % 2 == 0 then
-				local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
-				local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
-				dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(zebra))
-			end
-			if bindsSelectedIndex == i then
-				local selCol = imgui.GetStyle().Colors[imgui.Col.Header]
-				local sel = imgui.ImVec4(selCol.x, selCol.y, selCol.z, selCol.w * 0.35)
-				dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(sel))
-			end
+		local rowHeight = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight())
+		local clipper = imgui.ImGuiListClipper(#cards, rowHeight)
+		while clipper:Step() do
+			for localIndex = clipper.DisplayStart, clipper.DisplayEnd - 1 do
+				local card = cards[localIndex + 1]
+				local hk, i = card.hk, card.idx
+				local rowIndex = localIndex
+				local rowStart = imgui.GetCursorScreenPos()
+				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowHeight)
+				local dl = imgui.GetWindowDrawList()
+				if (rowIndex % 2) == 1 then
+					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
+					local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
+					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(zebra))
+				end
+				if bindsSelectedIndex == i then
+					local selCol = imgui.GetStyle().Colors[imgui.Col.Header]
+					local sel = imgui.ImVec4(selCol.x, selCol.y, selCol.z, selCol.w * 0.35)
+					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(sel))
+				end
 
-			local displayNumber = hk._number or i
-			local bindName = hk.label or ("bind" .. displayNumber)
-			local isEnabled = hk.enabled == nil and true or hk.enabled
-			if not isEnabled and hk.quick_menu then
-				hk.quick_menu = false
-				module.saveHotkeys()
-			end
-			if not isEnabled then
-				imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.75)
-				local textCol = imgui.GetStyle().Colors[imgui.Col.Text]
-				imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(textCol.x, textCol.y, textCol.z, textCol.w * 0.8))
-				local disabledCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
-				imgui.PushStyleColor(
-					imgui.Col.TextDisabled,
-					imgui.ImVec4(disabledCol.x, disabledCol.y, disabledCol.z, disabledCol.w * 0.8)
-				)
-			end
-
-			if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
-				local nextEnabled = not isEnabled
-				hk.enabled = nextEnabled
-				if not nextEnabled then
+				local displayNumber = hk._number or i
+				local bindName = hk.label or ("bind" .. displayNumber)
+				local isEnabled = hk.enabled == nil and true or hk.enabled
+				if not isEnabled and hk.quick_menu then
 					hk.quick_menu = false
-				end
-				module.saveHotkeys()
-			end
-			imgui.NextColumn()
-			local isQuickMenu = hk.quick_menu and true or false
-			if isEnabled then
-				if imgui.RadioButtonBool("##bind_quick_" .. i, isQuickMenu) then
-					hk.quick_menu = not isQuickMenu
 					module.saveHotkeys()
 				end
-			else
-				imgui.RadioButtonBool("##bind_quick_" .. i, false)
-			end
-			imgui.NextColumn()
-			local hasActivation = false
-			local activationWidth = imgui.GetColumnWidth()
-			local usedWidth = 0
-			local trig = hk.text_trigger
-			if trig and trig.enabled and trig.text and trig.text ~= "" then
-				local label = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Триггер: " .. tostring(trig.text))
+				if not isEnabled then
+					imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.75)
+					local textCol = imgui.GetStyle().Colors[imgui.Col.Text]
+					imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(textCol.x, textCol.y, textCol.z, textCol.w * 0.8))
+					local disabledCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
+					imgui.PushStyleColor(
+						imgui.Col.TextDisabled,
+						imgui.ImVec4(disabledCol.x, disabledCol.y, disabledCol.z, disabledCol.w * 0.8)
+					)
 				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
-			end
-			if hk.command_enabled and hk.command and hk.command ~= "" then
-				if hasActivation then
-					imgui.SameLine()
-				end
-				local icon = fa.TERMINAL ~= "" and fa.TERMINAL or "CMD"
-				local available = math.max(0, activationWidth - usedWidth)
-				local cmdText = icon .. " " .. hk.command
-				cmdText = ellipsize_utf8(cmdText, available)
-				imgui.TextDisabled(cmdText)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Команда: " .. tostring(hk.command))
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(cmdText).x + imgui.GetStyle().ItemSpacing.x
-			end
-			if hk.keys and #hk.keys > 0 then
-				if hasActivation then
-					imgui.SameLine()
-				end
-				local icon = fa.KEYBOARD ~= "" and fa.KEYBOARD or "KEY"
-				local keysText = hotkeyToString(hk.keys)
-				local available = math.max(0, activationWidth - usedWidth)
-				local label = icon .. " " .. keysText
-				label = ellipsize_utf8(label, available)
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Клавиши: " .. keysText)
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
-			end
-			imgui.NextColumn()
-			local rowCount = #(hk.messages or {})
-			local countText = " (" .. tostring(rowCount) .. ")"
-			local countWidth = imgui.CalcTextSize(countText).x
-			local nameWidth = imgui.GetColumnWidth() - countWidth - imgui.GetStyle().ItemSpacing.x
-			if nameWidth < 0 then
-				nameWidth = 0
-			end
-			if not hk._name_cache then
-				hk._name_cache = {}
-			end
-			local cache = hk._name_cache
-			if cache.text ~= bindName or cache.width ~= nameWidth then
-				cache.text = bindName
-				cache.width = nameWidth
-				cache.output = ellipsize_utf8(bindName, nameWidth)
-			end
-			local displayName = cache.output or bindName
-			imgui.Text(displayName)
-			if displayName ~= bindName and imgui.IsItemHovered() then
-				imgui.SetTooltip(bindName)
-			end
-			imgui.SameLine()
-			imgui.TextDisabled(countText)
-			imgui.NextColumn()
-			local colPos = imgui.GetCursorScreenPos()
-			local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
-			imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
-			local canPlay = isEnabled and not hk.is_running
-			if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
-				module.enqueueHotkey(hk)
-			end
-			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Воспроизвести")
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.PEN .. "##edit_" .. i) then
-				editHotkey.active = true
-				editHotkey.idx = i
-			end
-			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Редактировать")
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.TRASH .. "##del_" .. i) then
-				_G.deleteBindPopup.idx = i
-				_G.deleteBindPopup.from_edit = false
-				_G.deleteBindPopup.active = true
-			end
-			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Удалить")
-			end
-			imgui.SameLine()
-			if imgui.Button(fa.BARS .. "##ctx_" .. i) then
-				imgui.OpenPopup("ctx_card_" .. i)
-			end
-			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Меню")
-			end
-			imgui.NextColumn()
 
-			if imgui.BeginPopup("ctx_card_" .. i) then
-				if imgui.MenuItemBool("Дублировать", false) then
-					local newhk = cloneHotkey(hk)
-					table.insert(hotkeys, i + 1, newhk)
-					refreshHotkeyNumbers()
+				if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
+					local nextEnabled = not isEnabled
+					hk.enabled = nextEnabled
+					if not nextEnabled then
+						hk.quick_menu = false
+					end
 					module.saveHotkeys()
 				end
-				if imgui.MenuItemBool("Переместить в...", false) then
-					_G.moveBindPopup.active = true
-					_G.moveBindPopup.hkidx = i
-					imgui.CloseCurrentPopup()
+				imgui.NextColumn()
+				local isQuickMenu = hk.quick_menu and true or false
+				if isEnabled then
+					if imgui.RadioButtonBool("##bind_quick_" .. i, isQuickMenu) then
+						hk.quick_menu = not isQuickMenu
+						module.saveHotkeys()
+					end
+				else
+					imgui.RadioButtonBool("##bind_quick_" .. i, false)
 				end
-				imgui.EndPopup()
-			end
+				imgui.NextColumn()
+				local hasActivation = false
+				local activationWidth = imgui.GetColumnWidth()
+				local usedWidth = 0
+				local trig = hk.text_trigger
+				if trig and trig.enabled and trig.text and trig.text ~= "" then
+					local label = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
+					imgui.TextDisabled(label)
+					if imgui.IsItemHovered() then
+						imgui.SetTooltip("Триггер: " .. tostring(trig.text))
+					end
+					hasActivation = true
+					usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+				end
+				if hk.command_enabled and hk.command and hk.command ~= "" then
+					if hasActivation then
+						imgui.SameLine()
+					end
+					local icon = fa.TERMINAL ~= "" and fa.TERMINAL or "CMD"
+					local available = math.max(0, activationWidth - usedWidth)
+					local cmdText = icon .. " " .. hk.command
+					cmdText = ellipsize_utf8(cmdText, available)
+					imgui.TextDisabled(cmdText)
+					if imgui.IsItemHovered() then
+						imgui.SetTooltip("Команда: " .. tostring(hk.command))
+					end
+					hasActivation = true
+					usedWidth = usedWidth + imgui.CalcTextSize(cmdText).x + imgui.GetStyle().ItemSpacing.x
+				end
+				if hk.keys and #hk.keys > 0 then
+					if hasActivation then
+						imgui.SameLine()
+					end
+					local icon = fa.KEYBOARD ~= "" and fa.KEYBOARD or "KEY"
+					local keysText = hotkeyToString(hk.keys)
+					local available = math.max(0, activationWidth - usedWidth)
+					local label = icon .. " " .. keysText
+					label = ellipsize_utf8(label, available)
+					imgui.TextDisabled(label)
+					if imgui.IsItemHovered() then
+						imgui.SetTooltip("Клавиши: " .. keysText)
+					end
+					hasActivation = true
+					usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+				end
+				imgui.NextColumn()
+				local rowCount = #(hk.messages or {})
+				local countText = " (" .. tostring(rowCount) .. ")"
+				local countWidth = imgui.CalcTextSize(countText).x
+				local nameWidth = imgui.GetColumnWidth() - countWidth - imgui.GetStyle().ItemSpacing.x
+				if nameWidth < 0 then
+					nameWidth = 0
+				end
+				if not hk._name_cache then
+					hk._name_cache = {}
+				end
+				local cache = hk._name_cache
+				if cache.text ~= bindName or cache.width ~= nameWidth then
+					cache.text = bindName
+					cache.width = nameWidth
+					cache.output = ellipsize_utf8(bindName, nameWidth)
+				end
+				local displayName = cache.output or bindName
+				imgui.Text(displayName)
+				if displayName ~= bindName and imgui.IsItemHovered() then
+					imgui.SetTooltip(bindName)
+				end
+				imgui.SameLine()
+				imgui.TextDisabled(countText)
+				imgui.NextColumn()
+				local colPos = imgui.GetCursorScreenPos()
+				local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
+				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
+				local canPlay = isEnabled and not hk.is_running
+				if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
+					module.enqueueHotkey(hk)
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Воспроизвести")
+				end
+				imgui.SameLine()
+				if imgui.Button(fa.PEN .. "##edit_" .. i) then
+					editHotkey.active = true
+					editHotkey.idx = i
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Редактировать")
+				end
+				imgui.SameLine()
+				if imgui.Button(fa.TRASH .. "##del_" .. i) then
+					_G.deleteBindPopup.idx = i
+					_G.deleteBindPopup.from_edit = false
+					_G.deleteBindPopup.active = true
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Удалить")
+				end
+				imgui.SameLine()
+				if imgui.Button(fa.BARS .. "##ctx_" .. i) then
+					imgui.OpenPopup("ctx_card_" .. i)
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Меню")
+				end
+				imgui.NextColumn()
 
-			local nextRowPos = imgui.GetCursorScreenPos()
-			imgui.SetCursorScreenPos(rowStart)
-			imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
-			if imgui.SetItemAllowOverlap then
-				imgui.SetItemAllowOverlap()
-			end
-			local rowHovered = imgui.IsMouseHoveringRect(rowStart, rowEnd)
-			if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseClicked(0) then
-				bindsSelectedIndex = i
-			end
-			if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseDoubleClicked(0) then
-				editHotkey.active = true
-				editHotkey.idx = i
-			end
-			if imgui.BeginDragDropSource() then
-				local payload = ffi.new("int[1]", i)
-				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-				local dragLabelNumber = hk._number or i
-				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-				imgui.Text(dragLabel)
-				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
-				imgui.EndDragDropSource()
-			end
-			if imgui.BeginDragDropTarget() then
-				local payload = imgui.AcceptDragDropPayload()
-				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-					local src_idx = ffi.cast("int*", payload.Data)[0]
-					local dst_idx = i
-					if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-						local moved = table.remove(hotkeys, src_idx)
-						if dst_idx > src_idx then
-							dst_idx = dst_idx - 1
-						end
-						table.insert(hotkeys, dst_idx, moved)
+				if imgui.BeginPopup("ctx_card_" .. i) then
+					if imgui.MenuItemBool("Дублировать", false) then
+						local newhk = cloneHotkey(hk)
+						table.insert(hotkeys, i + 1, newhk)
 						refreshHotkeyNumbers()
 						module.saveHotkeys()
 					end
+					if imgui.MenuItemBool("Переместить в...", false) then
+						_G.moveBindPopup.active = true
+						_G.moveBindPopup.hkidx = i
+						imgui.CloseCurrentPopup()
+					end
+					imgui.EndPopup()
 				end
-				imgui.EndDragDropTarget()
-			end
-			imgui.SetCursorScreenPos(nextRowPos)
 
-			if not isEnabled then
-				imgui.PopStyleColor(2)
-				imgui.PopStyleVar()
+				local nextRowPos = imgui.GetCursorScreenPos()
+				imgui.SetCursorScreenPos(rowStart)
+				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
+				if imgui.SetItemAllowOverlap then
+					imgui.SetItemAllowOverlap()
+				end
+				local rowHovered = imgui.IsMouseHoveringRect(rowStart, rowEnd)
+				if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseClicked(0) then
+					bindsSelectedIndex = i
+				end
+				if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseDoubleClicked(0) then
+					editHotkey.active = true
+					editHotkey.idx = i
+				end
+				if imgui.BeginDragDropSource() then
+					local payload = ffi.new("int[1]", i)
+					imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+					local dragLabelNumber = hk._number or i
+					local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+					imgui.Text(dragLabel)
+					imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+					imgui.EndDragDropSource()
+				end
+				if imgui.BeginDragDropTarget() then
+					local payload = imgui.AcceptDragDropPayload()
+					if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+						local src_idx = ffi.cast("int*", payload.Data)[0]
+						local dst_idx = i
+						if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+							local moved = table.remove(hotkeys, src_idx)
+							if dst_idx > src_idx then
+								dst_idx = dst_idx - 1
+							end
+							table.insert(hotkeys, dst_idx, moved)
+							refreshHotkeyNumbers()
+							module.saveHotkeys()
+						end
+					end
+					imgui.EndDragDropTarget()
+				end
+				imgui.SetCursorScreenPos(nextRowPos)
+
+				if not isEnabled then
+					imgui.PopStyleColor(2)
+					imgui.PopStyleVar()
+				end
 			end
 		end
 
