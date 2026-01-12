@@ -2075,7 +2075,7 @@ local function drawBindsGrid()
 		imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y))
 
 		local style = imgui.GetStyle()
-		local rowStep = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight() + style.ItemSpacing.y)
+		local rowStep = math.max(imgui.GetFrameHeight(), imgui.GetTextLineHeight()) + style.ItemSpacing.y
 		local rowContentH = rowStep - style.ItemSpacing.y
 		local clipper = imgui.ImGuiListClipper(#cards, rowStep)
 		while clipper:Step() do
