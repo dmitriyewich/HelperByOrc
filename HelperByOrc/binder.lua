@@ -2024,8 +2024,8 @@ local function drawBindsGrid()
 		imgui.Columns(5, "binds_cols", true)
 		local contentWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 		local baseOffset = imgui.GetColumnOffset(0)
-		local col1W = 36
-		local col2W = 36
+		local col1W = 28
+		local col2W = 28
 		local col3W = math.min(220, math.max(140, math.floor(contentWidth * 0.22)))
 		local col5W = math.min(260, math.max(200, math.floor(contentWidth * 0.25)))
 		local col4W = math.max(140, contentWidth - (col1W + col2W + col3W + col5W))
@@ -2136,7 +2136,10 @@ local function drawBindsGrid()
 				local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
 				local colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
-				if imgui.RadioButtonBool("##bind_enabled_" .. i, isEnabled) then
+				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
+				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
+				local toggleIcon = isEnabled and toggleOnIcon or toggleOffIcon
+				if imgui.SmallButton(toggleIcon .. "##bind_enabled_" .. i) then
 					local nextEnabled = not isEnabled
 					hk.enabled = nextEnabled
 					if not nextEnabled then
@@ -2144,17 +2147,24 @@ local function drawBindsGrid()
 					end
 					module.saveHotkeys()
 				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Включить/выключить бинд")
+				end
 				imgui.NextColumn()
 				local isQuickMenu = hk.quick_menu and true or false
 				colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
-				if isEnabled then
-					if imgui.RadioButtonBool("##bind_quick_" .. i, isQuickMenu) then
+				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
+				if isQuickMenu then
+					if imgui.SmallButton(quickIcon .. "##bind_quick_" .. i) and isEnabled then
 						hk.quick_menu = not isQuickMenu
 						module.saveHotkeys()
 					end
 				else
-					imgui.RadioButtonBool("##bind_quick_" .. i, false)
+					imgui.TextDisabled(quickIcon)
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Показывать в быстром меню")
 				end
 				imgui.NextColumn()
 				local hasActivation = false
