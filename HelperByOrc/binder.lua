@@ -2052,13 +2052,50 @@ local function drawBindsGrid()
 				module.saveHotkeys()
 			end
 			imgui.NextColumn()
-			if isEnabled and imgui.Button("ACT##play_" .. i) then
-				module.enqueueHotkey(hk)
-			else
-				imgui.Button("ACT##play_" .. i)
+			local hasActivation = false
+			local trig = hk.text_trigger
+			if trig and trig.enabled and trig.text and trig.text ~= "" then
+				local label = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
+				imgui.TextDisabled(label)
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Триггер: " .. tostring(trig.text))
+				end
+				hasActivation = true
+			end
+			if hk.command_enabled and hk.command and hk.command ~= "" then
+				if hasActivation then
+					imgui.SameLine()
+				end
+				local label = fa.TERMINAL ~= "" and fa.TERMINAL or "CMD"
+				imgui.TextDisabled(label)
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Команда: " .. tostring(hk.command))
+				end
+				hasActivation = true
+			end
+			if hk.keys and #hk.keys > 0 then
+				if hasActivation then
+					imgui.SameLine()
+				end
+				local label = fa.KEYBOARD ~= "" and fa.KEYBOARD or "KEY"
+				imgui.TextDisabled(label)
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip("Клавиши: " .. hotkeyToString(hk.keys))
+				end
+				hasActivation = true
 			end
 			imgui.NextColumn()
-			imgui.Text(bindName)
+			local rowCount = #(hk.messages or {})
+			local countText = " (" .. tostring(rowCount) .. ")"
+			local countWidth = imgui.CalcTextSize(countText).x
+			local nameWidth = imgui.GetColumnWidth() - countWidth - imgui.GetStyle().ItemSpacing.x
+			if nameWidth < 0 then
+				nameWidth = 0
+			end
+			local displayName = ellipsize_utf8(bindName, nameWidth)
+			imgui.Text(displayName)
+			imgui.SameLine()
+			imgui.TextDisabled(countText)
 			imgui.NextColumn()
 			local canPlay = isEnabled and not hk.is_running
 			if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
