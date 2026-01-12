@@ -2090,6 +2090,12 @@ local function drawBindsGrid()
 				local rowStart = imgui.GetCursorScreenPos()
 				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
 				local clickedOnWidget = false
+				local yBtn = rowStart.y + (rowContentH - imgui.GetFrameHeight()) / 2
+				local yTxt = rowStart.y + (rowContentH - imgui.GetTextLineHeight()) / 2
+				local function set_col_y(y)
+					local p = imgui.GetCursorScreenPos()
+					imgui.SetCursorScreenPos(imgui.ImVec2(p.x, y))
+				end
 				local function mark_widget_clicked(clicked)
 					if clicked or imgui.IsItemClicked(0) then
 						clickedOnWidget = true
@@ -2143,9 +2149,7 @@ local function drawBindsGrid()
 					)
 				end
 
-				local buttonY = rowStart.y + (rowContentH - imgui.GetFrameHeight()) / 2
-				local colPos = imgui.GetCursorScreenPos()
-				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
+				set_col_y(yBtn)
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
 				local toggleOffIcon = (fa.TOGGLE_OFF ~= "" and fa.TOGGLE_OFF) or (fa.BAN ~= "" and fa.BAN) or fa.TIMES_CIRCLE or ""
 				local togglePos = imgui.GetCursorScreenPos()
@@ -2180,8 +2184,7 @@ local function drawBindsGrid()
 				end
 				imgui.NextColumn()
 				local isQuickMenu = hk.quick_menu and true or false
-				colPos = imgui.GetCursorScreenPos()
-				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
+				set_col_y(yBtn)
 				local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
 				local quickPos = imgui.GetCursorScreenPos()
 				local quickHitW = math.min(22, rowContentH)
@@ -2213,6 +2216,7 @@ local function drawBindsGrid()
 					imgui.SetTooltip("Показывать в быстром меню")
 				end
 				imgui.NextColumn()
+				set_col_y(yTxt)
 				local hasActivation = false
 				local activationWidth = imgui.GetColumnWidth()
 				local usedWidth = 0
@@ -2292,11 +2296,11 @@ local function drawBindsGrid()
 								module.saveHotkeys()
 							end
 						end
-					end
-					imgui.EndDragDropTarget()
 				end
-				imgui.SetCursorScreenPos(dndStart)
-				imgui.AlignTextToFramePadding()
+				imgui.EndDragDropTarget()
+			end
+			imgui.SetCursorScreenPos(dndStart)
+			set_col_y(yTxt)
 				local rowCount = #(hk.messages or {})
 				local countText = " (" .. tostring(rowCount) .. ")"
 				local countWidth = imgui.CalcTextSize(countText).x
@@ -2321,8 +2325,7 @@ local function drawBindsGrid()
 				imgui.SameLine()
 				imgui.TextDisabled(countText)
 				imgui.NextColumn()
-				colPos = imgui.GetCursorScreenPos()
-				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
+				set_col_y(yBtn)
 				local function small_action_button(label, enabled, tooltip)
 					local clicked = false
 					if enabled then
