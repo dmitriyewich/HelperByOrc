@@ -2040,7 +2040,7 @@ local function drawBindsGrid()
 			module.saveHotkeys()
 		end
 		imgui.Spacing()
-		imgui.Columns(5, "binds_cols", true)
+		imgui.Columns(5, "binds_cols", false)
 		local tableMinX = imgui.GetCursorScreenPos().x
 		local baseOffset = imgui.GetColumnOffset(0)
 		local btnH = imgui.GetFrameHeight()
@@ -2064,6 +2064,10 @@ local function drawBindsGrid()
 		imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
 		imgui.SetColumnOffset(3, baseOffset + col1W + col2W + col3W)
 		imgui.SetColumnOffset(4, baseOffset + col1W + col2W + col3W + col4W)
+		local x1 = tableMinX + col1W
+		local x2 = tableMinX + col1W + col2W
+		local x3 = tableMinX + col1W + col2W + col3W
+		local x4 = tableMinX + col1W + col2W + col3W + col4W
 		imgui.TextDisabled("Актив")
 		imgui.NextColumn()
 		imgui.TextDisabled("Меню")
@@ -2075,6 +2079,7 @@ local function drawBindsGrid()
 		imgui.TextDisabled("Действия")
 		imgui.NextColumn()
 		local headerLine = imgui.GetCursorScreenPos()
+		local columnsTopY = headerLine.y
 		local headerBorder = imgui.GetStyle().Colors[imgui.Col.Border]
 		local headerBorderCol = imgui.ImVec4(headerBorder.x, headerBorder.y, headerBorder.z, headerBorder.w * 0.3)
 		local headerU32 = imgui.GetColorU32Vec4(headerBorderCol)
@@ -2085,10 +2090,27 @@ local function drawBindsGrid()
 		imgui.PopClipRect()
 		imgui.Dummy(imgui.ImVec2(0, 1))
 		imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, imgui.GetCursorScreenPos().y))
+		local rowsStartY = imgui.GetCursorScreenPos().y
 
 		local style = imgui.GetStyle()
 		local rowContentH = math.max(imgui.GetFrameHeight(), imgui.GetTextLineHeight()) + 6
 		local rowStep = rowContentH
+		local clipBottomY = rowsStartY + (#cards * rowStep)
+		do
+			local borderCol = style.Colors[imgui.Col.Border]
+			local vcol = imgui.GetColorU32Vec4(imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3))
+			local dl2 = imgui.GetWindowDrawList()
+			imgui.PushClipRect(
+				imgui.ImVec2(tableMinX, columnsTopY),
+				imgui.ImVec2(tableMinX + contentWidth, clipBottomY),
+				false
+			)
+			dl2:AddLine(imgui.ImVec2(x1, columnsTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x2, columnsTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x3, columnsTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x4, columnsTopY), imgui.ImVec2(x4, clipBottomY), vcol, 1)
+			imgui.PopClipRect()
+		end
 		local clipper = imgui.ImGuiListClipper(#cards, rowStep)
 		while clipper:Step() do
 			for localIndex = clipper.DisplayStart, clipper.DisplayEnd - 1 do
