@@ -2424,7 +2424,10 @@ local function drawBindsGrid()
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
-				imgui.SetCursorScreenPos(imgui.ImVec2(rowStart.x, rowStart.y + rowStep))
+				if imgui.SetColumnIndex then
+					imgui.SetColumnIndex(0)
+				end
+				imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, rowStart.y + rowStep))
 
 				if not isEnabled then
 					imgui.PopStyleColor(2)
