@@ -2073,8 +2073,10 @@ local function drawBindsGrid()
 		)
 		imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y))
 
-		local rowHeight = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight())
-		local clipper = imgui.ImGuiListClipper(#cards, rowHeight)
+		local style = imgui.GetStyle()
+		local rowStep = math.max(imgui.GetTextLineHeightWithSpacing(), imgui.GetFrameHeight() + style.ItemSpacing.y)
+		local rowContentH = rowStep - style.ItemSpacing.y
+		local clipper = imgui.ImGuiListClipper(#cards, rowStep)
 		while clipper:Step() do
 			for localIndex = clipper.DisplayStart, clipper.DisplayEnd - 1 do
 				local card = cards[localIndex + 1]
@@ -2084,9 +2086,9 @@ local function drawBindsGrid()
 				local hk, i = card.hk, card.idx
 				local rowIndex = localIndex
 				local rowStart = imgui.GetCursorScreenPos()
-				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowHeight)
+				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
 				local clickedOnWidget = false
-				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
+				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowContentH))
 				if imgui.SetItemAllowOverlap then
 					imgui.SetItemAllowOverlap()
 				end
@@ -2149,7 +2151,7 @@ local function drawBindsGrid()
 				end
 				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
 				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
-				local lineY = rowStart.y + rowHeight
+				local lineY = rowStart.y + rowContentH
 				dl:AddLine(rowStart, imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
 
 				local displayNumber = hk._number or i
@@ -2166,7 +2168,7 @@ local function drawBindsGrid()
 					)
 				end
 
-				local buttonY = rowStart.y + (rowHeight - imgui.GetFrameHeight()) / 2
+				local buttonY = rowStart.y + (rowContentH - imgui.GetFrameHeight()) / 2
 				local colPos = imgui.GetCursorScreenPos()
 				imgui.SetCursorScreenPos(imgui.ImVec2(colPos.x, buttonY))
 				local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or fa.CHECK_CIRCLE or ""
@@ -2377,7 +2379,6 @@ local function drawBindsGrid()
 					imgui.EndPopup()
 				end
 
-				local nextRowPos = imgui.GetCursorScreenPos()
 				if rowClicked and not clickedOnWidget then
 					bindsSelectedIndex = i
 				end
@@ -2385,7 +2386,7 @@ local function drawBindsGrid()
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
-				imgui.SetCursorScreenPos(nextRowPos)
+				imgui.SetCursorScreenPos(imgui.ImVec2(rowStart.x, rowStart.y + rowStep))
 
 				if not isEnabled then
 					imgui.PopStyleColor(2)
