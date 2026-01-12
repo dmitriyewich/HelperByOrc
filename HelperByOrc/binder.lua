@@ -2346,42 +2346,37 @@ local function drawBindsGrid()
 				imgui.TextDisabled(countText)
 				imgui.NextColumn()
 				set_col_y(yBtn)
-				local function small_action_button(label, enabled, tooltip)
+				local function action_btn(id, icon, enabled, tooltip, size)
 					local clicked = false
-					if enabled then
-						clicked = imgui.SmallButton(label)
-					else
-						if imgui.BeginDisabled then
-							imgui.BeginDisabled(true)
-							imgui.SmallButton(label)
-							imgui.EndDisabled()
-						else
-							imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
-							imgui.SmallButton(label)
-							imgui.PopStyleVar()
-						end
+					if not enabled and imgui.BeginDisabled then
+						imgui.BeginDisabled(true)
+					end
+					clicked = imgui.Button(icon .. id, size)
+					if not enabled and imgui.BeginDisabled then
+						imgui.EndDisabled()
 					end
 					if imgui.IsItemHovered() and tooltip then
 						imgui.SetTooltip(tooltip)
 					end
-					return clicked
+					return enabled and clicked
 				end
+				local size = imgui.ImVec2(imgui.GetFrameHeight() + 6, imgui.GetFrameHeight())
 				local canAction = isEnabled
 				if not hk.is_running then
-					local playClicked = small_action_button(fa.PLAY .. "##play_" .. i, canAction, "Воспроизвести")
+					local playClicked = action_btn("##play_" .. i, fa.PLAY, canAction, "Воспроизвести", size)
 					mark_widget_clicked(playClicked)
 					if playClicked then
 						module.enqueueHotkey(hk)
 					end
 				else
 					if hk._co_state and hk._co_state.paused then
-						local resumeClicked = small_action_button(fa.PLAY .. "##resume_" .. i, canAction, "Продолжить")
+						local resumeClicked = action_btn("##resume_" .. i, fa.PLAY, canAction, "Продолжить", size)
 						mark_widget_clicked(resumeClicked)
 						if resumeClicked then
 							hk._co_state.paused = false
 						end
 					else
-						local pauseClicked = small_action_button(fa.PAUSE .. "##pause_" .. i, canAction, "Пауза")
+						local pauseClicked = action_btn("##pause_" .. i, fa.PAUSE, canAction, "Пауза", size)
 						mark_widget_clicked(pauseClicked)
 						if pauseClicked then
 							hk._co_state = hk._co_state or {}
@@ -2389,21 +2384,21 @@ local function drawBindsGrid()
 						end
 					end
 					imgui.SameLine()
-					local stopClicked = small_action_button(fa.STOP .. "##stop_" .. i, canAction, "Стоп")
+					local stopClicked = action_btn("##stop_" .. i, fa.STOP, canAction, "Стоп", size)
 					mark_widget_clicked(stopClicked)
 					if stopClicked then
 						module.stopHotkey(hk)
 					end
 				end
 				imgui.SameLine()
-				local editClicked = small_action_button(fa.PEN .. "##edit_" .. i, true, "Редактировать")
+				local editClicked = action_btn("##edit_" .. i, fa.PEN, true, "Редактировать", size)
 				mark_widget_clicked(editClicked)
 				if editClicked then
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
 				imgui.SameLine()
-				local delClicked = small_action_button(fa.TRASH .. "##del_" .. i, true, "Удалить")
+				local delClicked = action_btn("##del_" .. i, fa.TRASH, true, "Удалить", size)
 				mark_widget_clicked(delClicked)
 				if delClicked then
 					_G.deleteBindPopup.idx = i
@@ -2411,7 +2406,7 @@ local function drawBindsGrid()
 					_G.deleteBindPopup.active = true
 				end
 				imgui.SameLine()
-				local ctxClicked = small_action_button(fa.BARS .. "##ctx_" .. i, true, "Меню")
+				local ctxClicked = action_btn("##ctx_" .. i, fa.BARS, true, "Меню", size)
 				mark_widget_clicked(ctxClicked)
 				if ctxClicked then
 					imgui.OpenPopup("ctx_card_" .. i)
