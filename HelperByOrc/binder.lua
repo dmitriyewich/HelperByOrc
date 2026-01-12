@@ -2073,7 +2073,7 @@ local function drawBindsGrid()
 		imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), false)
 		dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
 		imgui.PopClipRect()
-		imgui.Dummy(imgui.ImVec2(0, imgui.GetStyle().ItemSpacing.y))
+		imgui.Dummy(imgui.ImVec2(0, 1))
 
 		local style = imgui.GetStyle()
 		local rowStep = math.max(imgui.GetFrameHeight(), imgui.GetTextLineHeight()) + style.ItemSpacing.y
