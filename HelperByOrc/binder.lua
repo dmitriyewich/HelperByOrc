@@ -2036,16 +2036,33 @@ local function drawBindsGrid()
 			local hk, i = card.hk, card.idx
 			local displayNumber = hk._number or i
 			local bindName = hk.label or ("bind" .. displayNumber)
-			imgui.Text("EN")
+			local isEnabled = hk.enabled == nil and true or hk.enabled
+			if not isEnabled then
+				imgui.PushStyleVar(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.5)
+			end
+
+			local enabledValue = imgui.new.bool(isEnabled)
+			if imgui.RadioButtonBool("##bind_enabled_" .. i, enabledValue) then
+				hk.enabled = enabledValue[0]
+				module.saveHotkeys()
+			end
 			imgui.NextColumn()
 			imgui.Text("QM")
 			imgui.NextColumn()
-			imgui.Text("ACT")
+			if isEnabled and imgui.Button("ACT##play_" .. i) then
+				module.enqueueHotkey(hk)
+			else
+				imgui.Button("ACT##play_" .. i)
+			end
 			imgui.NextColumn()
 			imgui.Text(bindName)
 			imgui.NextColumn()
 			imgui.Text("BTN")
 			imgui.NextColumn()
+
+			if not isEnabled then
+				imgui.PopStyleVar()
+			end
 		end
 
 		imgui.Columns(1)
