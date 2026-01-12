@@ -2103,7 +2103,7 @@ local function drawBindsGrid()
 				local rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
 				local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
-				imgui.PushClipRect(fullMin, fullMax, false)
+				imgui.PushClipRect(fullMin, imgui.ImVec2(fullMax.x, fullMax.y + 2), false)
 				if (rowIndex % 2) == 1 then
 					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
 					local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
@@ -2120,7 +2120,7 @@ local function drawBindsGrid()
 				end
 				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
 				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
-				local lineY = rowStart.y + rowContentH
+				local lineY = fullMax.y - 1
 				dl:AddLine(
 					imgui.ImVec2(tableMinX, lineY),
 					imgui.ImVec2(tableMinX + contentWidth, lineY),
