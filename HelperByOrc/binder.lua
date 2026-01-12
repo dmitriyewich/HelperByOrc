@@ -2106,7 +2106,16 @@ local function drawBindsGrid()
 				local dl = imgui.GetWindowDrawList()
 				local fullMin = imgui.ImVec2(tableMinX, rowStart.y)
 				local fullMax = imgui.ImVec2(tableMinX + contentWidth, rowStart.y + rowContentH)
-				local rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
+
+				local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
+				local mx, my = mp.x, mp.y
+
+				-- важно: IsWindowHovered, чтобы не ловить клики в другом окне
+				local inWindow = imgui.IsWindowHovered and imgui.IsWindowHovered() or true
+				local rowHovered = inWindow
+					and mx >= fullMin.x and mx <= fullMax.x
+					and my >= fullMin.y and my <= fullMax.y
+
 				local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
 				imgui.PushClipRect(fullMin, imgui.ImVec2(fullMax.x, fullMax.y + 2), false)
