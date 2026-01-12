@@ -2061,6 +2061,38 @@ local function drawBindsGrid()
 				local rowHovered = imgui.IsItemHovered()
 				local rowClicked = imgui.IsItemClicked(0)
 				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
+				if imgui.BeginDragDropSource() then
+					local payload = ffi.new("int[1]", i)
+					imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+					local dragLabelNumber = hk._number or i
+					local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+					imgui.Text(dragLabel)
+					imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+					imgui.EndDragDropSource()
+				end
+				if imgui.BeginDragDropTarget() then
+					local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
+					if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+						local delivered = payload.Delivery
+						if delivered == nil and imgui.IsMouseReleased then
+							delivered = imgui.IsMouseReleased(0)
+						end
+						if delivered then
+							local src_idx = ffi.cast("int*", payload.Data)[0]
+							local dst_idx = i
+							if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+								local moved = table.remove(hotkeys, src_idx)
+								if dst_idx > src_idx then
+									dst_idx = dst_idx - 1
+								end
+								table.insert(hotkeys, dst_idx, moved)
+								refreshHotkeyNumbers()
+								module.saveHotkeys()
+							end
+						end
+					end
+					imgui.EndDragDropTarget()
+				end
 				imgui.SetCursorScreenPos(rowStart)
 
 				local dl = imgui.GetWindowDrawList()
@@ -2239,32 +2271,6 @@ local function drawBindsGrid()
 				if rowDbl and not imgui.IsAnyItemHovered() then
 					editHotkey.active = true
 					editHotkey.idx = i
-				end
-				if imgui.BeginDragDropSource() then
-					local payload = ffi.new("int[1]", i)
-					imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-					local dragLabelNumber = hk._number or i
-					local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-					imgui.Text(dragLabel)
-					imgui.TextDisabled(string.format("#%d", dragLabelNumber))
-					imgui.EndDragDropSource()
-				end
-				if imgui.BeginDragDropTarget() then
-					local payload = imgui.AcceptDragDropPayload()
-					if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-						local src_idx = ffi.cast("int*", payload.Data)[0]
-						local dst_idx = i
-						if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-							local moved = table.remove(hotkeys, src_idx)
-							if dst_idx > src_idx then
-								dst_idx = dst_idx - 1
-							end
-							table.insert(hotkeys, dst_idx, moved)
-							refreshHotkeyNumbers()
-							module.saveHotkeys()
-						end
-					end
-					imgui.EndDragDropTarget()
 				end
 				imgui.SetCursorScreenPos(nextRowPos)
 
