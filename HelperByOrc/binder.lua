@@ -2054,6 +2054,15 @@ local function drawBindsGrid()
 				local rowIndex = localIndex
 				local rowStart = imgui.GetCursorScreenPos()
 				local rowEnd = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowHeight)
+				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
+				if imgui.SetItemAllowOverlap then
+					imgui.SetItemAllowOverlap()
+				end
+				local rowHovered = imgui.IsItemHovered()
+				local rowClicked = imgui.IsItemClicked(0)
+				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
+				imgui.SetCursorScreenPos(rowStart)
+
 				local dl = imgui.GetWindowDrawList()
 				if (rowIndex % 2) == 1 then
 					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
@@ -2224,16 +2233,10 @@ local function drawBindsGrid()
 				end
 
 				local nextRowPos = imgui.GetCursorScreenPos()
-				imgui.SetCursorScreenPos(rowStart)
-				imgui.InvisibleButton("##row_area_" .. i, imgui.ImVec2(contentWidth, rowHeight))
-				if imgui.SetItemAllowOverlap then
-					imgui.SetItemAllowOverlap()
-				end
-				local rowHovered = imgui.IsMouseHoveringRect(rowStart, rowEnd)
-				if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseClicked(0) then
+				if rowClicked and not imgui.IsAnyItemHovered() then
 					bindsSelectedIndex = i
 				end
-				if rowHovered and not imgui.IsAnyItemHovered() and imgui.IsMouseDoubleClicked(0) then
+				if rowDbl and not imgui.IsAnyItemHovered() then
 					editHotkey.active = true
 					editHotkey.idx = i
 				end
