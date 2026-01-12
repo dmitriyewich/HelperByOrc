@@ -2041,6 +2041,7 @@ local function drawBindsGrid()
 		end
 		imgui.Spacing()
 		imgui.Columns(5, "binds_cols", true)
+		local tableMinX = imgui.GetCursorScreenPos().x
 		local contentWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 		local baseOffset = imgui.GetColumnOffset(0)
 		local col1W = 28
@@ -2066,8 +2067,8 @@ local function drawBindsGrid()
 		local headerBorder = imgui.GetStyle().Colors[imgui.Col.Border]
 		local headerBorderCol = imgui.ImVec4(headerBorder.x, headerBorder.y, headerBorder.z, headerBorder.w * 0.3)
 		imgui.GetWindowDrawList():AddLine(
-			headerLine,
-			imgui.ImVec2(headerLine.x + contentWidth, headerLine.y),
+			imgui.ImVec2(tableMinX, headerLine.y),
+			imgui.ImVec2(tableMinX + contentWidth, headerLine.y),
 			imgui.GetColorU32Vec4(headerBorderCol),
 			1
 		)
@@ -2096,8 +2097,8 @@ local function drawBindsGrid()
 				imgui.SetCursorScreenPos(rowStart)
 
 				local dl = imgui.GetWindowDrawList()
-				local fullMin = rowStart
-				local fullMax = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
+				local fullMin = imgui.ImVec2(tableMinX, rowStart.y)
+				local fullMax = imgui.ImVec2(tableMinX + contentWidth, rowStart.y + rowContentH)
 				local rowHovered = imgui.IsMouseHoveringRect(fullMin, fullMax)
 				local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 				local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
@@ -2119,7 +2120,12 @@ local function drawBindsGrid()
 				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
 				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
 				local lineY = rowStart.y + rowContentH
-				dl:AddLine(imgui.ImVec2(rowStart.x, lineY), imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
+				dl:AddLine(
+					imgui.ImVec2(tableMinX, lineY),
+					imgui.ImVec2(tableMinX + contentWidth, lineY),
+					imgui.GetColorU32Vec4(border),
+					1
+				)
 				imgui.PopClipRect()
 
 				local displayNumber = hk._number or i
