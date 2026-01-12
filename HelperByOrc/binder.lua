@@ -2135,24 +2135,28 @@ local function drawBindsGrid()
 				imgui.SetCursorScreenPos(rowStart)
 
 				local dl = imgui.GetWindowDrawList()
+				local fullMin = rowStart
+				local fullMax = imgui.ImVec2(rowStart.x + contentWidth, rowStart.y + rowContentH)
+				imgui.PushClipRect(fullMin, fullMax, false)
 				if (rowIndex % 2) == 1 then
 					local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
 					local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
-					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(zebra))
+					dl:AddRectFilled(fullMin, fullMax, imgui.GetColorU32Vec4(zebra))
 				end
 				if bindsSelectedIndex == i then
 					local selCol = imgui.GetStyle().Colors[imgui.Col.Header]
 					local sel = imgui.ImVec4(selCol.x, selCol.y, selCol.z, selCol.w * 0.35)
-					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(sel))
+					dl:AddRectFilled(fullMin, fullMax, imgui.GetColorU32Vec4(sel))
 				elseif rowHovered then
 					local hoverCol = imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
 					local hover = imgui.ImVec4(hoverCol.x, hoverCol.y, hoverCol.z, hoverCol.w * 0.2)
-					dl:AddRectFilled(rowStart, rowEnd, imgui.GetColorU32Vec4(hover))
+					dl:AddRectFilled(fullMin, fullMax, imgui.GetColorU32Vec4(hover))
 				end
 				local borderCol = imgui.GetStyle().Colors[imgui.Col.Border]
 				local border = imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3)
 				local lineY = rowStart.y + rowContentH
-				dl:AddLine(rowStart, imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
+				dl:AddLine(fullMin, imgui.ImVec2(rowStart.x + contentWidth, lineY), imgui.GetColorU32Vec4(border), 1)
+				imgui.PopClipRect()
 
 				local displayNumber = hk._number or i
 				local bindName = hk.label or ("bind" .. displayNumber)
