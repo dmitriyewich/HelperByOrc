@@ -2155,10 +2155,6 @@ local function drawBindsGrid()
 				local displayNumber = hk._number or i
 				local bindName = hk.label or ("bind" .. displayNumber)
 				local isEnabled = hk.enabled == nil and true or hk.enabled
-				if not isEnabled and hk.quick_menu then
-					hk.quick_menu = false
-					module.saveHotkeys()
-				end
 				if not isEnabled then
 					imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, imgui.GetStyle().Alpha * 0.75)
 					local textCol = imgui.GetStyle().Colors[imgui.Col.Text]
