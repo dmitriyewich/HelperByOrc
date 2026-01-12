@@ -2046,7 +2046,11 @@ local function drawBindsGrid()
 				module.saveHotkeys()
 			end
 			imgui.NextColumn()
-			imgui.Text("QM")
+			local isQuickMenu = hk.quick_menu and true or false
+			if imgui.RadioButtonBool("##bind_quick_" .. i, isQuickMenu) then
+				hk.quick_menu = not isQuickMenu
+				module.saveHotkeys()
+			end
 			imgui.NextColumn()
 			if isEnabled and imgui.Button("ACT##play_" .. i) then
 				module.enqueueHotkey(hk)
@@ -2056,8 +2060,43 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 			imgui.Text(bindName)
 			imgui.NextColumn()
-			imgui.Text("BTN")
+			local canPlay = isEnabled and not hk.is_running
+			if canPlay and imgui.Button(fa.PLAY .. "##play_" .. i) then
+				module.enqueueHotkey(hk)
+			else
+				imgui.Button(fa.PLAY .. "##play_" .. i)
+			end
+			imgui.SameLine()
+			if imgui.Button(fa.PEN .. "##edit_" .. i) then
+				editHotkey.active = true
+				editHotkey.idx = i
+			end
+			imgui.SameLine()
+			if imgui.Button(fa.TRASH .. "##del_" .. i) then
+				_G.deleteBindPopup.idx = i
+				_G.deleteBindPopup.from_edit = false
+				_G.deleteBindPopup.active = true
+			end
+			imgui.SameLine()
+			if imgui.Button(fa.BARS .. "##ctx_" .. i) then
+				imgui.OpenPopup("ctx_card_" .. i)
+			end
 			imgui.NextColumn()
+
+			if imgui.BeginPopup("ctx_card_" .. i) then
+				if imgui.MenuItemBool("Дублировать", false) then
+					local newhk = cloneHotkey(hk)
+					table.insert(hotkeys, i + 1, newhk)
+					refreshHotkeyNumbers()
+					module.saveHotkeys()
+				end
+				if imgui.MenuItemBool("Переместить в...", false) then
+					_G.moveBindPopup.active = true
+					_G.moveBindPopup.hkidx = i
+					imgui.CloseCurrentPopup()
+				end
+				imgui.EndPopup()
+			end
 
 			if not isEnabled then
 				imgui.PopStyleVar()
