@@ -2070,15 +2070,28 @@ local function drawBindsGrid()
 	local x2 = tableMinX + col1W + col2W
 	local x3 = tableMinX + col1W + col2W + col3W
 	local x4 = tableMinX + col1W + col2W + col3W + col4W
-	imgui.TextDisabled("Актив")
+	local function drawHeaderCentered(label, tooltipOpt)
+		local colW = imgui.GetColumnWidth()
+		local textW = imgui.CalcTextSize(label).x
+		local startX = imgui.GetCursorPosX()
+		imgui.SetCursorPosX(startX + (colW - textW) * 0.5)
+		imgui.TextDisabled(label)
+		if tooltipOpt ~= nil and imgui.IsItemHovered() then
+			imgui.SetTooltip(tooltipOpt)
+		end
+	end
+
+	local activeLabel = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or "A"
+	local menuLabel = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or "M"
+	drawHeaderCentered(activeLabel, "Актив")
 	imgui.NextColumn()
-	imgui.TextDisabled("Меню")
+	drawHeaderCentered(menuLabel, "Быстрое меню")
 	imgui.NextColumn()
-	imgui.TextDisabled("Запуск")
+	drawHeaderCentered("Запуск")
 	imgui.NextColumn()
-	imgui.TextDisabled("Бинд")
+	drawHeaderCentered("Бинд")
 	imgui.NextColumn()
-	imgui.TextDisabled("Действия")
+	drawHeaderCentered("Действия")
 	imgui.NextColumn()
 	local headerLine = imgui.GetCursorScreenPos()
 	local columnsTopY = headerLine.y
