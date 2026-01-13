@@ -2290,7 +2290,10 @@ local function drawBindsGrid()
 			end
 			imgui.NextColumn()
 			set_col_y(yTxt)
-			local activationWidth = imgui.GetColumnWidth()
+			local padX = 6
+			local startX = imgui.GetCursorPosX()
+			imgui.SetCursorPosX(startX + padX)
+			local activationWidth = imgui.GetColumnWidth() - (padX * 2)
 			local trig = hk.text_trigger
 			local parts = {}
 			local hasCmd = hk.command_enabled and hk.command and hk.command ~= ""
