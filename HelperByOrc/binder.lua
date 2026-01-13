@@ -2045,11 +2045,14 @@ local function drawBindsGrid()
 	imgui.Columns(5, "binds_cols", false)
 	local tableMinX = imgui.GetCursorScreenPos().x
 	local baseOffset = imgui.GetColumnOffset(0)
+	local s = imgui.GetStyle()
 	local btnH = imgui.GetFrameHeight()
 	local btnW = btnH + 6
-	local colBtnPad = 5
-	local col1W = btnW + (colBtnPad * 2)
-	local col2W = btnW + (colBtnPad * 2)
+	local border = (s.FrameBorderSize or 0)
+	local btnVisualW = btnW + (border * 2) + 2
+	local colBtnPad = 6
+	local col1W = btnVisualW + (colBtnPad * 2)
+	local col2W = btnVisualW + (colBtnPad * 2)
 	local availableWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 
 	-- 3-я колонка примерно в 2 раза уже
