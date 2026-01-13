@@ -2064,8 +2064,7 @@ local function drawBindsGrid()
 	local col5W = (btnW * maxButtons) + (btnSpacing * (maxButtons - 1)) + 6
 
 	-- 4-я колонка остаток
-	local col4Raw = math.max(160, availableWidth - (col1W + col2W + col3W + col5W))
-	local col4W = math.max(160, math.floor(col4Raw / 1.5))
+	local col4W = math.max(130, availableWidth - (col1W + col2W + col3W + col5W))
 	local contentWidth = col1W + col2W + col3W + col4W + col5W
 	imgui.SetColumnOffset(1, baseOffset + col1W)
 	imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
