@@ -2417,42 +2417,44 @@ local function drawBindsGrid()
 			local countText = " (" .. tostring(rowCount) .. ")"
 			local colPos = imgui.GetCursorScreenPos()
 			local colWidth = imgui.GetColumnWidth()
-			local padding = 4
 			local numberText = tostring(displayNumber)
-			local numberSize = imgui.CalcTextSize(numberText)
+			local numLabel = "№" .. numberText
+			local numSize = imgui.CalcTextSize(numLabel)
 			local countSize = imgui.CalcTextSize(countText)
-			local nameWidth = colWidth - numberSize.x - countSize.x - padding * 2
-			if nameWidth < 0 then
-				nameWidth = 0
-			end
+			local innerPad = 8
+			local gap = 6
+			local innerMinX = colPos.x + innerPad
+			local innerMaxX = colPos.x + colWidth - innerPad
+			local nameMinX = innerMinX + numSize.x + gap
+			local nameMaxX = innerMaxX - countSize.x - gap
+			local nameAvail = math.max(0, nameMaxX - nameMinX)
 			if not hk._name_cache then
 				hk._name_cache = {}
 			end
 			local cache = hk._name_cache
-			if cache.text ~= bindName or cache.width ~= nameWidth then
+			if cache.text ~= bindName or cache.width ~= nameAvail then
 				cache.text = bindName
-				cache.width = nameWidth
-				cache.output = ellipsize_utf8(bindName, nameWidth)
+				cache.width = nameAvail
+				cache.output = ellipsize_utf8(bindName, nameAvail)
 			end
 			local displayName = cache.output or bindName
 			local nameSize = imgui.CalcTextSize(displayName)
-			local nameX = colPos.x + (colWidth - nameSize.x) / 2
-			local nameMinX = colPos.x + numberSize.x + padding
-			local nameMaxX = colPos.x + colWidth - countSize.x - padding - nameSize.x
+			local nameX = nameMinX + (nameAvail - nameSize.x) / 2
+			local nameClampMax = nameMaxX - nameSize.x
 			if nameX < nameMinX then
 				nameX = nameMinX
 			end
-			if nameX > nameMaxX then
-				nameX = nameMaxX
+			if nameX > nameClampMax then
+				nameX = nameClampMax
 			end
 			local disabledColor = style.Colors[imgui.Col.TextDisabled]
 			dl:AddText(
-				imgui.ImVec2(colPos.x + numberSize.x, colPos.y),
+				imgui.ImVec2(innerMinX, colPos.y),
 				imgui.GetColorU32Vec4(disabledColor),
-				"№" .. numberText
+				numLabel
 			)
 			dl:AddText(
-				imgui.ImVec2(colPos.x + colWidth - (countSize.x + 5), colPos.y),
+				imgui.ImVec2(innerMaxX - countSize.x, colPos.y),
 				imgui.GetColorU32Vec4(disabledColor),
 				countText
 			)
