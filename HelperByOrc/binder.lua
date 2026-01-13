@@ -2047,8 +2047,9 @@ local function drawBindsGrid()
 	local baseOffset = imgui.GetColumnOffset(0)
 	local btnH = imgui.GetFrameHeight()
 	local btnW = btnH + 6
-	local col1W = btnW + 6
-	local col2W = btnW + 6
+	local colBtnPad = 5
+	local col1W = btnW + (colBtnPad * 2)
+	local col2W = btnW + (colBtnPad * 2)
 	local availableWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 
 	-- 3-я колонка примерно в 2 раза уже
