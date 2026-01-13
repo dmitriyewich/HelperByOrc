@@ -2045,10 +2045,14 @@ local function drawBindsGrid()
 	imgui.Columns(5, "binds_cols", false)
 	local tableMinX = imgui.GetCursorScreenPos().x
 	local baseOffset = imgui.GetColumnOffset(0)
+	local s = imgui.GetStyle()
 	local btnH = imgui.GetFrameHeight()
 	local btnW = btnH + 6
-	local col1W = btnW + 6
-	local col2W = btnW + 6
+	local border = (s.FrameBorderSize or 0)
+	local btnVisualW = btnW + (border * 2) + 2
+	local colBtnPad = 6
+	local col1W = btnVisualW + (colBtnPad * 2)
+	local col2W = btnVisualW + (colBtnPad * 2)
 	local availableWidth = imgui.GetWindowContentRegionMax().x - imgui.GetWindowContentRegionMin().x
 
 	-- 3-я колонка примерно в 2 раза уже
@@ -2060,33 +2064,49 @@ local function drawBindsGrid()
 	local col5W = (btnW * maxButtons) + (btnSpacing * (maxButtons - 1)) + 6
 
 	-- 4-я колонка остаток
-	local col4W = math.max(160, availableWidth - (col1W + col2W + col3W + col5W))
+	local col4Raw = math.max(160, availableWidth - (col1W + col2W + col3W + col5W))
+	local col4W = math.max(160, math.floor(col4Raw / 1.5))
 	local contentWidth = col1W + col2W + col3W + col4W + col5W
 	imgui.SetColumnOffset(1, baseOffset + col1W)
 	imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
 	imgui.SetColumnOffset(3, baseOffset + col1W + col2W + col3W)
 	imgui.SetColumnOffset(4, baseOffset + col1W + col2W + col3W + col4W)
+	imgui.SetColumnOffset(5, baseOffset + contentWidth)
 	local x1 = tableMinX + col1W
 	local x2 = tableMinX + col1W + col2W
 	local x3 = tableMinX + col1W + col2W + col3W
 	local x4 = tableMinX + col1W + col2W + col3W + col4W
-	imgui.TextDisabled("Актив")
+	local headerTopY = imgui.GetCursorScreenPos().y
+	local function drawHeaderCentered(label, tooltipOpt)
+		local colW = imgui.GetColumnWidth()
+		local textW = imgui.CalcTextSize(label).x
+		local startX = imgui.GetCursorPosX()
+		imgui.SetCursorPosX(startX + (colW - textW) * 0.5)
+		imgui.TextDisabled(label)
+		if tooltipOpt ~= nil and imgui.IsItemHovered() then
+			imgui.SetTooltip(tooltipOpt)
+		end
+	end
+
+	local activeLabel = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or "A"
+	local menuLabel = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or "M"
+	drawHeaderCentered(activeLabel, "Актив")
 	imgui.NextColumn()
-	imgui.TextDisabled("Меню")
+	drawHeaderCentered(menuLabel, "Быстрое меню")
 	imgui.NextColumn()
-	imgui.TextDisabled("Запуск")
+	drawHeaderCentered("Запуск")
 	imgui.NextColumn()
-	imgui.TextDisabled("Бинд")
+	drawHeaderCentered("Бинд")
 	imgui.NextColumn()
-	imgui.TextDisabled("Действия")
+	drawHeaderCentered("Действия")
 	imgui.NextColumn()
 	local headerLine = imgui.GetCursorScreenPos()
-	local columnsTopY = headerLine.y
+	local headerBottomY = headerLine.y
 	local headerBorder = imgui.GetStyle().Colors[imgui.Col.Border]
 	local headerBorderCol = imgui.ImVec4(headerBorder.x, headerBorder.y, headerBorder.z, headerBorder.w * 0.3)
 	local headerU32 = imgui.GetColorU32Vec4(headerBorderCol)
 	local dl = imgui.GetWindowDrawList()
-	local y = headerLine.y
+	local y = headerBottomY
 	imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), false)
 	dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
 	imgui.PopClipRect()
@@ -2103,14 +2123,14 @@ local function drawBindsGrid()
 		local vcol = imgui.GetColorU32Vec4(imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3))
 		local dl2 = imgui.GetWindowDrawList()
 		imgui.PushClipRect(
-			imgui.ImVec2(tableMinX, columnsTopY),
+			imgui.ImVec2(tableMinX, headerTopY),
 			imgui.ImVec2(tableMinX + contentWidth, clipBottomY),
 			false
 		)
-		dl2:AddLine(imgui.ImVec2(x1, columnsTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x2, columnsTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x3, columnsTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x4, columnsTopY), imgui.ImVec2(x4, clipBottomY), vcol, 1)
+		dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
+		dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
+		dl2:AddLine(imgui.ImVec2(x3, headerTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
+		dl2:AddLine(imgui.ImVec2(x4, headerTopY), imgui.ImVec2(x4, clipBottomY), vcol, 1)
 		imgui.PopClipRect()
 	end
 	local clipper = imgui.ImGuiListClipper(#cards, rowStep)
@@ -2149,6 +2169,15 @@ local function drawBindsGrid()
 					imgui.SetTooltip(tooltip)
 				end
 				return enabled and clicked
+			end
+			local function centerInColumn(widgetW, minPad)
+				local colW = imgui.GetColumnWidth()
+				local localX = imgui.GetCursorPosX()
+				local pad = (colW - widgetW) * 0.5
+				if minPad then
+					pad = math.max(minPad, pad)
+				end
+				imgui.SetCursorPosX(localX + pad)
 			end
 			local actionBtnSize = imgui.ImVec2(imgui.GetFrameHeight() + 6, imgui.GetFrameHeight())
 			imgui.SetCursorScreenPos(rowStart)
@@ -2211,6 +2240,7 @@ local function drawBindsGrid()
 			end
 
 			set_col_y(yBtn)
+			centerInColumn(actionBtnSize.x, 4)
 			local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON)
 				or (fa.POWER_OFF ~= "" and fa.POWER_OFF)
 				or fa.CHECK_CIRCLE
@@ -2239,6 +2269,7 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 			local isQuickMenu = hk.quick_menu and true or false
 			set_col_y(yBtn)
+			centerInColumn(actionBtnSize.x, 4)
 			local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
 			if isEnabled and not isQuickMenu then
 				local disabledCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
@@ -2264,49 +2295,88 @@ local function drawBindsGrid()
 			end
 			imgui.NextColumn()
 			set_col_y(yTxt)
-			local hasActivation = false
-			local activationWidth = imgui.GetColumnWidth()
-			local usedWidth = 0
+			local padX = 6
+			local startX = imgui.GetCursorPosX()
+			imgui.SetCursorPosX(startX + padX)
+			local activationWidth = imgui.GetColumnWidth() - (padX * 2)
 			local trig = hk.text_trigger
-			if trig and trig.enabled and trig.text and trig.text ~= "" then
-				local label = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Триггер: " .. tostring(trig.text))
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+			local parts = {}
+			local hasCmd = hk.command_enabled and hk.command and hk.command ~= ""
+			local hasKeys = hk.keys and #hk.keys > 0
+			local hasTrig = trig and trig.enabled and trig.text and trig.text ~= ""
+			if hasTrig then
+				local icon = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
+				table.insert(parts, {
+					icon = icon,
+					text = trig.text,
+					tooltip = "Триггер: " .. tostring(trig.text),
+					kind = "trig",
+				})
 			end
-			if hk.command_enabled and hk.command and hk.command ~= "" then
-				if hasActivation then
-					imgui.SameLine()
-				end
+			if hasCmd then
 				local icon = fa.TERMINAL ~= "" and fa.TERMINAL or "CMD"
-				local available = math.max(0, activationWidth - usedWidth)
-				local cmdText = icon .. " " .. hk.command
-				cmdText = ellipsize_utf8(cmdText, available)
-				imgui.TextDisabled(cmdText)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Команда: " .. tostring(hk.command))
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(cmdText).x + imgui.GetStyle().ItemSpacing.x
+				table.insert(parts, {
+					icon = icon,
+					text = hk.command,
+					tooltip = "Команда: " .. tostring(hk.command),
+					kind = "cmd",
+				})
 			end
-			if hk.keys and #hk.keys > 0 then
-				if hasActivation then
-					imgui.SameLine()
-				end
+			if hasKeys then
 				local icon = fa.KEYBOARD ~= "" and fa.KEYBOARD or "KEY"
 				local keysText = hotkeyToString(hk.keys)
-				local available = math.max(0, activationWidth - usedWidth)
-				local label = icon .. " " .. keysText
-				label = ellipsize_utf8(label, available)
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Клавиши: " .. keysText)
+				table.insert(parts, {
+					icon = icon,
+					text = keysText,
+					tooltip = "Клавиши: " .. keysText,
+					kind = "keys",
+				})
+			end
+			local partsCount = #parts
+			if partsCount > 0 then
+				local available = activationWidth - style.ItemSpacing.x * (partsCount - 1)
+				local widths = {}
+				if hasCmd and hasKeys then
+					local remaining = available
+					for idx, part in ipairs(parts) do
+						if part.kind == "trig" then
+							part.text = nil
+							widths[idx] = imgui.CalcTextSize(part.icon).x
+							remaining = math.max(0, remaining - widths[idx])
+							break
+						end
+					end
+					local wCmd = math.floor(remaining * 0.60)
+					local wKeys = math.max(0, remaining - wCmd)
+					for idx, part in ipairs(parts) do
+						if part.kind == "cmd" then
+							widths[idx] = wCmd
+						elseif part.kind == "keys" then
+							widths[idx] = wKeys
+						end
+					end
+				else
+					local base = partsCount > 0 and math.floor(available / partsCount) or 0
+					local remainder = available - base * partsCount
+					for idx = 1, partsCount do
+						widths[idx] = base + (idx == partsCount and remainder or 0)
+					end
 				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+				for idx, part in ipairs(parts) do
+					if idx > 1 then
+						imgui.SameLine()
+					end
+					local width = widths[idx] or available
+					local label = part.icon
+					if part.text and part.text ~= "" then
+						label = label .. " " .. part.text
+					end
+					label = ellipsize_utf8(label, width)
+					imgui.TextDisabled(label)
+					if imgui.IsItemHovered() then
+						imgui.SetTooltip(part.tooltip)
+					end
+				end
 			end
 			imgui.NextColumn()
 			local dndStart = imgui.GetCursorScreenPos()
@@ -2352,42 +2422,44 @@ local function drawBindsGrid()
 			local countText = " (" .. tostring(rowCount) .. ")"
 			local colPos = imgui.GetCursorScreenPos()
 			local colWidth = imgui.GetColumnWidth()
-			local padding = 4
 			local numberText = tostring(displayNumber)
-			local numberSize = imgui.CalcTextSize(numberText)
+			local numLabel = "№" .. numberText
+			local numSize = imgui.CalcTextSize(numLabel)
 			local countSize = imgui.CalcTextSize(countText)
-			local nameWidth = colWidth - numberSize.x - countSize.x - padding * 2
-			if nameWidth < 0 then
-				nameWidth = 0
-			end
+			local innerPad = 8
+			local gap = 6
+			local innerMinX = colPos.x + innerPad
+			local innerMaxX = colPos.x + colWidth - innerPad
+			local nameMinX = innerMinX + numSize.x + gap
+			local nameMaxX = innerMaxX - countSize.x - gap
+			local nameAvail = math.max(0, nameMaxX - nameMinX)
 			if not hk._name_cache then
 				hk._name_cache = {}
 			end
 			local cache = hk._name_cache
-			if cache.text ~= bindName or cache.width ~= nameWidth then
+			if cache.text ~= bindName or cache.width ~= nameAvail then
 				cache.text = bindName
-				cache.width = nameWidth
-				cache.output = ellipsize_utf8(bindName, nameWidth)
+				cache.width = nameAvail
+				cache.output = ellipsize_utf8(bindName, nameAvail)
 			end
 			local displayName = cache.output or bindName
 			local nameSize = imgui.CalcTextSize(displayName)
-			local nameX = colPos.x + (colWidth - nameSize.x) / 2
-			local nameMinX = colPos.x + numberSize.x + padding
-			local nameMaxX = colPos.x + colWidth - countSize.x - padding - nameSize.x
+			local nameX = nameMinX + (nameAvail - nameSize.x) / 2
+			local nameClampMax = nameMaxX - nameSize.x
 			if nameX < nameMinX then
 				nameX = nameMinX
 			end
-			if nameX > nameMaxX then
-				nameX = nameMaxX
+			if nameX > nameClampMax then
+				nameX = nameClampMax
 			end
 			local disabledColor = style.Colors[imgui.Col.TextDisabled]
 			dl:AddText(
-				imgui.ImVec2(colPos.x + numberSize.x, colPos.y),
+				imgui.ImVec2(innerMinX, colPos.y),
 				imgui.GetColorU32Vec4(disabledColor),
-				"№" .. numberText
+				numLabel
 			)
 			dl:AddText(
-				imgui.ImVec2(colPos.x + colWidth - (countSize.x + 5), colPos.y),
+				imgui.ImVec2(innerMaxX - countSize.x, colPos.y),
 				imgui.GetColorU32Vec4(disabledColor),
 				countText
 			)
@@ -2404,6 +2476,11 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 			set_col_y(yBtn)
 			local canAction = isEnabled
+			local playPauseCount = 1
+			local runningExtra = hk.is_running and 1 or 0
+			local buttonsCount = 3 + playPauseCount + runningExtra
+			local groupW = (buttonsCount * actionBtnSize.x) + ((buttonsCount - 1) * style.ItemSpacing.x)
+			centerInColumn(groupW, 4)
 			if not hk.is_running then
 				local playClicked =
 					action_btn("##play_" .. i, fa.PLAY, canAction, "Воспроизвести", actionBtnSize)
