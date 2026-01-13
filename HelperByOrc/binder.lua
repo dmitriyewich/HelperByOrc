@@ -2163,6 +2163,15 @@ local function drawBindsGrid()
 				end
 				return enabled and clicked
 			end
+			local function centerInColumn(widgetW, minPad)
+				local colW = imgui.GetColumnWidth()
+				local localX = imgui.GetCursorPosX()
+				local pad = (colW - widgetW) * 0.5
+				if minPad then
+					pad = math.max(minPad, pad)
+				end
+				imgui.SetCursorPosX(localX + pad)
+			end
 			local actionBtnSize = imgui.ImVec2(imgui.GetFrameHeight() + 6, imgui.GetFrameHeight())
 			imgui.SetCursorScreenPos(rowStart)
 
@@ -2224,6 +2233,7 @@ local function drawBindsGrid()
 			end
 
 			set_col_y(yBtn)
+			centerInColumn(actionBtnSize.x, 4)
 			local toggleOnIcon = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON)
 				or (fa.POWER_OFF ~= "" and fa.POWER_OFF)
 				or fa.CHECK_CIRCLE
@@ -2252,6 +2262,7 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 			local isQuickMenu = hk.quick_menu and true or false
 			set_col_y(yBtn)
+			centerInColumn(actionBtnSize.x, 4)
 			local quickIcon = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or ""
 			if isEnabled and not isQuickMenu then
 				local disabledCol = imgui.GetStyle().Colors[imgui.Col.TextDisabled]
@@ -2417,6 +2428,11 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 			set_col_y(yBtn)
 			local canAction = isEnabled
+			local playPauseCount = 1
+			local runningExtra = hk.is_running and 1 or 0
+			local buttonsCount = 3 + playPauseCount + runningExtra
+			local groupW = (buttonsCount * actionBtnSize.x) + ((buttonsCount - 1) * style.ItemSpacing.x)
+			centerInColumn(groupW, 4)
 			if not hk.is_running then
 				local playClicked =
 					action_btn("##play_" .. i, fa.PLAY, canAction, "Воспроизвести", actionBtnSize)
