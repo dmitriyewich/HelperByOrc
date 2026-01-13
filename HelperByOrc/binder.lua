@@ -2067,6 +2067,7 @@ local function drawBindsGrid()
 	imgui.SetColumnOffset(2, baseOffset + col1W + col2W)
 	imgui.SetColumnOffset(3, baseOffset + col1W + col2W + col3W)
 	imgui.SetColumnOffset(4, baseOffset + col1W + col2W + col3W + col4W)
+	imgui.SetColumnOffset(5, baseOffset + contentWidth)
 	local x1 = tableMinX + col1W
 	local x2 = tableMinX + col1W + col2W
 	local x3 = tableMinX + col1W + col2W + col3W
