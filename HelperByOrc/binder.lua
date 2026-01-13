@@ -2288,49 +2288,85 @@ local function drawBindsGrid()
 			end
 			imgui.NextColumn()
 			set_col_y(yTxt)
-			local hasActivation = false
 			local activationWidth = imgui.GetColumnWidth()
-			local usedWidth = 0
 			local trig = hk.text_trigger
-			if trig and trig.enabled and trig.text and trig.text ~= "" then
-				local label = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Триггер: " .. tostring(trig.text))
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+			local parts = {}
+			local hasCmd = hk.command_enabled and hk.command and hk.command ~= ""
+			local hasKeys = hk.keys and #hk.keys > 0
+			local hasTrig = trig and trig.enabled and trig.text and trig.text ~= ""
+			if hasTrig then
+				local icon = fa.COMMENT ~= "" and fa.COMMENT or "TXT"
+				table.insert(parts, {
+					icon = icon,
+					text = trig.text,
+					tooltip = "Триггер: " .. tostring(trig.text),
+					kind = "trig",
+				})
 			end
-			if hk.command_enabled and hk.command and hk.command ~= "" then
-				if hasActivation then
-					imgui.SameLine()
-				end
+			if hasCmd then
 				local icon = fa.TERMINAL ~= "" and fa.TERMINAL or "CMD"
-				local available = math.max(0, activationWidth - usedWidth)
-				local cmdText = icon .. " " .. hk.command
-				cmdText = ellipsize_utf8(cmdText, available)
-				imgui.TextDisabled(cmdText)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Команда: " .. tostring(hk.command))
-				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(cmdText).x + imgui.GetStyle().ItemSpacing.x
+				table.insert(parts, {
+					icon = icon,
+					text = hk.command,
+					tooltip = "Команда: " .. tostring(hk.command),
+					kind = "cmd",
+				})
 			end
-			if hk.keys and #hk.keys > 0 then
-				if hasActivation then
-					imgui.SameLine()
-				end
+			if hasKeys then
 				local icon = fa.KEYBOARD ~= "" and fa.KEYBOARD or "KEY"
 				local keysText = hotkeyToString(hk.keys)
-				local available = math.max(0, activationWidth - usedWidth)
-				local label = icon .. " " .. keysText
-				label = ellipsize_utf8(label, available)
-				imgui.TextDisabled(label)
-				if imgui.IsItemHovered() then
-					imgui.SetTooltip("Клавиши: " .. keysText)
+				table.insert(parts, {
+					icon = icon,
+					text = keysText,
+					tooltip = "Клавиши: " .. keysText,
+					kind = "keys",
+				})
+			end
+			local partsCount = #parts
+			if partsCount > 0 then
+				local available = activationWidth - style.ItemSpacing.x * (partsCount - 1)
+				local widths = {}
+				if hasCmd and hasKeys then
+					local remaining = available
+					for idx, part in ipairs(parts) do
+						if part.kind == "trig" then
+							part.text = nil
+							widths[idx] = imgui.CalcTextSize(part.icon).x
+							remaining = math.max(0, remaining - widths[idx])
+							break
+						end
+					end
+					local wCmd = math.floor(remaining * 0.60)
+					local wKeys = math.max(0, remaining - wCmd)
+					for idx, part in ipairs(parts) do
+						if part.kind == "cmd" then
+							widths[idx] = wCmd
+						elseif part.kind == "keys" then
+							widths[idx] = wKeys
+						end
+					end
+				else
+					local base = partsCount > 0 and math.floor(available / partsCount) or 0
+					local remainder = available - base * partsCount
+					for idx = 1, partsCount do
+						widths[idx] = base + (idx == partsCount and remainder or 0)
+					end
 				end
-				hasActivation = true
-				usedWidth = usedWidth + imgui.CalcTextSize(label).x + imgui.GetStyle().ItemSpacing.x
+				for idx, part in ipairs(parts) do
+					if idx > 1 then
+						imgui.SameLine()
+					end
+					local width = widths[idx] or available
+					local label = part.icon
+					if part.text and part.text ~= "" then
+						label = label .. " " .. part.text
+					end
+					label = ellipsize_utf8(label, width)
+					imgui.TextDisabled(label)
+					if imgui.IsItemHovered() then
+						imgui.SetTooltip(part.tooltip)
+					end
+				end
 			end
 			imgui.NextColumn()
 			local dndStart = imgui.GetCursorScreenPos()
