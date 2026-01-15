@@ -4650,14 +4650,82 @@ local function drawDeletePopups()
 end
 
 -- === Вкладки папок (с условиями быстрого меню) ===
+local function getFolderSearchBuffer()
+	if not module._folderSearchBuf then
+		module._folderSearchBuf = imgui.new.char[128]()
+	end
+	return module._folderSearchBuf
+end
+
+local function drawFolderSearchInput()
+	local searchBuf = getFolderSearchBuffer()
+	if imgui.InputTextWithHint then
+		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
+	else
+		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
+	end
+end
+
+local function buildOpenPathString()
+	local path = folderFullPath(selectedFolder)
+	return "Открыто: " .. table.concat(path, " / ")
+end
+
+local function drawOpenPathBreadcrumbs()
+	local path = folderFullPath(selectedFolder)
+	imgui.Text("Открыто: ")
+	imgui.SameLine()
+	local node = nil
+	local style = imgui.GetStyle()
+	for i, name in ipairs(path) do
+		if i == 1 then
+			node = nil
+			for _, f in ipairs(folders) do
+				if f.name == name then
+					node = f
+					break
+				end
+			end
+		else
+			for _, c in ipairs(node.children) do
+				if c.name == name then
+					node = c
+					break
+				end
+			end
+		end
+		local pos = imgui.GetCursorScreenPos()
+		imgui.GetWindowDrawList():AddText(pos, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), name)
+		local text_size = imgui.CalcTextSize(name)
+		imgui.SetCursorScreenPos(pos)
+		imgui.InvisibleButton("##crumb" .. i, imgui.ImVec2(text_size.x, text_size.y))
+		local rect_min = pos
+		local rect_max = imgui.ImVec2(pos.x + text_size.x, pos.y + text_size.y)
+		if imgui.IsItemHovered() then
+			imgui.GetWindowDrawList():AddLine(
+				imgui.ImVec2(rect_min.x, rect_max.y),
+				imgui.ImVec2(rect_max.x, rect_max.y),
+				imgui.GetColorU32Vec4(style.Colors[imgui.Col.ButtonHovered]),
+				2
+			)
+			imgui.SetMouseCursor(imgui.MouseCursor.Hand)
+		end
+		if imgui.IsItemClicked(0) then
+			selectedFolder = node
+		end
+		imgui.SetCursorScreenPos(imgui.ImVec2(rect_max.x, pos.y))
+		if i < #path then
+			imgui.Text(" / ")
+			imgui.SameLine()
+		end
+	end
+end
+
 local function drawFolderTabs()
 	local tabHeight = 22
 	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
-	if not module._folderSearchBuf then
-		module._folderSearchBuf = imgui.new.char[128]()
-	end
-	local searchBuf = module._folderSearchBuf
+	local searchBuf = getFolderSearchBuffer()
 	local searchQuery = ""
 
 	local function markHotkeysDirty()
@@ -4908,59 +4976,6 @@ local function drawFolderTabs()
 		imgui.PopID()
 	end
 
-	local path = folderFullPath(selectedFolder)
-	imgui.Text("Открыто: ")
-	imgui.SameLine()
-	local node = nil
-	local style = imgui.GetStyle()
-	for i, name in ipairs(path) do
-		if i == 1 then
-			node = nil
-			for _, f in ipairs(folders) do
-				if f.name == name then
-					node = f
-					break
-				end
-			end
-		else
-			for _, c in ipairs(node.children) do
-				if c.name == name then
-					node = c
-					break
-				end
-			end
-		end
-		local pos = imgui.GetCursorScreenPos()
-		imgui.GetWindowDrawList():AddText(pos, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), name)
-		local text_size = imgui.CalcTextSize(name)
-		imgui.SetCursorScreenPos(pos)
-		imgui.InvisibleButton("##crumb" .. i, imgui.ImVec2(text_size.x, text_size.y))
-		local rect_min = pos
-		local rect_max = imgui.ImVec2(pos.x + text_size.x, pos.y + text_size.y)
-		if imgui.IsItemHovered() then
-			imgui.GetWindowDrawList():AddLine(
-				imgui.ImVec2(rect_min.x, rect_max.y),
-				imgui.ImVec2(rect_max.x, rect_max.y),
-				imgui.GetColorU32Vec4(style.Colors[imgui.Col.ButtonHovered]),
-				2
-			)
-			imgui.SetMouseCursor(imgui.MouseCursor.Hand)
-		end
-		if imgui.IsItemClicked(0) then
-			selectedFolder = node
-		end
-		imgui.SetCursorScreenPos(imgui.ImVec2(rect_max.x, pos.y))
-		if i < #path then
-			imgui.Text(" / ")
-			imgui.SameLine()
-		end
-	end
-
-	if imgui.InputTextWithHint then
-		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
-	else
-		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
-	end
 	searchQuery = string.lower(ffi.string(searchBuf))
 
 	imgui.BeginChild("folders_tree", imgui.ImVec2(0, 150), true)
@@ -5026,8 +5041,28 @@ end
 -- === Главное окно ===
 function module.DrawBinder()
 	if not editHotkey.active then
+		local style = imgui.GetStyle()
+		local gap = style.ItemSpacing.x
+		local availW = imgui.GetContentRegionAvail().x
+		local leftW = math.min(360, math.max(240, 300))
+		local rightW = math.max(1, availW - leftW - gap)
+
+		imgui.PushItemWidth(leftW)
+		drawFolderSearchInput()
+		imgui.PopItemWidth()
+
+		imgui.SameLine(0, gap)
+		local openText = buildOpenPathString()
+		local tw = imgui.CalcTextSize(openText).x
+		local x0 = imgui.GetCursorPosX()
+		imgui.SetCursorPosX(x0 + math.max(0, rightW - tw))
+		drawOpenPathBreadcrumbs()
+
+		imgui.BeginChild("folders_panel", imgui.ImVec2(leftW, 0), true)
 		drawFolderTabs()
-		imgui.Separator()
+		imgui.EndChild()
+
+		imgui.SameLine(0, gap)
 		imgui.BeginChild("binds_panel##main", imgui.ImVec2(0, 0), true)
 		drawBindsGrid()
 		imgui.EndChild()
