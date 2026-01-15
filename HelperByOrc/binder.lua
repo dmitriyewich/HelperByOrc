@@ -4634,7 +4634,8 @@ local function drawDeletePopups()
 				if selectedFolder == folder then
 					selectedFolder = folder.parent or folders[1]
 				end
-				module.saveHotkeys()
+				module._hotkeysDirty = true
+				module._hotkeysDirtyAt = os.clock()
 			end
 			_G.deleteFolderPopup.folder = nil
 			imgui.CloseCurrentPopup()
@@ -4658,6 +4659,11 @@ local function drawFolderTabs()
 	end
 	local searchBuf = module._folderSearchBuf
 	local searchQuery = ""
+
+	local function markHotkeysDirty()
+		module._hotkeysDirty = true
+		module._hotkeysDirtyAt = os.clock()
+	end
 
 	local function folderMatchesSearch(f)
 		if searchQuery == "" then
@@ -4697,7 +4703,7 @@ local function drawFolderTabs()
 			if #subName > 0 and folderNameUnique(f.children, subName) then
 				table.insert(f.children, createFolder(subName, f))
 				imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
-				module.saveHotkeys()
+				markHotkeysDirty()
 			end
 		end
 		imgui.Separator()
@@ -4719,7 +4725,7 @@ local function drawFolderTabs()
 			local newName = sanitizeFolderName(ffi.string(renameBuf))
 			if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
 				f.name = newName
-				module.saveHotkeys()
+				markHotkeysDirty()
 				imgui.CloseCurrentPopup()
 			end
 		end
@@ -4729,7 +4735,7 @@ local function drawFolderTabs()
 		f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
 		if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
 			f.quick_menu = f._quick_menu_bool[0]
-			module.saveHotkeys()
+			markHotkeysDirty()
 		end
 
 		local headerLabel = (fa.BOLT and fa.BOLT .. " " or "") .. "Папка: условия быстрого меню##folder_quick_conditions"
@@ -4742,7 +4748,7 @@ local function drawFolderTabs()
 				if imgui.Checkbox(quick_cond_labels[ii] .. "##fq" .. ii, f._quick_cond_bools[ii]) then
 					f.quick_conditions = f.quick_conditions or {}
 					f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
-					module.saveHotkeys()
+					markHotkeysDirty()
 				end
 			end
 		end
@@ -4791,7 +4797,7 @@ local function drawFolderTabs()
 				local src_idx = ffi.cast("int*", payload.Data)[0]
 				if hotkeys[src_idx] then
 					hotkeys[src_idx].folderPath = folderFullPath(f)
-					module.saveHotkeys()
+					markHotkeysDirty()
 				end
 			end
 			imgui.EndDragDropTarget()
@@ -4945,6 +4951,11 @@ local function drawFolderTabs()
 		drawFolderNode(f, 0, true)
 	end
 	imgui.EndChild()
+
+	if module._hotkeysDirty and module._hotkeysDirtyAt and os.clock() - module._hotkeysDirtyAt > 0.35 then
+		module.saveHotkeys()
+		module._hotkeysDirty = false
+	end
 
 end
 
