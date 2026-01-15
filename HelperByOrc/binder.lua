@@ -4665,6 +4665,20 @@ local function drawFolderTabs()
 		module._hotkeysDirtyAt = os.clock()
 	end
 
+	if not module._folderIdSeq then
+		module._folderIdSeq = 1
+	end
+	local function ensureFolderIds(list)
+		for _, f in ipairs(list or {}) do
+			if not f._id or f._id == 0 then
+				f._id = module._folderIdSeq
+				module._folderIdSeq = module._folderIdSeq + 1
+			end
+			ensureFolderIds(f.children)
+		end
+	end
+	ensureFolderIds(folders)
+
 	local function folderMatchesSearch(f)
 		if searchQuery == "" then
 			return true
@@ -4686,7 +4700,7 @@ local function drawFolderTabs()
 		imgui.Separator()
 		-- Добавить подпапку
 		imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
-		local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
+		local subBuf = labelInputs["addsub_" .. f._id] or imgui.new.char[256]()
 		if
 			imgui.InputText(
 				"##new_sub",
@@ -4695,7 +4709,7 @@ local function drawFolderTabs()
 				flags_or(imgui.InputTextFlags.AutoSelectAll)
 			)
 		then
-			labelInputs["addsub" .. tostring(f)] = subBuf
+			labelInputs["addsub_" .. f._id] = subBuf
 		end
 		imgui.SameLine()
 		if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
@@ -4709,7 +4723,7 @@ local function drawFolderTabs()
 		imgui.Separator()
 		-- Переименовать
 		imgui.Text(fa.PEN .. " " .. "Переименовать")
-		local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
+		local renameBuf = labelInputs["ren_" .. f._id] or imgui.new.char[256](f.name)
 		if
 			imgui.InputText(
 				"##ren",
@@ -4718,7 +4732,7 @@ local function drawFolderTabs()
 				flags_or(imgui.InputTextFlags.AutoSelectAll)
 			)
 		then
-			labelInputs["ren" .. tostring(f)] = renameBuf
+			labelInputs["ren_" .. f._id] = renameBuf
 		end
 		imgui.SameLine()
 		if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
@@ -4920,7 +4934,7 @@ local function drawFolderTabs()
 		imgui.GetWindowDrawList():AddText(pos, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), name)
 		local text_size = imgui.CalcTextSize(name)
 		imgui.SetCursorScreenPos(pos)
-		imgui.InvisibleButton("##crumb", imgui.ImVec2(text_size.x, text_size.y))
+		imgui.InvisibleButton("##crumb" .. i, imgui.ImVec2(text_size.x, text_size.y))
 		local rect_min = pos
 		local rect_max = imgui.ImVec2(pos.x + text_size.x, pos.y + text_size.y)
 		if imgui.IsItemHovered() then
