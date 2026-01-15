@@ -2137,12 +2137,12 @@ local function drawBindsGrid()
 		local winSize = imgui.GetWindowSize and imgui.GetWindowSize() or imgui.ImVec2(0, 0)
 		local clipTop = math.max(headerTopY, winPos.y)
 		local clipBottom = math.min(clipBottomY, winPos.y + winSize.y)
-		if clipBottom > clipTop then
-			imgui.PushClipRect(
-				imgui.ImVec2(tableMinX, clipTop),
-				imgui.ImVec2(tableMinX + contentWidth, clipBottom),
-				true
-			)
+			if clipBottom > clipTop then
+				imgui.PushClipRect(
+					imgui.ImVec2(tableMinX, clipTop),
+					imgui.ImVec2(tableMinX + contentWidth, clipBottom),
+					false
+				)
 			dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
 			dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
 			dl2:AddLine(imgui.ImVec2(x3, headerTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
