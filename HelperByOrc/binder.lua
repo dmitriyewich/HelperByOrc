@@ -2187,12 +2187,12 @@ local function drawBindsGrid()
 		local winSize = imgui.GetWindowSize and imgui.GetWindowSize() or imgui.ImVec2(0, 0)
 		local clipTop = math.max(headerTopY, winPos.y)
 		local clipBottom = math.min(clipBottomY, winPos.y + winSize.y)
-			if clipBottom > clipTop then
-				imgui.PushClipRect(
-					imgui.ImVec2(tableMinX, clipTop),
-					imgui.ImVec2(tableMinX + contentWidth, clipBottom),
-					false
-				)
+		if clipBottom > clipTop then
+			imgui.PushClipRect(
+				imgui.ImVec2(tableMinX, clipTop),
+				imgui.ImVec2(tableMinX + contentWidth, clipBottom),
+				false
+			)
 			dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
 			dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
 			dl2:AddLine(imgui.ImVec2(x3, headerTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
@@ -2318,11 +2318,7 @@ local function drawBindsGrid()
 
 			-- важно: IsWindowHovered, чтобы не ловить клики в другом окне
 			local inWindow = imgui.IsWindowHovered and imgui.IsWindowHovered() or true
-			local rowHovered = inWindow
-				and mx >= fullMin.x
-				and mx <= fullMax.x
-				and my >= fullMin.y
-				and my <= fullMax.y
+			local rowHovered = inWindow and mx >= fullMin.x and mx <= fullMax.x and my >= fullMin.y and my <= fullMax.y
 
 			local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 			local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
@@ -2542,21 +2538,9 @@ local function drawBindsGrid()
 				nameX = nameClampMax
 			end
 			local disabledColor = style.Colors[imgui.Col.TextDisabled]
-			dl:AddText(
-				imgui.ImVec2(innerMinX, colPos.y),
-				imgui.GetColorU32Vec4(disabledColor),
-				numLabel
-			)
-			dl:AddText(
-				imgui.ImVec2(innerMaxX - countSize.x, colPos.y),
-				imgui.GetColorU32Vec4(disabledColor),
-				countText
-			)
-			dl:AddText(
-				imgui.ImVec2(nameX, colPos.y),
-				imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]),
-				displayName
-			)
+			dl:AddText(imgui.ImVec2(innerMinX, colPos.y), imgui.GetColorU32Vec4(disabledColor), numLabel)
+			dl:AddText(imgui.ImVec2(innerMaxX - countSize.x, colPos.y), imgui.GetColorU32Vec4(disabledColor), countText)
+			dl:AddText(imgui.ImVec2(nameX, colPos.y), imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), displayName)
 			imgui.SetCursorScreenPos(colPos)
 			imgui.InvisibleButton("##bind_name_" .. i, imgui.ImVec2(colWidth, rowContentH))
 			if imgui.BeginDragDropSource() then
@@ -2596,8 +2580,7 @@ local function drawBindsGrid()
 						hk._co_state.paused = false
 					end
 				else
-					local pauseClicked =
-						action_btn("##pause_" .. i, fa.PAUSE, canAction, "Пауза", actionBtnSize)
+					local pauseClicked = action_btn("##pause_" .. i, fa.PAUSE, canAction, "Пауза", actionBtnSize)
 					mark_widget_clicked(pauseClicked)
 					if pauseClicked then
 						hk._co_state = hk._co_state or {}
@@ -2612,8 +2595,7 @@ local function drawBindsGrid()
 				end
 			end
 			imgui.SameLine()
-			local editClicked =
-				action_btn("##edit_" .. i, fa.PEN, true, "Редактировать", actionBtnSize)
+			local editClicked = action_btn("##edit_" .. i, fa.PEN, true, "Редактировать", actionBtnSize)
 			mark_widget_clicked(editClicked)
 			if editClicked then
 				editHotkey.active = true
@@ -4771,7 +4753,12 @@ end
 local function drawFolderSearchInput()
 	local searchBuf = getGlobalSearchBuffer()
 	if imgui.InputTextWithHint then
-		imgui.InputTextWithHint("##folder_search", "Поиск папок и биндов...", searchBuf, ffi.sizeof(searchBuf))
+		imgui.InputTextWithHint(
+			"##folder_search",
+			"Поиск папок и биндов...",
+			searchBuf,
+			ffi.sizeof(searchBuf)
+		)
 	else
 		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
 	end
@@ -4881,14 +4868,7 @@ local function drawFolderTabs()
 		-- Добавить подпапку
 		imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
 		local subBuf = labelInputs["addsub_" .. f._id] or imgui.new.char[256]()
-		if
-			imgui.InputText(
-				"##new_sub",
-				subBuf,
-				ffi.sizeof(subBuf),
-				flags_or(imgui.InputTextFlags.AutoSelectAll)
-			)
-		then
+		if imgui.InputText("##new_sub", subBuf, ffi.sizeof(subBuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			labelInputs["addsub_" .. f._id] = subBuf
 		end
 		imgui.SameLine()
@@ -4904,14 +4884,7 @@ local function drawFolderTabs()
 		-- Переименовать
 		imgui.Text(fa.PEN .. " " .. "Переименовать")
 		local renameBuf = labelInputs["ren_" .. f._id] or imgui.new.char[256](f.name)
-		if
-			imgui.InputText(
-				"##ren",
-				renameBuf,
-				ffi.sizeof(renameBuf),
-				flags_or(imgui.InputTextFlags.AutoSelectAll)
-			)
-		then
+		if imgui.InputText("##ren", renameBuf, ffi.sizeof(renameBuf), flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			labelInputs["ren_" .. f._id] = renameBuf
 		end
 		imgui.SameLine()
@@ -5110,7 +5083,8 @@ local function drawFolderTabs()
 			imgui.Text(fa.FOLDER .. " " .. (f.name or ""))
 			imgui.Separator()
 
-			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu_modal"
+			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
+				.. "Быстрое меню##folder_quick_menu_modal"
 			f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
 			if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
 				f.quick_menu = f._quick_menu_bool[0]
@@ -5144,7 +5118,6 @@ local function drawFolderTabs()
 		module.saveHotkeys()
 		module._hotkeysDirty = false
 	end
-
 end
 
 -- === Главное окно ===
