@@ -2012,6 +2012,13 @@ local VirtualizedGrid = {
 	end,
 }
 
+local function getGlobalSearchBuffer()
+	if not module._globalSearchBuf then
+		module._globalSearchBuf = imgui.new.char[128]()
+	end
+	return module._globalSearchBuf
+end
+
 local function drawQuickIndicator(dl, pos_min, enabled)
 	local r = 5
 	local pad = 8
@@ -2057,6 +2064,7 @@ local function drawBindsGrid()
 	end
 	local dragActive = imgui.IsDragDropActive and imgui.IsDragDropActive() or false
 	local need_reset = not mouseDown and not dragActive
+	local q = string.lower(ffi.string(getGlobalSearchBuffer()))
 
 	if hotkeysDirty then
 		refreshHotkeyNumbers()
@@ -2067,8 +2075,15 @@ local function drawBindsGrid()
 	local curPath = folderFullPath(selectedFolder)
 	for i, hk in ipairs(hotkeys) do
 		if pathEquals(hk.folderPath, curPath) then
+			if q ~= "" then
+				local label = string.lower(trim(hk.label or ""))
+				if not label:find(q, 1, true) then
+					goto continue
+				end
+			end
 			table.insert(cards, { hk = hk, idx = i })
 		end
+		::continue::
 	end
 
 	local addLabel = (fa.SQUARE_PLUS ~= "" and (fa.SQUARE_PLUS .. " ") or "")
@@ -4649,18 +4664,114 @@ local function drawDeletePopups()
 	end
 end
 
--- === Вкладки папок (с условиями быстрого меню) ===
-local function getFolderSearchBuffer()
-	if not module._folderSearchBuf then
-		module._folderSearchBuf = imgui.new.char[128]()
+local function drawMoveBindPopup()
+	if _G.moveBindPopup.active then
+		imgui.OpenPopup("binder_move_bind")
+		_G.moveBindPopup.active = false
 	end
-	return module._folderSearchBuf
+	if imgui.SetNextWindowSize then
+		imgui.SetNextWindowSize(imgui.ImVec2(420, 360), imgui.Cond.Always)
+	end
+	if imgui.BeginPopupModal("binder_move_bind", nil, imgui.WindowFlags.NoResize) then
+		local idx = _G.moveBindPopup.hkidx
+		local hk = idx and hotkeys[idx]
+		imgui.Text("Выберите папку для перемещения:")
+		imgui.Separator()
+
+		local function markHotkeysDirty()
+			hotkeysDirty = true
+			module._hotkeysDirty = true
+			module._hotkeysDirtyAt = os.clock()
+		end
+
+		local function applyFolder(folder)
+			if hk and folder then
+				hk.folderPath = folderFullPath(folder)
+				markHotkeysDirty()
+				imgui.CloseCurrentPopup()
+			end
+		end
+
+		if not module._folderIdSeq then
+			module._folderIdSeq = 1
+		end
+		local function ensureFolderIds(list)
+			for _, f in ipairs(list or {}) do
+				if not f._id or f._id == 0 then
+					f._id = module._folderIdSeq
+					module._folderIdSeq = module._folderIdSeq + 1
+				end
+				ensureFolderIds(f.children)
+			end
+		end
+		ensureFolderIds(folders)
+
+		local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
+		local function drawFolderNodeSimple(f, depth)
+			local indentPx = (depth or 0) * 16
+			imgui.PushIDInt(f._id or 0)
+			local hasChildren = f.children and #f.children > 0
+			local opened = false
+			if hasTreeNode and imgui.TreeNodeEx then
+				local flags = imgui.TreeNodeFlags.OpenOnArrow + imgui.TreeNodeFlags.OpenOnDoubleClick
+				if not hasChildren then
+					flags = flags + imgui.TreeNodeFlags.Leaf + imgui.TreeNodeFlags.NoTreePushOnOpen
+				end
+				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. tostring(f.name or "") .. "##move_tree", flags)
+			elseif hasTreeNode then
+				opened = imgui.TreeNode(fa.FOLDER .. " " .. tostring(f.name or "") .. "##move_tree")
+			else
+				imgui.Indent(indentPx)
+				imgui.Text(fa.FOLDER .. " " .. tostring(f.name or ""))
+				imgui.Unindent(indentPx)
+			end
+
+			if imgui.IsItemClicked() then
+				applyFolder(f)
+			end
+
+			if hasTreeNode then
+				if opened and hasChildren then
+					for _, child in ipairs(f.children) do
+						drawFolderNodeSimple(child, (depth or 0) + 1)
+					end
+				end
+				if imgui.TreeNodeEx then
+					if opened and hasChildren then
+						imgui.TreePop()
+					end
+				else
+					if opened then
+						imgui.TreePop()
+					end
+				end
+			elseif hasChildren then
+				for _, child in ipairs(f.children) do
+					drawFolderNodeSimple(child, (depth or 0) + 1)
+				end
+			end
+			imgui.PopID()
+		end
+
+		imgui.BeginChild("move_bind_folders", imgui.ImVec2(0, 240), true)
+		for _, f in ipairs(folders) do
+			drawFolderNodeSimple(f, 0)
+		end
+		imgui.EndChild()
+
+		imgui.Separator()
+		if imgui.Button("Отмена") then
+			imgui.CloseCurrentPopup()
+		end
+		imgui.EndPopup()
+	end
 end
 
+-- === Вкладки папок (с условиями быстрого меню) ===
 local function drawFolderSearchInput()
-	local searchBuf = getFolderSearchBuffer()
+	local searchBuf = getGlobalSearchBuffer()
 	if imgui.InputTextWithHint then
-		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
+		imgui.InputTextWithHint("##folder_search", "Поиск папок и биндов...", searchBuf, ffi.sizeof(searchBuf))
 	else
 		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
 	end
@@ -4725,7 +4836,8 @@ local function drawFolderTabs()
 	local tabHeight = 22
 	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
-	local searchBuf = getFolderSearchBuffer()
+	local panelW = imgui.GetContentRegionAvail().x
+	local searchBuf = getGlobalSearchBuffer()
 	local searchQuery = ""
 
 	local function markHotkeysDirty()
@@ -4874,6 +4986,10 @@ local function drawFolderTabs()
 			return
 		end
 		imgui.PushIDInt(f._id or 0)
+		local indentPx = depth * 16
+		local originalName = tostring(f.name or "")
+		local maxNameW = math.max(40, panelW - indentPx - 70)
+		local shownName = ellipsize_utf8(originalName, maxNameW)
 		local hasChildren = f.children and #f.children > 0
 		local opened = false
 		local itemRectMin = nil
@@ -4887,9 +5003,9 @@ local function drawFolderTabs()
 				flags = flags + imgui.TreeNodeFlags.Leaf + imgui.TreeNodeFlags.NoTreePushOnOpen
 			end
 			if imgui.TreeNodeEx then
-				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. f.name .. "##tree", flags)
+				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. shownName .. "##tree", flags)
 			else
-				opened = imgui.TreeNode(fa.FOLDER .. " " .. f.name .. "##tree")
+				opened = imgui.TreeNode(fa.FOLDER .. " " .. shownName .. "##tree")
 			end
 			if imgui.IsItemClicked() then
 				selectedFolder = f
@@ -4899,8 +5015,7 @@ local function drawFolderTabs()
 				itemRectMax = imgui.GetItemRectMax()
 			end
 		else
-			local indent = depth * 16
-			imgui.Indent(indent)
+			imgui.Indent(indentPx)
 			if hasChildren then
 				local arrow = f._open and "▼" or "▶"
 				if imgui.SmallButton(arrow .. "##toggle") then
@@ -4910,25 +5025,21 @@ local function drawFolderTabs()
 				imgui.Dummy(imgui.ImVec2(12, 0))
 			end
 			imgui.SameLine()
-			if imgui.Selectable(fa.FOLDER .. " " .. f.name .. "##tree", selectedFolder == f) then
+			if imgui.Selectable(fa.FOLDER .. " " .. shownName .. "##tree", selectedFolder == f) then
 				selectedFolder = f
 			end
 			opened = hasChildren and f._open
-			imgui.Unindent(indent)
+			imgui.Unindent(indentPx)
 			if imgui.GetItemRectMin then
 				itemRectMin = imgui.GetItemRectMin()
 				itemRectMax = imgui.GetItemRectMax()
 			end
 		end
 
-		if itemRectMin and itemRectMax and imgui.IsItemHovered() then
-			local textWidth = imgui.CalcTextSize(f.name or "").x
-			local availWidth = itemRectMax.x - itemRectMin.x
-			if textWidth > availWidth then
-				imgui.BeginTooltip()
-				imgui.TextUnformatted(f.name or "")
-				imgui.EndTooltip()
-			end
+		if shownName ~= originalName and imgui.IsItemHovered() then
+			imgui.BeginTooltip()
+			imgui.TextUnformatted(originalName)
+			imgui.EndTooltip()
 		end
 
 		handleFolderDnD(f)
@@ -5050,13 +5161,12 @@ function module.DrawBinder()
 		imgui.PopItemWidth()
 
 		imgui.SameLine(0, gap)
-		local openText = buildOpenPathString()
-		local tw = imgui.CalcTextSize(openText).x
 		local x0 = imgui.GetCursorPosX()
-		imgui.SetCursorPosX(x0 + math.max(0, rightW - tw))
+		imgui.SetCursorPosX(x0)
 		drawOpenPathBreadcrumbs()
 
 		imgui.NewLine()
+		imgui.Spacing()
 
 		imgui.BeginChild("folders_panel", imgui.ImVec2(leftW, 0), true)
 		drawFolderTabs()
@@ -5070,6 +5180,7 @@ function module.DrawBinder()
 		drawEditHotkey(editHotkey.idx)
 	end
 
+	drawMoveBindPopup()
 	drawDeletePopups()
 	drawToasts()
 end
