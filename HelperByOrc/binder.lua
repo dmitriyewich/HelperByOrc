@@ -4652,10 +4652,11 @@ end
 local function drawFolderTabs()
 	local tabHeight = 22
 	local tabPad = 2
+	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 
 	local function drawFolderRow(folder, isRoot)
 		local list = isRoot and folders or (folder and folder.children or {})
-		local itemWidth = 110 + tabHeight
+		local itemWidth = 110
 		local itemsCount = #list + 1
 		local availWidth = imgui.GetContentRegionAvail().x
 		local columns = math.max(1, math.floor((availWidth + tabPad) / (itemWidth + tabPad)))
@@ -4685,6 +4686,20 @@ local function drawFolderTabs()
 			if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab", imgui.ImVec2(110, tabHeight)) then
 				selectedFolder = f
 			end
+			local showGear = false
+			if not hasContextItem then
+				if imgui.IsMouseHoveringRect then
+					local rectMin = imgui.GetItemRectMin()
+					local rectMax = imgui.GetItemRectMax()
+					local hoverMax = imgui.ImVec2(rectMax.x + tabHeight, rectMax.y)
+					showGear = imgui.IsMouseHoveringRect(rectMin, hoverMax, false)
+				else
+					showGear = imgui.IsItemHovered()
+				end
+				if imgui.IsPopupOpen and imgui.IsPopupOpen("popup_gear") then
+					showGear = true
+				end
+			end
 			if imgui.BeginDragDropTarget() then
 				local payload = imgui.AcceptDragDropPayload("HK_IDX")
 				if payload == nil then
@@ -4702,101 +4717,198 @@ local function drawFolderTabs()
 			if isSel then
 				imgui.PopStyleColor()
 			end
-			imgui.SameLine(0, 0)
-			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear", imgui.ImVec2(tabHeight, tabHeight)) then
-				imgui.OpenPopup("popup_gear")
-			end
-			if imgui.BeginPopup("popup_gear") then
-				imgui.Text(fa.FOLDER .. " " .. f.name)
-				imgui.Separator()
-				-- Добавить подпапку
-				imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
-				local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
-				if
-					imgui.InputText(
-						"##new_sub",
-						subBuf,
-						ffi.sizeof(subBuf),
-						flags_or(imgui.InputTextFlags.AutoSelectAll)
-					)
-				then
-					labelInputs["addsub" .. tostring(f)] = subBuf
-				end
-				imgui.SameLine()
-				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
-					local subName = sanitizeFolderName(ffi.string(subBuf))
-					if #subName > 0 and folderNameUnique(f.children, subName) then
-						table.insert(f.children, createFolder(subName, f))
-						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
-						module.saveHotkeys()
+			if hasContextItem then
+				if imgui.BeginPopupContextItem("popup_gear") then
+					imgui.Text(fa.FOLDER .. " " .. f.name)
+					imgui.Separator()
+					-- Добавить подпапку
+					imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
+					local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
+					if
+						imgui.InputText(
+							"##new_sub",
+							subBuf,
+							ffi.sizeof(subBuf),
+							flags_or(imgui.InputTextFlags.AutoSelectAll)
+						)
+					then
+						labelInputs["addsub" .. tostring(f)] = subBuf
 					end
-				end
-				imgui.Separator()
-				-- Переименовать
-				imgui.Text(fa.PEN .. " " .. "Переименовать")
-				local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
-				if
-					imgui.InputText(
-						"##ren",
-						renameBuf,
-						ffi.sizeof(renameBuf),
-						flags_or(imgui.InputTextFlags.AutoSelectAll)
-					)
-				then
-					labelInputs["ren" .. tostring(f)] = renameBuf
-				end
-				imgui.SameLine()
-				if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
-					local newName = sanitizeFolderName(ffi.string(renameBuf))
-					if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
-						f.name = newName
-						module.saveHotkeys()
-						imgui.CloseCurrentPopup()
-					end
-				end
-
-				imgui.Separator()
-				local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
-					.. "Быстрое меню##folder_quick_menu"
-				f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
-				if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
-					f.quick_menu = f._quick_menu_bool[0]
-					module.saveHotkeys()
-				end
-
-				local headerLabel = (fa.BOLT and fa.BOLT .. " " or "")
-					.. "Папка: условия быстрого меню##folder_quick_conditions"
-				imgui.SetNextItemOpen(false, imgui.Cond.Once)
-				if imgui.CollapsingHeader(headerLabel) then
-					f._quick_cond_bools = f._quick_cond_bools or {}
-					for ii = 1, quick_cond_count do
-						local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
-						f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
-						if
-							imgui.Checkbox(
-								quick_cond_labels[ii] .. "##fq" .. ii,
-								f._quick_cond_bools[ii]
-							)
-						then
-							f.quick_conditions = f.quick_conditions or {}
-							f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+					imgui.SameLine()
+					if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
+						local subName = sanitizeFolderName(ffi.string(subBuf))
+						if #subName > 0 and folderNameUnique(f.children, subName) then
+							table.insert(f.children, createFolder(subName, f))
+							imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 							module.saveHotkeys()
 						end
 					end
-				end
-
-				imgui.Separator()
-				local canDelete = not (isRoot and f.name == "Основные")
-				if canDelete then
-					if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
-						_G.deleteFolderPopup.folder = f
-						_G.deleteFolderPopup.active = true
-						imgui.CloseCurrentPopup()
+					imgui.Separator()
+					-- Переименовать
+					imgui.Text(fa.PEN .. " " .. "Переименовать")
+					local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
+					if
+						imgui.InputText(
+							"##ren",
+							renameBuf,
+							ffi.sizeof(renameBuf),
+							flags_or(imgui.InputTextFlags.AutoSelectAll)
+						)
+					then
+						labelInputs["ren" .. tostring(f)] = renameBuf
 					end
-				else
-					imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+					imgui.SameLine()
+					if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
+						local newName = sanitizeFolderName(ffi.string(renameBuf))
+						if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
+							f.name = newName
+							module.saveHotkeys()
+							imgui.CloseCurrentPopup()
+						end
+					end
+
+					imgui.Separator()
+					local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
+						.. "Быстрое меню##folder_quick_menu"
+					f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+					if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+						f.quick_menu = f._quick_menu_bool[0]
+						module.saveHotkeys()
+					end
+
+					local headerLabel = (fa.BOLT and fa.BOLT .. " " or "")
+						.. "Папка: условия быстрого меню##folder_quick_conditions"
+					imgui.SetNextItemOpen(false, imgui.Cond.Once)
+					if imgui.CollapsingHeader(headerLabel) then
+						f._quick_cond_bools = f._quick_cond_bools or {}
+						for ii = 1, quick_cond_count do
+							local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+							f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+							if
+								imgui.Checkbox(
+									quick_cond_labels[ii] .. "##fq" .. ii,
+									f._quick_cond_bools[ii]
+								)
+							then
+								f.quick_conditions = f.quick_conditions or {}
+								f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+								module.saveHotkeys()
+							end
+						end
+					end
+
+					imgui.Separator()
+					local canDelete = not (isRoot and f.name == "Основные")
+					if canDelete then
+						if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+							_G.deleteFolderPopup.folder = f
+							_G.deleteFolderPopup.active = true
+							imgui.CloseCurrentPopup()
+						end
+					else
+						imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+					end
+					imgui.EndPopup()
 				end
-				imgui.EndPopup()
+			else
+				if showGear then
+					imgui.SameLine(0, 0)
+					if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear", imgui.ImVec2(tabHeight, tabHeight)) then
+						imgui.OpenPopup("popup_gear")
+					end
+				end
+				if imgui.BeginPopup("popup_gear") then
+					imgui.Text(fa.FOLDER .. " " .. f.name)
+					imgui.Separator()
+					-- Добавить подпапку
+					imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
+					local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
+					if
+						imgui.InputText(
+							"##new_sub",
+							subBuf,
+							ffi.sizeof(subBuf),
+							flags_or(imgui.InputTextFlags.AutoSelectAll)
+						)
+					then
+						labelInputs["addsub" .. tostring(f)] = subBuf
+					end
+					imgui.SameLine()
+					if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
+						local subName = sanitizeFolderName(ffi.string(subBuf))
+						if #subName > 0 and folderNameUnique(f.children, subName) then
+							table.insert(f.children, createFolder(subName, f))
+							imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
+							module.saveHotkeys()
+						end
+					end
+					imgui.Separator()
+					-- Переименовать
+					imgui.Text(fa.PEN .. " " .. "Переименовать")
+					local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
+					if
+						imgui.InputText(
+							"##ren",
+							renameBuf,
+							ffi.sizeof(renameBuf),
+							flags_or(imgui.InputTextFlags.AutoSelectAll)
+						)
+					then
+						labelInputs["ren" .. tostring(f)] = renameBuf
+					end
+					imgui.SameLine()
+					if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
+						local newName = sanitizeFolderName(ffi.string(renameBuf))
+						if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
+							f.name = newName
+							module.saveHotkeys()
+							imgui.CloseCurrentPopup()
+						end
+					end
+
+					imgui.Separator()
+					local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
+						.. "Быстрое меню##folder_quick_menu"
+					f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+					if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+						f.quick_menu = f._quick_menu_bool[0]
+						module.saveHotkeys()
+					end
+
+					local headerLabel = (fa.BOLT and fa.BOLT .. " " or "")
+						.. "Папка: условия быстрого меню##folder_quick_conditions"
+					imgui.SetNextItemOpen(false, imgui.Cond.Once)
+					if imgui.CollapsingHeader(headerLabel) then
+						f._quick_cond_bools = f._quick_cond_bools or {}
+						for ii = 1, quick_cond_count do
+							local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+							f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+							if
+								imgui.Checkbox(
+									quick_cond_labels[ii] .. "##fq" .. ii,
+									f._quick_cond_bools[ii]
+								)
+							then
+								f.quick_conditions = f.quick_conditions or {}
+								f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+								module.saveHotkeys()
+							end
+						end
+					end
+
+					imgui.Separator()
+					local canDelete = not (isRoot and f.name == "Основные")
+					if canDelete then
+						if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+							_G.deleteFolderPopup.folder = f
+							_G.deleteFolderPopup.active = true
+							imgui.CloseCurrentPopup()
+						end
+					else
+						imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+					end
+					imgui.EndPopup()
+				end
 			end
 			imgui.PopID()
 		end
