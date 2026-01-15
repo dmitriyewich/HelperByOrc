@@ -2021,9 +2021,7 @@ local function drawBindsGrid()
 		end
 	end
 	local dragActive = imgui.IsDragDropActive and imgui.IsDragDropActive() or false
-	if not mouseDown and not dragActive then
-		dnd_active = false
-	end
+	local need_reset = not mouseDown and not dragActive
 
 	if hotkeysDirty then
 		refreshHotkeyNumbers()
@@ -2238,14 +2236,16 @@ local function drawBindsGrid()
 							if dst_idx > (#hotkeys + 1) then
 								dst_idx = #hotkeys + 1
 							end
-							if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx and src_idx ~= (dst_idx - 1) then
-								local moved = table.remove(hotkeys, src_idx)
+							if src_idx >= 1 and src_idx <= #hotkeys then
 								if dst_idx > src_idx then
 									dst_idx = dst_idx - 1
 								end
-								table.insert(hotkeys, dst_idx, moved)
-								hotkeysDirty = true
-								module.saveHotkeys()
+								if dst_idx ~= src_idx then
+									local moved = table.remove(hotkeys, src_idx)
+									table.insert(hotkeys, dst_idx, moved)
+									hotkeysDirty = true
+									module.saveHotkeys()
+								end
 							end
 							dnd_active = false
 						end
@@ -2618,6 +2618,9 @@ local function drawBindsGrid()
 	end
 
 	imgui.Columns(1)
+	if need_reset then
+		dnd_active = false
+	end
 end
 
 -- === ВАЛИДАТОР ===
