@@ -2190,7 +2190,7 @@ local function drawBindsGrid()
 			local dropTargetWidth = contentWidth - col5W
 			imgui.PushIDInt(i)
 			local allowOverlap = (imgui.ButtonFlags and (imgui.ButtonFlags.AllowItemOverlap or imgui.ButtonFlags.AllowOverlap))
-				or (1 << 12)
+				or (bit and bit.lshift(1, 12) or 4096)
 			imgui.InvisibleButton("row_dnd", imgui.ImVec2(dropTargetWidth, rowContentH), allowOverlap)
 			if imgui.SetItemAllowOverlap then
 				imgui.SetItemAllowOverlap()
