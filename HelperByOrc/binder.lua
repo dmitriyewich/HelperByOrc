@@ -2184,6 +2184,45 @@ local function drawBindsGrid()
 			local dl = imgui.GetWindowDrawList()
 			local fullMin = imgui.ImVec2(tableMinX, rowStart.y)
 			local fullMax = imgui.ImVec2(tableMinX + contentWidth, rowStart.y + rowContentH)
+			imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, rowStart.y))
+			local dropTargetWidth = contentWidth - col5W
+			imgui.InvisibleButton("##dnd_row_" .. i, imgui.ImVec2(dropTargetWidth, rowContentH))
+			if imgui.SetItemAllowOverlap then
+				imgui.SetItemAllowOverlap()
+			end
+			if imgui.BeginDragDropSource() then
+				local payload = ffi.new("int[1]", i)
+				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+				local dragLabelNumber = hk._number or i
+				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+				imgui.Text(dragLabel)
+				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+				imgui.EndDragDropSource()
+			end
+			if imgui.BeginDragDropTarget() then
+				local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
+				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+					local delivered = payload.Delivery
+					if delivered == nil and imgui.IsMouseReleased then
+						delivered = imgui.IsMouseReleased(0)
+					end
+					if delivered then
+						local src_idx = ffi.cast("int*", payload.Data)[0]
+						local dst_idx = i
+						if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
+							local moved = table.remove(hotkeys, src_idx)
+							if dst_idx > src_idx then
+								dst_idx = dst_idx - 1
+							end
+							table.insert(hotkeys, dst_idx, moved)
+							hotkeysDirty = true
+							module.saveHotkeys()
+						end
+					end
+				end
+				imgui.EndDragDropTarget()
+			end
+			imgui.SetCursorScreenPos(rowStart)
 
 			local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
 			local mx, my = mp.x, mp.y
@@ -2378,44 +2417,6 @@ local function drawBindsGrid()
 				end
 			end
 			imgui.NextColumn()
-			local dndStart = imgui.GetCursorScreenPos()
-			imgui.InvisibleButton("##dnd_zone_" .. i, imgui.ImVec2(imgui.GetColumnWidth(), rowContentH))
-			if imgui.SetItemAllowOverlap then
-				imgui.SetItemAllowOverlap()
-			end
-			if imgui.BeginDragDropSource() then
-				local payload = ffi.new("int[1]", i)
-				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-				local dragLabelNumber = hk._number or i
-				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-				imgui.Text(dragLabel)
-				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
-				imgui.EndDragDropSource()
-			end
-			if imgui.BeginDragDropTarget() then
-				local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
-				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-					local delivered = payload.Delivery
-					if delivered == nil and imgui.IsMouseReleased then
-						delivered = imgui.IsMouseReleased(0)
-					end
-					if delivered then
-						local src_idx = ffi.cast("int*", payload.Data)[0]
-						local dst_idx = i
-						if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-							local moved = table.remove(hotkeys, src_idx)
-							if dst_idx > src_idx then
-								dst_idx = dst_idx - 1
-							end
-							table.insert(hotkeys, dst_idx, moved)
-							hotkeysDirty = true
-							module.saveHotkeys()
-						end
-					end
-				end
-				imgui.EndDragDropTarget()
-			end
-			imgui.SetCursorScreenPos(dndStart)
 			set_col_y(yTxt)
 			local rowCount = #(hk.messages or {})
 			local countText = " (" .. tostring(rowCount) .. ")"
