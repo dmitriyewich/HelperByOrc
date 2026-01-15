@@ -2118,7 +2118,7 @@ local function drawBindsGrid()
 	local headerU32 = imgui.GetColorU32Vec4(headerBorderCol)
 	local dl = imgui.GetWindowDrawList()
 	local y = headerBottomY
-	imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), false)
+	imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), true)
 	dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
 	imgui.PopClipRect()
 	imgui.Dummy(imgui.ImVec2(0, 1))
@@ -2133,20 +2133,19 @@ local function drawBindsGrid()
 		local borderCol = style.Colors[imgui.Col.Border]
 		local vcol = imgui.GetColorU32Vec4(imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3))
 		local dl2 = imgui.GetWindowDrawList()
-		local winPos = imgui.GetWindowPos and imgui.GetWindowPos() or imgui.ImVec2(0, 0)
-		local winSize = imgui.GetWindowSize and imgui.GetWindowSize() or imgui.ImVec2(0, 0)
-		local clipTop = math.max(headerTopY, winPos.y)
-		local clipBottom = math.min(clipBottomY, winPos.y + winSize.y)
-			if clipBottom > clipTop then
-				imgui.PushClipRect(
-					imgui.ImVec2(tableMinX, clipTop),
-					imgui.ImVec2(tableMinX + contentWidth, clipBottom),
-					false
-				)
-			dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
-			dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
-			dl2:AddLine(imgui.ImVec2(x3, headerTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
-			dl2:AddLine(imgui.ImVec2(x4, headerTopY), imgui.ImVec2(x4, clipBottomY), vcol, 1)
+		local availY = imgui.GetContentRegionAvail().y
+		local clipTop = math.max(headerTopY, rowsStartY)
+		local clipBottom = math.min(clipBottomY, rowsStartY + availY + rowContentH)
+		if clipBottom > clipTop then
+			imgui.PushClipRect(
+				imgui.ImVec2(tableMinX, clipTop),
+				imgui.ImVec2(tableMinX + contentWidth, clipBottom),
+				true
+			)
+			dl2:AddLine(imgui.ImVec2(x1, clipTop), imgui.ImVec2(x1, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x2, clipTop), imgui.ImVec2(x2, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x3, clipTop), imgui.ImVec2(x3, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x4, clipTop), imgui.ImVec2(x4, clipBottom), vcol, 1)
 			imgui.PopClipRect()
 		end
 	end
@@ -2208,7 +2207,7 @@ local function drawBindsGrid()
 				imgui.PushClipRect(
 					imgui.ImVec2(tableMinX, rowStart.y),
 					imgui.ImVec2(tableMinX + dropW, rowStart.y + rowContentH),
-					false
+					true
 				)
 				imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, rowStart.y))
 				imgui.PushIDInt(i)
@@ -2276,7 +2275,7 @@ local function drawBindsGrid()
 
 			local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 			local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
-			imgui.PushClipRect(fullMin, imgui.ImVec2(fullMax.x, fullMax.y + 2), false)
+			imgui.PushClipRect(fullMin, imgui.ImVec2(fullMax.x, fullMax.y + 2), true)
 			if (rowIndex % 2) == 1 then
 				local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
 				local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
