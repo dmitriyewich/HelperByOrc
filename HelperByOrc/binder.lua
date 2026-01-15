@@ -4725,6 +4725,7 @@ local function drawFolderTabs()
 	local tabHeight = 22
 	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
+	local panelW = imgui.GetContentRegionAvail().x
 	local searchBuf = getFolderSearchBuffer()
 	local searchQuery = ""
 
@@ -4874,6 +4875,10 @@ local function drawFolderTabs()
 			return
 		end
 		imgui.PushIDInt(f._id or 0)
+		local indentPx = depth * 16
+		local originalName = tostring(f.name or "")
+		local maxNameW = math.max(40, panelW - indentPx - 70)
+		local shownName = ellipsize_utf8(originalName, maxNameW)
 		local hasChildren = f.children and #f.children > 0
 		local opened = false
 		local itemRectMin = nil
@@ -4887,9 +4892,9 @@ local function drawFolderTabs()
 				flags = flags + imgui.TreeNodeFlags.Leaf + imgui.TreeNodeFlags.NoTreePushOnOpen
 			end
 			if imgui.TreeNodeEx then
-				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. f.name .. "##tree", flags)
+				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. shownName .. "##tree", flags)
 			else
-				opened = imgui.TreeNode(fa.FOLDER .. " " .. f.name .. "##tree")
+				opened = imgui.TreeNode(fa.FOLDER .. " " .. shownName .. "##tree")
 			end
 			if imgui.IsItemClicked() then
 				selectedFolder = f
@@ -4899,8 +4904,7 @@ local function drawFolderTabs()
 				itemRectMax = imgui.GetItemRectMax()
 			end
 		else
-			local indent = depth * 16
-			imgui.Indent(indent)
+			imgui.Indent(indentPx)
 			if hasChildren then
 				local arrow = f._open and "▼" or "▶"
 				if imgui.SmallButton(arrow .. "##toggle") then
@@ -4910,25 +4914,21 @@ local function drawFolderTabs()
 				imgui.Dummy(imgui.ImVec2(12, 0))
 			end
 			imgui.SameLine()
-			if imgui.Selectable(fa.FOLDER .. " " .. f.name .. "##tree", selectedFolder == f) then
+			if imgui.Selectable(fa.FOLDER .. " " .. shownName .. "##tree", selectedFolder == f) then
 				selectedFolder = f
 			end
 			opened = hasChildren and f._open
-			imgui.Unindent(indent)
+			imgui.Unindent(indentPx)
 			if imgui.GetItemRectMin then
 				itemRectMin = imgui.GetItemRectMin()
 				itemRectMax = imgui.GetItemRectMax()
 			end
 		end
 
-		if itemRectMin and itemRectMax and imgui.IsItemHovered() then
-			local textWidth = imgui.CalcTextSize(f.name or "").x
-			local availWidth = itemRectMax.x - itemRectMin.x
-			if textWidth > availWidth then
-				imgui.BeginTooltip()
-				imgui.TextUnformatted(f.name or "")
-				imgui.EndTooltip()
-			end
+		if shownName ~= originalName and imgui.IsItemHovered() then
+			imgui.BeginTooltip()
+			imgui.TextUnformatted(originalName)
+			imgui.EndTooltip()
 		end
 
 		handleFolderDnD(f)
