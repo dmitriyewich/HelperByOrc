@@ -4978,11 +4978,9 @@ local function drawFolderTabs()
 
 	searchQuery = string.lower(ffi.string(searchBuf))
 
-	imgui.BeginChild("folders_tree", imgui.ImVec2(0, 150), true)
 	for _, f in ipairs(folders) do
 		drawFolderNode(f, 0, true)
 	end
-	imgui.EndChild()
 
 	if module._openFolderSettingsModal then
 		imgui.OpenPopup("folder_settings_modal")
@@ -5044,7 +5042,7 @@ function module.DrawBinder()
 		local style = imgui.GetStyle()
 		local gap = style.ItemSpacing.x
 		local availW = imgui.GetContentRegionAvail().x
-		local leftW = math.min(360, math.max(240, 300))
+		local leftW = math.min(220, math.max(160, 180))
 		local rightW = math.max(1, availW - leftW - gap)
 
 		imgui.PushItemWidth(leftW)
