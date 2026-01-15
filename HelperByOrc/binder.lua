@@ -5058,6 +5058,8 @@ function module.DrawBinder()
 		imgui.SetCursorPosX(x0 + math.max(0, rightW - tw))
 		drawOpenPathBreadcrumbs()
 
+		imgui.NewLine()
+
 		imgui.BeginChild("folders_panel", imgui.ImVec2(leftW, 0), true)
 		drawFolderTabs()
 		imgui.EndChild()
