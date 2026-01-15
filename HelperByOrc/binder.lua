@@ -2292,9 +2292,11 @@ local function drawBindsGrid()
 			local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
 			local rowClipLeft = math.max(tableMinX, contentMin.x)
 			local rowClipRight = math.min(tableMinX + contentWidth, contentMax.x)
+			local rowClipTop = math.max(fullMin.y, contentMin.y)
+			local rowClipBottom = math.min(fullMax.y + 2, contentMax.y)
 			imgui.PushClipRect(
-				imgui.ImVec2(rowClipLeft, fullMin.y),
-				imgui.ImVec2(rowClipRight, fullMax.y + 2),
+				imgui.ImVec2(rowClipLeft, rowClipTop),
+				imgui.ImVec2(rowClipRight, rowClipBottom),
 				false
 			)
 			if (rowIndex % 2) == 1 then
