@@ -2000,6 +2000,7 @@ local function cloneHotkey(hk)
 end
 
 local bindsSelectedIndex = nil
+local dnd_active = false
 local hotkeysDirty = true
 
 local function drawBindsGrid()
@@ -2010,11 +2011,27 @@ local function drawBindsGrid()
 	local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
 	local x0 = imgui.GetCursorScreenPos().x
 	local y = imgui.GetCursorScreenPos().y
+	local mouseDown = false
+	if imgui.IsMouseDown then
+		mouseDown = imgui.IsMouseDown(0)
+	else
+		local io = imgui.GetIO and imgui.GetIO()
+		if io and io.MouseDown then
+			mouseDown = io.MouseDown[0]
+		end
+	end
+	local dragActive = imgui.IsDragDropActive and imgui.IsDragDropActive() or false
+	local need_reset = not mouseDown and not dragActive
 
 	if hotkeysDirty then
 		refreshHotkeyNumbers()
 		hotkeysDirty = false
 	end
+	local winPos = imgui.GetWindowPos and imgui.GetWindowPos() or imgui.ImVec2(0, 0)
+	local winContentMin = imgui.GetWindowContentRegionMin and imgui.GetWindowContentRegionMin() or imgui.ImVec2(0, 0)
+	local winContentMax = imgui.GetWindowContentRegionMax and imgui.GetWindowContentRegionMax() or imgui.ImVec2(0, 0)
+	local contentMin = imgui.ImVec2(winPos.x + winContentMin.x, winPos.y + winContentMin.y)
+	local contentMax = imgui.ImVec2(winPos.x + winContentMax.x, winPos.y + winContentMax.y)
 
 	local cards = {}
 	local curPath = folderFullPath(selectedFolder)
@@ -2106,7 +2123,13 @@ local function drawBindsGrid()
 	local headerU32 = imgui.GetColorU32Vec4(headerBorderCol)
 	local dl = imgui.GetWindowDrawList()
 	local y = headerBottomY
-	imgui.PushClipRect(imgui.ImVec2(tableMinX, y - 2), imgui.ImVec2(tableMinX + contentWidth, y + 2), false)
+	local headerClipLeft = math.max(tableMinX, contentMin.x)
+	local headerClipRight = math.min(tableMinX + contentWidth, contentMax.x)
+	imgui.PushClipRect(
+		imgui.ImVec2(headerClipLeft, y - 2),
+		imgui.ImVec2(headerClipRight, y + 2),
+		false
+	)
 	dl:AddLine(imgui.ImVec2(tableMinX, y), imgui.ImVec2(tableMinX + contentWidth, y), headerU32, 1)
 	imgui.PopClipRect()
 	imgui.Dummy(imgui.ImVec2(0, 1))
@@ -2121,16 +2144,23 @@ local function drawBindsGrid()
 		local borderCol = style.Colors[imgui.Col.Border]
 		local vcol = imgui.GetColorU32Vec4(imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, borderCol.w * 0.3))
 		local dl2 = imgui.GetWindowDrawList()
-		imgui.PushClipRect(
-			imgui.ImVec2(tableMinX, headerTopY),
-			imgui.ImVec2(tableMinX + contentWidth, clipBottomY),
-			false
-		)
-		dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x3, headerTopY), imgui.ImVec2(x3, clipBottomY), vcol, 1)
-		dl2:AddLine(imgui.ImVec2(x4, headerTopY), imgui.ImVec2(x4, clipBottomY), vcol, 1)
-		imgui.PopClipRect()
+		local availY = imgui.GetContentRegionAvail().y
+		local clipTop = math.max(math.max(headerTopY, rowsStartY), contentMin.y)
+		local clipBottom = math.min(math.min(clipBottomY, rowsStartY + availY + rowContentH), contentMax.y)
+		local clipLeft = math.max(tableMinX, contentMin.x)
+		local clipRight = math.min(tableMinX + contentWidth, contentMax.x)
+		if clipBottom > clipTop then
+			imgui.PushClipRect(
+				imgui.ImVec2(clipLeft, clipTop),
+				imgui.ImVec2(clipRight, clipBottom),
+				false
+			)
+			dl2:AddLine(imgui.ImVec2(x1, clipTop), imgui.ImVec2(x1, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x2, clipTop), imgui.ImVec2(x2, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x3, clipTop), imgui.ImVec2(x3, clipBottom), vcol, 1)
+			dl2:AddLine(imgui.ImVec2(x4, clipTop), imgui.ImVec2(x4, clipBottom), vcol, 1)
+			imgui.PopClipRect()
+		end
 	end
 	local clipper = imgui.ImGuiListClipper(#cards, rowStep)
 	while clipper:Step() do
@@ -2184,6 +2214,68 @@ local function drawBindsGrid()
 			local dl = imgui.GetWindowDrawList()
 			local fullMin = imgui.ImVec2(tableMinX, rowStart.y)
 			local fullMax = imgui.ImVec2(tableMinX + contentWidth, rowStart.y + rowContentH)
+			if dnd_active then
+				local savedPos = imgui.GetCursorScreenPos()
+				local dropW = contentWidth - col5W
+				local dropClipLeft = math.max(tableMinX, contentMin.x)
+				local dropClipRight = math.min(tableMinX + dropW, contentMax.x)
+				imgui.PushClipRect(
+					imgui.ImVec2(dropClipLeft, rowStart.y),
+					imgui.ImVec2(dropClipRight, rowStart.y + rowContentH),
+					false
+				)
+				imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, rowStart.y))
+				imgui.PushIDInt(i)
+				imgui.InvisibleButton("row_drop", imgui.ImVec2(dropW, rowContentH))
+				if imgui.BeginDragDropTarget() then
+					local acceptFlags = 1024 + 2048
+					local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY", acceptFlags)
+					if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+						local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
+						local before = mp.y < (rowStart.y + rowContentH * 0.5)
+						local lineY = before and (rowStart.y + 1) or (rowStart.y + rowContentH - 1)
+						local borderCol = style.Colors[imgui.Col.Border]
+						local lineCol =
+							imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, math.min(1, borderCol.w * 1.3))
+						dl:AddLine(
+							imgui.ImVec2(tableMinX, lineY),
+							imgui.ImVec2(tableMinX + dropW, lineY),
+							imgui.GetColorU32Vec4(lineCol),
+							1
+						)
+						local delivered = payload.Delivery
+						if delivered == nil and imgui.IsMouseReleased then
+							delivered = imgui.IsMouseReleased(0)
+						end
+						if delivered then
+							local src_idx = ffi.cast("int*", payload.Data)[0]
+							local dst_idx = before and i or (i + 1)
+							if dst_idx < 1 then
+								dst_idx = 1
+							end
+							if dst_idx > (#hotkeys + 1) then
+								dst_idx = #hotkeys + 1
+							end
+							if src_idx >= 1 and src_idx <= #hotkeys then
+								if dst_idx > src_idx then
+									dst_idx = dst_idx - 1
+								end
+								if dst_idx ~= src_idx then
+									local moved = table.remove(hotkeys, src_idx)
+									table.insert(hotkeys, dst_idx, moved)
+									hotkeysDirty = true
+									module.saveHotkeys()
+								end
+							end
+							dnd_active = false
+						end
+					end
+					imgui.EndDragDropTarget()
+				end
+				imgui.PopID()
+				imgui.SetCursorScreenPos(savedPos)
+				imgui.PopClipRect()
+			end
 
 			local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
 			local mx, my = mp.x, mp.y
@@ -2198,7 +2290,15 @@ local function drawBindsGrid()
 
 			local rowClicked = rowHovered and imgui.IsMouseClicked(0)
 			local rowDbl = rowHovered and imgui.IsMouseDoubleClicked(0)
-			imgui.PushClipRect(fullMin, imgui.ImVec2(fullMax.x, fullMax.y + 2), false)
+			local rowClipLeft = math.max(tableMinX, contentMin.x)
+			local rowClipRight = math.min(tableMinX + contentWidth, contentMax.x)
+			local rowClipTop = math.max(fullMin.y, contentMin.y)
+			local rowClipBottom = math.min(fullMax.y + 2, contentMax.y)
+			imgui.PushClipRect(
+				imgui.ImVec2(rowClipLeft, rowClipTop),
+				imgui.ImVec2(rowClipRight, rowClipBottom),
+				false
+			)
 			if (rowIndex % 2) == 1 then
 				local baseCol = imgui.GetStyle().Colors[imgui.Col.FrameBg]
 				local zebra = imgui.ImVec4(baseCol.x, baseCol.y, baseCol.z, baseCol.w * 0.25)
@@ -2378,44 +2478,6 @@ local function drawBindsGrid()
 				end
 			end
 			imgui.NextColumn()
-			local dndStart = imgui.GetCursorScreenPos()
-			imgui.InvisibleButton("##dnd_zone_" .. i, imgui.ImVec2(imgui.GetColumnWidth(), rowContentH))
-			if imgui.SetItemAllowOverlap then
-				imgui.SetItemAllowOverlap()
-			end
-			if imgui.BeginDragDropSource() then
-				local payload = ffi.new("int[1]", i)
-				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
-				local dragLabelNumber = hk._number or i
-				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
-				imgui.Text(dragLabel)
-				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
-				imgui.EndDragDropSource()
-			end
-			if imgui.BeginDragDropTarget() then
-				local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY")
-				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-					local delivered = payload.Delivery
-					if delivered == nil and imgui.IsMouseReleased then
-						delivered = imgui.IsMouseReleased(0)
-					end
-					if delivered then
-						local src_idx = ffi.cast("int*", payload.Data)[0]
-						local dst_idx = i
-						if src_idx >= 1 and src_idx <= #hotkeys and src_idx ~= dst_idx then
-							local moved = table.remove(hotkeys, src_idx)
-							if dst_idx > src_idx then
-								dst_idx = dst_idx - 1
-							end
-							table.insert(hotkeys, dst_idx, moved)
-							hotkeysDirty = true
-							module.saveHotkeys()
-						end
-					end
-				end
-				imgui.EndDragDropTarget()
-			end
-			imgui.SetCursorScreenPos(dndStart)
 			set_col_y(yTxt)
 			local rowCount = #(hk.messages or {})
 			local countText = " (" .. tostring(rowCount) .. ")"
@@ -2469,6 +2531,16 @@ local function drawBindsGrid()
 			)
 			imgui.SetCursorScreenPos(colPos)
 			imgui.InvisibleButton("##bind_name_" .. i, imgui.ImVec2(colWidth, rowContentH))
+			if imgui.BeginDragDropSource() then
+				dnd_active = true
+				local payload = ffi.new("int[1]", i)
+				imgui.SetDragDropPayload("BINDER_HOTKEY", payload, ffi.sizeof(payload))
+				local dragLabelNumber = hk._number or i
+				local dragLabel = hk.label or ("bind" .. dragLabelNumber)
+				imgui.Text(dragLabel)
+				imgui.TextDisabled(string.format("#%d", dragLabelNumber))
+				imgui.EndDragDropSource()
+			end
 			if displayName ~= bindName and imgui.IsItemHovered() then
 				imgui.SetTooltip(bindName)
 			end
@@ -2574,6 +2646,9 @@ local function drawBindsGrid()
 	end
 
 	imgui.Columns(1)
+	if need_reset then
+		dnd_active = false
+	end
 end
 
 -- === ВАЛИДАТОР ===
