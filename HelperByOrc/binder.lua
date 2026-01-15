@@ -4811,6 +4811,8 @@ local function drawFolderTabs()
 		imgui.PushIDInt(f._id or 0)
 		local hasChildren = f.children and #f.children > 0
 		local opened = false
+		local itemRectMin = nil
+		local itemRectMax = nil
 		if hasTreeNode then
 			local flags = imgui.TreeNodeFlags.OpenOnArrow + imgui.TreeNodeFlags.OpenOnDoubleClick
 			if selectedFolder == f then
@@ -4826,6 +4828,10 @@ local function drawFolderTabs()
 			end
 			if imgui.IsItemClicked() then
 				selectedFolder = f
+			end
+			if imgui.GetItemRectMin then
+				itemRectMin = imgui.GetItemRectMin()
+				itemRectMax = imgui.GetItemRectMax()
 			end
 		else
 			local indent = depth * 16
@@ -4844,6 +4850,20 @@ local function drawFolderTabs()
 			end
 			opened = hasChildren and f._open
 			imgui.Unindent(indent)
+			if imgui.GetItemRectMin then
+				itemRectMin = imgui.GetItemRectMin()
+				itemRectMax = imgui.GetItemRectMax()
+			end
+		end
+
+		if itemRectMin and itemRectMax and imgui.IsItemHovered() then
+			local textWidth = imgui.CalcTextSize(f.name or "").x
+			local availWidth = itemRectMax.x - itemRectMin.x
+			if textWidth > availWidth then
+				imgui.BeginTooltip()
+				imgui.TextUnformatted(f.name or "")
+				imgui.EndTooltip()
+			end
 		end
 
 		handleFolderDnD(f)
