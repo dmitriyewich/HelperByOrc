@@ -2057,6 +2057,7 @@ local function drawBindsGrid()
 	end
 	local dragActive = imgui.IsDragDropActive and imgui.IsDragDropActive() or false
 	local need_reset = not mouseDown and not dragActive
+	local q = string.lower(ffi.string(getGlobalSearchBuffer()))
 
 	if hotkeysDirty then
 		refreshHotkeyNumbers()
@@ -2067,8 +2068,15 @@ local function drawBindsGrid()
 	local curPath = folderFullPath(selectedFolder)
 	for i, hk in ipairs(hotkeys) do
 		if pathEquals(hk.folderPath, curPath) then
+			if q ~= "" then
+				local label = string.lower(trim(hk.label or ""))
+				if not label:find(q, 1, true) then
+					goto continue
+				end
+			end
 			table.insert(cards, { hk = hk, idx = i })
 		end
+		::continue::
 	end
 
 	local addLabel = (fa.SQUARE_PLUS ~= "" and (fa.SQUARE_PLUS .. " ") or "")
@@ -4650,17 +4658,17 @@ local function drawDeletePopups()
 end
 
 -- === Вкладки папок (с условиями быстрого меню) ===
-local function getFolderSearchBuffer()
-	if not module._folderSearchBuf then
-		module._folderSearchBuf = imgui.new.char[128]()
+local function getGlobalSearchBuffer()
+	if not module._globalSearchBuf then
+		module._globalSearchBuf = imgui.new.char[128]()
 	end
-	return module._folderSearchBuf
+	return module._globalSearchBuf
 end
 
 local function drawFolderSearchInput()
-	local searchBuf = getFolderSearchBuffer()
+	local searchBuf = getGlobalSearchBuffer()
 	if imgui.InputTextWithHint then
-		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
+		imgui.InputTextWithHint("##folder_search", "Поиск папок и биндов...", searchBuf, ffi.sizeof(searchBuf))
 	else
 		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
 	end
@@ -4726,7 +4734,7 @@ local function drawFolderTabs()
 	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
 	local panelW = imgui.GetContentRegionAvail().x
-	local searchBuf = getFolderSearchBuffer()
+	local searchBuf = getGlobalSearchBuffer()
 	local searchQuery = ""
 
 	local function markHotkeysDirty()
