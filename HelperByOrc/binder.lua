@@ -4664,6 +4664,83 @@ local function drawDeletePopups()
 	end
 end
 
+local function drawMoveBindPopup()
+	if _G.moveBindPopup.active then
+		imgui.OpenPopup("binder_move_bind")
+		_G.moveBindPopup.active = false
+	end
+	if imgui.BeginPopupModal("binder_move_bind", nil, imgui.WindowFlags.AlwaysAutoResize) then
+		local idx = _G.moveBindPopup.hkidx
+		local hk = idx and hotkeys[idx]
+		imgui.Text("Выберите папку для перемещения:")
+		imgui.Separator()
+
+		local function markHotkeysDirty()
+			hotkeysDirty = true
+			module._hotkeysDirty = true
+			module._hotkeysDirtyAt = os.clock()
+		end
+
+		local function applyFolder(folder)
+			if hk and folder then
+				hk.folderPath = folderFullPath(folder)
+				markHotkeysDirty()
+				imgui.CloseCurrentPopup()
+			end
+		end
+
+		local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
+		local function drawFolderNodeSimple(f)
+			imgui.PushIDInt(f._id or 0)
+			local hasChildren = f.children and #f.children > 0
+			local opened = false
+			if hasTreeNode and imgui.TreeNodeEx then
+				local flags = imgui.TreeNodeFlags.OpenOnArrow + imgui.TreeNodeFlags.OpenOnDoubleClick
+				if not hasChildren then
+					flags = flags + imgui.TreeNodeFlags.Leaf + imgui.TreeNodeFlags.NoTreePushOnOpen
+				end
+				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. tostring(f.name or "") .. "##move_tree", flags)
+			elseif hasTreeNode then
+				opened = imgui.TreeNode(fa.FOLDER .. " " .. tostring(f.name or "") .. "##move_tree")
+			else
+				imgui.Text(fa.FOLDER .. " " .. tostring(f.name or ""))
+			end
+
+			if imgui.IsItemClicked() then
+				applyFolder(f)
+			end
+
+			if hasTreeNode then
+				if opened and hasChildren then
+					for _, child in ipairs(f.children) do
+						drawFolderNodeSimple(child)
+					end
+				end
+				if imgui.TreeNodeEx then
+					if opened and hasChildren then
+						imgui.TreePop()
+					end
+				else
+					if opened then
+						imgui.TreePop()
+					end
+				end
+			end
+			imgui.PopID()
+		end
+
+		for _, f in ipairs(folders) do
+			drawFolderNodeSimple(f)
+		end
+
+		imgui.Separator()
+		if imgui.Button("Отмена") then
+			imgui.CloseCurrentPopup()
+		end
+		imgui.EndPopup()
+	end
+end
+
 -- === Вкладки папок (с условиями быстрого меню) ===
 local function drawFolderSearchInput()
 	local searchBuf = getGlobalSearchBuffer()
@@ -5077,6 +5154,7 @@ function module.DrawBinder()
 		drawEditHotkey(editHotkey.idx)
 	end
 
+	drawMoveBindPopup()
 	drawDeletePopups()
 	drawToasts()
 end
