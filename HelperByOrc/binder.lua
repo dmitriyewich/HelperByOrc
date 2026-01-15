@@ -5050,14 +5050,11 @@ function module.DrawBinder()
 		imgui.PopItemWidth()
 
 		imgui.SameLine(0, gap)
-		local openText = buildOpenPathString()
-		local tw = imgui.CalcTextSize(openText).x
 		local x0 = imgui.GetCursorPosX()
-		imgui.SetCursorPosX(x0 + math.max(0, rightW - tw - style.WindowPadding.x))
+		imgui.SetCursorPosX(x0)
 		drawOpenPathBreadcrumbs()
 
-		imgui.Spacing()
-		imgui.Separator()
+		imgui.NewLine()
 		imgui.Spacing()
 
 		imgui.BeginChild("folders_panel", imgui.ImVec2(leftW, 0), true)
