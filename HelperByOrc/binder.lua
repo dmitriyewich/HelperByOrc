@@ -4761,10 +4761,31 @@ local function drawFolderTabs()
 	end
 
 	local function handleFolderDnD(f)
+		local rectMin = nil
+		local rectMax = nil
+		if imgui.GetItemRectMin then
+			rectMin = imgui.GetItemRectMin()
+			rectMax = imgui.GetItemRectMax()
+		end
 		if imgui.BeginDragDropTarget() then
 			local payload = imgui.AcceptDragDropPayload("HK_IDX")
 			if payload == nil then
 				payload = imgui.AcceptDragDropPayload()
+			end
+			if payload ~= nil then
+				if rectMin and rectMax then
+					imgui.GetWindowDrawList():AddRect(
+						rectMin,
+						rectMax,
+						imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.ButtonHovered]),
+						0,
+						0,
+						1
+					)
+				else
+					imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.ButtonHovered])
+					imgui.PopStyleColor()
+				end
 			end
 			if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
 				local src_idx = ffi.cast("int*", payload.Data)[0]
