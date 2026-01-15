@@ -2011,15 +2011,18 @@ local function drawBindsGrid()
 	local columns = math.max(1, math.floor((availWidth + spacingX) / (cardWidth + spacingX)))
 	local x0 = imgui.GetCursorScreenPos().x
 	local y = imgui.GetCursorScreenPos().y
+	local mouseDown = false
 	if imgui.IsMouseDown then
-		if not imgui.IsMouseDown(0) then
-			dnd_active = false
-		end
+		mouseDown = imgui.IsMouseDown(0)
 	else
 		local io = imgui.GetIO and imgui.GetIO()
-		if io and io.MouseDown and not io.MouseDown[0] then
-			dnd_active = false
+		if io and io.MouseDown then
+			mouseDown = io.MouseDown[0]
 		end
+	end
+	local dragActive = imgui.IsDragDropActive and imgui.IsDragDropActive() or false
+	if not mouseDown and not dragActive then
+		dnd_active = false
 	end
 
 	if hotkeysDirty then
@@ -2207,16 +2210,27 @@ local function drawBindsGrid()
 				imgui.PushIDInt(i)
 				imgui.InvisibleButton("row_drop", imgui.ImVec2(dropW, rowContentH))
 				if imgui.BeginDragDropTarget() then
-					local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY", 1024)
+					local acceptFlags = 1024 + 2048
+					local payload = imgui.AcceptDragDropPayload("BINDER_HOTKEY", acceptFlags)
 					if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+						local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
+						local before = mp.y < (rowStart.y + rowContentH * 0.5)
+						local lineY = before and (rowStart.y + 1) or (rowStart.y + rowContentH - 1)
+						local borderCol = style.Colors[imgui.Col.Border]
+						local lineCol =
+							imgui.ImVec4(borderCol.x, borderCol.y, borderCol.z, math.min(1, borderCol.w * 1.3))
+						dl:AddLine(
+							imgui.ImVec2(tableMinX, lineY),
+							imgui.ImVec2(tableMinX + dropW, lineY),
+							imgui.GetColorU32Vec4(lineCol),
+							1
+						)
 						local delivered = payload.Delivery
 						if delivered == nil and imgui.IsMouseReleased then
 							delivered = imgui.IsMouseReleased(0)
 						end
 						if delivered then
 							local src_idx = ffi.cast("int*", payload.Data)[0]
-							local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
-							local before = mp.y < (rowStart.y + rowContentH * 0.5)
 							local dst_idx = before and i or (i + 1)
 							if dst_idx < 1 then
 								dst_idx = 1
