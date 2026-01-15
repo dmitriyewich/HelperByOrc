@@ -4745,10 +4745,9 @@ local function drawFolderTabs()
 		end
 
 		imgui.Separator()
-		if imgui.Button("Настройки быстрого меню...") then
+		if imgui.SmallButton(fa.BOLT .. " Настройки быстрого меню...") then
 			module._folderSettingsTarget = f
 			imgui.OpenPopup("folder_settings_modal")
-			imgui.CloseCurrentPopup()
 		end
 		imgui.Separator()
 		local canDelete = not (isRoot and f.name == "Основные")
@@ -4985,35 +4984,46 @@ local function drawFolderTabs()
 	end
 	imgui.EndChild()
 
-	if imgui.BeginPopupModal("folder_settings_modal", nil, imgui.WindowFlags.AlwaysAutoResize) then
-		local target = module._folderSettingsTarget
-		if target then
-			imgui.Text(fa.FOLDER .. " " .. (target.name or ""))
+	if imgui.BeginPopupModal("folder_settings_modal") then
+		local f = module._folderSettingsTarget
+		if not f then
+			imgui.TextDisabled("Папка не выбрана")
+			if imgui.Button("Закрыть") then
+				imgui.CloseCurrentPopup()
+			end
+			imgui.EndPopup()
+		else
+			imgui.Text(fa.FOLDER .. " " .. (f.name or ""))
 			imgui.Separator()
-			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu"
-			target._quick_menu_bool = ensure_bool(target._quick_menu_bool, target.quick_menu ~= false)
-			if imgui.Checkbox(quickMenuLabel, target._quick_menu_bool) then
-				target.quick_menu = target._quick_menu_bool[0]
+
+			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu_modal"
+			f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+			if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+				f.quick_menu = f._quick_menu_bool[0]
 				markHotkeysDirty()
 			end
+
 			imgui.Separator()
+			imgui.TextDisabled("Условия быстрого меню")
 			imgui.BeginChild("settings_scroll", imgui.ImVec2(0, 180), true)
-			target._quick_cond_bools = target._quick_cond_bools or {}
+			f._quick_cond_bools = f._quick_cond_bools or {}
 			for ii = 1, quick_cond_count do
-				local cur = (target.quick_conditions and target.quick_conditions[ii]) or false
-				target._quick_cond_bools[ii] = ensure_bool(target._quick_cond_bools[ii], cur)
-				if imgui.Checkbox(quick_cond_labels[ii] .. "##fq" .. ii, target._quick_cond_bools[ii]) then
-					target.quick_conditions = target.quick_conditions or {}
-					target.quick_conditions[ii] = target._quick_cond_bools[ii][0]
+				local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+				f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+				if imgui.Checkbox(quick_cond_labels[ii] .. "##fq_modal" .. ii, f._quick_cond_bools[ii]) then
+					f.quick_conditions = f.quick_conditions or {}
+					f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
 					markHotkeysDirty()
 				end
 			end
 			imgui.EndChild()
+
+			imgui.Separator()
+			if imgui.Button("Закрыть") then
+				imgui.CloseCurrentPopup()
+			end
+			imgui.EndPopup()
 		end
-		if imgui.Button("Закрыть") then
-			imgui.CloseCurrentPopup()
-		end
-		imgui.EndPopup()
 	end
 
 	if module._hotkeysDirty and module._hotkeysDirtyAt and os.clock() - module._hotkeysDirtyAt > 0.35 then
