@@ -4883,6 +4883,22 @@ local function drawFolderTabs()
 			end
 		end
 
+		local h = 0
+		if imgui.GetItemRectMin and imgui.GetItemRectMax then
+			local a = imgui.GetItemRectMin()
+			local b = imgui.GetItemRectMax()
+			h = b.y - a.y
+		end
+		if h <= 0 then
+			h = 22
+		end
+		imgui.SameLine(0, 0)
+		local w = imgui.GetContentRegionAvail().x
+		if w > 0 then
+			imgui.InvisibleButton("##dnd_pad", imgui.ImVec2(w, h))
+			handleFolderDnD(f)
+		end
+
 		if hasTreeNode then
 			if opened and hasChildren then
 				for _, child in ipairs(f.children) do
