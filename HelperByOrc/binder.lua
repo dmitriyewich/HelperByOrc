@@ -575,6 +575,7 @@ local folders = { { name = "Основные", children = {}, parent = nil, quic
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, { __mode = "k" })
+local nextFolderId = 1
 
 -- кэш булевых для imgui
 local function ensure_bool(buf, val)
@@ -727,6 +728,36 @@ local function folderNameUnique(parentArr, name)
 	return true
 end
 
+local function assignFolderId(node)
+	if not node._id then
+		node._id = nextFolderId
+		nextFolderId = nextFolderId + 1
+	end
+end
+
+local function assignFolderTree(node)
+	assignFolderId(node)
+	for _, child in ipairs(node.children or {}) do
+		assignFolderTree(child)
+	end
+end
+
+local function createFolder(name, parent)
+	local node = {
+		name = name,
+		children = {},
+		parent = parent,
+		quick_conditions = {},
+		quick_menu = true,
+	}
+	assignFolderId(node)
+	return node
+end
+
+for _, f in ipairs(folders) do
+	assignFolderTree(f)
+end
+
 local function serializeFolder(folder)
 	local node = {
 		name = folder.name,
@@ -748,6 +779,7 @@ local function deserializeFolder(tbl, parent)
 		quick_conditions = tbl.quick_conditions or {},
 		quick_menu = tbl.quick_menu ~= false,
 	}
+	assignFolderId(node)
 	for _, child in ipairs(tbl.children or {}) do
 		local c = deserializeFolder(child, node)
 		table.insert(node.children, c)
@@ -914,6 +946,7 @@ end
 function module.loadHotkeys()
 	local tbl = funcs.loadTableFromJson(json_path)
 	if type(tbl) == "table" then
+		nextFolderId = 1
 		hotkeys, folders = {}, {}
 		if tbl.folders and #tbl.folders > 0 then
 			for _, f in ipairs(tbl.folders) do
@@ -921,8 +954,10 @@ function module.loadHotkeys()
 				table.insert(folders, folder)
 			end
 		else
-			folders =
-				{ { name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true } }
+			folders = { createFolder("Основные", nil) }
+		end
+		for _, f in ipairs(folders) do
+			assignFolderTree(f)
 		end
 		selectedFolder = folders[1]
 		for _, hk in ipairs(tbl.hotkeys or {}) do
@@ -4627,7 +4662,7 @@ local function drawFolderTabs()
 		local rows = math.max(1, math.ceil(itemsCount / columns))
 		local childHeight = rows * (tabHeight + tabPad) + 4
 
-		imgui.PushIDPtr(folder or ffi.NULL)
+		imgui.PushIDInt(folder and folder._id or 0)
 		imgui.BeginChild("folders_row", imgui.ImVec2(0, childHeight), false)
 
 		local startPos = imgui.GetCursorScreenPos()
@@ -4641,7 +4676,7 @@ local function drawFolderTabs()
 		end
 
 		for i, f in ipairs(list) do
-			imgui.PushIDPtr(f)
+			imgui.PushIDInt(f._id or 0)
 			setItemPos(i)
 			local isSel = (selectedFolder == f)
 			if isSel then
@@ -4688,10 +4723,7 @@ local function drawFolderTabs()
 				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
 					local subName = sanitizeFolderName(ffi.string(subBuf))
 					if #subName > 0 and folderNameUnique(f.children, subName) then
-						table.insert(
-							f.children,
-							{ name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true }
-						)
+						table.insert(f.children, createFolder(subName, f))
 						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 						module.saveHotkeys()
 					end
@@ -4789,10 +4821,7 @@ local function drawFolderTabs()
 				local name = sanitizeFolderName(ffi.string(subBuf))
 				local list = isRoot and folders or (folder and folder.children or {})
 				if #name > 0 and folderNameUnique(list, name) then
-					table.insert(
-						list,
-						{ name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true }
-					)
+					table.insert(list, createFolder(name, folder))
 					imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
 					module.saveHotkeys()
 				end
