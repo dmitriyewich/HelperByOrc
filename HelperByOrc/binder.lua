@@ -4686,7 +4686,10 @@ local function drawFolderTabs()
 				selectedFolder = f
 			end
 			if imgui.BeginDragDropTarget() then
-				local payload = imgui.AcceptDragDropPayload()
+				local payload = imgui.AcceptDragDropPayload("HK_IDX")
+				if payload == nil then
+					payload = imgui.AcceptDragDropPayload()
+				end
 				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
 					local src_idx = ffi.cast("int*", payload.Data)[0]
 					if hotkeys[src_idx] then
