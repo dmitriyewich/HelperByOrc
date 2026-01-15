@@ -4669,7 +4669,10 @@ local function drawMoveBindPopup()
 		imgui.OpenPopup("binder_move_bind")
 		_G.moveBindPopup.active = false
 	end
-	if imgui.BeginPopupModal("binder_move_bind", nil, imgui.WindowFlags.AlwaysAutoResize) then
+	if imgui.SetNextWindowSize then
+		imgui.SetNextWindowSize(imgui.ImVec2(420, 360), imgui.Cond.Always)
+	end
+	if imgui.BeginPopupModal("binder_move_bind", nil, imgui.WindowFlags.NoResize) then
 		local idx = _G.moveBindPopup.hkidx
 		local hk = idx and hotkeys[idx]
 		imgui.Text("Выберите папку для перемещения:")
@@ -4750,9 +4753,11 @@ local function drawMoveBindPopup()
 			imgui.PopID()
 		end
 
+		imgui.BeginChild("move_bind_folders", imgui.ImVec2(0, 240), true)
 		for _, f in ipairs(folders) do
 			drawFolderNodeSimple(f, 0)
 		end
+		imgui.EndChild()
 
 		imgui.Separator()
 		if imgui.Button("Отмена") then
