@@ -4890,7 +4890,6 @@ local function drawFolderTabs()
 	imgui.SameLine()
 	local node = nil
 	local style = imgui.GetStyle()
-	local io = imgui.GetIO()
 	for i, name in ipairs(path) do
 		if i == 1 then
 			node = nil
@@ -4911,13 +4910,11 @@ local function drawFolderTabs()
 		local pos = imgui.GetCursorScreenPos()
 		imgui.GetWindowDrawList():AddText(pos, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), name)
 		local text_size = imgui.CalcTextSize(name)
+		imgui.SetCursorScreenPos(pos)
+		imgui.InvisibleButton("##crumb", imgui.ImVec2(text_size.x, text_size.y))
 		local rect_min = pos
 		local rect_max = imgui.ImVec2(pos.x + text_size.x, pos.y + text_size.y)
-		local hovered = io.MousePos.x >= rect_min.x
-			and io.MousePos.x <= rect_max.x
-			and io.MousePos.y >= rect_min.y
-			and io.MousePos.y <= rect_max.y
-		if hovered then
+		if imgui.IsItemHovered() then
 			imgui.GetWindowDrawList():AddLine(
 				imgui.ImVec2(rect_min.x, rect_max.y),
 				imgui.ImVec2(rect_max.x, rect_max.y),
@@ -4925,9 +4922,9 @@ local function drawFolderTabs()
 				2
 			)
 			imgui.SetMouseCursor(imgui.MouseCursor.Hand)
-			if imgui.IsMouseClicked(0) then
-				selectedFolder = node
-			end
+		end
+		if imgui.IsItemClicked(0) then
+			selectedFolder = node
 		end
 		imgui.SetCursorScreenPos(imgui.ImVec2(rect_max.x, pos.y))
 		if i < #path then
