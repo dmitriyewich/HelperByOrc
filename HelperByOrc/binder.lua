@@ -4748,6 +4748,7 @@ local function drawFolderTabs()
 		if imgui.SmallButton(fa.BOLT .. " Настройки быстрого меню...") then
 			module._folderSettingsTarget = f
 			imgui.OpenPopup("folder_settings_modal")
+			imgui.CloseCurrentPopup()
 		end
 		imgui.Separator()
 		local canDelete = not (isRoot and f.name == "Основные")
