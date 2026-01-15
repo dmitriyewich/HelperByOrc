@@ -575,6 +575,7 @@ local folders = { { name = "Основные", children = {}, parent = nil, quic
 local selectedFolder = folders[1]
 local hotkeys = {}
 local labelInputs = setmetatable({}, { __mode = "k" })
+local nextFolderId = 1
 
 -- кэш булевых для imgui
 local function ensure_bool(buf, val)
@@ -727,6 +728,36 @@ local function folderNameUnique(parentArr, name)
 	return true
 end
 
+local function assignFolderId(node)
+	if not node._id then
+		node._id = nextFolderId
+		nextFolderId = nextFolderId + 1
+	end
+end
+
+local function assignFolderTree(node)
+	assignFolderId(node)
+	for _, child in ipairs(node.children or {}) do
+		assignFolderTree(child)
+	end
+end
+
+local function createFolder(name, parent)
+	local node = {
+		name = name,
+		children = {},
+		parent = parent,
+		quick_conditions = {},
+		quick_menu = true,
+	}
+	assignFolderId(node)
+	return node
+end
+
+for _, f in ipairs(folders) do
+	assignFolderTree(f)
+end
+
 local function serializeFolder(folder)
 	local node = {
 		name = folder.name,
@@ -748,6 +779,7 @@ local function deserializeFolder(tbl, parent)
 		quick_conditions = tbl.quick_conditions or {},
 		quick_menu = tbl.quick_menu ~= false,
 	}
+	assignFolderId(node)
 	for _, child in ipairs(tbl.children or {}) do
 		local c = deserializeFolder(child, node)
 		table.insert(node.children, c)
@@ -914,6 +946,7 @@ end
 function module.loadHotkeys()
 	local tbl = funcs.loadTableFromJson(json_path)
 	if type(tbl) == "table" then
+		nextFolderId = 1
 		hotkeys, folders = {}, {}
 		if tbl.folders and #tbl.folders > 0 then
 			for _, f in ipairs(tbl.folders) do
@@ -921,8 +954,10 @@ function module.loadHotkeys()
 				table.insert(folders, folder)
 			end
 		else
-			folders =
-				{ { name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true } }
+			folders = { createFolder("Основные", nil) }
+		end
+		for _, f in ipairs(folders) do
+			assignFolderTree(f)
 		end
 		selectedFolder = folders[1]
 		for _, hk in ipairs(tbl.hotkeys or {}) do
@@ -4599,7 +4634,8 @@ local function drawDeletePopups()
 				if selectedFolder == folder then
 					selectedFolder = folder.parent or folders[1]
 				end
-				module.saveHotkeys()
+				module._hotkeysDirty = true
+				module._hotkeysDirtyAt = os.clock()
 			end
 			_G.deleteFolderPopup.folder = nil
 			imgui.CloseCurrentPopup()
@@ -4616,210 +4652,260 @@ end
 -- === Вкладки папок (с условиями быстрого меню) ===
 local function drawFolderTabs()
 	local tabHeight = 22
-	local tabPad = 2
+	local hasContextItem = imgui.BeginPopupContextItem ~= nil
+	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
+	if not module._folderSearchBuf then
+		module._folderSearchBuf = imgui.new.char[128]()
+	end
+	local searchBuf = module._folderSearchBuf
+	local searchQuery = ""
 
-	local function drawFolderRow(folder, isRoot)
-		local list = isRoot and folders or (folder and folder.children or {})
-		local itemWidth = 110 + tabHeight
-		local itemsCount = #list + 1
-		local availWidth = imgui.GetContentRegionAvail().x
-		local columns = math.max(1, math.floor((availWidth + tabPad) / (itemWidth + tabPad)))
-		local rows = math.max(1, math.ceil(itemsCount / columns))
-		local childHeight = rows * (tabHeight + tabPad) + 4
+	local function markHotkeysDirty()
+		module._hotkeysDirty = true
+		module._hotkeysDirtyAt = os.clock()
+	end
 
-		imgui.BeginChild("folders_row_" .. (folder and folder.name or "root"), imgui.ImVec2(0, childHeight), false)
+	if not module._folderIdSeq then
+		module._folderIdSeq = 1
+	end
+	local function ensureFolderIds(list)
+		for _, f in ipairs(list or {}) do
+			if not f._id or f._id == 0 then
+				f._id = module._folderIdSeq
+				module._folderIdSeq = module._folderIdSeq + 1
+			end
+			ensureFolderIds(f.children)
+		end
+	end
+	ensureFolderIds(folders)
 
-		local startPos = imgui.GetCursorScreenPos()
-		local function setItemPos(idx)
-			local zeroBased = idx - 1
-			local row = math.floor(zeroBased / columns)
-			local col = zeroBased % columns
-			local posX = startPos.x + col * (itemWidth + tabPad)
-			local posY = startPos.y + row * (tabHeight + tabPad)
-			imgui.SetCursorScreenPos(imgui.ImVec2(posX, posY))
+	local function folderMatchesSearch(f)
+		if searchQuery == "" then
+			return true
+		end
+		local nameLower = string.lower(tostring(f.name or ""))
+		if nameLower:find(searchQuery, 1, true) then
+			return true
+		end
+		for _, child in ipairs(f.children or {}) do
+			if folderMatchesSearch(child) then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function drawFolderPopup(f, isRoot)
+		imgui.Text(fa.FOLDER .. " " .. f.name)
+		imgui.Separator()
+		-- Добавить подпапку
+		imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
+		local subBuf = labelInputs["addsub_" .. f._id] or imgui.new.char[256]()
+		if
+			imgui.InputText(
+				"##new_sub",
+				subBuf,
+				ffi.sizeof(subBuf),
+				flags_or(imgui.InputTextFlags.AutoSelectAll)
+			)
+		then
+			labelInputs["addsub_" .. f._id] = subBuf
+		end
+		imgui.SameLine()
+		if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
+			local subName = sanitizeFolderName(ffi.string(subBuf))
+			if #subName > 0 and folderNameUnique(f.children, subName) then
+				table.insert(f.children, createFolder(subName, f))
+				imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
+				markHotkeysDirty()
+			end
+		end
+		imgui.Separator()
+		-- Переименовать
+		imgui.Text(fa.PEN .. " " .. "Переименовать")
+		local renameBuf = labelInputs["ren_" .. f._id] or imgui.new.char[256](f.name)
+		if
+			imgui.InputText(
+				"##ren",
+				renameBuf,
+				ffi.sizeof(renameBuf),
+				flags_or(imgui.InputTextFlags.AutoSelectAll)
+			)
+		then
+			labelInputs["ren_" .. f._id] = renameBuf
+		end
+		imgui.SameLine()
+		if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
+			local newName = sanitizeFolderName(ffi.string(renameBuf))
+			if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
+				f.name = newName
+				markHotkeysDirty()
+				imgui.CloseCurrentPopup()
+			end
 		end
 
-		for i, f in ipairs(list) do
-			setItemPos(i)
-			local isSel = (selectedFolder == f)
-			if isSel then
-				imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.FrameBgHovered])
+		imgui.Separator()
+		if imgui.SmallButton(fa.BOLT .. " Настройки быстрого меню...") then
+			module._folderSettingsTarget = f
+			module._openFolderSettingsModal = true
+			imgui.CloseCurrentPopup()
+		end
+		imgui.Separator()
+		local canDelete = not (isRoot and f.name == "Основные")
+		if canDelete then
+			if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+				_G.deleteFolderPopup.folder = f
+				_G.deleteFolderPopup.active = true
+				imgui.CloseCurrentPopup()
 			end
-			if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
+		else
+			imgui.TextDisabled(fa.TRASH .. " Удалить папку")
+		end
+	end
+
+	local function handleFolderDnD(f)
+		local rectMin = nil
+		local rectMax = nil
+		if imgui.GetItemRectMin then
+			rectMin = imgui.GetItemRectMin()
+			rectMax = imgui.GetItemRectMax()
+		end
+		if imgui.BeginDragDropTarget() then
+			local payload = imgui.AcceptDragDropPayload("HK_IDX")
+			if payload == nil then
+				payload = imgui.AcceptDragDropPayload()
+			end
+			if payload ~= nil then
+				if rectMin and rectMax then
+					imgui.GetWindowDrawList():AddRect(
+						rectMin,
+						rectMax,
+						imgui.GetColorU32Vec4(imgui.GetStyle().Colors[imgui.Col.ButtonHovered]),
+						0,
+						0,
+						1
+					)
+				else
+					imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.ButtonHovered])
+					imgui.PopStyleColor()
+				end
+			end
+			if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
+				local src_idx = ffi.cast("int*", payload.Data)[0]
+				if hotkeys[src_idx] then
+					hotkeys[src_idx].folderPath = folderFullPath(f)
+					markHotkeysDirty()
+				end
+			end
+			imgui.EndDragDropTarget()
+		end
+	end
+
+	local function drawFolderNode(f, depth, isRoot)
+		if not folderMatchesSearch(f) then
+			return
+		end
+		imgui.PushIDInt(f._id or 0)
+		local hasChildren = f.children and #f.children > 0
+		local opened = false
+		local itemRectMin = nil
+		local itemRectMax = nil
+		if hasTreeNode then
+			local flags = imgui.TreeNodeFlags.OpenOnArrow + imgui.TreeNodeFlags.OpenOnDoubleClick
+			if selectedFolder == f then
+				flags = flags + imgui.TreeNodeFlags.Selected
+			end
+			if not hasChildren then
+				flags = flags + imgui.TreeNodeFlags.Leaf + imgui.TreeNodeFlags.NoTreePushOnOpen
+			end
+			if imgui.TreeNodeEx then
+				opened = imgui.TreeNodeEx(fa.FOLDER .. " " .. f.name .. "##tree", flags)
+			else
+				opened = imgui.TreeNode(fa.FOLDER .. " " .. f.name .. "##tree")
+			end
+			if imgui.IsItemClicked() then
 				selectedFolder = f
 			end
-			if imgui.BeginDragDropTarget() then
-				local payload = imgui.AcceptDragDropPayload()
-				if payload ~= nil and payload.Data ~= ffi.NULL and payload.DataSize >= ffi.sizeof("int") then
-					local src_idx = ffi.cast("int*", payload.Data)[0]
-					if hotkeys[src_idx] then
-						hotkeys[src_idx].folderPath = folderFullPath(f)
-						module.saveHotkeys()
-					end
+			if imgui.GetItemRectMin then
+				itemRectMin = imgui.GetItemRectMin()
+				itemRectMax = imgui.GetItemRectMax()
+			end
+		else
+			local indent = depth * 16
+			imgui.Indent(indent)
+			if hasChildren then
+				local arrow = f._open and "▼" or "▶"
+				if imgui.SmallButton(arrow .. "##toggle") then
+					f._open = not f._open
 				end
-				imgui.EndDragDropTarget()
+			else
+				imgui.Dummy(imgui.ImVec2(12, 0))
 			end
-			if isSel then
-				imgui.PopStyleColor()
+			imgui.SameLine()
+			if imgui.Selectable(fa.FOLDER .. " " .. f.name .. "##tree", selectedFolder == f) then
+				selectedFolder = f
 			end
-			imgui.SameLine(0, 0)
-			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear" .. tostring(f), imgui.ImVec2(tabHeight, tabHeight)) then
-				imgui.OpenPopup("popup_gear_" .. tostring(f))
+			opened = hasChildren and f._open
+			imgui.Unindent(indent)
+			if imgui.GetItemRectMin then
+				itemRectMin = imgui.GetItemRectMin()
+				itemRectMax = imgui.GetItemRectMax()
 			end
-			if imgui.BeginPopup("popup_gear_" .. tostring(f)) then
-				imgui.Text(fa.FOLDER .. " " .. f.name)
-				imgui.Separator()
-				-- Добавить подпапку
-				imgui.Text(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
-				local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
-				if
-					imgui.InputText(
-						"##new_sub" .. tostring(f),
-						subBuf,
-						ffi.sizeof(subBuf),
-						flags_or(imgui.InputTextFlags.AutoSelectAll)
-					)
-				then
-					labelInputs["addsub" .. tostring(f)] = subBuf
-				end
+		end
+
+		if itemRectMin and itemRectMax and imgui.IsItemHovered() then
+			local textWidth = imgui.CalcTextSize(f.name or "").x
+			local availWidth = itemRectMax.x - itemRectMin.x
+			if textWidth > availWidth then
+				imgui.BeginTooltip()
+				imgui.TextUnformatted(f.name or "")
+				imgui.EndTooltip()
+			end
+		end
+
+		handleFolderDnD(f)
+
+		if hasContextItem then
+			if imgui.BeginPopupContextItem("popup_gear") then
+				drawFolderPopup(f, isRoot)
+				imgui.EndPopup()
+			end
+		else
+			if imgui.IsItemHovered() then
 				imgui.SameLine()
-				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok" .. tostring(f)) then
-					local subName = sanitizeFolderName(ffi.string(subBuf))
-					if #subName > 0 and folderNameUnique(f.children, subName) then
-						table.insert(
-							f.children,
-							{ name = subName, children = {}, parent = f, quick_conditions = {}, quick_menu = true }
-						)
-						imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
-						module.saveHotkeys()
-					end
+				if imgui.SmallButton(fa.ELLIPSIS_VERTICAL .. "##gear") then
+					imgui.OpenPopup("popup_gear")
 				end
-				imgui.Separator()
-				-- Переименовать
-				imgui.Text(fa.PEN .. " " .. "Переименовать")
-				local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
-				if
-					imgui.InputText(
-						"##ren" .. tostring(f),
-						renameBuf,
-						ffi.sizeof(renameBuf),
-						flags_or(imgui.InputTextFlags.AutoSelectAll)
-					)
-				then
-					labelInputs["ren" .. tostring(f)] = renameBuf
-				end
-				imgui.SameLine()
-				if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename" .. tostring(f)) then
-					local newName = sanitizeFolderName(ffi.string(renameBuf))
-					if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
-						f.name = newName
-						module.saveHotkeys()
-						imgui.CloseCurrentPopup()
-					end
-				end
-
-				imgui.Separator()
-				local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
-					.. "Быстрое меню##folder_quick_menu"
-					.. tostring(f)
-				f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
-				if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
-					f.quick_menu = f._quick_menu_bool[0]
-					module.saveHotkeys()
-				end
-
-				local headerLabel = (fa.BOLT and fa.BOLT .. " " or "")
-					.. "Папка: условия быстрого меню##folder_quick_conditions"
-					.. tostring(f)
-				imgui.SetNextItemOpen(false, imgui.Cond.Once)
-				if imgui.CollapsingHeader(headerLabel) then
-					f._quick_cond_bools = f._quick_cond_bools or {}
-					for ii = 1, quick_cond_count do
-						local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
-						f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
-						if
-							imgui.Checkbox(
-								quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
-								f._quick_cond_bools[ii]
-							)
-						then
-							f.quick_conditions = f.quick_conditions or {}
-							f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
-							module.saveHotkeys()
-						end
-					end
-				end
-
-				imgui.Separator()
-				local canDelete = not (isRoot and f.name == "Основные")
-				if canDelete then
-					if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
-						_G.deleteFolderPopup.folder = f
-						_G.deleteFolderPopup.active = true
-						imgui.CloseCurrentPopup()
-					end
-				else
-					imgui.TextDisabled(fa.TRASH .. " Удалить папку")
-				end
+			end
+			if imgui.BeginPopup("popup_gear") then
+				drawFolderPopup(f, isRoot)
 				imgui.EndPopup()
 			end
 		end
 
-		setItemPos(itemsCount)
-		if
-			imgui.Button(
-				fa.SQUARE_PLUS .. "##add_sub" .. (folder and folder.name or "root"),
-				imgui.ImVec2(itemWidth, tabHeight)
-			)
-		then
-			imgui.OpenPopup("popup_add_sub_" .. (folder and folder.name or "root"))
-		end
-		if imgui.BeginPopup("popup_add_sub_" .. (folder and folder.name or "root")) then
-			imgui.Text(fa.SQUARE_PLUS .. "Добавить подпапку")
-			local bufkey = "quickadd_" .. (folder and folder.name or "root")
-			local subBuf = labelInputs[bufkey] or imgui.new.char[256]()
-			if
-				imgui.InputText(
-					"##input_quickadd_" .. (folder and folder.name or "root"),
-					subBuf,
-					ffi.sizeof(subBuf),
-					flags_or(imgui.InputTextFlags.AutoSelectAll)
-				)
-			then
-				labelInputs[bufkey] = subBuf
-			end
-			imgui.SameLine()
-			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok" .. (folder and folder.name or "root")) then
-				local name = sanitizeFolderName(ffi.string(subBuf))
-				local list = isRoot and folders or (folder and folder.children or {})
-				if #name > 0 and folderNameUnique(list, name) then
-					table.insert(
-						list,
-						{ name = name, children = {}, parent = folder, quick_conditions = {}, quick_menu = true }
-					)
-					imgui.StrCopy(subBuf, "", ffi.sizeof(subBuf))
-					module.saveHotkeys()
+		if hasTreeNode then
+			if opened and hasChildren then
+				for _, child in ipairs(f.children) do
+					drawFolderNode(child, depth + 1, false)
 				end
 			end
-			imgui.EndPopup()
-		end
-		imgui.EndChild()
-	end
-	drawFolderRow(nil, true)
-	local cur = selectedFolder
-	while cur and #cur.children > 0 do
-		drawFolderRow(cur, false)
-		local found = false
-		for _, c in ipairs(cur.children) do
-			if selectedFolder == c then
-				cur = c
-				found = true
-				break
+			if imgui.TreeNodeEx then
+				if opened and hasChildren then
+					imgui.TreePop()
+				end
+			else
+				if opened then
+					imgui.TreePop()
+				end
+			end
+		else
+			if opened and hasChildren then
+				for _, child in ipairs(f.children) do
+					drawFolderNode(child, depth + 1, false)
+				end
 			end
 		end
-		if not found then
-			break
-		end
+		imgui.PopID()
 	end
 
 	local path = folderFullPath(selectedFolder)
@@ -4827,7 +4913,6 @@ local function drawFolderTabs()
 	imgui.SameLine()
 	local node = nil
 	local style = imgui.GetStyle()
-	local io = imgui.GetIO()
 	for i, name in ipairs(path) do
 		if i == 1 then
 			node = nil
@@ -4848,13 +4933,11 @@ local function drawFolderTabs()
 		local pos = imgui.GetCursorScreenPos()
 		imgui.GetWindowDrawList():AddText(pos, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]), name)
 		local text_size = imgui.CalcTextSize(name)
+		imgui.SetCursorScreenPos(pos)
+		imgui.InvisibleButton("##crumb" .. i, imgui.ImVec2(text_size.x, text_size.y))
 		local rect_min = pos
 		local rect_max = imgui.ImVec2(pos.x + text_size.x, pos.y + text_size.y)
-		local hovered = io.MousePos.x >= rect_min.x
-			and io.MousePos.x <= rect_max.x
-			and io.MousePos.y >= rect_min.y
-			and io.MousePos.y <= rect_max.y
-		if hovered then
+		if imgui.IsItemHovered() then
 			imgui.GetWindowDrawList():AddLine(
 				imgui.ImVec2(rect_min.x, rect_max.y),
 				imgui.ImVec2(rect_max.x, rect_max.y),
@@ -4862,9 +4945,9 @@ local function drawFolderTabs()
 				2
 			)
 			imgui.SetMouseCursor(imgui.MouseCursor.Hand)
-			if imgui.IsMouseClicked(0) then
-				selectedFolder = node
-			end
+		end
+		if imgui.IsItemClicked(0) then
+			selectedFolder = node
 		end
 		imgui.SetCursorScreenPos(imgui.ImVec2(rect_max.x, pos.y))
 		if i < #path then
@@ -4872,6 +4955,72 @@ local function drawFolderTabs()
 			imgui.SameLine()
 		end
 	end
+
+	if imgui.InputTextWithHint then
+		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
+	else
+		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
+	end
+	searchQuery = string.lower(ffi.string(searchBuf))
+
+	imgui.BeginChild("folders_tree", imgui.ImVec2(0, 150), true)
+	for _, f in ipairs(folders) do
+		drawFolderNode(f, 0, true)
+	end
+	imgui.EndChild()
+
+	if module._openFolderSettingsModal then
+		imgui.OpenPopup("folder_settings_modal")
+		module._openFolderSettingsModal = false
+	end
+
+	if imgui.BeginPopupModal("folder_settings_modal") then
+		local f = module._folderSettingsTarget
+		if not f then
+			imgui.TextDisabled("Папка не выбрана")
+			if imgui.Button("Закрыть") then
+				imgui.CloseCurrentPopup()
+			end
+			imgui.EndPopup()
+		else
+			imgui.Text(fa.FOLDER .. " " .. (f.name or ""))
+			imgui.Separator()
+
+			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "") .. "Быстрое меню##folder_quick_menu_modal"
+			f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
+			if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
+				f.quick_menu = f._quick_menu_bool[0]
+				markHotkeysDirty()
+			end
+
+			imgui.Separator()
+			imgui.TextDisabled("Условия быстрого меню")
+			imgui.BeginChild("settings_scroll", imgui.ImVec2(0, 180), true)
+			f._quick_cond_bools = f._quick_cond_bools or {}
+			for ii = 1, quick_cond_count do
+				local cur = (f.quick_conditions and f.quick_conditions[ii]) or false
+				f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
+				if imgui.Checkbox(quick_cond_labels[ii] .. "##fq_modal" .. ii, f._quick_cond_bools[ii]) then
+					f.quick_conditions = f.quick_conditions or {}
+					f.quick_conditions[ii] = f._quick_cond_bools[ii][0]
+					markHotkeysDirty()
+				end
+			end
+			imgui.EndChild()
+
+			imgui.Separator()
+			if imgui.Button("Закрыть") then
+				imgui.CloseCurrentPopup()
+			end
+			imgui.EndPopup()
+		end
+	end
+
+	if module._hotkeysDirty and module._hotkeysDirtyAt and os.clock() - module._hotkeysDirtyAt > 0.35 then
+		module.saveHotkeys()
+		module._hotkeysDirty = false
+	end
+
 end
 
 -- === Главное окно ===
