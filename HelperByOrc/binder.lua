@@ -2136,7 +2136,7 @@ local function drawBindsGrid()
 		imgui.PushClipRect(
 			imgui.ImVec2(tableMinX, headerTopY),
 			imgui.ImVec2(tableMinX + contentWidth, clipBottomY),
-			false
+			true
 		)
 		dl2:AddLine(imgui.ImVec2(x1, headerTopY), imgui.ImVec2(x1, clipBottomY), vcol, 1)
 		dl2:AddLine(imgui.ImVec2(x2, headerTopY), imgui.ImVec2(x2, clipBottomY), vcol, 1)
