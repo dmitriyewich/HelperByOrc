@@ -2012,6 +2012,13 @@ local VirtualizedGrid = {
 	end,
 }
 
+local function getGlobalSearchBuffer()
+	if not module._globalSearchBuf then
+		module._globalSearchBuf = imgui.new.char[128]()
+	end
+	return module._globalSearchBuf
+end
+
 local function drawQuickIndicator(dl, pos_min, enabled)
 	local r = 5
 	local pad = 8
@@ -4658,13 +4665,6 @@ local function drawDeletePopups()
 end
 
 -- === Вкладки папок (с условиями быстрого меню) ===
-local function getGlobalSearchBuffer()
-	if not module._globalSearchBuf then
-		module._globalSearchBuf = imgui.new.char[128]()
-	end
-	return module._globalSearchBuf
-end
-
 local function drawFolderSearchInput()
 	local searchBuf = getGlobalSearchBuffer()
 	if imgui.InputTextWithHint then
