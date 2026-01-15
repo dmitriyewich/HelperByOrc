@@ -4653,6 +4653,27 @@ local function drawFolderTabs()
 	local tabHeight = 22
 	local hasContextItem = imgui.BeginPopupContextItem ~= nil
 	local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
+	if not module._folderSearchBuf then
+		module._folderSearchBuf = imgui.new.char[128]()
+	end
+	local searchBuf = module._folderSearchBuf
+	local searchQuery = ""
+
+	local function folderMatchesSearch(f)
+		if searchQuery == "" then
+			return true
+		end
+		local nameLower = string.lower(tostring(f.name or ""))
+		if nameLower:find(searchQuery, 1, true) then
+			return true
+		end
+		for _, child in ipairs(f.children or {}) do
+			if folderMatchesSearch(child) then
+				return true
+			end
+		end
+		return false
+	end
 
 	local function drawFolderPopup(f, isRoot)
 		imgui.Text(fa.FOLDER .. " " .. f.name)
@@ -4757,6 +4778,9 @@ local function drawFolderTabs()
 	end
 
 	local function drawFolderNode(f, depth, isRoot)
+		if not folderMatchesSearch(f) then
+			return
+		end
 		imgui.PushIDInt(f._id or 0)
 		local hasChildren = f.children and #f.children > 0
 		local opened = false
@@ -4890,6 +4914,13 @@ local function drawFolderTabs()
 			imgui.SameLine()
 		end
 	end
+
+	if imgui.InputTextWithHint then
+		imgui.InputTextWithHint("##folder_search", "Поиск папок...", searchBuf, ffi.sizeof(searchBuf))
+	else
+		imgui.InputText("##folder_search", searchBuf, ffi.sizeof(searchBuf))
+	end
+	searchQuery = string.lower(ffi.string(searchBuf))
 
 	imgui.BeginChild("folders_tree", imgui.ImVec2(0, 150), true)
 	for _, f in ipairs(folders) do
