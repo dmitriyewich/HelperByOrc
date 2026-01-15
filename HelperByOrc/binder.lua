@@ -4689,8 +4689,23 @@ local function drawMoveBindPopup()
 			end
 		end
 
+		if not module._folderIdSeq then
+			module._folderIdSeq = 1
+		end
+		local function ensureFolderIds(list)
+			for _, f in ipairs(list or {}) do
+				if not f._id or f._id == 0 then
+					f._id = module._folderIdSeq
+					module._folderIdSeq = module._folderIdSeq + 1
+				end
+				ensureFolderIds(f.children)
+			end
+		end
+		ensureFolderIds(folders)
+
 		local hasTreeNode = imgui.TreeNodeEx ~= nil or imgui.TreeNode ~= nil
-		local function drawFolderNodeSimple(f)
+		local function drawFolderNodeSimple(f, depth)
+			local indentPx = (depth or 0) * 16
 			imgui.PushIDInt(f._id or 0)
 			local hasChildren = f.children and #f.children > 0
 			local opened = false
@@ -4703,7 +4718,9 @@ local function drawMoveBindPopup()
 			elseif hasTreeNode then
 				opened = imgui.TreeNode(fa.FOLDER .. " " .. tostring(f.name or "") .. "##move_tree")
 			else
+				imgui.Indent(indentPx)
 				imgui.Text(fa.FOLDER .. " " .. tostring(f.name or ""))
+				imgui.Unindent(indentPx)
 			end
 
 			if imgui.IsItemClicked() then
@@ -4713,7 +4730,7 @@ local function drawMoveBindPopup()
 			if hasTreeNode then
 				if opened and hasChildren then
 					for _, child in ipairs(f.children) do
-						drawFolderNodeSimple(child)
+						drawFolderNodeSimple(child, (depth or 0) + 1)
 					end
 				end
 				if imgui.TreeNodeEx then
@@ -4725,12 +4742,16 @@ local function drawMoveBindPopup()
 						imgui.TreePop()
 					end
 				end
+			elseif hasChildren then
+				for _, child in ipairs(f.children) do
+					drawFolderNodeSimple(child, (depth or 0) + 1)
+				end
 			end
 			imgui.PopID()
 		end
 
 		for _, f in ipairs(folders) do
-			drawFolderNodeSimple(f)
+			drawFolderNodeSimple(f, 0)
 		end
 
 		imgui.Separator()
