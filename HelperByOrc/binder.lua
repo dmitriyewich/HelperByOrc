@@ -4627,7 +4627,8 @@ local function drawFolderTabs()
 		local rows = math.max(1, math.ceil(itemsCount / columns))
 		local childHeight = rows * (tabHeight + tabPad) + 4
 
-		imgui.BeginChild("folders_row_" .. (folder and folder.name or "root"), imgui.ImVec2(0, childHeight), false)
+		imgui.PushIDPtr(folder or ffi.NULL)
+		imgui.BeginChild("folders_row", imgui.ImVec2(0, childHeight), false)
 
 		local startPos = imgui.GetCursorScreenPos()
 		local function setItemPos(idx)
@@ -4640,12 +4641,13 @@ local function drawFolderTabs()
 		end
 
 		for i, f in ipairs(list) do
+			imgui.PushIDPtr(f)
 			setItemPos(i)
 			local isSel = (selectedFolder == f)
 			if isSel then
 				imgui.PushStyleColor(imgui.Col.Button, imgui.GetStyle().Colors[imgui.Col.FrameBgHovered])
 			end
-			if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab" .. tostring(f), imgui.ImVec2(110, tabHeight)) then
+			if imgui.Button(fa.FOLDER .. " " .. f.name .. "##tab", imgui.ImVec2(110, tabHeight)) then
 				selectedFolder = f
 			end
 			if imgui.BeginDragDropTarget() then
@@ -4663,10 +4665,10 @@ local function drawFolderTabs()
 				imgui.PopStyleColor()
 			end
 			imgui.SameLine(0, 0)
-			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear" .. tostring(f), imgui.ImVec2(tabHeight, tabHeight)) then
-				imgui.OpenPopup("popup_gear_" .. tostring(f))
+			if imgui.Button(fa.ELLIPSIS_VERTICAL .. "##gear", imgui.ImVec2(tabHeight, tabHeight)) then
+				imgui.OpenPopup("popup_gear")
 			end
-			if imgui.BeginPopup("popup_gear_" .. tostring(f)) then
+			if imgui.BeginPopup("popup_gear") then
 				imgui.Text(fa.FOLDER .. " " .. f.name)
 				imgui.Separator()
 				-- Добавить подпапку
@@ -4674,7 +4676,7 @@ local function drawFolderTabs()
 				local subBuf = labelInputs["addsub" .. tostring(f)] or imgui.new.char[256]()
 				if
 					imgui.InputText(
-						"##new_sub" .. tostring(f),
+						"##new_sub",
 						subBuf,
 						ffi.sizeof(subBuf),
 						flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -4683,7 +4685,7 @@ local function drawFolderTabs()
 					labelInputs["addsub" .. tostring(f)] = subBuf
 				end
 				imgui.SameLine()
-				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok" .. tostring(f)) then
+				if imgui.SmallButton(fa.SQUARE_PLUS .. "##addsubok") then
 					local subName = sanitizeFolderName(ffi.string(subBuf))
 					if #subName > 0 and folderNameUnique(f.children, subName) then
 						table.insert(
@@ -4700,7 +4702,7 @@ local function drawFolderTabs()
 				local renameBuf = labelInputs["ren" .. tostring(f)] or imgui.new.char[256](f.name)
 				if
 					imgui.InputText(
-						"##ren" .. tostring(f),
+						"##ren",
 						renameBuf,
 						ffi.sizeof(renameBuf),
 						flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -4709,7 +4711,7 @@ local function drawFolderTabs()
 					labelInputs["ren" .. tostring(f)] = renameBuf
 				end
 				imgui.SameLine()
-				if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename" .. tostring(f)) then
+				if imgui.SmallButton(fa.FLOPPY_DISK .. "##save_rename") then
 					local newName = sanitizeFolderName(ffi.string(renameBuf))
 					if #newName > 0 and folderNameUnique(f.parent and f.parent.children or folders, newName) then
 						f.name = newName
@@ -4721,7 +4723,6 @@ local function drawFolderTabs()
 				imgui.Separator()
 				local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
 					.. "Быстрое меню##folder_quick_menu"
-					.. tostring(f)
 				f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
 				if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
 					f.quick_menu = f._quick_menu_bool[0]
@@ -4730,7 +4731,6 @@ local function drawFolderTabs()
 
 				local headerLabel = (fa.BOLT and fa.BOLT .. " " or "")
 					.. "Папка: условия быстрого меню##folder_quick_conditions"
-					.. tostring(f)
 				imgui.SetNextItemOpen(false, imgui.Cond.Once)
 				if imgui.CollapsingHeader(headerLabel) then
 					f._quick_cond_bools = f._quick_cond_bools or {}
@@ -4739,7 +4739,7 @@ local function drawFolderTabs()
 						f._quick_cond_bools[ii] = ensure_bool(f._quick_cond_bools[ii], cur)
 						if
 							imgui.Checkbox(
-								quick_cond_labels[ii] .. "##fq" .. ii .. tostring(f),
+								quick_cond_labels[ii] .. "##fq" .. ii,
 								f._quick_cond_bools[ii]
 							)
 						then
@@ -4763,24 +4763,20 @@ local function drawFolderTabs()
 				end
 				imgui.EndPopup()
 			end
+			imgui.PopID()
 		end
 
 		setItemPos(itemsCount)
-		if
-			imgui.Button(
-				fa.SQUARE_PLUS .. "##add_sub" .. (folder and folder.name or "root"),
-				imgui.ImVec2(itemWidth, tabHeight)
-			)
-		then
-			imgui.OpenPopup("popup_add_sub_" .. (folder and folder.name or "root"))
+		if imgui.Button(fa.SQUARE_PLUS .. "##add_sub", imgui.ImVec2(itemWidth, tabHeight)) then
+			imgui.OpenPopup("popup_add_sub")
 		end
-		if imgui.BeginPopup("popup_add_sub_" .. (folder and folder.name or "root")) then
+		if imgui.BeginPopup("popup_add_sub") then
 			imgui.Text(fa.SQUARE_PLUS .. "Добавить подпапку")
 			local bufkey = "quickadd_" .. (folder and folder.name or "root")
 			local subBuf = labelInputs[bufkey] or imgui.new.char[256]()
 			if
 				imgui.InputText(
-					"##input_quickadd_" .. (folder and folder.name or "root"),
+					"##input_quickadd",
 					subBuf,
 					ffi.sizeof(subBuf),
 					flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -4789,7 +4785,7 @@ local function drawFolderTabs()
 				labelInputs[bufkey] = subBuf
 			end
 			imgui.SameLine()
-			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok" .. (folder and folder.name or "root")) then
+			if imgui.SmallButton(fa.SQUARE_PLUS .. "##quickaddok") then
 				local name = sanitizeFolderName(ffi.string(subBuf))
 				local list = isRoot and folders or (folder and folder.children or {})
 				if #name > 0 and folderNameUnique(list, name) then
@@ -4804,6 +4800,7 @@ local function drawFolderTabs()
 			imgui.EndPopup()
 		end
 		imgui.EndChild()
+		imgui.PopID()
 	end
 	drawFolderRow(nil, true)
 	local cur = selectedFolder
