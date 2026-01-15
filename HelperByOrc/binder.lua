@@ -2184,9 +2184,14 @@ local function drawBindsGrid()
 			local dl = imgui.GetWindowDrawList()
 			local fullMin = imgui.ImVec2(tableMinX, rowStart.y)
 			local fullMax = imgui.ImVec2(tableMinX + contentWidth, rowStart.y + rowContentH)
+			imgui.PushClipRect(fullMin, fullMax, false)
+			local savedPos = imgui.GetCursorScreenPos()
 			imgui.SetCursorScreenPos(imgui.ImVec2(tableMinX, rowStart.y))
 			local dropTargetWidth = contentWidth - col5W
-			imgui.InvisibleButton("##dnd_row_" .. i, imgui.ImVec2(dropTargetWidth, rowContentH))
+			imgui.PushIDInt(i)
+			local allowOverlap = (imgui.ButtonFlags and (imgui.ButtonFlags.AllowItemOverlap or imgui.ButtonFlags.AllowOverlap))
+				or (1 << 12)
+			imgui.InvisibleButton("row_dnd", imgui.ImVec2(dropTargetWidth, rowContentH), allowOverlap)
 			if imgui.SetItemAllowOverlap then
 				imgui.SetItemAllowOverlap()
 			end
@@ -2222,7 +2227,9 @@ local function drawBindsGrid()
 				end
 				imgui.EndDragDropTarget()
 			end
-			imgui.SetCursorScreenPos(rowStart)
+			imgui.PopID()
+			imgui.SetCursorScreenPos(savedPos)
+			imgui.PopClipRect()
 
 			local mp = (imgui.GetMousePos and imgui.GetMousePos()) or imgui.GetIO().MousePos
 			local mx, my = mp.x, mp.y
