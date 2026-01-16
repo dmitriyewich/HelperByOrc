@@ -4990,7 +4990,7 @@ local function drawFolderTabs()
 		else
 			imgui.Indent(indentPx)
 			if hasChildren then
-				local arrow = f._open and "▼" or "▶"
+				local arrow = f._open and fa.CARET_DOWN or fa.CARET_RIGHT
 				if imgui.SmallButton(arrow .. "##toggle") then
 					f._open = not f._open
 				end
