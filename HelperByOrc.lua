@@ -278,8 +278,10 @@ end, function()
 	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
 	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
 	do
-		local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE)
-			or (sidebarCollapsed[0] and ">" or "<")
+		local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE) or ""
+		if toggleIcon == "" then
+			toggleIcon = sidebarCollapsed[0] and ">" or "<"
+		end
 
 		local toggleW = titleH - 8
 		local toggleH = titleH - 8
