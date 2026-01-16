@@ -9,10 +9,15 @@ local ffi = require("ffi")
 local funcs
 local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome7") -- необязательно, UI работает и без иконок
 local samp
+local toasts_module = {
+	push = function()
+	end,
+}
 
 function module.attachModules(mod)
 	funcs = mod.funcs
 	samp = mod.samp
+	toasts_module = mod.toasts or toasts_module
 end
 
 -- ========== КОНФИГ / ХРАНИЛИЩА / НАСТРОЙКИ ==========
@@ -72,9 +77,14 @@ local function strip_tag(nick)
 end
 
 local function log_chat(msg, color)
-	if sampAddChatMessage then
-		sampAddChatMessage(tostring(msg), color or 0xFFD700)
+	local kind = "ok"
+	if color == 0xAA3333 then
+		kind = "err"
+	elseif color == 0xAA8800 then
+		kind = "warn"
 	end
+	local dur = kind == "err" and 4.0 or 3.0
+	toasts_module.push(tostring(msg), kind, dur)
 end
 
 -- гарантируем наличие папки перед записью файла
@@ -256,8 +266,8 @@ local function read_target_once()
 				target.current_id = id
 				if target.last_id ~= id then
 					target.last_id = id
-					if settings.show_target_notice and sampAddChatMessage and target._notice_id ~= id then
-						sampAddChatMessage(("[Tags] Выбран target id: %d"):format(id), 0xFFD700)
+					if settings.show_target_notice and target._notice_id ~= id then
+						toasts_module.push(("[Tags] Выбран target id: %d"):format(id), "ok", 2.5)
 						target._notice_id = id
 					end
 				end
