@@ -511,9 +511,6 @@ local function drawInputDialog()
 		cancelInputDialog()
 	end
 
-	if not module.binderWindow[0] then
-		toasts_module.draw()
-	end
 end
 
 -- === Состояние модуля ===
@@ -1728,7 +1725,6 @@ function module.DrawQuickMenu()
 	imgui.End()
 	imgui.PopStyleVar(3)
 
-	toasts_module.draw()
 end
 
 -- === API поиска/управления ===
@@ -5122,7 +5118,6 @@ function module.DrawBinder()
 
 	drawMoveBindPopup()
 	drawDeletePopups()
-	toasts_module.draw()
 end
 
 -- === События и ввод ===

@@ -81,4 +81,12 @@ function module.draw()
 	imgui.End()
 end
 
+if imgui and imgui.OnFrame then
+	imgui.OnFrame(function()
+		return #toasts > 0
+	end, function()
+		module.draw()
+	end)
+end
+
 return module
