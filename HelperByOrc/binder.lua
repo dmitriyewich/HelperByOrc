@@ -2061,6 +2061,7 @@ local function drawBindsGrid()
 		table.insert(hotkeys, hk)
 		hotkeysDirty = true
 		module.saveHotkeys()
+		pushToast("Добавлен новый бинд", "ok", 2.5)
 	end
 	imgui.Spacing()
 	imgui.Columns(5, "binds_cols", false)
