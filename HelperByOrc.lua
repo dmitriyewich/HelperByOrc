@@ -277,13 +277,35 @@ end, function()
 
 	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
 	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
-	local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE)
-		or (sidebarCollapsed[0] and ">" or "<")
-	local toggleSize = imgui.ImVec2(titleH - 6, titleH - 6)
-	local togglePos = imgui.ImVec2(pmin.x + pad.x + sidebarW - (toggleSize.x / 2), pmin.y + pad.y + (titleH - toggleSize.y) / 2)
-	imgui.SetCursorScreenPos(togglePos)
-	if imgui.Button(toggleIcon, toggleSize) then
-		sidebarCollapsed[0] = not sidebarCollapsed[0]
+	do
+		local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE)
+			or (sidebarCollapsed[0] and ">" or "<")
+
+		local toggleW = titleH - 8
+		local toggleH = titleH - 8
+		local toggleX = winPos.x + pad.x + sidebarW - toggleW - 2
+		local toggleY = winPos.y + pad.y + titleH + 6
+
+		imgui.SetCursorScreenPos(imgui.ImVec2(toggleX, toggleY))
+		imgui.InvisibleButton("##sidebar_toggle", imgui.ImVec2(toggleW, toggleH))
+
+		local hovered = imgui.IsItemHovered()
+		local clicked = imgui.IsItemClicked(0)
+
+		local rmin = imgui.GetItemRectMin()
+		local dl = imgui.GetWindowDrawList()
+
+		local txtCol = hovered and style.Colors[imgui.Col.Text] or style.Colors[imgui.Col.TextDisabled]
+		local textSize = imgui.CalcTextSize(toggleIcon)
+		local textPos = imgui.ImVec2(
+			rmin.x + (toggleW - textSize.x) * 0.5,
+			rmin.y + (toggleH - imgui.GetFontSize()) * 0.5
+		)
+		dl:AddText(textPos, imgui.GetColorU32Vec4(txtCol), toggleIcon)
+
+		if clicked then
+			sidebarCollapsed[0] = not sidebarCollapsed[0]
+		end
 	end
 
 	imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
@@ -301,38 +323,82 @@ end, function()
 	end
 
 	if imgui.BeginChild("menu##vertical", imgui.ImVec2(sidebarW, 0), false) then
-		local menuItems
-		if ok2 and fa then
-			local labelHouse = sidebarCollapsed[0] and fa.HOUSE or (fa.HOUSE .. " Главная")
-			local labelKeyboard = sidebarCollapsed[0] and fa.KEYBOARD or (fa.KEYBOARD .. " Биндер")
-			local labelNewspaper = sidebarCollapsed[0] and fa.NEWSPAPER or (fa.NEWSPAPER .. " СМИ Хелпер")
-			local labelBook = sidebarCollapsed[0] and fa.BOOK or (fa.BOOK .. " Блокнот")
-			local labelCubes = sidebarCollapsed[0] and fa.CUBES or (fa.CUBES .. " Прочее")
-			local labelGear = sidebarCollapsed[0] and fa.GEAR or (fa.GEAR .. " Настройки")
-			menuItems = {
-				{ labelHouse },
-				{ labelKeyboard },
-				{ labelNewspaper },
-				{ labelBook },
-				{ labelCubes },
-				{ labelGear },
-			}
-		else
-			menuItems = {
-				{ sidebarCollapsed[0] and "H" or "Главная" },
-				{ sidebarCollapsed[0] and "B" or "Биндер" },
-				{ sidebarCollapsed[0] and "S" or "СМИ Хелпер" },
-				{ sidebarCollapsed[0] and "N" or "Блокнот" },
-				{ sidebarCollapsed[0] and "M" or "Прочее" },
-				{ sidebarCollapsed[0] and "C" or "Настройки" },
-			}
-		end
-		if mimgui_funcs and mimgui_funcs.customVerticalMenu then
-			currentTab = mimgui_funcs.customVerticalMenu(menuItems, currentTab)
-		else
-			for i, v in ipairs(menuItems) do
-				if imgui.Selectable(v[1], currentTab == i) then
+		if sidebarCollapsed[0] and ok2 and fa then
+			local icons = { fa.HOUSE, fa.KEYBOARD, fa.NEWSPAPER, fa.BOOK, fa.CUBES, fa.GEAR }
+			local tips = { "Главная", "Биндер", "СМИ Хелпер", "Блокнот", "Прочее", "Настройки" }
+			local itemH = 44
+			local dl = imgui.GetWindowDrawList()
+			local style = imgui.GetStyle()
+
+			for i = 1, #icons do
+				imgui.PushIDInt(i)
+				imgui.SetCursorPosX(0)
+
+				local p = imgui.GetCursorScreenPos()
+				imgui.InvisibleButton("##tab", imgui.ImVec2(sidebarW, itemH))
+				local hovered = imgui.IsItemHovered()
+				local clicked = imgui.IsItemClicked(0)
+				local selected = (currentTab == i)
+
+				if hovered or selected then
+					local bg = selected and style.Colors[imgui.Col.HeaderActive] or style.Colors[imgui.Col.HeaderHovered]
+					dl:AddRectFilled(p, imgui.ImVec2(p.x + sidebarW, p.y + itemH), imgui.GetColorU32Vec4(bg), 6)
+				end
+
+				local icon = icons[i]
+				local ts = imgui.CalcTextSize(icon)
+				dl:AddText(
+					imgui.ImVec2(p.x + (sidebarW - ts.x) * 0.5, p.y + (itemH - imgui.GetFontSize()) * 0.5),
+					imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]),
+					icon
+				)
+
+				if hovered then
+					imgui.BeginTooltip()
+					imgui.Text(tips[i])
+					imgui.EndTooltip()
+				end
+
+				if clicked then
 					currentTab = i
+				end
+
+				imgui.PopID()
+			end
+		else
+			local menuItems
+			if ok2 and fa then
+				local labelHouse = sidebarCollapsed[0] and fa.HOUSE or (fa.HOUSE .. " Главная")
+				local labelKeyboard = sidebarCollapsed[0] and fa.KEYBOARD or (fa.KEYBOARD .. " Биндер")
+				local labelNewspaper = sidebarCollapsed[0] and fa.NEWSPAPER or (fa.NEWSPAPER .. " СМИ Хелпер")
+				local labelBook = sidebarCollapsed[0] and fa.BOOK or (fa.BOOK .. " Блокнот")
+				local labelCubes = sidebarCollapsed[0] and fa.CUBES or (fa.CUBES .. " Прочее")
+				local labelGear = sidebarCollapsed[0] and fa.GEAR or (fa.GEAR .. " Настройки")
+				menuItems = {
+					{ labelHouse },
+					{ labelKeyboard },
+					{ labelNewspaper },
+					{ labelBook },
+					{ labelCubes },
+					{ labelGear },
+				}
+			else
+				menuItems = {
+					{ sidebarCollapsed[0] and "H" or "Главная" },
+					{ sidebarCollapsed[0] and "B" or "Биндер" },
+					{ sidebarCollapsed[0] and "S" or "СМИ Хелпер" },
+					{ sidebarCollapsed[0] and "N" or "Блокнот" },
+					{ sidebarCollapsed[0] and "M" or "Прочее" },
+					{ sidebarCollapsed[0] and "C" or "Настройки" },
+				}
+			end
+			if mimgui_funcs and mimgui_funcs.customVerticalMenu then
+				currentTab = mimgui_funcs.customVerticalMenu(menuItems, currentTab)
+			else
+				for i, v in ipairs(menuItems) do
+					if imgui.Selectable(v[1], currentTab == i) then
+						currentTab = i
+					end
 				end
 			end
 		end
