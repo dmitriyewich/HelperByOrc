@@ -814,8 +814,11 @@ function module.saveHotkeys()
 			number = hk._number or idx,
 			inputs = inputs,
 		})
+		end
+	local ok = funcs.saveTableToJson(config, json_path)
+	if not ok then
+		pushToast("Не удалось сохранить бинды", "err", 4.0)
 	end
-	funcs.saveTableToJson(config, json_path)
 end
 
 local function newHotkeyBase()
@@ -905,6 +908,9 @@ function module.registerHotkey(
 end
 
 function module.loadHotkeys()
+	if doesFileExist and not doesFileExist(json_path) then
+		pushToast("Файл биндов не найден, создан новый", "warn", 3.0)
+	end
 	local tbl = funcs.loadTableFromJson(json_path)
 	if type(tbl) == "table" then
 		nextFolderId = 1
@@ -2063,7 +2069,6 @@ local function drawBindsGrid()
 		table.insert(hotkeys, hk)
 		hotkeysDirty = true
 		module.saveHotkeys()
-		pushToast("Добавлен новый бинд", "ok", 2.5)
 	end
 	imgui.Spacing()
 	imgui.Columns(5, "binds_cols", false)
