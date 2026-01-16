@@ -10,6 +10,7 @@ modules.notepad = require("HelperByOrc.notepad")
 modules.SMIHelp = require("HelperByOrc.SMIHelp")
 modules.SMILive = require("HelperByOrc.SMILive")
 modules.weapon_rp = require("HelperByOrc.weapon_rp")
+modules.toasts = require("HelperByOrc.toasts")
 
 for _, m in pairs(modules) do
 	if type(m) == "table" and m.attachModules then

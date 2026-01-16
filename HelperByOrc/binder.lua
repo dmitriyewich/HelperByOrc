@@ -3,7 +3,12 @@ local imgui = require("mimgui")
 local ffi = require("ffi")
 local encoding = require("encoding")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
-local toasts_module = require("HelperByOrc.toasts")
+local toasts_module = {
+	push = function()
+	end,
+	draw = function()
+	end,
+}
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local vk = require("vkeys")
@@ -20,6 +25,7 @@ local quickMenuSize = imgui.ImVec2(260, 280)
 function module.attachModules(mod)
 	funcs = mod.funcs
 	tags = mod.tags
+	toasts_module = mod.toasts
 end
 
 -- Иконки (безопасный фолбэк)
