@@ -7,7 +7,7 @@ local imgui = require("mimgui")
 local ffi = require("ffi")
 
 local funcs
-local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome6_solid") -- необязательно, UI работает и без иконок
+local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome7") -- необязательно, UI работает и без иконок
 local samp
 
 function module.attachModules(mod)

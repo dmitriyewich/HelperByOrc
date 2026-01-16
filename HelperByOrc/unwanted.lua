@@ -15,7 +15,7 @@ local str = ffi.string
 local sizeof = ffi.sizeof
 
 -- ИКОНКИ (fallback на текст)
-local okfa, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
+local okfa, fa = pcall(require, "HelperByOrc.fAwesome7")
 local function I(glyph, text)
 	return (okfa and glyph and (glyph .. " ") or "") .. (text or "")
 end
