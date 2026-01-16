@@ -275,11 +275,20 @@ end, function()
 		end
 	end
 
+	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
+	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
+	local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE)
+		or (sidebarCollapsed[0] and ">" or "<")
+	local toggleSize = imgui.ImVec2(titleH - 6, titleH - 6)
+	local togglePos = imgui.ImVec2(pmin.x + pad.x + sidebarW - (toggleSize.x / 2), pmin.y + pad.y + (titleH - toggleSize.y) / 2)
+	imgui.SetCursorScreenPos(togglePos)
+	if imgui.Button(toggleIcon, toggleSize) then
+		sidebarCollapsed[0] = not sidebarCollapsed[0]
+	end
+
 	imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
 	-- Левая панель: логотип + меню
-	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
-	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
 	imgui.BeginGroup()
 	if imgui.BeginChild("img##logo", imgui.ImVec2(sidebarW, logoSz), false) then
 		if mimgui_funcs and mimgui_funcs.logo then
