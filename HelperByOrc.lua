@@ -293,22 +293,28 @@ end, function()
 	if imgui.BeginChild("menu##vertical", imgui.ImVec2(sidebarW, 0), false) then
 		local menuItems
 		if ok2 and fa then
+			local labelHouse = sidebarCollapsed[0] and fa.HOUSE or (fa.HOUSE .. " Главная")
+			local labelKeyboard = sidebarCollapsed[0] and fa.KEYBOARD or (fa.KEYBOARD .. " Биндер")
+			local labelNewspaper = sidebarCollapsed[0] and fa.NEWSPAPER or (fa.NEWSPAPER .. " СМИ Хелпер")
+			local labelBook = sidebarCollapsed[0] and fa.BOOK or (fa.BOOK .. " Блокнот")
+			local labelCubes = sidebarCollapsed[0] and fa.CUBES or (fa.CUBES .. " Прочее")
+			local labelGear = sidebarCollapsed[0] and fa.GEAR or (fa.GEAR .. " Настройки")
 			menuItems = {
-				{ fa.HOUSE .. " Главная" },
-				{ fa.KEYBOARD .. " Биндер" },
-				{ fa.NEWSPAPER .. " СМИ Хелпер" },
-				{ fa.BOOK .. " Блокнот" },
-				{ fa.CUBES .. " Прочее" },
-				{ fa.GEAR .. " Настройки" },
+				{ labelHouse },
+				{ labelKeyboard },
+				{ labelNewspaper },
+				{ labelBook },
+				{ labelCubes },
+				{ labelGear },
 			}
 		else
 			menuItems = {
-				{ "Главная" },
-				{ "Биндер" },
-				{ "СМИ Хелпер" },
-				{ "Блокнот" },
-				{ "Прочее" },
-				{ "Настройки" },
+				{ sidebarCollapsed[0] and "H" or "Главная" },
+				{ sidebarCollapsed[0] and "B" or "Биндер" },
+				{ sidebarCollapsed[0] and "S" or "СМИ Хелпер" },
+				{ sidebarCollapsed[0] and "N" or "Блокнот" },
+				{ sidebarCollapsed[0] and "M" or "Прочее" },
+				{ sidebarCollapsed[0] and "C" or "Настройки" },
 			}
 		end
 		if mimgui_funcs and mimgui_funcs.customVerticalMenu then
