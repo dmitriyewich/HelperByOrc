@@ -105,7 +105,9 @@ local function clone_buttons(arr)
 end
 
 -- === Toasts ===
-local pushToast = toasts_module.push
+local function pushToast(...)
+	return toasts_module.push(...)
+end
 local active_coroutines = {} -- { hk, co, state, wake }
 local activeInputDialog = nil
 local startHotkeyCoroutine -- forward declaration for dialog handlers
