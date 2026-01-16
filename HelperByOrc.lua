@@ -277,38 +277,6 @@ end, function()
 
 	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
 	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
-	do
-		local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE) or ""
-		if toggleIcon == "" then
-			toggleIcon = sidebarCollapsed[0] and ">" or "<"
-		end
-
-		local toggleW = titleH - 8
-		local toggleH = titleH - 8
-		local toggleX = winPos.x + pad.x + sidebarW - toggleW - 2
-		local toggleY = winPos.y + pad.y + titleH + 6
-
-		imgui.SetCursorScreenPos(imgui.ImVec2(toggleX, toggleY))
-		imgui.InvisibleButton("##sidebar_toggle", imgui.ImVec2(toggleW, toggleH))
-
-		local hovered = imgui.IsItemHovered()
-		local clicked = imgui.IsItemClicked(0)
-
-		local rmin = imgui.GetItemRectMin()
-		local dl = imgui.GetWindowDrawList()
-
-		local txtCol = hovered and style.Colors[imgui.Col.Text] or style.Colors[imgui.Col.TextDisabled]
-		local textSize = imgui.CalcTextSize(toggleIcon)
-		local textPos = imgui.ImVec2(
-			rmin.x + (toggleW - textSize.x) * 0.5,
-			rmin.y + (toggleH - imgui.GetFontSize()) * 0.5
-		)
-		dl:AddText(textPos, imgui.GetColorU32Vec4(txtCol), toggleIcon)
-
-		if clicked then
-			sidebarCollapsed[0] = not sidebarCollapsed[0]
-		end
-	end
 
 	imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
@@ -405,6 +373,42 @@ end, function()
 			end
 		end
 		imgui.EndChild()
+	end
+
+	do
+		local toggleIcon = fa and (sidebarCollapsed[0] and fa.ARROW_RIGHT_FROM_LINE or fa.ARROW_LEFT_TO_LINE) or ""
+		if toggleIcon == "" then
+			toggleIcon = sidebarCollapsed[0] and ">" or "<"
+		end
+
+		local toggleW = titleH - 8
+		local toggleH = titleH - 8
+		local toggleX = winPos.x + pad.x + sidebarW - toggleW - 2
+		local toggleY = winPos.y + pad.y + titleH + 6
+		local cursorPos = imgui.GetCursorPos()
+
+		imgui.SetCursorScreenPos(imgui.ImVec2(toggleX, toggleY))
+		imgui.InvisibleButton("##sidebar_toggle", imgui.ImVec2(toggleW, toggleH))
+
+		local hovered = imgui.IsItemHovered()
+		local clicked = imgui.IsItemClicked(0)
+
+		local rmin = imgui.GetItemRectMin()
+		local dl = imgui.GetWindowDrawList()
+
+		local txtCol = hovered and style.Colors[imgui.Col.Text] or style.Colors[imgui.Col.TextDisabled]
+		local textSize = imgui.CalcTextSize(toggleIcon)
+		local textPos = imgui.ImVec2(
+			rmin.x + (toggleW - textSize.x) * 0.5,
+			rmin.y + (toggleH - imgui.GetFontSize()) * 0.5
+		)
+		dl:AddText(textPos, imgui.GetColorU32Vec4(txtCol), toggleIcon)
+
+		if clicked then
+			sidebarCollapsed[0] = not sidebarCollapsed[0]
+		end
+
+		imgui.SetCursorPos(cursorPos)
 	end
 	imgui.EndGroup()
 
