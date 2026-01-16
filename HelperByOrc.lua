@@ -209,7 +209,11 @@ end, function()
 	imgui.Begin(
 		"HelperByOrc",
 		renderHotkeyWnd,
-		imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoCollapse
+		imgui.WindowFlags.NoMove
+			+ imgui.WindowFlags.NoTitleBar
+			+ imgui.WindowFlags.NoCollapse
+			+ imgui.WindowFlags.NoScrollbar
+			+ imgui.WindowFlags.NoScrollWithMouse
 	)
 	mainPos = imgui.GetWindowPos()
 	mainSize = imgui.GetWindowSize()
@@ -295,7 +299,14 @@ end, function()
 	if imgui.BeginChild("menu##vertical", imgui.ImVec2(sidebarW, 0), false) then
 		if sidebarCollapsed[0] and ok2 and fa then
 			local icons = { fa.HOUSE, fa.KEYBOARD, fa.NEWSPAPER, fa.BOOK, fa.CUBES, fa.GEAR }
-			local tips = { "Главная", "Биндер", "СМИ Хелпер", "Блокнот", "Прочее", "Настройки" }
+			local tips = {
+				"Главная",
+				"Биндер",
+				"СМИ Хелпер",
+				"Блокнот",
+				"Прочее",
+				"Настройки",
+			}
 			local itemH = 44
 			local dl = imgui.GetWindowDrawList()
 			local style = imgui.GetStyle()
@@ -311,7 +322,8 @@ end, function()
 				local selected = (currentTab == i)
 
 				if hovered or selected then
-					local bg = selected and style.Colors[imgui.Col.HeaderActive] or style.Colors[imgui.Col.HeaderHovered]
+					local bg = selected and style.Colors[imgui.Col.HeaderActive]
+						or style.Colors[imgui.Col.HeaderHovered]
 					dl:AddRectFilled(p, imgui.ImVec2(p.x + sidebarW, p.y + itemH), imgui.GetColorU32Vec4(bg), 6)
 				end
 
@@ -398,10 +410,8 @@ end, function()
 
 		local txtCol = hovered and style.Colors[imgui.Col.Text] or style.Colors[imgui.Col.TextDisabled]
 		local textSize = imgui.CalcTextSize(toggleIcon)
-		local textPos = imgui.ImVec2(
-			rmin.x + (toggleW - textSize.x) * 0.5,
-			rmin.y + (toggleH - imgui.GetFontSize()) * 0.5
-		)
+		local textPos =
+			imgui.ImVec2(rmin.x + (toggleW - textSize.x) * 0.5, rmin.y + (toggleH - imgui.GetFontSize()) * 0.5)
 		dl:AddText(textPos, imgui.GetColorU32Vec4(txtCol), toggleIcon)
 
 		if clicked then
