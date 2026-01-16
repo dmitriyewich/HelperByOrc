@@ -283,7 +283,8 @@ end, function()
 	imgui.BeginGroup()
 	if imgui.BeginChild("img##logo", imgui.ImVec2(sidebarW, logoSz), false) then
 		if mimgui_funcs and mimgui_funcs.logo then
-			mimgui_funcs.drawOrcLogoZoom(mimgui_funcs.logo, currentTab, imgui.ImVec2(128, 128), 1.2)
+			local logoZoom = sidebarCollapsed[0] and 0.9 or 1.2
+			mimgui_funcs.drawOrcLogoZoom(mimgui_funcs.logo, currentTab, imgui.ImVec2(logoSz, logoSz), logoZoom)
 		else
 			imgui.Text("HelperByOrc")
 		end
