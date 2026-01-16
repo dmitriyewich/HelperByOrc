@@ -53,19 +53,22 @@ function module.draw()
 	end
 
 	local vpPosX, vpPosY, vpW = getViewport()
-	local pad = 8
-	imgui.SetNextWindowPos(imgui.ImVec2(vpPosX + vpW - 350 - pad, vpPosY + pad), imgui.Cond.Always)
-	imgui.SetNextWindowSize(imgui.ImVec2(350, 0), imgui.Cond.Always)
+	local pad = 12
+	local windowW = 420
+	local windowX = vpPosX + (vpW - windowW) * 0.5
+	local windowY = vpPosY + pad
+	imgui.SetNextWindowPos(imgui.ImVec2(windowX, windowY), imgui.Cond.Always)
+	imgui.SetNextWindowSize(imgui.ImVec2(windowW, 0), imgui.Cond.Always)
 
 	imgui.Begin(
 		"Notifications##toasts",
 		nil,
-		imgui.WindowFlags.NoCollapse
-			+ imgui.WindowFlags.NoResize
+		imgui.WindowFlags.NoDecoration
 			+ imgui.WindowFlags.NoMove
 			+ imgui.WindowFlags.AlwaysAutoResize
 			+ imgui.WindowFlags.NoNav
 			+ imgui.WindowFlags.NoFocusOnAppearing
+			+ imgui.WindowFlags.NoInputs
 	)
 	for i, toast in ipairs(toasts) do
 		imgui.PushStyleColor(imgui.Col.Text, toastColor(toast.kind))
