@@ -176,6 +176,11 @@ local currentTab = 1 -- Индекс вкладки
 local miscPage = 0 -- 0 - меню, >0 - страницы настроек
 local mainPos = imgui.ImVec2(10, 10)
 local mainSize -- will init on first frame
+local sidebarCollapsed = imgui.new.bool(false)
+local SIDEBAR_W_EXPANDED = 128
+local SIDEBAR_W_COLLAPSED = 44
+local LOGO_SZ_EXPANDED = 128
+local LOGO_SZ_COLLAPSED = 44
 local ImageButton_color = imgui.ImVec4(1, 1, 1, 1)
 -- модули, загружаемые в main()
 
