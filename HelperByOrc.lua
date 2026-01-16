@@ -13,7 +13,7 @@ local SMIHelp
 local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp
 
 -- === FontAwesome ===
-local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
+local ok2, fa = pcall(require, "HelperByOrc.fAwesome7")
 
 -- === Интерфейсные переменные ===
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\HelperByOrc.json"

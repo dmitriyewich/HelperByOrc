@@ -22,7 +22,7 @@ function module.attachModules(mod)
 end
 
 -- Иконки (безопасный фолбэк)
-local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
+local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome7")
 if not ok_fa or type(fa) ~= "table" then
 	fa = setmetatable({}, {
 		__index = function()

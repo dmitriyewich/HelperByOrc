@@ -7,7 +7,7 @@ local u8 = encoding.UTF8
 local new = imgui.new
 
 local mimgui_funcs
-local ok2, fa = pcall(require, "HelperByOrc.fAwesome6_solid")
+local ok2, fa = pcall(require, "HelperByOrc.fAwesome7")
 local funcs
 
 function module.attachModules(mod)
