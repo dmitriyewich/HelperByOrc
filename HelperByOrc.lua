@@ -278,8 +278,10 @@ end, function()
 	imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
 	-- Левая панель: логотип + меню
+	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
+	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
 	imgui.BeginGroup()
-	if imgui.BeginChild("img##logo", imgui.ImVec2(128, 128), false) then
+	if imgui.BeginChild("img##logo", imgui.ImVec2(sidebarW, logoSz), false) then
 		if mimgui_funcs and mimgui_funcs.logo then
 			mimgui_funcs.drawOrcLogoZoom(mimgui_funcs.logo, currentTab, imgui.ImVec2(128, 128), 1.2)
 		else
@@ -288,7 +290,7 @@ end, function()
 		imgui.EndChild()
 	end
 
-	if imgui.BeginChild("menu##vertical", imgui.ImVec2(128, 0), false) then
+	if imgui.BeginChild("menu##vertical", imgui.ImVec2(sidebarW, 0), false) then
 		local menuItems
 		if ok2 and fa then
 			menuItems = {
