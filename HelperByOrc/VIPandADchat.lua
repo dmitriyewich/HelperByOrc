@@ -1021,7 +1021,18 @@ local function draw_chatbox_window()
 			end
 
 			if imgui.BeginTabItem("VIP") then
-				imgui.TextDisabled("TODO")
+				local vip = config.table_config.vip_text or {}
+				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
+					local clipper = imgui.ImGuiListClipper(#vip)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local text_cp = vip[i] or ""
+							local text = strip_color_tags(u8(text_cp))
+							imgui.TextUnformatted(text)
+						end
+					end
+				end
+				imgui.EndChild()
 				imgui.EndTabItem()
 			end
 
