@@ -1,9 +1,11 @@
 local imgui = require("mimgui")
+local funcs = require("HelperByOrc.funcs")
 
 local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
-local cfg = {
+local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\toasts.json"
+local cfgDefaults = {
 	anchor = "top_center",
 	maxQueue = 8,
 	maxVisible = 8,
@@ -21,6 +23,37 @@ local cfg = {
 	padY = 10,
 	enabled = true,
 }
+
+local function normalizeConfig(raw)
+	local out = {}
+	out.anchor = (raw.anchor == "top_center" or raw.anchor == "top_right") and raw.anchor or cfgDefaults.anchor
+	out.maxQueue = math.max(1, tonumber(raw.maxQueue) or cfgDefaults.maxQueue)
+	out.maxVisible = math.max(1, tonumber(raw.maxVisible) or cfgDefaults.maxVisible)
+	out.width = math.max(1, tonumber(raw.width) or cfgDefaults.width)
+	out.offsetX = tonumber(raw.offsetX) or cfgDefaults.offsetX
+	out.offsetY = tonumber(raw.offsetY) or cfgDefaults.offsetY
+	out.durOk = tonumber(raw.durOk) or cfgDefaults.durOk
+	out.durWarn = tonumber(raw.durWarn) or cfgDefaults.durWarn
+	out.durErr = tonumber(raw.durErr) or cfgDefaults.durErr
+	out.fadeIn = math.max(0, tonumber(raw.fadeIn) or cfgDefaults.fadeIn)
+	out.fadeOut = math.max(0, tonumber(raw.fadeOut) or cfgDefaults.fadeOut)
+	out.bgAlpha = tonumber(raw.bgAlpha) or cfgDefaults.bgAlpha
+	out.rounding = math.max(0, tonumber(raw.rounding) or cfgDefaults.rounding)
+	out.padX = tonumber(raw.padX) or cfgDefaults.padX
+	out.padY = tonumber(raw.padY) or cfgDefaults.padY
+	out.enabled = type(raw.enabled) == "boolean" and raw.enabled or cfgDefaults.enabled
+	return out
+end
+
+local function loadConfig()
+	if funcs and funcs.loadTableFromJson then
+		local loaded = funcs.loadTableFromJson(CONFIG_PATH, cfgDefaults)
+		return normalizeConfig(type(loaded) == "table" and loaded or cfgDefaults)
+	end
+	return normalizeConfig(cfgDefaults)
+end
+
+local cfg = loadConfig()
 local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
 local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
 local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
