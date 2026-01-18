@@ -447,7 +447,7 @@ end
 
 if imgui and imgui.OnFrame then
 	local frame = imgui.OnFrame(function()
-		return #toasts > 0
+		return cfg.enabled and #toasts > 0
 	end, function()
 		module.draw()
 	end)
