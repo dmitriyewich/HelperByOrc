@@ -669,6 +669,8 @@ local all_autoscroll = true
 local all_last_count = 0
 local vip_autoscroll = true
 local vip_last_count = 0
+local ad_autoscroll = true
+local ad_last_count = 0
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1232,6 +1234,14 @@ local function draw_chatbox_window()
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
+
+					if ad_last_count ~= #ad and ad_autoscroll then
+						imgui.SetScrollHereY(1.0)
+					end
+
+					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
+					ad_autoscroll = at_bottom
+					ad_last_count = #ad
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
