@@ -1270,7 +1270,9 @@ end, function(frame)
 
 	imgui.Process = chat_open or popup_target.pending_open or popup_target.was_open_last
 
-	local allow_process, want_cursor, popup_open = draw_chatbox_window()
+	local ui_mode = (config and (config.ui_mode or default_config.ui_mode)) or "chatbox"
+	local draw_fn = ui_mode == "lines" and draw_feed or draw_chatbox_window
+	local allow_process, want_cursor, popup_open = draw_fn()
 	imgui.Process = allow_process
 
 	popup_target.was_open_last = popup_open
