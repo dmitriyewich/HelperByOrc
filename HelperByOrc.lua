@@ -10,7 +10,7 @@ local u8 = encoding.UTF8
 -- модули будут загружены в main()
 local mimgui_funcs
 local SMIHelp
-local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp
+local samp, Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp, toasts
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, "HelperByOrc.fAwesome7")
@@ -569,6 +569,9 @@ end, function()
 					"Комбинация используется для открытия/закрытия окна HelperByOrc."
 				)
 			end
+			if toasts and toasts.DrawSettingsInline then
+				toasts.DrawSettingsInline()
+			end
 		else
 			imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "HelperByOrc")
 			imgui.Separator()
@@ -675,6 +678,7 @@ function main()
 	notepad = modules.notepad
 	VIPandADchat = modules.VIPandADchat
 	weapon_rp = modules.weapon_rp
+	toasts = modules.toasts
 
 	if weapon_rp and weapon_rp.start then
 		weapon_rp.start()
