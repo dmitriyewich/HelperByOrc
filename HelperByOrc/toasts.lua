@@ -210,21 +210,6 @@ function module.draw()
 		pivotX = 1
 		pivotY = 1
 	end
-	local fadeOut = cfg.fadeOut
-	local fadeIn = cfg.fadeIn
-	local newestToast = toasts[#toasts]
-	local alpha = 1.0
-	if newestToast and newestToast.dur and newestToast.t then
-		local age = now - newestToast.t
-		local remain = newestToast.dur - age
-		if fadeOut > 0 and remain < fadeOut then
-			alpha = math.max(0.0, remain / fadeOut)
-		end
-		if fadeIn > 0 and age < fadeIn then
-			alpha = math.min(alpha, age / fadeIn)
-		end
-	end
-	imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha)
 	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, cfg.rounding)
 	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(cfg.padX, cfg.padY))
 	imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.08, 0.08, 0.08, cfg.bgAlpha))
@@ -244,17 +229,30 @@ function module.draw()
 	local startIndex = math.max(1, #toasts - cfg.maxVisible + 1)
 	for i = startIndex, #toasts do
 		local toast = toasts[i]
+		local life = now - toast.t
+		local alpha = 1.0
+		if cfg.fadeIn > 0 and life < cfg.fadeIn then
+			alpha = life / cfg.fadeIn
+		else
+			local remain = toast.dur - life
+			if cfg.fadeOut > 0 and remain < cfg.fadeOut then
+				alpha = remain / cfg.fadeOut
+			end
+		end
+		alpha = math.max(0.0, math.min(1.0, alpha))
+		imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha)
 		imgui.PushStyleColor(imgui.Col.Text, toastColor(toast.kind))
 		local suffix = toast.count and toast.count > 1 and (" x" .. tostring(toast.count)) or ""
 		imgui.TextWrapped(toast.text .. suffix)
 		imgui.PopStyleColor()
+		imgui.PopStyleVar(1)
 		if i < #toasts then
 			imgui.Spacing()
 		end
 	end
 	imgui.End()
 	imgui.PopStyleColor()
-	imgui.PopStyleVar(3)
+	imgui.PopStyleVar(2)
 end
 
 function module.attachModules(mod)
