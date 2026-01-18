@@ -4,12 +4,19 @@ local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local MAX_TOASTS = 8
+local anchor = "top_center"
 
 local function nowSec()
 	if imgui.GetTime then
 		return imgui.GetTime()
 	end
 	return os.clock()
+end
+
+function module.setAnchor(a)
+	if a == "top_center" or a == "top_right" then
+		anchor = a
+	end
 end
 
 function module.push(text, kind, dur)
@@ -55,10 +62,6 @@ local function pruneToasts(now)
 end
 
 local function getViewport()
-	if imgui.GetMainViewport then
-		local vp = imgui.GetMainViewport()
-		return vp.Pos.x, vp.Pos.y, vp.Size.x, vp.Size.y
-	end
 	local io = imgui.GetIO()
 	return 0, 0, io.DisplaySize.x, io.DisplaySize.y
 end
@@ -87,7 +90,13 @@ function module.draw()
 	local vpPosX, vpPosY, vpW = getViewport()
 	local pad = 12
 	local windowW = 420
-	local windowX = vpPosX + (vpW - windowW) * 0.5
+	windowW = math.max(1, math.min(windowW, vpW - pad * 2))
+	local windowX
+	if anchor == "top_right" then
+		windowX = vpPosX + vpW - windowW - pad
+	else
+		windowX = vpPosX + (vpW - windowW) * 0.5
+	end
 	local windowY = vpPosY + pad
 	local fadeDuration = 0.35
 	local newestToast = toasts[#toasts]
