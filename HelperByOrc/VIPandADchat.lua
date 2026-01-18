@@ -122,6 +122,15 @@ local default_config = {
 		max_lines = 14,
 		chars_per_line = 70,
 	},
+	chatbox = {
+		enabled = true,
+		pos_x = 30,
+		pos_y = 600,
+		width = 520,
+		height = 210,
+		bg_alpha = 0.35,
+		rounding = 8,
+	},
 }
 
 function module.isEnabled()
@@ -517,6 +526,8 @@ function module.load()
 	merge_defaults(config.timestamp, default_config.timestamp)
 	config.popup = config.popup or clone_table(default_config.popup)
 	merge_defaults(config.popup, default_config.popup)
+	config.chatbox = config.chatbox or clone_table(default_config.chatbox)
+	merge_defaults(config.chatbox, default_config.chatbox)
 end
 
 function module.save()
