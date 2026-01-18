@@ -653,6 +653,8 @@ end
 module.showFeedWindow = imgui.new.bool(false)
 local scroll = { vip = 0.0, ad = 0.0 }
 local vip_wrap_cache = { width = 0, src_count = 0, lines = {} }
+local ad_wrap_cache = { width = 0, src_count = 0, lines = {} }
+local all_wrap_cache = { width = 0, src_count = 0, lines = {} }
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1068,14 +1070,29 @@ local function draw_chatbox_window()
 			if imgui.BeginTabItem("ALL") then
 				local all = config.table_config.all or {}
 				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
-					local clipper = imgui.ImGuiListClipper(#all)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					if all_wrap_cache.width ~= max_px or all_wrap_cache.src_count ~= #all then
+						local lines = {}
+						for i = 1, #all do
 							local entry = all[i] or {}
 							local text_cp = entry.text or ""
 							local prefix = entry.kind == "ad" and "AD: " or "VIP: "
 							local text = strip_color_tags(u8(text_cp))
-							imgui.TextUnformatted(prefix .. text)
+							local wrapped = wrap_to_lines(prefix .. text, max_px)
+							for j = 1, #wrapped do
+								lines[#lines + 1] = wrapped[j]
+							end
+						end
+						all_wrap_cache.width = max_px
+						all_wrap_cache.src_count = #all
+						all_wrap_cache.lines = lines
+					end
+
+					local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = all_wrap_cache.lines[i] or ""
+							imgui.TextUnformatted(line)
 						end
 					end
 				end
@@ -1117,13 +1134,28 @@ local function draw_chatbox_window()
 			if imgui.BeginTabItem("AD") then
 				local ad = config.table_config.ad_text or {}
 				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
-					local clipper = imgui.ImGuiListClipper(#ad)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					if ad_wrap_cache.width ~= max_px or ad_wrap_cache.src_count ~= #ad then
+						local lines = {}
+						for i = 1, #ad do
 							local entry = ad[i] or {}
 							local text_cp = entry[1] or ""
 							local text = strip_color_tags(u8(text_cp))
-							imgui.TextUnformatted(text)
+							local wrapped = wrap_to_lines(text, max_px)
+							for j = 1, #wrapped do
+								lines[#lines + 1] = wrapped[j]
+							end
+						end
+						ad_wrap_cache.width = max_px
+						ad_wrap_cache.src_count = #ad
+						ad_wrap_cache.lines = lines
+					end
+
+					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = ad_wrap_cache.lines[i] or ""
+							imgui.TextUnformatted(line)
 						end
 					end
 				end
