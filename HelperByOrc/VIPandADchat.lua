@@ -1174,6 +1174,7 @@ local function draw_chatbox_window()
 		return false, false, false
 	end
 
+	local is_chat_open = get_is_chat_open()
 	local cfg = config.chatbox or default_config.chatbox
 	if not cfg or cfg.enabled == false then
 		return false, false, false
@@ -1422,11 +1423,17 @@ local function draw_chatbox_window()
 		cfg.width = wsize.x
 		cfg.height = wsize.y
 
-		hovered = imgui.IsWindowHovered()
+	hovered = imgui.IsWindowHovered()
 	end
 	imgui.End()
 
-	return hovered or popup_open, hovered or popup_open, popup_open
+	local allow_process = is_chat_open
+		or popup_target.pending_open
+		or popup_open
+		or popup_target.was_open_last
+	local want_cursor = popup_target.pending_open or popup_open or hovered
+
+	return allow_process, want_cursor, popup_open
 end
 
 -- ===================== ONFRAME =====================
