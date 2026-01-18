@@ -766,11 +766,11 @@ local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
 local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
 local all_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
 local all_autoscroll = true
-local all_last_count = 0
+local all_last_rev = 0
 local vip_autoscroll = true
-local vip_last_count = 0
+local vip_last_rev = 0
 local ad_autoscroll = true
-local ad_last_count = 0
+local ad_last_rev = 0
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1246,13 +1246,13 @@ local function draw_chatbox_window()
 						end
 					end
 
-					if all_last_count ~= #all and all_autoscroll then
+					if all_last_rev ~= data_rev.all and all_autoscroll then
 						imgui.SetScrollHereY(1.0)
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
 					all_autoscroll = at_bottom
-					all_last_count = #all
+					all_last_rev = data_rev.all
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
@@ -1308,13 +1308,13 @@ local function draw_chatbox_window()
 						end
 					end
 
-					if vip_last_count ~= #vip and vip_autoscroll then
+					if vip_last_rev ~= data_rev.vip and vip_autoscroll then
 						imgui.SetScrollHereY(1.0)
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
 					vip_autoscroll = at_bottom
-					vip_last_count = #vip
+					vip_last_rev = data_rev.vip
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
@@ -1371,13 +1371,13 @@ local function draw_chatbox_window()
 						end
 					end
 
-					if ad_last_count ~= #ad and ad_autoscroll then
+					if ad_last_rev ~= data_rev.ad and ad_autoscroll then
 						imgui.SetScrollHereY(1.0)
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
 					ad_autoscroll = at_bottom
-					ad_last_count = #ad
+					ad_last_rev = data_rev.ad
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
