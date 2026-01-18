@@ -1607,6 +1607,40 @@ draw_settings_content = function()
 	end
 
 	imgui.Separator()
+	imgui.Text("Timestamp")
+	config.timestamp = config.timestamp or clone_table(default_config.timestamp)
+	local timestamp = config.timestamp
+	local timestamp_enabled = imgui.new.bool(timestamp.enabled ~= false)
+	if imgui.Checkbox("Показывать время", timestamp_enabled) then
+		timestamp.enabled = timestamp_enabled[0] and true or false
+		module.save()
+	end
+
+	local timestamp_scale = imgui.new.float(timestamp.scale or 0.5)
+	if imgui.SliderFloat("Scale", timestamp_scale, 0.2, 1.0) then
+		timestamp.scale = clamp(timestamp_scale[0], 0.2, 1.0)
+		module.save()
+	end
+
+	local timestamp_padding = imgui.new.float(timestamp.padding or 0)
+	if imgui.SliderFloat("Padding", timestamp_padding, 0, 10) then
+		timestamp.padding = clamp(timestamp_padding[0], 0, 10)
+		module.save()
+	end
+
+	local timestamp_offset_y = imgui.new.float(timestamp.offset_y or 0)
+	if imgui.SliderFloat("Offset Y", timestamp_offset_y, -10, 10) then
+		timestamp.offset_y = clamp(timestamp_offset_y[0], -10, 10)
+		module.save()
+	end
+
+	local timestamp_align_baseline = imgui.new.bool(timestamp.align_baseline ~= false)
+	if imgui.Checkbox("Align baseline", timestamp_align_baseline) then
+		timestamp.align_baseline = timestamp_align_baseline[0] and true or false
+		module.save()
+	end
+
+	imgui.Separator()
 	imgui.Text("Лимиты")
 	local vip_limit = ffi.new("int[1]", tonumber(config.vip_limit) or default_config.vip_limit or 100)
 	if imgui.InputInt("vip_limit", vip_limit) then
