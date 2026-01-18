@@ -87,17 +87,17 @@ function module.draw()
 		return
 	end
 
-	local vpPosX, vpPosY, vpW = getViewport()
+	local vpX, vpY, vpW, vpH = getViewport()
 	local pad = 12
 	local windowW = 420
 	windowW = math.max(1, math.min(windowW, vpW - pad * 2))
 	local windowX
 	if anchor == "top_right" then
-		windowX = vpPosX + vpW - windowW - pad
+		windowX = vpX + vpW - windowW - pad
 	else
-		windowX = vpPosX + (vpW - windowW) * 0.5
+		windowX = vpX + (vpW - windowW) * 0.5
 	end
-	local windowY = vpPosY + pad
+	local windowY = vpY + pad
 	local fadeDuration = 0.35
 	local newestToast = toasts[#toasts]
 	local alpha = 1.0
