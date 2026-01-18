@@ -1092,9 +1092,8 @@ local function draw_chatbox_window()
 						for i = 1, #all do
 							local entry = all[i] or {}
 							local text_cp = entry.text or ""
-							local prefix = entry.kind == "ad" and "AD: " or "VIP: "
 							local text = strip_color_tags(u8(text_cp))
-							local wrapped = wrap_to_lines(prefix .. text, max_px)
+							local wrapped = wrap_to_lines(text, max_px)
 							for j = 1, #wrapped do
 								lines[#lines + 1] = {
 									text = wrapped[j],
