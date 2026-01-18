@@ -94,6 +94,7 @@ local default_config = {
 	width = 900,
 	vip_height = 7,
 	ad_height = 7,
+	ui_mode = "chatbox",
 	highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
 	timestamp = {
 		enabled = true,
