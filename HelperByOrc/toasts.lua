@@ -3,12 +3,14 @@ local imgui = require("mimgui")
 local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
+local history = {}
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\toasts.json"
 local funcs
 local cfgDefaults = {
 	anchor = "top_center",
 	maxQueue = 8,
 	maxVisible = 8,
+	historyLimit = 200,
 	width = 420,
 	offsetX = 12,
 	offsetY = 12,
@@ -40,6 +42,7 @@ local function normalizeConfig(raw)
 	end
 	out.maxQueue = math.max(1, tonumber(raw.maxQueue) or cfgDefaults.maxQueue)
 	out.maxVisible = math.max(1, tonumber(raw.maxVisible) or cfgDefaults.maxVisible)
+	out.historyLimit = math.max(0, tonumber(raw.historyLimit) or cfgDefaults.historyLimit)
 	out.width = math.max(1, tonumber(raw.width) or cfgDefaults.width)
 	out.offsetX = tonumber(raw.offsetX) or cfgDefaults.offsetX
 	out.offsetY = tonumber(raw.offsetY) or cfgDefaults.offsetY
@@ -83,6 +86,27 @@ local function markConfigDirty()
 	cfgDirtyAt = nowSec()
 end
 
+local function addHistory(toast, reason)
+	history[#history + 1] = {
+		text = toast.text,
+		kind = toast.kind,
+		t = toast.t,
+		dur = toast.dur,
+		count = toast.count or 1,
+		reason = reason,
+	}
+	local limit = cfg.historyLimit
+	if limit > 0 and #history > limit then
+		local over = #history - limit
+		for i = 1 + over, #history do
+			history[i - over] = history[i]
+		end
+		for i = #history - over + 1, #history do
+			history[i] = nil
+		end
+	end
+end
+
 function module.setAnchor(a)
 	if
 		a == "top_left"
@@ -94,6 +118,16 @@ function module.setAnchor(a)
 	then
 		cfg.anchor = a
 		markConfigDirty()
+	end
+end
+
+function module.getHistory()
+	return history
+end
+
+function module.clearHistory()
+	for i = #history, 1, -1 do
+		history[i] = nil
 	end
 end
 
@@ -118,6 +152,10 @@ function module.push(text, kind, dur)
 		return
 	end
 	if #toasts >= cfg.maxQueue then
+		local removed = toasts[1]
+		if removed then
+			addHistory(removed, "queue")
+		end
 		for i = 2, #toasts do
 			toasts[i - 1] = toasts[i]
 		end
@@ -141,6 +179,8 @@ local function pruneToasts(now)
 				toasts[write] = toast
 			end
 			write = write + 1
+		else
+			addHistory(toast, "expired")
 		end
 	end
 	for i = write, #toasts do
