@@ -223,6 +223,94 @@ local function wrap_to_lines(text, max_px)
 	return lines
 end
 
+local function wrap_to_lines_keep_tags(text_with_tags, max_px)
+	local lines = {}
+	local cleaned = tostring(text_with_tags or "")
+	if cleaned == "" then
+		lines[1] = ""
+		return lines
+	end
+
+	local words = {}
+	local current_tag = ""
+	local i = 1
+	while i <= #cleaned do
+		while i <= #cleaned and cleaned:sub(i, i):match("%s") do
+			i = i + 1
+		end
+		if i > #cleaned then
+			break
+		end
+
+		local raw = ""
+		local visible = ""
+		local last_tag = nil
+		while i <= #cleaned and not cleaned:sub(i, i):match("%s") do
+			if cleaned:sub(i, i) == "{" then
+				local tag = cleaned:match("^%b{}", i)
+				if tag and tag:match("^%{[%x][%x][%x][%x][%x][%x]%}$") then
+					raw = raw .. tag
+					last_tag = tag
+					i = i + #tag
+				else
+					local ch = cleaned:sub(i, i)
+					raw = raw .. ch
+					visible = visible .. ch
+					i = i + 1
+				end
+			else
+				local ch = cleaned:sub(i, i)
+				raw = raw .. ch
+				visible = visible .. ch
+				i = i + 1
+			end
+		end
+		words[#words + 1] = { raw = raw, visible = visible, last_tag = last_tag }
+	end
+
+	if #words == 0 then
+		lines[1] = ""
+		return lines
+	end
+
+	local font = imgui.GetFont()
+	local fsize = imgui.GetFontSize()
+	local current_visible = ""
+	local current_raw = ""
+	current_tag = ""
+	for idx = 1, #words do
+		local word = words[idx]
+		local word_visible = word.visible or ""
+		local word_raw = word.raw or ""
+		local next_visible = current_visible == "" and word_visible or (current_visible .. " " .. word_visible)
+
+		if text_size(next_visible, font, fsize) <= max_px or current_visible == "" then
+			if current_raw == "" then
+				current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
+			else
+				current_raw = current_raw .. " " .. word_raw
+			end
+			current_visible = next_visible
+		else
+			lines[#lines + 1] = current_raw
+			current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
+			current_visible = word_visible
+		end
+
+		if word.last_tag and word.last_tag ~= "" then
+			current_tag = word.last_tag
+		end
+	end
+
+	if current_raw ~= "" then
+		lines[#lines + 1] = current_raw
+	end
+	if #lines == 0 then
+		lines[1] = ""
+	end
+	return lines
+end
+
 local function get_is_chat_open()
 	if samp and samp.is_chat_opened then
 		local ok, v = pcall(samp.is_chat_opened)
