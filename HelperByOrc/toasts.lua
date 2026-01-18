@@ -255,7 +255,7 @@ function module.DrawSettingsInline()
 	end
 
 	imgui.Separator()
-	if imgui.TreeNode("История") then
+	if imgui.TreeNodeStr("История") then
 		if imgui.Button("Очистить") then
 			module.clearHistory()
 		end
