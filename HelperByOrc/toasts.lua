@@ -1,10 +1,10 @@
 local imgui = require("mimgui")
-local funcs = require("HelperByOrc.funcs")
 
 local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\toasts.json"
+local funcs
 local cfgDefaults = {
 	anchor = "top_center",
 	maxQueue = 8,
@@ -64,7 +64,7 @@ local function loadConfig()
 	return normalizeConfig(cfgDefaults)
 end
 
-local cfg = loadConfig()
+local cfg = normalizeConfig(cfgDefaults)
 local cfgDirty = false
 local cfgDirtyAt = 0
 local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
@@ -255,6 +255,11 @@ function module.draw()
 	imgui.End()
 	imgui.PopStyleColor()
 	imgui.PopStyleVar(3)
+end
+
+function module.attachModules(mod)
+	funcs = mod.funcs
+	cfg = loadConfig()
 end
 
 if imgui and imgui.OnFrame then
