@@ -95,6 +95,9 @@ local default_config = {
 	vip_height = 7,
 	ad_height = 7,
 	ui_mode = "chatbox",
+	vip_limit = 100,
+	ad_limit = 100,
+	all_limit = 200,
 	highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
 	timestamp = {
 		enabled = true,
@@ -782,12 +785,14 @@ function module.AddVIPMessage(text)
 	end
 	local t = config.table_config.vip_text
 	t[#t + 1] = text
-	if #t > 100 then
+	local vip_limit = tonumber(config.vip_limit) or default_config.vip_limit or 100
+	while #t > vip_limit do
 		table.remove(t, 1)
 	end
 	local all = config.table_config.all
 	all[#all + 1] = { kind = "vip", text = text, src_index = #t }
-	if #all > 200 then
+	local all_limit = tonumber(config.all_limit) or default_config.all_limit or 200
+	while #all > all_limit do
 		table.remove(all, 1)
 	end
 	data_rev.vip = data_rev.vip + 1
@@ -801,12 +806,14 @@ function module.AddADMessage(main, edited, toredact)
 	end
 	local t = config.table_config.ad_text
 	t[#t + 1] = { main, edited or "", toredact or "" }
-	if #t > 100 then
+	local ad_limit = tonumber(config.ad_limit) or default_config.ad_limit or 100
+	while #t > ad_limit do
 		table.remove(t, 1)
 	end
 	local all = config.table_config.all
 	all[#all + 1] = { kind = "ad", text = main, edited = edited or "", toredact = toredact or "", src_index = #t }
-	if #all > 200 then
+	local all_limit = tonumber(config.all_limit) or default_config.all_limit or 200
+	while #all > all_limit do
 		table.remove(all, 1)
 	end
 	data_rev.ad = data_rev.ad + 1
@@ -1596,6 +1603,26 @@ draw_settings_content = function()
 	local text_alpha_idle = imgui.new.float(config.text_alpha_idle or 0)
 	if imgui.SliderFloat("text_alpha_idle", text_alpha_idle, 0, 1) then
 		config.text_alpha_idle = clamp(text_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Лимиты")
+	local vip_limit = ffi.new("int[1]", tonumber(config.vip_limit) or default_config.vip_limit or 100)
+	if imgui.InputInt("vip_limit", vip_limit) then
+		config.vip_limit = clamp(vip_limit[0], 10, 2000)
+		module.save()
+	end
+
+	local ad_limit = ffi.new("int[1]", tonumber(config.ad_limit) or default_config.ad_limit or 100)
+	if imgui.InputInt("ad_limit", ad_limit) then
+		config.ad_limit = clamp(ad_limit[0], 10, 2000)
+		module.save()
+	end
+
+	local all_limit = ffi.new("int[1]", tonumber(config.all_limit) or default_config.all_limit or 200)
+	if imgui.InputInt("all_limit", all_limit) then
+		config.all_limit = clamp(all_limit[0], 10, 2000)
 		module.save()
 	end
 
