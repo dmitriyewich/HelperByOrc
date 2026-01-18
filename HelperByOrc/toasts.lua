@@ -253,6 +253,31 @@ function module.DrawSettingsInline()
 	if imgui.InputFloat("Padding Y", padY) then
 		setCfg("padY", math.max(0, padY[0]))
 	end
+
+	imgui.Separator()
+	if imgui.TreeNode("История") then
+		if imgui.Button("Очистить") then
+			module.clearHistory()
+		end
+		local listHeight = 140
+		if imgui.BeginChild("ToastHistoryList", imgui.ImVec2(0, listHeight), true) then
+			if #history == 0 then
+				imgui.Text("Записей нет")
+			else
+				local limit = cfg.historyLimit > 0 and cfg.historyLimit or 200
+				local first = math.max(1, #history - limit + 1)
+				for i = first, #history do
+					local entry = history[i]
+					imgui.PushStyleColor(imgui.Col.Text, toastColor(entry.kind))
+					local suffix = entry.count and entry.count > 1 and (" x" .. tostring(entry.count)) or ""
+					imgui.TextWrapped(entry.text .. suffix)
+					imgui.PopStyleColor()
+				end
+			end
+		end
+		imgui.EndChild()
+		imgui.TreePop()
+	end
 	flushConfigDirty()
 end
 
