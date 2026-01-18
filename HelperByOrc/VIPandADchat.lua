@@ -990,6 +990,63 @@ local function draw_feed()
 	return allow_process, want_cursor, popup_open_this_frame
 end
 
+local function draw_chatbox_window()
+	if not config then
+		return false, false, false
+	end
+
+	local cfg = config.chatbox or default_config.chatbox
+	if not cfg or cfg.enabled == false then
+		return false, false, false
+	end
+
+	local pos = imgui.ImVec2(tonumber(cfg.pos_x) or 30, tonumber(cfg.pos_y) or 600)
+	local size = imgui.ImVec2(tonumber(cfg.width) or 520, tonumber(cfg.height) or 210)
+
+	imgui.SetNextWindowPos(pos, imgui.Cond.Always)
+	imgui.SetNextWindowSize(size, imgui.Cond.Always)
+
+	local flags = bor(
+		imgui.WindowFlags.NoTitleBar,
+		imgui.WindowFlags.NoResize,
+		imgui.WindowFlags.NoSavedSettings
+	)
+
+	local hovered = false
+	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
+		if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
+			if imgui.BeginTabItem("ALL") then
+				imgui.TextDisabled("TODO")
+				imgui.EndTabItem()
+			end
+
+			if imgui.BeginTabItem("VIP") then
+				imgui.TextDisabled("TODO")
+				imgui.EndTabItem()
+			end
+
+			if imgui.BeginTabItem("AD") then
+				imgui.TextDisabled("TODO")
+				imgui.EndTabItem()
+			end
+
+			imgui.EndTabBar()
+		end
+
+		local wpos = imgui.GetWindowPos()
+		local wsize = imgui.GetWindowSize()
+		cfg.pos_x = wpos.x
+		cfg.pos_y = wpos.y
+		cfg.width = wsize.x
+		cfg.height = wsize.y
+
+		hovered = imgui.IsWindowHovered()
+	end
+	imgui.End()
+
+	return hovered, hovered, false
+end
+
 -- ===================== ONFRAME =====================
 local hudFrame = imgui.OnFrame(function()
 	return module.showFeedWindow[0] and config and config.enabled
@@ -998,7 +1055,7 @@ end, function(frame)
 
 	imgui.Process = chat_open or popup_target.pending_open or popup_target.was_open_last
 
-	local allow_process, want_cursor, popup_open = draw_feed()
+	local allow_process, want_cursor, popup_open = draw_chatbox_window()
 	imgui.Process = allow_process
 
 	popup_target.was_open_last = popup_open
