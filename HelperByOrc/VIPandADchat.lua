@@ -371,6 +371,17 @@ end
 
 local data_rev = { all = 0, vip = 0, ad = 0 }
 
+local function fill_buf_utf8(buf, s)
+	local text = tostring(s or "")
+	local max_len = ffi.sizeof(buf) - 1
+	ffi.fill(buf, ffi.sizeof(buf))
+	if max_len <= 0 then
+		return
+	end
+	local copy_len = math.min(#text, max_len)
+	ffi.copy(buf, text, copy_len)
+end
+
 -- ===================== ДОБАВЛЕНИЕ ТЕКСТА С РАЗМЕРОМ =====================
 local add_text_with_font
 do
@@ -1461,6 +1472,9 @@ end)
 local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
 
+local highlight_words_buf = imgui.new.char[2048]("")
+local highlight_words_last_serialized = ""
+
 draw_settings_content = function()
 	local en = imgui.new.bool(config.enabled and true or false)
 	if imgui.Checkbox("Включить модуль", en) then
@@ -1582,6 +1596,35 @@ draw_settings_content = function()
 	local text_alpha_idle = imgui.new.float(config.text_alpha_idle or 0)
 	if imgui.SliderFloat("text_alpha_idle", text_alpha_idle, 0, 1) then
 		config.text_alpha_idle = clamp(text_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Подсветка")
+	local serialized = table.concat(config.highlightWords or {}, "\n")
+	if serialized ~= highlight_words_last_serialized then
+		fill_buf_utf8(highlight_words_buf, serialized)
+		highlight_words_last_serialized = serialized
+	end
+	imgui.InputTextMultiline(
+		"highlightWords (по 1 на строку)",
+		highlight_words_buf,
+		ffi.sizeof(highlight_words_buf),
+		imgui.ImVec2(0, 120)
+	)
+	if imgui.Button("Применить##highlight_words") then
+		local raw = ffi.string(highlight_words_buf)
+		local next_words = {}
+		local seen = {}
+		for line in raw:gmatch("[^\r\n]+") do
+			local trimmed = line:match("^%s*(.-)%s*$")
+			if trimmed ~= "" and not seen[trimmed] then
+				seen[trimmed] = true
+				next_words[#next_words + 1] = trimmed
+			end
+		end
+		config.highlightWords = next_words
+		highlight_words_last_serialized = table.concat(next_words, "\n")
 		module.save()
 	end
 
