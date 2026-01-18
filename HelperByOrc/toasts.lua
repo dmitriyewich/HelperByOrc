@@ -89,6 +89,19 @@ function module.draw()
 	local windowW = 420
 	local windowX = vpPosX + (vpW - windowW) * 0.5
 	local windowY = vpPosY + pad
+	local fadeDuration = 0.35
+	local newestToast = toasts[#toasts]
+	local alpha = 1.0
+	if newestToast and newestToast.dur and newestToast.t then
+		local remain = newestToast.dur - (now - newestToast.t)
+		if remain < fadeDuration then
+			alpha = math.max(0.0, remain / fadeDuration)
+		end
+	end
+	imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha)
+	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 10)
+	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(12, 10))
+	imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.08, 0.08, 0.08, 0.9))
 	imgui.SetNextWindowPos(imgui.ImVec2(windowX, windowY), imgui.Cond.Always)
 	imgui.SetNextWindowSize(imgui.ImVec2(windowW, 0), imgui.Cond.Always)
 
@@ -108,10 +121,12 @@ function module.draw()
 		imgui.TextWrapped(toast.text .. suffix)
 		imgui.PopStyleColor()
 		if i < #toasts then
-			imgui.Separator()
+			imgui.Spacing()
 		end
 	end
 	imgui.End()
+	imgui.PopStyleColor()
+	imgui.PopStyleVar(3)
 end
 
 if imgui and imgui.OnFrame then
