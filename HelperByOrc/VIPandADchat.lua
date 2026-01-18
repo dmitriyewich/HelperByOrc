@@ -639,6 +639,8 @@ local popup_target = {
 	size = imgui.ImVec2(0, 0),
 	size_dirty = false,
 
+	open_try_frames = 0,
+
 	was_open_last = false,
 }
 
@@ -653,6 +655,7 @@ local function open_line_popup(kind, index, src_cp)
 
 	popup_target.pending_open = true
 	popup_target.size_dirty = true
+	popup_target.open_try_frames = 0
 
 	local st = get_select_state(popup_target.key)
 	st.initialized = false
@@ -691,6 +694,7 @@ local function draw_line_popup(anchor_max_w)
 		popup_open_this_frame = true
 		popup_target.pending_open = false
 		popup_target.size_dirty = false
+		popup_target.open_try_frames = 0
 
 		imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
 		imgui.Spacing()
@@ -736,7 +740,15 @@ local function draw_line_popup(anchor_max_w)
 
 		imgui.EndPopup()
 	else
-		if not popup_target.pending_open then
+		if popup_target.pending_open then
+			popup_target.open_try_frames = popup_target.open_try_frames + 1
+			if popup_target.open_try_frames > 2 then
+				popup_target.key = nil
+				popup_target.pending_open = false
+				popup_target.size_dirty = false
+				popup_target.open_try_frames = 0
+			end
+		else
 			popup_target.key = nil
 		end
 	end
