@@ -106,7 +106,7 @@ local default_config = {
 		u8:decode("%[Дальнобойщик]"),
 		u8:decode("%(%( %[Дальнобойщик%]"),
 	},
-	table_config = { vip_text = {}, ad_text = {} },
+	table_config = { vip_text = {}, ad_text = {}, all = {} },
 
 	bg_alpha_chat = 0.50,
 	bg_alpha_idle = 0.00,
@@ -519,9 +519,10 @@ function module.load()
 	end
 
 	merge_defaults(config, default_config)
-	config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
+	config.table_config = config.table_config or { vip_text = {}, ad_text = {}, all = {} }
 	config.table_config.vip_text = config.table_config.vip_text or {}
 	config.table_config.ad_text = config.table_config.ad_text or {}
+	config.table_config.all = config.table_config.all or {}
 	config.timestamp = config.timestamp or clone_table(default_config.timestamp)
 	merge_defaults(config.timestamp, default_config.timestamp)
 	config.popup = config.popup or clone_table(default_config.popup)
@@ -546,6 +547,11 @@ function module.AddVIPMessage(text)
 	if #t > 100 then
 		table.remove(t, 1)
 	end
+	local all = config.table_config.all
+	all[#all + 1] = { kind = "vip", text = text }
+	if #all > 200 then
+		table.remove(all, 1)
+	end
 	module.save()
 end
 
@@ -557,6 +563,11 @@ function module.AddADMessage(main, edited, toredact)
 	t[#t + 1] = { main, edited or "", toredact or "" }
 	if #t > 100 then
 		table.remove(t, 1)
+	end
+	local all = config.table_config.all
+	all[#all + 1] = { kind = "ad", text = main, edited = edited or "", toredact = toredact or "" }
+	if #all > 200 then
+		table.remove(all, 1)
 	end
 	module.save()
 end
@@ -1016,7 +1027,20 @@ local function draw_chatbox_window()
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
 		if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
 			if imgui.BeginTabItem("ALL") then
-				imgui.TextDisabled("TODO")
+				local all = config.table_config.all or {}
+				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
+					local clipper = imgui.ImGuiListClipper(#all)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local entry = all[i] or {}
+							local text_cp = entry.text or ""
+							local prefix = entry.kind == "ad" and "AD: " or "VIP: "
+							local text = strip_color_tags(u8(text_cp))
+							imgui.TextUnformatted(prefix .. text)
+						end
+					end
+				end
+				imgui.EndChild()
 				imgui.EndTabItem()
 			end
 
