@@ -283,9 +283,11 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 	local ts_width = 0
 	if ts_text then
 		local ts_cfg = config.timestamp or default_config.timestamp or {}
-		local ts_scale = clamp(tonumber(ts_cfg.scale) or 0.5, 0.2, 1.0)
-		local ts_padding = math.max(0.0, tonumber(ts_cfg.padding) or 0.0)
-		ts_width = text_size(ts_text, font, fsize * ts_scale) + ts_padding
+		if ts_cfg.enabled ~= false then
+			local ts_scale = clamp(tonumber(ts_cfg.scale) or 0.5, 0.2, 1.0)
+			local ts_padding = math.max(0.0, tonumber(ts_cfg.padding) or 0.0)
+			ts_width = text_size(ts_text, font, fsize * ts_scale) + ts_padding
+		end
 	end
 	local first_line_max_px = math.max(0, max_px - ts_width)
 	local current_visible = ""
@@ -1327,13 +1329,15 @@ local function draw_chatbox_window()
 						end
 					end
 
+					local did_autoscroll = false
 					if all_last_rev ~= data_rev.all and all_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
+						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
 					all_autoscroll = at_bottom
 					all_last_rev = data_rev.all
 				end
@@ -1402,13 +1406,15 @@ local function draw_chatbox_window()
 						end
 					end
 
+					local did_autoscroll = false
 					if vip_last_rev ~= data_rev.vip and vip_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
+						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
 					vip_autoscroll = at_bottom
 					vip_last_rev = data_rev.vip
 				end
@@ -1478,13 +1484,15 @@ local function draw_chatbox_window()
 						end
 					end
 
+					local did_autoscroll = false
 					if ad_last_rev ~= data_rev.ad and ad_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
+						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
 					ad_autoscroll = at_bottom
 					ad_last_rev = data_rev.ad
 				end
