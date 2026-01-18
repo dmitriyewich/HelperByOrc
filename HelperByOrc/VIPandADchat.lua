@@ -1317,7 +1317,7 @@ local function draw_chatbox_window()
 					end
 
 					if all_last_rev ~= data_rev.all and all_autoscroll then
-						imgui.SetScrollHereY(1.0)
+						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
@@ -1379,7 +1379,7 @@ local function draw_chatbox_window()
 					end
 
 					if vip_last_rev ~= data_rev.vip and vip_autoscroll then
-						imgui.SetScrollHereY(1.0)
+						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
@@ -1442,7 +1442,7 @@ local function draw_chatbox_window()
 					end
 
 					if ad_last_rev ~= data_rev.ad and ad_autoscroll then
-						imgui.SetScrollHereY(1.0)
+						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 
 					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
