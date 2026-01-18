@@ -1,4 +1,5 @@
 local imgui = require("mimgui")
+local ffi = require("ffi")
 
 local module = {}
 
@@ -86,6 +87,22 @@ local function markConfigDirty()
 	cfgDirtyAt = nowSec()
 end
 
+local function flushConfigDirty()
+	if cfgDirty and (nowSec() - cfgDirtyAt) >= 0.5 then
+		if funcs and funcs.saveTableToJson then
+			funcs.saveTableToJson(cfg, CONFIG_PATH)
+		end
+		cfgDirty = false
+	end
+end
+
+local function setCfg(key, value)
+	if cfg[key] ~= value then
+		cfg[key] = value
+		markConfigDirty()
+	end
+end
+
 local function addHistory(toast, reason)
 	history[#history + 1] = {
 		text = toast.text,
@@ -116,8 +133,7 @@ function module.setAnchor(a)
 		or a == "bottom_center"
 		or a == "bottom_right"
 	then
-		cfg.anchor = a
-		markConfigDirty()
+		setCfg("anchor", a)
 	end
 end
 
@@ -129,6 +145,115 @@ function module.clearHistory()
 	for i = #history, 1, -1 do
 		history[i] = nil
 	end
+end
+
+function module.DrawSettingsInline()
+	if not (imgui and imgui.CollapsingHeader) then
+		return
+	end
+	if not imgui.CollapsingHeader("Уведомления") then
+		return
+	end
+
+	local enabled = imgui.new.bool(cfg.enabled)
+	if imgui.Checkbox("Включить", enabled) then
+		setCfg("enabled", enabled[0])
+	end
+
+	imgui.Separator()
+	imgui.Text("Якорь")
+	local anchorOptions = {
+		{ label = "Слева сверху", value = "top_left" },
+		{ label = "По центру сверху", value = "top_center" },
+		{ label = "Справа сверху", value = "top_right" },
+		{ label = "Слева снизу", value = "bottom_left" },
+		{ label = "По центру снизу", value = "bottom_center" },
+		{ label = "Справа снизу", value = "bottom_right" },
+	}
+	for i, opt in ipairs(anchorOptions) do
+		if imgui.RadioButtonBool(opt.label, cfg.anchor == opt.value) then
+			setCfg("anchor", opt.value)
+		end
+		if i % 2 == 1 and i < #anchorOptions then
+			imgui.SameLine()
+		end
+	end
+
+	imgui.Separator()
+	imgui.Text("Позиционирование и размеры")
+	local width = ffi.new("int[1]", cfg.width)
+	if imgui.InputInt("Ширина", width) then
+		setCfg("width", math.max(1, width[0]))
+	end
+	local offsetX = ffi.new("int[1]", cfg.offsetX)
+	if imgui.InputInt("Отступ X", offsetX) then
+		setCfg("offsetX", math.max(0, offsetX[0]))
+	end
+	local offsetY = ffi.new("int[1]", cfg.offsetY)
+	if imgui.InputInt("Отступ Y", offsetY) then
+		setCfg("offsetY", math.max(0, offsetY[0]))
+	end
+
+	imgui.Separator()
+	imgui.Text("Длительность")
+	local durOk = ffi.new("float[1]", cfg.durOk)
+	if imgui.InputFloat("OK (сек)", durOk) then
+		setCfg("durOk", math.max(0, durOk[0]))
+	end
+	local durWarn = ffi.new("float[1]", cfg.durWarn)
+	if imgui.InputFloat("WARN (сек)", durWarn) then
+		setCfg("durWarn", math.max(0, durWarn[0]))
+	end
+	local durErr = ffi.new("float[1]", cfg.durErr)
+	if imgui.InputFloat("ERR (сек)", durErr) then
+		setCfg("durErr", math.max(0, durErr[0]))
+	end
+
+	imgui.Separator()
+	imgui.Text("Плавность")
+	local fadeIn = ffi.new("float[1]", cfg.fadeIn)
+	if imgui.InputFloat("Fade In", fadeIn) then
+		setCfg("fadeIn", math.max(0, fadeIn[0]))
+	end
+	local fadeOut = ffi.new("float[1]", cfg.fadeOut)
+	if imgui.InputFloat("Fade Out", fadeOut) then
+		setCfg("fadeOut", math.max(0, fadeOut[0]))
+	end
+
+	imgui.Separator()
+	imgui.Text("Лимиты")
+	local maxVisible = ffi.new("int[1]", cfg.maxVisible)
+	if imgui.InputInt("Max Visible", maxVisible) then
+		setCfg("maxVisible", math.max(1, maxVisible[0]))
+	end
+	local maxQueue = ffi.new("int[1]", cfg.maxQueue)
+	if imgui.InputInt("Max Queue", maxQueue) then
+		setCfg("maxQueue", math.max(1, maxQueue[0]))
+	end
+	local historyLimit = ffi.new("int[1]", cfg.historyLimit)
+	if imgui.InputInt("History Limit", historyLimit) then
+		setCfg("historyLimit", math.max(0, historyLimit[0]))
+	end
+
+	imgui.Separator()
+	imgui.Text("Внешний вид")
+	local bgAlpha = ffi.new("float[1]", cfg.bgAlpha)
+	if imgui.InputFloat("Прозрачность фона", bgAlpha) then
+		setCfg("bgAlpha", math.max(0, math.min(1, bgAlpha[0])))
+	end
+	local rounding = ffi.new("float[1]", cfg.rounding)
+	if imgui.InputFloat("Скругление", rounding) then
+		setCfg("rounding", math.max(0, rounding[0]))
+	end
+	local padX = ffi.new("float[1]", cfg.padX)
+	if imgui.InputFloat("Padding X", padX) then
+		setCfg("padX", math.max(0, padX[0]))
+	end
+	local padY = ffi.new("float[1]", cfg.padY)
+	if imgui.InputFloat("Padding Y", padY) then
+		setCfg("padY", math.max(0, padY[0]))
+	end
+	flushConfigDirty()
 end
 
 function module.push(text, kind, dur)
@@ -204,14 +329,9 @@ local function toastColor(kind)
 end
 
 function module.draw()
+	flushConfigDirty()
 	if not cfg.enabled then
 		return
-	end
-	if cfgDirty and (nowSec() - cfgDirtyAt) >= 0.5 then
-		if funcs and funcs.saveTableToJson then
-			funcs.saveTableToJson(cfg, CONFIG_PATH)
-		end
-		cfgDirty = false
 	end
 	if #toasts == 0 then
 		return
