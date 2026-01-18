@@ -586,7 +586,7 @@ function module.AddVIPMessage(text)
 		table.remove(t, 1)
 	end
 	local all = config.table_config.all
-	all[#all + 1] = { kind = "vip", text = text }
+	all[#all + 1] = { kind = "vip", text = text, src_index = #t }
 	if #all > 200 then
 		table.remove(all, 1)
 	end
@@ -603,7 +603,7 @@ function module.AddADMessage(main, edited, toredact)
 		table.remove(t, 1)
 	end
 	local all = config.table_config.all
-	all[#all + 1] = { kind = "ad", text = main, edited = edited or "", toredact = toredact or "" }
+	all[#all + 1] = { kind = "ad", text = main, edited = edited or "", toredact = toredact or "", src_index = #t }
 	if #all > 200 then
 		table.remove(all, 1)
 	end
@@ -1071,6 +1071,7 @@ local function draw_chatbox_window()
 				local all = config.table_config.all or {}
 				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					local lh = line_height()
 					if all_wrap_cache.width ~= max_px or all_wrap_cache.src_count ~= #all then
 						local lines = {}
 						for i = 1, #all do
@@ -1080,7 +1081,12 @@ local function draw_chatbox_window()
 							local text = strip_color_tags(u8(text_cp))
 							local wrapped = wrap_to_lines(prefix .. text, max_px)
 							for j = 1, #wrapped do
-								lines[#lines + 1] = wrapped[j]
+								lines[#lines + 1] = {
+									text = wrapped[j],
+									kind = entry.kind,
+									src_index = entry.src_index or i,
+									src_cp = text_cp,
+								}
 							end
 						end
 						all_wrap_cache.width = max_px
@@ -1091,8 +1097,16 @@ local function draw_chatbox_window()
 					local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
 					while clipper:Step() do
 						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = all_wrap_cache.lines[i] or ""
-							imgui.TextUnformatted(line)
+							local line = all_wrap_cache.lines[i] or {}
+							local row_w = imgui.GetContentRegionAvail().x
+							local start = imgui.GetCursorScreenPos()
+							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
+							if imgui.IsItemHovered() and item_right_clicked() then
+								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+							end
+							imgui.SetCursorScreenPos(start)
+							imgui.TextUnformatted(line.text or "")
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
 				end
@@ -1104,6 +1118,7 @@ local function draw_chatbox_window()
 				local vip = config.table_config.vip_text or {}
 				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					local lh = line_height()
 					if vip_wrap_cache.width ~= max_px or vip_wrap_cache.src_count ~= #vip then
 						local lines = {}
 						for i = 1, #vip do
@@ -1111,7 +1126,12 @@ local function draw_chatbox_window()
 							local text = strip_color_tags(u8(text_cp))
 							local wrapped = wrap_to_lines(text, max_px)
 							for j = 1, #wrapped do
-								lines[#lines + 1] = wrapped[j]
+								lines[#lines + 1] = {
+									text = wrapped[j],
+									kind = "vip",
+									src_index = i,
+									src_cp = text_cp,
+								}
 							end
 						end
 						vip_wrap_cache.width = max_px
@@ -1122,8 +1142,16 @@ local function draw_chatbox_window()
 					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
 					while clipper:Step() do
 						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = vip_wrap_cache.lines[i] or ""
-							imgui.TextUnformatted(line)
+							local line = vip_wrap_cache.lines[i] or {}
+							local row_w = imgui.GetContentRegionAvail().x
+							local start = imgui.GetCursorScreenPos()
+							imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
+							if imgui.IsItemHovered() and item_right_clicked() then
+								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+							end
+							imgui.SetCursorScreenPos(start)
+							imgui.TextUnformatted(line.text or "")
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
 				end
@@ -1135,6 +1163,7 @@ local function draw_chatbox_window()
 				local ad = config.table_config.ad_text or {}
 				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					local lh = line_height()
 					if ad_wrap_cache.width ~= max_px or ad_wrap_cache.src_count ~= #ad then
 						local lines = {}
 						for i = 1, #ad do
@@ -1143,7 +1172,12 @@ local function draw_chatbox_window()
 							local text = strip_color_tags(u8(text_cp))
 							local wrapped = wrap_to_lines(text, max_px)
 							for j = 1, #wrapped do
-								lines[#lines + 1] = wrapped[j]
+								lines[#lines + 1] = {
+									text = wrapped[j],
+									kind = "ad",
+									src_index = i,
+									src_cp = text_cp,
+								}
 							end
 						end
 						ad_wrap_cache.width = max_px
@@ -1154,8 +1188,16 @@ local function draw_chatbox_window()
 					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
 					while clipper:Step() do
 						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = ad_wrap_cache.lines[i] or ""
-							imgui.TextUnformatted(line)
+							local line = ad_wrap_cache.lines[i] or {}
+							local row_w = imgui.GetContentRegionAvail().x
+							local start = imgui.GetCursorScreenPos()
+							imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
+							if imgui.IsItemHovered() and item_right_clicked() then
+								open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
+							end
+							imgui.SetCursorScreenPos(start)
+							imgui.TextUnformatted(line.text or "")
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
 				end
