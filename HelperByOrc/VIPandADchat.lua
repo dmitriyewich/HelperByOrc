@@ -1037,7 +1037,19 @@ local function draw_chatbox_window()
 			end
 
 			if imgui.BeginTabItem("AD") then
-				imgui.TextDisabled("TODO")
+				local ad = config.table_config.ad_text or {}
+				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
+					local clipper = imgui.ImGuiListClipper(#ad)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local entry = ad[i] or {}
+							local text_cp = entry[1] or ""
+							local text = strip_color_tags(u8(text_cp))
+							imgui.TextUnformatted(text)
+						end
+					end
+				end
+				imgui.EndChild()
 				imgui.EndTabItem()
 			end
 
