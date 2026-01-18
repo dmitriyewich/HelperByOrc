@@ -906,9 +906,9 @@ end
 -- ===================== HUD ЛЕНТА + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
 local scroll = { vip = 0.0, ad = 0.0 }
-local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
-local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
-local all_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
+local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
+local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
+local all_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
 local all_autoscroll = true
 local all_last_rev = 0
 local vip_autoscroll = true
@@ -1270,7 +1270,17 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if all_wrap_cache.width ~= max_px or all_wrap_cache.rev ~= data_rev.all then
+					local ts_cfg = config.timestamp or default_config.timestamp or {}
+					local cfg_key = string.format(
+						"%s|%.3f|%.3f",
+						tostring(ts_cfg.enabled ~= false),
+						tonumber(ts_cfg.scale) or 0.5,
+						tonumber(ts_cfg.padding) or 0
+					)
+					if all_wrap_cache.width ~= max_px
+						or all_wrap_cache.rev ~= data_rev.all
+						or all_wrap_cache.cfg_key ~= cfg_key
+					then
 						local lines = {}
 						for i = 1, #all do
 							local entry = all[i] or {}
@@ -1289,6 +1299,7 @@ local function draw_chatbox_window()
 						all_wrap_cache.width = max_px
 						all_wrap_cache.src_count = #all
 						all_wrap_cache.rev = data_rev.all
+						all_wrap_cache.cfg_key = cfg_key
 						all_wrap_cache.lines = lines
 					end
 
@@ -1335,7 +1346,17 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if vip_wrap_cache.width ~= max_px or vip_wrap_cache.rev ~= data_rev.vip then
+					local ts_cfg = config.timestamp or default_config.timestamp or {}
+					local cfg_key = string.format(
+						"%s|%.3f|%.3f",
+						tostring(ts_cfg.enabled ~= false),
+						tonumber(ts_cfg.scale) or 0.5,
+						tonumber(ts_cfg.padding) or 0
+					)
+					if vip_wrap_cache.width ~= max_px
+						or vip_wrap_cache.rev ~= data_rev.vip
+						or vip_wrap_cache.cfg_key ~= cfg_key
+					then
 						local lines = {}
 						for i = 1, #vip do
 							local text_cp = vip[i] or ""
@@ -1353,6 +1374,7 @@ local function draw_chatbox_window()
 						vip_wrap_cache.width = max_px
 						vip_wrap_cache.src_count = #vip
 						vip_wrap_cache.rev = data_rev.vip
+						vip_wrap_cache.cfg_key = cfg_key
 						vip_wrap_cache.lines = lines
 					end
 
@@ -1399,7 +1421,17 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if ad_wrap_cache.width ~= max_px or ad_wrap_cache.rev ~= data_rev.ad then
+					local ts_cfg = config.timestamp or default_config.timestamp or {}
+					local cfg_key = string.format(
+						"%s|%.3f|%.3f",
+						tostring(ts_cfg.enabled ~= false),
+						tonumber(ts_cfg.scale) or 0.5,
+						tonumber(ts_cfg.padding) or 0
+					)
+					if ad_wrap_cache.width ~= max_px
+						or ad_wrap_cache.rev ~= data_rev.ad
+						or ad_wrap_cache.cfg_key ~= cfg_key
+					then
 						local lines = {}
 						for i = 1, #ad do
 							local entry = ad[i] or {}
@@ -1418,6 +1450,7 @@ local function draw_chatbox_window()
 						ad_wrap_cache.width = max_px
 						ad_wrap_cache.src_count = #ad
 						ad_wrap_cache.rev = data_rev.ad
+						ad_wrap_cache.cfg_key = cfg_key
 						ad_wrap_cache.lines = lines
 					end
 
