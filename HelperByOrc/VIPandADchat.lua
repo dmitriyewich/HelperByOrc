@@ -1448,6 +1448,52 @@ draw_settings_content = function()
 	end
 
 	imgui.Separator()
+	imgui.Text("ChatBox")
+	config.chatbox = config.chatbox or clone_table(default_config.chatbox)
+	local chatbox = config.chatbox
+	local chatbox_enabled = imgui.new.bool(chatbox.enabled ~= false)
+	if imgui.Checkbox("enabled##chatbox", chatbox_enabled) then
+		chatbox.enabled = chatbox_enabled[0] and true or false
+		module.save()
+	end
+
+	local chatbox_pos_x = ffi.new("int[1]", tonumber(chatbox.pos_x) or 0)
+	if imgui.DragInt("pos_x##chatbox", chatbox_pos_x) then
+		chatbox.pos_x = chatbox_pos_x[0]
+		module.save()
+	end
+
+	local chatbox_pos_y = ffi.new("int[1]", tonumber(chatbox.pos_y) or 0)
+	if imgui.DragInt("pos_y##chatbox", chatbox_pos_y) then
+		chatbox.pos_y = chatbox_pos_y[0]
+		module.save()
+	end
+
+	local chatbox_width = ffi.new("int[1]", tonumber(chatbox.width) or 520)
+	if imgui.DragInt("width##chatbox", chatbox_width) then
+		chatbox.width = clamp(chatbox_width[0], 200, 1200)
+		module.save()
+	end
+
+	local chatbox_height = ffi.new("int[1]", tonumber(chatbox.height) or 210)
+	if imgui.DragInt("height##chatbox", chatbox_height) then
+		chatbox.height = clamp(chatbox_height[0], 120, 700)
+		module.save()
+	end
+
+	local chatbox_bg_alpha = imgui.new.float(chatbox.bg_alpha or 0)
+	if imgui.SliderFloat("bg_alpha##chatbox", chatbox_bg_alpha, 0, 1) then
+		chatbox.bg_alpha = clamp(chatbox_bg_alpha[0], 0, 1)
+		module.save()
+	end
+
+	local chatbox_rounding = ffi.new("int[1]", tonumber(chatbox.rounding) or 0)
+	if imgui.SliderInt("rounding##chatbox", chatbox_rounding, 0, 20) then
+		chatbox.rounding = clamp(chatbox_rounding[0], 0, 20)
+		module.save()
+	end
+
+	imgui.Separator()
 	imgui.Text("Лента (режим Строки)")
 	local pos_x = ffi.new("int[1]", tonumber(config.pos_x) or 0)
 	if imgui.DragInt("pos_x", pos_x) then
