@@ -305,11 +305,8 @@ function module.push(text, kind, dur)
 		local removed = toasts[1]
 		if removed then
 			addHistory(removed, "queue")
+			table.remove(toasts, 1)
 		end
-		for i = 2, #toasts do
-			toasts[i - 1] = toasts[i]
-		end
-		toasts[#toasts] = nil
 	end
 	toasts[#toasts + 1] = {
 		text = text,
