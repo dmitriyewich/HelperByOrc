@@ -5,6 +5,9 @@ local module = {}
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 local MAX_TOASTS = 8
 local anchor = "top_center"
+local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
+local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
+local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
 
 local function nowSec()
 	if imgui.GetTime then
@@ -68,12 +71,12 @@ end
 
 local function toastColor(kind)
 	if kind == "err" then
-		return imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
+		return COL_ERR
 	end
 	if kind == "warn" then
-		return imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
+		return COL_WARN
 	end
-	return imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
+	return COL_OK
 end
 
 function module.draw()
