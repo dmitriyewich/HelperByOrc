@@ -1170,6 +1170,15 @@ local function draw_chatbox_window()
 		imgui.WindowFlags.NoSavedSettings
 	)
 
+	local highlightLower = {}
+	do
+		local src = config.highlightWords or {}
+		for i = 1, #src do
+			highlightLower[i] = tostring(src[i] or ""):lower()
+		end
+	end
+	local rect_highlight = imgui.ImVec4(1, 1, 0, 0.38)
+
 	local hovered = false
 	local open_settings_popup = false
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
@@ -1184,8 +1193,8 @@ local function draw_chatbox_window()
 						for i = 1, #all do
 							local entry = all[i] or {}
 							local text_cp = entry.text or ""
-							local text = strip_color_tags(u8(text_cp))
-							local wrapped = wrap_to_lines(text, max_px)
+							local text = u8(text_cp)
+							local wrapped = wrap_to_lines_keep_tags(text, max_px)
 							for j = 1, #wrapped do
 								lines[#lines + 1] = {
 									text = wrapped[j],
@@ -1206,12 +1215,20 @@ local function draw_chatbox_window()
 							local line = all_wrap_cache.lines[i] or {}
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
+							local draw = imgui.GetWindowDrawList()
 							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
 							if imgui.IsItemHovered() and item_right_clicked() then
 								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
 							end
 							imgui.SetCursorScreenPos(start)
-							imgui.TextUnformatted(line.text or "")
+							draw_text_with_highlight_at(
+								draw,
+								imgui.ImVec2(start.x, start.y),
+								line.text or "",
+								highlightLower,
+								rect_highlight,
+								1.0
+							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
