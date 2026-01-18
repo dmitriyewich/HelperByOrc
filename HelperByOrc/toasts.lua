@@ -54,6 +54,8 @@ local function loadConfig()
 end
 
 local cfg = loadConfig()
+local cfgDirty = false
+local cfgDirtyAt = 0
 local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
 local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
 local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
@@ -65,9 +67,15 @@ local function nowSec()
 	return os.clock()
 end
 
+local function markConfigDirty()
+	cfgDirty = true
+	cfgDirtyAt = nowSec()
+end
+
 function module.setAnchor(a)
 	if a == "top_center" or a == "top_right" then
 		cfg.anchor = a
+		markConfigDirty()
 	end
 end
 
@@ -140,6 +148,12 @@ end
 function module.draw()
 	if not cfg.enabled then
 		return
+	end
+	if cfgDirty and (nowSec() - cfgDirtyAt) >= 0.5 then
+		if funcs and funcs.saveTableToJson then
+			funcs.saveTableToJson(cfg, CONFIG_PATH)
+		end
+		cfgDirty = false
 	end
 	if #toasts == 0 then
 		return
