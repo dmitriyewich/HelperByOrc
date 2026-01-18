@@ -1254,8 +1254,8 @@ local function draw_chatbox_window()
 						local lines = {}
 						for i = 1, #vip do
 							local text_cp = vip[i] or ""
-							local text = strip_color_tags(u8(text_cp))
-							local wrapped = wrap_to_lines(text, max_px)
+							local text = u8(text_cp)
+							local wrapped = wrap_to_lines_keep_tags(text, max_px)
 							for j = 1, #wrapped do
 								lines[#lines + 1] = {
 									text = wrapped[j],
@@ -1276,12 +1276,20 @@ local function draw_chatbox_window()
 							local line = vip_wrap_cache.lines[i] or {}
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
+							local draw = imgui.GetWindowDrawList()
 							imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
 							if imgui.IsItemHovered() and item_right_clicked() then
 								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
 							end
 							imgui.SetCursorScreenPos(start)
-							imgui.TextUnformatted(line.text or "")
+							draw_text_with_highlight_at(
+								draw,
+								imgui.ImVec2(start.x, start.y),
+								line.text or "",
+								highlightLower,
+								rect_highlight,
+								1.0
+							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
@@ -1308,8 +1316,8 @@ local function draw_chatbox_window()
 						for i = 1, #ad do
 							local entry = ad[i] or {}
 							local text_cp = entry[1] or ""
-							local text = strip_color_tags(u8(text_cp))
-							local wrapped = wrap_to_lines(text, max_px)
+							local text = u8(text_cp)
+							local wrapped = wrap_to_lines_keep_tags(text, max_px)
 							for j = 1, #wrapped do
 								lines[#lines + 1] = {
 									text = wrapped[j],
@@ -1330,12 +1338,20 @@ local function draw_chatbox_window()
 							local line = ad_wrap_cache.lines[i] or {}
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
+							local draw = imgui.GetWindowDrawList()
 							imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
 							if imgui.IsItemHovered() and item_right_clicked() then
 								open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
 							end
 							imgui.SetCursorScreenPos(start)
-							imgui.TextUnformatted(line.text or "")
+							draw_text_with_highlight_at(
+								draw,
+								imgui.ImVec2(start.x, start.y),
+								line.text or "",
+								highlightLower,
+								rect_highlight,
+								1.0
+							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
