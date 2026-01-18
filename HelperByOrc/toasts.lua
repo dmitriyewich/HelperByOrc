@@ -82,11 +82,14 @@ function module.draw()
 end
 
 if imgui and imgui.OnFrame then
-	imgui.OnFrame(function()
+	local frame = imgui.OnFrame(function()
 		return #toasts > 0
 	end, function()
 		module.draw()
 	end)
+	if frame then
+		frame.HideCursor = true
+	end
 end
 
 return module
