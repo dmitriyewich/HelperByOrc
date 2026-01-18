@@ -1076,6 +1076,7 @@ local function draw_chatbox_window()
 	)
 
 	local hovered = false
+	local open_settings_popup = false
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
 		if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
 			if imgui.BeginTabItem("ALL") then
@@ -1229,10 +1230,14 @@ local function draw_chatbox_window()
 			imgui.SameLine()
 			imgui.SetCursorPosX(imgui.GetWindowContentRegionMax().x - gear_w)
 			if imgui.SmallButton(gear_label .. "##vipad_settings") then
-				imgui.OpenPopup("##vipad_settings_popup")
+				open_settings_popup = true
 			end
 
 			imgui.EndTabBar()
+		end
+
+		if open_settings_popup then
+			imgui.OpenPopup("##vipad_settings_popup")
 		end
 
 		if imgui.BeginPopup("##vipad_settings_popup") then
