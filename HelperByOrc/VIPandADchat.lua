@@ -1480,6 +1480,32 @@ draw_settings_content = function()
 	end
 
 	imgui.Separator()
+	imgui.Text("Прозрачность (лента)")
+	local bg_alpha_chat = imgui.new.float(config.bg_alpha_chat or 0)
+	if imgui.SliderFloat("bg_alpha_chat", bg_alpha_chat, 0, 1) then
+		config.bg_alpha_chat = clamp(bg_alpha_chat[0], 0, 1)
+		module.save()
+	end
+
+	local bg_alpha_idle = imgui.new.float(config.bg_alpha_idle or 0)
+	if imgui.SliderFloat("bg_alpha_idle", bg_alpha_idle, 0, 1) then
+		config.bg_alpha_idle = clamp(bg_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	local text_alpha_chat = imgui.new.float(config.text_alpha_chat or 0)
+	if imgui.SliderFloat("text_alpha_chat", text_alpha_chat, 0, 1) then
+		config.text_alpha_chat = clamp(text_alpha_chat[0], 0, 1)
+		module.save()
+	end
+
+	local text_alpha_idle = imgui.new.float(config.text_alpha_idle or 0)
+	if imgui.SliderFloat("text_alpha_idle", text_alpha_idle, 0, 1) then
+		config.text_alpha_idle = clamp(text_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	imgui.Separator()
 	imgui.Text("Popup")
 	local p = config.popup or default_config.popup
 
