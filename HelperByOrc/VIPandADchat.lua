@@ -175,6 +175,44 @@ local function line_height()
 	return imgui.GetTextLineHeightWithSpacing()
 end
 
+local function wrap_to_lines(text, max_px)
+	local lines = {}
+	local cleaned = tostring(text or "")
+	if cleaned == "" then
+		lines[1] = ""
+		return lines
+	end
+	local words = {}
+	for word in cleaned:gmatch("%S+") do
+		words[#words + 1] = word
+	end
+	if #words == 0 then
+		lines[1] = ""
+		return lines
+	end
+
+	local font = imgui.GetFont()
+	local fsize = imgui.GetFontSize()
+	local current = ""
+	for i = 1, #words do
+		local word = words[i]
+		local next_line = current == "" and word or (current .. " " .. word)
+		if text_size(next_line, font, fsize) <= max_px or current == "" then
+			current = next_line
+		else
+			lines[#lines + 1] = current
+			current = word
+		end
+	end
+	if current ~= "" then
+		lines[#lines + 1] = current
+	end
+	if #lines == 0 then
+		lines[1] = ""
+	end
+	return lines
+end
+
 local function get_is_chat_open()
 	if samp and samp.is_chat_opened then
 		local ok, v = pcall(samp.is_chat_opened)
@@ -614,6 +652,7 @@ end
 -- ===================== HUD ЛЕНТА + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
 local scroll = { vip = 0.0, ad = 0.0 }
+local vip_wrap_cache = { width = 0, src_count = 0, lines = {} }
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1047,12 +1086,27 @@ local function draw_chatbox_window()
 			if imgui.BeginTabItem("VIP") then
 				local vip = config.table_config.vip_text or {}
 				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
-					local clipper = imgui.ImGuiListClipper(#vip)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					if vip_wrap_cache.width ~= max_px or vip_wrap_cache.src_count ~= #vip then
+						local lines = {}
+						for i = 1, #vip do
 							local text_cp = vip[i] or ""
 							local text = strip_color_tags(u8(text_cp))
-							imgui.TextUnformatted(text)
+							local wrapped = wrap_to_lines(text, max_px)
+							for j = 1, #wrapped do
+								lines[#lines + 1] = wrapped[j]
+							end
+						end
+						vip_wrap_cache.width = max_px
+						vip_wrap_cache.src_count = #vip
+						vip_wrap_cache.lines = lines
+					end
+
+					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = vip_wrap_cache.lines[i] or ""
+							imgui.TextUnformatted(line)
 						end
 					end
 				end
