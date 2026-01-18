@@ -324,6 +324,23 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 	if #lines == 0 then
 		lines[1] = ""
 	end
+
+	local active_tag = ""
+	local tag_pattern = "{[%x%X][%x%X][%x%X][%x%X][%x%X][%x%X]}"
+	for idx = 1, #lines do
+		local line = lines[idx] or ""
+		local last_tag = nil
+		for tag in line:gmatch(tag_pattern) do
+			last_tag = tag
+		end
+		if active_tag ~= "" and not line:match("^" .. tag_pattern) then
+			line = active_tag .. line
+			lines[idx] = line
+		end
+		if last_tag and last_tag ~= "" then
+			active_tag = last_tag
+		end
+	end
 	return lines
 end
 
