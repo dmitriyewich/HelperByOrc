@@ -3,6 +3,12 @@ local imgui = require("mimgui")
 local ffi = require("ffi")
 local encoding = require("encoding")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
+local toasts_module = {
+	push = function()
+	end,
+	draw = function()
+	end,
+}
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local vk = require("vkeys")
@@ -19,6 +25,7 @@ local quickMenuSize = imgui.ImVec2(260, 280)
 function module.attachModules(mod)
 	funcs = mod.funcs
 	tags = mod.tags
+	toasts_module = mod.toasts
 end
 
 -- Иконки (безопасный фолбэк)
@@ -98,9 +105,8 @@ local function clone_buttons(arr)
 end
 
 -- === Toasts ===
-local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
-local function pushToast(text, kind, dur)
-	toasts[#toasts + 1] = { text = tostring(text or ""), kind = kind or "ok", t = os.clock(), dur = dur or 3.0 }
+local function pushToast(...)
+	return toasts_module.push(...)
 end
 local active_coroutines = {} -- { hk, co, state, wake }
 local activeInputDialog = nil
@@ -159,51 +165,6 @@ end
 
 module.runScheduler = runScheduler
 
-local function drawToasts()
-	if #toasts == 0 then
-		return
-	end
-	local now = os.clock()
-	-- фолбэк: если нет GetMainViewport (старый mimgui)
-	local vpPosX, vpPosY, vpW, vpH = 0, 0, nil, nil
-	if imgui.GetMainViewport then
-		local vp = imgui.GetMainViewport()
-		vpPosX, vpPosY, vpW, vpH = vp.Pos.x, vp.Pos.y, vp.Size.x, vp.Size.y
-	else
-		local io = imgui.GetIO()
-		vpPosX, vpPosY, vpW, vpH = 0, 0, io.DisplaySize.x, io.DisplaySize.y
-	end
-	local pad = 8
-	local x = vpPosX + vpW - 350 - pad
-	local y = vpPosY + pad
-	for i = #toasts, 1, -1 do
-		local toast = toasts[i]
-		if now - toast.t > toast.dur then
-			table.remove(toasts, i)
-		else
-			imgui.SetNextWindowPos(imgui.ImVec2(x, y), imgui.Cond.Always)
-			imgui.SetNextWindowSize(imgui.ImVec2(350, 0), imgui.Cond.Always)
-			local col
-			if toast.kind == "err" then
-				col = imgui.ImVec4(0.35, 0.05, 0.05, 0.95)
-			elseif toast.kind == "warn" then
-				col = imgui.ImVec4(0.35, 0.25, 0.05, 0.95)
-			else
-				col = imgui.ImVec4(0.1, 0.25, 0.1, 0.95)
-			end
-			imgui.PushStyleColor(imgui.Col.WindowBg, col)
-			imgui.Begin(
-				"##toast" .. i,
-				nil,
-				imgui.WindowFlags.NoDecoration + imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoInputs
-			)
-			imgui.TextWrapped(toast.text)
-			imgui.End()
-			imgui.PopStyleColor()
-			y = y + 46
-		end
-	end
-end
 
 local function cancelInputDialog()
 	if not activeInputDialog then
@@ -550,9 +511,6 @@ local function drawInputDialog()
 		cancelInputDialog()
 	end
 
-	if not module.binderWindow[0] then
-		drawToasts()
-	end
 end
 
 -- === Состояние модуля ===
@@ -853,8 +811,11 @@ function module.saveHotkeys()
 			number = hk._number or idx,
 			inputs = inputs,
 		})
+		end
+	local ok = funcs.saveTableToJson(config, json_path)
+	if not ok then
+		pushToast("Не удалось сохранить бинды", "err", 4.0)
 	end
-	funcs.saveTableToJson(config, json_path)
 end
 
 local function newHotkeyBase()
@@ -944,6 +905,9 @@ function module.registerHotkey(
 end
 
 function module.loadHotkeys()
+	if doesFileExist and not doesFileExist(json_path) then
+		pushToast("Файл биндов не найден, создан новый", "warn", 3.0)
+	end
 	local tbl = funcs.loadTableFromJson(json_path)
 	if type(tbl) == "table" then
 		nextFolderId = 1
@@ -1761,7 +1725,6 @@ function module.DrawQuickMenu()
 	imgui.End()
 	imgui.PopStyleVar(3)
 
-	drawToasts()
 end
 
 -- === API поиска/управления ===
@@ -5155,7 +5118,6 @@ function module.DrawBinder()
 
 	drawMoveBindPopup()
 	drawDeletePopups()
-	drawToasts()
 end
 
 -- === События и ввод ===
