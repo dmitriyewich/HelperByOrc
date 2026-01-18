@@ -1286,7 +1286,7 @@ end)
 local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
 
-local function draw_settings_content()
+draw_settings_content = function()
 	local en = imgui.new.bool(config.enabled and true or false)
 	if imgui.Checkbox("Включить модуль", en) then
 		config.enabled = en[0] and true or false
