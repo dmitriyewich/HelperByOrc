@@ -75,6 +75,16 @@ local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
 local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
 local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
 
+local function toastColor(kind)
+	if kind == "err" then
+		return COL_ERR
+	end
+	if kind == "warn" then
+		return COL_WARN
+	end
+	return COL_OK
+end
+
 local function nowSec()
 	if imgui.GetTime then
 		return imgui.GetTime()
@@ -338,16 +348,6 @@ end
 local function getViewport()
 	local io = imgui.GetIO()
 	return 0, 0, io.DisplaySize.x, io.DisplaySize.y
-end
-
-local function toastColor(kind)
-	if kind == "err" then
-		return COL_ERR
-	end
-	if kind == "warn" then
-		return COL_WARN
-	end
-	return COL_OK
 end
 
 function module.draw()
