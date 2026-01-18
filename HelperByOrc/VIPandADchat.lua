@@ -1448,6 +1448,38 @@ draw_settings_content = function()
 	end
 
 	imgui.Separator()
+	imgui.Text("Лента (режим Строки)")
+	local pos_x = ffi.new("int[1]", tonumber(config.pos_x) or 0)
+	if imgui.DragInt("pos_x", pos_x) then
+		config.pos_x = pos_x[0]
+		module.save()
+	end
+
+	local pos_y = ffi.new("int[1]", tonumber(config.pos_y) or 0)
+	if imgui.DragInt("pos_y", pos_y) then
+		config.pos_y = pos_y[0]
+		module.save()
+	end
+
+	local width = ffi.new("int[1]", tonumber(config.width) or 900)
+	if imgui.DragInt("width", width) then
+		config.width = clamp(width[0], 200, 2000)
+		module.save()
+	end
+
+	local vip_height = ffi.new("int[1]", tonumber(config.vip_height) or 7)
+	if imgui.SliderInt("vip_height", vip_height, 1, 30) then
+		config.vip_height = clamp(vip_height[0], 1, 30)
+		module.save()
+	end
+
+	local ad_height = ffi.new("int[1]", tonumber(config.ad_height) or 7)
+	if imgui.SliderInt("ad_height", ad_height, 1, 30) then
+		config.ad_height = clamp(ad_height[0], 1, 30)
+		module.save()
+	end
+
+	imgui.Separator()
 	imgui.Text("Popup")
 	local p = config.popup or default_config.popup
 
