@@ -656,8 +656,6 @@ local function open_line_popup(kind, index, src_cp)
 
 	local st = get_select_state(popup_target.key)
 	st.initialized = false
-
-	imgui.OpenPopup("##VIPAD_LINE_POPUP")
 end
 
 local function draw_line_popup(anchor_max_w)
@@ -682,6 +680,7 @@ local function draw_line_popup(anchor_max_w)
 	end
 
 	if popup_target.pending_open then
+		imgui.OpenPopup("##VIPAD_LINE_POPUP")
 		imgui.SetNextWindowPos(popup_target.pos, imgui.Cond.Appearing)
 		imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Appearing)
 	elseif popup_target.size_dirty then
