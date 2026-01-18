@@ -1053,6 +1053,8 @@ local function draw_feed()
 	return allow_process, want_cursor, popup_open_this_frame
 end
 
+local draw_settings_content
+
 local function draw_chatbox_window()
 	if not config then
 		return false, false, false
