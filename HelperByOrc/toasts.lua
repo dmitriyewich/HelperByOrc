@@ -3,8 +3,24 @@ local imgui = require("mimgui")
 local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
-local MAX_TOASTS = 8
-local anchor = "top_center"
+local cfg = {
+	anchor = "top_center",
+	maxQueue = 8,
+	maxVisible = 8,
+	width = 420,
+	offsetX = 12,
+	offsetY = 12,
+	durOk = 3.0,
+	durWarn = 3.5,
+	durErr = 4.0,
+	fadeIn = 0.12,
+	fadeOut = 0.35,
+	bgAlpha = 0.9,
+	rounding = 10,
+	padX = 12,
+	padY = 10,
+	enabled = true,
+}
 local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
 local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
 local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
@@ -18,22 +34,31 @@ end
 
 function module.setAnchor(a)
 	if a == "top_center" or a == "top_right" then
-		anchor = a
+		cfg.anchor = a
 	end
 end
 
 function module.push(text, kind, dur)
+	if not cfg.enabled then
+		return
+	end
 	text = tostring(text or "")
 	kind = kind or "ok"
 	local now = nowSec()
+	local defaultDur = cfg.durOk
+	if kind == "err" then
+		defaultDur = cfg.durErr
+	elseif kind == "warn" then
+		defaultDur = cfg.durWarn
+	end
 	local last = toasts[#toasts]
 	if last and last.text == text and last.kind == kind then
 		last.count = (last.count or 1) + 1
 		last.t = now
-		last.dur = dur or last.dur or 3.0
+		last.dur = dur or last.dur or defaultDur
 		return
 	end
-	if #toasts >= MAX_TOASTS then
+	if #toasts >= cfg.maxQueue then
 		for i = 2, #toasts do
 			toasts[i - 1] = toasts[i]
 		end
@@ -43,7 +68,7 @@ function module.push(text, kind, dur)
 		text = text,
 		kind = kind,
 		t = now,
-		dur = dur or 3.0,
+		dur = dur or defaultDur,
 		count = 1,
 	}
 end
@@ -80,6 +105,9 @@ local function toastColor(kind)
 end
 
 function module.draw()
+	if not cfg.enabled then
+		return
+	end
 	if #toasts == 0 then
 		return
 	end
@@ -91,29 +119,33 @@ function module.draw()
 	end
 
 	local vpX, vpY, vpW, vpH = getViewport()
-	local pad = 12
-	local windowW = 420
-	windowW = math.max(1, math.min(windowW, vpW - pad * 2))
+	local windowW = cfg.width
+	windowW = math.max(1, math.min(windowW, vpW - cfg.offsetX * 2))
 	local windowX
-	if anchor == "top_right" then
-		windowX = vpX + vpW - windowW - pad
+	if cfg.anchor == "top_right" then
+		windowX = vpX + vpW - windowW - cfg.offsetX
 	else
 		windowX = vpX + (vpW - windowW) * 0.5
 	end
-	local windowY = vpY + pad
-	local fadeDuration = 0.35
+	local windowY = vpY + cfg.offsetY
+	local fadeOut = cfg.fadeOut
+	local fadeIn = cfg.fadeIn
 	local newestToast = toasts[#toasts]
 	local alpha = 1.0
 	if newestToast and newestToast.dur and newestToast.t then
-		local remain = newestToast.dur - (now - newestToast.t)
-		if remain < fadeDuration then
-			alpha = math.max(0.0, remain / fadeDuration)
+		local age = now - newestToast.t
+		local remain = newestToast.dur - age
+		if fadeOut > 0 and remain < fadeOut then
+			alpha = math.max(0.0, remain / fadeOut)
+		end
+		if fadeIn > 0 and age < fadeIn then
+			alpha = math.min(alpha, age / fadeIn)
 		end
 	end
 	imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha)
-	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 10)
-	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(12, 10))
-	imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.08, 0.08, 0.08, 0.9))
+	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, cfg.rounding)
+	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(cfg.padX, cfg.padY))
+	imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.08, 0.08, 0.08, cfg.bgAlpha))
 	imgui.SetNextWindowPos(imgui.ImVec2(windowX, windowY), imgui.Cond.Always)
 	imgui.SetNextWindowSize(imgui.ImVec2(windowW, 0), imgui.Cond.Always)
 
@@ -127,7 +159,9 @@ function module.draw()
 			+ imgui.WindowFlags.NoFocusOnAppearing
 			+ imgui.WindowFlags.NoInputs
 	)
-	for i, toast in ipairs(toasts) do
+	local startIndex = math.max(1, #toasts - cfg.maxVisible + 1)
+	for i = startIndex, #toasts do
+		local toast = toasts[i]
 		imgui.PushStyleColor(imgui.Col.Text, toastColor(toast.kind))
 		local suffix = toast.count and toast.count > 1 and (" x" .. tostring(toast.count)) or ""
 		imgui.TextWrapped(toast.text .. suffix)
