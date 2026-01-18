@@ -667,6 +667,8 @@ local ad_wrap_cache = { width = 0, src_count = 0, lines = {} }
 local all_wrap_cache = { width = 0, src_count = 0, lines = {} }
 local all_autoscroll = true
 local all_last_count = 0
+local vip_autoscroll = true
+local vip_last_count = 0
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1176,6 +1178,14 @@ local function draw_chatbox_window()
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
+
+					if vip_last_count ~= #vip and vip_autoscroll then
+						imgui.SetScrollHereY(1.0)
+					end
+
+					local at_bottom = (imgui.GetScrollY() >= imgui.GetScrollMaxY() - 2)
+					vip_autoscroll = at_bottom
+					vip_last_count = #vip
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
