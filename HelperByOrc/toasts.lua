@@ -26,7 +26,18 @@ local cfgDefaults = {
 
 local function normalizeConfig(raw)
 	local out = {}
-	out.anchor = (raw.anchor == "top_center" or raw.anchor == "top_right") and raw.anchor or cfgDefaults.anchor
+	local anchor = raw.anchor
+	if anchor == "top_left"
+		or anchor == "top_center"
+		or anchor == "top_right"
+		or anchor == "bottom_left"
+		or anchor == "bottom_center"
+		or anchor == "bottom_right"
+	then
+		out.anchor = anchor
+	else
+		out.anchor = cfgDefaults.anchor
+	end
 	out.maxQueue = math.max(1, tonumber(raw.maxQueue) or cfgDefaults.maxQueue)
 	out.maxVisible = math.max(1, tonumber(raw.maxVisible) or cfgDefaults.maxVisible)
 	out.width = math.max(1, tonumber(raw.width) or cfgDefaults.width)
@@ -73,7 +84,14 @@ local function markConfigDirty()
 end
 
 function module.setAnchor(a)
-	if a == "top_center" or a == "top_right" then
+	if
+		a == "top_left"
+		or a == "top_center"
+		or a == "top_right"
+		or a == "bottom_left"
+		or a == "bottom_center"
+		or a == "bottom_right"
+	then
 		cfg.anchor = a
 		markConfigDirty()
 	end
@@ -167,14 +185,31 @@ function module.draw()
 
 	local vpX, vpY, vpW, vpH = getViewport()
 	local windowW = cfg.width
-	windowW = math.max(1, math.min(windowW, vpW - cfg.offsetX * 2))
-	local windowX
-	if cfg.anchor == "top_right" then
-		windowX = vpX + vpW - windowW - cfg.offsetX
-	else
-		windowX = vpX + (vpW - windowW) * 0.5
+	windowW = math.max(200, math.min(windowW, vpW - cfg.offsetX * 2))
+	local posX = vpX + cfg.offsetX
+	local posY = vpY + cfg.offsetY
+	local pivotX = 0
+	local pivotY = 0
+	if cfg.anchor == "top_center" then
+		posX = vpX + vpW * 0.5
+		pivotX = 0.5
+	elseif cfg.anchor == "top_right" then
+		posX = vpX + vpW - cfg.offsetX
+		pivotX = 1
+	elseif cfg.anchor == "bottom_left" then
+		posY = vpY + vpH - cfg.offsetY
+		pivotY = 1
+	elseif cfg.anchor == "bottom_center" then
+		posX = vpX + vpW * 0.5
+		posY = vpY + vpH - cfg.offsetY
+		pivotX = 0.5
+		pivotY = 1
+	elseif cfg.anchor == "bottom_right" then
+		posX = vpX + vpW - cfg.offsetX
+		posY = vpY + vpH - cfg.offsetY
+		pivotX = 1
+		pivotY = 1
 	end
-	local windowY = vpY + cfg.offsetY
 	local fadeOut = cfg.fadeOut
 	local fadeIn = cfg.fadeIn
 	local newestToast = toasts[#toasts]
@@ -193,7 +228,7 @@ function module.draw()
 	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, cfg.rounding)
 	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(cfg.padX, cfg.padY))
 	imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.08, 0.08, 0.08, cfg.bgAlpha))
-	imgui.SetNextWindowPos(imgui.ImVec2(windowX, windowY), imgui.Cond.Always)
+	imgui.SetNextWindowPos(imgui.ImVec2(posX, posY), imgui.Cond.Always, imgui.ImVec2(pivotX, pivotY))
 	imgui.SetNextWindowSize(imgui.ImVec2(windowW, 0), imgui.Cond.Always)
 
 	imgui.Begin(
