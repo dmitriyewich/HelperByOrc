@@ -369,6 +369,8 @@ local function end_tooltip_wrap()
 	end
 end
 
+local data_rev = { all = 0, vip = 0, ad = 0 }
+
 -- ===================== ДОБАВЛЕНИЕ ТЕКСТА С РАЗМЕРОМ =====================
 local add_text_with_font
 do
@@ -665,6 +667,10 @@ function module.load()
 	merge_defaults(config.popup, default_config.popup)
 	config.chatbox = config.chatbox or clone_table(default_config.chatbox)
 	merge_defaults(config.chatbox, default_config.chatbox)
+
+	data_rev.vip = data_rev.vip + 1
+	data_rev.ad = data_rev.ad + 1
+	data_rev.all = data_rev.all + 1
 end
 
 function module.save()
@@ -688,6 +694,8 @@ function module.AddVIPMessage(text)
 	if #all > 200 then
 		table.remove(all, 1)
 	end
+	data_rev.vip = data_rev.vip + 1
+	data_rev.all = data_rev.all + 1
 	module.save()
 end
 
@@ -705,6 +713,8 @@ function module.AddADMessage(main, edited, toredact)
 	if #all > 200 then
 		table.remove(all, 1)
 	end
+	data_rev.ad = data_rev.ad + 1
+	data_rev.all = data_rev.all + 1
 	module.save()
 end
 
@@ -732,11 +742,13 @@ end
 
 function module.ClearVIP()
 	config.table_config.vip_text = {}
+	data_rev.vip = data_rev.vip + 1
 	module.save()
 end
 
 function module.ClearAD()
 	config.table_config.ad_text = {}
+	data_rev.ad = data_rev.ad + 1
 	module.save()
 end
 
@@ -750,9 +762,9 @@ end
 -- ===================== HUD ЛЕНТА + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
 local scroll = { vip = 0.0, ad = 0.0 }
-local vip_wrap_cache = { width = 0, src_count = 0, lines = {} }
-local ad_wrap_cache = { width = 0, src_count = 0, lines = {} }
-local all_wrap_cache = { width = 0, src_count = 0, lines = {} }
+local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
+local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
+local all_wrap_cache = { width = 0, src_count = 0, rev = 0, lines = {} }
 local all_autoscroll = true
 local all_last_count = 0
 local vip_autoscroll = true
@@ -1188,7 +1200,7 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if all_wrap_cache.width ~= max_px or all_wrap_cache.src_count ~= #all then
+					if all_wrap_cache.width ~= max_px or all_wrap_cache.rev ~= data_rev.all then
 						local lines = {}
 						for i = 1, #all do
 							local entry = all[i] or {}
@@ -1206,6 +1218,7 @@ local function draw_chatbox_window()
 						end
 						all_wrap_cache.width = max_px
 						all_wrap_cache.src_count = #all
+						all_wrap_cache.rev = data_rev.all
 						all_wrap_cache.lines = lines
 					end
 
@@ -1250,7 +1263,7 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if vip_wrap_cache.width ~= max_px or vip_wrap_cache.src_count ~= #vip then
+					if vip_wrap_cache.width ~= max_px or vip_wrap_cache.rev ~= data_rev.vip then
 						local lines = {}
 						for i = 1, #vip do
 							local text_cp = vip[i] or ""
@@ -1267,6 +1280,7 @@ local function draw_chatbox_window()
 						end
 						vip_wrap_cache.width = max_px
 						vip_wrap_cache.src_count = #vip
+						vip_wrap_cache.rev = data_rev.vip
 						vip_wrap_cache.lines = lines
 					end
 
@@ -1311,7 +1325,7 @@ local function draw_chatbox_window()
 				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
-					if ad_wrap_cache.width ~= max_px or ad_wrap_cache.src_count ~= #ad then
+					if ad_wrap_cache.width ~= max_px or ad_wrap_cache.rev ~= data_rev.ad then
 						local lines = {}
 						for i = 1, #ad do
 							local entry = ad[i] or {}
@@ -1329,6 +1343,7 @@ local function draw_chatbox_window()
 						end
 						ad_wrap_cache.width = max_px
 						ad_wrap_cache.src_count = #ad
+						ad_wrap_cache.rev = data_rev.ad
 						ad_wrap_cache.lines = lines
 					end
 
