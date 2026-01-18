@@ -1293,6 +1293,19 @@ local function draw_settings_content()
 	end
 
 	imgui.Separator()
+	imgui.Text("Режим интерфейса")
+	local ui_mode = config.ui_mode or default_config.ui_mode or "chatbox"
+	if imgui.RadioButtonBool("ChatBox", ui_mode == "chatbox") then
+		config.ui_mode = "chatbox"
+		module.save()
+	end
+	imgui.SameLine()
+	if imgui.RadioButtonBool("Строки", ui_mode == "lines") then
+		config.ui_mode = "lines"
+		module.save()
+	end
+
+	imgui.Separator()
 	imgui.Text("Popup")
 	local p = config.popup or default_config.popup
 
