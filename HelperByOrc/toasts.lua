@@ -4,21 +4,35 @@ local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
 
+local function nowSec()
+	if imgui.GetTime then
+		return imgui.GetTime()
+	end
+	return os.clock()
+end
+
 function module.push(text, kind, dur)
 	toasts[#toasts + 1] = {
 		text = tostring(text or ""),
 		kind = kind or "ok",
-		t = os.clock(),
+		t = nowSec(),
 		dur = dur or 3.0,
 	}
 end
 
 local function pruneToasts(now)
-	for i = #toasts, 1, -1 do
-		local toast = toasts[i]
-		if now - toast.t > toast.dur then
-			table.remove(toasts, i)
+	local write = 1
+	for read = 1, #toasts do
+		local toast = toasts[read]
+		if now - toast.t <= toast.dur then
+			if write ~= read then
+				toasts[write] = toast
+			end
+			write = write + 1
 		end
+	end
+	for i = write, #toasts do
+		toasts[i] = nil
 	end
 end
 
@@ -46,7 +60,7 @@ function module.draw()
 		return
 	end
 
-	local now = os.clock()
+	local now = nowSec()
 	pruneToasts(now)
 	if #toasts == 0 then
 		return
