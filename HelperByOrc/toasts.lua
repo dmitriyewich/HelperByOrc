@@ -3,6 +3,7 @@ local imgui = require("mimgui")
 local module = {}
 
 local toasts = {} -- { {text, kind='ok'|'warn'|'err', t, dur} }
+local MAX_TOASTS = 8
 
 local function nowSec()
 	if imgui.GetTime then
@@ -12,11 +13,28 @@ local function nowSec()
 end
 
 function module.push(text, kind, dur)
+	text = tostring(text or "")
+	kind = kind or "ok"
+	local now = nowSec()
+	local last = toasts[#toasts]
+	if last and last.text == text and last.kind == kind then
+		last.count = (last.count or 1) + 1
+		last.t = now
+		last.dur = dur or last.dur or 3.0
+		return
+	end
+	if #toasts >= MAX_TOASTS then
+		for i = 2, #toasts do
+			toasts[i - 1] = toasts[i]
+		end
+		toasts[#toasts] = nil
+	end
 	toasts[#toasts + 1] = {
-		text = tostring(text or ""),
-		kind = kind or "ok",
-		t = nowSec(),
+		text = text,
+		kind = kind,
+		t = now,
 		dur = dur or 3.0,
+		count = 1,
 	}
 end
 
@@ -86,7 +104,8 @@ function module.draw()
 	)
 	for i, toast in ipairs(toasts) do
 		imgui.PushStyleColor(imgui.Col.Text, toastColor(toast.kind))
-		imgui.TextWrapped(toast.text)
+		local suffix = toast.count and toast.count > 1 and (" x" .. tostring(toast.count)) or ""
+		imgui.TextWrapped(toast.text .. suffix)
 		imgui.PopStyleColor()
 		if i < #toasts then
 			imgui.Separator()
