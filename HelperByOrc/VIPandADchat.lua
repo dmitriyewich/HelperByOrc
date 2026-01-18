@@ -646,6 +646,91 @@ local function open_line_popup(kind, index, src_cp)
 	imgui.OpenPopup("##VIPAD_LINE_POPUP")
 end
 
+local function draw_line_popup(anchor_max_w)
+	if popup_target.key == nil then
+		return false
+	end
+
+	local popup_open_this_frame = false
+	local st = get_select_state(popup_target.key)
+	if not st.initialized then
+		st.show_raw = false
+		st.last_src = strip_color_tags(popup_target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		st.initialized = true
+	end
+
+	local max_w = anchor_max_w or 520
+	if popup_target.size_dirty then
+		local cur_text = ffi.string(st.buf)
+		local input_sz = calc_popup_input_size(cur_text, max_w)
+		popup_target.size = imgui.ImVec2(input_sz.x + 28, input_sz.y + 86)
+	end
+
+	if popup_target.pending_open then
+		imgui.SetNextWindowPos(popup_target.pos, imgui.Cond.Appearing)
+		imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Appearing)
+	elseif popup_target.size_dirty then
+		imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Always)
+	end
+
+	if imgui.BeginPopup("##VIPAD_LINE_POPUP") then
+		popup_open_this_frame = true
+		popup_target.pending_open = false
+		popup_target.size_dirty = false
+
+		imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
+		imgui.Spacing()
+
+		local label = st.show_raw and "Источник: С ТЕГАМИ"
+			or "Источник: БЕЗ ТЕГОВ"
+		if imgui.SmallButton(label) then
+			st.show_raw = not st.show_raw
+			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
+			fill_char_buffer_from_string(st.buf, st.last_src)
+			popup_target.size_dirty = true
+		end
+		imgui.SameLine()
+		if imgui.SmallButton("Сбросить") then
+			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
+			fill_char_buffer_from_string(st.buf, st.last_src)
+			popup_target.size_dirty = true
+		end
+		imgui.SameLine()
+		if imgui.SmallButton("Копировать всё") then
+			setClipboardText(u8:decode(ffi.string(st.buf)))
+		end
+
+		local cur_text = ffi.string(st.buf)
+		local input_sz = calc_popup_input_size(cur_text, max_w)
+
+		local itf = 0
+		local ITF = imgui.InputTextFlags or {}
+		if (config.popup and config.popup.auto_select_all) == true and ITF.AutoSelectAll ~= nil then
+			itf = bor(itf, ITF.AutoSelectAll)
+		end
+
+		if (config.popup and config.popup.focus_on_open) == true then
+			imgui.SetKeyboardFocusHere()
+		end
+
+		imgui.InputTextMultiline("##sel_input", st.buf, ffi.sizeof(st.buf), input_sz, itf)
+
+		imgui.Spacing()
+		if imgui.Button("Закрыть", imgui.ImVec2(120, 0)) then
+			imgui.CloseCurrentPopup()
+		end
+
+		imgui.EndPopup()
+	else
+		if not popup_target.pending_open then
+			popup_target.key = nil
+		end
+	end
+
+	return popup_open_this_frame
+end
+
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
 function module.load()
 	config = deepcopy(default_config)
@@ -1063,84 +1148,8 @@ local function draw_feed()
 				end
 			end
 
-			-- POPUP
-			if popup_target.key ~= nil then
-				local st = get_select_state(popup_target.key)
-				if not st.initialized then
-					st.show_raw = false
-					st.last_src = strip_color_tags(popup_target.src_cp)
-					fill_char_buffer_from_string(st.buf, st.last_src)
-					st.initialized = true
-				end
-
-				if popup_target.size_dirty then
-					local cur_text = ffi.string(st.buf)
-					local input_sz = calc_popup_input_size(cur_text, feedSize.x)
-					popup_target.size = imgui.ImVec2(input_sz.x + 28, input_sz.y + 86)
-				end
-
-				if popup_target.pending_open then
-					imgui.SetNextWindowPos(popup_target.pos, imgui.Cond.Appearing)
-					imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Appearing)
-				elseif popup_target.size_dirty then
-					imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Always)
-				end
-
-				if imgui.BeginPopup("##VIPAD_LINE_POPUP") then
-					popup_open_this_frame = true
-					popup_target.pending_open = false
-					popup_target.size_dirty = false
-
-					imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
-					imgui.Spacing()
-
-					local label = st.show_raw and "Источник: С ТЕГАМИ"
-						or "Источник: БЕЗ ТЕГОВ"
-					if imgui.SmallButton(label) then
-						st.show_raw = not st.show_raw
-						st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-						fill_char_buffer_from_string(st.buf, st.last_src)
-						popup_target.size_dirty = true
-					end
-					imgui.SameLine()
-					if imgui.SmallButton("Сбросить") then
-						st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-						fill_char_buffer_from_string(st.buf, st.last_src)
-						popup_target.size_dirty = true
-					end
-					imgui.SameLine()
-					if imgui.SmallButton("Копировать всё") then
-						setClipboardText(u8:decode(ffi.string(st.buf)))
-					end
-
-					local cur_text = ffi.string(st.buf)
-					local input_sz = calc_popup_input_size(cur_text, feedSize.x)
-
-					local itf = 0
-					local ITF = imgui.InputTextFlags or {}
-					if (config.popup and config.popup.auto_select_all) == true and ITF.AutoSelectAll ~= nil then
-						itf = bor(itf, ITF.AutoSelectAll)
-					end
-
-					if (config.popup and config.popup.focus_on_open) == true then
-						imgui.SetKeyboardFocusHere()
-					end
-
-					imgui.InputTextMultiline("##sel_input", st.buf, ffi.sizeof(st.buf), input_sz, itf)
-
-					imgui.Spacing()
-					if imgui.Button("Закрыть", imgui.ImVec2(120, 0)) then
-						imgui.CloseCurrentPopup()
-					end
-
-					imgui.EndPopup()
-				else
-					if not popup_target.pending_open then
-						popup_target.key = nil
-					end
-				end
-			end
-		end
+		popup_open_this_frame = draw_line_popup(feedSize.x)
+	end
 
 		imgui.End()
 		imgui.PopStyleVar(1)
@@ -1192,6 +1201,7 @@ local function draw_chatbox_window()
 	local rect_highlight = imgui.ImVec4(1, 1, 0, 0.38)
 
 	local hovered = false
+	local popup_open = false
 	local open_settings_popup = false
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
 		if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
@@ -1403,6 +1413,8 @@ local function draw_chatbox_window()
 			imgui.EndPopup()
 		end
 
+		popup_open = draw_line_popup(cfg.width or 520)
+
 		local wpos = imgui.GetWindowPos()
 		local wsize = imgui.GetWindowSize()
 		cfg.pos_x = wpos.x
@@ -1414,7 +1426,7 @@ local function draw_chatbox_window()
 	end
 	imgui.End()
 
-	return hovered, hovered, false
+	return hovered or popup_open, hovered or popup_open, popup_open
 end
 
 -- ===================== ONFRAME =====================
