@@ -9,6 +9,15 @@ local imgui = require("mimgui")
 local ffi = require("ffi")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
 
+local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome7")
+if not ok_fa or type(fa) ~= "table" then
+	fa = setmetatable({}, {
+		__index = function()
+			return ""
+		end,
+	})
+end
+
 local ok_bit, bit = pcall(require, "bit")
 local ok_bit32, bit32 = pcall(require, "bit32")
 
@@ -1214,8 +1223,21 @@ local function draw_chatbox_window()
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
+			local gear_label = (fa and fa.GEAR ~= "" and fa.GEAR) or "⚙"
+			local gear_text_size = imgui.CalcTextSize(gear_label)
+			local gear_w = gear_text_size.x + imgui.GetStyle().FramePadding.x * 2
+			imgui.SameLine()
+			imgui.SetCursorPosX(imgui.GetWindowContentRegionMax().x - gear_w)
+			if imgui.SmallButton(gear_label .. "##vipad_settings") then
+				imgui.OpenPopup("##vipad_settings_popup")
+			end
 
 			imgui.EndTabBar()
+		end
+
+		if imgui.BeginPopup("##vipad_settings_popup") then
+			draw_settings_content()
+			imgui.EndPopup()
 		end
 
 		local wpos = imgui.GetWindowPos()
