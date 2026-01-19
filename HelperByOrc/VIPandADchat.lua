@@ -919,6 +919,7 @@ local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines =
 local all_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
 local all_autoscroll = true
 local all_last_rev = 0
+local all_last_line = 0
 local vip_autoscroll = true
 local vip_last_rev = 0
 local ad_autoscroll = true
@@ -1335,7 +1336,8 @@ local function draw_chatbox_window()
 						end
 					end
 
-					if all_last_rev ~= data_rev.all and all_autoscroll then
+					local current_last_line = #all_wrap_cache.lines
+					if current_last_line ~= all_last_line and all_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 
@@ -1343,7 +1345,7 @@ local function draw_chatbox_window()
 					local y = imgui.GetScrollY()
 					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
 					all_autoscroll = at_bottom
-					all_last_rev = data_rev.all
+					all_last_line = current_last_line
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
