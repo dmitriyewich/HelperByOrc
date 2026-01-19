@@ -1375,6 +1375,16 @@ local function draw_chatbox_window()
 			)
 		end
 
+		local function build_wrap_cache(cache, list, max_px, data_rev_key, cfg_key, build_lines)
+			if cache.width ~= max_px or cache.rev ~= data_rev_key or cache.cfg_key ~= cfg_key then
+				cache.width = max_px
+				cache.src_count = #list
+				cache.rev = data_rev_key
+				cache.cfg_key = cfg_key
+				cache.lines = build_lines()
+			end
+		end
+
 		local function render_all_tab()
 			local all = config.table_config.all or {}
 			if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -1390,10 +1400,7 @@ local function draw_chatbox_window()
 				if all_wrap_cache.width ~= max_px then
 					all_autoscroll = true
 				end
-				if all_wrap_cache.width ~= max_px
-					or all_wrap_cache.rev ~= data_rev.all
-					or all_wrap_cache.cfg_key ~= cfg_key
-				then
+				build_wrap_cache(all_wrap_cache, all, max_px, data_rev.all, cfg_key, function()
 					local lines = {}
 					for i = 1, #all do
 						local entry = all[i] or {}
@@ -1409,12 +1416,8 @@ local function draw_chatbox_window()
 							}
 						end
 					end
-					all_wrap_cache.width = max_px
-					all_wrap_cache.src_count = #all
-					all_wrap_cache.rev = data_rev.all
-					all_wrap_cache.cfg_key = cfg_key
-					all_wrap_cache.lines = lines
-				end
+					return lines
+				end)
 				local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
 				while clipper:Step() do
 					for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
@@ -1470,10 +1473,7 @@ local function draw_chatbox_window()
 						tonumber(ts_cfg.scale) or 0.5,
 						tonumber(ts_cfg.padding) or 0
 					)
-					if vip_wrap_cache.width ~= max_px
-						or vip_wrap_cache.rev ~= data_rev.vip
-						or vip_wrap_cache.cfg_key ~= cfg_key
-					then
+					build_wrap_cache(vip_wrap_cache, vip, max_px, data_rev.vip, cfg_key, function()
 						local lines = {}
 						for i = 1, #vip do
 							local text_cp = vip[i] or ""
@@ -1488,12 +1488,8 @@ local function draw_chatbox_window()
 								}
 							end
 						end
-						vip_wrap_cache.width = max_px
-						vip_wrap_cache.src_count = #vip
-						vip_wrap_cache.rev = data_rev.vip
-						vip_wrap_cache.cfg_key = cfg_key
-						vip_wrap_cache.lines = lines
-					end
+						return lines
+					end)
 
 					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
 					while clipper:Step() do
@@ -1544,10 +1540,7 @@ local function draw_chatbox_window()
 						tonumber(ts_cfg.scale) or 0.5,
 						tonumber(ts_cfg.padding) or 0
 					)
-					if ad_wrap_cache.width ~= max_px
-						or ad_wrap_cache.rev ~= data_rev.ad
-						or ad_wrap_cache.cfg_key ~= cfg_key
-					then
+					build_wrap_cache(ad_wrap_cache, ad, max_px, data_rev.ad, cfg_key, function()
 						local lines = {}
 						for i = 1, #ad do
 							local entry = ad[i] or {}
@@ -1563,12 +1556,8 @@ local function draw_chatbox_window()
 								}
 							end
 						end
-						ad_wrap_cache.width = max_px
-						ad_wrap_cache.src_count = #ad
-						ad_wrap_cache.rev = data_rev.ad
-						ad_wrap_cache.cfg_key = cfg_key
-						ad_wrap_cache.lines = lines
-					end
+						return lines
+					end)
 
 					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
 					while clipper:Step() do
