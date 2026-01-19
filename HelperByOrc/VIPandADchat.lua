@@ -998,26 +998,19 @@ local vip_last_line = 0
 local ad_autoscroll = true
 local ad_last_rev = 0
 local ad_last_line = 0
-local chat_open_last = false
-local all_was_at_bottom = true
-local vip_was_at_bottom = true
-local ad_was_at_bottom = true
-local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bottom, is_chat_open, just_closed, threshold)
-	if just_closed and was_at_bottom then
-		autoscroll = true
-	end
+local function handle_autoscroll(lines_count, last_line, autoscroll, is_chat_open)
 	if (not is_chat_open) and autoscroll then
 		imgui.SetScrollY(imgui.GetScrollMaxY())
 	end
 	last_line = lines_count
 	local maxY = imgui.GetScrollMaxY()
 	local y = imgui.GetScrollY()
+	local threshold = line_height() * 0.5
 	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
 	if is_chat_open then
 		autoscroll = at_bottom
-		was_at_bottom = at_bottom
 	end
-	return autoscroll, last_line, was_at_bottom
+	return autoscroll, last_line
 end
 
 local function get_canvas_flags()
@@ -1446,15 +1439,11 @@ local function draw_chatbox_window()
 						end
 					end
 
-				local just_closed = chat_open_last and (not is_chat_open)
-				all_autoscroll, all_last_line, all_was_at_bottom = handle_autoscroll(
+				all_autoscroll, all_last_line = handle_autoscroll(
 					#all_wrap_cache.lines,
 					all_last_line,
 					all_autoscroll,
-					all_was_at_bottom,
-					is_chat_open,
-					just_closed,
-					lh * 0.5
+					is_chat_open
 				)
 				all_last_rev = data_rev.all
 			end
@@ -1511,18 +1500,14 @@ local function draw_chatbox_window()
 							end
 						end
 
-					local just_closed = chat_open_last and (not is_chat_open)
-					vip_autoscroll, vip_last_line, vip_was_at_bottom = handle_autoscroll(
-						#vip_wrap_cache.lines,
-						vip_last_line,
-						vip_autoscroll,
-						vip_was_at_bottom,
-						is_chat_open,
-						just_closed,
-						line_height() * 0.5
-					)
-					vip_last_rev = data_rev.vip
-				end
+						vip_autoscroll, vip_last_line = handle_autoscroll(
+							#vip_wrap_cache.lines,
+							vip_last_line,
+							vip_autoscroll,
+							is_chat_open
+						)
+						vip_last_rev = data_rev.vip
+					end
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
@@ -1571,18 +1556,14 @@ local function draw_chatbox_window()
 							end
 						end
 
-					local just_closed = chat_open_last and (not is_chat_open)
-					ad_autoscroll, ad_last_line, ad_was_at_bottom = handle_autoscroll(
-						#ad_wrap_cache.lines,
-						ad_last_line,
-						ad_autoscroll,
-						ad_was_at_bottom,
-						is_chat_open,
-						just_closed,
-						line_height() * 0.5
-					)
-					ad_last_rev = data_rev.ad
-				end
+						ad_autoscroll, ad_last_line = handle_autoscroll(
+							#ad_wrap_cache.lines,
+							ad_last_line,
+							ad_autoscroll,
+							is_chat_open
+						)
+						ad_last_rev = data_rev.ad
+					end
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
@@ -1636,7 +1617,6 @@ local function draw_chatbox_window()
 			or popup_target.was_open_last
 		local want_cursor = popup_target.pending_open or popup_open or hovered
 
-		chat_open_last = is_chat_open
 		return allow_process, want_cursor, popup_open
 	end
 
