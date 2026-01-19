@@ -768,6 +768,27 @@ local function open_line_popup(kind, index, src_cp)
 	st.initialized = false
 end
 
+local function draw_popup_buttons(st, target)
+	local label = st.show_raw and "Источник: С ТЕГАМИ"
+		or "Источник: БЕЗ ТЕГОВ"
+	if imgui.SmallButton(label) then
+		st.show_raw = not st.show_raw
+		st.last_src = st.show_raw and target.src_cp or strip_color_tags(target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		target.size_dirty = true
+	end
+	imgui.SameLine()
+	if imgui.SmallButton("Сбросить") then
+		st.last_src = st.show_raw and target.src_cp or strip_color_tags(target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		target.size_dirty = true
+	end
+	imgui.SameLine()
+	if imgui.SmallButton("Копировать всё") then
+		setClipboardText(u8:decode(ffi.string(st.buf)))
+	end
+end
+
 local function draw_line_popup(anchor_max_w)
 	if popup_target.key == nil then
 		return false
@@ -806,24 +827,7 @@ local function draw_line_popup(anchor_max_w)
 		imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
 		imgui.Spacing()
 
-		local label = st.show_raw and "Источник: С ТЕГАМИ"
-			or "Источник: БЕЗ ТЕГОВ"
-		if imgui.SmallButton(label) then
-			st.show_raw = not st.show_raw
-			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-			fill_char_buffer_from_string(st.buf, st.last_src)
-			popup_target.size_dirty = true
-		end
-		imgui.SameLine()
-		if imgui.SmallButton("Сбросить") then
-			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-			fill_char_buffer_from_string(st.buf, st.last_src)
-			popup_target.size_dirty = true
-		end
-		imgui.SameLine()
-		if imgui.SmallButton("Копировать всё") then
-			setClipboardText(u8:decode(ffi.string(st.buf)))
-		end
+		draw_popup_buttons(st, popup_target)
 
 		local cur_text = ffi.string(st.buf)
 		local input_sz = calc_popup_input_size(cur_text, max_w)
