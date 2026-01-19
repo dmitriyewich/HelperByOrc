@@ -9,6 +9,15 @@ local imgui = require("mimgui")
 local ffi = require("ffi")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
 
+local ok_fa, fa = pcall(require, "HelperByOrc.fAwesome7")
+if not ok_fa or type(fa) ~= "table" then
+	fa = setmetatable({}, {
+		__index = function()
+			return ""
+		end,
+	})
+end
+
 local ok_bit, bit = pcall(require, "bit")
 local ok_bit32, bit32 = pcall(require, "bit32")
 
@@ -85,6 +94,10 @@ local default_config = {
 	width = 900,
 	vip_height = 7,
 	ad_height = 7,
+	ui_mode = "chatbox",
+	vip_limit = 100,
+	ad_limit = 100,
+	all_limit = 200,
 	highlightWords = { "Walcher_Flett", "Admin_John", "VIP_News" },
 	timestamp = {
 		enabled = true,
@@ -106,7 +119,7 @@ local default_config = {
 		u8:decode("%[Дальнобойщик]"),
 		u8:decode("%(%( %[Дальнобойщик%]"),
 	},
-	table_config = { vip_text = {}, ad_text = {} },
+	table_config = { vip_text = {}, ad_text = {}, all = {} },
 
 	bg_alpha_chat = 0.50,
 	bg_alpha_idle = 0.00,
@@ -121,6 +134,15 @@ local default_config = {
 		min_lines = 3,
 		max_lines = 14,
 		chars_per_line = 70,
+	},
+	chatbox = {
+		enabled = true,
+		pos_x = 30,
+		pos_y = 600,
+		width = 520,
+		height = 210,
+		bg_alpha = 0.35,
+		rounding = 8,
 	},
 }
 
@@ -162,8 +184,253 @@ local function text_size(s, font, fsize)
 	return font:CalcTextSizeA(fsize, 10000, -1, s).x
 end
 
+local function is_color_tag(tag)
+	return type(tag) == "string"
+		and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
+end
+
 local function line_height()
 	return imgui.GetTextLineHeightWithSpacing()
+end
+
+local function wrap_to_lines(text, max_px)
+	local lines = {}
+	local cleaned = tostring(text or "")
+	if cleaned == "" then
+		lines[1] = ""
+		return lines
+	end
+	local words = {}
+	for word in cleaned:gmatch("%S+") do
+		words[#words + 1] = word
+	end
+	if #words == 0 then
+		lines[1] = ""
+		return lines
+	end
+
+	local font = imgui.GetFont()
+	local fsize = imgui.GetFontSize()
+	local current = ""
+	for i = 1, #words do
+		local word = words[i]
+		local next_line = current == "" and word or (current .. " " .. word)
+		if text_size(next_line, font, fsize) <= max_px or current == "" then
+			current = next_line
+		else
+			lines[#lines + 1] = current
+			current = word
+		end
+	end
+	if current ~= "" then
+		lines[#lines + 1] = current
+	end
+	if #lines == 0 then
+		lines[1] = ""
+	end
+	return lines
+end
+
+local function wrap_to_lines_keep_tags(text_with_tags, max_px)
+	local lines = {}
+	local cleaned = tostring(text_with_tags or "")
+	if cleaned == "" then
+		lines[1] = ""
+		return lines
+	end
+
+	local words = {}
+	local current_tag = ""
+	local i = 1
+	while i <= #cleaned do
+		while i <= #cleaned and cleaned:sub(i, i):match("%s") do
+			i = i + 1
+		end
+		if i > #cleaned then
+			break
+		end
+
+		local raw = ""
+		local visible = ""
+		local last_tag = nil
+		while i <= #cleaned and not cleaned:sub(i, i):match("%s") do
+				if cleaned:sub(i, i) == "{" then
+					local tag = cleaned:match("^%b{}", i)
+					if is_color_tag(tag) then
+						raw = raw .. tag
+						last_tag = tag
+						i = i + #tag
+				else
+					local ch = cleaned:sub(i, i)
+					raw = raw .. ch
+					visible = visible .. ch
+					i = i + 1
+				end
+			else
+				local ch = cleaned:sub(i, i)
+				raw = raw .. ch
+				visible = visible .. ch
+				i = i + 1
+			end
+		end
+		words[#words + 1] = { raw = raw, visible = visible, last_tag = last_tag }
+	end
+
+	if #words == 0 then
+		lines[1] = ""
+		return lines
+	end
+
+	local font = imgui.GetFont()
+	local fsize = imgui.GetFontSize()
+	local ts_cfg = config.timestamp or default_config.timestamp or {}
+	local ts_enabled = ts_cfg.enabled ~= false
+	local ts_scale = tonumber(ts_cfg.scale) or 0.5
+	local ts_padding = tonumber(ts_cfg.padding) or 0
+	local function split_long_word(word_raw, line_max_px)
+		local parts = {}
+		local chunk_raw = ""
+		local chunk_visible = ""
+		local active_tag = ""
+		local i = 1
+		while i <= #word_raw do
+			local ch = word_raw:sub(i, i)
+			if ch == "{" then
+				local tag = word_raw:match("^%b{}", i)
+				if is_color_tag(tag) then
+					active_tag = tag
+					chunk_raw = chunk_raw .. tag
+					i = i + #tag
+				else
+					local next_visible = chunk_visible .. ch
+					local vis_no_tags = next_visible:gsub("{[%x]+}", "")
+					if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+						parts[#parts + 1] = {
+							raw = chunk_raw,
+							visible = chunk_visible,
+							last_tag = active_tag ~= "" and active_tag or nil,
+						}
+						chunk_raw = active_tag ~= "" and active_tag or ""
+						chunk_visible = ""
+					end
+					chunk_raw = chunk_raw .. ch
+					chunk_visible = chunk_visible .. ch
+					i = i + 1
+				end
+			else
+				local next_visible = chunk_visible .. ch
+				local vis_no_tags = next_visible:gsub("{[%x]+}", "")
+				if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+					parts[#parts + 1] = {
+						raw = chunk_raw,
+						visible = chunk_visible,
+						last_tag = active_tag ~= "" and active_tag or nil,
+					}
+					chunk_raw = active_tag ~= "" and active_tag or ""
+					chunk_visible = ""
+				end
+				chunk_raw = chunk_raw .. ch
+				chunk_visible = chunk_visible .. ch
+				i = i + 1
+			end
+		end
+		if chunk_raw ~= "" then
+			parts[#parts + 1] = {
+				raw = chunk_raw,
+				visible = chunk_visible,
+				last_tag = active_tag ~= "" and active_tag or nil,
+			}
+		end
+		return parts
+	end
+
+	local expanded_words = {}
+	for idx = 1, #words do
+		local word = words[idx]
+		local word_visible = word.visible or ""
+		local word_raw = word.raw or ""
+		local vis_no_tags = word_visible:gsub("{[%x]+}", "")
+		if text_size(vis_no_tags, font, fsize) > max_px and not word_visible:match("%s") then
+			local parts = split_long_word(word_raw, max_px)
+			for j = 1, #parts do
+				expanded_words[#expanded_words + 1] = parts[j]
+			end
+		else
+			expanded_words[#expanded_words + 1] = word
+		end
+	end
+	words = expanded_words
+	local first_word_is_ts = false
+	if words[1] and words[1].visible then
+		first_word_is_ts = words[1].visible:match("^%[%d%d:%d%d:%d%d%]$") ~= nil
+	end
+	local first_line_max_px = max_px
+	if ts_enabled and first_word_is_ts then
+		first_line_max_px = max_px - (text_size(words[1].visible, font, fsize * ts_scale) + ts_padding)
+		if first_line_max_px < 0 then
+			first_line_max_px = 0
+		end
+	end
+	local current_visible = ""
+	local current_raw = ""
+	current_tag = ""
+	local is_first_line = true
+	for idx = 1, #words do
+		local word = words[idx]
+		local word_visible = word.visible or ""
+		local word_raw = word.raw or ""
+		local next_visible = current_visible == "" and word_visible or (current_visible .. " " .. word_visible)
+
+		local measure_visible = next_visible
+		local line_max_px = is_first_line and first_line_max_px or max_px
+		if is_first_line and first_word_is_ts then
+			measure_visible = measure_visible:gsub("^%[%d%d:%d%d:%d%d%]%s*", "")
+		end
+		local vis_no_tags = measure_visible:gsub("{[%x]+}", "")
+		if text_size(vis_no_tags, font, fsize) <= line_max_px or current_visible == "" then
+			if current_raw == "" then
+				current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
+			else
+				current_raw = current_raw .. " " .. word_raw
+			end
+			current_visible = next_visible
+		else
+			lines[#lines + 1] = current_raw
+			current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
+			current_visible = word_visible
+			is_first_line = false
+		end
+
+		if word.last_tag and word.last_tag ~= "" then
+			current_tag = word.last_tag
+		end
+	end
+
+	if current_raw ~= "" then
+		lines[#lines + 1] = current_raw
+	end
+	if #lines == 0 then
+		lines[1] = ""
+	end
+
+	local active_tag = ""
+	for idx = 1, #lines do
+		local line = lines[idx] or ""
+		local last_tag = nil
+		for tag in line:gmatch("%b{}") do
+			if is_color_tag(tag) then
+				last_tag = tag
+			end
+		end
+		if active_tag ~= "" and not is_color_tag(line:match("^(%b{})")) then
+			line = active_tag .. line
+			lines[idx] = line
+		end
+		if last_tag and last_tag ~= "" then
+			active_tag = last_tag
+		end
+	end
+	return lines
 end
 
 local function get_is_chat_open()
@@ -222,6 +489,19 @@ local function end_tooltip_wrap()
 	if imgui.PopTextWrapPos then
 		imgui.PopTextWrapPos()
 	end
+end
+
+local data_rev = { all = 0, vip = 0, ad = 0 }
+
+local function fill_buf_utf8(buf, s)
+	local text = tostring(s or "")
+	local max_len = ffi.sizeof(buf) - 1
+	ffi.fill(buf, ffi.sizeof(buf))
+	if max_len <= 0 then
+		return
+	end
+	local copy_len = math.min(#text, max_len)
+	ffi.copy(buf, text, copy_len)
 end
 
 -- ===================== ДОБАВЛЕНИЕ ТЕКСТА С РАЗМЕРОМ =====================
@@ -337,9 +617,14 @@ local function draw_text_with_highlight_at(draw, start_pos, text, highlightWords
 
 	while i <= n do
 		local tag_s, tag_e, tag = text:find("{([%xX]+)}", i)
-		if tag_s == i then
+		if tag_s == i and (tag and (#tag == 6 or #tag == 8)) then
 			cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
 			i = tag_e + 1
+		elseif tag_s == i then
+			local ch = text:sub(i, i)
+			draw:AddText(imgui.ImVec2(x, y), imgui.ColorConvertFloat4ToU32(cur_col), ch)
+			x = x + text_size(ch, font, fsize)
+			i = i + 1
 		else
 			local timestamp = ts_enabled and text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
 			if timestamp and ts_font_size > 0 then
@@ -478,6 +763,8 @@ local popup_target = {
 	size = imgui.ImVec2(0, 0),
 	size_dirty = false,
 
+	open_try_frames = 0,
+
 	was_open_last = false,
 }
 
@@ -492,11 +779,105 @@ local function open_line_popup(kind, index, src_cp)
 
 	popup_target.pending_open = true
 	popup_target.size_dirty = true
+	popup_target.open_try_frames = 0
 
 	local st = get_select_state(popup_target.key)
 	st.initialized = false
+end
 
-	imgui.OpenPopup("##VIPAD_LINE_POPUP")
+local function draw_line_popup(anchor_max_w)
+	if popup_target.key == nil then
+		return false
+	end
+
+	local popup_open_this_frame = false
+	local st = get_select_state(popup_target.key)
+	if not st.initialized then
+		st.show_raw = false
+		st.last_src = strip_color_tags(popup_target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		st.initialized = true
+	end
+
+	local max_w = anchor_max_w or 520
+	if popup_target.size_dirty then
+		local cur_text = ffi.string(st.buf)
+		local input_sz = calc_popup_input_size(cur_text, max_w)
+		popup_target.size = imgui.ImVec2(input_sz.x + 28, input_sz.y + 86)
+	end
+
+	if popup_target.pending_open then
+		imgui.OpenPopup("##VIPAD_LINE_POPUP")
+		imgui.SetNextWindowPos(popup_target.pos, imgui.Cond.Appearing)
+		imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Appearing)
+	elseif popup_target.size_dirty then
+		imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Always)
+	end
+
+	if imgui.BeginPopup("##VIPAD_LINE_POPUP") then
+		popup_open_this_frame = true
+		popup_target.pending_open = false
+		popup_target.size_dirty = false
+		popup_target.open_try_frames = 0
+
+		imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
+		imgui.Spacing()
+
+		local label = st.show_raw and "Источник: С ТЕГАМИ"
+			or "Источник: БЕЗ ТЕГОВ"
+		if imgui.SmallButton(label) then
+			st.show_raw = not st.show_raw
+			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
+			fill_char_buffer_from_string(st.buf, st.last_src)
+			popup_target.size_dirty = true
+		end
+		imgui.SameLine()
+		if imgui.SmallButton("Сбросить") then
+			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
+			fill_char_buffer_from_string(st.buf, st.last_src)
+			popup_target.size_dirty = true
+		end
+		imgui.SameLine()
+		if imgui.SmallButton("Копировать всё") then
+			setClipboardText(u8:decode(ffi.string(st.buf)))
+		end
+
+		local cur_text = ffi.string(st.buf)
+		local input_sz = calc_popup_input_size(cur_text, max_w)
+
+		local itf = 0
+		local ITF = imgui.InputTextFlags or {}
+		if (config.popup and config.popup.auto_select_all) == true and ITF.AutoSelectAll ~= nil then
+			itf = bor(itf, ITF.AutoSelectAll)
+		end
+
+		if (config.popup and config.popup.focus_on_open) == true then
+			imgui.SetKeyboardFocusHere()
+		end
+
+		imgui.InputTextMultiline("##sel_input", st.buf, ffi.sizeof(st.buf), input_sz, itf)
+
+		imgui.Spacing()
+		if imgui.Button("Закрыть", imgui.ImVec2(120, 0)) then
+			imgui.CloseCurrentPopup()
+		end
+
+		imgui.EndPopup()
+	else
+		if popup_target.pending_open then
+			popup_target.open_try_frames = popup_target.open_try_frames + 1
+			if popup_target.open_try_frames > 2 then
+				popup_target.key = nil
+				popup_target.pending_open = false
+				popup_target.size_dirty = false
+				popup_target.open_try_frames = 0
+			end
+		else
+			popup_target.key = nil
+		end
+	end
+
+	return popup_open_this_frame
 end
 
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
@@ -510,13 +891,20 @@ function module.load()
 	end
 
 	merge_defaults(config, default_config)
-	config.table_config = config.table_config or { vip_text = {}, ad_text = {} }
+	config.table_config = config.table_config or { vip_text = {}, ad_text = {}, all = {} }
 	config.table_config.vip_text = config.table_config.vip_text or {}
 	config.table_config.ad_text = config.table_config.ad_text or {}
+	config.table_config.all = config.table_config.all or {}
 	config.timestamp = config.timestamp or clone_table(default_config.timestamp)
 	merge_defaults(config.timestamp, default_config.timestamp)
 	config.popup = config.popup or clone_table(default_config.popup)
 	merge_defaults(config.popup, default_config.popup)
+	config.chatbox = config.chatbox or clone_table(default_config.chatbox)
+	merge_defaults(config.chatbox, default_config.chatbox)
+
+	data_rev.vip = data_rev.vip + 1
+	data_rev.ad = data_rev.ad + 1
+	data_rev.all = data_rev.all + 1
 end
 
 function module.save()
@@ -532,9 +920,18 @@ function module.AddVIPMessage(text)
 	end
 	local t = config.table_config.vip_text
 	t[#t + 1] = text
-	if #t > 100 then
+	local vip_limit = tonumber(config.vip_limit) or default_config.vip_limit or 100
+	while #t > vip_limit do
 		table.remove(t, 1)
 	end
+	local all = config.table_config.all
+	all[#all + 1] = { kind = "vip", text = text, src_index = #t }
+	local all_limit = tonumber(config.all_limit) or default_config.all_limit or 200
+	while #all > all_limit do
+		table.remove(all, 1)
+	end
+	data_rev.vip = data_rev.vip + 1
+	data_rev.all = data_rev.all + 1
 	module.save()
 end
 
@@ -544,9 +941,18 @@ function module.AddADMessage(main, edited, toredact)
 	end
 	local t = config.table_config.ad_text
 	t[#t + 1] = { main, edited or "", toredact or "" }
-	if #t > 100 then
+	local ad_limit = tonumber(config.ad_limit) or default_config.ad_limit or 100
+	while #t > ad_limit do
 		table.remove(t, 1)
 	end
+	local all = config.table_config.all
+	all[#all + 1] = { kind = "ad", text = main, edited = edited or "", toredact = toredact or "", src_index = #t }
+	local all_limit = tonumber(config.all_limit) or default_config.all_limit or 200
+	while #all > all_limit do
+		table.remove(all, 1)
+	end
+	data_rev.ad = data_rev.ad + 1
+	data_rev.all = data_rev.all + 1
 	module.save()
 end
 
@@ -574,11 +980,13 @@ end
 
 function module.ClearVIP()
 	config.table_config.vip_text = {}
+	data_rev.vip = data_rev.vip + 1
 	module.save()
 end
 
 function module.ClearAD()
 	config.table_config.ad_text = {}
+	data_rev.ad = data_rev.ad + 1
 	module.save()
 end
 
@@ -591,7 +999,39 @@ end
 
 -- ===================== HUD ЛЕНТА + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
-local scroll = { vip = 0.0, ad = 0.0 }
+local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
+local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
+local all_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
+local all_autoscroll = true
+local all_last_rev = 0
+local all_last_line = 0
+local vip_autoscroll = true
+local vip_last_rev = 0
+local vip_last_line = 0
+local ad_autoscroll = true
+local ad_last_rev = 0
+local ad_last_line = 0
+local chat_open_last = false
+local all_was_at_bottom = true
+local vip_was_at_bottom = true
+local ad_was_at_bottom = true
+local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bottom, is_chat_open, just_closed, threshold)
+	if just_closed and was_at_bottom then
+		autoscroll = true
+	end
+	if (not is_chat_open) and autoscroll then
+		imgui.SetScrollY(imgui.GetScrollMaxY())
+	end
+	last_line = lines_count
+	local maxY = imgui.GetScrollMaxY()
+	local y = imgui.GetScrollY()
+	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
+	if is_chat_open then
+		autoscroll = at_bottom
+		was_at_bottom = at_bottom
+	end
+	return autoscroll, last_line, was_at_bottom
+end
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -698,23 +1138,6 @@ local function draw_feed()
 	config.pos_y = feedPos.y
 	config.width = feedSize.x
 
-	-- прокрутка: только при открытом чате
-	if is_chat_open then
-		local wheel = io.MouseWheel or 0.0
-		if wheel ~= 0.0 then
-			local step = 3.0
-			local vip_lines = #(config.table_config.vip_text or {})
-			local ad_lines = #(config.table_config.ad_text or {})
-			local vip_max = math.max(0, vip_lines - vip_h)
-			local ad_max = math.max(0, ad_lines - ad_h)
-			scroll.vip = clamp(scroll.vip + wheel * step, 0.0, vip_max)
-			scroll.ad = clamp(scroll.ad + wheel * step, 0.0, ad_max)
-		end
-	else
-		scroll.vip = 0.0
-		scroll.ad = 0.0
-	end
-
 	-- ===================== CANVAS (рисуем, без ввода) =====================
 	imgui.SetNextWindowPos(imgui.ImVec2(0, 0), imgui.Cond.Always)
 	imgui.SetNextWindowSize(io.DisplaySize, imgui.Cond.Always)
@@ -753,8 +1176,7 @@ local function draw_feed()
 	-- VIP диапазон
 	local vip = config.table_config.vip_text or {}
 	local vip_count = #vip
-	local vip_scroll = math.floor(scroll.vip + 0.5)
-	local vip_first = math.max(1, vip_count - vip_h - vip_scroll + 1)
+	local vip_first = math.max(1, vip_count - vip_h + 1)
 	local vip_last = math.min(vip_count, vip_first + vip_h - 1)
 
 	local y = y0
@@ -780,8 +1202,7 @@ local function draw_feed()
 	-- AD диапазон
 	local ad = config.table_config.ad_text or {}
 	local ad_count = #ad
-	local ad_scroll = math.floor(scroll.ad + 0.5)
-	local ad_first = math.max(1, ad_count - ad_h - ad_scroll + 1)
+	local ad_first = math.max(1, ad_count - ad_h + 1)
 	local ad_last = math.min(ad_count, ad_first + ad_h - 1)
 
 	y = y0 + vip_h * lh + gap
@@ -884,84 +1305,8 @@ local function draw_feed()
 				end
 			end
 
-			-- POPUP
-			if popup_target.key ~= nil then
-				local st = get_select_state(popup_target.key)
-				if not st.initialized then
-					st.show_raw = false
-					st.last_src = strip_color_tags(popup_target.src_cp)
-					fill_char_buffer_from_string(st.buf, st.last_src)
-					st.initialized = true
-				end
-
-				if popup_target.size_dirty then
-					local cur_text = ffi.string(st.buf)
-					local input_sz = calc_popup_input_size(cur_text, feedSize.x)
-					popup_target.size = imgui.ImVec2(input_sz.x + 28, input_sz.y + 86)
-				end
-
-				if popup_target.pending_open then
-					imgui.SetNextWindowPos(popup_target.pos, imgui.Cond.Appearing)
-					imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Appearing)
-				elseif popup_target.size_dirty then
-					imgui.SetNextWindowSize(popup_target.size, imgui.Cond.Always)
-				end
-
-				if imgui.BeginPopup("##VIPAD_LINE_POPUP") then
-					popup_open_this_frame = true
-					popup_target.pending_open = false
-					popup_target.size_dirty = false
-
-					imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
-					imgui.Spacing()
-
-					local label = st.show_raw and "Источник: С ТЕГАМИ"
-						or "Источник: БЕЗ ТЕГОВ"
-					if imgui.SmallButton(label) then
-						st.show_raw = not st.show_raw
-						st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-						fill_char_buffer_from_string(st.buf, st.last_src)
-						popup_target.size_dirty = true
-					end
-					imgui.SameLine()
-					if imgui.SmallButton("Сбросить") then
-						st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-						fill_char_buffer_from_string(st.buf, st.last_src)
-						popup_target.size_dirty = true
-					end
-					imgui.SameLine()
-					if imgui.SmallButton("Копировать всё") then
-						setClipboardText(u8:decode(ffi.string(st.buf)))
-					end
-
-					local cur_text = ffi.string(st.buf)
-					local input_sz = calc_popup_input_size(cur_text, feedSize.x)
-
-					local itf = 0
-					local ITF = imgui.InputTextFlags or {}
-					if (config.popup and config.popup.auto_select_all) == true and ITF.AutoSelectAll ~= nil then
-						itf = bor(itf, ITF.AutoSelectAll)
-					end
-
-					if (config.popup and config.popup.focus_on_open) == true then
-						imgui.SetKeyboardFocusHere()
-					end
-
-					imgui.InputTextMultiline("##sel_input", st.buf, ffi.sizeof(st.buf), input_sz, itf)
-
-					imgui.Spacing()
-					if imgui.Button("Закрыть", imgui.ImVec2(120, 0)) then
-						imgui.CloseCurrentPopup()
-					end
-
-					imgui.EndPopup()
-				else
-					if not popup_target.pending_open then
-						popup_target.key = nil
-					end
-				end
-			end
-		end
+		popup_open_this_frame = draw_line_popup(feedSize.x)
+	end
 
 		imgui.End()
 		imgui.PopStyleVar(1)
@@ -979,15 +1324,382 @@ local function draw_feed()
 	return allow_process, want_cursor, popup_open_this_frame
 end
 
+local draw_settings_content
+
+local function draw_chatbox_window()
+	if not config then
+		return false, false, false
+	end
+
+	local is_chat_open = get_is_chat_open()
+	local cfg = config.chatbox or default_config.chatbox
+	if not cfg or cfg.enabled == false then
+		return false, false, false
+	end
+
+	local pos = imgui.ImVec2(tonumber(cfg.pos_x) or 30, tonumber(cfg.pos_y) or 600)
+	local size = imgui.ImVec2(tonumber(cfg.width) or 520, tonumber(cfg.height) or 210)
+
+	imgui.SetNextWindowPos(pos, imgui.Cond.Always)
+	imgui.SetNextWindowSize(size, imgui.Cond.Always)
+
+	local flags = bor(
+		imgui.WindowFlags.NoTitleBar,
+		imgui.WindowFlags.NoResize,
+		imgui.WindowFlags.NoSavedSettings
+	)
+
+	local highlightLower = {}
+	do
+		local src = config.highlightWords or {}
+		for i = 1, #src do
+			highlightLower[i] = tostring(src[i] or ""):lower()
+		end
+	end
+	local rect_highlight = imgui.ImVec4(1, 1, 0, 0.38)
+	local text_alpha = is_chat_open and (config.text_alpha_chat or 1.0) or (config.text_alpha_idle or 1.0)
+	local child_flags = 0
+	if not is_chat_open then
+		child_flags = bor(
+			imgui.WindowFlags.NoScrollWithMouse,
+			imgui.WindowFlags.NoScrollbar,
+			imgui.WindowFlags.NoBackground
+		)
+	end
+
+	local hovered = false
+	local popup_open = false
+	local open_settings_popup = false
+	local pushed_colors = 0
+	if not is_chat_open then
+		imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0, 0, 0, 0))
+		imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(0, 0, 0, 0))
+		pushed_colors = 2
+	end
+	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
+		local function render_all_tab()
+			local all = config.table_config.all or {}
+			if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
+				local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+				local lh = line_height()
+				local ts_cfg = config.timestamp or default_config.timestamp or {}
+				local cfg_key = string.format(
+					"%s|%.3f|%.3f",
+					tostring(ts_cfg.enabled ~= false),
+					tonumber(ts_cfg.scale) or 0.5,
+					tonumber(ts_cfg.padding) or 0
+				)
+				if all_wrap_cache.width ~= max_px then
+					all_autoscroll = true
+				end
+				if all_wrap_cache.width ~= max_px
+					or all_wrap_cache.rev ~= data_rev.all
+					or all_wrap_cache.cfg_key ~= cfg_key
+				then
+					local lines = {}
+					for i = 1, #all do
+						local entry = all[i] or {}
+						local text_cp = entry.text or ""
+						local text = u8(text_cp)
+						local wrapped = wrap_to_lines_keep_tags(text, max_px)
+						for j = 1, #wrapped do
+							lines[#lines + 1] = {
+								text = wrapped[j],
+								kind = entry.kind,
+								src_index = entry.src_index or i,
+								src_cp = text_cp,
+							}
+						end
+					end
+					all_wrap_cache.width = max_px
+					all_wrap_cache.src_count = #all
+					all_wrap_cache.rev = data_rev.all
+					all_wrap_cache.cfg_key = cfg_key
+					all_wrap_cache.lines = lines
+				end
+				local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
+				while clipper:Step() do
+					for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+						local line = all_wrap_cache.lines[i] or {}
+						local row_w = imgui.GetContentRegionAvail().x
+						local start = imgui.GetCursorScreenPos()
+						local draw = imgui.GetWindowDrawList()
+						if is_chat_open then
+							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
+							if imgui.IsItemHovered() and item_right_clicked() then
+								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+							end
+						else
+							imgui.Dummy(imgui.ImVec2(row_w, lh))
+						end
+						imgui.SetCursorScreenPos(start)
+						draw_text_with_highlight_at(
+							draw,
+							imgui.ImVec2(start.x, start.y),
+							line.text or "",
+							highlightLower,
+							rect_highlight,
+							text_alpha
+						)
+						imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
+					end
+				end
+
+				local just_closed = chat_open_last and (not is_chat_open)
+				all_autoscroll, all_last_line, all_was_at_bottom = handle_autoscroll(
+					#all_wrap_cache.lines,
+					all_last_line,
+					all_autoscroll,
+					all_was_at_bottom,
+					is_chat_open,
+					just_closed,
+					lh * 0.5
+				)
+				all_last_rev = data_rev.all
+			end
+			imgui.EndChild()
+		end
+
+		if is_chat_open then
+			if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
+				if imgui.BeginTabItem("ALL") then
+					render_all_tab()
+					imgui.EndTabItem()
+				end
+
+			if imgui.BeginTabItem("VIP") then
+				local vip = config.table_config.vip_text or {}
+				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false, child_flags) then
+					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					local lh = line_height()
+					local ts_cfg = config.timestamp or default_config.timestamp or {}
+					local cfg_key = string.format(
+						"%s|%.3f|%.3f",
+						tostring(ts_cfg.enabled ~= false),
+						tonumber(ts_cfg.scale) or 0.5,
+						tonumber(ts_cfg.padding) or 0
+					)
+					if vip_wrap_cache.width ~= max_px
+						or vip_wrap_cache.rev ~= data_rev.vip
+						or vip_wrap_cache.cfg_key ~= cfg_key
+					then
+						local lines = {}
+						for i = 1, #vip do
+							local text_cp = vip[i] or ""
+							local text = u8(text_cp)
+							local wrapped = wrap_to_lines_keep_tags(text, max_px)
+							for j = 1, #wrapped do
+								lines[#lines + 1] = {
+									text = wrapped[j],
+									kind = "vip",
+									src_index = i,
+									src_cp = text_cp,
+								}
+							end
+						end
+						vip_wrap_cache.width = max_px
+						vip_wrap_cache.src_count = #vip
+						vip_wrap_cache.rev = data_rev.vip
+						vip_wrap_cache.cfg_key = cfg_key
+						vip_wrap_cache.lines = lines
+					end
+
+					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = vip_wrap_cache.lines[i] or {}
+							local row_w = imgui.GetContentRegionAvail().x
+							local start = imgui.GetCursorScreenPos()
+							local draw = imgui.GetWindowDrawList()
+							if is_chat_open then
+								imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
+								if imgui.IsItemHovered() and item_right_clicked() then
+									open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+								end
+							else
+								imgui.Dummy(imgui.ImVec2(row_w, lh))
+							end
+							imgui.SetCursorScreenPos(start)
+							draw_text_with_highlight_at(
+								draw,
+								imgui.ImVec2(start.x, start.y),
+								line.text or "",
+								highlightLower,
+								rect_highlight,
+								text_alpha
+							)
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
+						end
+					end
+
+					local just_closed = chat_open_last and (not is_chat_open)
+					vip_autoscroll, vip_last_line, vip_was_at_bottom = handle_autoscroll(
+						#vip_wrap_cache.lines,
+						vip_last_line,
+						vip_autoscroll,
+						vip_was_at_bottom,
+						is_chat_open,
+						just_closed,
+						line_height() * 0.5
+					)
+					vip_last_rev = data_rev.vip
+				end
+				imgui.EndChild()
+				imgui.EndTabItem()
+			end
+
+			if imgui.BeginTabItem("AD") then
+				local ad = config.table_config.ad_text or {}
+				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false, child_flags) then
+					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+					local lh = line_height()
+					local ts_cfg = config.timestamp or default_config.timestamp or {}
+					local cfg_key = string.format(
+						"%s|%.3f|%.3f",
+						tostring(ts_cfg.enabled ~= false),
+						tonumber(ts_cfg.scale) or 0.5,
+						tonumber(ts_cfg.padding) or 0
+					)
+					if ad_wrap_cache.width ~= max_px
+						or ad_wrap_cache.rev ~= data_rev.ad
+						or ad_wrap_cache.cfg_key ~= cfg_key
+					then
+						local lines = {}
+						for i = 1, #ad do
+							local entry = ad[i] or {}
+							local text_cp = entry[1] or ""
+							local text = u8(text_cp)
+							local wrapped = wrap_to_lines_keep_tags(text, max_px)
+							for j = 1, #wrapped do
+								lines[#lines + 1] = {
+									text = wrapped[j],
+									kind = "ad",
+									src_index = i,
+									src_cp = text_cp,
+								}
+							end
+						end
+						ad_wrap_cache.width = max_px
+						ad_wrap_cache.src_count = #ad
+						ad_wrap_cache.rev = data_rev.ad
+						ad_wrap_cache.cfg_key = cfg_key
+						ad_wrap_cache.lines = lines
+					end
+
+					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = ad_wrap_cache.lines[i] or {}
+							local row_w = imgui.GetContentRegionAvail().x
+							local start = imgui.GetCursorScreenPos()
+							local draw = imgui.GetWindowDrawList()
+							if is_chat_open then
+								imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
+								if imgui.IsItemHovered() and item_right_clicked() then
+									open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
+								end
+							else
+								imgui.Dummy(imgui.ImVec2(row_w, lh))
+							end
+							imgui.SetCursorScreenPos(start)
+							draw_text_with_highlight_at(
+								draw,
+								imgui.ImVec2(start.x, start.y),
+								line.text or "",
+								highlightLower,
+								rect_highlight,
+								text_alpha
+							)
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
+						end
+					end
+
+					local just_closed = chat_open_last and (not is_chat_open)
+					ad_autoscroll, ad_last_line, ad_was_at_bottom = handle_autoscroll(
+						#ad_wrap_cache.lines,
+						ad_last_line,
+						ad_autoscroll,
+						ad_was_at_bottom,
+						is_chat_open,
+						just_closed,
+						line_height() * 0.5
+					)
+					ad_last_rev = data_rev.ad
+				end
+				imgui.EndChild()
+				imgui.EndTabItem()
+			end
+				local gear_label = (fa and fa.GEAR ~= "" and fa.GEAR) or "⚙"
+				local gear_text_size = imgui.CalcTextSize(gear_label)
+				local gear_w = gear_text_size.x + imgui.GetStyle().FramePadding.x * 2
+				imgui.SameLine()
+				imgui.SetCursorPosX(imgui.GetWindowContentRegionMax().x - gear_w)
+				if imgui.SmallButton(gear_label .. "##vipad_settings") then
+					open_settings_popup = true
+				end
+
+				imgui.EndTabBar()
+			end
+		else
+			render_all_tab()
+		end
+
+		if is_chat_open then
+			if open_settings_popup then
+				imgui.OpenPopup("##vipad_settings_popup")
+			end
+
+			if imgui.BeginPopup("##vipad_settings_popup") then
+				draw_settings_content()
+				imgui.EndPopup()
+			end
+		end
+
+		if is_chat_open then
+			popup_open = draw_line_popup(cfg.width or 520)
+		end
+
+		local wpos = imgui.GetWindowPos()
+		local wsize = imgui.GetWindowSize()
+			cfg.pos_x = wpos.x
+			cfg.pos_y = wpos.y
+			cfg.width = wsize.x
+			cfg.height = wsize.y
+
+		hovered = imgui.IsWindowHovered()
+		end
+		imgui.End()
+		if pushed_colors > 0 then
+			imgui.PopStyleColor(pushed_colors)
+		end
+
+		local allow_process = is_chat_open
+			or popup_target.pending_open
+			or popup_open
+			or popup_target.was_open_last
+		local want_cursor = popup_target.pending_open or popup_open or hovered
+
+		chat_open_last = is_chat_open
+		return allow_process, want_cursor, popup_open
+	end
+
 -- ===================== ONFRAME =====================
 local hudFrame = imgui.OnFrame(function()
-	return module.showFeedWindow[0] and config and config.enabled
+	return module.showFeedWindow[0]
+		and config
+		and config.enabled
+		and funcs
+		and funcs.CGame__EnableHUD
+		and funcs.CGame__EnableHUD()
+		and not isPauseMenuActive()
 end, function(frame)
 	local chat_open = get_is_chat_open()
 
 	imgui.Process = chat_open or popup_target.pending_open or popup_target.was_open_last
 
-	local allow_process, want_cursor, popup_open = draw_feed()
+	local ui_mode = (config and (config.ui_mode or default_config.ui_mode)) or "chatbox"
+	local draw_fn = ui_mode == "lines" and draw_feed or draw_chatbox_window
+	local allow_process, want_cursor, popup_open = draw_fn()
 	imgui.Process = allow_process
 
 	popup_target.was_open_last = popup_open
@@ -1002,10 +1714,213 @@ end)
 local settings_open = imgui.new.bool(false)
 module.showSettingsWindow = settings_open
 
-local function draw_settings_content()
+local highlight_words_buf = imgui.new.char[2048]("")
+local highlight_words_last_serialized = ""
+
+draw_settings_content = function()
 	local en = imgui.new.bool(config.enabled and true or false)
 	if imgui.Checkbox("Включить модуль", en) then
 		config.enabled = en[0] and true or false
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Режим интерфейса")
+	local ui_mode = config.ui_mode or default_config.ui_mode or "chatbox"
+	if imgui.RadioButtonBool("ChatBox", ui_mode == "chatbox") then
+		config.ui_mode = "chatbox"
+		module.save()
+	end
+	imgui.SameLine()
+	if imgui.RadioButtonBool("Строки", ui_mode == "lines") then
+		config.ui_mode = "lines"
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("ChatBox")
+	config.chatbox = config.chatbox or clone_table(default_config.chatbox)
+	local chatbox = config.chatbox
+	local chatbox_enabled = imgui.new.bool(chatbox.enabled ~= false)
+	if imgui.Checkbox("enabled##chatbox", chatbox_enabled) then
+		chatbox.enabled = chatbox_enabled[0] and true or false
+		module.save()
+	end
+
+	local chatbox_pos_x = ffi.new("int[1]", tonumber(chatbox.pos_x) or 0)
+	if imgui.DragInt("pos_x##chatbox", chatbox_pos_x) then
+		chatbox.pos_x = chatbox_pos_x[0]
+		module.save()
+	end
+
+	local chatbox_pos_y = ffi.new("int[1]", tonumber(chatbox.pos_y) or 0)
+	if imgui.DragInt("pos_y##chatbox", chatbox_pos_y) then
+		chatbox.pos_y = chatbox_pos_y[0]
+		module.save()
+	end
+
+	local chatbox_width = ffi.new("int[1]", tonumber(chatbox.width) or 520)
+	if imgui.DragInt("width##chatbox", chatbox_width) then
+		chatbox.width = clamp(chatbox_width[0], 200, 1200)
+		module.save()
+	end
+
+	local chatbox_height = ffi.new("int[1]", tonumber(chatbox.height) or 210)
+	if imgui.DragInt("height##chatbox", chatbox_height) then
+		chatbox.height = clamp(chatbox_height[0], 120, 700)
+		module.save()
+	end
+
+	local chatbox_bg_alpha = imgui.new.float(chatbox.bg_alpha or 0)
+	if imgui.SliderFloat("bg_alpha##chatbox", chatbox_bg_alpha, 0, 1) then
+		chatbox.bg_alpha = clamp(chatbox_bg_alpha[0], 0, 1)
+		module.save()
+	end
+
+	local chatbox_rounding = ffi.new("int[1]", tonumber(chatbox.rounding) or 0)
+	if imgui.SliderInt("rounding##chatbox", chatbox_rounding, 0, 20) then
+		chatbox.rounding = clamp(chatbox_rounding[0], 0, 20)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Лента (режим Строки)")
+	local pos_x = ffi.new("int[1]", tonumber(config.pos_x) or 0)
+	if imgui.DragInt("pos_x", pos_x) then
+		config.pos_x = pos_x[0]
+		module.save()
+	end
+
+	local pos_y = ffi.new("int[1]", tonumber(config.pos_y) or 0)
+	if imgui.DragInt("pos_y", pos_y) then
+		config.pos_y = pos_y[0]
+		module.save()
+	end
+
+	local width = ffi.new("int[1]", tonumber(config.width) or 900)
+	if imgui.DragInt("width", width) then
+		config.width = clamp(width[0], 200, 2000)
+		module.save()
+	end
+
+	local vip_height = ffi.new("int[1]", tonumber(config.vip_height) or 7)
+	if imgui.SliderInt("vip_height", vip_height, 1, 30) then
+		config.vip_height = clamp(vip_height[0], 1, 30)
+		module.save()
+	end
+
+	local ad_height = ffi.new("int[1]", tonumber(config.ad_height) or 7)
+	if imgui.SliderInt("ad_height", ad_height, 1, 30) then
+		config.ad_height = clamp(ad_height[0], 1, 30)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Прозрачность (лента)")
+	local bg_alpha_chat = imgui.new.float(config.bg_alpha_chat or 0)
+	if imgui.SliderFloat("bg_alpha_chat", bg_alpha_chat, 0, 1) then
+		config.bg_alpha_chat = clamp(bg_alpha_chat[0], 0, 1)
+		module.save()
+	end
+
+	local bg_alpha_idle = imgui.new.float(config.bg_alpha_idle or 0)
+	if imgui.SliderFloat("bg_alpha_idle", bg_alpha_idle, 0, 1) then
+		config.bg_alpha_idle = clamp(bg_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	local text_alpha_chat = imgui.new.float(config.text_alpha_chat or 0)
+	if imgui.SliderFloat("text_alpha_chat", text_alpha_chat, 0, 1) then
+		config.text_alpha_chat = clamp(text_alpha_chat[0], 0, 1)
+		module.save()
+	end
+
+	local text_alpha_idle = imgui.new.float(config.text_alpha_idle or 0)
+	if imgui.SliderFloat("text_alpha_idle", text_alpha_idle, 0, 1) then
+		config.text_alpha_idle = clamp(text_alpha_idle[0], 0, 1)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Timestamp")
+	config.timestamp = config.timestamp or clone_table(default_config.timestamp)
+	local timestamp = config.timestamp
+	local timestamp_enabled = imgui.new.bool(timestamp.enabled ~= false)
+	if imgui.Checkbox("Показывать время", timestamp_enabled) then
+		timestamp.enabled = timestamp_enabled[0] and true or false
+		module.save()
+	end
+
+	local timestamp_scale = imgui.new.float(timestamp.scale or 0.5)
+	if imgui.SliderFloat("Scale", timestamp_scale, 0.2, 1.0) then
+		timestamp.scale = clamp(timestamp_scale[0], 0.2, 1.0)
+		module.save()
+	end
+
+	local timestamp_padding = imgui.new.float(timestamp.padding or 0)
+	if imgui.SliderFloat("Padding", timestamp_padding, 0, 10) then
+		timestamp.padding = clamp(timestamp_padding[0], 0, 10)
+		module.save()
+	end
+
+	local timestamp_offset_y = imgui.new.float(timestamp.offset_y or 0)
+	if imgui.SliderFloat("Offset Y", timestamp_offset_y, -10, 10) then
+		timestamp.offset_y = clamp(timestamp_offset_y[0], -10, 10)
+		module.save()
+	end
+
+	local timestamp_align_baseline = imgui.new.bool(timestamp.align_baseline ~= false)
+	if imgui.Checkbox("Align baseline", timestamp_align_baseline) then
+		timestamp.align_baseline = timestamp_align_baseline[0] and true or false
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Лимиты")
+	local vip_limit = ffi.new("int[1]", tonumber(config.vip_limit) or default_config.vip_limit or 100)
+	if imgui.InputInt("vip_limit", vip_limit) then
+		config.vip_limit = clamp(vip_limit[0], 10, 2000)
+		module.save()
+	end
+
+	local ad_limit = ffi.new("int[1]", tonumber(config.ad_limit) or default_config.ad_limit or 100)
+	if imgui.InputInt("ad_limit", ad_limit) then
+		config.ad_limit = clamp(ad_limit[0], 10, 2000)
+		module.save()
+	end
+
+	local all_limit = ffi.new("int[1]", tonumber(config.all_limit) or default_config.all_limit or 200)
+	if imgui.InputInt("all_limit", all_limit) then
+		config.all_limit = clamp(all_limit[0], 10, 2000)
+		module.save()
+	end
+
+	imgui.Separator()
+	imgui.Text("Подсветка")
+	local serialized = table.concat(config.highlightWords or {}, "\n")
+	if serialized ~= highlight_words_last_serialized then
+		fill_buf_utf8(highlight_words_buf, serialized)
+		highlight_words_last_serialized = serialized
+	end
+	imgui.InputTextMultiline(
+		"highlightWords (по 1 на строку)",
+		highlight_words_buf,
+		ffi.sizeof(highlight_words_buf),
+		imgui.ImVec2(0, 120)
+	)
+	if imgui.Button("Применить##highlight_words") then
+		local raw = ffi.string(highlight_words_buf)
+		local next_words = {}
+		local seen = {}
+		for line in raw:gmatch("[^\r\n]+") do
+			local trimmed = line:match("^%s*(.-)%s*$")
+			if trimmed ~= "" and not seen[trimmed] then
+				seen[trimmed] = true
+				next_words[#next_words + 1] = trimmed
+			end
+		end
+		config.highlightWords = next_words
+		highlight_words_last_serialized = table.concat(next_words, "\n")
 		module.save()
 	end
 

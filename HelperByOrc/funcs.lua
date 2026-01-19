@@ -4,6 +4,11 @@ encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
+
+function module.CGame__EnableHUD()
+	return memory.getint8(0xBA6769) == 1 and true or false
+end
+
 -- recursive table copy
 function module.deepcopy(obj, seen)
 	seen = seen or {}
