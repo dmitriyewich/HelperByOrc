@@ -999,7 +999,6 @@ end
 
 -- ===================== HUD ЛЕНТА + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
-local scroll = { vip = 0.0, ad = 0.0 }
 local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
 local ad_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
 local all_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
@@ -1016,6 +1015,27 @@ local chat_open_last = false
 local all_was_at_bottom = true
 local vip_was_at_bottom = true
 local ad_was_at_bottom = true
+local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bottom, is_chat_open, just_closed, threshold)
+	if just_closed and was_at_bottom then
+		autoscroll = true
+		imgui.SetScrollY(imgui.GetScrollMaxY())
+	elseif (not is_chat_open) and lines_count ~= last_line and autoscroll then
+		imgui.SetScrollY(imgui.GetScrollMaxY())
+	end
+	last_line = lines_count
+	local maxY = imgui.GetScrollMaxY()
+	local y = imgui.GetScrollY()
+	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
+	if is_chat_open then
+		if not at_bottom and autoscroll then
+			autoscroll = false
+		else
+			autoscroll = at_bottom
+		end
+		was_at_bottom = at_bottom
+	end
+	return autoscroll, last_line, was_at_bottom
+end
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1122,23 +1142,6 @@ local function draw_feed()
 	config.pos_y = feedPos.y
 	config.width = feedSize.x
 
-	-- прокрутка: только при открытом чате
-	if is_chat_open then
-		local wheel = io.MouseWheel or 0.0
-		if wheel ~= 0.0 then
-			local step = 3.0
-			local vip_lines = #(config.table_config.vip_text or {})
-			local ad_lines = #(config.table_config.ad_text or {})
-			local vip_max = math.max(0, vip_lines - vip_h)
-			local ad_max = math.max(0, ad_lines - ad_h)
-			scroll.vip = clamp(scroll.vip + wheel * step, 0.0, vip_max)
-			scroll.ad = clamp(scroll.ad + wheel * step, 0.0, ad_max)
-		end
-	else
-		scroll.vip = 0.0
-		scroll.ad = 0.0
-	end
-
 	-- ===================== CANVAS (рисуем, без ввода) =====================
 	imgui.SetNextWindowPos(imgui.ImVec2(0, 0), imgui.Cond.Always)
 	imgui.SetNextWindowSize(io.DisplaySize, imgui.Cond.Always)
@@ -1177,8 +1180,7 @@ local function draw_feed()
 	-- VIP диапазон
 	local vip = config.table_config.vip_text or {}
 	local vip_count = #vip
-	local vip_scroll = math.floor(scroll.vip + 0.5)
-	local vip_first = math.max(1, vip_count - vip_h - vip_scroll + 1)
+	local vip_first = math.max(1, vip_count - vip_h + 1)
 	local vip_last = math.min(vip_count, vip_first + vip_h - 1)
 
 	local y = y0
@@ -1204,8 +1206,7 @@ local function draw_feed()
 	-- AD диапазон
 	local ad = config.table_config.ad_text or {}
 	local ad_count = #ad
-	local ad_scroll = math.floor(scroll.ad + 0.5)
-	local ad_first = math.max(1, ad_count - ad_h - ad_scroll + 1)
+	local ad_first = math.max(1, ad_count - ad_h + 1)
 	local ad_last = math.min(ad_count, ad_first + ad_h - 1)
 
 	y = y0 + vip_h * lh + gap
@@ -1449,25 +1450,15 @@ local function draw_chatbox_window()
 				end
 
 				local just_closed = chat_open_last and (not is_chat_open)
-				local current_last_line = #all_wrap_cache.lines
-				if just_closed and all_was_at_bottom then
-					all_autoscroll = true
-					imgui.SetScrollY(imgui.GetScrollMaxY())
-				elseif (not is_chat_open) and current_last_line ~= all_last_line and all_autoscroll then
-					imgui.SetScrollY(imgui.GetScrollMaxY())
-				end
-				all_last_line = current_last_line
-				local maxY = imgui.GetScrollMaxY()
-				local y = imgui.GetScrollY()
-				local at_bottom = (maxY <= 0) or (y >= maxY - 1)
-				if is_chat_open then
-					if not at_bottom and all_autoscroll then
-						all_autoscroll = false
-					else
-						all_autoscroll = at_bottom
-					end
-					all_was_at_bottom = at_bottom
-				end
+				all_autoscroll, all_last_line, all_was_at_bottom = handle_autoscroll(
+					#all_wrap_cache.lines,
+					all_last_line,
+					all_autoscroll,
+					all_was_at_bottom,
+					is_chat_open,
+					just_closed,
+					1
+				)
 				all_last_rev = data_rev.all
 			end
 			imgui.EndChild()
@@ -1546,26 +1537,15 @@ local function draw_chatbox_window()
 					end
 
 					local just_closed = chat_open_last and (not is_chat_open)
-					local current_last_line = #vip_wrap_cache.lines
-					if just_closed and vip_was_at_bottom then
-						vip_autoscroll = true
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					elseif (not is_chat_open) and current_last_line ~= vip_last_line and vip_autoscroll then
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					end
-					vip_last_line = current_last_line
-					local maxY = imgui.GetScrollMaxY()
-					local y = imgui.GetScrollY()
-					local threshold = line_height() * 0.5
-					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
-					if is_chat_open then
-						if not at_bottom and vip_autoscroll then
-							vip_autoscroll = false
-						else
-							vip_autoscroll = at_bottom
-						end
-						vip_was_at_bottom = at_bottom
-					end
+					vip_autoscroll, vip_last_line, vip_was_at_bottom = handle_autoscroll(
+						#vip_wrap_cache.lines,
+						vip_last_line,
+						vip_autoscroll,
+						vip_was_at_bottom,
+						is_chat_open,
+						just_closed,
+						line_height() * 0.5
+					)
 					vip_last_rev = data_rev.vip
 				end
 				imgui.EndChild()
@@ -1639,26 +1619,15 @@ local function draw_chatbox_window()
 					end
 
 					local just_closed = chat_open_last and (not is_chat_open)
-					local current_last_line = #ad_wrap_cache.lines
-					if just_closed and ad_was_at_bottom then
-						ad_autoscroll = true
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					elseif (not is_chat_open) and current_last_line ~= ad_last_line and ad_autoscroll then
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					end
-					ad_last_line = current_last_line
-					local maxY = imgui.GetScrollMaxY()
-					local y = imgui.GetScrollY()
-					local threshold = line_height() * 0.5
-					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
-					if is_chat_open then
-						if not at_bottom and ad_autoscroll then
-							ad_autoscroll = false
-						else
-							ad_autoscroll = at_bottom
-						end
-						ad_was_at_bottom = at_bottom
-					end
+					ad_autoscroll, ad_last_line, ad_was_at_bottom = handle_autoscroll(
+						#ad_wrap_cache.lines,
+						ad_last_line,
+						ad_autoscroll,
+						ad_was_at_bottom,
+						is_chat_open,
+						just_closed,
+						line_height() * 0.5
+					)
 					ad_last_rev = data_rev.ad
 				end
 				imgui.EndChild()
