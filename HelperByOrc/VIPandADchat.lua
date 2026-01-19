@@ -1385,6 +1385,21 @@ local function draw_chatbox_window()
 			end
 		end
 
+		local function draw_hitboxes(lines, start_y, row_h, on_right_click)
+			local row_w = imgui.GetContentRegionAvail().x
+			local start = imgui.GetCursorScreenPos()
+			if is_chat_open then
+				imgui.InvisibleButton("##chat_line_" .. tostring(start_y), imgui.ImVec2(row_w, row_h))
+				if imgui.IsItemHovered() and item_right_clicked() then
+					on_right_click(lines)
+				end
+			else
+				imgui.Dummy(imgui.ImVec2(row_w, row_h))
+			end
+			imgui.SetCursorScreenPos(start)
+			return start
+		end
+
 		local function render_all_tab()
 			local all = config.table_config.all or {}
 			if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -1419,25 +1434,17 @@ local function draw_chatbox_window()
 					return lines
 				end)
 				local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
-				while clipper:Step() do
-					for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-						local line = all_wrap_cache.lines[i] or {}
-						local row_w = imgui.GetContentRegionAvail().x
-						local start = imgui.GetCursorScreenPos()
-						local draw = imgui.GetWindowDrawList()
-						if is_chat_open then
-							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
-							if imgui.IsItemHovered() and item_right_clicked() then
-								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
-							end
-						else
-							imgui.Dummy(imgui.ImVec2(row_w, lh))
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = all_wrap_cache.lines[i] or {}
+							local draw = imgui.GetWindowDrawList()
+							local start = draw_hitboxes(line, i, lh, function(entry)
+								open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
+							end)
+							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-						imgui.SetCursorScreenPos(start)
-						render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
-						imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 					end
-				end
 
 				local just_closed = chat_open_last and (not is_chat_open)
 				all_autoscroll, all_last_line, all_was_at_bottom = handle_autoscroll(
@@ -1491,26 +1498,18 @@ local function draw_chatbox_window()
 						return lines
 					end)
 
-					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = vip_wrap_cache.lines[i] or {}
-							local row_w = imgui.GetContentRegionAvail().x
-							local start = imgui.GetCursorScreenPos()
-							local draw = imgui.GetWindowDrawList()
-							if is_chat_open then
-								imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
-								if imgui.IsItemHovered() and item_right_clicked() then
-									open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
-								end
-							else
-								imgui.Dummy(imgui.ImVec2(row_w, lh))
+						local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
+						while clipper:Step() do
+							for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+								local line = vip_wrap_cache.lines[i] or {}
+								local draw = imgui.GetWindowDrawList()
+								local start = draw_hitboxes(line, i, lh, function(entry)
+									open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
+								end)
+								render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+								imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 							end
-							imgui.SetCursorScreenPos(start)
-							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
-							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
 
 					local just_closed = chat_open_last and (not is_chat_open)
 					vip_autoscroll, vip_last_line, vip_was_at_bottom = handle_autoscroll(
@@ -1559,26 +1558,18 @@ local function draw_chatbox_window()
 						return lines
 					end)
 
-					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = ad_wrap_cache.lines[i] or {}
-							local row_w = imgui.GetContentRegionAvail().x
-							local start = imgui.GetCursorScreenPos()
-							local draw = imgui.GetWindowDrawList()
-							if is_chat_open then
-								imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
-								if imgui.IsItemHovered() and item_right_clicked() then
-									open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
-								end
-							else
-								imgui.Dummy(imgui.ImVec2(row_w, lh))
+						local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
+						while clipper:Step() do
+							for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+								local line = ad_wrap_cache.lines[i] or {}
+								local draw = imgui.GetWindowDrawList()
+								local start = draw_hitboxes(line, i, lh, function(entry)
+									open_line_popup(entry.kind or "ad", entry.src_index or i, entry.src_cp or "")
+								end)
+								render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+								imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 							end
-							imgui.SetCursorScreenPos(start)
-							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
-							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
 
 					local just_closed = chat_open_last and (not is_chat_open)
 					ad_autoscroll, ad_last_line, ad_was_at_bottom = handle_autoscroll(
