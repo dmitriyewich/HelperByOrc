@@ -1286,6 +1286,9 @@ local function draw_chatbox_window()
 						tonumber(ts_cfg.scale) or 0.5,
 						tonumber(ts_cfg.padding) or 0
 					)
+					if all_wrap_cache.width ~= max_px then
+						all_autoscroll = true
+					end
 					if all_wrap_cache.width ~= max_px
 						or all_wrap_cache.rev ~= data_rev.all
 						or all_wrap_cache.cfg_key ~= cfg_key
