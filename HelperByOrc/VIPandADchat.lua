@@ -18,32 +18,17 @@ if not ok_fa or type(fa) ~= "table" then
 	})
 end
 
-local ok_bit, bit = pcall(require, "bit")
-local ok_bit32, bit32 = pcall(require, "bit32")
+local bit = require("bit")
 
 local function bor(...)
-	local n = select("#", ...)
-	if n == 0 then
-		return 0
-	end
-	local v = select(1, ...)
-	for i = 2, n do
-		local a = select(i, ...)
-		if ok_bit and bit and bit.bor then
-			v = bit.bor(v, a)
-		elseif ok_bit32 and bit32 and bit32.bor then
-			v = bit32.bor(v, a)
-		else
-			v = v + a
-		end
+	local v = 0
+	for _, a in ipairs({ ... }) do
+		v = bit.bor(v, a)
 	end
 	return v
 end
 
 local funcs
-local deepcopy = function(t)
-	return t
-end
 
 local function clone_table(tbl)
 	if type(tbl) ~= "table" then
@@ -78,9 +63,6 @@ local feedSize = imgui.ImVec2(900, 200)
 function module.attachModules(mod)
 	funcs = mod.funcs
 	samp = mod.samp
-	if funcs and funcs.deepcopy then
-		deepcopy = funcs.deepcopy
-	end
 	module.load()
 end
 
@@ -184,6 +166,11 @@ local function text_size(s, font, fsize)
 	return font:CalcTextSizeA(fsize, 10000, -1, s).x
 end
 
+local function measure_stripped(s, font, fsize)
+	local clean = tostring(s or ""):gsub("{[%x]+}", "")
+	return text_size(clean, font, fsize)
+end
+
 local function is_color_tag(tag)
 	return type(tag) == "string"
 		and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
@@ -215,7 +202,7 @@ local function wrap_to_lines(text, max_px)
 	for i = 1, #words do
 		local word = words[i]
 		local next_line = current == "" and word or (current .. " " .. word)
-		if text_size(next_line, font, fsize) <= max_px or current == "" then
+		if measure_stripped(next_line, font, fsize) <= max_px or current == "" then
 			current = next_line
 		else
 			lines[#lines + 1] = current
@@ -303,8 +290,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 					i = i + #tag
 				else
 					local next_visible = chunk_visible .. ch
-					local vis_no_tags = next_visible:gsub("{[%x]+}", "")
-					if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+					if measure_stripped(next_visible, font, fsize) > line_max_px and chunk_visible ~= "" then
 						parts[#parts + 1] = {
 							raw = chunk_raw,
 							visible = chunk_visible,
@@ -319,8 +305,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 				end
 			else
 				local next_visible = chunk_visible .. ch
-				local vis_no_tags = next_visible:gsub("{[%x]+}", "")
-				if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+				if measure_stripped(next_visible, font, fsize) > line_max_px and chunk_visible ~= "" then
 					parts[#parts + 1] = {
 						raw = chunk_raw,
 						visible = chunk_visible,
@@ -349,8 +334,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		local word = words[idx]
 		local word_visible = word.visible or ""
 		local word_raw = word.raw or ""
-		local vis_no_tags = word_visible:gsub("{[%x]+}", "")
-		if text_size(vis_no_tags, font, fsize) > max_px and not word_visible:match("%s") then
+		if measure_stripped(word_visible, font, fsize) > max_px and not word_visible:match("%s") then
 			local parts = split_long_word(word_raw, max_px)
 			for j = 1, #parts do
 				expanded_words[#expanded_words + 1] = parts[j]
@@ -366,7 +350,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 	end
 	local first_line_max_px = max_px
 	if ts_enabled and first_word_is_ts then
-		first_line_max_px = max_px - (text_size(words[1].visible, font, fsize * ts_scale) + ts_padding)
+		first_line_max_px = max_px - (measure_stripped(words[1].visible, font, fsize * ts_scale) + ts_padding)
 		if first_line_max_px < 0 then
 			first_line_max_px = 0
 		end
@@ -386,8 +370,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		if is_first_line and first_word_is_ts then
 			measure_visible = measure_visible:gsub("^%[%d%d:%d%d:%d%d%]%s*", "")
 		end
-		local vis_no_tags = measure_visible:gsub("{[%x]+}", "")
-		if text_size(vis_no_tags, font, fsize) <= line_max_px or current_visible == "" then
+		if measure_stripped(measure_visible, font, fsize) <= line_max_px or current_visible == "" then
 			if current_raw == "" then
 				current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
 			else
@@ -785,6 +768,27 @@ local function open_line_popup(kind, index, src_cp)
 	st.initialized = false
 end
 
+local function draw_popup_buttons(st, target)
+	local label = st.show_raw and "Источник: С ТЕГАМИ"
+		or "Источник: БЕЗ ТЕГОВ"
+	if imgui.SmallButton(label) then
+		st.show_raw = not st.show_raw
+		st.last_src = st.show_raw and target.src_cp or strip_color_tags(target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		target.size_dirty = true
+	end
+	imgui.SameLine()
+	if imgui.SmallButton("Сбросить") then
+		st.last_src = st.show_raw and target.src_cp or strip_color_tags(target.src_cp)
+		fill_char_buffer_from_string(st.buf, st.last_src)
+		target.size_dirty = true
+	end
+	imgui.SameLine()
+	if imgui.SmallButton("Копировать всё") then
+		setClipboardText(u8:decode(ffi.string(st.buf)))
+	end
+end
+
 local function draw_line_popup(anchor_max_w)
 	if popup_target.key == nil then
 		return false
@@ -823,24 +827,7 @@ local function draw_line_popup(anchor_max_w)
 		imgui.Text("Выдели фрагмент и Ctrl+C. Или копируй всё кнопкой.")
 		imgui.Spacing()
 
-		local label = st.show_raw and "Источник: С ТЕГАМИ"
-			or "Источник: БЕЗ ТЕГОВ"
-		if imgui.SmallButton(label) then
-			st.show_raw = not st.show_raw
-			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-			fill_char_buffer_from_string(st.buf, st.last_src)
-			popup_target.size_dirty = true
-		end
-		imgui.SameLine()
-		if imgui.SmallButton("Сбросить") then
-			st.last_src = st.show_raw and popup_target.src_cp or strip_color_tags(popup_target.src_cp)
-			fill_char_buffer_from_string(st.buf, st.last_src)
-			popup_target.size_dirty = true
-		end
-		imgui.SameLine()
-		if imgui.SmallButton("Копировать всё") then
-			setClipboardText(u8:decode(ffi.string(st.buf)))
-		end
+		draw_popup_buttons(st, popup_target)
 
 		local cur_text = ffi.string(st.buf)
 		local input_sz = calc_popup_input_size(cur_text, max_w)
@@ -882,7 +869,7 @@ end
 
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
 function module.load()
-	config = deepcopy(default_config)
+	config = clone_table(default_config)
 	local loaded = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(json_path) or nil
 	if type(loaded) == "table" and next(loaded) then
 		for k, v in pairs(loaded) do
@@ -1011,26 +998,19 @@ local vip_last_line = 0
 local ad_autoscroll = true
 local ad_last_rev = 0
 local ad_last_line = 0
-local chat_open_last = false
-local all_was_at_bottom = true
-local vip_was_at_bottom = true
-local ad_was_at_bottom = true
-local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bottom, is_chat_open, just_closed, threshold)
-	if just_closed and was_at_bottom then
-		autoscroll = true
-	end
+local function handle_autoscroll(lines_count, last_line, autoscroll, is_chat_open)
 	if (not is_chat_open) and autoscroll then
 		imgui.SetScrollY(imgui.GetScrollMaxY())
 	end
 	last_line = lines_count
 	local maxY = imgui.GetScrollMaxY()
 	local y = imgui.GetScrollY()
+	local threshold = line_height() * 0.5
 	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
 	if is_chat_open then
 		autoscroll = at_bottom
-		was_at_bottom = at_bottom
 	end
-	return autoscroll, last_line, was_at_bottom
+	return autoscroll, last_line
 end
 
 local function get_canvas_flags()
@@ -1377,6 +1357,42 @@ local function draw_chatbox_window()
 		pushed_colors = 2
 	end
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
+		local function render_line(draw, line_pos, line, alpha)
+			draw_text_with_highlight_at(
+				draw,
+				line_pos,
+				line.text or "",
+				highlightLower,
+				rect_highlight,
+				alpha
+			)
+		end
+
+		local function build_wrap_cache(cache, list, max_px, data_rev_key, cfg_key, build_lines)
+			if cache.width ~= max_px or cache.rev ~= data_rev_key or cache.cfg_key ~= cfg_key then
+				cache.width = max_px
+				cache.src_count = #list
+				cache.rev = data_rev_key
+				cache.cfg_key = cfg_key
+				cache.lines = build_lines()
+			end
+		end
+
+		local function draw_hitboxes(lines, start_y, row_h, on_right_click)
+			local row_w = imgui.GetContentRegionAvail().x
+			local start = imgui.GetCursorScreenPos()
+			if is_chat_open then
+				imgui.InvisibleButton("##chat_line_" .. tostring(start_y), imgui.ImVec2(row_w, row_h))
+				if imgui.IsItemHovered() and item_right_clicked() then
+					on_right_click(lines)
+				end
+			else
+				imgui.Dummy(imgui.ImVec2(row_w, row_h))
+			end
+			imgui.SetCursorScreenPos(start)
+			return start
+		end
+
 		local function render_all_tab()
 			local all = config.table_config.all or {}
 			if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -1392,10 +1408,7 @@ local function draw_chatbox_window()
 				if all_wrap_cache.width ~= max_px then
 					all_autoscroll = true
 				end
-				if all_wrap_cache.width ~= max_px
-					or all_wrap_cache.rev ~= data_rev.all
-					or all_wrap_cache.cfg_key ~= cfg_key
-				then
+				build_wrap_cache(all_wrap_cache, all, max_px, data_rev.all, cfg_key, function()
 					local lines = {}
 					for i = 1, #all do
 						local entry = all[i] or {}
@@ -1411,49 +1424,26 @@ local function draw_chatbox_window()
 							}
 						end
 					end
-					all_wrap_cache.width = max_px
-					all_wrap_cache.src_count = #all
-					all_wrap_cache.rev = data_rev.all
-					all_wrap_cache.cfg_key = cfg_key
-					all_wrap_cache.lines = lines
-				end
+					return lines
+				end)
 				local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
-				while clipper:Step() do
-					for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-						local line = all_wrap_cache.lines[i] or {}
-						local row_w = imgui.GetContentRegionAvail().x
-						local start = imgui.GetCursorScreenPos()
-						local draw = imgui.GetWindowDrawList()
-						if is_chat_open then
-							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
-							if imgui.IsItemHovered() and item_right_clicked() then
-								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
-							end
-						else
-							imgui.Dummy(imgui.ImVec2(row_w, lh))
+					while clipper:Step() do
+						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+							local line = all_wrap_cache.lines[i] or {}
+							local draw = imgui.GetWindowDrawList()
+							local start = draw_hitboxes(line, i, lh, function(entry)
+								open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
+							end)
+							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-						imgui.SetCursorScreenPos(start)
-						draw_text_with_highlight_at(
-							draw,
-							imgui.ImVec2(start.x, start.y),
-							line.text or "",
-							highlightLower,
-							rect_highlight,
-							text_alpha
-						)
-						imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 					end
-				end
 
-				local just_closed = chat_open_last and (not is_chat_open)
-				all_autoscroll, all_last_line, all_was_at_bottom = handle_autoscroll(
+				all_autoscroll, all_last_line = handle_autoscroll(
 					#all_wrap_cache.lines,
 					all_last_line,
 					all_autoscroll,
-					all_was_at_bottom,
-					is_chat_open,
-					just_closed,
-					lh * 0.5
+					is_chat_open
 				)
 				all_last_rev = data_rev.all
 			end
@@ -1479,10 +1469,7 @@ local function draw_chatbox_window()
 						tonumber(ts_cfg.scale) or 0.5,
 						tonumber(ts_cfg.padding) or 0
 					)
-					if vip_wrap_cache.width ~= max_px
-						or vip_wrap_cache.rev ~= data_rev.vip
-						or vip_wrap_cache.cfg_key ~= cfg_key
-					then
+					build_wrap_cache(vip_wrap_cache, vip, max_px, data_rev.vip, cfg_key, function()
 						local lines = {}
 						for i = 1, #vip do
 							local text_cp = vip[i] or ""
@@ -1497,53 +1484,30 @@ local function draw_chatbox_window()
 								}
 							end
 						end
-						vip_wrap_cache.width = max_px
-						vip_wrap_cache.src_count = #vip
-						vip_wrap_cache.rev = data_rev.vip
-						vip_wrap_cache.cfg_key = cfg_key
-						vip_wrap_cache.lines = lines
-					end
+						return lines
+					end)
 
-					local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = vip_wrap_cache.lines[i] or {}
-							local row_w = imgui.GetContentRegionAvail().x
-							local start = imgui.GetCursorScreenPos()
-							local draw = imgui.GetWindowDrawList()
-							if is_chat_open then
-								imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
-								if imgui.IsItemHovered() and item_right_clicked() then
-									open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
-								end
-							else
-								imgui.Dummy(imgui.ImVec2(row_w, lh))
+						local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
+						while clipper:Step() do
+							for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+								local line = vip_wrap_cache.lines[i] or {}
+								local draw = imgui.GetWindowDrawList()
+								local start = draw_hitboxes(line, i, lh, function(entry)
+									open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
+								end)
+								render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+								imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 							end
-							imgui.SetCursorScreenPos(start)
-							draw_text_with_highlight_at(
-								draw,
-								imgui.ImVec2(start.x, start.y),
-								line.text or "",
-								highlightLower,
-								rect_highlight,
-								text_alpha
-							)
-							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
 
-					local just_closed = chat_open_last and (not is_chat_open)
-					vip_autoscroll, vip_last_line, vip_was_at_bottom = handle_autoscroll(
-						#vip_wrap_cache.lines,
-						vip_last_line,
-						vip_autoscroll,
-						vip_was_at_bottom,
-						is_chat_open,
-						just_closed,
-						line_height() * 0.5
-					)
-					vip_last_rev = data_rev.vip
-				end
+						vip_autoscroll, vip_last_line = handle_autoscroll(
+							#vip_wrap_cache.lines,
+							vip_last_line,
+							vip_autoscroll,
+							is_chat_open
+						)
+						vip_last_rev = data_rev.vip
+					end
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
@@ -1560,10 +1524,7 @@ local function draw_chatbox_window()
 						tonumber(ts_cfg.scale) or 0.5,
 						tonumber(ts_cfg.padding) or 0
 					)
-					if ad_wrap_cache.width ~= max_px
-						or ad_wrap_cache.rev ~= data_rev.ad
-						or ad_wrap_cache.cfg_key ~= cfg_key
-					then
+					build_wrap_cache(ad_wrap_cache, ad, max_px, data_rev.ad, cfg_key, function()
 						local lines = {}
 						for i = 1, #ad do
 							local entry = ad[i] or {}
@@ -1579,53 +1540,30 @@ local function draw_chatbox_window()
 								}
 							end
 						end
-						ad_wrap_cache.width = max_px
-						ad_wrap_cache.src_count = #ad
-						ad_wrap_cache.rev = data_rev.ad
-						ad_wrap_cache.cfg_key = cfg_key
-						ad_wrap_cache.lines = lines
-					end
+						return lines
+					end)
 
-					local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = ad_wrap_cache.lines[i] or {}
-							local row_w = imgui.GetContentRegionAvail().x
-							local start = imgui.GetCursorScreenPos()
-							local draw = imgui.GetWindowDrawList()
-							if is_chat_open then
-								imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
-								if imgui.IsItemHovered() and item_right_clicked() then
-									open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
-								end
-							else
-								imgui.Dummy(imgui.ImVec2(row_w, lh))
+						local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
+						while clipper:Step() do
+							for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+								local line = ad_wrap_cache.lines[i] or {}
+								local draw = imgui.GetWindowDrawList()
+								local start = draw_hitboxes(line, i, lh, function(entry)
+									open_line_popup(entry.kind or "ad", entry.src_index or i, entry.src_cp or "")
+								end)
+								render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+								imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 							end
-							imgui.SetCursorScreenPos(start)
-							draw_text_with_highlight_at(
-								draw,
-								imgui.ImVec2(start.x, start.y),
-								line.text or "",
-								highlightLower,
-								rect_highlight,
-								text_alpha
-							)
-							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
 
-					local just_closed = chat_open_last and (not is_chat_open)
-					ad_autoscroll, ad_last_line, ad_was_at_bottom = handle_autoscroll(
-						#ad_wrap_cache.lines,
-						ad_last_line,
-						ad_autoscroll,
-						ad_was_at_bottom,
-						is_chat_open,
-						just_closed,
-						line_height() * 0.5
-					)
-					ad_last_rev = data_rev.ad
-				end
+						ad_autoscroll, ad_last_line = handle_autoscroll(
+							#ad_wrap_cache.lines,
+							ad_last_line,
+							ad_autoscroll,
+							is_chat_open
+						)
+						ad_last_rev = data_rev.ad
+					end
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
@@ -1679,7 +1617,6 @@ local function draw_chatbox_window()
 			or popup_target.was_open_last
 		local want_cursor = popup_target.pending_open or popup_open or hovered
 
-		chat_open_last = is_chat_open
 		return allow_process, want_cursor, popup_open
 	end
 
