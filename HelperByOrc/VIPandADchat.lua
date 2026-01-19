@@ -1360,6 +1360,17 @@ local function draw_chatbox_window()
 		pushed_colors = 2
 	end
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
+		local function render_line(draw, line_pos, line, alpha)
+			draw_text_with_highlight_at(
+				draw,
+				line_pos,
+				line.text or "",
+				highlightLower,
+				rect_highlight,
+				alpha
+			)
+		end
+
 		local function render_all_tab()
 			local all = config.table_config.all or {}
 			if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -1416,14 +1427,7 @@ local function draw_chatbox_window()
 							imgui.Dummy(imgui.ImVec2(row_w, lh))
 						end
 						imgui.SetCursorScreenPos(start)
-						draw_text_with_highlight_at(
-							draw,
-							imgui.ImVec2(start.x, start.y),
-							line.text or "",
-							highlightLower,
-							rect_highlight,
-							text_alpha
-						)
+						render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
 						imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 					end
 				end
@@ -1503,14 +1507,7 @@ local function draw_chatbox_window()
 								imgui.Dummy(imgui.ImVec2(row_w, lh))
 							end
 							imgui.SetCursorScreenPos(start)
-							draw_text_with_highlight_at(
-								draw,
-								imgui.ImVec2(start.x, start.y),
-								line.text or "",
-								highlightLower,
-								rect_highlight,
-								text_alpha
-							)
+							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
@@ -1585,14 +1582,7 @@ local function draw_chatbox_window()
 								imgui.Dummy(imgui.ImVec2(row_w, lh))
 							end
 							imgui.SetCursorScreenPos(start)
-							draw_text_with_highlight_at(
-								draw,
-								imgui.ImVec2(start.x, start.y),
-								line.text or "",
-								highlightLower,
-								rect_highlight,
-								text_alpha
-							)
+							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
 					end
