@@ -922,6 +922,7 @@ local all_last_rev = 0
 local all_last_line = 0
 local vip_autoscroll = true
 local vip_last_rev = 0
+local vip_last_line = 0
 local ad_autoscroll = true
 local ad_last_rev = 0
 
@@ -1431,6 +1432,11 @@ local function draw_chatbox_window()
 					local y = imgui.GetScrollY()
 					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
 					vip_autoscroll = at_bottom
+					local current_last_line = #vip_wrap_cache.lines
+					if current_last_line ~= vip_last_line and vip_autoscroll then
+						imgui.SetScrollY(imgui.GetScrollMaxY())
+					end
+					vip_last_line = current_last_line
 					vip_last_rev = data_rev.vip
 				end
 				imgui.EndChild()
