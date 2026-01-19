@@ -166,6 +166,11 @@ local function text_size(s, font, fsize)
 	return font:CalcTextSizeA(fsize, 10000, -1, s).x
 end
 
+local function measure_stripped(s, font, fsize)
+	local clean = tostring(s or ""):gsub("{[%x]+}", "")
+	return text_size(clean, font, fsize)
+end
+
 local function is_color_tag(tag)
 	return type(tag) == "string"
 		and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
@@ -197,7 +202,7 @@ local function wrap_to_lines(text, max_px)
 	for i = 1, #words do
 		local word = words[i]
 		local next_line = current == "" and word or (current .. " " .. word)
-		if text_size(next_line, font, fsize) <= max_px or current == "" then
+		if measure_stripped(next_line, font, fsize) <= max_px or current == "" then
 			current = next_line
 		else
 			lines[#lines + 1] = current
@@ -285,8 +290,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 					i = i + #tag
 				else
 					local next_visible = chunk_visible .. ch
-					local vis_no_tags = next_visible:gsub("{[%x]+}", "")
-					if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+					if measure_stripped(next_visible, font, fsize) > line_max_px and chunk_visible ~= "" then
 						parts[#parts + 1] = {
 							raw = chunk_raw,
 							visible = chunk_visible,
@@ -301,8 +305,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 				end
 			else
 				local next_visible = chunk_visible .. ch
-				local vis_no_tags = next_visible:gsub("{[%x]+}", "")
-				if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+				if measure_stripped(next_visible, font, fsize) > line_max_px and chunk_visible ~= "" then
 					parts[#parts + 1] = {
 						raw = chunk_raw,
 						visible = chunk_visible,
@@ -331,8 +334,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		local word = words[idx]
 		local word_visible = word.visible or ""
 		local word_raw = word.raw or ""
-		local vis_no_tags = word_visible:gsub("{[%x]+}", "")
-		if text_size(vis_no_tags, font, fsize) > max_px and not word_visible:match("%s") then
+		if measure_stripped(word_visible, font, fsize) > max_px and not word_visible:match("%s") then
 			local parts = split_long_word(word_raw, max_px)
 			for j = 1, #parts do
 				expanded_words[#expanded_words + 1] = parts[j]
@@ -348,7 +350,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 	end
 	local first_line_max_px = max_px
 	if ts_enabled and first_word_is_ts then
-		first_line_max_px = max_px - (text_size(words[1].visible, font, fsize * ts_scale) + ts_padding)
+		first_line_max_px = max_px - (measure_stripped(words[1].visible, font, fsize * ts_scale) + ts_padding)
 		if first_line_max_px < 0 then
 			first_line_max_px = 0
 		end
@@ -368,8 +370,7 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		if is_first_line and first_word_is_ts then
 			measure_visible = measure_visible:gsub("^%[%d%d:%d%d:%d%d%]%s*", "")
 		end
-		local vis_no_tags = measure_visible:gsub("{[%x]+}", "")
-		if text_size(vis_no_tags, font, fsize) <= line_max_px or current_visible == "" then
+		if measure_stripped(measure_visible, font, fsize) <= line_max_px or current_visible == "" then
 			if current_raw == "" then
 				current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
 			else
