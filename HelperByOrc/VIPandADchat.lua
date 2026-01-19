@@ -1402,8 +1402,6 @@ local function draw_chatbox_window()
 						all_wrap_cache.cfg_key = cfg_key
 						all_wrap_cache.lines = lines
 					end
-					local approximate_scroll_height = #all_wrap_cache.lines * lh
-
 					local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
 					while clipper:Step() do
 						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
@@ -1428,6 +1426,11 @@ local function draw_chatbox_window()
 						end
 					end
 
+					local current_last_line = #all_wrap_cache.lines
+					if current_last_line ~= all_last_line and all_autoscroll then
+						imgui.SetScrollY(imgui.GetScrollMaxY())
+					end
+					all_last_line = current_last_line
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
 					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
@@ -1435,14 +1438,6 @@ local function draw_chatbox_window()
 						all_autoscroll = false
 					else
 						all_autoscroll = at_bottom
-					end
-					local current_last_line = #all_wrap_cache.lines
-					all_last_line = current_last_line
-					if all_autoscroll and all_last_rev ~= data_rev.all then
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					end
-					if all_autoscroll and approximate_scroll_height > imgui.GetScrollMaxY() then
-						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					all_last_rev = data_rev.all
 				end
@@ -1509,10 +1504,6 @@ local function draw_chatbox_window()
 							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
-
-					if vip_last_rev ~= data_rev.vip and vip_autoscroll then
-						imgui.SetScrollY(1e9)
 					end
 
 					local current_last_line = #vip_wrap_cache.lines
@@ -1595,10 +1586,6 @@ local function draw_chatbox_window()
 							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
-					end
-
-					if ad_last_rev ~= data_rev.ad and ad_autoscroll then
-						imgui.SetScrollY(1e9)
 					end
 
 					local current_last_line = #ad_wrap_cache.lines
