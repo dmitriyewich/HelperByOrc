@@ -2119,8 +2119,14 @@ function module.sendOBS(cmd)
 		[2] = [[ { "request-type": "StopRecording", "message-id": "1" } ]],
 		[3] = [[ { "request-type": "SaveReplayBuffer", "message-id": "1" } ]],
 	}
+	local cmdLabel = {
+		[1] = "Старт записи",
+		[2] = "Остановка записи",
+		[3] = "Сохранение реплея",
+	}
 
 	if tbl[cmd] == nil then
+		toasts_module.push("OBS: неизвестная команда.", "warn")
 		return
 	end
 
@@ -2137,7 +2143,7 @@ function module.sendOBS(cmd)
 	end)
 
 	if not success then
-		print("Ошибка подключения: " .. err)
+		toasts_module.push(("OBS: ошибка подключения (%s)."):format(err or "неизвестно"), "err")
 		return false
 	end
 	client:send(tbl[cmd])
@@ -2147,6 +2153,7 @@ function module.sendOBS(cmd)
 	-- print("Ответ от OBS: " .. response)
 
 	client:close()
+	toasts_module.push(("OBS: %s."):format(cmdLabel[cmd] or "команда отправлена"), "ok")
 end
 
 function module.findSignatureInModule(signature, moduleName, data)
