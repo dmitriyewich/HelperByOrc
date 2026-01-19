@@ -1356,6 +1356,11 @@ local function draw_chatbox_window()
 		end
 	end
 	local rect_highlight = imgui.ImVec4(1, 1, 0, 0.38)
+	local text_alpha = is_chat_open and (config.text_alpha_chat or 1.0) or (config.text_alpha_idle or 1.0)
+	local child_flags = 0
+	if not is_chat_open then
+		child_flags = bor(imgui.WindowFlags.NoScrollWithMouse, imgui.WindowFlags.NoScrollbar)
+	end
 
 	local hovered = false
 	local popup_open = false
@@ -1364,7 +1369,7 @@ local function draw_chatbox_window()
 		if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
 			if imgui.BeginTabItem("ALL") then
 				local all = config.table_config.all or {}
-				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false) then
+				if imgui.BeginChild("##all_scroll", imgui.ImVec2(0, 0), false, child_flags) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
 					local ts_cfg = config.timestamp or default_config.timestamp or {}
@@ -1409,9 +1414,13 @@ local function draw_chatbox_window()
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
 							local draw = imgui.GetWindowDrawList()
-							imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
-							if imgui.IsItemHovered() and item_right_clicked() then
-								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+							if is_chat_open then
+								imgui.InvisibleButton("##all_line_" .. i, imgui.ImVec2(row_w, lh))
+								if imgui.IsItemHovered() and item_right_clicked() then
+									open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+								end
+							else
+								imgui.Dummy(imgui.ImVec2(row_w, lh))
 							end
 							imgui.SetCursorScreenPos(start)
 							draw_text_with_highlight_at(
@@ -1420,7 +1429,7 @@ local function draw_chatbox_window()
 								line.text or "",
 								highlightLower,
 								rect_highlight,
-								1.0
+								text_alpha
 							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
@@ -1449,7 +1458,7 @@ local function draw_chatbox_window()
 
 			if imgui.BeginTabItem("VIP") then
 				local vip = config.table_config.vip_text or {}
-				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false) then
+				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false, child_flags) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
 					local ts_cfg = config.timestamp or default_config.timestamp or {}
@@ -1491,9 +1500,13 @@ local function draw_chatbox_window()
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
 							local draw = imgui.GetWindowDrawList()
-							imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
-							if imgui.IsItemHovered() and item_right_clicked() then
-								open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+							if is_chat_open then
+								imgui.InvisibleButton("##vip_line_" .. i, imgui.ImVec2(row_w, lh))
+								if imgui.IsItemHovered() and item_right_clicked() then
+									open_line_popup(line.kind or "vip", line.src_index or i, line.src_cp or "")
+								end
+							else
+								imgui.Dummy(imgui.ImVec2(row_w, lh))
 							end
 							imgui.SetCursorScreenPos(start)
 							draw_text_with_highlight_at(
@@ -1502,7 +1515,7 @@ local function draw_chatbox_window()
 								line.text or "",
 								highlightLower,
 								rect_highlight,
-								1.0
+								text_alpha
 							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
@@ -1532,7 +1545,7 @@ local function draw_chatbox_window()
 
 			if imgui.BeginTabItem("AD") then
 				local ad = config.table_config.ad_text or {}
-				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false) then
+				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false, child_flags) then
 					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
 					local lh = line_height()
 					local ts_cfg = config.timestamp or default_config.timestamp or {}
@@ -1575,9 +1588,13 @@ local function draw_chatbox_window()
 							local row_w = imgui.GetContentRegionAvail().x
 							local start = imgui.GetCursorScreenPos()
 							local draw = imgui.GetWindowDrawList()
-							imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
-							if imgui.IsItemHovered() and item_right_clicked() then
-								open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
+							if is_chat_open then
+								imgui.InvisibleButton("##ad_line_" .. i, imgui.ImVec2(row_w, lh))
+								if imgui.IsItemHovered() and item_right_clicked() then
+									open_line_popup(line.kind or "ad", line.src_index or i, line.src_cp or "")
+								end
+							else
+								imgui.Dummy(imgui.ImVec2(row_w, lh))
 							end
 							imgui.SetCursorScreenPos(start)
 							draw_text_with_highlight_at(
@@ -1586,7 +1603,7 @@ local function draw_chatbox_window()
 								line.text or "",
 								highlightLower,
 								rect_highlight,
-								1.0
+								text_alpha
 							)
 							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 						end
@@ -1613,28 +1630,34 @@ local function draw_chatbox_window()
 				imgui.EndChild()
 				imgui.EndTabItem()
 			end
-			local gear_label = (fa and fa.GEAR ~= "" and fa.GEAR) or "⚙"
-			local gear_text_size = imgui.CalcTextSize(gear_label)
-			local gear_w = gear_text_size.x + imgui.GetStyle().FramePadding.x * 2
-			imgui.SameLine()
-			imgui.SetCursorPosX(imgui.GetWindowContentRegionMax().x - gear_w)
-			if imgui.SmallButton(gear_label .. "##vipad_settings") then
-				open_settings_popup = true
+			if is_chat_open then
+				local gear_label = (fa and fa.GEAR ~= "" and fa.GEAR) or "⚙"
+				local gear_text_size = imgui.CalcTextSize(gear_label)
+				local gear_w = gear_text_size.x + imgui.GetStyle().FramePadding.x * 2
+				imgui.SameLine()
+				imgui.SetCursorPosX(imgui.GetWindowContentRegionMax().x - gear_w)
+				if imgui.SmallButton(gear_label .. "##vipad_settings") then
+					open_settings_popup = true
+				end
 			end
 
 			imgui.EndTabBar()
 		end
 
-		if open_settings_popup then
-			imgui.OpenPopup("##vipad_settings_popup")
+		if is_chat_open then
+			if open_settings_popup then
+				imgui.OpenPopup("##vipad_settings_popup")
+			end
+
+			if imgui.BeginPopup("##vipad_settings_popup") then
+				draw_settings_content()
+				imgui.EndPopup()
+			end
 		end
 
-		if imgui.BeginPopup("##vipad_settings_popup") then
-			draw_settings_content()
-			imgui.EndPopup()
+		if is_chat_open then
+			popup_open = draw_line_popup(cfg.width or 520)
 		end
-
-		popup_open = draw_line_popup(cfg.width or 520)
 
 		local wpos = imgui.GetWindowPos()
 		local wsize = imgui.GetWindowSize()
