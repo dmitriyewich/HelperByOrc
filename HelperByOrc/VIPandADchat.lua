@@ -1018,8 +1018,8 @@ local ad_was_at_bottom = true
 local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bottom, is_chat_open, just_closed, threshold)
 	if just_closed and was_at_bottom then
 		autoscroll = true
-		imgui.SetScrollY(imgui.GetScrollMaxY())
-	elseif (not is_chat_open) and lines_count ~= last_line and autoscroll then
+	end
+	if (not is_chat_open) and autoscroll then
 		imgui.SetScrollY(imgui.GetScrollMaxY())
 	end
 	last_line = lines_count
