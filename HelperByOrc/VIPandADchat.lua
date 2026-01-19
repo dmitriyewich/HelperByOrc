@@ -18,24 +18,12 @@ if not ok_fa or type(fa) ~= "table" then
 	})
 end
 
-local ok_bit, bit = pcall(require, "bit")
-local ok_bit32, bit32 = pcall(require, "bit32")
+local bit = require("bit")
 
 local function bor(...)
-	local n = select("#", ...)
-	if n == 0 then
-		return 0
-	end
-	local v = select(1, ...)
-	for i = 2, n do
-		local a = select(i, ...)
-		if ok_bit and bit and bit.bor then
-			v = bit.bor(v, a)
-		elseif ok_bit32 and bit32 and bit32.bor then
-			v = bit32.bor(v, a)
-		else
-			v = v + a
-		end
+	local v = 0
+	for _, a in ipairs({ ... }) do
+		v = bit.bor(v, a)
 	end
 	return v
 end
