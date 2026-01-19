@@ -1027,11 +1027,7 @@ local function handle_autoscroll(lines_count, last_line, autoscroll, was_at_bott
 	local y = imgui.GetScrollY()
 	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
 	if is_chat_open then
-		if not at_bottom and autoscroll then
-			autoscroll = false
-		else
-			autoscroll = at_bottom
-		end
+		autoscroll = at_bottom
 		was_at_bottom = at_bottom
 	end
 	return autoscroll, last_line, was_at_bottom
@@ -1457,7 +1453,7 @@ local function draw_chatbox_window()
 					all_was_at_bottom,
 					is_chat_open,
 					just_closed,
-					1
+					lh * 0.5
 				)
 				all_last_rev = data_rev.all
 			end
