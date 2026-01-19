@@ -1339,11 +1339,6 @@ local function draw_chatbox_window()
 						end
 					end
 
-					local current_last_line = #all_wrap_cache.lines
-					if current_last_line ~= all_last_line and all_autoscroll then
-						imgui.SetScrollY(imgui.GetScrollMaxY())
-					end
-
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
 					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
@@ -1352,7 +1347,12 @@ local function draw_chatbox_window()
 					else
 						all_autoscroll = at_bottom
 					end
+					local current_last_line = #all_wrap_cache.lines
 					all_last_line = current_last_line
+					if all_autoscroll and all_last_rev ~= data_rev.all then
+						imgui.SetScrollY(imgui.GetScrollMaxY())
+					end
+					all_last_rev = data_rev.all
 				end
 				imgui.EndChild()
 				imgui.EndTabItem()
