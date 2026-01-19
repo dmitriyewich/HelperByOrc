@@ -1336,7 +1336,7 @@ local function draw_chatbox_window()
 					end
 
 					if all_last_rev ~= data_rev.all and all_autoscroll then
-						imgui.SetScrollY(1e9)
+						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 
 					local maxY = imgui.GetScrollMaxY()
