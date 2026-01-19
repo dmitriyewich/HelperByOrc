@@ -531,9 +531,14 @@ local function draw_text_with_highlight_at(draw, start_pos, text, highlightWords
 
 	while i <= n do
 		local tag_s, tag_e, tag = text:find("{([%xX]+)}", i)
-		if tag_s == i then
+		if tag_s == i and (tag and (#tag == 6 or #tag == 8)) then
 			cur_col = mul_alpha(hex2rgba_vec4(tag), text_alpha or 1.0)
 			i = tag_e + 1
+		elseif tag_s == i then
+			local ch = text:sub(i, i)
+			draw:AddText(imgui.ImVec2(x, y), imgui.ColorConvertFloat4ToU32(cur_col), ch)
+			x = x + text_size(ch, font, fsize)
+			i = i + 1
 		else
 			local timestamp = ts_enabled and text:sub(i):match("^%[%d%d:%d%d:%d%d%]")
 			if timestamp and ts_font_size > 0 then
