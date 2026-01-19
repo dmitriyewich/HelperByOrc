@@ -283,9 +283,93 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 
 	local font = imgui.GetFont()
 	local fsize = imgui.GetFontSize()
+	local ts_cfg = config.timestamp or default_config.timestamp or {}
+	local ts_enabled = ts_cfg.enabled ~= false
+	local ts_scale = tonumber(ts_cfg.scale) or 0.5
+	local ts_padding = tonumber(ts_cfg.padding) or 0
+	local function split_long_word(word_raw, line_max_px)
+		local parts = {}
+		local chunk_raw = ""
+		local chunk_visible = ""
+		local active_tag = ""
+		local i = 1
+		while i <= #word_raw do
+			local ch = word_raw:sub(i, i)
+			if ch == "{" then
+				local tag = word_raw:match("^%b{}", i)
+				if is_color_tag(tag) then
+					active_tag = tag
+					chunk_raw = chunk_raw .. tag
+					i = i + #tag
+				else
+					local next_visible = chunk_visible .. ch
+					local vis_no_tags = next_visible:gsub("{[%x]+}", "")
+					if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+						parts[#parts + 1] = {
+							raw = chunk_raw,
+							visible = chunk_visible,
+							last_tag = active_tag ~= "" and active_tag or nil,
+						}
+						chunk_raw = active_tag ~= "" and active_tag or ""
+						chunk_visible = ""
+					end
+					chunk_raw = chunk_raw .. ch
+					chunk_visible = chunk_visible .. ch
+					i = i + 1
+				end
+			else
+				local next_visible = chunk_visible .. ch
+				local vis_no_tags = next_visible:gsub("{[%x]+}", "")
+				if text_size(vis_no_tags, font, fsize) > line_max_px and chunk_visible ~= "" then
+					parts[#parts + 1] = {
+						raw = chunk_raw,
+						visible = chunk_visible,
+						last_tag = active_tag ~= "" and active_tag or nil,
+					}
+					chunk_raw = active_tag ~= "" and active_tag or ""
+					chunk_visible = ""
+				end
+				chunk_raw = chunk_raw .. ch
+				chunk_visible = chunk_visible .. ch
+				i = i + 1
+			end
+		end
+		if chunk_raw ~= "" then
+			parts[#parts + 1] = {
+				raw = chunk_raw,
+				visible = chunk_visible,
+				last_tag = active_tag ~= "" and active_tag or nil,
+			}
+		end
+		return parts
+	end
+
+	local expanded_words = {}
+	for idx = 1, #words do
+		local word = words[idx]
+		local word_visible = word.visible or ""
+		local word_raw = word.raw or ""
+		local vis_no_tags = word_visible:gsub("{[%x]+}", "")
+		if text_size(vis_no_tags, font, fsize) > max_px and not word_visible:match("%s") then
+			local parts = split_long_word(word_raw, max_px)
+			for j = 1, #parts do
+				expanded_words[#expanded_words + 1] = parts[j]
+			end
+		else
+			expanded_words[#expanded_words + 1] = word
+		end
+	end
+	words = expanded_words
 	local first_word_is_ts = false
 	if words[1] and words[1].visible then
 		first_word_is_ts = words[1].visible:match("^%[%d%d:%d%d:%d%d%]$") ~= nil
+	end
+	local first_line_max_px = max_px
+	if ts_enabled and first_word_is_ts then
+		first_line_max_px = max_px - (text_size(words[1].visible, font, fsize * ts_scale) + ts_padding)
+		if first_line_max_px < 0 then
+			first_line_max_px = 0
+		end
 	end
 	local current_visible = ""
 	local current_raw = ""
@@ -298,10 +382,12 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		local next_visible = current_visible == "" and word_visible or (current_visible .. " " .. word_visible)
 
 		local measure_visible = next_visible
+		local line_max_px = is_first_line and first_line_max_px or max_px
 		if is_first_line and first_word_is_ts then
 			measure_visible = measure_visible:gsub("^%[%d%d:%d%d:%d%d%]%s*", "")
 		end
-		if text_size(measure_visible, font, fsize) <= max_px or current_visible == "" then
+		local vis_no_tags = measure_visible:gsub("{[%x]+}", "")
+		if text_size(vis_no_tags, font, fsize) <= line_max_px or current_visible == "" then
 			if current_raw == "" then
 				current_raw = (current_tag ~= "" and current_tag or "") .. word_raw
 			else
@@ -925,6 +1011,7 @@ local vip_last_rev = 0
 local vip_last_line = 0
 local ad_autoscroll = true
 local ad_last_rev = 0
+local ad_last_line = 0
 
 local function get_canvas_flags()
 	local wf = imgui.WindowFlags
@@ -1428,15 +1515,20 @@ local function draw_chatbox_window()
 						imgui.SetScrollY(1e9)
 					end
 
-					local maxY = imgui.GetScrollMaxY()
-					local y = imgui.GetScrollY()
-					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
-					vip_autoscroll = at_bottom
 					local current_last_line = #vip_wrap_cache.lines
 					if current_last_line ~= vip_last_line and vip_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					vip_last_line = current_last_line
+					local maxY = imgui.GetScrollMaxY()
+					local y = imgui.GetScrollY()
+					local threshold = line_height() * 0.5
+					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
+					if not at_bottom and vip_autoscroll then
+						vip_autoscroll = false
+					else
+						vip_autoscroll = at_bottom
+					end
 					vip_last_rev = data_rev.vip
 				end
 				imgui.EndChild()
@@ -1509,10 +1601,20 @@ local function draw_chatbox_window()
 						imgui.SetScrollY(1e9)
 					end
 
+					local current_last_line = #ad_wrap_cache.lines
+					if current_last_line ~= ad_last_line and ad_autoscroll then
+						imgui.SetScrollY(imgui.GetScrollMaxY())
+					end
+					ad_last_line = current_last_line
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
-					ad_autoscroll = at_bottom
+					local threshold = line_height() * 0.5
+					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
+					if not at_bottom and ad_autoscroll then
+						ad_autoscroll = false
+					else
+						ad_autoscroll = at_bottom
+					end
 					ad_last_rev = data_rev.ad
 				end
 				imgui.EndChild()
