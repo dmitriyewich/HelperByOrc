@@ -172,8 +172,7 @@ local function measure_stripped(s, font, fsize)
 end
 
 local function is_color_tag(tag)
-	return type(tag) == "string"
-		and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
+	return type(tag) == "string" and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
 end
 
 local function line_height()
@@ -241,12 +240,12 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		local visible = ""
 		local last_tag = nil
 		while i <= #cleaned and not cleaned:sub(i, i):match("%s") do
-				if cleaned:sub(i, i) == "{" then
-					local tag = cleaned:match("^%b{}", i)
-					if is_color_tag(tag) then
-						raw = raw .. tag
-						last_tag = tag
-						i = i + #tag
+			if cleaned:sub(i, i) == "{" then
+				local tag = cleaned:match("^%b{}", i)
+				if is_color_tag(tag) then
+					raw = raw .. tag
+					last_tag = tag
+					i = i + #tag
 				else
 					local ch = cleaned:sub(i, i)
 					raw = raw .. ch
@@ -769,8 +768,7 @@ local function open_line_popup(kind, index, src_cp)
 end
 
 local function draw_popup_buttons(st, target)
-	local label = st.show_raw and "Источник: С ТЕГАМИ"
-		or "Источник: БЕЗ ТЕГОВ"
+	local label = st.show_raw and "Источник: С ТЕГАМИ" or "Источник: БЕЗ ТЕГОВ"
 	if imgui.SmallButton(label) then
 		st.show_raw = not st.show_raw
 		st.last_src = st.show_raw and target.src_cp or strip_color_tags(target.src_cp)
@@ -1285,8 +1283,8 @@ local function draw_feed()
 				end
 			end
 
-		popup_open_this_frame = draw_line_popup(feedSize.x)
-	end
+			popup_open_this_frame = draw_line_popup(feedSize.x)
+		end
 
 		imgui.End()
 		imgui.PopStyleVar(1)
@@ -1323,11 +1321,7 @@ local function draw_chatbox_window()
 	imgui.SetNextWindowPos(pos, imgui.Cond.Always)
 	imgui.SetNextWindowSize(size, imgui.Cond.Always)
 
-	local flags = bor(
-		imgui.WindowFlags.NoTitleBar,
-		imgui.WindowFlags.NoResize,
-		imgui.WindowFlags.NoSavedSettings
-	)
+	local flags = bor(imgui.WindowFlags.NoTitleBar, imgui.WindowFlags.NoResize, imgui.WindowFlags.NoSavedSettings)
 
 	local highlightLower = {}
 	do
@@ -1340,11 +1334,8 @@ local function draw_chatbox_window()
 	local text_alpha = is_chat_open and (config.text_alpha_chat or 1.0) or (config.text_alpha_idle or 1.0)
 	local child_flags = 0
 	if not is_chat_open then
-		child_flags = bor(
-			imgui.WindowFlags.NoScrollWithMouse,
-			imgui.WindowFlags.NoScrollbar,
-			imgui.WindowFlags.NoBackground
-		)
+		child_flags =
+			bor(imgui.WindowFlags.NoScrollWithMouse, imgui.WindowFlags.NoScrollbar, imgui.WindowFlags.NoBackground)
 	end
 
 	local hovered = false
@@ -1358,14 +1349,7 @@ local function draw_chatbox_window()
 	end
 	if imgui.Begin("##VIPAD_CHATBOX", nil, flags) then
 		local function render_line(draw, line_pos, line, alpha)
-			draw_text_with_highlight_at(
-				draw,
-				line_pos,
-				line.text or "",
-				highlightLower,
-				rect_highlight,
-				alpha
-			)
+			draw_text_with_highlight_at(draw, line_pos, line.text or "", highlightLower, rect_highlight, alpha)
 		end
 
 		local function build_wrap_cache(cache, list, max_px, data_rev_key, cfg_key, build_lines)
@@ -1427,24 +1411,20 @@ local function draw_chatbox_window()
 					return lines
 				end)
 				local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
-					while clipper:Step() do
-						for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-							local line = all_wrap_cache.lines[i] or {}
-							local draw = imgui.GetWindowDrawList()
-							local start = draw_hitboxes(line, i, lh, function(entry)
-								open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
-							end)
-							render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
-							imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
-						end
+				while clipper:Step() do
+					for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+						local line = all_wrap_cache.lines[i] or {}
+						local draw = imgui.GetWindowDrawList()
+						local start = draw_hitboxes(line, i, lh, function(entry)
+							open_line_popup(entry.kind or "vip", entry.src_index or i, entry.src_cp or "")
+						end)
+						render_line(draw, imgui.ImVec2(start.x, start.y), line, text_alpha)
+						imgui.SetCursorScreenPos(imgui.ImVec2(start.x, start.y + lh))
 					end
+				end
 
-				all_autoscroll, all_last_line = handle_autoscroll(
-					#all_wrap_cache.lines,
-					all_last_line,
-					all_autoscroll,
-					is_chat_open
-				)
+				all_autoscroll, all_last_line =
+					handle_autoscroll(#all_wrap_cache.lines, all_last_line, all_autoscroll, is_chat_open)
 				all_last_rev = data_rev.all
 			end
 			imgui.EndChild()
@@ -1457,35 +1437,35 @@ local function draw_chatbox_window()
 					imgui.EndTabItem()
 				end
 
-			if imgui.BeginTabItem("VIP") then
-				local vip = config.table_config.vip_text or {}
-				if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false, child_flags) then
-					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
-					local lh = line_height()
-					local ts_cfg = config.timestamp or default_config.timestamp or {}
-					local cfg_key = string.format(
-						"%s|%.3f|%.3f",
-						tostring(ts_cfg.enabled ~= false),
-						tonumber(ts_cfg.scale) or 0.5,
-						tonumber(ts_cfg.padding) or 0
-					)
-					build_wrap_cache(vip_wrap_cache, vip, max_px, data_rev.vip, cfg_key, function()
-						local lines = {}
-						for i = 1, #vip do
-							local text_cp = vip[i] or ""
-							local text = u8(text_cp)
-							local wrapped = wrap_to_lines_keep_tags(text, max_px)
-							for j = 1, #wrapped do
-								lines[#lines + 1] = {
-									text = wrapped[j],
-									kind = "vip",
-									src_index = i,
-									src_cp = text_cp,
-								}
+				if imgui.BeginTabItem("VIP") then
+					local vip = config.table_config.vip_text or {}
+					if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false, child_flags) then
+						local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+						local lh = line_height()
+						local ts_cfg = config.timestamp or default_config.timestamp or {}
+						local cfg_key = string.format(
+							"%s|%.3f|%.3f",
+							tostring(ts_cfg.enabled ~= false),
+							tonumber(ts_cfg.scale) or 0.5,
+							tonumber(ts_cfg.padding) or 0
+						)
+						build_wrap_cache(vip_wrap_cache, vip, max_px, data_rev.vip, cfg_key, function()
+							local lines = {}
+							for i = 1, #vip do
+								local text_cp = vip[i] or ""
+								local text = u8(text_cp)
+								local wrapped = wrap_to_lines_keep_tags(text, max_px)
+								for j = 1, #wrapped do
+									lines[#lines + 1] = {
+										text = wrapped[j],
+										kind = "vip",
+										src_index = i,
+										src_cp = text_cp,
+									}
+								end
 							end
-						end
-						return lines
-					end)
+							return lines
+						end)
 
 						local clipper = imgui.ImGuiListClipper(#vip_wrap_cache.lines)
 						while clipper:Step() do
@@ -1500,48 +1480,44 @@ local function draw_chatbox_window()
 							end
 						end
 
-						vip_autoscroll, vip_last_line = handle_autoscroll(
-							#vip_wrap_cache.lines,
-							vip_last_line,
-							vip_autoscroll,
-							is_chat_open
-						)
+						vip_autoscroll, vip_last_line =
+							handle_autoscroll(#vip_wrap_cache.lines, vip_last_line, vip_autoscroll, is_chat_open)
 						vip_last_rev = data_rev.vip
 					end
-				imgui.EndChild()
-				imgui.EndTabItem()
-			end
+					imgui.EndChild()
+					imgui.EndTabItem()
+				end
 
-			if imgui.BeginTabItem("AD") then
-				local ad = config.table_config.ad_text or {}
-				if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false, child_flags) then
-					local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
-					local lh = line_height()
-					local ts_cfg = config.timestamp or default_config.timestamp or {}
-					local cfg_key = string.format(
-						"%s|%.3f|%.3f",
-						tostring(ts_cfg.enabled ~= false),
-						tonumber(ts_cfg.scale) or 0.5,
-						tonumber(ts_cfg.padding) or 0
-					)
-					build_wrap_cache(ad_wrap_cache, ad, max_px, data_rev.ad, cfg_key, function()
-						local lines = {}
-						for i = 1, #ad do
-							local entry = ad[i] or {}
-							local text_cp = entry[1] or ""
-							local text = u8(text_cp)
-							local wrapped = wrap_to_lines_keep_tags(text, max_px)
-							for j = 1, #wrapped do
-								lines[#lines + 1] = {
-									text = wrapped[j],
-									kind = "ad",
-									src_index = i,
-									src_cp = text_cp,
-								}
+				if imgui.BeginTabItem("AD") then
+					local ad = config.table_config.ad_text or {}
+					if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false, child_flags) then
+						local max_px = math.max(0, imgui.GetContentRegionAvail().x - 6)
+						local lh = line_height()
+						local ts_cfg = config.timestamp or default_config.timestamp or {}
+						local cfg_key = string.format(
+							"%s|%.3f|%.3f",
+							tostring(ts_cfg.enabled ~= false),
+							tonumber(ts_cfg.scale) or 0.5,
+							tonumber(ts_cfg.padding) or 0
+						)
+						build_wrap_cache(ad_wrap_cache, ad, max_px, data_rev.ad, cfg_key, function()
+							local lines = {}
+							for i = 1, #ad do
+								local entry = ad[i] or {}
+								local text_cp = entry[1] or ""
+								local text = u8(text_cp)
+								local wrapped = wrap_to_lines_keep_tags(text, max_px)
+								for j = 1, #wrapped do
+									lines[#lines + 1] = {
+										text = wrapped[j],
+										kind = "ad",
+										src_index = i,
+										src_cp = text_cp,
+									}
+								end
 							end
-						end
-						return lines
-					end)
+							return lines
+						end)
 
 						local clipper = imgui.ImGuiListClipper(#ad_wrap_cache.lines)
 						while clipper:Step() do
@@ -1556,17 +1532,13 @@ local function draw_chatbox_window()
 							end
 						end
 
-						ad_autoscroll, ad_last_line = handle_autoscroll(
-							#ad_wrap_cache.lines,
-							ad_last_line,
-							ad_autoscroll,
-							is_chat_open
-						)
+						ad_autoscroll, ad_last_line =
+							handle_autoscroll(#ad_wrap_cache.lines, ad_last_line, ad_autoscroll, is_chat_open)
 						ad_last_rev = data_rev.ad
 					end
-				imgui.EndChild()
-				imgui.EndTabItem()
-			end
+					imgui.EndChild()
+					imgui.EndTabItem()
+				end
 				local gear_label = (fa and fa.GEAR ~= "" and fa.GEAR) or "⚙"
 				local gear_text_size = imgui.CalcTextSize(gear_label)
 				local gear_w = gear_text_size.x + imgui.GetStyle().FramePadding.x * 2
@@ -1599,26 +1571,23 @@ local function draw_chatbox_window()
 
 		local wpos = imgui.GetWindowPos()
 		local wsize = imgui.GetWindowSize()
-			cfg.pos_x = wpos.x
-			cfg.pos_y = wpos.y
-			cfg.width = wsize.x
-			cfg.height = wsize.y
+		cfg.pos_x = wpos.x
+		cfg.pos_y = wpos.y
+		cfg.width = wsize.x
+		cfg.height = wsize.y
 
 		hovered = imgui.IsWindowHovered()
-		end
-		imgui.End()
-		if pushed_colors > 0 then
-			imgui.PopStyleColor(pushed_colors)
-		end
-
-		local allow_process = is_chat_open
-			or popup_target.pending_open
-			or popup_open
-			or popup_target.was_open_last
-		local want_cursor = popup_target.pending_open or popup_open or hovered
-
-		return allow_process, want_cursor, popup_open
 	end
+	imgui.End()
+	if pushed_colors > 0 then
+		imgui.PopStyleColor(pushed_colors)
+	end
+
+	local allow_process = is_chat_open or popup_target.pending_open or popup_open or popup_target.was_open_last
+	local want_cursor = popup_target.pending_open or popup_open or hovered
+
+	return allow_process, want_cursor, popup_open
+end
 
 -- ===================== ONFRAME =====================
 local hudFrame = imgui.OnFrame(function()

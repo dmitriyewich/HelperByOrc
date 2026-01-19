@@ -1,7 +1,6 @@
 local module = {}
 local toasts_module = {
-	push = function()
-	end,
+	push = function() end,
 }
 local encoding = require("encoding")
 encoding.default = "CP1251"
@@ -2143,7 +2142,10 @@ function module.sendOBS(cmd)
 	end)
 
 	if not success then
-		toasts_module.push(("OBS: ошибка подключения (%s)."):format(err or "неизвестно"), "err")
+		toasts_module.push(
+			("OBS: ошибка подключения (%s)."):format(err or "неизвестно"),
+			"err"
+		)
 		return false
 	end
 	client:send(tbl[cmd])
@@ -2209,59 +2211,64 @@ function module.findSignatureInModule(signature, moduleName, data)
 	return nil, "Signature not found"
 end
 
-local dlstatus = require('moonloader').download_status
+local dlstatus = require("moonloader").download_status
 
 -- кеши отдельно для яндекса и LanguageTool
 local cacheSpeller = {}
 local cacheLT = {}
 
 local function trim(s)
-    return s:match('^%s*(.-)%s*$')
+	return s:match("^%s*(.-)%s*$")
 end
 
 -- старый urlencode для Yandex Speller, оставляю как есть
 local function urlencode(text)
-    text = tostring(text)
-    text = text:gsub('{......}', '') -- убираем цветовые коды
-        :gsub(' ', '+')
-        :gsub('\n', '%%0A')
-        :gsub('&gt;', '>')
-        :gsub('&lt;', '<')
-        :gsub('&quot;', '"')
-    return text
+	text = tostring(text)
+	text = text
+		:gsub("{......}", "") -- убираем цветовые коды
+		:gsub(" ", "+")
+		:gsub("\n", "%%0A")
+		:gsub("&gt;", ">")
+		:gsub("&lt;", "<")
+		:gsub("&quot;", '"')
+	return text
 end
 
 -- общий HTTP GET -> строка через downloadUrlToFile
 local function asyncRequest(url, resolve, reject)
-    reject = reject or function(err)
-        toasts_module.push(err or "Ошибка запроса.", "err")
-    end
+	reject = reject or function(err)
+		toasts_module.push(err or "Ошибка запроса.", "err")
+	end
 
-    local tmpPath = getWorkingDirectory()
-        .. '\\cw_req_' .. tostring(os.clock()):gsub('%.', '') .. '_' .. tostring(math.random(1000, 9999)) .. '.tmp'
+	local tmpPath = getWorkingDirectory()
+		.. "\\cw_req_"
+		.. tostring(os.clock()):gsub("%.", "")
+		.. "_"
+		.. tostring(math.random(1000, 9999))
+		.. ".tmp"
 
-    downloadUrlToFile(url, tmpPath, function(id, status, p1, p2)
-        if status == dlstatus.STATUS_ENDDOWNLOADDATA then
-            local f = io.open(tmpPath, 'rb')
-            if not f then
-                os.remove(tmpPath)
-                reject('Не удалось открыть временный файл.')
-                return
-            end
-            local data = f:read('*a') or ''
-            f:close()
-            os.remove(tmpPath)
+	downloadUrlToFile(url, tmpPath, function(id, status, p1, p2)
+		if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+			local f = io.open(tmpPath, "rb")
+			if not f then
+				os.remove(tmpPath)
+				reject("Не удалось открыть временный файл.")
+				return
+			end
+			local data = f:read("*a") or ""
+			f:close()
+			os.remove(tmpPath)
 
-            if #data > 0 then
-                resolve(data)
-            else
-                reject('Пустой ответ от сервера.')
-            end
-        elseif status == dlstatus.STATUS_ERROR then
-            os.remove(tmpPath)
-            reject('Ошибка загрузки.')
-        end
-    end)
+			if #data > 0 then
+				resolve(data)
+			else
+				reject("Пустой ответ от сервера.")
+			end
+		elseif status == dlstatus.STATUS_ERROR then
+			os.remove(tmpPath)
+			reject("Ошибка загрузки.")
+		end
+	end)
 end
 
 -------------------------------------------------
@@ -2269,40 +2276,41 @@ end
 -------------------------------------------------
 
 function module.handleCorrection(message, setText)
-    if message == '' then return end
-    message = trim(message)
+	if message == "" then
+		return
+	end
+	message = trim(message)
 
-    if cacheSpeller[message] then
-        setText(cacheSpeller[message])
-        return
-    end
+	if cacheSpeller[message] then
+		setText(cacheSpeller[message])
+		return
+	end
 
-    -- http, чтобы не тащить ssl.https
-    local url = "http://speller.yandex.net/services/spellservice.json/checkText?text=" .. u8(urlencode(message))
+	-- http, чтобы не тащить ssl.https
+	local url = "http://speller.yandex.net/services/spellservice.json/checkText?text=" .. u8(urlencode(message))
 
-    asyncRequest(url, function(response)
-        local words = decodeJson(response)
-        if words and type(words) == 'table' and #words > 0 then
-            local used = {}
-            local corrected = message
+	asyncRequest(url, function(response)
+		local words = decodeJson(response)
+		if words and type(words) == "table" and #words > 0 then
+			local used = {}
+			local corrected = message
 
-            for _, word_data in ipairs(words) do
-                local incorrect = u8:decode(word_data.word)
-                local correct = word_data.s and word_data.s[1] and u8:decode(word_data.s[1]) or incorrect
-                if not used[incorrect] and correct then
-                    corrected = corrected:gsub(incorrect, correct)
-                    used[incorrect] = true
-                end
-            end
+			for _, word_data in ipairs(words) do
+				local incorrect = u8:decode(word_data.word)
+				local correct = word_data.s and word_data.s[1] and u8:decode(word_data.s[1]) or incorrect
+				if not used[incorrect] and correct then
+					corrected = corrected:gsub(incorrect, correct)
+					used[incorrect] = true
+				end
+			end
 
-            corrected = corrected:gsub('//', '/')
-            cacheSpeller[message] = corrected
-            setText(corrected)
-			
-        end
-    end, function(err)
-        toasts_module.push(("Yandex Speller: %s"):format(err or "ошибка запроса."), "err")
-    end)
+			corrected = corrected:gsub("//", "/")
+			cacheSpeller[message] = corrected
+			setText(corrected)
+		end
+	end, function(err)
+		toasts_module.push(("Yandex Speller: %s"):format(err or "ошибка запроса."), "err")
+	end)
 end
 
 -------------------------------------------------
@@ -2311,171 +2319,177 @@ end
 
 -- лимиты LanguageTool
 local ltLimits = {
-    windowStart = 0,
-    reqCount = 0,
-    bytesThisMin = 0,
-    MAX_REQ_PER_MIN = 20,
-    MAX_BYTES_PER_MIN = 75 * 1024, -- 75KB
-    MAX_BYTES_PER_REQ = 20 * 1024  -- 20KB
+	windowStart = 0,
+	reqCount = 0,
+	bytesThisMin = 0,
+	MAX_REQ_PER_MIN = 20,
+	MAX_BYTES_PER_MIN = 75 * 1024, -- 75KB
+	MAX_BYTES_PER_REQ = 20 * 1024, -- 20KB
 }
 
 local function ltReserve(bytes)
-    local now = os.clock()
-    if ltLimits.windowStart == 0 or (now - ltLimits.windowStart) >= 60.0 then
-        ltLimits.windowStart = now
-        ltLimits.reqCount = 0
-        ltLimits.bytesThisMin = 0
-    end
+	local now = os.clock()
+	if ltLimits.windowStart == 0 or (now - ltLimits.windowStart) >= 60.0 then
+		ltLimits.windowStart = now
+		ltLimits.reqCount = 0
+		ltLimits.bytesThisMin = 0
+	end
 
-    if bytes > ltLimits.MAX_BYTES_PER_REQ then
-        return false, 'text_too_long'
-    end
-    if ltLimits.reqCount + 1 > ltLimits.MAX_REQ_PER_MIN then
-        return false, 'too_many_requests'
-    end
-    if ltLimits.bytesThisMin + bytes > ltLimits.MAX_BYTES_PER_MIN then
-        return false, 'too_much_text'
-    end
+	if bytes > ltLimits.MAX_BYTES_PER_REQ then
+		return false, "text_too_long"
+	end
+	if ltLimits.reqCount + 1 > ltLimits.MAX_REQ_PER_MIN then
+		return false, "too_many_requests"
+	end
+	if ltLimits.bytesThisMin + bytes > ltLimits.MAX_BYTES_PER_MIN then
+		return false, "too_much_text"
+	end
 
-    ltLimits.reqCount = ltLimits.reqCount + 1
-    ltLimits.bytesThisMin = ltLimits.bytesThisMin + bytes
-    return true
+	ltLimits.reqCount = ltLimits.reqCount + 1
+	ltLimits.bytesThisMin = ltLimits.bytesThisMin + bytes
+	return true
 end
 
 -- убираем цветовые коды для LT, чтобы они не ломали оффсеты
 local function ltSanitizeMessage(msg)
-    msg = trim(msg or '')
-    if msg == '' then return '' end
-    msg = msg:gsub('{......}', '')
-    return msg
+	msg = trim(msg or "")
+	if msg == "" then
+		return ""
+	end
+	msg = msg:gsub("{......}", "")
+	return msg
 end
 
 -- нормальный urlencode для UTF-8 (для LanguageTool)
 local function urlencode_utf8(str)
-    return (str:gsub("([^%w%-_%.%~ ])", function(c)
-        return string.format("%%%02X", string.byte(c))
-    end):gsub(" ", "+"))
+	return (
+		str:gsub("([^%w%-_%.%~ ])", function(c)
+			return string.format("%%%02X", string.byte(c))
+		end):gsub(" ", "+")
+	)
 end
 
 -- строим карту: номер символа (UTF-8) -> байтовый индекс
 local function buildUtf8Index(str)
-    local index = {}
-    local len = 0
-    local i = 1
-    local strLen = #str
-    while i <= strLen do
-        len = len + 1
-        index[len] = i
-        local c = str:byte(i)
-        if c < 0x80 then
-            i = i + 1
-        elseif c < 0xE0 then
-            i = i + 2
-        elseif c < 0xF0 then
-            i = i + 3
-        else
-            i = i + 4
-        end
-    end
-    index[len + 1] = strLen + 1
-    return index, len
+	local index = {}
+	local len = 0
+	local i = 1
+	local strLen = #str
+	while i <= strLen do
+		len = len + 1
+		index[len] = i
+		local c = str:byte(i)
+		if c < 0x80 then
+			i = i + 1
+		elseif c < 0xE0 then
+			i = i + 2
+		elseif c < 0xF0 then
+			i = i + 3
+		else
+			i = i + 4
+		end
+	end
+	index[len + 1] = strLen + 1
+	return index, len
 end
 
 -- применяем правки LanguageTool к UTF-8 строке
 local function applyLanguageToolMatches(originalUtf8, matches)
-    if not matches or #matches == 0 then
-        return originalUtf8
-    end
+	if not matches or #matches == 0 then
+		return originalUtf8
+	end
 
-    local index, charCount = buildUtf8Index(originalUtf8)
-    local strLenBytes = #originalUtf8
+	local index, charCount = buildUtf8Index(originalUtf8)
+	local strLenBytes = #originalUtf8
 
-    -- сортируем по offset по возрастанию
-    table.sort(matches, function(a, b)
-        return (a.offset or 0) < (b.offset or 0)
-    end)
+	-- сортируем по offset по возрастанию
+	table.sort(matches, function(a, b)
+		return (a.offset or 0) < (b.offset or 0)
+	end)
 
-    local parts = {}
-    local currBytePos = 1
-    local used = 0
+	local parts = {}
+	local currBytePos = 1
+	local used = 0
 
-    for _, m in ipairs(matches) do
-        if used >= 30 then break end -- максимум 30 правок
+	for _, m in ipairs(matches) do
+		if used >= 30 then
+			break
+		end -- максимум 30 правок
 
-        local repls = m.replacements
-        local offset = m.offset
-        local length = m.length
+		local repls = m.replacements
+		local offset = m.offset
+		local length = m.length
 
-        if type(offset) == 'number' and type(length) == 'number'
-            and repls and repls[1] and repls[1].value then
+		if type(offset) == "number" and type(length) == "number" and repls and repls[1] and repls[1].value then
+			local repl = repls[1].value -- UTF-8
+			local charStart = offset + 1
+			local charEnd = offset + length
 
-            local repl = repls[1].value -- UTF-8
-            local charStart = offset + 1
-            local charEnd = offset + length
+			local byteStart = index[charStart]
+			local byteEndPlus1 = index[charEnd + 1] or (strLenBytes + 1)
 
-            local byteStart = index[charStart]
-            local byteEndPlus1 = index[charEnd + 1] or (strLenBytes + 1)
+			if byteStart and byteEndPlus1 and byteStart >= currBytePos then
+				table.insert(parts, originalUtf8:sub(currBytePos, byteStart - 1))
+				table.insert(parts, repl)
+				currBytePos = byteEndPlus1
+				used = used + 1
+			end
+		end
+	end
 
-            if byteStart and byteEndPlus1 and byteStart >= currBytePos then
-                table.insert(parts, originalUtf8:sub(currBytePos, byteStart - 1))
-                table.insert(parts, repl)
-                currBytePos = byteEndPlus1
-                used = used + 1
-            end
-        end
-    end
-
-    table.insert(parts, originalUtf8:sub(currBytePos))
-    return table.concat(parts)
+	table.insert(parts, originalUtf8:sub(currBytePos))
+	return table.concat(parts)
 end
 
 function module.handleLanguageTool(message, setText)
-    message = ltSanitizeMessage(message)
-    if message == '' then return end
+	message = ltSanitizeMessage(message)
+	if message == "" then
+		return
+	end
 
-    if cacheLT[message] then
-        setText(cacheLT[message])
-        return
-    end
+	if cacheLT[message] then
+		setText(cacheLT[message])
+		return
+	end
 
-    -- исходный текст в UTF-8
-    local textUtf8 = u8(message)
-    local textBytes = #textUtf8
+	-- исходный текст в UTF-8
+	local textUtf8 = u8(message)
+	local textBytes = #textUtf8
 
-    local allowed, reason = ltReserve(textBytes)
-    if not allowed then
-        local msg
-        if reason == 'text_too_long' then
-            msg = 'LanguageTool: текст длиннее 20KB, запрос не отправлен.'
-        elseif reason == 'too_many_requests' then
-            msg = 'LanguageTool: превышен лимит 20 запросов в минуту.'
-        elseif reason == 'too_much_text' then
-            msg = 'LanguageTool: превышен лимит 75KB текста в минуту.'
-        else
-            msg = 'LanguageTool: лимит, запрос отклонён.'
-        end
-        toasts_module.push(msg, "warn")
-        return
-    end
+	local allowed, reason = ltReserve(textBytes)
+	if not allowed then
+		local msg
+		if reason == "text_too_long" then
+			msg = "LanguageTool: текст длиннее 20KB, запрос не отправлен."
+		elseif reason == "too_many_requests" then
+			msg = "LanguageTool: превышен лимит 20 запросов в минуту."
+		elseif reason == "too_much_text" then
+			msg = "LanguageTool: превышен лимит 75KB текста в минуту."
+		else
+			msg = "LanguageTool: лимит, запрос отклонён."
+		end
+		toasts_module.push(msg, "warn")
+		return
+	end
 
-    -- кодируем именно UTF-8 строку
-    local encodedText = urlencode_utf8(textUtf8)
-    local url = 'https://api.languagetool.org/v2/check?language=ru-RU&text=' .. encodedText
+	-- кодируем именно UTF-8 строку
+	local encodedText = urlencode_utf8(textUtf8)
+	local url = "https://api.languagetool.org/v2/check?language=ru-RU&text=" .. encodedText
 
-    asyncRequest(url, function(response)
-        local data = decodeJson(response)
-        if not data or type(data) ~= 'table' or type(data.matches) ~= 'table' or #data.matches == 0 then
-            return
-        end
+	asyncRequest(url, function(response)
+		local data = decodeJson(response)
+		if not data or type(data) ~= "table" or type(data.matches) ~= "table" or #data.matches == 0 then
+			return
+		end
 
-        local fixedUtf8 = applyLanguageToolMatches(textUtf8, data.matches)
-        local resultCp = u8:decode(fixedUtf8)
+		local fixedUtf8 = applyLanguageToolMatches(textUtf8, data.matches)
+		local resultCp = u8:decode(fixedUtf8)
 
-        cacheLT[message] = resultCp
-        setText(resultCp)
-    end, function(err)
-        toasts_module.push(("LanguageTool: %s"):format(err or "ошибка запроса."), "err")
-    end)
+		cacheLT[message] = resultCp
+		setText(resultCp)
+	end, function(err)
+		toasts_module.push(("LanguageTool: %s"):format(err or "ошибка запроса."), "err")
+	end)
 end
 
 return module

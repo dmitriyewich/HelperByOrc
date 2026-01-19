@@ -30,7 +30,8 @@ local cfgDefaults = {
 local function normalizeConfig(raw)
 	local out = {}
 	local anchor = raw.anchor
-	if anchor == "top_left"
+	if
+		anchor == "top_left"
 		or anchor == "top_center"
 		or anchor == "top_right"
 		or anchor == "bottom_left"

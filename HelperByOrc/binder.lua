@@ -4,10 +4,8 @@ local ffi = require("ffi")
 local encoding = require("encoding")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
 local toasts_module = {
-	push = function()
-	end,
-	draw = function()
-	end,
+	push = function() end,
+	draw = function() end,
 }
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -164,7 +162,6 @@ local function runScheduler()
 end
 
 module.runScheduler = runScheduler
-
 
 local function cancelInputDialog()
 	if not activeInputDialog then
@@ -510,7 +507,6 @@ local function drawInputDialog()
 	if dialog.open and not dialog.open[0] then
 		cancelInputDialog()
 	end
-
 end
 
 -- === Состояние модуля ===
@@ -811,7 +807,7 @@ function module.saveHotkeys()
 			number = hk._number or idx,
 			inputs = inputs,
 		})
-		end
+	end
 	local ok = funcs.saveTableToJson(config, json_path)
 	if not ok then
 		pushToast("Не удалось сохранить бинды", "err", 4.0)
@@ -1724,7 +1720,6 @@ function module.DrawQuickMenu()
 	end
 	imgui.End()
 	imgui.PopStyleVar(3)
-
 end
 
 -- === API поиска/управления ===
