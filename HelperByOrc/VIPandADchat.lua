@@ -1314,6 +1314,7 @@ local function draw_chatbox_window()
 						all_wrap_cache.cfg_key = cfg_key
 						all_wrap_cache.lines = lines
 					end
+					local approximate_scroll_height = #all_wrap_cache.lines * lh
 
 					local clipper = imgui.ImGuiListClipper(#all_wrap_cache.lines)
 					while clipper:Step() do
@@ -1350,6 +1351,9 @@ local function draw_chatbox_window()
 					local current_last_line = #all_wrap_cache.lines
 					all_last_line = current_last_line
 					if all_autoscroll and all_last_rev ~= data_rev.all then
+						imgui.SetScrollY(imgui.GetScrollMaxY())
+					end
+					if all_autoscroll and approximate_scroll_height > imgui.GetScrollMaxY() then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					all_last_rev = data_rev.all
