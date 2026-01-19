@@ -1427,17 +1427,19 @@ local function draw_chatbox_window()
 					end
 
 					local current_last_line = #all_wrap_cache.lines
-					if current_last_line ~= all_last_line and all_autoscroll then
+					if (not is_chat_open) and current_last_line ~= all_last_line and all_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					all_last_line = current_last_line
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
 					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
-					if not at_bottom and all_autoscroll then
-						all_autoscroll = false
-					else
-						all_autoscroll = at_bottom
+					if is_chat_open then
+						if not at_bottom and all_autoscroll then
+							all_autoscroll = false
+						else
+							all_autoscroll = at_bottom
+						end
 					end
 					all_last_rev = data_rev.all
 				end
@@ -1507,7 +1509,7 @@ local function draw_chatbox_window()
 					end
 
 					local current_last_line = #vip_wrap_cache.lines
-					if current_last_line ~= vip_last_line and vip_autoscroll then
+					if (not is_chat_open) and current_last_line ~= vip_last_line and vip_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					vip_last_line = current_last_line
@@ -1515,10 +1517,12 @@ local function draw_chatbox_window()
 					local y = imgui.GetScrollY()
 					local threshold = line_height() * 0.5
 					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
-					if not at_bottom and vip_autoscroll then
-						vip_autoscroll = false
-					else
-						vip_autoscroll = at_bottom
+					if is_chat_open then
+						if not at_bottom and vip_autoscroll then
+							vip_autoscroll = false
+						else
+							vip_autoscroll = at_bottom
+						end
 					end
 					vip_last_rev = data_rev.vip
 				end
@@ -1589,7 +1593,7 @@ local function draw_chatbox_window()
 					end
 
 					local current_last_line = #ad_wrap_cache.lines
-					if current_last_line ~= ad_last_line and ad_autoscroll then
+					if (not is_chat_open) and current_last_line ~= ad_last_line and ad_autoscroll then
 						imgui.SetScrollY(imgui.GetScrollMaxY())
 					end
 					ad_last_line = current_last_line
@@ -1597,10 +1601,12 @@ local function draw_chatbox_window()
 					local y = imgui.GetScrollY()
 					local threshold = line_height() * 0.5
 					local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
-					if not at_bottom and ad_autoscroll then
-						ad_autoscroll = false
-					else
-						ad_autoscroll = at_bottom
+					if is_chat_open then
+						if not at_bottom and ad_autoscroll then
+							ad_autoscroll = false
+						else
+							ad_autoscroll = at_bottom
+						end
 					end
 					ad_last_rev = data_rev.ad
 				end
