@@ -1335,10 +1335,8 @@ local function draw_chatbox_window()
 						end
 					end
 
-					local did_autoscroll = false
 					if all_last_rev ~= data_rev.all and all_autoscroll then
 						imgui.SetScrollY(1e9)
-						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
@@ -1412,15 +1410,13 @@ local function draw_chatbox_window()
 						end
 					end
 
-					local did_autoscroll = false
 					if vip_last_rev ~= data_rev.vip and vip_autoscroll then
 						imgui.SetScrollY(1e9)
-						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
 					vip_autoscroll = at_bottom
 					vip_last_rev = data_rev.vip
 				end
@@ -1490,15 +1486,13 @@ local function draw_chatbox_window()
 						end
 					end
 
-					local did_autoscroll = false
 					if ad_last_rev ~= data_rev.ad and ad_autoscroll then
 						imgui.SetScrollY(1e9)
-						did_autoscroll = true
 					end
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
 					ad_autoscroll = at_bottom
 					ad_last_rev = data_rev.ad
 				end
