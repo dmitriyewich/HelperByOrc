@@ -29,9 +29,6 @@ local function bor(...)
 end
 
 local funcs
-local deepcopy = function(t)
-	return t
-end
 
 local function clone_table(tbl)
 	if type(tbl) ~= "table" then
@@ -66,9 +63,6 @@ local feedSize = imgui.ImVec2(900, 200)
 function module.attachModules(mod)
 	funcs = mod.funcs
 	samp = mod.samp
-	if funcs and funcs.deepcopy then
-		deepcopy = funcs.deepcopy
-	end
 	module.load()
 end
 
@@ -870,7 +864,7 @@ end
 
 -- ===================== ЗАГРУЗКА/СОХРАНЕНИЕ =====================
 function module.load()
-	config = deepcopy(default_config)
+	config = clone_table(default_config)
 	local loaded = funcs and funcs.loadTableFromJson and funcs.loadTableFromJson(json_path) or nil
 	if type(loaded) == "table" and next(loaded) then
 		for k, v in pairs(loaded) do
