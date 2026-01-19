@@ -184,6 +184,11 @@ local function text_size(s, font, fsize)
 	return font:CalcTextSizeA(fsize, 10000, -1, s).x
 end
 
+local function is_color_tag(tag)
+	return type(tag) == "string"
+		and (tag:match("^%{%x%x%x%x%x%x%}$") or tag:match("^%{%x%x%x%x%x%x%x%x%}$"))
+end
+
 local function line_height()
 	return imgui.GetTextLineHeightWithSpacing()
 end
@@ -249,12 +254,12 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 		local visible = ""
 		local last_tag = nil
 		while i <= #cleaned and not cleaned:sub(i, i):match("%s") do
-			if cleaned:sub(i, i) == "{" then
-				local tag = cleaned:match("^%b{}", i)
-				if tag and tag:match("^%{[%x][%x][%x][%x][%x][%x]%}$") then
-					raw = raw .. tag
-					last_tag = tag
-					i = i + #tag
+				if cleaned:sub(i, i) == "{" then
+					local tag = cleaned:match("^%b{}", i)
+					if is_color_tag(tag) then
+						raw = raw .. tag
+						last_tag = tag
+						i = i + #tag
 				else
 					local ch = cleaned:sub(i, i)
 					raw = raw .. ch
@@ -328,14 +333,15 @@ local function wrap_to_lines_keep_tags(text_with_tags, max_px)
 	end
 
 	local active_tag = ""
-	local tag_pattern = "{[%x%X][%x%X][%x%X][%x%X][%x%X][%x%X]}"
 	for idx = 1, #lines do
 		local line = lines[idx] or ""
 		local last_tag = nil
-		for tag in line:gmatch(tag_pattern) do
-			last_tag = tag
+		for tag in line:gmatch("%b{}") do
+			if is_color_tag(tag) then
+				last_tag = tag
+			end
 		end
-		if active_tag ~= "" and not line:match("^" .. tag_pattern) then
+		if active_tag ~= "" and not is_color_tag(line:match("^(%b{})")) then
 			line = active_tag .. line
 			lines[idx] = line
 		end
