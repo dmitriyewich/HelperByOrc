@@ -1,4 +1,8 @@
 local module = {}
+local toasts_module = {
+	push = function()
+	end,
+}
 local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -7,6 +11,10 @@ local memory = require("memory")
 
 function module.CGame__EnableHUD()
 	return memory.getint8(0xBA6769) == 1 and true or false
+end
+
+function module.attachModules(mod)
+	toasts_module = mod.toasts or toasts_module
 end
 
 -- recursive table copy
@@ -2218,7 +2226,9 @@ end
 
 -- общий HTTP GET -> строка через downloadUrlToFile
 local function asyncRequest(url, resolve, reject)
-    reject = reject or function() end
+    reject = reject or function(err)
+        toasts_module.push(err or "Ошибка запроса.", "err")
+    end
 
     local tmpPath = getWorkingDirectory()
         .. '\\cw_req_' .. tostring(os.clock()):gsub('%.', '') .. '_' .. tostring(math.random(1000, 9999)) .. '.tmp'
@@ -2228,7 +2238,7 @@ local function asyncRequest(url, resolve, reject)
             local f = io.open(tmpPath, 'rb')
             if not f then
                 os.remove(tmpPath)
-                reject('cannot open temp file')
+                reject('Не удалось открыть временный файл.')
                 return
             end
             local data = f:read('*a') or ''
@@ -2238,11 +2248,11 @@ local function asyncRequest(url, resolve, reject)
             if #data > 0 then
                 resolve(data)
             else
-                reject('empty response')
+                reject('Пустой ответ от сервера.')
             end
         elseif status == dlstatus.STATUS_ERROR then
             os.remove(tmpPath)
-            reject('download error')
+            reject('Ошибка загрузки.')
         end
     end)
 end
@@ -2283,6 +2293,8 @@ function module.handleCorrection(message, setText)
             setText(corrected)
 			
         end
+    end, function(err)
+        toasts_module.push(("Yandex Speller: %s"):format(err or "ошибка запроса."), "err")
     end)
 end
 
@@ -2425,19 +2437,17 @@ function module.handleLanguageTool(message, setText)
 
     local allowed, reason = ltReserve(textBytes)
     if not allowed then
-        if sampAddChatMessage then
-            local msg
-            if reason == 'text_too_long' then
-                msg = 'LanguageTool: текст длиннее 20KB, запрос не отправлен.'
-            elseif reason == 'too_many_requests' then
-                msg = 'LanguageTool: превышен лимит 20 запросов в минуту.'
-            elseif reason == 'too_much_text' then
-                msg = 'LanguageTool: превышен лимит 75KB текста в минуту.'
-            else
-                msg = 'LanguageTool: лимит, запрос отклонён.'
-            end
-            sampAddChatMessage(u8:decode(msg), 0xFFFF0000)
+        local msg
+        if reason == 'text_too_long' then
+            msg = 'LanguageTool: текст длиннее 20KB, запрос не отправлен.'
+        elseif reason == 'too_many_requests' then
+            msg = 'LanguageTool: превышен лимит 20 запросов в минуту.'
+        elseif reason == 'too_much_text' then
+            msg = 'LanguageTool: превышен лимит 75KB текста в минуту.'
+        else
+            msg = 'LanguageTool: лимит, запрос отклонён.'
         end
+        toasts_module.push(msg, "warn")
         return
     end
 
@@ -2457,9 +2467,7 @@ function module.handleLanguageTool(message, setText)
         cacheLT[message] = resultCp
         setText(resultCp)
     end, function(err)
-        if sampAddChatMessage then
-            sampAddChatMessage(u8:decode'LanguageTool: ошибка запроса.', 0xFFFF0000)
-        end
+        toasts_module.push(("LanguageTool: %s"):format(err or "ошибка запроса."), "err")
     end)
 end
 
