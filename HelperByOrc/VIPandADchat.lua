@@ -1343,7 +1343,7 @@ local function draw_chatbox_window()
 
 					local maxY = imgui.GetScrollMaxY()
 					local y = imgui.GetScrollY()
-					local at_bottom = did_autoscroll or (maxY <= 0) or (y >= maxY - 1)
+					local at_bottom = (maxY <= 0) or (y >= maxY - 1)
 					all_autoscroll = at_bottom
 					all_last_rev = data_rev.all
 				end
