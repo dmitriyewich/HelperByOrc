@@ -631,14 +631,17 @@ end
 local function get_price_buttons_for_type(ad_type)
 	local map = Config.data.price_type_map or {}
 	local mode = map[ad_type]
-	local buy = Config.data.prices_buy or {}
-	local sell = Config.data.prices_sell or {}
 	if mode == "buy" then
-		return buy
+		return Config.data.prices_buy or {}
 	elseif mode == "sell" then
-		return sell
+		return Config.data.prices_sell or {}
 	end
-	return Config.data.prices or merge_price_lists(buy, sell)
+	local prices = Config.data.prices
+	if type(prices) ~= "table" then
+		prices = merge_price_lists(Config.data.prices_buy or {}, Config.data.prices_sell or {})
+		Config.data.prices = prices
+	end
+	return prices
 end
 
 local function price_label_in_list(label, list)
