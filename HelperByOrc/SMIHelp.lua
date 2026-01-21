@@ -630,8 +630,7 @@ local function apply_autocorrect_local(text)
 end
 
 local function get_price_buttons_for_type(ad_type)
-	local map = Config.data.price_type_map or {}
-	local mode = map[ad_type]
+	local mode = (Config.data.price_type_map or {})[ad_type]
 	if mode == "buy" then
 		return Config.data.prices_buy or {}
 	elseif mode == "sell" then
