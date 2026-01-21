@@ -21,7 +21,6 @@ local InputTextFlags = imgui.InputTextFlags
 local StyleVar = imgui.StyleVar
 local Col = imgui.Col
 local WindowFlags = imgui.WindowFlags
-local HoveredFlags = imgui.HoveredFlags
 local bit_bor = bit.bor
 
 -- опциональные зависимости (совместимость/сейв конфига)
@@ -1518,17 +1517,12 @@ end, function()
 	imgui.Spacing()
 	imgui.Separator()
 	imgui.Spacing()
-	local cur_label = AD.currency or (currencies[1] or "-")
-	local addon_label = AD.addon or "- выбрать дополнение -"
-	imgui.BeginChild("##currency_addon", ImVec2(0, 0), false, WindowFlags.MenuBar)
-	if imgui.BeginMenuBar() then
-		-- currency menu
-		local cur_menu_hover, cur_popup_hover = false, false
-		local cur_open = imgui.BeginMenu(cur_label)
-		if cur_open then
+	imgui.BeginChild("##currency_addon", ImVec2(0, 0), false, 0)
+	if imgui.BeginTabBar("##currency_addon_tabs") then
+		if imgui.BeginTabItem("Валюта") then
 			for _, item in ipairs(currencies) do
 				local sel = (AD.currency == item)
-				if imgui.MenuItemBool(item, nil, sel) then
+				if imgui.Selectable(item, sel) then
 					refresh_object_value_from_editbuf()
 					AD.currency = item
 					ad_commit_to_editbuf()
@@ -1539,26 +1533,12 @@ end, function()
 					State.collapse_selection_after_focus = true
 				end
 			end
-			cur_popup_hover = imgui.IsWindowHovered(HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			cur_menu_hover = imgui.IsItemHovered()
-		else
-			cur_menu_hover = imgui.IsItemHovered()
-			if cur_menu_hover then
-				imgui.OpenPopup(cur_label)
-			end
+			imgui.EndTabItem()
 		end
-		if cur_open and not cur_menu_hover and not cur_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		-- addon menu
-		local addon_menu_hover, addon_popup_hover = false, false
-		local addon_open = imgui.BeginMenu(addon_label)
-		if addon_open then
+		if imgui.BeginTabItem("Дополнения") then
 			for _, item in ipairs(addons) do
 				local sel = (AD.addon == item)
-				if imgui.MenuItemBool(item, nil, sel) then
+				if imgui.Selectable(item, sel) then
 					refresh_object_value_from_editbuf()
 					AD.addon = item
 					ad_commit_to_editbuf()
@@ -1569,20 +1549,9 @@ end, function()
 					State.collapse_selection_after_focus = true
 				end
 			end
-			addon_popup_hover = imgui.IsWindowHovered(HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			addon_menu_hover = imgui.IsItemHovered()
-		else
-			addon_menu_hover = imgui.IsItemHovered()
-			if addon_menu_hover then
-				imgui.OpenPopup(addon_label)
-			end
+			imgui.EndTabItem()
 		end
-		if addon_open and not addon_menu_hover and not addon_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		imgui.EndMenuBar()
+		imgui.EndTabBar()
 	end
 	imgui.EndChild()
 	imgui.EndChild()
