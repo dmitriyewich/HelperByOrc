@@ -37,7 +37,11 @@ function SMIHelp.attachModules(mod)
 	funcs = mod.funcs
 	SMILive = mod.SMILive
 end
-local trim = (funcs and funcs.trim) and funcs.trim or function(s)
+local function trim(s)
+	local f = funcs and funcs.trim
+	if f then
+		return f(s)
+	end
 	return (s or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 local function handle_correction(message, setText)
@@ -50,15 +54,15 @@ local function handle_correction(message, setText)
 end
 
 local function parse_list(s)
-	if funcs and funcs.parseList then
-		return funcs.parseList(s)
+	local f = funcs and funcs.parseList
+	if f then
+		return f(s)
 	end
-	s = tostring(s or "")
 	local t = {}
-	for part in s:gmatch("[^,\n]+") do
+	for part in tostring(s or ""):gmatch("[^,\n]+") do
 		local p = trim(part)
 		if p ~= "" then
-			table.insert(t, p)
+			t[#t + 1] = p
 		end
 	end
 	return t
