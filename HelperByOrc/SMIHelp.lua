@@ -573,13 +573,13 @@ local function tolower_utf8(s)
 	end)
 end
 
-local function passFilter(line, raw)
+local function passFilter(line, raw, raw_lower)
 	local target = tolower_utf8(line or "")
-	raw = tolower_utf8(raw or "")
-	if raw == "" then
+	local filter = raw_lower or tolower_utf8(raw or "")
+	if filter == "" then
 		return true
 	end
-	for word in raw:gmatch("[^,]+") do
+	for word in filter:gmatch("[^,]+") do
 		word = trim(word)
 		local ex = word:sub(1, 1) == "-"
 		local val = ex and word:sub(2) or word
@@ -910,7 +910,8 @@ local function DrawTemplatesPanel(width, height)
 
 	imgui.BeginChild("templates_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
-	local has_filter = filter_str ~= ""
+	local filter_lower = tolower_utf8(filter_str)
+	local has_filter = filter_lower ~= ""
 
 	for _, tpl in ipairs(Config.data.templates or {}) do
 		local cat = tpl.category or "Прочее"
@@ -919,12 +920,12 @@ local function DrawTemplatesPanel(width, height)
 				local display = group[1] or ""
 				local line = ((cat ~= "" and (cat .. ": ") or "") .. (display or ""))
 
-				local show = true
-				if has_filter then
-					local combined = table.concat(group, " ")
-					local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
-					show = passFilter(filter_line, filter_str)
-				end
+					local show = true
+					if has_filter then
+						local combined = table.concat(group, " ")
+						local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
+						show = passFilter(filter_line, filter_str, filter_lower)
+					end
 
 				if show then
 					if imgui.Selectable(line, false) then
@@ -957,8 +958,9 @@ local function DrawHistoryPanel(width, height)
 	LabelSeparator("История")
 	imgui.BeginChild("history_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
+	local filter_lower = tolower_utf8(filter_str)
 	for _, v in ipairs(Config.data.history or {}) do
-		if passFilter(v, filter_str) then
+		if passFilter(v, filter_str, filter_lower) then
 			if imgui.Selectable(v, false) then
 				local txt = clamp80(v)
 				imgui.StrCopy(State.edit_buf, txt)
