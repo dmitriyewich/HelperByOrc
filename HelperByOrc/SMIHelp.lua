@@ -914,17 +914,23 @@ local function DrawTemplatesPanel(width, height)
 
 	imgui.BeginChild("templates_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
+	local has_filter = filter_str ~= ""
 
 	for _, tpl in ipairs(Config.data.templates or {}) do
 		local cat = tpl.category or "Прочее"
 		if State.selected_category == "Все" or State.selected_category == cat then
 			for _, group in ipairs(tpl_groups(tpl)) do
 				local display = group[1] or ""
-				local combined = table.concat(group, " ")
 				local line = ((cat ~= "" and (cat .. ": ") or "") .. (display or ""))
-				local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
 
-				if passFilter(filter_line, filter_str) then
+				local show = true
+				if has_filter then
+					local combined = table.concat(group, " ")
+					local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
+					show = passFilter(filter_line, filter_str)
+				end
+
+				if show then
 					if imgui.Selectable(line, false) then
 						seed_once()
 						local pick = group[math.random(1, #group)] or ""
