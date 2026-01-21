@@ -1393,8 +1393,14 @@ end, function()
 
 	-- Кнопки действий + таймер блокировки и сохранение памяти по нику
 	do
-		local vip_rem = vip_timer_remaining()
-		local btn_rem = btn_timer_remaining()
+		local vip_rem = 0
+		if not SMIHelp.timer_send then
+			vip_rem = vip_timer_remaining()
+		end
+		local btn_rem = 0
+		if SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
+			btn_rem = btn_timer_remaining()
+		end
 		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
 		local btn_send_clicked = false
 		local avail = imgui.GetContentRegionAvail().x
