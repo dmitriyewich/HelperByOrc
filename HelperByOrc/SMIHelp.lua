@@ -1049,6 +1049,14 @@ local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
 	return p and (p + #addon_text - 1) or len
 end
 
+local function finalize_constructor_action(cursor_action, cursor_data)
+	State.cursor_action = cursor_action
+	State.cursor_action_data = cursor_data
+	history_reset_index()
+	State.want_focus_input = true
+	State.collapse_selection_after_focus = true
+end
+
 -- ========= INPUTTEXT CALLBACK =========
 local function EditBufCallback(data)
 	local flag = data.EventFlag
@@ -1498,14 +1506,6 @@ end, function()
 	local numpad = NUMPAD
 	local currencies = Config.data.currencies
 	local addons = Config.data.addons
-
-	local function finalize_constructor_action(cursor_action, cursor_data)
-		State.cursor_action = cursor_action
-		State.cursor_action_data = cursor_data
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
-	end
 
 	-- Тип
 	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
