@@ -228,37 +228,40 @@ function Config:load()
 			"т/ф",
 			"с/м",
 		}
-	t.prices = (type(t.prices) == "table" and t.prices)
-		or {
-			"Цена:",
-			"Бюджет:",
-			"Цена за шт:",
-			"Бюджет за шт:",
-			"Цена за час:",
-			"Бюджет за час:",
-		}
-	if type(t.prices_buy) ~= "table" and type(t.prices_sell) ~= "table" and type(t.prices) == "table" then
+	local prices_default = {
+		"Цена:",
+		"Бюджет:",
+		"Цена за шт:",
+		"Бюджет за шт:",
+		"Цена за час:",
+		"Бюджет за час:",
+	}
+	local prices_buy_default = { "Бюджет:", "Бюджет за шт:", "Бюджет за час:" }
+	local prices_sell_default = { "Цена:", "Цена за шт:", "Цена за час:" }
+	t.prices = (type(t.prices) == "table" and t.prices) or prices_default
+	if type(t.prices_buy) ~= "table" and type(t.prices_sell) ~= "table" then
 		local prices_buy = {}
 		local prices_sell = {}
 		for _, price_label in ipairs(t.prices) do
 			local label = tostring(price_label or "")
 			if label:find("Бюджет", 1, true) then
-				table.insert(prices_buy, label)
+				prices_buy[#prices_buy + 1] = label
 			elseif label:find("Цена", 1, true) then
-				table.insert(prices_sell, label)
+				prices_sell[#prices_sell + 1] = label
 			else
-				table.insert(prices_buy, label)
-				table.insert(prices_sell, label)
+				prices_buy[#prices_buy + 1] = label
+				prices_sell[#prices_sell + 1] = label
 			end
 		end
 		t.prices_buy = prices_buy
 		t.prices_sell = prices_sell
-	end
-	if type(t.prices_buy) ~= "table" then
-		t.prices_buy = { "Бюджет:", "Бюджет за шт:", "Бюджет за час:" }
-	end
-	if type(t.prices_sell) ~= "table" then
-		t.prices_sell = { "Цена:", "Цена за шт:", "Цена за час:" }
+	else
+		if type(t.prices_buy) ~= "table" then
+			t.prices_buy = prices_buy_default
+		end
+		if type(t.prices_sell) ~= "table" then
+			t.prices_sell = prices_sell_default
+		end
 	end
 	if type(t.prices) ~= "table" then
 		t.prices = merge_price_lists(t.prices_buy, t.prices_sell)
@@ -606,17 +609,20 @@ end
 local function merge_price_lists(list_a, list_b)
 	local merged = {}
 	local seen = {}
-	for _, item in ipairs(list_a or {}) do
-		if not seen[item] then
-			table.insert(merged, item)
-			seen[item] = true
+	local function push(list)
+		for i = 1, #list do
+			local item = list[i]
+			if item and not seen[item] then
+				merged[#merged + 1] = item
+				seen[item] = true
+			end
 		end
 	end
-	for _, item in ipairs(list_b or {}) do
-		if not seen[item] then
-			table.insert(merged, item)
-			seen[item] = true
-		end
+	if list_a then
+		push(list_a)
+	end
+	if list_b then
+		push(list_b)
 	end
 	return merged
 end
