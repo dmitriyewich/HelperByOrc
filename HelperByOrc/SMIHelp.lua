@@ -1697,6 +1697,7 @@ local function buf_maybe_grow(entry)
 		entry.buf = new_buf
 		entry.size = new_size
 	end
+	return content
 end
 
 function SMIHelp.DrawSettingsUI()
@@ -1797,9 +1798,9 @@ function SMIHelp.DrawSettingsUI()
 								buf.size,
 								ImVec2(0, 60)
 							)
-							buf_maybe_grow(buf)
+							local buf_text = buf_maybe_grow(buf)
 							if imgui.Button("Готово##tplexisting" .. idx .. "_" .. j) then
-								local val = str(buf.buf)
+								local val = buf_text
 								local group = {}
 								for line in val:gmatch("[^\r\n]+") do
 									table.insert(group, line)
@@ -1844,7 +1845,7 @@ function SMIHelp.DrawSettingsUI()
 					else
 						imgui.InputText("##tplinput" .. idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
 					end
-					buf_maybe_grow(S.tpl_input[idx])
+					local input_text = buf_maybe_grow(S.tpl_input[idx])
 					if S.tpl_multiline[idx][0] then
 						if imgui.Button("Одна строка##toggle" .. idx) then
 							S.tpl_multiline[idx][0] = false
@@ -1856,7 +1857,7 @@ function SMIHelp.DrawSettingsUI()
 					end
 					imgui.SameLine()
 					if imgui.Button("Добавить##tpl" .. idx) then
-						local val = str(S.tpl_input[idx].buf)
+						local val = input_text
 						if val ~= "" then
 							tpl.texts = tpl.texts or {}
 							if S.tpl_multiline[idx][0] then
@@ -1892,27 +1893,34 @@ function SMIHelp.DrawSettingsUI()
 		end
 	end
 	if imgui.Button("Сохранить") then
-		Config.data.type_buttons = parse_list(str(S.type_buttons))
+		local type_buttons = parse_list(str(S.type_buttons))
+		local prices_buy = parse_list(str(S.prices_buy))
+		local prices_sell = parse_list(str(S.prices_sell))
+		local vip_enabled = S.vip_timer_enabled[0]
+		local vip_delay = S.vip_timer_delay[0]
+		local btn_enabled = S.btn_timer_enabled[0]
+		local btn_delay = S.btn_timer_delay[0]
+		Config.data.type_buttons = type_buttons
 		Config.data.objects = parse_list(str(S.objects))
-		Config.data.prices_buy = parse_list(str(S.prices_buy))
-		Config.data.prices_sell = parse_list(str(S.prices_sell))
-		Config.data.prices = merge_price_lists(Config.data.prices_buy, Config.data.prices_sell)
+		Config.data.prices_buy = prices_buy
+		Config.data.prices_sell = prices_sell
+		Config.data.prices = merge_price_lists(prices_buy, prices_sell)
 		Config.data.currencies = parse_list(str(S.currencies))
 		Config.data.addons = parse_list(str(S.addons))
 		Config.data.price_type_map = parse_price_type_map(str(S.price_type_map))
-		Config.data.price_type_map = ensure_price_type_map(Config.data.price_type_map, Config.data.type_buttons)
+		Config.data.price_type_map = ensure_price_type_map(Config.data.price_type_map, type_buttons)
 		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
 		Config.data.templates = S.templates_list
 		Config.data.history_limit = S.history_limit[0]
 		Config.data.nick_memory_limit = S.nick_memory_limit[0]
-		Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
-		Config.data.vip_timer_delay = S.vip_timer_delay[0]
-		Config.data.btn_timer_enabled = S.btn_timer_enabled[0]
-		Config.data.btn_timer_delay = S.btn_timer_delay[0]
-		SMIHelp.timer_send_enabled = S.vip_timer_enabled[0]
-		SMIHelp.timer_send_delay = S.vip_timer_delay[0]
-		SMIHelp.btn_timer_enabled = S.btn_timer_enabled[0]
-		SMIHelp.btn_timer_delay = S.btn_timer_delay[0]
+		Config.data.vip_timer_enabled = vip_enabled
+		Config.data.vip_timer_delay = vip_delay
+		Config.data.btn_timer_enabled = btn_enabled
+		Config.data.btn_timer_delay = btn_delay
+		SMIHelp.timer_send_enabled = vip_enabled
+		SMIHelp.timer_send_delay = vip_delay
+		SMIHelp.btn_timer_enabled = btn_enabled
+		SMIHelp.btn_timer_delay = btn_delay
 		SMIHelp.timer_news_delay = S.timer_news_delay[0]
 		Config:save()
 	end
