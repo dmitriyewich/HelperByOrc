@@ -22,6 +22,7 @@ local StyleVar = imgui.StyleVar
 local Col = imgui.Col
 local WindowFlags = imgui.WindowFlags
 local HoveredFlags = imgui.HoveredFlags
+local bit_bor = bit.bor
 
 -- опциональные зависимости (совместимость/сейв конфига)
 local mimgui_funcs
@@ -1160,6 +1161,9 @@ end, function()
 	imgui.PushStyleVarFloat(StyleVar.WindowRounding, 6.0)
 	imgui.PushStyleVarFloat(StyleVar.ScrollbarRounding, 6.0)
 
+	local style = imgui.GetStyle()
+	local item_spacing_x = style.ItemSpacing.x
+
 	if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
 		State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
 	end
@@ -1191,7 +1195,7 @@ end, function()
 	local availY = imgui.GetContentRegionAvail().y
 	local leftW = math.floor(availX * 0.26)
 	local rightW = math.floor(availX * 0.26)
-	local midW = availX - leftW - rightW - imgui.GetStyle().ItemSpacing.x * 2
+	local midW = availX - leftW - rightW - item_spacing_x * 2
 
 	-- LEFT
 	imgui.BeginGroup()
@@ -1216,7 +1220,7 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local flags = bit.bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
+	local flags = bit_bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
 	local changed =
 		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
 
@@ -1225,14 +1229,17 @@ end, function()
 		State.collapse_selection_after_focus = false
 	end
 
+	local edit_buf = State.edit_buf
+	local edit_buf_text = str(edit_buf)
+
 	imgui.Spacing()
 	if imgui.SmallButton("Копировать текст") then
-		imgui.SetClipboardText(str(State.edit_buf))
+		imgui.SetClipboardText(edit_buf_text)
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("Автокоррекция") then
-		handle_correction(u8:decode(str(State.edit_buf)), function(newText)
-			imgui.StrCopy(State.edit_buf, u8(newText))
+		handle_correction(u8:decode(edit_buf_text), function(newText)
+			imgui.StrCopy(edit_buf, u8(newText))
 		end)
 	end
 	imgui.SameLine()
@@ -1250,8 +1257,8 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local cur_text = str(State.edit_buf)
-	local char_count = utf8_len(cur_text)
+	local edit_buf_text_after = str(edit_buf)
+	local char_count = utf8_len(edit_buf_text_after)
 	imgui.Spacing()
 	DrawCharLimitBar(char_count, INPUT_MAX)
 
@@ -1263,11 +1270,10 @@ end, function()
 	imgui.EndChild()
 
 	if changed then
-		local old = str(State.edit_buf)
-		local newtxt = apply_autocorrect_local(old)
-		if newtxt ~= old then
+		local newtxt = apply_autocorrect_local(edit_buf_text_after)
+		if newtxt ~= edit_buf_text_after then
 			newtxt = clamp80(newtxt)
-			imgui.StrCopy(State.edit_buf, newtxt)
+			imgui.StrCopy(edit_buf, newtxt)
 		end
 	end
 
@@ -1278,7 +1284,7 @@ end, function()
 		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
 		local btn_send_clicked = false
 		local avail = imgui.GetContentRegionAvail().x
-		local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
+		local btnW = math.floor((avail - item_spacing_x) / 2)
 		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
 		if imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed then
 			btn_send_clicked = true
