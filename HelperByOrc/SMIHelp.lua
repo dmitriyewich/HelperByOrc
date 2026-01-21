@@ -1621,6 +1621,53 @@ local function parse_autocorrect(text)
 	return res
 end
 
+local function price_type_map_to_string(map, types)
+	local lines = {}
+	if type(map) ~= "table" then
+		map = {}
+	end
+	for _, type_name in ipairs(types or {}) do
+		local mode = map[type_name] or "both"
+		table.insert(lines, type_name .. "=" .. mode)
+	end
+	return table.concat(lines, "\n")
+end
+
+local function parse_price_type_map(text)
+	local res = {}
+	text = tostring(text or "")
+	for line in text:gmatch("[^\n]+") do
+		local key, val = line:match("^(.-)=(.*)$")
+		key = trim(key)
+		val = trim(val)
+		if key ~= "" then
+			if val ~= "buy" and val ~= "sell" and val ~= "both" then
+				val = "both"
+			end
+			res[key] = val
+		end
+	end
+	return res
+end
+
+local function merge_price_lists(list_a, list_b)
+	local merged = {}
+	local seen = {}
+	for _, item in ipairs(list_a or {}) do
+		if not seen[item] then
+			table.insert(merged, item)
+			seen[item] = true
+		end
+	end
+	for _, item in ipairs(list_b or {}) do
+		if not seen[item] then
+			table.insert(merged, item)
+			seen[item] = true
+		end
+	end
+	return merged
+end
+
 -- helpers for editable text buffers
 local function buf_ensure(tbl, key, size)
 	size = size or 256
@@ -1660,10 +1707,12 @@ function SMIHelp.DrawSettingsUI()
 		SMIHelp._settings = {
 			type_buttons = new.char[512](),
 			objects = new.char[512](),
-			prices = new.char[512](),
+			prices_buy = new.char[512](),
+			prices_sell = new.char[512](),
 			currencies = new.char[512](),
 			addons = new.char[512](),
 			autocorrect = new.char[1024](),
+			price_type_map = new.char[1024](),
 			history_limit = new.int(Config.data.history_limit or 100),
 			nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
 			vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
@@ -1679,10 +1728,15 @@ function SMIHelp.DrawSettingsUI()
 		}
 		imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ","))
+		imgui.StrCopy(SMIHelp._settings.prices_buy, table.concat(Config.data.prices_buy or {}, ","))
+		imgui.StrCopy(SMIHelp._settings.prices_sell, table.concat(Config.data.prices_sell or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
+		imgui.StrCopy(
+			SMIHelp._settings.price_type_map,
+			price_type_map_to_string(Config.data.price_type_map, Config.data.type_buttons)
+		)
 		for _, tpl in ipairs(Config.data.templates or {}) do
 			local copy = { category = tpl.category, texts = {} }
 			if type(tpl.texts) == "table" then
@@ -1718,10 +1772,14 @@ function SMIHelp.DrawSettingsUI()
 	imgui.InputInt("Задержка новостей", S.timer_news_delay, 1, 60)
 	imgui.InputTextMultiline("Типы", S.type_buttons, 512, ImVec2(0, 60))
 	imgui.InputTextMultiline("Объекты", S.objects, 512, ImVec2(0, 60))
-	imgui.InputTextMultiline("Цены", S.prices, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Цены buy", S.prices_buy, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Цены sell", S.prices_sell, 512, ImVec2(0, 60))
 	imgui.InputTextMultiline("Валюты", S.currencies, 512, ImVec2(0, 60))
 	imgui.InputTextMultiline("Дополнения", S.addons, 512, ImVec2(0, 60))
 	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, ImVec2(0, 60))
+	if imgui.CollapsingHeader("Маппинг типов -> цены") then
+		imgui.InputTextMultiline("##price_type_map", S.price_type_map, 1024, ImVec2(0, 80))
+	end
 	if imgui.CollapsingHeader("Шаблоны") then
 		if imgui.BeginTabBar("tpl_tabs") then
 			for idx, tpl in ipairs(S.templates_list) do
@@ -1839,24 +1897,12 @@ function SMIHelp.DrawSettingsUI()
 	if imgui.Button("Сохранить") then
 		Config.data.type_buttons = parse_list(str(S.type_buttons))
 		Config.data.objects = parse_list(str(S.objects))
-		Config.data.prices = parse_list(str(S.prices))
+		Config.data.prices_buy = parse_list(str(S.prices_buy))
+		Config.data.prices_sell = parse_list(str(S.prices_sell))
+		Config.data.prices = merge_price_lists(Config.data.prices_buy, Config.data.prices_sell)
 		Config.data.currencies = parse_list(str(S.currencies))
 		Config.data.addons = parse_list(str(S.addons))
-		Config.data.price_type_map = Config.data.price_type_map or {}
-		for type_name, mode in pairs({
-			["Куплю"] = "buy",
-			["Продам"] = "sell",
-			["Арендую"] = "buy",
-			["Сдам в аренду"] = "sell",
-			["Обменяю"] = "buy",
-			["Предоставляю"] = "sell",
-			["Нуждаюсь"] = "buy",
-			["Ищу"] = "both",
-		}) do
-			if Config.data.price_type_map[type_name] == nil then
-				Config.data.price_type_map[type_name] = mode
-			end
-		end
+		Config.data.price_type_map = parse_price_type_map(str(S.price_type_map))
 		Config.data.price_type_map = ensure_price_type_map(Config.data.price_type_map, Config.data.type_buttons)
 		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
 		Config.data.templates = S.templates_list
