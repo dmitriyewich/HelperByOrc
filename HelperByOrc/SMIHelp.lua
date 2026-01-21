@@ -148,6 +148,18 @@ end
 -- ========= КОНФИГ =========
 local Config = { data = {} }
 
+local function ensure_price_type_map(map, types)
+	if type(map) ~= "table" then
+		map = {}
+	end
+	for _, type_name in ipairs(types or {}) do
+		if map[type_name] == nil then
+			map[type_name] = "both"
+		end
+	end
+	return map
+end
+
 function Config:load()
 	local t
 	if doesFileExist(CONFIG_PATH) then
@@ -218,6 +230,29 @@ function Config:load()
 			"Цена за час:",
 			"Бюджет за час:",
 		}
+	if type(t.prices_buy) ~= "table" and type(t.prices_sell) ~= "table" and type(t.prices) == "table" then
+		local prices_buy = {}
+		local prices_sell = {}
+		for _, price_label in ipairs(t.prices) do
+			local label = tostring(price_label or "")
+			if label:find("Бюджет", 1, true) then
+				table.insert(prices_buy, label)
+			elseif label:find("Цена", 1, true) then
+				table.insert(prices_sell, label)
+			else
+				table.insert(prices_buy, label)
+				table.insert(prices_sell, label)
+			end
+		end
+		t.prices_buy = prices_buy
+		t.prices_sell = prices_sell
+	end
+	if type(t.prices_buy) ~= "table" then
+		t.prices_buy = { "Бюджет:", "Бюджет за шт:", "Бюджет за час:" }
+	end
+	if type(t.prices_sell) ~= "table" then
+		t.prices_sell = { "Цена:", "Цена за шт:", "Цена за час:" }
+	end
 	t.currencies = (type(t.currencies) == "table" and t.currencies)
 		or { "$", "тыс.$", "млн.$", "млрд.$", "Свободный", "Договорная" }
 	t.addons = (type(t.addons) == "table" and t.addons)
@@ -243,6 +278,32 @@ function Config:load()
 
 	ensure_table("history", {})
 	t.history_limit = (type(t.history_limit) == "number" and t.history_limit) or 100
+
+	ensure_table("price_type_map", {
+		["Куплю"] = "buy",
+		["Продам"] = "sell",
+		["Арендую"] = "buy",
+		["Сдам в аренду"] = "sell",
+		["Обменяю"] = "buy",
+		["Предоставляю"] = "sell",
+		["Нуждаюсь"] = "buy",
+		["Ищу"] = "both",
+	})
+	for type_name, mode in pairs({
+		["Куплю"] = "buy",
+		["Продам"] = "sell",
+		["Арендую"] = "buy",
+		["Сдам в аренду"] = "sell",
+		["Обменяю"] = "buy",
+		["Предоставляю"] = "sell",
+		["Нуждаюсь"] = "buy",
+		["Ищу"] = "both",
+	}) do
+		if t.price_type_map[type_name] == nil then
+			t.price_type_map[type_name] = mode
+		end
+	end
+	t.price_type_map = ensure_price_type_map(t.price_type_map, t.type_buttons)
 
 	ensure_table("autocorrect", {
 		{ "!тт", "TwinTurbo" },
@@ -1781,6 +1842,22 @@ function SMIHelp.DrawSettingsUI()
 		Config.data.prices = parse_list(str(S.prices))
 		Config.data.currencies = parse_list(str(S.currencies))
 		Config.data.addons = parse_list(str(S.addons))
+		Config.data.price_type_map = Config.data.price_type_map or {}
+		for type_name, mode in pairs({
+			["Куплю"] = "buy",
+			["Продам"] = "sell",
+			["Арендую"] = "buy",
+			["Сдам в аренду"] = "sell",
+			["Обменяю"] = "buy",
+			["Предоставляю"] = "sell",
+			["Нуждаюсь"] = "buy",
+			["Ищу"] = "both",
+		}) do
+			if Config.data.price_type_map[type_name] == nil then
+				Config.data.price_type_map[type_name] = mode
+			end
+		end
+		Config.data.price_type_map = ensure_price_type_map(Config.data.price_type_map, Config.data.type_buttons)
 		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
 		Config.data.templates = S.templates_list
 		Config.data.history_limit = S.history_limit[0]
