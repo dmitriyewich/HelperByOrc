@@ -15,6 +15,10 @@ local sizeof = ffi.sizeof
 local bit = require("bit") -- для UTF-8 разборки и флагов
 local vk = require("vkeys")
 
+local floor = math.floor
+local min = math.min
+local max = math.max
+
 local ImVec2 = imgui.ImVec2
 local ImVec4 = imgui.ImVec4
 local InputTextFlags = imgui.InputTextFlags
@@ -1472,24 +1476,24 @@ end, function()
 
 	if remain < (NEED_OBJ_W3 + NEED_KBD_W3) then
 		local deficit = (NEED_OBJ_W3 + NEED_KBD_W3) - remain
-		local cutType = math.min(deficit * 0.5, typeW - TYPEW_MIN)
+		local cutType = min(deficit * 0.5, typeW - TYPEW_MIN)
 		typeW = typeW - cutType
 		deficit = deficit - cutType
-		local cutPrice = math.min(deficit, priceW - PRICEW_MIN)
+		local cutPrice = min(deficit, priceW - PRICEW_MIN)
 		priceW = priceW - cutPrice
 		deficit = deficit - cutPrice
 		remain = c_availX - typeW - priceW - spacing * 3
 	end
 
-	local objW = math.max(NEED_OBJ_W3, math.floor(remain * 0.58))
-	local kbdW = math.max(NEED_KBD_W3, remain - objW)
+	local objW = max(NEED_OBJ_W3, floor(remain * 0.58))
+	local kbdW = max(NEED_KBD_W3, remain - objW)
 
 	local over = objW + kbdW - remain
 	if over > 0 then
-		local cutO = math.min(over * 0.5, objW - NEED_OBJ_W3)
+		local cutO = min(over * 0.5, objW - NEED_OBJ_W3)
 		objW = objW - cutO
 		over = over - cutO
-		local cutK = math.min(over, kbdW - NEED_KBD_W3)
+		local cutK = min(over, kbdW - NEED_KBD_W3)
 		kbdW = kbdW - cutK
 	end
 
@@ -1499,6 +1503,14 @@ end, function()
 	local numpad = NUMPAD
 	local currencies = Config.data.currencies
 	local addons = Config.data.addons
+
+	local function finalize_constructor_action(cursor_action, cursor_data)
+		State.cursor_action = cursor_action
+		State.cursor_action_data = cursor_data
+		history_reset_index()
+		State.want_focus_input = true
+		State.collapse_selection_after_focus = true
+	end
 
 	-- Тип
 	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
@@ -1511,9 +1523,7 @@ end, function()
 			AD.price_label = prev_price
 		end
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
@@ -1533,9 +1543,7 @@ end, function()
 		end
 
 		State.want_place_cursor = true
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
@@ -1546,9 +1554,7 @@ end, function()
 		refresh_object_value_from_editbuf()
 		AD.price_label = val
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
@@ -1559,9 +1565,7 @@ end, function()
 		refresh_object_value_from_editbuf()
 		AD.value = (AD.value or "") .. key
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 
 	imgui.Spacing()
@@ -1576,11 +1580,7 @@ end, function()
 					refresh_object_value_from_editbuf()
 					AD.currency = item
 					ad_commit_to_editbuf()
-					State.cursor_action = "to_end"
-					State.cursor_action_data = nil
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
+					finalize_constructor_action("to_end", nil)
 				end
 			end
 			imgui.EndTabItem()
@@ -1592,11 +1592,7 @@ end, function()
 					refresh_object_value_from_editbuf()
 					AD.addon = item
 					ad_commit_to_editbuf()
-					State.cursor_action = "to_addon_end"
-					State.cursor_action_data = item
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
+					finalize_constructor_action("to_addon_end", item)
 				end
 			end
 			imgui.EndTabItem()
