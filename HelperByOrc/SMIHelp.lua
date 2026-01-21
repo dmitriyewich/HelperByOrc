@@ -1334,16 +1334,16 @@ end, function()
 	end
 
 	local flags = bit_bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
-	local changed =
-		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
+	local edit_buf = State.edit_buf
+	imgui.InputText("##editad_center", edit_buf, sizeof(edit_buf), flags, EditBufCallbackPtr)
 
 	if focus_requested and State.want_focus_input and imgui.IsItemActive() then
 		State.want_focus_input = false
 		State.collapse_selection_after_focus = false
 	end
 
-	local edit_buf = State.edit_buf
 	local edit_buf_text = str(edit_buf)
+	local buf_changed = false
 
 	imgui.Spacing()
 	if imgui.SmallButton("Копировать текст") then
@@ -1354,6 +1354,7 @@ end, function()
 		handle_correction(u8:decode(edit_buf_text), function(newText)
 			imgui.StrCopy(edit_buf, u8(newText))
 		end)
+		buf_changed = true
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("К следующей кавычке") then
@@ -1370,7 +1371,7 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local edit_buf_text_after = str(edit_buf)
+	local edit_buf_text_after = (buf_changed and str(edit_buf)) or edit_buf_text
 	local char_count = utf8_len(edit_buf_text_after)
 	imgui.Spacing()
 	DrawCharLimitBar(char_count, INPUT_MAX)
@@ -1393,13 +1394,10 @@ end, function()
 			btn_rem = btn_timer_remaining()
 		end
 		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
-		local btn_send_clicked = false
 		local avail = imgui.GetContentRegionAvail().x
 		local btnW = floor((avail - item_spacing_x) / 2)
 		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
-		if imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed then
-			btn_send_clicked = true
-		end
+		local btn_send_clicked = imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed
 		imgui.SameLine()
 		if imgui.Button("Отклонить", ImVec2(btnW, 0)) then
 			if State.last_dialog_id then
