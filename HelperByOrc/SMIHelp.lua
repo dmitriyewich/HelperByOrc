@@ -1093,14 +1093,16 @@ local function EditBufCallback(data)
 		end
 
 		local cur = str(data.Buf)
-		local chars = utf8_len(cur)
-		if chars > INPUT_MAX then
-			local truncated = utf8_truncate(cur, INPUT_MAX)
-			data:DeleteChars(0, data.BufTextLen)
-			data:InsertChars(0, truncated)
-			set_cursor_position(data, #truncated, #truncated)
-			State.last_edit_text = truncated
-			return 1
+		if data.BufTextLen > INPUT_MAX then
+			local chars = utf8_len(cur)
+			if chars > INPUT_MAX then
+				local truncated = utf8_truncate(cur, INPUT_MAX)
+				data:DeleteChars(0, data.BufTextLen)
+				data:InsertChars(0, truncated)
+				set_cursor_position(data, #truncated, #truncated)
+				State.last_edit_text = truncated
+				return 1
+			end
 		end
 
 		if State.last_edit_text ~= cur then
@@ -1126,17 +1128,15 @@ local function EditBufCallback(data)
 		end
 
 		if State.want_place_cursor or State.cursor_action ~= nil then
-			local cur2 = str(data.Buf)
-
 			if State.want_place_cursor then
-				local p = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				local p = find_next_quote_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, p or data.BufTextLen)
 				State.want_place_cursor = false
 				return 1
 			end
 
 			if State.cursor_action == "to_next_quote" then
-				local nxt = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				local nxt = find_next_quote_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, nxt or data.BufTextLen)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
@@ -1145,12 +1145,12 @@ local function EditBufCallback(data)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
 			elseif State.cursor_action == "to_first_empty_quotes" then
-				local p = find_first_empty_quotes_pos_cyclic(cur2, data.CursorPos or 0)
+				local p = find_first_empty_quotes_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, p or data.BufTextLen)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
 			elseif State.cursor_action == "to_addon_end" then
-				local pos = find_addon_end_pos_cyclic(cur2, State.cursor_action_data or "", data.CursorPos or 0)
+				local pos = find_addon_end_pos_cyclic(cur, State.cursor_action_data or "", data.CursorPos or 0)
 				set_cursor_position(data, pos)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
