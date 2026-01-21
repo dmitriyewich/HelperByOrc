@@ -1415,16 +1415,16 @@ end, function()
 		imgui.SameLine()
 		imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
 		if not SMIHelp.timer_send then
-			imgui.Spacing()
+			imgui.SameLine()
 			imgui.TextColored(
 				ImVec4(1, 0.45, 0.45, 1),
-				string.format("Таймер VIP активен. Осталось: %.1f c", vip_rem)
+				string.format(" | Таймер VIP: %.1f c", vip_rem)
 			)
 		elseif SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
-			imgui.Spacing()
+			imgui.SameLine()
 			imgui.TextColored(
 				ImVec4(1, 0.45, 0.45, 1),
-				string.format("Таймер отправки активен. Осталось: %.1f c", btn_rem)
+				string.format(" | Таймер отправки: %.1f c", btn_rem)
 			)
 		end
 		if btn_send_clicked then
