@@ -1004,13 +1004,12 @@ local function normalize_index(pos, len)
 	elseif pos > len then
 		pos = len
 	end
-	return pos
+	return floor(pos)
 end
 
 local function set_cursor_position(data, pos, buf_len_override)
-	local len = buf_len_override or data.BufTextLen or 0
-	len = max(0, floor(len))
-	local new_pos = normalize_index(floor(pos or 0), len)
+	local len = max(0, floor(tonumber(buf_len_override or data.BufTextLen) or 0))
+	local new_pos = normalize_index(pos or 0, len)
 	data.CursorPos = new_pos
 	data.SelectionStart = new_pos
 	data.SelectionEnd = new_pos
@@ -1026,14 +1025,8 @@ local function find_next_quote_pos_cyclic(s, from_pos0)
 		return nil
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find('"', from + 1, true)
-	if not p then
-		p = s:find('"', 1, true)
-	end
-	if p then
-		return p - 1
-	end
-	return nil
+	local p = s:find('"', from + 1, true) or s:find('"', 1, true)
+	return p and (p - 1) or nil
 end
 
 local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
@@ -1042,14 +1035,8 @@ local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
 		return nil
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find('""', from, true)
-	if not p then
-		p = s:find('""', 1, true)
-	end
-	if p then
-		return p - 1
-	end
-	return nil
+	local p = s:find('""', from, true) or s:find('""', 1, true)
+	return p and (p - 1) or nil
 end
 
 local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
@@ -1058,14 +1045,8 @@ local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
 		return len
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find(addon_text, from, true)
-	if not p then
-		p = s:find(addon_text, 1, true)
-	end
-	if p then
-		return p + #addon_text - 1
-	end
-	return len
+	local p = s:find(addon_text, from, true) or s:find(addon_text, 1, true)
+	return p and (p + #addon_text - 1) or len
 end
 
 -- ========= INPUTTEXT CALLBACK =========
