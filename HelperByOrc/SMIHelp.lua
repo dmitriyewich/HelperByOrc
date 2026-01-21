@@ -462,6 +462,7 @@ local State = {
 	cursor_action = nil, -- 'to_next_quote' | 'to_end' | 'to_first_empty_quotes' | 'to_addon_end'
 	cursor_action_data = nil,
 	hist_index = nil,
+	last_edit_text = "",
 
 	win_pos = ImVec2(100, 100),
 	win_size = ImVec2(1280, 650),
@@ -1055,6 +1056,7 @@ local function EditBufCallback(data)
 				s = clamp80(s)
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, s)
+				State.last_edit_text = s
 			end
 			return 1
 		elseif data.EventKey == down then
@@ -1068,9 +1070,11 @@ local function EditBufCallback(data)
 				s = clamp80(s)
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, s)
+				State.last_edit_text = s
 			else
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, "")
+				State.last_edit_text = ""
 			end
 			return 1
 		end
@@ -1095,25 +1099,30 @@ local function EditBufCallback(data)
 			data:DeleteChars(0, data.BufTextLen)
 			data:InsertChars(0, truncated)
 			set_cursor_position(data, #truncated, #truncated)
+			State.last_edit_text = truncated
 			return 1
 		end
 
-		local replaced = cur
-		local ac = Config.data.autocorrect
-		if type(ac) == "table" then
-			for _, pair in ipairs(ac) do
-				local find, repl = pair[1], pair[2]
-				if find and repl and replaced:find(find, 1, true) then
-					replaced = replaced:gsub(find, repl)
+		if State.last_edit_text ~= cur then
+			local replaced = cur
+			local ac = Config.data.autocorrect
+			if type(ac) == "table" then
+				for _, pair in ipairs(ac) do
+					local find, repl = pair[1], pair[2]
+					if find and repl and replaced:find(find, 1, true) then
+						replaced = replaced:gsub(find, repl)
+					end
 				end
 			end
-		end
-		if replaced ~= cur then
-			replaced = clamp80(replaced)
-			data:DeleteChars(0, data.BufTextLen)
-			data:InsertChars(0, replaced)
-			set_cursor_position(data, #replaced, #replaced)
-			return 1
+			if replaced ~= cur then
+				replaced = clamp80(replaced)
+				data:DeleteChars(0, data.BufTextLen)
+				data:InsertChars(0, replaced)
+				set_cursor_position(data, #replaced, #replaced)
+				State.last_edit_text = replaced
+				return 1
+			end
+			State.last_edit_text = cur
 		end
 
 		if State.want_place_cursor or State.cursor_action ~= nil then
@@ -1371,14 +1380,6 @@ end, function()
 	end
 
 	imgui.EndChild()
-
-	if changed then
-		local newtxt = apply_autocorrect_local(edit_buf_text_after)
-		if newtxt ~= edit_buf_text_after then
-			newtxt = clamp80(newtxt)
-			imgui.StrCopy(edit_buf, newtxt)
-		end
-	end
 
 	-- Кнопки действий + таймер блокировки и сохранение памяти по нику
 	do
