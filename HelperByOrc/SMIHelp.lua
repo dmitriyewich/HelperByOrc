@@ -15,6 +15,14 @@ local sizeof = ffi.sizeof
 local bit = require("bit") -- для UTF-8 разборки и флагов
 local vk = require("vkeys")
 
+local ImVec2 = imgui.ImVec2
+local ImVec4 = imgui.ImVec4
+local InputTextFlags = imgui.InputTextFlags
+local StyleVar = imgui.StyleVar
+local Col = imgui.Col
+local WindowFlags = imgui.WindowFlags
+local HoveredFlags = imgui.HoveredFlags
+
 -- опциональные зависимости (совместимость/сейв конфига)
 local mimgui_funcs
 local funcs
@@ -27,6 +35,29 @@ function SMIHelp.attachModules(mod)
 end
 local trim = (funcs and funcs.trim) and funcs.trim or function(s)
 	return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+local function handle_correction(message, setText)
+	if funcs and funcs.handleCorrection then
+		return funcs.handleCorrection(message, setText)
+	end
+	if setText then
+		setText(message or "")
+	end
+end
+
+local function parse_list(s)
+	if funcs and funcs.parseList then
+		return funcs.parseList(s)
+	end
+	s = tostring(s or "")
+	local t = {}
+	for part in s:gmatch("[^,\n]+") do
+		local p = trim(part)
+		if p ~= "" then
+			table.insert(t, p)
+		end
+	end
+	return t
 end
 
 -- ========= КОНСТАНТЫ/НАСТРОЙКИ =========
@@ -371,8 +402,8 @@ local State = {
 	cursor_action_data = nil,
 	hist_index = nil,
 
-	win_pos = imgui.ImVec2(100, 100),
-	win_size = imgui.ImVec2(1280, 650),
+	win_pos = ImVec2(100, 100),
+	win_size = ImVec2(1280, 650),
 }
 
 local function history_reset_index()
@@ -539,7 +570,7 @@ local function extract_ad_text_from_dialog_colored(dialog_text)
 	local clean = dialog_text:gsub("{.-}", "")
 	local msg = clean:match("Сообщение:%s*(.-)$")
 	-- local dialog_text = dialog_text:match("{33AA33}(.-)%s-{FFFFFF}")
-	return "232131" .. msg
+	return msg or ""
 	-- return dialog_text:match("{33AA33}(.-)%s-{FFFFFF}") or ""
 end
 
@@ -641,18 +672,18 @@ local function LabelSeparator(text)
 	local left_x2 = center_x - txtsz.x * 0.5 - pad
 	local right_x1 = center_x + txtsz.x * 0.5 + pad
 	local right_x2 = pos.x + avail
-	local col = imgui.GetColorU32(imgui.Col.Separator)
+	local col = imgui.GetColorU32(Col.Separator)
 
 	if left_x2 > left_x1 then
-		draw:AddLine(imgui.ImVec2(left_x1, line_y), imgui.ImVec2(left_x2, line_y), col, 1.0)
+		draw:AddLine(ImVec2(left_x1, line_y), ImVec2(left_x2, line_y), col, 1.0)
 	end
 	if right_x2 > right_x1 then
-		draw:AddLine(imgui.ImVec2(right_x1, line_y), imgui.ImVec2(right_x2, line_y), col, 1.0)
+		draw:AddLine(ImVec2(right_x1, line_y), ImVec2(right_x2, line_y), col, 1.0)
 	end
 
-	imgui.SetCursorScreenPos(imgui.ImVec2(center_x - txtsz.x * 0.5, pos.y))
+	imgui.SetCursorScreenPos(ImVec2(center_x - txtsz.x * 0.5, pos.y))
 	imgui.Text(label)
-	imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + imgui.GetTextLineHeight() + style.ItemSpacing.y))
+	imgui.SetCursorScreenPos(ImVec2(pos.x, pos.y + imgui.GetTextLineHeight() + style.ItemSpacing.y))
 end
 
 local function ButtonGrid(id, items, btnH, columns, onClick)
@@ -669,7 +700,7 @@ local function ButtonGrid(id, items, btnH, columns, onClick)
 	local col = 0
 	for i, val in ipairs(items) do
 		local label = tostring(val) .. "##" .. id .. "_" .. i
-		if imgui.Button(label, imgui.ImVec2(btnW, btnH)) then
+		if imgui.Button(label, ImVec2(btnW, btnH)) then
 			if onClick then
 				onClick(val, i)
 			end
@@ -745,7 +776,7 @@ end
 
 -- ========= ЧИЛДЫ/ПАНЕЛИ =========
 local function DrawTemplatesPanel(width, height)
-	imgui.BeginChild("tmpl_panel", imgui.ImVec2(width, height), true)
+	imgui.BeginChild("tmpl_panel", ImVec2(width, height), true)
 
 	rebuild_cats_if_needed()
 
@@ -766,7 +797,7 @@ local function DrawTemplatesPanel(width, height)
 	imgui.Spacing()
 	LabelSeparator("Шаблоны")
 
-	imgui.BeginChild("templates_list", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("templates_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
 
 	for _, tpl in ipairs(Config.data.templates or {}) do
@@ -805,9 +836,9 @@ local function DrawTemplatesPanel(width, height)
 end
 
 local function DrawHistoryPanel(width, height)
-	imgui.BeginChild("hist_panel", imgui.ImVec2(width, height), true)
+	imgui.BeginChild("hist_panel", ImVec2(width, height), true)
 	LabelSeparator("История")
-	imgui.BeginChild("history_list", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("history_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
 	for _, v in ipairs(Config.data.history or {}) do
 		if passFilter(v, filter_str) then
@@ -907,7 +938,7 @@ end
 local function EditBufCallback(data)
 	local flag = data.EventFlag
 
-	if flag == imgui.InputTextFlags.CallbackHistory then
+	if flag == InputTextFlags.CallbackHistory then
 		local up, down = 3, 4
 		local H = Config.data.history or {}
 		if data.EventKey == up then
@@ -941,11 +972,11 @@ local function EditBufCallback(data)
 		end
 	end
 
-	if flag == imgui.InputTextFlags.CallbackCharFilter then
+	if flag == InputTextFlags.CallbackCharFilter then
 		return 0
 	end
 
-	if flag == imgui.InputTextFlags.CallbackAlways then
+	if flag == InputTextFlags.CallbackAlways then
 		if State.collapse_selection_after_focus then
 			if data.SelectionStart == 0 and data.SelectionEnd == data.BufTextLen and data.BufTextLen > 0 then
 				set_cursor_position(data, data.BufTextLen)
@@ -1025,9 +1056,9 @@ local function DrawCharLimitBar(current_chars, max_chars)
 		percent = math.min(1.0, current_chars / max_chars)
 	end
 	if percent >= LIMIT_WARN_RATIO then
-		imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(1, 0.3, 0.3, 1))
+		imgui.PushStyleColor(Col.PlotHistogram, ImVec4(1, 0.3, 0.3, 1))
 	end
-	imgui.ProgressBar(percent, imgui.ImVec2(-1, 8), "")
+	imgui.ProgressBar(percent, ImVec2(-1, 8), "")
 	if percent >= LIMIT_WARN_RATIO then
 		imgui.PopStyleColor()
 	end
@@ -1087,7 +1118,7 @@ local function DrawCenteredFilter()
 
 	if show_clear then
 		imgui.SameLine()
-		if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
+		if imgui.Button("Clear", ImVec2(clearW, 0)) then
 			imgui.StrCopy(State.filter_buf, "")
 		end
 	end
@@ -1095,23 +1126,23 @@ end
 
 -- ========= Блок «От кого и что прислано» =========
 local function DrawMetaPanel()
-	imgui.BeginChild("meta_panel", imgui.ImVec2(0, 92), true)
+	imgui.BeginChild("meta_panel", ImVec2(0, 92), true)
 	imgui.Text("Отправитель:")
 	imgui.SameLine()
-	imgui.TextColored(imgui.ImVec4(0.8, 1.0, 0.8, 1), State.sender_nick ~= "" and State.sender_nick or "-")
+	imgui.TextColored(ImVec4(0.8, 1.0, 0.8, 1), State.sender_nick ~= "" and State.sender_nick or "-")
 	imgui.SameLine()
 	if imgui.SmallButton("Скопировать ник") then
 		imgui.SetClipboardText(State.sender_nick or "")
 	end
 	if State.auto_memory_used then
 		imgui.SameLine()
-		imgui.TextColored(imgui.ImVec4(0.4, 0.95, 0.4, 1), "[Автовставка из памяти]")
+		imgui.TextColored(ImVec4(0.4, 0.95, 0.4, 1), "[Автовставка из памяти]")
 	end
 
 	imgui.Text("Исходное сообщение:")
 	local startX = imgui.GetCursorPosX()
 	imgui.SetCursorPosX(startX + 4)
-	imgui.BeginChild("orig_box", imgui.ImVec2(0, 25), true)
+	imgui.BeginChild("orig_box", ImVec2(0, 25), true)
 	imgui.TextWrapped(State.original_ad_text ~= "" and State.original_ad_text or "-")
 	imgui.EndChild()
 	if imgui.SmallButton("Скопировать исходник") then
@@ -1124,17 +1155,17 @@ end
 imgui.OnFrame(function()
 	return State.show_dialog[0]
 end, function()
-	imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.FrameRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.GrabRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.WindowRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.ScrollbarRounding, 6.0)
 
 	if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
 		State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
 	end
 	imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
 	imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
-	local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
+	local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, WindowFlags.NoCollapse)
 	State.win_pos = imgui.GetWindowPos()
 	State.win_size = imgui.GetWindowSize()
 
@@ -1143,7 +1174,7 @@ end, function()
 	end
 
 	imgui.TextColored(
-		imgui.ImVec4(1, 0.95, 0.2, 1),
+		ImVec4(1, 0.95, 0.2, 1),
 		(
 			State.last_dialog_title ~= "" and State.last_dialog_title
 			or "Редактирование объявления"
@@ -1170,9 +1201,9 @@ end, function()
 
 	-- CENTER
 	imgui.BeginGroup()
-	imgui.BeginChild("center", imgui.ImVec2(midW, availY), true)
+	imgui.BeginChild("center", ImVec2(midW, availY), true)
 
-	imgui.BeginChild("##centered_input_zone", imgui.ImVec2(0, 105), true)
+	imgui.BeginChild("##centered_input_zone", ImVec2(0, 105), true)
 	if bigFont then
 		imgui.PushFont(bigFont)
 	end
@@ -1185,11 +1216,7 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local flags = bit.bor(
-		imgui.InputTextFlags.CallbackHistory,
-		imgui.InputTextFlags.CallbackAlways,
-		imgui.InputTextFlags.CallbackCharFilter
-	)
+	local flags = bit.bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
 	local changed =
 		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
 
@@ -1204,7 +1231,7 @@ end, function()
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("Автокоррекция") then
-		funcs.handleCorrection(u8:decode(str(State.edit_buf)), function(newText)
+		handle_correction(u8:decode(str(State.edit_buf)), function(newText)
 			imgui.StrCopy(State.edit_buf, u8(newText))
 		end)
 	end
@@ -1253,11 +1280,11 @@ end, function()
 		local avail = imgui.GetContentRegionAvail().x
 		local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
 		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
-		if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) or enter_pressed then
+		if imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed then
 			btn_send_clicked = true
 		end
 		imgui.SameLine()
-		if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
+		if imgui.Button("Отклонить", ImVec2(btnW, 0)) then
 			if State.last_dialog_id then
 				local to_send_utf8 = str(State.edit_buf)
 				local to_send_cp = u8:decode(to_send_utf8)
@@ -1267,7 +1294,7 @@ end, function()
 				reset_ui_state()
 			end
 		end
-		if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
+		if imgui.Button("Сбросить к оригиналу", ImVec2(btnW, 0)) then
 			local orig = clamp80(State.original_ad_text or "")
 			imgui.StrCopy(State.edit_buf, orig)
 			AD:reset()
@@ -1280,13 +1307,13 @@ end, function()
 		if not SMIHelp.timer_send then
 			imgui.Spacing()
 			imgui.TextColored(
-				imgui.ImVec4(1, 0.45, 0.45, 1),
+				ImVec4(1, 0.45, 0.45, 1),
 				string.format("Таймер VIP активен. Осталось: %.1f c", vip_rem)
 			)
 		elseif SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
 			imgui.Spacing()
 			imgui.TextColored(
-				imgui.ImVec4(1, 0.45, 0.45, 1),
+				ImVec4(1, 0.45, 0.45, 1),
 				string.format("Таймер отправки активен. Осталось: %.1f c", btn_rem)
 			)
 		end
@@ -1358,7 +1385,7 @@ end, function()
 	local addons = Config.data.addons
 
 	-- Тип
-	imgui.BeginChild("##type", imgui.ImVec2(typeW + 4, SECTION_H), true)
+	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
 	ButtonGrid("type", type_btns, BTN_H, 1, function(val)
 		AD:reset()
 		AD.type = val
@@ -1371,7 +1398,7 @@ end, function()
 	imgui.SameLine()
 
 	-- Объект (3 колонки)
-	imgui.BeginChild("##object", imgui.ImVec2(objW - 115, SECTION_H), true)
+	imgui.BeginChild("##object", ImVec2(objW - 115, SECTION_H), true)
 	ButtonGrid("object", obj_btns, BTN_H, 3, function(val)
 		refresh_object_value_from_editbuf()
 		AD.object = val
@@ -1393,7 +1420,7 @@ end, function()
 	imgui.SameLine()
 
 	-- Цена
-	imgui.BeginChild("##price", imgui.ImVec2(priceW + 4, SECTION_H), true)
+	imgui.BeginChild("##price", ImVec2(priceW + 4, SECTION_H), true)
 	ButtonGrid("price", price_btns, BTN_H, 1, function(val)
 		refresh_object_value_from_editbuf()
 		AD.price_label = val
@@ -1406,7 +1433,7 @@ end, function()
 	imgui.SameLine()
 
 	-- Numpad + валюта + дополнения (3 колонки)
-	imgui.BeginChild("##kbd", imgui.ImVec2(kbdW, SECTION_H), true)
+	imgui.BeginChild("##kbd", ImVec2(kbdW, SECTION_H), true)
 	ButtonGrid("numpad", numpad, BTN_H, 3, function(key)
 		refresh_object_value_from_editbuf()
 		AD.value = (AD.value or "") .. key
@@ -1421,7 +1448,7 @@ end, function()
 	imgui.Spacing()
 	local cur_label = AD.currency or (currencies[1] or "-")
 	local addon_label = AD.addon or "- выбрать дополнение -"
-	imgui.BeginChild("##currency_addon", imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
+	imgui.BeginChild("##currency_addon", ImVec2(0, 0), false, WindowFlags.MenuBar)
 	if imgui.BeginMenuBar() then
 		-- currency menu
 		local cur_menu_hover, cur_popup_hover = false, false
@@ -1440,7 +1467,7 @@ end, function()
 					State.collapse_selection_after_focus = true
 				end
 			end
-			cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+			cur_popup_hover = imgui.IsWindowHovered(HoveredFlags.RootAndChildWindows)
 			imgui.EndMenu()
 			cur_menu_hover = imgui.IsItemHovered()
 		else
@@ -1470,7 +1497,7 @@ end, function()
 					State.collapse_selection_after_focus = true
 				end
 			end
-			addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
+			addon_popup_hover = imgui.IsWindowHovered(HoveredFlags.RootAndChildWindows)
 			imgui.EndMenu()
 			addon_menu_hover = imgui.IsItemHovered()
 		else
@@ -1614,7 +1641,7 @@ function SMIHelp.DrawSettingsUI()
 		end
 	end
 	local S = SMIHelp._settings
-	imgui.BeginChild("smi_settings", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("smi_settings", ImVec2(0, 0), true)
 	imgui.InputInt("Лимит истории", S.history_limit, 1, 1000)
 	imgui.InputInt("Лимит памяти ников", S.nick_memory_limit, 1, 1000)
 	imgui.Checkbox("Таймер VIP объявлений", S.vip_timer_enabled)
@@ -1622,12 +1649,12 @@ function SMIHelp.DrawSettingsUI()
 	imgui.Checkbox('Таймер кнопки "Отправить"', S.btn_timer_enabled)
 	imgui.InputInt("Задержка отправки", S.btn_timer_delay, 1, 60)
 	imgui.InputInt("Задержка новостей", S.timer_news_delay, 1, 60)
-	imgui.InputTextMultiline("Типы", S.type_buttons, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Объекты", S.objects, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Цены", S.prices, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Валюты", S.currencies, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Дополнения", S.addons, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, imgui.ImVec2(0, 60))
+	imgui.InputTextMultiline("Типы", S.type_buttons, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Объекты", S.objects, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Цены", S.prices, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Валюты", S.currencies, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Дополнения", S.addons, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, ImVec2(0, 60))
 	if imgui.CollapsingHeader("Шаблоны") then
 		if imgui.BeginTabBar("tpl_tabs") then
 			for idx, tpl in ipairs(S.templates_list) do
@@ -1646,7 +1673,7 @@ function SMIHelp.DrawSettingsUI()
 								"##tplexisting" .. idx .. "_" .. j,
 								buf.buf,
 								buf.size,
-								imgui.ImVec2(0, 60)
+								ImVec2(0, 60)
 							)
 							buf_maybe_grow(buf)
 							if imgui.Button("Готово##tplexisting" .. idx .. "_" .. j) then
@@ -1690,7 +1717,7 @@ function SMIHelp.DrawSettingsUI()
 							"##tplinput" .. idx,
 							S.tpl_input[idx].buf,
 							S.tpl_input[idx].size,
-							imgui.ImVec2(0, 60)
+							ImVec2(0, 60)
 						)
 					else
 						imgui.InputText("##tplinput" .. idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
@@ -1743,11 +1770,11 @@ function SMIHelp.DrawSettingsUI()
 		end
 	end
 	if imgui.Button("Сохранить") then
-		Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
-		Config.data.objects = funcs.parseList(str(S.objects))
-		Config.data.prices = funcs.parseList(str(S.prices))
-		Config.data.currencies = funcs.parseList(str(S.currencies))
-		Config.data.addons = funcs.parseList(str(S.addons))
+		Config.data.type_buttons = parse_list(str(S.type_buttons))
+		Config.data.objects = parse_list(str(S.objects))
+		Config.data.prices = parse_list(str(S.prices))
+		Config.data.currencies = parse_list(str(S.currencies))
+		Config.data.addons = parse_list(str(S.addons))
 		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
 		Config.data.templates = S.templates_list
 		Config.data.history_limit = S.history_limit[0]
