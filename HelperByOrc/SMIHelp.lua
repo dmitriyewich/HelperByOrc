@@ -805,11 +805,11 @@ local function ButtonGrid(id, items, btnH, columns, onClick)
 	local spacing = imgui.GetStyle().ItemSpacing.x
 	local start_x = imgui.GetCursorPosX()
 	local availW = imgui.GetContentRegionAvail().x
-	columns = math.max(1, columns or 3)
+	columns = max(1, columns or 3)
 
-	local btnW = math.floor((availW - spacing * (columns - 1)))
+	local btnW = floor((availW - spacing * (columns - 1)))
 	if columns > 1 then
-		btnW = math.floor(btnW / columns)
+		btnW = floor(btnW / columns)
 	end
 
 	local col = 0
@@ -996,8 +996,8 @@ end
 
 local function set_cursor_position(data, pos, buf_len_override)
 	local len = buf_len_override or data.BufTextLen or 0
-	len = math.max(0, math.floor(len))
-	local new_pos = normalize_index(math.floor(pos or 0), len)
+	len = max(0, floor(len))
+	local new_pos = normalize_index(floor(pos or 0), len)
 	data.CursorPos = new_pos
 	data.SelectionStart = new_pos
 	data.SelectionEnd = new_pos
@@ -1182,7 +1182,7 @@ local EditBufCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData* data)",
 local function DrawCharLimitBar(current_chars, max_chars)
 	local percent = 0.0
 	if max_chars > 0 then
-		percent = math.min(1.0, current_chars / max_chars)
+		percent = min(1.0, current_chars / max_chars)
 	end
 	if percent >= LIMIT_WARN_RATIO then
 		imgui.PushStyleColor(Col.PlotHistogram, ImVec4(1, 0.3, 0.3, 1))
@@ -1233,7 +1233,7 @@ end
 local function DrawCenteredFilter()
 	local style = imgui.GetStyle()
 	local availX = imgui.GetContentRegionAvail().x
-	local inputW = math.floor(availX * 0.48)
+	local inputW = floor(availX * 0.48)
 	local clearW = 70
 	local show_clear = str(State.filter_buf) ~= ""
 	local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
@@ -1321,8 +1321,8 @@ end, function()
 
 	local availX = imgui.GetContentRegionAvail().x
 	local availY = imgui.GetContentRegionAvail().y
-	local leftW = math.floor(availX * 0.26)
-	local rightW = math.floor(availX * 0.26)
+	local leftW = floor(availX * 0.26)
+	local rightW = floor(availX * 0.26)
 	local midW = availX - leftW - rightW - item_spacing_x * 2
 
 	-- LEFT
@@ -1410,7 +1410,7 @@ end, function()
 		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
 		local btn_send_clicked = false
 		local avail = imgui.GetContentRegionAvail().x
-		local btnW = math.floor((avail - item_spacing_x) / 2)
+		local btnW = floor((avail - item_spacing_x) / 2)
 		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
 		if imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed then
 			btn_send_clicked = true
