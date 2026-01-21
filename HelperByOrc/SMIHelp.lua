@@ -1446,7 +1446,7 @@ end, function()
 
 	local type_btns = Config.data.type_buttons
 	local obj_btns = Config.data.objects
-	local price_btns = Config.data.prices
+	local price_btns = get_price_buttons_for_type(AD.type)
 	local numpad = NUMPAD
 	local currencies = Config.data.currencies
 	local addons = Config.data.addons
@@ -1454,8 +1454,13 @@ end, function()
 	-- Тип
 	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
 	ButtonGrid("type", type_btns, BTN_H, 1, function(val)
+		local prev_price = AD.price_label
+		local next_price_btns = get_price_buttons_for_type(val)
 		AD:reset()
 		AD.type = val
+		if price_label_in_list(prev_price, next_price_btns) then
+			AD.price_label = prev_price
+		end
 		ad_commit_to_editbuf()
 		history_reset_index()
 		State.want_focus_input = true
@@ -1666,6 +1671,31 @@ local function merge_price_lists(list_a, list_b)
 		end
 	end
 	return merged
+end
+
+local function get_price_buttons_for_type(ad_type)
+	local map = Config.data.price_type_map or {}
+	local mode = map[ad_type]
+	local buy = Config.data.prices_buy or {}
+	local sell = Config.data.prices_sell or {}
+	if mode == "buy" then
+		return buy
+	elseif mode == "sell" then
+		return sell
+	end
+	return merge_price_lists(buy, sell)
+end
+
+local function price_label_in_list(label, list)
+	if not label then
+		return false
+	end
+	for _, item in ipairs(list or {}) do
+		if item == label then
+			return true
+		end
+	end
+	return false
 end
 
 -- helpers for editable text buffers
