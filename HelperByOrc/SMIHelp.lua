@@ -292,30 +292,17 @@ function Config:load()
 	ensure_table("history", {})
 	t.history_limit = (type(t.history_limit) == "number" and t.history_limit) or 100
 
-	ensure_table("price_type_map", {
+	local default_price_type_map = {
 		["Куплю"] = "buy",
 		["Продам"] = "sell",
 		["Арендую"] = "buy",
 		["Сдам в аренду"] = "sell",
 		["Обменяю"] = "buy",
+		["Ищу"] = "both",
 		["Предоставляю"] = "sell",
 		["Нуждаюсь"] = "buy",
-		["Ищу"] = "both",
-	})
-	for type_name, mode in pairs({
-		["Куплю"] = "buy",
-		["Продам"] = "sell",
-		["Арендую"] = "buy",
-		["Сдам в аренду"] = "sell",
-		["Обменяю"] = "buy",
-		["Предоставляю"] = "sell",
-		["Нуждаюсь"] = "buy",
-		["Ищу"] = "both",
-	}) do
-		if t.price_type_map[type_name] == nil then
-			t.price_type_map[type_name] = mode
-		end
-	end
+	}
+	ensure_table("price_type_map", default_price_type_map)
 	t.price_type_map = ensure_price_type_map(t.price_type_map, t.type_buttons)
 
 	ensure_table("autocorrect", {
