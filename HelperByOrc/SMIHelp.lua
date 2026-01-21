@@ -591,6 +591,24 @@ local function passFilter(line, raw)
 	return false
 end
 
+local function merge_price_lists(list_a, list_b)
+	local merged = {}
+	local seen = {}
+	for _, item in ipairs(list_a or {}) do
+		if not seen[item] then
+			table.insert(merged, item)
+			seen[item] = true
+		end
+	end
+	for _, item in ipairs(list_b or {}) do
+		if not seen[item] then
+			table.insert(merged, item)
+			seen[item] = true
+		end
+	end
+	return merged
+end
+
 -- ========= МЯГКАЯ ЛОКАЛЬНАЯ АВТОЗАМЕНА =========
 local function apply_autocorrect_local(text)
 	local ac = Config.data.autocorrect
@@ -604,6 +622,31 @@ local function apply_autocorrect_local(text)
 		end
 	end
 	return text
+end
+
+local function get_price_buttons_for_type(ad_type)
+	local map = Config.data.price_type_map or {}
+	local mode = map[ad_type]
+	local buy = Config.data.prices_buy or {}
+	local sell = Config.data.prices_sell or {}
+	if mode == "buy" then
+		return buy
+	elseif mode == "sell" then
+		return sell
+	end
+	return merge_price_lists(buy, sell)
+end
+
+local function price_label_in_list(label, list)
+	if not label then
+		return false
+	end
+	for _, item in ipairs(list or {}) do
+		if item == label then
+			return true
+		end
+	end
+	return false
 end
 
 -- ========= ПАРСИНГ BODY =========
@@ -1622,49 +1665,6 @@ local function parse_price_type_map(text)
 		end
 	end
 	return res
-end
-
-local function merge_price_lists(list_a, list_b)
-	local merged = {}
-	local seen = {}
-	for _, item in ipairs(list_a or {}) do
-		if not seen[item] then
-			table.insert(merged, item)
-			seen[item] = true
-		end
-	end
-	for _, item in ipairs(list_b or {}) do
-		if not seen[item] then
-			table.insert(merged, item)
-			seen[item] = true
-		end
-	end
-	return merged
-end
-
-local function get_price_buttons_for_type(ad_type)
-	local map = Config.data.price_type_map or {}
-	local mode = map[ad_type]
-	local buy = Config.data.prices_buy or {}
-	local sell = Config.data.prices_sell or {}
-	if mode == "buy" then
-		return buy
-	elseif mode == "sell" then
-		return sell
-	end
-	return merge_price_lists(buy, sell)
-end
-
-local function price_label_in_list(label, list)
-	if not label then
-		return false
-	end
-	for _, item in ipairs(list or {}) do
-		if item == label then
-			return true
-		end
-	end
-	return false
 end
 
 -- helpers for editable text buffers
