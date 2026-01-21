@@ -748,11 +748,15 @@ function SMIHelp.OpenEditPreview(text, nick)
 end
 
 -- ========= КЭШИ ШАБЛОНОВ/КАТЕГОРИЙ =========
-local Cache = { cats = nil, cats_key_len = 0 }
+local Cache = { cats = nil, cats_key = "" }
 local function rebuild_cats_if_needed()
 	local tpls = Config.data.templates or {}
-	local key_len = #tpls
-	if Cache.cats and Cache.cats_key_len == key_len then
+	local key = {}
+	for i = 1, #tpls do
+		key[#key + 1] = tostring(tpls[i].category or "Прочее")
+	end
+	local key_str = table.concat(key, "\n")
+	if Cache.cats and Cache.cats_key == key_str then
 		return
 	end
 	local cats_set, cats = {}, {}
@@ -765,7 +769,7 @@ local function rebuild_cats_if_needed()
 	end
 	table.sort(cats)
 	table.insert(cats, 1, "Все")
-	Cache.cats, Cache.cats_key_len = cats, key_len
+	Cache.cats, Cache.cats_key = cats, key_str
 end
 
 -- ========= UI УТИЛИТЫ =========
