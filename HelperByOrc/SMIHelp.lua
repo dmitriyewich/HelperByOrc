@@ -620,6 +620,17 @@ local function apply_autocorrect_local(text)
 	if type(ac) ~= "table" then
 		return text
 	end
+	local has_match = false
+	for _, pair in ipairs(ac) do
+		local find = pair[1]
+		if find and text:find(find, 1, true) then
+			has_match = true
+			break
+		end
+	end
+	if not has_match then
+		return text
+	end
 	for _, pair in ipairs(ac) do
 		local find, repl = pair[1], pair[2]
 		if find and repl then
@@ -1124,16 +1135,7 @@ local function EditBufCallback(data)
 		end
 
 		if State.last_edit_text ~= cur then
-			local replaced = cur
-			local ac = Config.data.autocorrect
-			if type(ac) == "table" then
-				for _, pair in ipairs(ac) do
-					local find, repl = pair[1], pair[2]
-					if find and repl and replaced:find(find, 1, true) then
-						replaced = replaced:gsub(find, repl)
-					end
-				end
-			end
+			local replaced = apply_autocorrect_local(cur)
 			if replaced ~= cur then
 				replaced = clamp80(replaced)
 				data:DeleteChars(0, data.BufTextLen)
