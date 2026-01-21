@@ -252,6 +252,9 @@ function Config:load()
 	if type(t.prices_sell) ~= "table" then
 		t.prices_sell = { "Цена:", "Цена за шт:", "Цена за час:" }
 	end
+	if type(t.prices) ~= "table" then
+		t.prices = merge_price_lists(t.prices_buy, t.prices_sell)
+	end
 	t.currencies = (type(t.currencies) == "table" and t.currencies)
 		or { "$", "тыс.$", "млн.$", "млрд.$", "Свободный", "Договорная" }
 	t.addons = (type(t.addons) == "table" and t.addons)
@@ -635,7 +638,7 @@ local function get_price_buttons_for_type(ad_type)
 	elseif mode == "sell" then
 		return sell
 	end
-	return merge_price_lists(buy, sell)
+	return Config.data.prices or merge_price_lists(buy, sell)
 end
 
 local function price_label_in_list(label, list)
