@@ -15,6 +15,18 @@ local sizeof = ffi.sizeof
 local bit = require("bit") -- для UTF-8 разборки и флагов
 local vk = require("vkeys")
 
+local floor = math.floor
+local min = math.min
+local max = math.max
+
+local ImVec2 = imgui.ImVec2
+local ImVec4 = imgui.ImVec4
+local InputTextFlags = imgui.InputTextFlags
+local StyleVar = imgui.StyleVar
+local Col = imgui.Col
+local WindowFlags = imgui.WindowFlags
+local bit_bor = bit.bor
+
 -- опциональные зависимости (совместимость/сейв конфига)
 local mimgui_funcs
 local funcs
@@ -25,8 +37,35 @@ function SMIHelp.attachModules(mod)
 	funcs = mod.funcs
 	SMILive = mod.SMILive
 end
-local trim = (funcs and funcs.trim) and funcs.trim or function(s)
+local function trim(s)
+	local f = funcs and funcs.trim
+	if f then
+		return f(s)
+	end
 	return (s or ""):gsub("^%s*(.-)%s*$", "%1")
+end
+local function handle_correction(message, setText)
+	if funcs and funcs.handleCorrection then
+		return funcs.handleCorrection(message, setText)
+	end
+	if setText then
+		setText(message or "")
+	end
+end
+
+local function parse_list(s)
+	local f = funcs and funcs.parseList
+	if f then
+		return f(s)
+	end
+	local t = {}
+	for part in tostring(s or ""):gmatch("[^,\n]+") do
+		local p = trim(part)
+		if p ~= "" then
+			t[#t + 1] = p
+		end
+	end
+	return t
 end
 
 -- ========= КОНСТАНТЫ/НАСТРОЙКИ =========
@@ -116,6 +155,18 @@ end
 -- ========= КОНФИГ =========
 local Config = { data = {} }
 
+local function ensure_price_type_map(map, types)
+	if type(map) ~= "table" then
+		map = {}
+	end
+	for _, type_name in ipairs(types or {}) do
+		if map[type_name] == nil then
+			map[type_name] = "both"
+		end
+	end
+	return map
+end
+
 function Config:load()
 	local t
 	if doesFileExist(CONFIG_PATH) then
@@ -177,15 +228,44 @@ function Config:load()
 			"т/ф",
 			"с/м",
 		}
-	t.prices = (type(t.prices) == "table" and t.prices)
-		or {
-			"Цена:",
-			"Бюджет:",
-			"Цена за шт:",
-			"Бюджет за шт:",
-			"Цена за час:",
-			"Бюджет за час:",
-		}
+	local prices_default = {
+		"Цена:",
+		"Бюджет:",
+		"Цена за шт:",
+		"Бюджет за шт:",
+		"Цена за час:",
+		"Бюджет за час:",
+	}
+	local prices_buy_default = { "Бюджет:", "Бюджет за шт:", "Бюджет за час:" }
+	local prices_sell_default = { "Цена:", "Цена за шт:", "Цена за час:" }
+	t.prices = (type(t.prices) == "table" and t.prices) or prices_default
+	if type(t.prices_buy) ~= "table" and type(t.prices_sell) ~= "table" then
+		local prices_buy = {}
+		local prices_sell = {}
+		for _, price_label in ipairs(t.prices) do
+			local label = tostring(price_label or "")
+			if label:find("Бюджет", 1, true) then
+				prices_buy[#prices_buy + 1] = label
+			elseif label:find("Цена", 1, true) then
+				prices_sell[#prices_sell + 1] = label
+			else
+				prices_buy[#prices_buy + 1] = label
+				prices_sell[#prices_sell + 1] = label
+			end
+		end
+		t.prices_buy = prices_buy
+		t.prices_sell = prices_sell
+	else
+		if type(t.prices_buy) ~= "table" then
+			t.prices_buy = prices_buy_default
+		end
+		if type(t.prices_sell) ~= "table" then
+			t.prices_sell = prices_sell_default
+		end
+	end
+	if type(t.prices) ~= "table" then
+		t.prices = merge_price_lists(t.prices_buy, t.prices_sell)
+	end
 	t.currencies = (type(t.currencies) == "table" and t.currencies)
 		or { "$", "тыс.$", "млн.$", "млрд.$", "Свободный", "Договорная" }
 	t.addons = (type(t.addons) == "table" and t.addons)
@@ -211,6 +291,19 @@ function Config:load()
 
 	ensure_table("history", {})
 	t.history_limit = (type(t.history_limit) == "number" and t.history_limit) or 100
+
+	local default_price_type_map = {
+		["Куплю"] = "buy",
+		["Продам"] = "sell",
+		["Арендую"] = "buy",
+		["Сдам в аренду"] = "sell",
+		["Обменяю"] = "buy",
+		["Ищу"] = "both",
+		["Предоставляю"] = "sell",
+		["Нуждаюсь"] = "buy",
+	}
+	ensure_table("price_type_map", default_price_type_map)
+	t.price_type_map = ensure_price_type_map(t.price_type_map, t.type_buttons)
 
 	ensure_table("autocorrect", {
 		{ "!тт", "TwinTurbo" },
@@ -370,9 +463,10 @@ local State = {
 	cursor_action = nil, -- 'to_next_quote' | 'to_end' | 'to_first_empty_quotes' | 'to_addon_end'
 	cursor_action_data = nil,
 	hist_index = nil,
+	last_edit_text = "",
 
-	win_pos = imgui.ImVec2(100, 100),
-	win_size = imgui.ImVec2(1280, 650),
+	win_pos = ImVec2(100, 100),
+	win_size = ImVec2(1280, 650),
 }
 
 local function history_reset_index()
@@ -479,13 +573,13 @@ local function tolower_utf8(s)
 	end)
 end
 
-local function passFilter(line, raw)
+local function passFilter(line, raw, raw_lower)
 	local target = tolower_utf8(line or "")
-	raw = tolower_utf8(raw or "")
-	if raw == "" then
+	local filter = raw_lower or tolower_utf8(raw or "")
+	if filter == "" then
 		return true
 	end
-	for word in raw:gmatch("[^,]+") do
+	for word in filter:gmatch("[^,]+") do
 		word = trim(word)
 		local ex = word:sub(1, 1) == "-"
 		local val = ex and word:sub(2) or word
@@ -499,10 +593,42 @@ local function passFilter(line, raw)
 	return false
 end
 
+local function merge_price_lists(list_a, list_b)
+	local merged = {}
+	local seen = {}
+	local function push(list)
+		for i = 1, #list do
+			local item = list[i]
+			if item and not seen[item] then
+				merged[#merged + 1] = item
+				seen[item] = true
+			end
+		end
+	end
+	if list_a then
+		push(list_a)
+	end
+	if list_b then
+		push(list_b)
+	end
+	return merged
+end
+
 -- ========= МЯГКАЯ ЛОКАЛЬНАЯ АВТОЗАМЕНА =========
 local function apply_autocorrect_local(text)
 	local ac = Config.data.autocorrect
 	if type(ac) ~= "table" then
+		return text
+	end
+	local has_match = false
+	for _, pair in ipairs(ac) do
+		local find = pair[1]
+		if find and text:find(find, 1, true) then
+			has_match = true
+			break
+		end
+	end
+	if not has_match then
 		return text
 	end
 	for _, pair in ipairs(ac) do
@@ -512,6 +638,33 @@ local function apply_autocorrect_local(text)
 		end
 	end
 	return text
+end
+
+local function get_price_buttons_for_type(ad_type)
+	local mode = (Config.data.price_type_map or {})[ad_type]
+	if mode == "buy" then
+		return Config.data.prices_buy or {}
+	elseif mode == "sell" then
+		return Config.data.prices_sell or {}
+	end
+	local prices = Config.data.prices
+	if type(prices) ~= "table" then
+		prices = merge_price_lists(Config.data.prices_buy or {}, Config.data.prices_sell or {})
+		Config.data.prices = prices
+	end
+	return prices
+end
+
+local function price_label_in_list(label, list)
+	if not label then
+		return false
+	end
+	for _, item in ipairs(list or {}) do
+		if item == label then
+			return true
+		end
+	end
+	return false
 end
 
 -- ========= ПАРСИНГ BODY =========
@@ -539,7 +692,7 @@ local function extract_ad_text_from_dialog_colored(dialog_text)
 	local clean = dialog_text:gsub("{.-}", "")
 	local msg = clean:match("Сообщение:%s*(.-)$")
 	-- local dialog_text = dialog_text:match("{33AA33}(.-)%s-{FFFFFF}")
-	return "232131" .. msg
+	return msg or ""
 	-- return dialog_text:match("{33AA33}(.-)%s-{FFFFFF}") or ""
 end
 
@@ -606,11 +759,15 @@ function SMIHelp.OpenEditPreview(text, nick)
 end
 
 -- ========= КЭШИ ШАБЛОНОВ/КАТЕГОРИЙ =========
-local Cache = { cats = nil, cats_key_len = 0 }
+local Cache = { cats = nil, cats_key = "" }
 local function rebuild_cats_if_needed()
 	local tpls = Config.data.templates or {}
-	local key_len = #tpls
-	if Cache.cats and Cache.cats_key_len == key_len then
+	local key = {}
+	for i = 1, #tpls do
+		key[#key + 1] = tostring(tpls[i].category or "Прочее")
+	end
+	local key_str = table.concat(key, "\n")
+	if Cache.cats and Cache.cats_key == key_str then
 		return
 	end
 	local cats_set, cats = {}, {}
@@ -623,7 +780,7 @@ local function rebuild_cats_if_needed()
 	end
 	table.sort(cats)
 	table.insert(cats, 1, "Все")
-	Cache.cats, Cache.cats_key_len = cats, key_len
+	Cache.cats, Cache.cats_key = cats, key_str
 end
 
 -- ========= UI УТИЛИТЫ =========
@@ -641,35 +798,35 @@ local function LabelSeparator(text)
 	local left_x2 = center_x - txtsz.x * 0.5 - pad
 	local right_x1 = center_x + txtsz.x * 0.5 + pad
 	local right_x2 = pos.x + avail
-	local col = imgui.GetColorU32(imgui.Col.Separator)
+	local col = imgui.GetColorU32(Col.Separator)
 
 	if left_x2 > left_x1 then
-		draw:AddLine(imgui.ImVec2(left_x1, line_y), imgui.ImVec2(left_x2, line_y), col, 1.0)
+		draw:AddLine(ImVec2(left_x1, line_y), ImVec2(left_x2, line_y), col, 1.0)
 	end
 	if right_x2 > right_x1 then
-		draw:AddLine(imgui.ImVec2(right_x1, line_y), imgui.ImVec2(right_x2, line_y), col, 1.0)
+		draw:AddLine(ImVec2(right_x1, line_y), ImVec2(right_x2, line_y), col, 1.0)
 	end
 
-	imgui.SetCursorScreenPos(imgui.ImVec2(center_x - txtsz.x * 0.5, pos.y))
+	imgui.SetCursorScreenPos(ImVec2(center_x - txtsz.x * 0.5, pos.y))
 	imgui.Text(label)
-	imgui.SetCursorScreenPos(imgui.ImVec2(pos.x, pos.y + imgui.GetTextLineHeight() + style.ItemSpacing.y))
+	imgui.SetCursorScreenPos(ImVec2(pos.x, pos.y + imgui.GetTextLineHeight() + style.ItemSpacing.y))
 end
 
 local function ButtonGrid(id, items, btnH, columns, onClick)
 	local spacing = imgui.GetStyle().ItemSpacing.x
 	local start_x = imgui.GetCursorPosX()
 	local availW = imgui.GetContentRegionAvail().x
-	columns = math.max(1, columns or 3)
+	columns = max(1, columns or 3)
 
-	local btnW = math.floor((availW - spacing * (columns - 1)))
+	local btnW = floor((availW - spacing * (columns - 1)))
 	if columns > 1 then
-		btnW = math.floor(btnW / columns)
+		btnW = floor(btnW / columns)
 	end
 
 	local col = 0
 	for i, val in ipairs(items) do
 		local label = tostring(val) .. "##" .. id .. "_" .. i
-		if imgui.Button(label, imgui.ImVec2(btnW, btnH)) then
+		if imgui.Button(label, ImVec2(btnW, btnH)) then
 			if onClick then
 				onClick(val, i)
 			end
@@ -745,7 +902,7 @@ end
 
 -- ========= ЧИЛДЫ/ПАНЕЛИ =========
 local function DrawTemplatesPanel(width, height)
-	imgui.BeginChild("tmpl_panel", imgui.ImVec2(width, height), true)
+	imgui.BeginChild("tmpl_panel", ImVec2(width, height), true)
 
 	rebuild_cats_if_needed()
 
@@ -766,19 +923,26 @@ local function DrawTemplatesPanel(width, height)
 	imgui.Spacing()
 	LabelSeparator("Шаблоны")
 
-	imgui.BeginChild("templates_list", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("templates_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
+	local filter_lower = tolower_utf8(filter_str)
+	local has_filter = filter_lower ~= ""
 
 	for _, tpl in ipairs(Config.data.templates or {}) do
 		local cat = tpl.category or "Прочее"
 		if State.selected_category == "Все" or State.selected_category == cat then
 			for _, group in ipairs(tpl_groups(tpl)) do
 				local display = group[1] or ""
-				local combined = table.concat(group, " ")
 				local line = ((cat ~= "" and (cat .. ": ") or "") .. (display or ""))
-				local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
 
-				if passFilter(filter_line, filter_str) then
+					local show = true
+					if has_filter then
+						local combined = table.concat(group, " ")
+						local filter_line = ((cat ~= "" and (cat .. ": ") or "") .. combined)
+						show = passFilter(filter_line, filter_str, filter_lower)
+					end
+
+				if show then
 					if imgui.Selectable(line, false) then
 						seed_once()
 						local pick = group[math.random(1, #group)] or ""
@@ -805,12 +969,13 @@ local function DrawTemplatesPanel(width, height)
 end
 
 local function DrawHistoryPanel(width, height)
-	imgui.BeginChild("hist_panel", imgui.ImVec2(width, height), true)
+	imgui.BeginChild("hist_panel", ImVec2(width, height), true)
 	LabelSeparator("История")
-	imgui.BeginChild("history_list", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("history_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
+	local filter_lower = tolower_utf8(filter_str)
 	for _, v in ipairs(Config.data.history or {}) do
-		if passFilter(v, filter_str) then
+		if passFilter(v, filter_str, filter_lower) then
 			if imgui.Selectable(v, false) then
 				local txt = clamp80(v)
 				imgui.StrCopy(State.edit_buf, txt)
@@ -839,13 +1004,12 @@ local function normalize_index(pos, len)
 	elseif pos > len then
 		pos = len
 	end
-	return pos
+	return floor(pos)
 end
 
 local function set_cursor_position(data, pos, buf_len_override)
-	local len = buf_len_override or data.BufTextLen or 0
-	len = math.max(0, math.floor(len))
-	local new_pos = normalize_index(math.floor(pos or 0), len)
+	local len = max(0, floor(tonumber(buf_len_override or data.BufTextLen) or 0))
+	local new_pos = normalize_index(pos or 0, len)
 	data.CursorPos = new_pos
 	data.SelectionStart = new_pos
 	data.SelectionEnd = new_pos
@@ -861,14 +1025,8 @@ local function find_next_quote_pos_cyclic(s, from_pos0)
 		return nil
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find('"', from + 1, true)
-	if not p then
-		p = s:find('"', 1, true)
-	end
-	if p then
-		return p - 1
-	end
-	return nil
+	local p = s:find('"', from + 1, true) or s:find('"', 1, true)
+	return p and (p - 1) or nil
 end
 
 local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
@@ -877,14 +1035,8 @@ local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
 		return nil
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find('""', from, true)
-	if not p then
-		p = s:find('""', 1, true)
-	end
-	if p then
-		return p - 1
-	end
-	return nil
+	local p = s:find('""', from, true) or s:find('""', 1, true)
+	return p and (p - 1) or nil
 end
 
 local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
@@ -893,21 +1045,23 @@ local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
 		return len
 	end
 	local from = normalize_index(from_pos0, len) + 1
-	local p = s:find(addon_text, from, true)
-	if not p then
-		p = s:find(addon_text, 1, true)
-	end
-	if p then
-		return p + #addon_text - 1
-	end
-	return len
+	local p = s:find(addon_text, from, true) or s:find(addon_text, 1, true)
+	return p and (p + #addon_text - 1) or len
+end
+
+local function finalize_constructor_action(cursor_action, cursor_data)
+	State.cursor_action = cursor_action
+	State.cursor_action_data = cursor_data
+	history_reset_index()
+	State.want_focus_input = true
+	State.collapse_selection_after_focus = true
 end
 
 -- ========= INPUTTEXT CALLBACK =========
 local function EditBufCallback(data)
 	local flag = data.EventFlag
 
-	if flag == imgui.InputTextFlags.CallbackHistory then
+	if flag == InputTextFlags.CallbackHistory then
 		local up, down = 3, 4
 		local H = Config.data.history or {}
 		if data.EventKey == up then
@@ -920,6 +1074,7 @@ local function EditBufCallback(data)
 				s = clamp80(s)
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, s)
+				State.last_edit_text = s
 			end
 			return 1
 		elseif data.EventKey == down then
@@ -933,19 +1088,21 @@ local function EditBufCallback(data)
 				s = clamp80(s)
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, s)
+				State.last_edit_text = s
 			else
 				data:DeleteChars(0, data.BufTextLen)
 				data:InsertChars(0, "")
+				State.last_edit_text = ""
 			end
 			return 1
 		end
 	end
 
-	if flag == imgui.InputTextFlags.CallbackCharFilter then
+	if flag == InputTextFlags.CallbackCharFilter then
 		return 0
 	end
 
-	if flag == imgui.InputTextFlags.CallbackAlways then
+	if flag == InputTextFlags.CallbackAlways then
 		if State.collapse_selection_after_focus then
 			if data.SelectionStart == 0 and data.SelectionEnd == data.BufTextLen and data.BufTextLen > 0 then
 				set_cursor_position(data, data.BufTextLen)
@@ -954,45 +1111,41 @@ local function EditBufCallback(data)
 		end
 
 		local cur = str(data.Buf)
-		local chars = utf8_len(cur)
-		if chars > INPUT_MAX then
-			local truncated = utf8_truncate(cur, INPUT_MAX)
-			data:DeleteChars(0, data.BufTextLen)
-			data:InsertChars(0, truncated)
-			set_cursor_position(data, #truncated, #truncated)
-			return 1
-		end
-
-		local replaced = cur
-		local ac = Config.data.autocorrect
-		if type(ac) == "table" then
-			for _, pair in ipairs(ac) do
-				local find, repl = pair[1], pair[2]
-				if find and repl and replaced:find(find, 1, true) then
-					replaced = replaced:gsub(find, repl)
-				end
+		if data.BufTextLen > INPUT_MAX then
+			local chars = utf8_len(cur)
+			if chars > INPUT_MAX then
+				local truncated = utf8_truncate(cur, INPUT_MAX)
+				data:DeleteChars(0, data.BufTextLen)
+				data:InsertChars(0, truncated)
+				set_cursor_position(data, #truncated, #truncated)
+				State.last_edit_text = truncated
+				return 1
 			end
 		end
-		if replaced ~= cur then
-			replaced = clamp80(replaced)
-			data:DeleteChars(0, data.BufTextLen)
-			data:InsertChars(0, replaced)
-			set_cursor_position(data, #replaced, #replaced)
-			return 1
+
+		if State.last_edit_text ~= cur then
+			local replaced = apply_autocorrect_local(cur)
+			if replaced ~= cur then
+				replaced = clamp80(replaced)
+				data:DeleteChars(0, data.BufTextLen)
+				data:InsertChars(0, replaced)
+				set_cursor_position(data, #replaced, #replaced)
+				State.last_edit_text = replaced
+				return 1
+			end
+			State.last_edit_text = cur
 		end
 
 		if State.want_place_cursor or State.cursor_action ~= nil then
-			local cur2 = str(data.Buf)
-
 			if State.want_place_cursor then
-				local p = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				local p = find_next_quote_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, p or data.BufTextLen)
 				State.want_place_cursor = false
 				return 1
 			end
 
 			if State.cursor_action == "to_next_quote" then
-				local nxt = find_next_quote_pos_cyclic(cur2, data.CursorPos or 0)
+				local nxt = find_next_quote_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, nxt or data.BufTextLen)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
@@ -1001,12 +1154,12 @@ local function EditBufCallback(data)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
 			elseif State.cursor_action == "to_first_empty_quotes" then
-				local p = find_first_empty_quotes_pos_cyclic(cur2, data.CursorPos or 0)
+				local p = find_first_empty_quotes_pos_cyclic(cur, data.CursorPos or 0)
 				set_cursor_position(data, p or data.BufTextLen)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
 			elseif State.cursor_action == "to_addon_end" then
-				local pos = find_addon_end_pos_cyclic(cur2, State.cursor_action_data or "", data.CursorPos or 0)
+				local pos = find_addon_end_pos_cyclic(cur, State.cursor_action_data or "", data.CursorPos or 0)
 				set_cursor_position(data, pos)
 				State.cursor_action, State.cursor_action_data = nil, nil
 				return 1
@@ -1022,12 +1175,12 @@ local EditBufCallbackPtr = ffi.cast("int (*)(ImGuiInputTextCallbackData* data)",
 local function DrawCharLimitBar(current_chars, max_chars)
 	local percent = 0.0
 	if max_chars > 0 then
-		percent = math.min(1.0, current_chars / max_chars)
+		percent = min(1.0, current_chars / max_chars)
 	end
 	if percent >= LIMIT_WARN_RATIO then
-		imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(1, 0.3, 0.3, 1))
+		imgui.PushStyleColor(Col.PlotHistogram, ImVec4(1, 0.3, 0.3, 1))
 	end
-	imgui.ProgressBar(percent, imgui.ImVec2(-1, 8), "")
+	imgui.ProgressBar(percent, ImVec2(-1, 8), "")
 	if percent >= LIMIT_WARN_RATIO then
 		imgui.PopStyleColor()
 	end
@@ -1073,7 +1226,7 @@ end
 local function DrawCenteredFilter()
 	local style = imgui.GetStyle()
 	local availX = imgui.GetContentRegionAvail().x
-	local inputW = math.floor(availX * 0.48)
+	local inputW = floor(availX * 0.48)
 	local clearW = 70
 	local show_clear = str(State.filter_buf) ~= ""
 	local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
@@ -1087,7 +1240,7 @@ local function DrawCenteredFilter()
 
 	if show_clear then
 		imgui.SameLine()
-		if imgui.Button("Clear", imgui.ImVec2(clearW, 0)) then
+		if imgui.Button("Clear", ImVec2(clearW, 0)) then
 			imgui.StrCopy(State.filter_buf, "")
 		end
 	end
@@ -1095,23 +1248,23 @@ end
 
 -- ========= Блок «От кого и что прислано» =========
 local function DrawMetaPanel()
-	imgui.BeginChild("meta_panel", imgui.ImVec2(0, 92), true)
+	imgui.BeginChild("meta_panel", ImVec2(0, 92), true)
 	imgui.Text("Отправитель:")
 	imgui.SameLine()
-	imgui.TextColored(imgui.ImVec4(0.8, 1.0, 0.8, 1), State.sender_nick ~= "" and State.sender_nick or "-")
+	imgui.TextColored(ImVec4(0.8, 1.0, 0.8, 1), State.sender_nick ~= "" and State.sender_nick or "-")
 	imgui.SameLine()
 	if imgui.SmallButton("Скопировать ник") then
 		imgui.SetClipboardText(State.sender_nick or "")
 	end
 	if State.auto_memory_used then
 		imgui.SameLine()
-		imgui.TextColored(imgui.ImVec4(0.4, 0.95, 0.4, 1), "[Автовставка из памяти]")
+		imgui.TextColored(ImVec4(0.4, 0.95, 0.4, 1), "[Автовставка из памяти]")
 	end
 
 	imgui.Text("Исходное сообщение:")
 	local startX = imgui.GetCursorPosX()
 	imgui.SetCursorPosX(startX + 4)
-	imgui.BeginChild("orig_box", imgui.ImVec2(0, 25), true)
+	imgui.BeginChild("orig_box", ImVec2(0, 25), true)
 	imgui.TextWrapped(State.original_ad_text ~= "" and State.original_ad_text or "-")
 	imgui.EndChild()
 	if imgui.SmallButton("Скопировать исходник") then
@@ -1124,17 +1277,20 @@ end
 imgui.OnFrame(function()
 	return State.show_dialog[0]
 end, function()
-	imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.GrabRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 6.0)
-	imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.FrameRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.GrabRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.WindowRounding, 6.0)
+	imgui.PushStyleVarFloat(StyleVar.ScrollbarRounding, 6.0)
+
+	local style = imgui.GetStyle()
+	local item_spacing_x = style.ItemSpacing.x
 
 	if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
 		State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
 	end
 	imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
 	imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
-	local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, imgui.WindowFlags.NoCollapse)
+	local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, WindowFlags.NoCollapse)
 	State.win_pos = imgui.GetWindowPos()
 	State.win_size = imgui.GetWindowSize()
 
@@ -1143,7 +1299,7 @@ end, function()
 	end
 
 	imgui.TextColored(
-		imgui.ImVec4(1, 0.95, 0.2, 1),
+		ImVec4(1, 0.95, 0.2, 1),
 		(
 			State.last_dialog_title ~= "" and State.last_dialog_title
 			or "Редактирование объявления"
@@ -1158,9 +1314,9 @@ end, function()
 
 	local availX = imgui.GetContentRegionAvail().x
 	local availY = imgui.GetContentRegionAvail().y
-	local leftW = math.floor(availX * 0.26)
-	local rightW = math.floor(availX * 0.26)
-	local midW = availX - leftW - rightW - imgui.GetStyle().ItemSpacing.x * 2
+	local leftW = floor(availX * 0.26)
+	local rightW = floor(availX * 0.26)
+	local midW = availX - leftW - rightW - item_spacing_x * 2
 
 	-- LEFT
 	imgui.BeginGroup()
@@ -1170,9 +1326,9 @@ end, function()
 
 	-- CENTER
 	imgui.BeginGroup()
-	imgui.BeginChild("center", imgui.ImVec2(midW, availY), true)
+	imgui.BeginChild("center", ImVec2(midW, availY), true)
 
-	imgui.BeginChild("##centered_input_zone", imgui.ImVec2(0, 105), true)
+	imgui.BeginChild("##centered_input_zone", ImVec2(0, 105), true)
 	if bigFont then
 		imgui.PushFont(bigFont)
 	end
@@ -1185,28 +1341,28 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local flags = bit.bor(
-		imgui.InputTextFlags.CallbackHistory,
-		imgui.InputTextFlags.CallbackAlways,
-		imgui.InputTextFlags.CallbackCharFilter
-	)
-	local changed =
-		imgui.InputText("##editad_center", State.edit_buf, sizeof(State.edit_buf), flags, EditBufCallbackPtr)
+	local flags = bit_bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
+	local edit_buf = State.edit_buf
+	imgui.InputText("##editad_center", edit_buf, sizeof(edit_buf), flags, EditBufCallbackPtr)
 
 	if focus_requested and State.want_focus_input and imgui.IsItemActive() then
 		State.want_focus_input = false
 		State.collapse_selection_after_focus = false
 	end
 
+	local edit_buf_text = str(edit_buf)
+	local buf_changed = false
+
 	imgui.Spacing()
 	if imgui.SmallButton("Копировать текст") then
-		imgui.SetClipboardText(str(State.edit_buf))
+		imgui.SetClipboardText(edit_buf_text)
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("Автокоррекция") then
-		funcs.handleCorrection(u8:decode(str(State.edit_buf)), function(newText)
-			imgui.StrCopy(State.edit_buf, u8(newText))
+		handle_correction(u8:decode(edit_buf_text), function(newText)
+			imgui.StrCopy(edit_buf, u8(newText))
 		end)
+		buf_changed = true
 	end
 	imgui.SameLine()
 	if imgui.SmallButton("К следующей кавычке") then
@@ -1223,8 +1379,8 @@ end, function()
 		State.collapse_selection_after_focus = true
 	end
 
-	local cur_text = str(State.edit_buf)
-	local char_count = utf8_len(cur_text)
+	local edit_buf_text_after = (buf_changed and str(edit_buf)) or edit_buf_text
+	local char_count = utf8_len(edit_buf_text_after)
 	imgui.Spacing()
 	DrawCharLimitBar(char_count, INPUT_MAX)
 
@@ -1235,29 +1391,23 @@ end, function()
 
 	imgui.EndChild()
 
-	if changed then
-		local old = str(State.edit_buf)
-		local newtxt = apply_autocorrect_local(old)
-		if newtxt ~= old then
-			newtxt = clamp80(newtxt)
-			imgui.StrCopy(State.edit_buf, newtxt)
-		end
-	end
-
 	-- Кнопки действий + таймер блокировки и сохранение памяти по нику
 	do
-		local vip_rem = vip_timer_remaining()
-		local btn_rem = btn_timer_remaining()
-		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
-		local btn_send_clicked = false
-		local avail = imgui.GetContentRegionAvail().x
-		local btnW = math.floor((avail - imgui.GetStyle().ItemSpacing.x) / 2)
-		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
-		if imgui.Button("Отправить", imgui.ImVec2(btnW, 0)) or enter_pressed then
-			btn_send_clicked = true
+		local vip_rem = 0
+		if not SMIHelp.timer_send then
+			vip_rem = vip_timer_remaining()
 		end
+		local btn_rem = 0
+		if SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
+			btn_rem = btn_timer_remaining()
+		end
+		local can_send = SMIHelp.timer_send and (not SMIHelp.btn_timer_enabled or SMIHelp.btn_timer)
+		local avail = imgui.GetContentRegionAvail().x
+		local btnW = floor((avail - item_spacing_x) / 2)
+		local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
+		local btn_send_clicked = imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed
 		imgui.SameLine()
-		if imgui.Button("Отклонить", imgui.ImVec2(btnW, 0)) then
+		if imgui.Button("Отклонить", ImVec2(btnW, 0)) then
 			if State.last_dialog_id then
 				local to_send_utf8 = str(State.edit_buf)
 				local to_send_cp = u8:decode(to_send_utf8)
@@ -1267,7 +1417,7 @@ end, function()
 				reset_ui_state()
 			end
 		end
-		if imgui.Button("Сбросить к оригиналу", imgui.ImVec2(btnW, 0)) then
+		if imgui.Button("Сбросить к оригиналу", ImVec2(btnW, 0)) then
 			local orig = clamp80(State.original_ad_text or "")
 			imgui.StrCopy(State.edit_buf, orig)
 			AD:reset()
@@ -1278,16 +1428,16 @@ end, function()
 		imgui.SameLine()
 		imgui.Text(string.format("Симв.: %d/%d", char_count, INPUT_MAX))
 		if not SMIHelp.timer_send then
-			imgui.Spacing()
+			imgui.SameLine()
 			imgui.TextColored(
-				imgui.ImVec4(1, 0.45, 0.45, 1),
-				string.format("Таймер VIP активен. Осталось: %.1f c", vip_rem)
+				ImVec4(1, 0.45, 0.45, 1),
+				string.format(" | Таймер VIP: %.1f c", vip_rem)
 			)
 		elseif SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
-			imgui.Spacing()
+			imgui.SameLine()
 			imgui.TextColored(
-				imgui.ImVec4(1, 0.45, 0.45, 1),
-				string.format("Таймер отправки активен. Осталось: %.1f c", btn_rem)
+				ImVec4(1, 0.45, 0.45, 1),
+				string.format(" | Таймер отправки: %.1f c", btn_rem)
 			)
 		end
 		if btn_send_clicked then
@@ -1329,49 +1479,52 @@ end, function()
 
 	if remain < (NEED_OBJ_W3 + NEED_KBD_W3) then
 		local deficit = (NEED_OBJ_W3 + NEED_KBD_W3) - remain
-		local cutType = math.min(deficit * 0.5, typeW - TYPEW_MIN)
+		local cutType = min(deficit * 0.5, typeW - TYPEW_MIN)
 		typeW = typeW - cutType
 		deficit = deficit - cutType
-		local cutPrice = math.min(deficit, priceW - PRICEW_MIN)
+		local cutPrice = min(deficit, priceW - PRICEW_MIN)
 		priceW = priceW - cutPrice
 		deficit = deficit - cutPrice
 		remain = c_availX - typeW - priceW - spacing * 3
 	end
 
-	local objW = math.max(NEED_OBJ_W3, math.floor(remain * 0.58))
-	local kbdW = math.max(NEED_KBD_W3, remain - objW)
+	local objW = max(NEED_OBJ_W3, floor(remain * 0.58))
+	local kbdW = max(NEED_KBD_W3, remain - objW)
 
 	local over = objW + kbdW - remain
 	if over > 0 then
-		local cutO = math.min(over * 0.5, objW - NEED_OBJ_W3)
+		local cutO = min(over * 0.5, objW - NEED_OBJ_W3)
 		objW = objW - cutO
 		over = over - cutO
-		local cutK = math.min(over, kbdW - NEED_KBD_W3)
+		local cutK = min(over, kbdW - NEED_KBD_W3)
 		kbdW = kbdW - cutK
 	end
 
 	local type_btns = Config.data.type_buttons
 	local obj_btns = Config.data.objects
-	local price_btns = Config.data.prices
+	local price_btns = get_price_buttons_for_type(AD.type)
 	local numpad = NUMPAD
 	local currencies = Config.data.currencies
 	local addons = Config.data.addons
 
 	-- Тип
-	imgui.BeginChild("##type", imgui.ImVec2(typeW + 4, SECTION_H), true)
+	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
 	ButtonGrid("type", type_btns, BTN_H, 1, function(val)
+		local prev_price = AD.price_label
+		local next_price_btns = get_price_buttons_for_type(val)
 		AD:reset()
 		AD.type = val
+		if price_label_in_list(prev_price, next_price_btns) then
+			AD.price_label = prev_price
+		end
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
 
 	-- Объект (3 колонки)
-	imgui.BeginChild("##object", imgui.ImVec2(objW - 115, SECTION_H), true)
+	imgui.BeginChild("##object", ImVec2(objW - 115, SECTION_H), true)
 	ButtonGrid("object", obj_btns, BTN_H, 3, function(val)
 		refresh_object_value_from_editbuf()
 		AD.object = val
@@ -1385,105 +1538,61 @@ end, function()
 		end
 
 		State.want_place_cursor = true
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
 
 	-- Цена
-	imgui.BeginChild("##price", imgui.ImVec2(priceW + 4, SECTION_H), true)
+	imgui.BeginChild("##price", ImVec2(priceW + 4, SECTION_H), true)
 	ButtonGrid("price", price_btns, BTN_H, 1, function(val)
 		refresh_object_value_from_editbuf()
 		AD.price_label = val
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 	imgui.EndChild()
 	imgui.SameLine()
 
 	-- Numpad + валюта + дополнения (3 колонки)
-	imgui.BeginChild("##kbd", imgui.ImVec2(kbdW, SECTION_H), true)
+	imgui.BeginChild("##kbd", ImVec2(kbdW, SECTION_H), true)
 	ButtonGrid("numpad", numpad, BTN_H, 3, function(key)
 		refresh_object_value_from_editbuf()
 		AD.value = (AD.value or "") .. key
 		ad_commit_to_editbuf()
-		history_reset_index()
-		State.want_focus_input = true
-		State.collapse_selection_after_focus = true
+		finalize_constructor_action(nil, nil)
 	end)
 
 	imgui.Spacing()
 	imgui.Separator()
 	imgui.Spacing()
-	local cur_label = AD.currency or (currencies[1] or "-")
-	local addon_label = AD.addon or "- выбрать дополнение -"
-	imgui.BeginChild("##currency_addon", imgui.ImVec2(0, 0), false, imgui.WindowFlags.MenuBar)
-	if imgui.BeginMenuBar() then
-		-- currency menu
-		local cur_menu_hover, cur_popup_hover = false, false
-		local cur_open = imgui.BeginMenu(cur_label)
-		if cur_open then
+	imgui.BeginChild("##currency_addon", ImVec2(0, 0), false, 0)
+	if imgui.BeginTabBar("##currency_addon_tabs") then
+		if imgui.BeginTabItem("Валюта") then
 			for _, item in ipairs(currencies) do
 				local sel = (AD.currency == item)
-				if imgui.MenuItemBool(item, nil, sel) then
+				if imgui.Selectable(item, sel) then
 					refresh_object_value_from_editbuf()
 					AD.currency = item
 					ad_commit_to_editbuf()
-					State.cursor_action = "to_end"
-					State.cursor_action_data = nil
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
+					finalize_constructor_action("to_end", nil)
 				end
 			end
-			cur_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			cur_menu_hover = imgui.IsItemHovered()
-		else
-			cur_menu_hover = imgui.IsItemHovered()
-			if cur_menu_hover then
-				imgui.OpenPopup(cur_label)
-			end
+			imgui.EndTabItem()
 		end
-		if cur_open and not cur_menu_hover and not cur_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		-- addon menu
-		local addon_menu_hover, addon_popup_hover = false, false
-		local addon_open = imgui.BeginMenu(addon_label)
-		if addon_open then
+		if imgui.BeginTabItem("Дополнения") then
 			for _, item in ipairs(addons) do
 				local sel = (AD.addon == item)
-				if imgui.MenuItemBool(item, nil, sel) then
+				if imgui.Selectable(item, sel) then
 					refresh_object_value_from_editbuf()
 					AD.addon = item
 					ad_commit_to_editbuf()
-					State.cursor_action = "to_addon_end"
-					State.cursor_action_data = item
-					history_reset_index()
-					State.want_focus_input = true
-					State.collapse_selection_after_focus = true
+					finalize_constructor_action("to_addon_end", item)
 				end
 			end
-			addon_popup_hover = imgui.IsWindowHovered(imgui.HoveredFlags.RootAndChildWindows)
-			imgui.EndMenu()
-			addon_menu_hover = imgui.IsItemHovered()
-		else
-			addon_menu_hover = imgui.IsItemHovered()
-			if addon_menu_hover then
-				imgui.OpenPopup(addon_label)
-			end
+			imgui.EndTabItem()
 		end
-		if addon_open and not addon_menu_hover and not addon_popup_hover then
-			imgui.CloseCurrentPopup()
-		end
-
-		imgui.EndMenuBar()
+		imgui.EndTabBar()
 	end
 	imgui.EndChild()
 	imgui.EndChild()
@@ -1527,6 +1636,35 @@ local function parse_autocorrect(text)
 	return res
 end
 
+local function price_type_map_to_string(map, types)
+	local lines = {}
+	if type(map) ~= "table" then
+		map = {}
+	end
+	for _, type_name in ipairs(types or {}) do
+		local mode = map[type_name] or "both"
+		table.insert(lines, type_name .. "=" .. mode)
+	end
+	return table.concat(lines, "\n")
+end
+
+local function parse_price_type_map(text)
+	local res = {}
+	text = tostring(text or "")
+	for line in text:gmatch("[^\n]+") do
+		local key, val = line:match("^(.-)=(.*)$")
+		key = trim(key)
+		val = trim(val)
+		if key ~= "" then
+			if val ~= "buy" and val ~= "sell" and val ~= "both" then
+				val = "both"
+			end
+			res[key] = val
+		end
+	end
+	return res
+end
+
 -- helpers for editable text buffers
 local function buf_ensure(tbl, key, size)
 	size = size or 256
@@ -1559,6 +1697,7 @@ local function buf_maybe_grow(entry)
 		entry.buf = new_buf
 		entry.size = new_size
 	end
+	return content
 end
 
 function SMIHelp.DrawSettingsUI()
@@ -1566,10 +1705,12 @@ function SMIHelp.DrawSettingsUI()
 		SMIHelp._settings = {
 			type_buttons = new.char[512](),
 			objects = new.char[512](),
-			prices = new.char[512](),
+			prices_buy = new.char[512](),
+			prices_sell = new.char[512](),
 			currencies = new.char[512](),
 			addons = new.char[512](),
 			autocorrect = new.char[1024](),
+			price_type_map = new.char[1024](),
 			history_limit = new.int(Config.data.history_limit or 100),
 			nick_memory_limit = new.int(Config.data.nick_memory_limit or 100),
 			vip_timer_enabled = new.bool(SMIHelp.timer_send_enabled),
@@ -1585,10 +1726,15 @@ function SMIHelp.DrawSettingsUI()
 		}
 		imgui.StrCopy(SMIHelp._settings.type_buttons, table.concat(Config.data.type_buttons or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.objects, table.concat(Config.data.objects or {}, ","))
-		imgui.StrCopy(SMIHelp._settings.prices, table.concat(Config.data.prices or {}, ","))
+		imgui.StrCopy(SMIHelp._settings.prices_buy, table.concat(Config.data.prices_buy or {}, ","))
+		imgui.StrCopy(SMIHelp._settings.prices_sell, table.concat(Config.data.prices_sell or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.currencies, table.concat(Config.data.currencies or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.addons, table.concat(Config.data.addons or {}, ","))
 		imgui.StrCopy(SMIHelp._settings.autocorrect, autocorrect_to_string(Config.data.autocorrect))
+		imgui.StrCopy(
+			SMIHelp._settings.price_type_map,
+			price_type_map_to_string(Config.data.price_type_map, Config.data.type_buttons)
+		)
 		for _, tpl in ipairs(Config.data.templates or {}) do
 			local copy = { category = tpl.category, texts = {} }
 			if type(tpl.texts) == "table" then
@@ -1614,7 +1760,7 @@ function SMIHelp.DrawSettingsUI()
 		end
 	end
 	local S = SMIHelp._settings
-	imgui.BeginChild("smi_settings", imgui.ImVec2(0, 0), true)
+	imgui.BeginChild("smi_settings", ImVec2(0, 0), true)
 	imgui.InputInt("Лимит истории", S.history_limit, 1, 1000)
 	imgui.InputInt("Лимит памяти ников", S.nick_memory_limit, 1, 1000)
 	imgui.Checkbox("Таймер VIP объявлений", S.vip_timer_enabled)
@@ -1622,12 +1768,16 @@ function SMIHelp.DrawSettingsUI()
 	imgui.Checkbox('Таймер кнопки "Отправить"', S.btn_timer_enabled)
 	imgui.InputInt("Задержка отправки", S.btn_timer_delay, 1, 60)
 	imgui.InputInt("Задержка новостей", S.timer_news_delay, 1, 60)
-	imgui.InputTextMultiline("Типы", S.type_buttons, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Объекты", S.objects, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Цены", S.prices, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Валюты", S.currencies, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Дополнения", S.addons, 512, imgui.ImVec2(0, 60))
-	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, imgui.ImVec2(0, 60))
+	imgui.InputTextMultiline("Типы", S.type_buttons, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Объекты", S.objects, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Цены buy", S.prices_buy, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Цены sell", S.prices_sell, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Валюты", S.currencies, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Дополнения", S.addons, 512, ImVec2(0, 60))
+	imgui.InputTextMultiline("Автокоррекция", S.autocorrect, 1024, ImVec2(0, 60))
+	if imgui.CollapsingHeader("Маппинг типов -> цены") then
+		imgui.InputTextMultiline("##price_type_map", S.price_type_map, 1024, ImVec2(0, 80))
+	end
 	if imgui.CollapsingHeader("Шаблоны") then
 		if imgui.BeginTabBar("tpl_tabs") then
 			for idx, tpl in ipairs(S.templates_list) do
@@ -1646,11 +1796,11 @@ function SMIHelp.DrawSettingsUI()
 								"##tplexisting" .. idx .. "_" .. j,
 								buf.buf,
 								buf.size,
-								imgui.ImVec2(0, 60)
+								ImVec2(0, 60)
 							)
-							buf_maybe_grow(buf)
+							local buf_text = buf_maybe_grow(buf)
 							if imgui.Button("Готово##tplexisting" .. idx .. "_" .. j) then
-								local val = str(buf.buf)
+								local val = buf_text
 								local group = {}
 								for line in val:gmatch("[^\r\n]+") do
 									table.insert(group, line)
@@ -1690,12 +1840,12 @@ function SMIHelp.DrawSettingsUI()
 							"##tplinput" .. idx,
 							S.tpl_input[idx].buf,
 							S.tpl_input[idx].size,
-							imgui.ImVec2(0, 60)
+							ImVec2(0, 60)
 						)
 					else
 						imgui.InputText("##tplinput" .. idx, S.tpl_input[idx].buf, S.tpl_input[idx].size)
 					end
-					buf_maybe_grow(S.tpl_input[idx])
+					local input_text = buf_maybe_grow(S.tpl_input[idx])
 					if S.tpl_multiline[idx][0] then
 						if imgui.Button("Одна строка##toggle" .. idx) then
 							S.tpl_multiline[idx][0] = false
@@ -1707,7 +1857,7 @@ function SMIHelp.DrawSettingsUI()
 					end
 					imgui.SameLine()
 					if imgui.Button("Добавить##tpl" .. idx) then
-						local val = str(S.tpl_input[idx].buf)
+						local val = input_text
 						if val ~= "" then
 							tpl.texts = tpl.texts or {}
 							if S.tpl_multiline[idx][0] then
@@ -1743,23 +1893,34 @@ function SMIHelp.DrawSettingsUI()
 		end
 	end
 	if imgui.Button("Сохранить") then
-		Config.data.type_buttons = funcs.parseList(str(S.type_buttons))
-		Config.data.objects = funcs.parseList(str(S.objects))
-		Config.data.prices = funcs.parseList(str(S.prices))
-		Config.data.currencies = funcs.parseList(str(S.currencies))
-		Config.data.addons = funcs.parseList(str(S.addons))
+		local type_buttons = parse_list(str(S.type_buttons))
+		local prices_buy = parse_list(str(S.prices_buy))
+		local prices_sell = parse_list(str(S.prices_sell))
+		local vip_enabled = S.vip_timer_enabled[0]
+		local vip_delay = S.vip_timer_delay[0]
+		local btn_enabled = S.btn_timer_enabled[0]
+		local btn_delay = S.btn_timer_delay[0]
+		Config.data.type_buttons = type_buttons
+		Config.data.objects = parse_list(str(S.objects))
+		Config.data.prices_buy = prices_buy
+		Config.data.prices_sell = prices_sell
+		Config.data.prices = merge_price_lists(prices_buy, prices_sell)
+		Config.data.currencies = parse_list(str(S.currencies))
+		Config.data.addons = parse_list(str(S.addons))
+		Config.data.price_type_map = parse_price_type_map(str(S.price_type_map))
+		Config.data.price_type_map = ensure_price_type_map(Config.data.price_type_map, type_buttons)
 		Config.data.autocorrect = parse_autocorrect(str(S.autocorrect))
 		Config.data.templates = S.templates_list
 		Config.data.history_limit = S.history_limit[0]
 		Config.data.nick_memory_limit = S.nick_memory_limit[0]
-		Config.data.vip_timer_enabled = S.vip_timer_enabled[0]
-		Config.data.vip_timer_delay = S.vip_timer_delay[0]
-		Config.data.btn_timer_enabled = S.btn_timer_enabled[0]
-		Config.data.btn_timer_delay = S.btn_timer_delay[0]
-		SMIHelp.timer_send_enabled = S.vip_timer_enabled[0]
-		SMIHelp.timer_send_delay = S.vip_timer_delay[0]
-		SMIHelp.btn_timer_enabled = S.btn_timer_enabled[0]
-		SMIHelp.btn_timer_delay = S.btn_timer_delay[0]
+		Config.data.vip_timer_enabled = vip_enabled
+		Config.data.vip_timer_delay = vip_delay
+		Config.data.btn_timer_enabled = btn_enabled
+		Config.data.btn_timer_delay = btn_delay
+		SMIHelp.timer_send_enabled = vip_enabled
+		SMIHelp.timer_send_delay = vip_delay
+		SMIHelp.btn_timer_enabled = btn_enabled
+		SMIHelp.btn_timer_delay = btn_delay
 		SMIHelp.timer_news_delay = S.timer_news_delay[0]
 		Config:save()
 	end
