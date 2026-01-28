@@ -80,6 +80,11 @@ local TYPEW_BASE, TYPEW_MIN = 150, 110
 local PRICEW_BASE, PRICEW_MIN = 165, 120
 local OBJ_BTN_MIN_W = 88
 local KBD_BTN_MIN_W = 56
+local PANEL_PAD = 4
+local OBJ_PANEL_TRIM = 115
+local SIDE_PANEL_RATIO = 0.26
+local RIGHT_PANEL_WIDTH_MULT = 1.25
+local RIGHT_PANEL_W_COLLAPSED = 0
 local NUMPAD = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0" }
 
 local SPELLER_DEBOUNCE_SEC = 0.5 -- дребезг запуска автокорректора
@@ -467,7 +472,9 @@ local State = {
 
 	win_pos = ImVec2(100, 100),
 	win_size = ImVec2(1280, 650),
+	compact_applied = false,
 }
+local right_panel_collapsed = new.bool(true)
 
 local function history_reset_index()
 	State.hist_index = #(Config.data.history or {}) + 1
@@ -706,7 +713,7 @@ function SMIHelp.onShowDialog(dialogid, style, title, button1, button2, text, pl
 		State.last_dialog_text = body
 
 		local nick, msg = parse_dialog_body(body)
-		if msg == "" then
+		if not msg or msg == "" then
 			msg = extract_ad_text_from_dialog_colored(body)
 		end
 		State.sender_nick = nick or ""
@@ -901,9 +908,7 @@ local function tpl_groups(tpl)
 end
 
 -- ========= ЧИЛДЫ/ПАНЕЛИ =========
-local function DrawTemplatesPanel(width, height)
-	imgui.BeginChild("tmpl_panel", ImVec2(width, height), true)
-
+local function DrawTemplatesPanel()
 	rebuild_cats_if_needed()
 
 	-- Компактные категории: выпадающий список
@@ -965,11 +970,9 @@ local function DrawTemplatesPanel(width, height)
 	end
 
 	imgui.EndChild()
-	imgui.EndChild()
 end
 
-local function DrawHistoryPanel(width, height)
-	imgui.BeginChild("hist_panel", ImVec2(width, height), true)
+local function DrawHistoryPanel()
 	LabelSeparator("История")
 	imgui.BeginChild("history_list", ImVec2(0, 0), true)
 	local filter_str = str(State.filter_buf)
@@ -991,7 +994,6 @@ local function DrawHistoryPanel(width, height)
 			end
 		end
 	end
-	imgui.EndChild()
 	imgui.EndChild()
 end
 
@@ -1026,7 +1028,7 @@ local function find_next_quote_pos_cyclic(s, from_pos0)
 	end
 	local from = normalize_index(from_pos0, len) + 1
 	local p = s:find('"', from + 1, true) or s:find('"', 1, true)
-	return p and (p - 1) or nil
+	return p and (p) or nil
 end
 
 local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
@@ -1036,17 +1038,24 @@ local function find_first_empty_quotes_pos_cyclic(s, from_pos0)
 	end
 	local from = normalize_index(from_pos0, len) + 1
 	local p = s:find('""', from, true) or s:find('""', 1, true)
-	return p and (p - 1) or nil
+	return p and p or nil
 end
 
 local function find_addon_end_pos_cyclic(s, addon_text, from_pos0)
 	local len = #s
 	if not addon_text or addon_text == "" then
-		return len
+		return len - 1
 	end
 	local from = normalize_index(from_pos0, len) + 1
 	local p = s:find(addon_text, from, true) or s:find(addon_text, 1, true)
-	return p and (p + #addon_text - 1) or len
+	if not p then
+		return len - 1
+	end
+	local q_rel = addon_text:find('""', 1, true) or addon_text:find('"', 1, true)
+	if q_rel then
+		return p + q_rel - 1
+	end
+	return p + #addon_text - 1
 end
 
 local function finalize_constructor_action(cursor_action, cursor_data)
@@ -1223,16 +1232,67 @@ local function btn_timer_remaining()
 end
 
 -- ========= Центрированный фильтр =========
+local function DrawCenteredEditInput()
+	local style = imgui.GetStyle()
+	local availX = imgui.GetContentRegionAvail().x
+	if bigFont then
+		imgui.PushFont(bigFont)
+	end
+	local char_w = imgui.CalcTextSize("W").x
+	local targetW = floor(char_w * 85 + style.FramePadding.x * 2)
+	local toggleIcon = right_panel_collapsed[0] and "<" or ">"
+	local toggleH = imgui.GetFrameHeight()
+	local toggleW = toggleH
+	local spacing = style.ItemSpacing.x
+	local inputW = min(targetW, max(0, availX - toggleW - spacing))
+	local totalW = inputW + spacing + toggleW
+
+	local x0 = imgui.GetCursorPosX()
+	imgui.SetCursorPosX(x0 + max(0, (availX - totalW) / 2))
+
+	imgui.PushItemWidth(inputW)
+
+	local focus_requested = State.want_focus_input
+	if focus_requested and not imgui.IsMouseDown(0) then
+		imgui.SetKeyboardFocusHere(0)
+		State.want_focus_input = false
+		State.collapse_selection_after_focus = true
+	end
+
+	local flags = bit_bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
+	local edit_buf = State.edit_buf
+	imgui.InputText("##editad_center", edit_buf, sizeof(edit_buf), flags, EditBufCallbackPtr)
+
+	if focus_requested and State.want_focus_input and imgui.IsItemActive() then
+		State.want_focus_input = false
+		State.collapse_selection_after_focus = false
+	end
+
+	imgui.PopItemWidth()
+
+	imgui.SameLine(0, spacing)
+	if imgui.Button(toggleIcon .. "##right_panel_toggle", ImVec2(toggleW, toggleH)) then
+		right_panel_collapsed[0] = not right_panel_collapsed[0]
+	end
+	if bigFont then
+		imgui.PopFont()
+	end
+end
+
 local function DrawCenteredFilter()
 	local style = imgui.GetStyle()
 	local availX = imgui.GetContentRegionAvail().x
-	local inputW = floor(availX * 0.48)
+	local inputW = floor(availX * 0.80)
 	local clearW = 70
 	local show_clear = str(State.filter_buf) ~= ""
+	if show_clear then
+		inputW = min(inputW, availX - (style.ItemSpacing.x + clearW))
+	end
+	inputW = max(0, inputW)
 	local totalW = inputW + (show_clear and (style.ItemSpacing.x + clearW) or 0)
 
 	local x0 = imgui.GetCursorPosX()
-	imgui.SetCursorPosX(x0 + (availX - totalW) / 2)
+	imgui.SetCursorPosX(x0 + max(0, (availX - totalW) / 2))
 
 	imgui.PushItemWidth(inputW)
 	local _ = imgui.InputText("##filter", State.filter_buf, sizeof(State.filter_buf))
@@ -1285,8 +1345,21 @@ end, function()
 	local style = imgui.GetStyle()
 	local item_spacing_x = style.ItemSpacing.x
 
+	if not State.compact_applied then
+		State.win_size = ImVec2(floor(State.win_size.x * (1 - SIDE_PANEL_RATIO)), State.win_size.y)
+		State.compact_applied = true
+	end
+
 	if mimgui_funcs and mimgui_funcs.clampWindowToScreen then
 		State.win_pos, State.win_size = mimgui_funcs.clampWindowToScreen(State.win_pos, State.win_size, 5)
+	end
+	do
+		local io = imgui.GetIO()
+		if io and io.DisplaySize and io.DisplaySize.x > 0 and io.DisplaySize.y > 0 then
+			local cx = max(0, floor((io.DisplaySize.x - State.win_size.x) * 0.5))
+			local cy = max(0, floor((io.DisplaySize.y - State.win_size.y) * 0.5))
+			State.win_pos = ImVec2(cx, cy)
+		end
 	end
 	imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
 	imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
@@ -1309,47 +1382,30 @@ end, function()
 	imgui.Separator()
 	DrawMetaPanel()
 	imgui.Separator()
-	DrawCenteredFilter()
-	imgui.Separator()
 
 	local availX = imgui.GetContentRegionAvail().x
 	local availY = imgui.GetContentRegionAvail().y
-	local leftW = floor(availX * 0.26)
-	local rightW = floor(availX * 0.26)
-	local midW = availX - leftW - rightW - item_spacing_x * 2
-
-	-- LEFT
-	imgui.BeginGroup()
-	DrawTemplatesPanel(leftW, availY)
-	imgui.EndGroup()
-	imgui.SameLine()
+	local rightW_expanded = floor(availX * SIDE_PANEL_RATIO * RIGHT_PANEL_WIDTH_MULT) + style.WindowPadding.x
+	local right_visible = not right_panel_collapsed[0]
+	local rightW = right_visible and rightW_expanded or RIGHT_PANEL_W_COLLAPSED
+	local midW = availX - (right_visible and (rightW + item_spacing_x) or 0)
+	if midW < 0 then
+		midW = 0
+	end
 
 	-- CENTER
 	imgui.BeginGroup()
 	imgui.BeginChild("center", ImVec2(midW, availY), true)
 
-	imgui.BeginChild("##centered_input_zone", ImVec2(0, 105), true)
+	DrawCenteredEditInput()
+	imgui.Spacing()
+
+	imgui.BeginChild("##centered_input_zone", ImVec2(0, 60), true)
 	if bigFont then
 		imgui.PushFont(bigFont)
 	end
 	imgui.PushItemWidth(-1)
-
-	local focus_requested = State.want_focus_input
-	if focus_requested and not imgui.IsMouseDown(0) then
-		imgui.SetKeyboardFocusHere(0)
-		State.want_focus_input = false
-		State.collapse_selection_after_focus = true
-	end
-
-	local flags = bit_bor(InputTextFlags.CallbackHistory, InputTextFlags.CallbackAlways, InputTextFlags.CallbackCharFilter)
 	local edit_buf = State.edit_buf
-	imgui.InputText("##editad_center", edit_buf, sizeof(edit_buf), flags, EditBufCallbackPtr)
-
-	if focus_requested and State.want_focus_input and imgui.IsItemActive() then
-		State.want_focus_input = false
-		State.collapse_selection_after_focus = false
-	end
-
 	local edit_buf_text = str(edit_buf)
 	local buf_changed = false
 
@@ -1475,7 +1531,7 @@ end, function()
 
 	local typeW = TYPEW_BASE
 	local priceW = PRICEW_BASE
-	local remain = c_availX - typeW - priceW - spacing * 3
+	local remain = c_availX - typeW - priceW - spacing * 3 + (OBJ_PANEL_TRIM - PANEL_PAD * 2)
 
 	if remain < (NEED_OBJ_W3 + NEED_KBD_W3) then
 		local deficit = (NEED_OBJ_W3 + NEED_KBD_W3) - remain
@@ -1485,7 +1541,7 @@ end, function()
 		local cutPrice = min(deficit, priceW - PRICEW_MIN)
 		priceW = priceW - cutPrice
 		deficit = deficit - cutPrice
-		remain = c_availX - typeW - priceW - spacing * 3
+		remain = c_availX - typeW - priceW - spacing * 3 + (OBJ_PANEL_TRIM - PANEL_PAD * 2)
 	end
 
 	local objW = max(NEED_OBJ_W3, floor(remain * 0.58))
@@ -1508,7 +1564,7 @@ end, function()
 	local addons = Config.data.addons
 
 	-- Тип
-	imgui.BeginChild("##type", ImVec2(typeW + 4, SECTION_H), true)
+	imgui.BeginChild("##type", ImVec2(typeW + PANEL_PAD, SECTION_H), true)
 	ButtonGrid("type", type_btns, BTN_H, 1, function(val)
 		local prev_price = AD.price_label
 		local next_price_btns = get_price_buttons_for_type(val)
@@ -1524,7 +1580,7 @@ end, function()
 	imgui.SameLine()
 
 	-- Объект (3 колонки)
-	imgui.BeginChild("##object", ImVec2(objW - 115, SECTION_H), true)
+	imgui.BeginChild("##object", ImVec2(objW - OBJ_PANEL_TRIM, SECTION_H), true)
 	ButtonGrid("object", obj_btns, BTN_H, 3, function(val)
 		refresh_object_value_from_editbuf()
 		AD.object = val
@@ -1544,7 +1600,7 @@ end, function()
 	imgui.SameLine()
 
 	-- Цена
-	imgui.BeginChild("##price", ImVec2(priceW + 4, SECTION_H), true)
+	imgui.BeginChild("##price", ImVec2(priceW + PANEL_PAD, SECTION_H), true)
 	ButtonGrid("price", price_btns, BTN_H, 1, function(val)
 		refresh_object_value_from_editbuf()
 		AD.price_label = val
@@ -1600,12 +1656,27 @@ end, function()
 	imgui.EndChild()
 	imgui.EndGroup()
 
-	imgui.SameLine()
+	if right_visible then
+		imgui.SameLine()
 
-	-- RIGHT
-	imgui.BeginGroup()
-	DrawHistoryPanel(rightW, availY)
-	imgui.EndGroup()
+		-- RIGHT
+		imgui.BeginGroup()
+		imgui.BeginChild("right_panel", ImVec2(rightW, availY), true)
+		DrawCenteredFilter()
+		if imgui.BeginTabBar("##right_tabs") then
+			if imgui.BeginTabItem("Шаблоны") then
+				DrawTemplatesPanel()
+				imgui.EndTabItem()
+			end
+			if imgui.BeginTabItem("История") then
+				DrawHistoryPanel()
+				imgui.EndTabItem()
+			end
+			imgui.EndTabBar()
+		end
+		imgui.EndChild()
+		imgui.EndGroup()
+	end
 
 	imgui.End()
 	imgui.PopStyleVar(4)

@@ -996,8 +996,10 @@ local vip_last_line = 0
 local ad_autoscroll = true
 local ad_last_rev = 0
 local ad_last_line = 0
-local function handle_autoscroll(lines_count, last_line, autoscroll, is_chat_open)
-	if (not is_chat_open) and autoscroll then
+local chat_open_was = false
+local chat_open_scroll_once = false
+local function handle_autoscroll(lines_count, last_line, autoscroll, is_chat_open, force_scroll)
+	if ((not is_chat_open) and autoscroll) or force_scroll then
 		imgui.SetScrollY(imgui.GetScrollMaxY())
 	end
 	last_line = lines_count
@@ -1006,7 +1008,11 @@ local function handle_autoscroll(lines_count, last_line, autoscroll, is_chat_ope
 	local threshold = line_height() * 0.5
 	local at_bottom = (maxY <= 0) or (y >= maxY - threshold)
 	if is_chat_open then
-		autoscroll = at_bottom
+		if force_scroll then
+			autoscroll = true
+		else
+			autoscroll = at_bottom
+		end
 	end
 	return autoscroll, last_line
 end
@@ -1310,6 +1316,12 @@ local function draw_chatbox_window()
 	end
 
 	local is_chat_open = get_is_chat_open()
+	if is_chat_open and not chat_open_was then
+		chat_open_scroll_once = true
+	elseif not is_chat_open then
+		chat_open_scroll_once = false
+	end
+	chat_open_was = is_chat_open
 	local cfg = config.chatbox or default_config.chatbox
 	if not cfg or cfg.enabled == false then
 		return false, false, false
@@ -1423,8 +1435,12 @@ local function draw_chatbox_window()
 					end
 				end
 
+				local force_scroll = chat_open_scroll_once
 				all_autoscroll, all_last_line =
-					handle_autoscroll(#all_wrap_cache.lines, all_last_line, all_autoscroll, is_chat_open)
+					handle_autoscroll(#all_wrap_cache.lines, all_last_line, all_autoscroll, is_chat_open, force_scroll)
+				if force_scroll then
+					chat_open_scroll_once = false
+				end
 				all_last_rev = data_rev.all
 			end
 			imgui.EndChild()
@@ -1480,8 +1496,17 @@ local function draw_chatbox_window()
 							end
 						end
 
-						vip_autoscroll, vip_last_line =
-							handle_autoscroll(#vip_wrap_cache.lines, vip_last_line, vip_autoscroll, is_chat_open)
+						local force_scroll = chat_open_scroll_once
+						vip_autoscroll, vip_last_line = handle_autoscroll(
+							#vip_wrap_cache.lines,
+							vip_last_line,
+							vip_autoscroll,
+							is_chat_open,
+							force_scroll
+						)
+						if force_scroll then
+							chat_open_scroll_once = false
+						end
 						vip_last_rev = data_rev.vip
 					end
 					imgui.EndChild()
@@ -1532,8 +1557,17 @@ local function draw_chatbox_window()
 							end
 						end
 
-						ad_autoscroll, ad_last_line =
-							handle_autoscroll(#ad_wrap_cache.lines, ad_last_line, ad_autoscroll, is_chat_open)
+						local force_scroll = chat_open_scroll_once
+						ad_autoscroll, ad_last_line = handle_autoscroll(
+							#ad_wrap_cache.lines,
+							ad_last_line,
+							ad_autoscroll,
+							is_chat_open,
+							force_scroll
+						)
+						if force_scroll then
+							chat_open_scroll_once = false
+						end
 						ad_last_rev = data_rev.ad
 					end
 					imgui.EndChild()

@@ -9,6 +9,8 @@ local encoding = require("encoding")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 
+local LiveWindow
+
 local binder
 local tags_module
 local start_sms_listener
@@ -20,18 +22,16 @@ local math_random = math.random
 local os_clock = os.clock
 
 local NEWS_PREFIX = "/news"
+local LIVE_SAVE_DEBOUNCE_SEC = 0.5
 
 local function flags_or(...)
 	local sum = 0
+	local bor = ok_bit and bit and bit.bor
 	for i = 1, select("#", ...) do
 		local flag = select(i, ...)
 		if flag then
-			if ok_bit and bit and bit.bor then
-				if sum == 0 then
-					sum = flag
-				else
-					sum = bit.bor(sum, flag)
-				end
+			if bor then
+				sum = bor(sum, flag)
 			else
 				sum = sum + flag
 			end
@@ -86,6 +86,10 @@ local NewsInput = {
 	over_limit = false,
 	had_prefix = false,
 }
+
+local SCREENSHOT_MSG_BUF_SIZE = 1024
+local screenshot_msg_buf = new.char[SCREENSHOT_MSG_BUF_SIZE]()
+local screenshot_msg_last = ""
 
 local NEWS_INPUT_FLAGS = flags_or(
 	imgui.InputTextFlags and imgui.InputTextFlags.NoHorizontalScroll,
@@ -149,6 +153,32 @@ local CONFIG_PATH = getWorkingDirectory() .. "\\HelperByOrc\\SMILive.json"
 local Config = { data = {} }
 local WIN_MESSAGE_MIN_BUFFER = 256
 local WinMessageBuffers = { male = nil, female = nil }
+local live_save_dirty = false
+local live_save_last_change = 0.0
+
+local function sync_screenshot_message_buffer()
+	local cfg = Config.data.quiz or {}
+	local msg = tostring(cfg.screenshot_message or "")
+	if msg ~= screenshot_msg_last then
+		imgui.StrCopy(screenshot_msg_buf, msg, SCREENSHOT_MSG_BUF_SIZE)
+		screenshot_msg_last = msg
+	end
+end
+
+local function mark_live_save_dirty()
+	live_save_dirty = true
+	live_save_last_change = os_clock()
+end
+
+local function flush_live_save_if_due(force)
+	if not live_save_dirty then
+		return
+	end
+	if force or (os_clock() - live_save_last_change) >= LIVE_SAVE_DEBOUNCE_SEC then
+		Config:save()
+		live_save_dirty = false
+	end
+end
 
 local function set_win_message_buffer(key, text)
 	local entry = WinMessageBuffers[key] or { size = WIN_MESSAGE_MIN_BUFFER }
@@ -164,15 +194,12 @@ local function set_win_message_buffer(key, text)
 end
 
 local function load_win_message_buffers_from_config()
-	if type(Config.data) ~= "table" then
-		Config.data = {}
+	local math_cfg = Config.data.math_quiz
+	local win_cfg = math_cfg.win_messages
+	if type(win_cfg) ~= "table" then
+		win_cfg = {}
+		math_cfg.win_messages = win_cfg
 	end
-
-	if type(Config.data.win_messages) ~= "table" then
-		Config.data.win_messages = {}
-	end
-
-	local win_cfg = Config.data.win_messages
 	set_win_message_buffer("male", table.concat(win_cfg.male or {}, "\n"))
 	set_win_message_buffer("female", table.concat(win_cfg.female or {}, "\n"))
 end
@@ -305,20 +332,24 @@ function Config:load()
 				data = loaded
 			end
 		end
-		if type(data) ~= "table" then
-			data = {}
-		end
 	end
 
 	if type(data) ~= "table" then
 		data = {}
 	end
 
-	local live_cfg = type(data.live_broadcast) == "table" and data.live_broadcast or {}
+	local math_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
+	local general_cfg = type(data.quiz) == "table" and data.quiz or {}
+	general_cfg.screenshot_message = tostring(general_cfg.screenshot_message or "")
+
+	local live_cfg = type(math_cfg.live_broadcast) == "table" and math_cfg.live_broadcast
+	if type(live_cfg) ~= "table" then
+		live_cfg = type(data.live_broadcast) == "table" and data.live_broadcast or {}
+	end
 	live_cfg.intro = tostring(live_cfg.intro or "")
 	live_cfg.outro = tostring(live_cfg.outro or "")
 	live_cfg.reminder = tostring(live_cfg.reminder or "")
-	data.live_broadcast = live_cfg
+	math_cfg.live_broadcast = live_cfg
 
 	LiveBroadcast.intro.text = live_cfg.intro
 	LiveBroadcast.outro.text = live_cfg.outro
@@ -327,8 +358,18 @@ function Config:load()
 	ensure_live_buffer(LiveBroadcast.outro)
 	ensure_live_buffer(LiveBroadcast.reminder)
 
-	local quiz_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
-	local saved_method = tonumber(quiz_cfg.chat_method)
+	local win_cfg = type(math_cfg.win_messages) == "table" and math_cfg.win_messages
+	if type(win_cfg) ~= "table" then
+		win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+	end
+	win_cfg.male = sanitize_message_list(win_cfg.male)
+	win_cfg.female = sanitize_message_list(win_cfg.female)
+	math_cfg.win_messages = win_cfg
+
+	local saved_method = tonumber(general_cfg.chat_method)
+	if saved_method == nil then
+		saved_method = tonumber(math_cfg.chat_method)
+	end
 	if saved_method then
 		saved_method = math.floor(saved_method)
 		if saved_method < 0 then
@@ -338,9 +379,12 @@ function Config:load()
 		saved_method = MathQuiz.chat_method or 0
 	end
 	MathQuiz.chat_method = saved_method
-	quiz_cfg.chat_method = saved_method
+	general_cfg.chat_method = saved_method
 
-	local saved_interval = tonumber(quiz_cfg.chat_interval_ms)
+	local saved_interval = tonumber(general_cfg.chat_interval_ms)
+	if saved_interval == nil then
+		saved_interval = tonumber(math_cfg.chat_interval_ms)
+	end
 	if saved_interval then
 		saved_interval = math.floor(saved_interval + 0.5)
 		if saved_interval < 0 then
@@ -350,9 +394,9 @@ function Config:load()
 		saved_interval = MathQuiz.chat_interval_ms or 0
 	end
 	MathQuiz.chat_interval_ms = saved_interval
-	quiz_cfg.chat_interval_ms = saved_interval
+	general_cfg.chat_interval_ms = saved_interval
 
-	local saved_target = tonumber(quiz_cfg.target_index)
+	local saved_target = tonumber(math_cfg.target_index)
 	if saved_target then
 		saved_target = math.floor(saved_target)
 	else
@@ -366,14 +410,10 @@ function Config:load()
 		saved_target = max_target
 	end
 	MathQuiz.target_index = saved_target
-	quiz_cfg.target_index = saved_target
+	math_cfg.target_index = saved_target
 
-	local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
-	win_cfg.male = sanitize_message_list(win_cfg.male)
-	win_cfg.female = sanitize_message_list(win_cfg.female)
-	data.win_messages = win_cfg
-
-	data.math_quiz = quiz_cfg
+	data.quiz = general_cfg
+	data.math_quiz = math_cfg
 	self.data = data
 	load_win_message_buffers_from_config()
 end
@@ -381,24 +421,27 @@ end
 function Config:save()
 	local data = self.data or {}
 
-	local live_cfg = type(data.live_broadcast) == "table" and data.live_broadcast or {}
-	live_cfg.intro = tostring((LiveBroadcast.intro and LiveBroadcast.intro.text) or "")
-	live_cfg.outro = tostring((LiveBroadcast.outro and LiveBroadcast.outro.text) or "")
-	live_cfg.reminder = tostring((LiveBroadcast.reminder and LiveBroadcast.reminder.text) or "")
-	data.live_broadcast = live_cfg
-
-	local quiz_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
+	local general_cfg = type(data.quiz) == "table" and data.quiz or {}
 	local method = math.floor(tonumber(MathQuiz.chat_method) or 0)
 	if method < 0 then
 		method = 0
 	end
-	quiz_cfg.chat_method = method
+	general_cfg.chat_method = method
 
 	local interval = math.floor(tonumber(MathQuiz.chat_interval_ms) or 0)
 	if interval < 0 then
 		interval = 0
 	end
-	quiz_cfg.chat_interval_ms = interval
+	general_cfg.chat_interval_ms = interval
+	general_cfg.screenshot_message = tostring(general_cfg.screenshot_message or "")
+	data.quiz = general_cfg
+
+	local math_cfg = type(data.math_quiz) == "table" and data.math_quiz or {}
+	local live_cfg = type(math_cfg.live_broadcast) == "table" and math_cfg.live_broadcast or {}
+	live_cfg.intro = tostring((LiveBroadcast.intro and LiveBroadcast.intro.text) or "")
+	live_cfg.outro = tostring((LiveBroadcast.outro and LiveBroadcast.outro.text) or "")
+	live_cfg.reminder = tostring((LiveBroadcast.reminder and LiveBroadcast.reminder.text) or "")
+	math_cfg.live_broadcast = live_cfg
 
 	local target_index = math.floor(tonumber(MathQuiz.target_index) or 1)
 	if target_index < 1 then
@@ -408,14 +451,20 @@ function Config:save()
 	if max_target > 0 and target_index > max_target then
 		target_index = max_target
 	end
-	quiz_cfg.target_index = target_index
+	math_cfg.target_index = target_index
 
-	local win_cfg = type(data.win_messages) == "table" and data.win_messages or {}
+	local win_cfg = type(math_cfg.win_messages) == "table" and math_cfg.win_messages or {}
 	win_cfg.male = sanitize_message_list(win_cfg.male)
 	win_cfg.female = sanitize_message_list(win_cfg.female)
-	data.win_messages = win_cfg
+	math_cfg.win_messages = win_cfg
 
-	data.math_quiz = quiz_cfg
+	math_cfg.chat_method = nil
+	math_cfg.chat_interval_ms = nil
+
+	data.win_messages = nil
+	data.live_broadcast = nil
+
+	data.math_quiz = math_cfg
 	self.data = data
 
 	if funcs and funcs.saveTableToJson then
@@ -505,14 +554,6 @@ local function get_selected_method()
 	return method
 end
 
-local function get_interval_ms()
-	local value = tonumber(MathQuiz.chat_interval_ms) or 0
-	if value < 0 then
-		value = 0
-	end
-	return math.floor(value + 0.5)
-end
-
 local function format_status(fmt, ...)
 	local ok, msg = pcall(string.format, fmt, ...)
 	if ok then
@@ -523,6 +564,74 @@ end
 
 local function update_status(text, ...)
 	MathQuiz.status_text = format_status(text, ...)
+end
+
+local function get_send_fn()
+	local send_fn = binder and binder.doSend
+	if type(send_fn) ~= "function" then
+		update_status("Отправка недоступна: функция binder.doSend не найдена.")
+		return nil
+	end
+	return send_fn
+end
+
+local send_screenshot_message
+
+local function schedule_live_window_restore(delay_ms)
+	local delay = math.max(0, tonumber(delay_ms) or 0)
+	if lua_thread and lua_thread.create and type(wait) == "function" then
+		local ok = pcall(lua_thread.create, function()
+			wait(delay)
+			if LiveWindow and LiveWindow.show then
+				LiveWindow.show[0] = true
+			end
+		end)
+		if ok then
+			return
+		end
+	end
+	if LiveWindow and LiveWindow.show then
+		LiveWindow.show[0] = true
+	end
+end
+
+local function take_live_window_screenshot()
+	if not funcs or type(funcs.Take_Screenshot) ~= "function" then
+		update_status("Скриншот недоступен: funcs.Take_Screenshot не найден.")
+		return
+	end
+
+	if LiveWindow and LiveWindow.show then
+		LiveWindow.show[0] = false
+	end
+
+	if lua_thread and lua_thread.create and type(wait) == "function" then
+		local ok = pcall(lua_thread.create, function()
+			send_screenshot_message()
+			wait(150)
+			local ok_shot, err = pcall(funcs.Take_Screenshot)
+			if not ok_shot then
+				update_status("Не удалось сделать скриншот: %s", err)
+			end
+			wait(80)
+			if LiveWindow and LiveWindow.show then
+				LiveWindow.show[0] = true
+			end
+		end)
+		if ok then
+			return
+		end
+	end
+
+	send_screenshot_message()
+	if type(wait) == "function" then
+		wait(50)
+	end
+	local ok, err = pcall(funcs.Take_Screenshot)
+	if not ok then
+		update_status("Не удалось сделать скриншот: %s", err)
+	end
+	schedule_live_window_restore(80)
 end
 
 local send_sequence_running = false
@@ -553,10 +662,8 @@ local function send_sequence(messages, method, interval)
 	local delay = math.max(0, tonumber(interval) or 0)
 	delay = math.floor(delay + 0.5)
 	local target = method or get_selected_method()
-	local send_fn = binder and binder.doSend
-
-	if type(send_fn) ~= "function" then
-		update_status("Отправка недоступна: функция binder.doSend не найдена.")
+	local send_fn = get_send_fn()
+	if not send_fn then
 		return
 	end
 
@@ -583,7 +690,12 @@ local function broadcast_sequence(messages)
 	if get_selected_method() == 3 then
 		return
 	end
-	send_sequence(messages, get_selected_method(), get_interval_ms())
+	local interval = tonumber(MathQuiz.chat_interval_ms) or 0
+	if interval < 0 then
+		interval = 0
+	end
+	interval = math.floor(interval + 0.5)
+	send_sequence(messages, get_selected_method(), interval)
 end
 
 local function trim(s)
@@ -625,14 +737,20 @@ local function update_win_messages_from_buffer(key, entry)
 		end
 	end
 
-	Config.data.win_messages = Config.data.win_messages or {}
-	Config.data.win_messages[key] = parsed
+	local math_cfg = Config.data.math_quiz
+	local win_cfg = math_cfg.win_messages
+	if type(win_cfg) ~= "table" then
+		win_cfg = {}
+		math_cfg.win_messages = win_cfg
+	end
+	win_cfg[key] = parsed
 	set_win_message_buffer(key, table.concat(parsed, "\n"))
 	Config:save()
 end
 
 local function get_win_messages_for_gender(gender)
-	local win_cfg = Config.data and Config.data.win_messages or {}
+	local math_cfg = Config.data and Config.data.math_quiz or {}
+	local win_cfg = math_cfg.win_messages or {}
 	if gender == "female" then
 		return sanitize_message_list(win_cfg.female)
 	end
@@ -1652,7 +1770,6 @@ local function draw_math_quiz_tables_section()
 end
 
 local function draw_win_message_settings()
-	imgui.Text("Настройки сообщений победителя")
 	imgui.TextWrapped(
 		"Каждое сообщение на новой строке. Используйте %%s для имени и %%s для счёта."
 	)
@@ -1675,13 +1792,13 @@ local function draw_win_message_settings()
 
 	imgui.SameLine()
 	if imgui.Button("Сбросить к стандартным") then
-		Config.data.win_messages = { male = {}, female = {} }
+		Config.data.math_quiz.win_messages = { male = {}, female = {} }
 		load_win_message_buffers_from_config()
 		Config:save()
 	end
 
 	imgui.TextDisabled(
-		"Если список пустой, используется стандартное сообщение."
+		'Если список пустой, используется стандартное сообщение: "Викторина завершена! %%s набирает %%s и побеждает!".'
 	)
 end
 
@@ -1837,7 +1954,7 @@ function SMILive.DrawMathQuiz(show_tables)
 	end
 end
 
-local LiveWindow = {
+LiveWindow = {
 	show = new.bool(false),
 }
 
@@ -1927,15 +2044,43 @@ local function send_custom_news_message()
 		return
 	end
 
-	local send_fn = binder and binder.doSend
-	if type(send_fn) ~= "function" then
-		update_status("Отправка недоступна: функция binder.doSend не найдена.")
+	local send_fn = get_send_fn()
+	if not send_fn then
 		return
 	end
 
 	local message = string.format("%s %s", NEWS_PREFIX, body)
-	send_fn(message, method)
-	update_status("Объявление отправлено.")
+	local ok, err = pcall(send_fn, message, method)
+	if ok then
+		update_status("Объявление отправлено.")
+	else
+		update_status("Не удалось отправить объявление: %s", err)
+	end
+end
+
+send_screenshot_message = function()
+	local cfg = Config.data and Config.data.quiz or {}
+	local text = tostring(cfg.screenshot_message or "")
+	if text == "" then
+		return true
+	end
+
+	local send_fn = get_send_fn()
+	if not send_fn then
+		return false
+	end
+
+	local method = get_selected_method()
+	local single = trim((text:gsub("[\r\n]+", " ")))
+	if single == "" then
+		return true
+	end
+	local ok, err = pcall(send_fn, single, method)
+	if not ok then
+		update_status("Не удалось отправить сообщение: %s", err)
+		return false
+	end
+	return true
 end
 
 local function draw_news_input_panel()
@@ -1944,14 +2089,24 @@ local function draw_news_input_panel()
 
 	local avail = imgui.GetContentRegionAvail()
 	local input_height = math.max(50, math.min(80, avail.y - 50))
+	local style = imgui.GetStyle()
+	local shot_label = "Сделать\nскриншот"
+	local shot_text_size = imgui.CalcTextSize(shot_label)
+	local shot_w = shot_text_size.x + style.FramePadding.x * 2
+	local shot_h = math.max(input_height, shot_text_size.y + style.FramePadding.y * 2)
+	local input_w = math.max(50, avail.x - shot_w - style.ItemSpacing.x)
 
 	imgui.InputTextMultiline(
 		"##live_news_input",
 		NewsInput.buf,
 		NewsInput.buf_size,
-		imgui.ImVec2(0, input_height),
+		imgui.ImVec2(input_w, input_height),
 		NEWS_INPUT_FLAGS
 	)
+	imgui.SameLine()
+	if imgui.Button(shot_label, imgui.ImVec2(shot_w, shot_h)) then
+		take_live_window_screenshot()
+	end
 
 	update_news_input_state()
 
@@ -1990,8 +2145,43 @@ local function draw_news_input_panel()
 	end
 end
 
+local function draw_live_text_inputs()
+	local intro_changed =
+		update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
+	if intro_changed then
+		mark_live_save_dirty()
+	end
+
+	local outro_changed =
+		update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
+	if outro_changed then
+		mark_live_save_dirty()
+	end
+
+	local reminder_changed =
+		update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
+	if reminder_changed then
+		mark_live_save_dirty()
+	end
+end
+
+local function draw_math_settings_section()
+	imgui.Separator()
+	if imgui.CollapsingHeader("Настройки викторины Математики") then
+		if imgui.CollapsingHeader("Сообщения победителя и победительницы") then
+			draw_win_message_settings()
+		end
+
+		if imgui.CollapsingHeader("Тексты эфира") then
+			draw_live_text_inputs()
+		end
+	end
+
+	flush_live_save_if_due(false)
+end
+
 local function draw_live_settings_tab()
-	imgui.Text("Настройки эфира")
+	imgui.Text("Общие настройки")
 
 	imgui.PushItemWidth(200)
 	local method_buf = ffi.new("int[1]", MathQuiz.chat_method)
@@ -2025,44 +2215,34 @@ local function draw_live_settings_tab()
 	end
 	imgui.PopItemWidth()
 
-	local intro_changed =
-		update_live_buffer_from_imgui(LiveBroadcast.intro, "Вступление##live_intro_text", 80)
-	if intro_changed then
+	sync_screenshot_message_buffer()
+	imgui.Text("Текст для отправки перед скриншотом")
+	local msg_changed = imgui.InputText(
+		"##quiz_screenshot_message",
+		screenshot_msg_buf,
+		SCREENSHOT_MSG_BUF_SIZE
+	)
+	if msg_changed then
+		local raw = ffi.string(screenshot_msg_buf)
+		local cfg = Config.data and Config.data.quiz or {}
+		cfg.screenshot_message = raw
+		Config.data.quiz = cfg
+		screenshot_msg_last = raw
 		Config:save()
 	end
-
-	local outro_changed =
-		update_live_buffer_from_imgui(LiveBroadcast.outro, "Завершение##live_outro_text", 80)
-	if outro_changed then
-		Config:save()
-	end
-
-	local reminder_changed =
-		update_live_buffer_from_imgui(LiveBroadcast.reminder, "Напоминание##live_reminder_text", 80)
-	if reminder_changed then
-		Config:save()
-	end
-
-	imgui.Separator()
-	draw_win_message_settings()
 end
 
 local function draw_live_window_content()
 	if imgui.BeginTabBar("smilive_tabs") then
-		if imgui.BeginTabItem("Эфир") then
+		if imgui.BeginTabItem("Математика") then
 			draw_live_broadcast_controls()
 			imgui.Dummy(imgui.ImVec2(0, 4))
 			draw_sms_listener_controls()
-			imgui.EndTabItem()
-		end
+			imgui.Separator()
 
-		if imgui.BeginTabItem("Викторина") then
-			SMILive.DrawMathQuiz(false)
-			imgui.EndTabItem()
-		end
+			SMILive.DrawMathQuiz(true)
+			draw_math_settings_section()
 
-		if imgui.BeginTabItem("Таблица") then
-			draw_math_quiz_tables_section()
 			imgui.EndTabItem()
 		end
 
@@ -2078,7 +2258,7 @@ end
 local function draw_live_window()
 	local bottom_height = NEWS_INPUT_PANEL_HEIGHT
 
-	if imgui.BeginChild("smilive_main", imgui.ImVec2(0, -bottom_height), true) then
+	if imgui.BeginChild("smilive_main", imgui.ImVec2(0, -bottom_height - 10), true) then
 		draw_live_window_content()
 	end
 	imgui.EndChild()
@@ -2115,6 +2295,9 @@ end, function()
 		draw_live_window()
 	end
 	imgui.End()
+	if live_save_dirty and not LiveWindow.show[0] then
+		flush_live_save_if_due(true)
+	end
 end)
 
 function SMILive.attachModules(modules)
