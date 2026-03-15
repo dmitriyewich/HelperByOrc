@@ -1,0 +1,14 @@
+{
+  "name": "HelperByOrc",
+  "library": "lib",
+  "source": "src",
+  "distribute": {
+    "output": "dist",
+    "include": ["lib/**", "resource/**", "HelperByOrc/**"],
+    "exclude": [],
+    "constants": {
+        "MOONLY_BUNDLED": true,
+        "MOONLY_BUNDLE_TIMESTAMP": "<$date>"
+     }
+  }
+}
