@@ -27,6 +27,7 @@ local runtime_state = {
 }
 local modules_ref
 local reload_in_progress = false
+local requestScriptReload
 
 local function stopRuntimeThread(thread_handle)
 	if not thread_handle then
@@ -1006,7 +1007,7 @@ local function onWindowMessageDispatcher(msg, wparam, lparam)
 	onRootWindowMessage(msg, wparam, lparam)
 end
 
-local function requestScriptReload(on_fail)
+function requestScriptReload(on_fail)
 	if reload_in_progress then
 		return true
 	end
