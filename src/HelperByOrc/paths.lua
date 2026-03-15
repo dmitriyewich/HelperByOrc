@@ -37,6 +37,19 @@ local function dir_exists(path)
 	return false
 end
 
+local function push_unique(list, value)
+	value = normalize(value)
+	if value == "" then
+		return
+	end
+	for i = 1, #list do
+		if list[i] == value then
+			return
+		end
+	end
+	list[#list + 1] = value
+end
+
 function module.normalize(path)
 	return normalize(path)
 end
@@ -71,13 +84,27 @@ function module.projectRoot()
 		return cached_project_root
 	end
 
+	local candidates = {}
 	local root = nil
+	if type(getMoonloaderDirectory) == "function" then
+		push_unique(candidates, getMoonloaderDirectory())
+	end
 	if type(getWorkingDirectory) == "function" then
-		root = getWorkingDirectory()
-	elseif type(getMoonloaderDirectory) == "function" then
-		root = getMoonloaderDirectory()
-	else
-		root = "moonloader"
+		push_unique(candidates, getWorkingDirectory())
+	end
+	push_unique(candidates, "moonloader")
+
+	for i = 1, #candidates do
+		local candidate = candidates[i]
+		if dir_exists(module.join(candidate, "HelperByOrc", "resource"))
+			or dir_exists(module.join(candidate, "HelperByOrc")) then
+			root = candidate
+			break
+		end
+	end
+
+	if not root then
+		root = candidates[1] or "moonloader"
 	end
 
 	cached_project_root = normalize(root)

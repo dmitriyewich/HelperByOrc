@@ -10,8 +10,72 @@ local imgui = require("mimgui")
 local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
 local ok_faicons, faicons = pcall(require, "fAwesome7")
 local FA_SOLID_FONT_CTX_KEY = "__helperbyorc_fa_solid_ctx"
+local PNG_SIGNATURE = string.char(137, 80, 78, 71, 13, 10, 26, 10)
 
 local allHints = {}
+
+local function read_be32(bytes, index)
+	local b1, b2, b3, b4 = bytes:byte(index, index + 3)
+	if not b4 then
+		return nil
+	end
+	return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+end
+
+local function read_binary_file(path)
+	if type(path) ~= "string" or path == "" then
+		return nil
+	end
+	local f = io.open(path, "rb")
+	if not f then
+		return nil
+	end
+	local data = f:read("*a")
+	f:close()
+	return data
+end
+
+local function read_png_size(path)
+	if type(path) ~= "string" or path == "" then
+		return nil
+	end
+	local data = read_binary_file(path)
+	if type(data) ~= "string" then
+		return nil
+	end
+	local header = data:sub(1, 24)
+	if type(header) ~= "string" or #header < 24 then
+		return nil
+	end
+	if header:sub(1, 8) ~= PNG_SIGNATURE or header:sub(13, 16) ~= "IHDR" then
+		return nil
+	end
+	local width = read_be32(header, 17)
+	local height = read_be32(header, 21)
+	if not width or not height or width <= 0 or height <= 0 then
+		return nil
+	end
+	return { width = width, height = height }
+end
+
+local function create_texture_with_fallback(path, label)
+	local texture = imgui.CreateTextureFromFile(path)
+	if texture ~= nil then
+		return texture
+	end
+
+	local raw = read_binary_file(path)
+	if type(raw) == "string" and raw ~= "" then
+		local buf = ffi.new("uint8_t[?]", #raw)
+		ffi.copy(buf, raw, #raw)
+		texture = imgui.CreateTextureFromFileInMemory(buf, #raw)
+		if texture ~= nil then
+			return texture
+		end
+	end
+
+	return nil
+end
 
 local function ImGuiEnum(name)
 	return setmetatable({ __name = name }, {
@@ -129,9 +193,14 @@ local _initSub = imgui.OnInitialize(function()
 	imgui.GetIO().IniFilename = nil
 	ensureFontAwesomeSolidMerged()
 
-	module.logo = imgui.CreateTextureFromFile(paths.findExistingResourceFile("logo.png"))
+	local logo_path = paths.findExistingResourceFile("logo.png")
+	module.logo_size = read_png_size(logo_path)
+	module.logo = create_texture_with_fallback(logo_path, "logo.png")
 
-	module.weapon_standard = imgui.CreateTextureFromFile(paths.findExistingResourceFile("standard_gun.png"))
+	module.weapon_standard = create_texture_with_fallback(
+		paths.findExistingResourceFile("standard_gun.png"),
+		"standard_gun.png"
+	)
 end)
 
 function module.GetMiddleButtonX(count)
@@ -177,8 +246,10 @@ end
 function module.drawOrcLogoZoom(texture_id, tab_idx, size, zoom)
 	zoom = zoom or 1.6
 	local cols, rows = 3, 2
-	local cell_w, cell_h = 512, 512
-	local tex_w, tex_h = 1536, 1024
+	local tex_w = module.logo_size and module.logo_size.width or 1536
+	local tex_h = module.logo_size and module.logo_size.height or 1024
+	local cell_w = tex_w / cols
+	local cell_h = tex_h / rows
 
 	local col = ((tab_idx - 1) % cols)
 	local row = math.floor((tab_idx - 1) / cols)
