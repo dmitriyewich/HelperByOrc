@@ -13,15 +13,15 @@ end
 module.currentVersion, module.sampModule = nil, getModuleHandle("samp.dll")
 
 local entryPoint = {
-	[0x2E2BB7] = { "E", false },
-	[0x31DF13] = { "R1", false },
-	[0x3195DD] = { "R2", false },
-	[0xCC490] = { "R3", false },
+	[0x2E2BB7] = { "E", true },
+	[0x31DF13] = { "R1", true },
+	[0x3195DD] = { "R2", true },
+	[0xCC490] = { "R3", true },
 	[0xCC4D0] = { "R3-1", true },
-	[0xCBCD0] = { "R4", false },
-	[0xCBCB0] = { "R4-2", false },
-	[0xCBC90] = { "R5", false },
-	[0xFDB60] = { "DL-R1", false },
+	[0xCBCD0] = { "R4", true },
+	[0xCBCB0] = { "R4-2", true },
+	[0xCBC90] = { "R5", true },
+	[0xFDB60] = { "DL-R1", true },
 }
 
 module.main_offsets = {
