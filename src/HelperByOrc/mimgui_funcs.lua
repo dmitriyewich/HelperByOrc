@@ -5,6 +5,7 @@ local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
 local paths = require("HelperByOrc.paths")
+local language = require("language")
 
 local imgui = require("mimgui")
 local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
@@ -13,6 +14,10 @@ local FA_SOLID_FONT_CTX_KEY = "__helperbyorc_fa_solid_ctx"
 local PNG_SIGNATURE = string.char(137, 80, 78, 71, 13, 10, 26, 10)
 
 local allHints = {}
+
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 local function read_be32(bytes, index)
 	local b1, b2, b3, b4 = bytes:byte(index, index + 3)
@@ -749,8 +754,8 @@ function module.Hint_test(str_id, hint_text, color, no_center, number)
 end
 
 function module.ItemSelector(name, items, selected, fixedSize, dontDrawBorders)
-	assert(type(items) == "table" and #items > 1, "items must be array of strings")
-	assert(selected and selected[0] ~= nil, 'Wrong argument #3. Selected must be "imgui.new.int"')
+	assert(type(items) == "table" and #items > 1, L("mimgui_funcs.error.items_must_be_array_of_strings"))
+	assert(selected and selected[0] ~= nil, L("mimgui_funcs.error.selected_must_be_imgui_new_int"))
 
 	name = tostring(name or "")
 	local draw = imgui.GetWindowDrawList()

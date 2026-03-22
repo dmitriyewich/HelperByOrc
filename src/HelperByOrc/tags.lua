@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local module = {}
 
 local imgui = require("mimgui")
@@ -20,6 +25,10 @@ local mimgui_funcs
 local funcs
 
 local ok_fa, fa = pcall(require, "fAwesome7") -- необязательно, UI работает и без иконок
+local vk_module
+local vk_module_tried = false
+local game_keys_module
+local game_keys_module_tried = false
 
 local samp
 local binder_module
@@ -87,8 +96,8 @@ local settings = {
 
 -- базовые пользовательские переменные по умолчанию
 local builtin_custom_vars = {
-	myorg = "СМИ ЛС",
-	myorgrang = "Ведущий",
+	myorg = L("tags.text.text"),
+	myorgrang = L("tags.text.text_1"),
 }
 
 -- состояние таргета
@@ -99,6 +108,8 @@ local target = {
 	_notice_id = nil,
 	_blip_ped = nil, -- ped, для которого сейчас стоит маркер
 }
+local active_key_holds = {}
+local KEY_EMULATE_TAP_MS = 35
 
 local function resolve_binder()
 	if binder_module then
@@ -110,6 +121,30 @@ local function resolve_binder()
 		return binder_module
 	end
 	return nil
+end
+
+local function get_vk_module()
+	if vk_module or vk_module_tried then
+		return vk_module
+	end
+	vk_module_tried = true
+	local ok, mod = pcall(require, "vkeys")
+	if ok and mod then
+		vk_module = mod
+	end
+	return vk_module
+end
+
+local function get_game_keys_module()
+	if game_keys_module or game_keys_module_tried then
+		return game_keys_module
+	end
+	game_keys_module_tried = true
+	local ok, mod = pcall(require, "game.keys")
+	if ok and mod then
+		game_keys_module = mod
+	end
+	return game_keys_module
 end
 
 -- ========== УТИЛИТЫ ==========
@@ -282,9 +317,9 @@ local function read_target_once()
 					target.last_id = id
 					if settings.show_target_notice and target._notice_id ~= id then
 						if event_bus_ref then
-							event_bus_ref.emit("toast", ("[Tags] Выбран target id: %d"):format(id), "ok", 2.5)
+							event_bus_ref.emit("toast", (L("tags.text.tags_target_id_number")):format(id), "ok", 2.5)
 						else
-							toasts_module.push(("[Tags] Выбран target id: %d"):format(id), "ok", 2.5)
+							toasts_module.push((L("tags.text.tags_target_id_number")):format(id), "ok", 2.5)
 						end
 						target._notice_id = id
 					end
@@ -349,6 +384,55 @@ local function get_nick_by_id(id)
 		end
 	end
 	return nil
+end
+
+local function format_player_stat(value)
+	value = tonumber(value)
+	if value == nil or value ~= value or value == math.huge or value == -math.huge then
+		return ""
+	end
+	return tostring(value)
+end
+
+local function get_health_and_armour_by_id(id)
+	local samp_module = samp
+	if not (samp_module and samp_module.GetHealthAndArmour) then
+		return nil, nil
+	end
+
+	if id == nil then
+		if not samp_module.Local_ID then
+			return nil, nil
+		end
+		local ok_local, local_id = pcall(samp_module.Local_ID)
+		if not ok_local or local_id == nil then
+			return nil, nil
+		end
+		id = local_id
+	else
+		id = tonumber((tostring(id or "")):match("^%s*(.-)%s*$"))
+		if id == nil then
+			return nil, nil
+		end
+		id = math.floor(id)
+	end
+
+	local ok_stats, health, armour = pcall(samp_module.GetHealthAndArmour, id)
+	if not ok_stats then
+		return nil, nil
+	end
+
+	return health, armour
+end
+
+local function get_health_by_id(id)
+	local health = get_health_and_armour_by_id(id)
+	return format_player_stat(health)
+end
+
+local function get_armour_by_id(id)
+	local _, armour = get_health_and_armour_by_id(id)
+	return format_player_stat(armour)
 end
 
 -- ========== ЛИСТАБЕЛЬНЫЕ ПАРСЕРЫ ПАРАМЕТРОВ ==========
@@ -429,23 +513,23 @@ local function exec_bind_tag_action(action, param, thisbind_value, opts)
 	opts = opts or {}
 	local binder = resolve_binder()
 	if not binder then
-		log_chat("[Tags] [bind...] недоступен: модуль binder не подключён", 0xAA3333)
+		log_chat(L("tags.text.tags_bind_binder"), 0xAA3333)
 		return opts.default or ""
 	end
 	if type(binder.executeBindTagAction) ~= "function" then
-		log_chat("[Tags] [bind...] недоступен: executeBindTagAction не найден", 0xAA3333)
+		log_chat(L("tags.text.tags_bind_executebindtagaction"), 0xAA3333)
 		return opts.default or ""
 	end
 
 	local ok_call, ok_action, result, err =
 		pcall(binder.executeBindTagAction, action, tostring(param or ""), thisbind_value)
 	if not ok_call then
-		log_chat("[Tags] Ошибка в [bind...]: " .. tostring(ok_action), 0xAA3333)
+		log_chat(L("tags.text.tags_bind") .. tostring(ok_action), 0xAA3333)
 		return opts.default or ""
 	end
 	if not ok_action then
 		if not opts.silent_fail then
-			log_chat(("[Tags] [%s(...)]: %s"):format(tostring(action), tostring(err or "ошибка")), 0xAA3333)
+			log_chat(("[Tags] [%s(...)]: %s"):format(tostring(action), tostring(err or L("tags.text.text_2"))), 0xAA3333)
 		end
 		return opts.default or ""
 	end
@@ -504,6 +588,251 @@ local function yield_or_wait(ms)
 		end
 	end
 	return false
+end
+
+local function parse_integer_param(raw)
+	local text = tostring(raw or ""):match("^%s*(.-)%s*$") or ""
+	if text == "" then
+		return nil
+	end
+
+	local sign, hex = text:match("^([+-]?)0[xX]([%da-fA-F]+)$")
+	if hex then
+		local value = tonumber(hex, 16)
+		if value and sign == "-" then
+			value = -value
+		end
+		return value
+	end
+
+	return tonumber(text)
+end
+
+local function split_semicolon_args(raw)
+	local left, right = tostring(raw or ""):match("^(.-);(.*)$")
+	if left == nil then
+		return tostring(raw or ""), nil
+	end
+	return left, right
+end
+
+local function parse_virtual_key_code(raw)
+	local key = parse_integer_param(raw)
+	if key == nil then
+		return nil, "invalid"
+	end
+	key = math.floor(key)
+	if key < 0 or key > 255 then
+		return nil, "range"
+	end
+	return key
+end
+
+local function parse_char_key_code(raw)
+	local text = tostring(raw or ""):match("^%s*(.-)%s*$") or ""
+	if text == "" then
+		return nil, "invalid"
+	end
+
+	local quoted = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+	if quoted ~= nil then
+		if #quoted ~= 1 then
+			return nil, "char_expected"
+		end
+		return string.byte(quoted), nil
+	end
+
+	if #text == 1 then
+		return string.byte(text), nil
+	end
+
+	return parse_virtual_key_code(text)
+end
+
+local function parse_game_key_state(raw)
+	local state = parse_integer_param(raw)
+	if state == nil then
+		return nil, "invalid"
+	end
+	state = math.floor(state)
+	if state < -32768 or state > 32767 then
+		return nil, "range"
+	end
+	return state
+end
+
+local function parse_duration_ms(raw)
+	local duration = parse_integer_param(raw)
+	if duration == nil then
+		return nil, "invalid"
+	end
+	duration = math.floor(duration)
+	if duration < 1 then
+		return nil, "range"
+	end
+	return duration
+end
+
+local function get_thisbind_state(thisbind_value)
+	local hk = type(thisbind_value) == "table" and thisbind_value or nil
+	return hk, hk and hk._co_state or nil
+end
+
+local function is_thisbind_stopped(thisbind_value)
+	local _, state = get_thisbind_state(thisbind_value)
+	return state and state.stopped or false
+end
+
+local function stop_thisbind(thisbind_value)
+	local hk, state = get_thisbind_state(thisbind_value)
+	if not hk then
+		return false
+	end
+	if state then
+		state.stopped = true
+	end
+	local binder = resolve_binder()
+	if binder and type(binder.stopHotkey) == "function" then
+		pcall(binder.stopHotkey, hk)
+	end
+	return true
+end
+
+local function release_emulated_key_hold(entry)
+	if not entry or entry.released then
+		return
+	end
+	entry.released = true
+
+	local setter = entry.kind == "char" and setCharKeyDown or setVirtualKeyDown
+	if type(setter) == "function" then
+		pcall(setter, entry.code, false)
+	end
+end
+
+local function begin_emulated_key_hold(kind, code, duration_ms, thisbind_value)
+	local setter = kind == "char" and setCharKeyDown or setVirtualKeyDown
+	local api_name = kind == "char" and "setCharKeyDown" or "setVirtualKeyDown"
+	if type(setter) ~= "function" then
+		return nil, "api_missing", api_name
+	end
+
+	code = math.floor(tonumber(code) or -1)
+	duration_ms = math.max(1, math.floor((tonumber(duration_ms) or 0) + 0.5))
+
+	for i = #active_key_holds, 1, -1 do
+		local hold = active_key_holds[i]
+		if hold.kind == kind and hold.code == code then
+			release_emulated_key_hold(hold)
+			table.remove(active_key_holds, i)
+		end
+	end
+
+	local ok_call, err = pcall(setter, code, true)
+	if not ok_call then
+		return nil, "press_failed", err
+	end
+
+	local entry = {
+		kind = kind,
+		code = code,
+		release_at = os.clock() * 1000 + duration_ms,
+		source_hk = type(thisbind_value) == "table" and thisbind_value or nil,
+		released = false,
+	}
+	active_key_holds[#active_key_holds + 1] = entry
+	return entry
+end
+
+local function process_active_key_holds()
+	local now_ms = os.clock() * 1000
+	for i = #active_key_holds, 1, -1 do
+		local hold = active_key_holds[i]
+		local should_release = hold.released or now_ms >= (hold.release_at or 0)
+		local hk = hold.source_hk
+		if not should_release and hk then
+			local state = hk._co_state
+			should_release = (state and state.stopped) or (hk.is_running == false and hk._awaiting_input ~= true)
+		end
+		if should_release then
+			release_emulated_key_hold(hold)
+			table.remove(active_key_holds, i)
+		end
+	end
+end
+
+local function wait_for_emulated_key_hold(entry, thisbind_value)
+	if not entry then
+		return false, "invalid_entry"
+	end
+
+	while not entry.released do
+		process_active_key_holds()
+		if entry.released then
+			break
+		end
+		if is_thisbind_stopped(thisbind_value) then
+			process_active_key_holds()
+			return false, "stopped"
+		end
+
+		local now_ms = os.clock() * 1000
+		local remaining = math.max(0, (entry.release_at or now_ms) - now_ms)
+		if remaining <= 0 then
+			process_active_key_holds()
+			break
+		end
+
+		local sleep_ms = remaining > 50 and 50 or remaining
+		if not yield_or_wait(sleep_ms) then
+			release_emulated_key_hold(entry)
+			process_active_key_holds()
+			return false, "no_yield"
+		end
+	end
+
+	return true
+end
+
+local function release_all_key_holds()
+	for i = #active_key_holds, 1, -1 do
+		release_emulated_key_hold(active_key_holds[i])
+		active_key_holds[i] = nil
+	end
+end
+
+local function wait_for_dialog_open(timeout_ms, thisbind_value)
+	if not (samp and samp.isDialogActive) then
+		return false, "no_samp"
+	end
+
+	timeout_ms = math.max(0, math.floor((tonumber(timeout_ms) or 0) + 0.5))
+	local deadline = os.clock() * 1000 + timeout_ms
+
+	while (os.clock() * 1000) < deadline do
+		local ok_active, active = pcall(samp.isDialogActive)
+		if ok_active and active then
+			return true
+		end
+		if is_thisbind_stopped(thisbind_value) then
+			return false, "stopped"
+		end
+
+		local remaining = math.max(0, deadline - os.clock() * 1000)
+		if remaining <= 0 then
+			break
+		end
+		local sleep_ms = remaining > 50 and 50 or remaining
+		if not yield_or_wait(sleep_ms) then
+			return false, "no_yield"
+		end
+	end
+
+	local ok_active, active = pcall(samp.isDialogActive)
+	if ok_active and active then
+		return true
+	end
+	return false, "timeout"
 end
 
 local function split_ifandor_param(raw)
@@ -761,9 +1090,9 @@ local function resolve_chatwords(param)
 	local line, err = read_chat_line_by_index(line_idx)
 	if not line then
 		if err == "no_reader" then
-			log_chat("[Tags] [chatwords(...)] недоступен: sampGetChatString не найден", 0xAA3333)
+			log_chat(L("tags.text.tags_chatwords_sampgetchatstring"), 0xAA3333)
 		elseif err == "read_fail" then
-			log_chat("[Tags] [chatwords(...)] не удалось прочитать строку чата", 0xAA3333)
+			log_chat(L("tags.text.tags_chatwords"), 0xAA3333)
 		end
 		return ""
 	end
@@ -798,13 +1127,97 @@ local function resolve_chatwordsex(param, thisbind_value)
 		return { string.match(source, pattern) }
 	end)
 	if not ok_match then
-		log_chat("[Tags] Ошибка в [chatwordsex(...)]: " .. tostring(captures), 0xAA3333)
+		log_chat(L("tags.text.tags_chatwordsex") .. tostring(captures), 0xAA3333)
 		return ""
 	end
 	if type(captures) ~= "table" or #captures == 0 then
 		return ""
 	end
 	return tostring(captures[idx] or "")
+end
+
+local function get_active_command_params(thisbind_value)
+	local hk = type(thisbind_value) == "table" and thisbind_value or nil
+	if not hk then
+		return nil
+	end
+
+	local input = tostring(hk._active_command_trigger_text or ""):match("^%s*(.-)%s*$") or ""
+	local command = tostring(hk._active_command_trigger_command or hk.command or ""):match("^%s*(.-)%s*$") or ""
+	if input == "" or command == "" then
+		return nil
+	end
+
+	local command_len = #command
+	if input:sub(1, command_len) ~= command then
+		return nil
+	end
+	if #input > command_len and input:sub(command_len + 1, command_len + 1) ~= " " then
+		return nil
+	end
+
+	local args_raw = input:sub(command_len + 1)
+	args_raw = args_raw:match("^%s*(.-)%s*$") or ""
+	return split_chatwords_objects(args_raw)
+end
+
+local function resolve_paramcmd(param, thisbind_value)
+	local args = get_active_command_params(thisbind_value)
+	if not args then
+		return ""
+	end
+
+	local selector = tostring(param or ""):match("^%s*(.-)%s*$") or ""
+	selector = selector:gsub("%s+", "")
+	if selector == "" then
+		return ""
+	end
+
+	local single = tonumber(selector:match("^(%d+)$"))
+	if single then
+		if single < 1 then
+			return ""
+		end
+		return tostring(args[single] or "")
+	end
+
+	local from = tonumber(selector:match("^(%d+)%+$"))
+	if from then
+		if from < 1 or from > #args then
+			return ""
+		end
+		return table.concat(args, " ", from, #args)
+	end
+
+	local upto = tonumber(selector:match("^(%d+)%-$"))
+	if upto then
+		if upto < 1 or #args == 0 then
+			return ""
+		end
+		if upto > #args then
+			upto = #args
+		end
+		return table.concat(args, " ", 1, upto)
+	end
+
+	local range_from, range_to = selector:match("^(%d+)%-(%d+)$")
+	if range_from and range_to then
+		range_from = tonumber(range_from)
+		range_to = tonumber(range_to)
+		if not range_from or not range_to or range_from < 1 or range_to < range_from then
+			return ""
+		end
+		if range_from > #args then
+			return ""
+		end
+		if range_to > #args then
+			range_to = #args
+		end
+		return table.concat(args, " ", range_from, range_to)
+	end
+
+	log_chat(L("tags.text.tags_paramcmd_n_n_n_n_m"), 0xAA3333)
+	return ""
 end
 
 local function normalize_dialogitem_search_text(raw_text)
@@ -864,6 +1277,81 @@ local function get_dialogitem_header_lines_to_skip()
 	return 0
 end
 
+local function normalize_dialog_list_item_text(raw_text)
+	local text = tostring(raw_text or "")
+	text = text:gsub("{......}", "")
+	text = text:gsub("\t", " | ")
+	text = text:match("^%s*(.-)%s*$") or ""
+	return text
+end
+
+local function collect_dialog_list_items(raw_text, header_lines_to_skip)
+	local items = {}
+	local header_lines = {}
+	local skip = math.max(0, tonumber(header_lines_to_skip) or 0)
+	local raw_line_index = 0
+	local text = tostring(raw_text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
+
+	for line in (text .. "\n"):gmatch("(.-)\n") do
+		if raw_line_index < skip then
+			local header_text = normalize_dialog_list_item_text(line)
+			if header_text ~= "" then
+				header_lines[#header_lines + 1] = header_text
+			end
+		else
+			items[#items + 1] = {
+				index0 = raw_line_index - skip,
+				index1 = raw_line_index - skip + 1,
+				text = normalize_dialog_list_item_text(line),
+				raw_text = tostring(line or ""),
+			}
+		end
+		raw_line_index = raw_line_index + 1
+	end
+
+	return items, table.concat(header_lines, " | ")
+end
+
+local function read_active_dialog_list_items(use_utf8)
+	if not samp then
+		return nil, nil, "no_samp"
+	end
+	if not (samp.isDialogActive and samp.isDialogActive()) then
+		return nil, nil, "no_dialog"
+	end
+
+	local dialog_style = samp.GetCurrentDialogStyle and samp.GetCurrentDialogStyle() or nil
+	if samp.isDialogListStyle and not samp.isDialogListStyle(dialog_style) then
+		return nil, nil, "not_list"
+	end
+	if not samp.sampGetDialogText then
+		return nil, nil, "no_reader"
+	end
+
+	local ok_text, raw_text = pcall(samp.sampGetDialogText)
+	if not ok_text then
+		return nil, nil, "read_fail"
+	end
+
+	local source_text = raw_text or ""
+	if use_utf8 then
+		source_text = to_utf8_safe(source_text)
+	end
+
+	local items, header_text = collect_dialog_list_items(source_text, get_dialogitem_header_lines_to_skip())
+	if samp.GetCurrentDialogListboxItemsCount then
+		local ok_count, count = pcall(samp.GetCurrentDialogListboxItemsCount)
+		count = ok_count and tonumber(count) or nil
+		if count and count >= 0 and count < #items then
+			while #items > count do
+				table.remove(items)
+			end
+		end
+	end
+
+	return items, header_text, nil
+end
+
 local function find_dialogitem_index_by_text(query, dialog_text, header_lines_to_skip)
 	local needles = build_dialogitem_search_variants(query)
 	if #needles == 0 then
@@ -910,6 +1398,11 @@ local non_cache_multi_tags = {
 	wait = true,
 	waitif = true,
 	math = true,
+	SetPageSize = true,
+	keyemulate = true,
+	charkeyemulate = true,
+	gamekeyemulate = true,
+	keydown = true,
 	dialogitem = true,
 	dialogtext = true,
 	dialogclose = true,
@@ -942,19 +1435,19 @@ local multi_tag_handlers = {
 	math = function(param)
 		local expr = tostring(param or ""):match("^%s*(.-)%s*$")
 		if expr == "" then
-			log_chat("[Tags] [math(...)] пустой параметр", 0xAA3333)
+			log_chat(L("tags.text.tags_math"), 0xAA3333)
 			return ""
 		end
 
-		local chunk, err = safe_load_expr(expr)
+		local chunk, err = safe_load_expr(expr, { chunk_name = "=tags.math" })
 		if not chunk then
-			log_chat("[Tags] Ошибка в [math(...)]: " .. tostring(err), 0xAA3333)
+			log_chat(L("tags.text.tags_math_3") .. tostring(err), 0xAA3333)
 			return ""
 		end
 
 		local ok, res = pcall(chunk)
 		if not ok then
-			log_chat("[Tags] Ошибка в [math(...)]: " .. tostring(res), 0xAA3333)
+			log_chat(L("tags.text.tags_math_3") .. tostring(res), 0xAA3333)
 			return ""
 		end
 		if res == nil then
@@ -967,19 +1460,19 @@ local multi_tag_handlers = {
 	ifandor = function(param, thisbind_value, depth)
 		local cond_raw, true_raw, false_raw = split_ifandor_param(param)
 		if not cond_raw then
-			log_chat("[Tags] Ошибка в [ifandor(...)]: ожидается формат condition?true:false", 0xAA3333)
+			log_chat(L("tags.text.tags_ifandor_conditionyatrue_false"), 0xAA3333)
 			return ""
 		end
 
 		local cond_expr = module.change_tags(cond_raw, thisbind_value, depth)
-		local chunk, err = safe_load_expr(cond_expr)
+		local chunk, err = safe_load_expr(cond_expr, { chunk_name = "=tags.ifandor" })
 		local cond_ok = false
 		if not chunk then
-			log_chat("[Tags] Ошибка в [ifandor(...)]: " .. tostring(err), 0xAA3333)
+			log_chat(L("tags.text.tags_ifandor") .. tostring(err), 0xAA3333)
 		else
 			local ok, res = pcall(chunk)
 			if not ok then
-				log_chat("[Tags] Ошибка в [ifandor(...)]: " .. tostring(res), 0xAA3333)
+				log_chat(L("tags.text.tags_ifandor") .. tostring(res), 0xAA3333)
 			else
 				cond_ok = not not res
 			end
@@ -992,26 +1485,30 @@ local multi_tag_handlers = {
 	-- выполнить Lua-код без вставки текста
 	call = function(param)
 		if not settings.allow_unsafe then
-			log_chat("[Tags] [call(...)] отклонён: небезопасный режим выключен", 0xAA3333)
+			log_chat(L("tags.text.tags_call"), 0xAA3333)
 			return ""
 		end
 		local expr = tostring(param or "")
-		local chunk, err = safe_load_expr(expr)
+		local chunk, err = safe_load_expr(expr, {
+			allow_call_api = true,
+			allow_statements = true,
+			chunk_name = "=tags.call",
+		})
 		if not chunk then
-			log_chat("[Tags] Ошибка в [call(...)]: " .. tostring(err), 0xAA3333)
+			log_chat(L("tags.text.tags_call_4") .. tostring(err), 0xAA3333)
 			return ""
 		end
 		if lua_thread and lua_thread.create then
 			lua_thread.create(function()
 				local ok_exec, exec_err = pcall(chunk)
 				if not ok_exec then
-					log_chat("[Tags] Ошибка в [call(...)]: " .. tostring(exec_err), 0xAA3333)
+					log_chat(L("tags.text.tags_call_4") .. tostring(exec_err), 0xAA3333)
 				end
 			end)
 		else
 			local ok_exec, exec_err = pcall(chunk)
 			if not ok_exec then
-				log_chat("[Tags] Ошибка в [call(...)]: " .. tostring(exec_err), 0xAA3333)
+				log_chat(L("tags.text.tags_call_4") .. tostring(exec_err), 0xAA3333)
 			end
 		end
 		return ""
@@ -1025,24 +1522,24 @@ local multi_tag_handlers = {
 		end
 		local ms = tonumber(expr)
 		if not ms then
-			local chunk, err = safe_load_expr(expr)
+			local chunk, err = safe_load_expr(expr, { chunk_name = "=tags.wait" })
 			if not chunk then
-				log_chat("[Tags] Ошибка в [wait(...)]: " .. tostring(err), 0xAA3333)
+				log_chat(L("tags.text.tags_wait") .. tostring(err), 0xAA3333)
 				return ""
 			end
 			local ok, res = pcall(chunk)
 			if not ok then
-				log_chat("[Tags] Ошибка в [wait(...)]: " .. tostring(res), 0xAA3333)
+				log_chat(L("tags.text.tags_wait") .. tostring(res), 0xAA3333)
 				return ""
 			end
 			ms = tonumber(res)
 		end
 		if not ms then
-			log_chat("[Tags] [wait(...)] ожидает число миллисекунд", 0xAA3333)
+			log_chat(L("tags.text.tags_wait_5"), 0xAA3333)
 			return ""
 		end
 		if not yield_or_wait(ms) then
-			log_chat("[Tags] [wait(...)] не может быть выполнен в этом контексте", 0xAA3333)
+			log_chat(L("tags.text.tags_wait_6"), 0xAA3333)
 		end
 		return ""
 	end,
@@ -1057,14 +1554,14 @@ local multi_tag_handlers = {
 		local deadline = os.clock() + 10.0
 		while os.clock() < deadline do
 			local expr = module.change_tags(raw_expr, thisbind_value, depth)
-			local chunk, err = safe_load_expr(expr)
+			local chunk, err = safe_load_expr(expr, { chunk_name = "=tags.waitif" })
 			if not chunk then
 				if not had_compile_error then
-					log_chat("[Tags] Ошибка в [waitif(...)]: " .. tostring(err), 0xAA3333)
+					log_chat(L("tags.text.tags_waitif") .. tostring(err), 0xAA3333)
 					had_compile_error = true
 				end
 				if not yield_or_wait(50) then
-					log_chat("[Tags] [waitif(...)] не может быть выполнен в этом контексте", 0xAA3333)
+					log_chat(L("tags.text.tags_waitif_7"), 0xAA3333)
 					break
 				end
 			else
@@ -1074,17 +1571,154 @@ local multi_tag_handlers = {
 					break
 				end
 				if not ok then
-					log_chat("[Tags] Ошибка в [waitif(...)]: " .. tostring(res), 0xAA3333)
+					log_chat(L("tags.text.tags_waitif") .. tostring(res), 0xAA3333)
 					break
 				end
 				if not yield_or_wait(50) then
-					log_chat("[Tags] [waitif(...)] не может быть выполнен в этом контексте", 0xAA3333)
+					log_chat(L("tags.text.tags_waitif_7"), 0xAA3333)
 					break
 				end
 			end
 		end
 		if os.clock() >= deadline then
-			log_chat("[Tags] [waitif(...)] прервано по таймауту (10 сек)", 0xAA3333)
+			log_chat(L("tags.text.tags_waitif_10"), 0xAA3333)
+		end
+		return ""
+	end,
+
+	keyemulate = function(param, thisbind_value)
+		local key, reason = parse_virtual_key_code(param)
+		if not key then
+			if reason == "range" then
+				log_chat(L("tags.text.tags_keyemulate_0_255"), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_keyemulate"), 0xAA3333)
+			end
+			return ""
+		end
+
+		local hold, err_kind, err = begin_emulated_key_hold("virtual", key, KEY_EMULATE_TAP_MS, thisbind_value)
+		if not hold then
+			if err_kind == "api_missing" then
+				log_chat(L("tags.text.tags_keyemulate_8") .. tostring(err), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_keyemulate_9") .. tostring(err), 0xAA3333)
+			end
+			return ""
+		end
+
+		local ok_wait, wait_err = wait_for_emulated_key_hold(hold, thisbind_value)
+		if not ok_wait and wait_err == "no_yield" then
+			log_chat(L("tags.text.tags_keyemulate_10"), 0xAA3333)
+		end
+		return ""
+	end,
+
+	charkeyemulate = function(param, thisbind_value)
+		local key, reason = parse_char_key_code(param)
+		if not key then
+			if reason == "char_expected" then
+				log_chat(L("tags.text.tags_charkeyemulate"), 0xAA3333)
+			elseif reason == "range" then
+				log_chat(L("tags.text.tags_charkeyemulate_0_255"), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_charkeyemulate_11"), 0xAA3333)
+			end
+			return ""
+		end
+
+		local hold, err_kind, err = begin_emulated_key_hold("char", key, KEY_EMULATE_TAP_MS, thisbind_value)
+		if not hold then
+			if err_kind == "api_missing" then
+				log_chat(L("tags.text.tags_charkeyemulate_12") .. tostring(err), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_charkeyemulate_13") .. tostring(err), 0xAA3333)
+			end
+			return ""
+		end
+
+		local ok_wait, wait_err = wait_for_emulated_key_hold(hold, thisbind_value)
+		if not ok_wait and wait_err == "no_yield" then
+			log_chat(L("tags.text.tags_charkeyemulate_14"), 0xAA3333)
+		end
+		return ""
+	end,
+
+	gamekeyemulate = function(param)
+		if type(setGameKeyState) ~= "function" then
+			log_chat(L("tags.text.tags_gamekeyemulate_setgamekeystate"), 0xAA3333)
+			return ""
+		end
+
+		local key_raw, state_raw = split_semicolon_args(param)
+		local key = parse_integer_param(key_raw)
+		if key == nil then
+			log_chat(L("tags.text.tags_gamekeyemulate"), 0xAA3333)
+			return ""
+		end
+		key = math.floor(key)
+
+		local state = 32767
+		if state_raw ~= nil and state_raw:match("%S") then
+			local parsed_state, reason = parse_game_key_state(state_raw)
+			if parsed_state == nil then
+				if reason == "range" then
+					log_chat(L("tags.text.tags_gamekeyemulate_32768_32767"), 0xAA3333)
+				else
+					log_chat(L("tags.text.tags_gamekeyemulate_15"), 0xAA3333)
+				end
+				return ""
+			end
+			state = parsed_state
+		end
+
+		local ok_call, err = pcall(setGameKeyState, key, state)
+		if not ok_call then
+			log_chat(L("tags.text.tags_gamekeyemulate_16") .. tostring(err), 0xAA3333)
+		end
+		return ""
+	end,
+
+	keydown = function(param, thisbind_value)
+		local key_raw, duration_raw = split_semicolon_args(param)
+		if duration_raw == nil or not duration_raw:match("%S") then
+			log_chat(L("tags.text.tags_keydown_key_milliseconds"), 0xAA3333)
+			return ""
+		end
+
+		local key, key_reason = parse_virtual_key_code(key_raw)
+		if not key then
+			if key_reason == "range" then
+				log_chat(L("tags.text.tags_keydown_0_255"), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_keydown"), 0xAA3333)
+			end
+			return ""
+		end
+
+		local duration, duration_reason = parse_duration_ms(duration_raw)
+		if not duration then
+			if duration_reason == "range" then
+				log_chat(L("tags.text.tags_keydown_0"), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_keydown_17"), 0xAA3333)
+			end
+			return ""
+		end
+
+		local hold, err_kind, err = begin_emulated_key_hold("virtual", key, duration, thisbind_value)
+		if not hold then
+			if err_kind == "api_missing" then
+				log_chat(L("tags.text.tags_keydown_18") .. tostring(err), 0xAA3333)
+			else
+				log_chat(L("tags.text.tags_keydown_19") .. tostring(err), 0xAA3333)
+			end
+			return ""
+		end
+
+		local ok_wait, wait_err = wait_for_emulated_key_hold(hold, thisbind_value)
+		if not ok_wait and wait_err == "no_yield" then
+			log_chat(L("tags.text.tags_keydown_20"), 0xAA3333)
 		end
 		return ""
 	end,
@@ -1092,25 +1726,25 @@ local multi_tag_handlers = {
 	-- получить элемент текста открытого диалога по индексу (0-based)
 	dialogtext = function(param)
 		if not samp then
-			log_chat("[Tags] [dialogtext(...)] недоступен: модуль samp не подключён", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext_samp"), 0xAA3333)
 			return ""
 		end
 
 		local raw = tostring(param or ""):match("^%s*(.-)%s*$")
 		if raw == "" then
-			log_chat("[Tags] [dialogtext(...)] пустой параметр", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext"), 0xAA3333)
 			return ""
 		end
 		raw = raw:match('^"(.*)"$') or raw:match("^'(.*)'$") or raw
 
 		local idx = tonumber(raw)
 		if idx == nil then
-			log_chat("[Tags] [dialogtext(...)] ожидается номер текста", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext_21"), 0xAA3333)
 			return ""
 		end
 		idx = math.floor(idx)
 		if idx < 0 then
-			log_chat("[Tags] [dialogtext(...)] индекс должен быть >= 0", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext_0"), 0xAA3333)
 			return ""
 		end
 
@@ -1122,12 +1756,12 @@ local multi_tag_handlers = {
 		if err == "no_dialog" then
 			return ""
 		elseif err == "no_reader" then
-			log_chat("[Tags] [dialogtext(...)] недоступен: sampGetDialogText не найден", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext_sampgetdialogtext"), 0xAA3333)
 		elseif err == "read_fail" then
-			log_chat("[Tags] [dialogtext(...)] не удалось прочитать текст диалога", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogtext_22"), 0xAA3333)
 		elseif err == "out_of_range" then
 			log_chat(
-				("[Tags] [dialogtext(...)] индекс вне диапазона: %d (элементов: %d)"):format(
+				(L("tags.text.tags_dialogtext_number_number")):format(
 					idx,
 					tonumber(total) or 0
 				),
@@ -1147,20 +1781,100 @@ local multi_tag_handlers = {
 		return resolve_chatwordsex(param, thisbind_value)
 	end,
 
-	-- открыть пункт активного диалога по имени/номеру
-	dialogitem = function(param)
+	-- parse arguments from the command that launched current bind
+	paramcmd = function(param, thisbind_value)
+		return resolve_paramcmd(param, thisbind_value)
+	end,
+
+	SetPageSize = function(param)
 		if not samp then
-			log_chat("[Tags] [dialogitem(...)] недоступен: модуль samp не подключён", 0xAA3333)
+			log_chat(L("tags.text.tags_setpagesize_samp"), 0xAA3333)
 			return ""
 		end
-		if not (samp.isDialogActive and samp.isDialogActive()) then
-			log_chat("[Tags] [dialogitem(...)] нет активного диалога", 0xAA3333)
+		if not samp.SetPageSize then
+			log_chat(L("tags.text.tags_setpagesize_setpagesize"), 0xAA3333)
 			return ""
 		end
 
 		local raw = tostring(param or ""):match("^%s*(.-)%s*$")
 		if raw == "" then
-			log_chat("[Tags] [dialogitem(...)] пустой параметр", 0xAA3333)
+			log_chat(L("tags.text.tags_setpagesize"), 0xAA3333)
+			return ""
+		end
+		raw = raw:match('^"(.*)"$') or raw:match("^'(.*)'$") or raw
+
+		local page_size = tonumber(raw)
+		if page_size == nil then
+			log_chat(L("tags.text.tags_setpagesize_23"), 0xAA3333)
+			return ""
+		end
+
+		local ok_call, ok_result, reason, min_size, max_size = pcall(samp.SetPageSize, page_size)
+		if not ok_call then
+			log_chat(L("tags.text.tags_setpagesize_24") .. tostring(ok_result), 0xAA3333)
+			return ""
+		end
+		if not ok_result then
+			if reason == "invalid_value" then
+				log_chat(L("tags.text.tags_setpagesize_23"), 0xAA3333)
+			elseif reason == "range" then
+				log_chat(
+					(L("tags.text.tags_setpagesize_format_format")):format(
+						tostring(min_size or 10),
+						tostring(max_size or 20)
+					),
+					0xAA3333
+				)
+			elseif reason == "chat_unavailable" then
+				log_chat(L("tags.text.tags_setpagesize_25"), 0xAA3333)
+			end
+			return ""
+		end
+		return ""
+	end,
+
+	GetIDByName = function(param)
+		if not samp then
+			log_chat(L("tags.text.tags_getidbyname_samp"), 0xAA3333)
+			return ""
+		end
+		if not samp.GetIDByName then
+			log_chat(L("tags.text.tags_getidbyname_getidbyname"), 0xAA3333)
+			return ""
+		end
+
+		local raw = tostring(param or ""):match("^%s*(.-)%s*$")
+		if raw == "" then
+			log_chat(L("tags.text.tags_getidbyname"), 0xAA3333)
+			return ""
+		end
+		raw = raw:match('^"(.*)"$') or raw:match("^'(.*)'$") or raw
+
+		local ok_call, id = pcall(samp.GetIDByName, raw)
+		if not ok_call then
+			log_chat(L("tags.text.tags_getidbyname_26") .. tostring(id), 0xAA3333)
+			return ""
+		end
+		if id == nil then
+			return ""
+		end
+		return tostring(id)
+	end,
+
+	-- открыть пункт активного диалога по имени/номеру
+	dialogitem = function(param)
+		if not samp then
+			log_chat(L("tags.text.tags_dialogitem_samp"), 0xAA3333)
+			return ""
+		end
+		if not (samp.isDialogActive and samp.isDialogActive()) then
+			log_chat(L("tags.text.tags_dialogitem"), 0xAA3333)
+			return ""
+		end
+
+		local raw = tostring(param or ""):match("^%s*(.-)%s*$")
+		if raw == "" then
+			log_chat(L("tags.text.tags_dialogitem_27"), 0xAA3333)
 			return ""
 		end
 		local arg = raw:match('^"(.*)"$') or raw:match("^'(.*)'$") or raw
@@ -1193,7 +1907,7 @@ local multi_tag_handlers = {
 		end
 
 		if idx == nil then
-			log_chat("[Tags] [dialogitem(...)] пункт не найден: " .. tostring(arg), 0xAA3333)
+			log_chat(L("tags.text.tags_dialogitem_28") .. tostring(arg), 0xAA3333)
 			return ""
 		end
 
@@ -1206,13 +1920,18 @@ local multi_tag_handlers = {
 		end
 		if idx < 0 or (count and idx >= count) then
 			log_chat(
-				("[Tags] [dialogitem(...)] неверный номер пункта: %s"):format(tostring(idx + 1)),
+				(L("tags.text.tags_dialogitem_format")):format(tostring(idx + 1)),
 				0xAA3333
 			)
 			return ""
 		end
 
 		local selected = false
+		local dialog_style = samp.GetCurrentDialogStyle and samp.GetCurrentDialogStyle() or nil
+		if samp.isDialogListStyle and not samp.isDialogListStyle(dialog_style) then
+			log_chat(L("tags.text.tags_dialogitem_29"), 0xAA3333)
+			return ""
+		end
 		if samp.SetCurrentDialogListItem then
 			local ok_set = pcall(samp.SetCurrentDialogListItem, idx)
 			selected = ok_set
@@ -1224,7 +1943,7 @@ local multi_tag_handlers = {
 			end
 		end
 		if not selected then
-			log_chat("[Tags] [dialogitem(...)] не удалось выбрать пункт", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogitem_30"), 0xAA3333)
 			return ""
 		end
 
@@ -1233,15 +1952,8 @@ local multi_tag_handlers = {
 			local ok_close = pcall(samp.CDialog_Close_func, 1)
 			opened = ok_close
 		end
-		if not opened and type(sampSendDialogResponse) == "function" then
-			local did = samp.SAMP_DIALOG_ID and samp.SAMP_DIALOG_ID() or nil
-			if did then
-				local ok_resp = pcall(sampSendDialogResponse, did, 1, idx, "")
-				opened = ok_resp
-			end
-		end
 		if not opened then
-			log_chat("[Tags] [dialogitem(...)] не удалось открыть выбранный пункт", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogitem_31"), 0xAA3333)
 		end
 		return ""
 	end,
@@ -1249,39 +1961,39 @@ local multi_tag_handlers = {
 	-- закрыть активный диалог (1 = Enter/ОК, 0 = Esc/Cancel)
 	dialogclose = function(param)
 		if not samp then
-			log_chat("[Tags] [dialogclose(...)] недоступен: модуль samp не подключён", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_samp"), 0xAA3333)
 			return ""
 		end
 		if not (samp.isDialogActive and samp.isDialogActive()) then
-			log_chat("[Tags] [dialogclose(...)] нет активного диалога", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose"), 0xAA3333)
 			return ""
 		end
 		if not samp.CDialog_Close_func then
-			log_chat("[Tags] [dialogclose(...)] недоступен: CDialog_Close_func не найден", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_cdialog_close_func"), 0xAA3333)
 			return ""
 		end
 
 		local raw = tostring(param or ""):match("^%s*(.-)%s*$")
 		if raw == "" then
-			log_chat("[Tags] [dialogclose(...)] ожидается 0 или 1", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_0_1"), 0xAA3333)
 			return ""
 		end
 		raw = raw:match('^"(.*)"$') or raw:match("^'(.*)'$") or raw
 
 		local button = tonumber(raw)
 		if button == nil then
-			log_chat("[Tags] [dialogclose(...)] ожидается 0 или 1", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_0_1"), 0xAA3333)
 			return ""
 		end
 		button = math.floor(button)
 		if button ~= 0 and button ~= 1 then
-			log_chat("[Tags] [dialogclose(...)] допустимы только 0 или 1", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_0_1_32"), 0xAA3333)
 			return ""
 		end
 
 		local ok_close, err = pcall(samp.CDialog_Close_func, button)
 		if not ok_close then
-			log_chat("[Tags] Ошибка в [dialogclose(...)]: " .. tostring(err), 0xAA3333)
+			log_chat(L("tags.text.tags_dialogclose_33") .. tostring(err), 0xAA3333)
 		end
 		return ""
 	end,
@@ -1289,15 +2001,15 @@ local multi_tag_handlers = {
 	-- установить текст в editbox активного диалога
 	dialogsettext = function(param)
 		if not samp then
-			log_chat("[Tags] [dialogsettext(...)] недоступен: модуль samp не подключён", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogsettext_samp"), 0xAA3333)
 			return ""
 		end
 		if not (samp.isDialogActive and samp.isDialogActive()) then
-			log_chat("[Tags] [dialogsettext(...)] нет активного диалога", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogsettext"), 0xAA3333)
 			return ""
 		end
 		if not samp.sampSetDialogEditboxText then
-			log_chat("[Tags] [dialogsettext(...)] недоступен: sampSetDialogEditboxText не найден", 0xAA3333)
+			log_chat(L("tags.text.tags_dialogsettext_sampsetdialogeditboxtext"), 0xAA3333)
 			return ""
 		end
 
@@ -1314,7 +2026,7 @@ local multi_tag_handlers = {
 
 		local ok_set, err = pcall(samp.sampSetDialogEditboxText, text_cp1251)
 		if not ok_set then
-			log_chat("[Tags] Ошибка в [dialogsettext(...)]: " .. tostring(err), 0xAA3333)
+			log_chat(L("tags.text.tags_dialogsettext_34") .. tostring(err), 0xAA3333)
 		end
 		return ""
 	end,
@@ -1393,6 +2105,12 @@ local multi_tag_handlers = {
 	surnameru = make_listable(function(id)
 		return map_surname_ru(id)
 	end),
+	health = make_listable(function(id)
+		return get_health_by_id(id)
+	end),
+	armour = make_listable(function(id)
+		return get_armour_by_id(id)
+	end),
 	-- тип транспорта игрока по ID (листабельно)
 	getvehtype = make_listable(function(param)
 		local id = tonumber((tostring(param or "")):match("^%s*(.-)%s*$"))
@@ -1436,115 +2154,139 @@ local multi_tag_handlers = {
 		local name = args[1] and args[1] ~= "" and args[1] or nil
 		local path = args[2] and args[2] ~= "" and args[2] or nil
 		funcs.Take_Screenshot(path, name)
-		return string.format("[Скриншот: %s]", name or os.date("%d.%m.%Y %H.%M.%S"))
+		return string.format(L("tags.text.format"), name or os.date("%d.%m.%Y %H.%M.%S"))
 	end,
 }
 
 
 -- описания мульти-тегов (для справки)
 local multi_tags_descriptions = {
-	nickid = { desc = "Ник игрока по ID (листабельно)", example = "[nickid(1 2 3)]" },
-	nickru = { desc = "Русский ник по ID (листабельно)", example = '[nickru(1,2,3 | ", ")]' },
-	rpnick = { desc = "РП-ник по ID (листабельно)", example = "[rpnick(4 5 6)]" },
-	name = { desc = "Имя по ID (листабельно)", example = "[name(1 2 3)]" },
-	nameru = { desc = "Имя (рус) по ID (листабельно)", example = '[nameru(1 2 3 | " / ")]' },
-	surname = { desc = "Фамилия по ID (листабельно)", example = "[surname(1, 2, 3)]" },
-	surnameru = { desc = "Фамилия (рус) по ID (листабельно)", example = "[surnameru(1 2 3)]" },
-	getvehtype = { desc = "Тип транспорта игрока по ID (листабельно)", example = "[getvehtype(5)]" },
-	strlow = { desc = "Строка в нижнем регистре", example = "[strlow(ТЕКСТ)]" },
-	math = { desc = "Вычислить математическое выражение", example = "[math(2+2)]" },
+	nickid = { desc = L("tags.text.id"), example = L("tags.example.nickid") },
+	nickru = { desc = L("tags.text.id_35"), example = L("tags.example.nickru") },
+	rpnick = { desc = L("tags.text.id_36"), example = L("tags.example.rpnick") },
+	name = { desc = L("tags.text.id_37"), example = L("tags.example.name") },
+	nameru = { desc = L("tags.text.id_38"), example = L("tags.example.nameru") },
+	surname = { desc = L("tags.text.id_39"), example = L("tags.example.surname") },
+	surnameru = { desc = L("tags.text.id_40"), example = L("tags.example.surnameru") },
+	health = { desc = L("tags.text.id_41"), example = L("tags.example.health") },
+	armour = { desc = L("tags.text.id_42"), example = L("tags.example.armour") },
+	SetPageSize = { desc = L("tags.text.pagesize"), example = L("tags.example.setpagesize") },
+	GetIDByName = { desc = L("tags.text.id_43"), example = L("tags.example.getidbyname") },
+	getvehtype = { desc = L("tags.text.id_44"), example = L("tags.example.getvehtype") },
+	strlow = { desc = L("tags.text.text_45"), example = L("tags.text.strlow") },
+	math = { desc = L("tags.text.text_46"), example = L("tags.example.math") },
 	ifandor = {
-		desc = "Вернуть один из двух вариантов по условию: condition ? true_value : false_value",
-		example = '[ifandor({id}==148?Мой ид 148:Мой ид не 148)]',
+		desc = L("tags.text.condition_ya_true_value_false_value"),
+		example = L("tags.text.ifandor_id_148ya_148_148"),
 	},
 	call = {
-		desc = "Выполнить Lua-выражение/код без вставки текста",
-		example = "[call(module.save_config())]",
+		desc = L("tags.text.lua"),
+		example = L("tags.example.call"),
 	},
 	wait = {
-		desc = "Пауза выполнения бинда на указанное число миллисекунд",
-		example = "[wait(500)]",
+		desc = L("tags.text.text_47"),
+		example = L("tags.example.wait"),
 	},
 	waitif = {
-		desc = "Пауза выполнения бинда, пока условие не станет истинным",
-		example = "[waitif(isKeyDown(0x0D))]",
+		desc = L("tags.text.text_48"),
+		example = L("tags.example.waitif"),
+	},
+	keyemulate = {
+		desc = L("tags.text.text_49"),
+		example = L("tags.example.keyemulate"),
+	},
+	charkeyemulate = {
+		desc = L("tags.text.text_50"),
+		example = L("tags.example.charkeyemulate_char"),
+	},
+	gamekeyemulate = {
+		desc = L("tags.text.gamekeyemulate_32767"),
+		example = L("tags.example.gamekeyemulate"),
+	},
+	keydown = {
+		desc = L("tags.text.text_51"),
+		example = L("tags.example.keydown"),
 	},
 	dialogitem = {
-		desc = "Открыть пункт активного диалога по названию или номеру",
-		example = "[dialogitem(Помощь)]",
+		desc = L("tags.text.text_52"),
+		example = L("tags.text.dialogitem"),
 	},
 	dialogclose = {
-		desc = "Закрыть активный диалог: 1 = положительный ответ (Enter), 0 = отрицательный (Esc)",
-		example = "[dialogclose(1)]",
+		desc = L("tags.text.text_1_enter_0_esc"),
+		example = L("tags.example.dialogclose"),
 	},
 	dialogtext = {
-		desc = "Вернуть элемент текста открытого диалога по индексу (0-based). Для выбора индекса нажми + рядом с тегом.",
-		example = "[dialogtext(69)]",
+		desc = L("tags.text.text_0_based"),
+		example = L("tags.example.dialogtext"),
 	},
 	dialogsettext = {
-		desc = "Установить текст в editbox активного диалога",
-		example = '[dialogsettext("Текст")]',
+		desc = L("tags.text.editbox"),
+		example = L("tags.text.dialogsettext"),
 	},
 	chatwords = {
-		desc = "Get text from chat line by selector: N, N+, N-, A-B, line;selector",
-		example = "[chatwords(98;4+)]",
+		desc = L("tags.text.chatwords_desc"),
+		example = L("tags.example.chatwords"),
 	},
 	chatwordsex = {
-		desc = "Get capture from Lua pattern of current chat trigger message",
-		example = "[chatwordsex(1)]",
+		desc = L("tags.text.chatwordsex_desc"),
+		example = L("tags.example.chatwordsex"),
+	},
+	paramcmd = {
+		desc = L("tags.text.n_n_n_n_m"),
+		example = L("tags.example.paramcmd"),
 	},
 	binddisable = {
-		desc = "Выключить (деактивировать) бинд",
-		example = '[binddisable("Флудер")]',
+		desc = L("tags.text.text_53"),
+		example = L("tags.text.binddisable"),
 	},
 	bindenable = {
-		desc = "Включить деактивированный бинд",
-		example = '[bindenable("Флудер")]',
+		desc = L("tags.text.text_54"),
+		example = L("tags.text.bindenable"),
 	},
 	bindstart = {
-		desc = "Запустить бинд",
-		example = "[bindstart({thisbind})]",
+		desc = L("tags.text.text_55"),
+		example = L("tags.example.bindstart"),
 	},
 	bindstop = {
-		desc = "Остановить запущенный бинд",
-		example = "[bindstop({thisbind})]",
+		desc = L("tags.text.text_56"),
+		example = L("tags.example.bindstop"),
 	},
 	bindpause = {
-		desc = "Поставить бинд на паузу",
-		example = '[bindpause("Лекция" "Обучение")]',
+		desc = L("tags.text.text_57"),
+		example = L("tags.text.bindpause"),
 	},
 	bindunpause = {
-		desc = "Снять бинд с паузы",
-		example = '[bindunpause("Лекция" "Обучение")]',
+		desc = L("tags.text.text_58"),
+		example = L("tags.text.bindunpause"),
 	},
 	bindfastmenu = {
-		desc = "Показывать бинд в быстром меню",
-		example = '[bindfastmenu("Лекция" "Обучение")]',
+		desc = L("tags.text.text_59"),
+		example = L("tags.text.bindfastmenu"),
 	},
 	bindunfastmenu = {
-		desc = "Не показывать бинд в быстром меню",
-		example = '[bindunfastmenu("Лекция" "Обучение")]',
+		desc = L("tags.text.text_60"),
+		example = L("tags.text.bindunfastmenu"),
 	},
 	bindrandom = {
-		desc = "Запустить случайный бинд из папки",
-		example = '[bindrandom("Обучение")]',
+		desc = L("tags.text.text_61"),
+		example = L("tags.text.bindrandom"),
 	},
 	bindended = {
-		desc = "Проверка завершения бинда: вернёт 1 или 0",
-		example = "[bindended({thisbind})]",
+		desc = L("tags.text.text_1_0"),
+		example = L("tags.example.bindended"),
 	},
 	bindstopall = {
-		desc = "Остановить все запущенные бинды",
-		example = "[bindstopall()]",
+		desc = L("tags.text.text_62"),
+		example = L("tags.example.bindstopall"),
 	},
 	bindpopup = {
-		desc = "Открыть попап со списком строк бинда для быстрой отправки",
-		example = "[bindpopup({thisbind})]",
+		desc = L("tags.text.text_63"),
+		example = L("tags.example.bindpopup"),
 	},
-	addtime = { desc = "Текущее время + мин:сек", example = '[addtime("10:10")]' },
+	addtime = { desc = L("tags.text.text_64"), example = L("tags.example.addtime") },
 	screen = {
-		desc = "Сделать скриншот. Аргументы опциональны.",
-		example = '[screen("имя_файла", "папка")]',
+		desc = L("tags.text.text_65"),
+		example = L("tags.text.screen"),
 	},
 }
 
@@ -1570,13 +2312,13 @@ _G.registerFunctionalVariable = function(name, desc, fn, opts)
 	multi_tag_handlers[name] = function(param, thisbind_value)
 		local ok, res = pcall(fn, tostring(param or ""), thisbind_value)
 		if not ok then
-			log_chat(("[Tags] Ошибка в [%s(...)]: %s"):format(name, tostring(res)), 0xAA3333)
-			return "[Ошибка " .. name .. "]"
+			log_chat((L("tags.text.tags_format_format")):format(name, tostring(res)), 0xAA3333)
+			return L("tags.text.text_66") .. name .. "]"
 		end
 		return res
 	end
 	multi_tags_descriptions[name] = {
-		desc = desc or ("Внешняя функциональная переменная '" .. name .. "'"),
+		desc = desc or (L("tags.text.text_67") .. name .. "'"),
 		example = (opts and opts.example) or ("[" .. name .. "(...)]"),
 	}
 end
@@ -1614,7 +2356,7 @@ local function load_external_vars()
 	for _, path in ipairs(files) do
 		local chunk, err = loadfile(path)
 		if not chunk then
-			log_chat(("[Tags] Не удалось загрузить '%s': %s"):format(path, tostring(err)), 0xAA3333)
+			log_chat((L("tags.text.tags_format_format_68")):format(path, tostring(err)), 0xAA3333)
 		else
 			local env = setmetatable({
 				registerVariable = _G.registerVariable,
@@ -1628,7 +2370,7 @@ local function load_external_vars()
 			local ok, perr = pcall(chunk)
 			if not ok then
 				log_chat(
-					("[Tags] Ошибка при выполнении '%s': %s"):format(path, tostring(perr)),
+					(L("tags.text.tags_format_format_69")):format(path, tostring(perr)),
 					0xAA3333
 				)
 			end
@@ -1646,39 +2388,47 @@ end
 
 -- список простых тегов (для справки)
 local simple_tags = {
-	{ name = "{id}", desc = "Ваш ID на сервере" },
-	{ name = "{nick}", desc = "Ваш ник (с тегом)" },
-	{ name = "{nickru}", desc = "Ваш ник (русскими буквами, без тега)" },
-	{ name = "{rpnick}", desc = "Ник для РП-формата" },
-	{ name = "{name}", desc = "Имя до подчёркивания" },
-	{ name = "{nameru}", desc = "Имя (русскими буквами)" },
-	{ name = "{surname}", desc = "Фамилия (после подчёркивания)" },
-	{ name = "{surnameru}", desc = "Фамилия (русскими буквами)" },
-	{ name = "{myskin}", desc = "Ваш ID скина" },
-	{ name = "{city}", desc = "Ваш город (по зоне GTA)" },
-	{ name = "{date}", desc = "Текущая дата (ДД.ММ.ГГГГ)" },
-	{ name = "{time}", desc = "Текущее время (ЧЧ:ММ:СС)" },
-	{ name = "{timenosec}", desc = "Время (без секунд)" },
-	{ name = "{myorg}", desc = "Ваша организация (можно изменить)" },
-	{ name = "{myorgrang}", desc = "Ваш ранг в организации (можно изменить)" },
+	{ name = L("tags.simple.id"), desc = L("tags.text.id_70") },
+	{ name = L("tags.simple.nick"), desc = L("tags.text.text_71") },
+	{ name = L("tags.simple.nickru"), desc = L("tags.text.text_72") },
+	{ name = L("tags.simple.rpnick"), desc = L("tags.text.text_73") },
+	{ name = L("tags.simple.name"), desc = L("tags.text.text_74") },
+	{ name = L("tags.simple.nameru"), desc = L("tags.text.text_75") },
+	{ name = L("tags.simple.surname"), desc = L("tags.text.text_76") },
+	{ name = L("tags.simple.surnameru"), desc = L("tags.text.text_77") },
+	{ name = L("tags.simple.myskin"), desc = L("tags.text.id_78") },
+	{ name = L("tags.simple.city"), desc = L("tags.text.gta") },
+	{ name = L("tags.simple.date"), desc = L("tags.text.text_79") },
+	{ name = L("tags.simple.time"), desc = L("tags.text.text_80") },
+	{ name = L("tags.simple.timenosec"), desc = L("tags.text.text_81") },
+	{ name = L("tags.simple.myorg"), desc = L("tags.text.text_82") },
+	{ name = L("tags.simple.myorgrang"), desc = L("tags.text.text_83") },
 	{
-		name = "{screen}",
-		desc = "Сделать скриншот. По умолчанию в стандартную папку с текущей датой",
+		name = L("tags.simple.screen"),
+		desc = L("tags.text.text_84"),
 	},
 
 	-- переменные по таргету (последний валидный ID)
-	{ name = "{targetid}", desc = "ID игрока, в которого вы целились последним" },
-	{ name = "{targetnick}", desc = "Ник игрока последней цели (как в SAMP)" },
-	{ name = "{targetrpnick}", desc = "Ник последней цели в RP-формате" },
-	{ name = "{targetname}", desc = "Имя последней цели" },
-	{ name = "{targetsurname}", desc = "Фамилия последней цели" },
-	{ name = "{thisbind}", desc = 'Имя и папка текущего выполняемого бинда в формате: "имя" "папка"' },
-	{ name = "{dialogactive}", desc = "Есть ли активный диалог (true/false)" },
-	{ name = "{dialogcaption}", desc = "Заголовок активного диалога" },
-	{ name = "{dialoggetselecteditem}", desc = "Текст выбранного пункта активного диалога (listbox)" },
-	{ name = "{clipboard}", desc = "Текст из буфера обмена" },
-	{ name = "{mymoney}", desc = "Количество ваших денег" },
-	{ name = "{getvehtype}", desc = "Тип транспорта, в котором вы находитесь" },
+	{ name = L("tags.simple.targetid"), desc = L("tags.text.id_85") },
+	{ name = L("tags.simple.targetnick"), desc = L("tags.text.samp") },
+	{ name = L("tags.simple.targetrpnick"), desc = L("tags.text.rp") },
+	{ name = L("tags.simple.targetname"), desc = L("tags.text.text_86") },
+	{ name = L("tags.simple.targetsurname"), desc = L("tags.text.text_87") },
+	{ name = L("tags.simple.thisbind"), desc = L("tags.text.text_88") },
+	{ name = L("tags.simple.dialogactive"), desc = L("tags.text.true_false") },
+	{
+		name = L("tags.simple.dialogwaitopen"),
+		desc = L("tags.text.text_2_89"),
+	},
+	{ name = L("tags.simple.dialogcaption"), desc = L("tags.text.text_90") },
+	{ name = L("tags.simple.getdialogid"), desc = L("tags.text.id_91") },
+	{ name = L("tags.simple.dialoggetselecteditem"), desc = L("tags.text.listbox") },
+	{ name = L("tags.simple.clipboard"), desc = L("tags.text.text_92") },
+	{ name = L("tags.simple.mymoney"), desc = L("tags.text.text_93") },
+	{ name = L("tags.simple.health"), desc = L("tags.text.text_94") },
+	{ name = L("tags.simple.armour"), desc = L("tags.text.text_95") },
+	{ name = L("tags.simple.samp_get_dialog_editbox_text"), desc = L("tags.text.editbox_96") },
+	{ name = L("tags.simple.getvehtype"), desc = L("tags.text.text_97") },
 }
 
 -- таблица тегов {var}
@@ -1707,7 +2457,7 @@ local tags = setmetatable({}, {
 		elseif key == "{screen}" then
 			return function()
 				funcs.Take_Screenshot()
-				return "[Скриншот сделан]"
+				return L("tags.text.text_98")
 			end
 		elseif key == "{rpnick}" then
 			return function()
@@ -1841,12 +2591,38 @@ local tags = setmetatable({}, {
 				end
 				return "false"
 			end
+		elseif key == "{dialogwaitopen}" then
+			return function(thisbind_value)
+				local ok_wait, reason = wait_for_dialog_open(2000, thisbind_value)
+				if ok_wait then
+					return ""
+				end
+				if reason == "timeout" then
+					log_chat(L("tags.text.tags_dialogwaitopen_2"), 0xAA8800)
+					stop_thisbind(thisbind_value)
+				elseif reason == "no_samp" then
+					log_chat(L("tags.text.tags_dialogwaitopen_samp"), 0xAA3333)
+				elseif reason == "no_yield" then
+					log_chat(L("tags.text.tags_dialogwaitopen"), 0xAA3333)
+				end
+				return ""
+			end
 		elseif key == "{dialogcaption}" then
 			return function()
 				if samp and samp.get_dialog_caption then
 					local ok, caption = pcall(samp.get_dialog_caption)
 					if ok and type(caption) == "string" then
 						return caption
+					end
+				end
+				return ""
+			end
+		elseif key == "{getdialogid}" then
+			return function()
+				if samp and samp.SAMP_DIALOG_ID then
+					local ok, dialog_id = pcall(samp.SAMP_DIALOG_ID)
+					if ok and dialog_id ~= nil then
+						return tostring(dialog_id)
 					end
 				end
 				return ""
@@ -1887,6 +2663,24 @@ local tags = setmetatable({}, {
 				end
 				return ""
 			end
+		elseif key == "{health}" then
+			return function()
+				return get_health_by_id(nil)
+			end
+		elseif key == "{armour}" then
+			return function()
+				return get_armour_by_id(nil)
+			end
+		elseif key == "{sampGetDialogEditboxText}" then
+			return function()
+				if samp and samp.sampGetDialogEditboxText then
+					local ok, text = pcall(samp.sampGetDialogEditboxText)
+					if ok and type(text) == "string" then
+						return to_utf8_safe(text)
+					end
+				end
+				return ""
+			end
 		elseif key == "{getvehtype}" then
 			return function()
 				local ped = rawget(_G, "PLAYER_PED")
@@ -1919,13 +2713,60 @@ local tags = setmetatable({}, {
 	end,
 })
 
+local non_cache_simple_tags = {
+	["{dialogwaitopen}"] = true,
+}
+
+local function parse_simple_tags(text, thisbind_value)
+	local out, pos = "", 1
+	text = tostring(text or "")
+
+	while true do
+		local start_s, start_e, key_name = text:find("{([%w_]+)}", pos)
+		if not start_s then
+			out = out .. text:sub(pos)
+			break
+		end
+
+		out = out .. text:sub(pos, start_s - 1)
+		local key = "{" .. tostring(key_name or "") .. "}"
+		local fn = tags[key]
+		if fn then
+			local out_value
+			local use_cache = not non_cache_simple_tags[key]
+			if use_cache then
+				local cached = cache_get(key)
+				if cached ~= nil then
+					out_value = cached
+				end
+			end
+			if out_value == nil then
+				local ok, res = pcall(fn, thisbind_value)
+				out_value = (ok and res and tostring(res) ~= key) and tostring(res) or ""
+				if use_cache then
+					cache_set(key, out_value)
+				end
+			end
+			out = out .. out_value
+		else
+			out = out .. key
+		end
+		pos = start_e + 1
+	end
+
+	if out:match("^%s*$") then
+		out = ""
+	end
+	return out
+end
+
 -- ========== ПАРСЕР МУЛЬТИ-ТЕГОВ ==========
 local RECURSION_LIMIT = 10
 
 local function handle_multi_tag(tag, val, thisbind_value, depth)
 	depth = (depth or 0) + 1
 	if depth > RECURSION_LIMIT then
-		return "[Ошибка: слишком глубокая вложенность]"
+		return L("tags.text.text_99")
 	end
 	local no_cache = non_cache_multi_tags[tag] and true or false
 	local cache_key = nil
@@ -1942,10 +2783,10 @@ local function handle_multi_tag(tag, val, thisbind_value, depth)
 	if handler then
 		ok, res = pcall(handler, val, thisbind_value, depth)
 		if not ok then
-			res = "[Ошибка парсинга тега: " .. tag .. "]"
+			res = L("tags.text.text_100") .. tag .. "]"
 		end
 	else
-		res = "[Неизвестный тег: " .. tag .. "]"
+		res = L("tags.text.text_101") .. tag .. "]"
 	end
 	if not no_cache and cache_key ~= nil then
 		cache_set(cache_key, res)
@@ -1957,7 +2798,7 @@ local function parse_multi_tags(text, thisbind_value, depth)
 	local out, pos = "", 1
 	depth = (depth or 0) + 1
 	if depth > RECURSION_LIMIT then
-		return "[Ошибка: слишком глубокая вложенность]"
+		return L("tags.text.text_99")
 	end
 	while true do
 		local start_s, start_e, tag = text:find("%[([%w_]+)%s*%(", pos)
@@ -2006,37 +2847,135 @@ local function parse_multi_tags(text, thisbind_value, depth)
 	return out
 end
 
-local function make_safe_env()
+local function make_readonly_api(source, label)
+	local proxy = {}
+	return setmetatable(proxy, {
+		__index = source,
+		__newindex = function()
+			error((label or "api") .. " is read-only", 2)
+		end,
+		__metatable = false,
+	})
+end
+
+local safe_math_api = make_readonly_api(math, "math")
+local safe_string_api = make_readonly_api(string, "string")
+local safe_table_api = make_readonly_api(table, "table")
+
+local function get_safe_module_api()
+	return make_readonly_api({
+		save_config = module.save_config,
+		reload_config = module.reload_config,
+		reload_external_vars = module.reload_external_vars,
+		setTargetNoticeEnabled = module.setTargetNoticeEnabled,
+		getTargetNoticeEnabled = module.getTargetNoticeEnabled,
+		getLastTargetId = module.getLastTargetId,
+		getCurrentTargetId = module.getCurrentTargetId,
+		setTargetBlipEnabled = module.setTargetBlipEnabled,
+		getTargetBlipEnabled = module.getTargetBlipEnabled,
+	}, "module")
+end
+
+local function make_blocked_call_api(name)
+	return function()
+		error("binder." .. tostring(name) .. " is not available in [call(...)]", 2)
+	end
+end
+
+local function get_safe_binder_api()
+	local binder = binder_module
+	if not binder then
+		return nil
+	end
+	return make_readonly_api({
+		findBind = binder.findBind,
+		startBind = binder.startBind,
+		stopBind = binder.stopBind,
+		disableBind = binder.disableBind,
+		enableBind = binder.enableBind,
+		pauseBind = binder.pauseBind,
+		unpauseBind = binder.unpauseBind,
+		isBindEnded = binder.isBindEnded,
+		setBindSelector = binder.setBindSelector,
+		runBind = binder.runBind,
+		runBindRandom = binder.runBindRandom,
+		enqueueHotkey = binder.enqueueHotkey,
+		stopHotkey = binder.stopHotkey,
+		stopAllHotkeys = binder.stopAllHotkeys,
+		onIncomingTextMessage = make_blocked_call_api("onIncomingTextMessage"),
+		onOutgoingChatInput = make_blocked_call_api("onOutgoingChatInput"),
+		onOutgoingCommandInput = make_blocked_call_api("onOutgoingCommandInput"),
+		onServerMessage = make_blocked_call_api("onServerMessage"),
+		onPlayerCommand = make_blocked_call_api("onPlayerCommand"),
+		sendHotkeyCoroutine = make_blocked_call_api("sendHotkeyCoroutine"),
+		getThisbindTagValue = make_blocked_call_api("getThisbindTagValue"),
+		executeBindTagAction = make_blocked_call_api("executeBindTagAction"),
+		runScheduler = make_blocked_call_api("runScheduler"),
+		doSend = make_blocked_call_api("doSend"),
+	}, "binder")
+end
+
+local function safe_require(name)
+	name = tostring(name or "")
+	if name == "HelperByOrc.binder" then
+		local binder_api = get_safe_binder_api()
+		if binder_api then
+			return binder_api
+		end
+		error("module 'HelperByOrc.binder' is not available", 2)
+	end
+	if name == "HelperByOrc.tags" then
+		return get_safe_module_api()
+	end
+	error("module '" .. name .. "' is not allowed in tags sandbox", 2)
+end
+
+local function make_safe_env(opts)
+	opts = opts or {}
 	local env = {
 		tonumber = tonumber,
 		tostring = tostring,
 		type = type,
 		pairs = pairs,
 		ipairs = ipairs,
+		next = next,
 		select = select,
 		unpack = unpack or table.unpack,
-		math = math,
-		string = string,
-		table = table,
-		module = module,
+		math = safe_math_api,
+		string = safe_string_api,
+		table = safe_table_api,
+		module = get_safe_module_api(),
 		time = os.time,
 		clock = os.clock,
 		target_last_id = function()
 			return target.last_id
 		end,
 	}
-	return setmetatable(env, { __index = _G })
+	if opts.allow_call_api then
+		env.print = print
+		env.require = safe_require
+		local binder_api = get_safe_binder_api()
+		if binder_api then
+			env.binder = binder_api
+		end
+	end
+	return env
 end
 
-safe_load_expr = function(expr)
-	local chunk, err = load("return (" .. expr .. ")")
-	if not chunk then
-		chunk, err = load(expr)
+safe_load_expr = function(expr, opts)
+	opts = opts or {}
+	local source = tostring(expr or "")
+	local chunk_name = opts.chunk_name or "=HelperByOrc.tags"
+	local chunk, err = load("return (" .. source .. ")", chunk_name)
+	if not chunk and opts.allow_statements then
+		chunk, err = load(source, chunk_name)
 		if not chunk then
 			return nil, err
 		end
+	elseif not chunk then
+		return nil, err
 	end
-	setfenv(chunk, make_safe_env())
+	setfenv(chunk, make_safe_env({ allow_call_api = opts.allow_call_api }))
 	return chunk
 end
 
@@ -2046,25 +2985,7 @@ function module.change_tags(text, thisbind_value, depth)
 	begin_parse_scope()
 	text = text or ""
 	text = parse_multi_tags(text, thisbind_value, depth)
-	text = text:gsub("{[%w_]+}", function(key)
-		local fn = tags[key]
-		if fn then
-			local cache_key = key
-			local c = cache_get(cache_key)
-			if c ~= nil then
-				return c
-			end
-			local ok, res = pcall(fn, thisbind_value)
-			local out = (ok and res and tostring(res) ~= key) and tostring(res) or ""
-			cache_set(cache_key, out)
-			return out
-		end
-		return key
-	end)
-	if text:match("^%s*$") then
-		text = ""
-	end
-	return text
+	return parse_simple_tags(text, thisbind_value)
 end
 
 -- ========== ПУБЛИЧНЫЕ API ПО TARGET / НАСТРОЙКИ ==========
@@ -2121,7 +3042,7 @@ local function get_var_list()
 	for k, v in pairs(external_variables) do
 		local tagname = "{" .. k .. "}"
 		if not exists[tagname] then
-			table.insert(out, { name = tagname, desc = v.desc or "(доп. переменная)", custom = false })
+			table.insert(out, { name = tagname, desc = v.desc or L("tags.text.text_102"), custom = false })
 		end
 	end
 	table.sort(out, function(a, b)
@@ -2174,7 +3095,7 @@ end
 
 local function CopyFlash(str)
 	imgui.SetClipboardText(str)
-	flash_copied("Скопировано: " .. str)
+	flash_copied(L("tags.text.text_103") .. str)
 end
 
 local function Badge(txt)
@@ -2188,9 +3109,10 @@ local function Badge(txt)
 	imgui.PopStyleVar(2)
 end
 
-local DIALOGTEXT_POPUP_SETTINGS = "Выбери нужное слово##dialogtext_picker_settings"
-local DIALOGTEXT_POPUP_HELP = "Выбери нужное слово##dialogtext_picker_help"
+local DIALOGTEXT_POPUP_SETTINGS = L("tags.text.dialogtext_picker_settings")
+local DIALOGTEXT_POPUP_HELP = L("tags.text.dialogtext_picker_help")
 local DIALOGTEXT_PICKER_DELAY_SEC = 0.05
+local TAG_PICKER_DELAY_SEC = 0.05
 
 local dialogtext_picker_state = {
 	pending_popup = nil,
@@ -2210,13 +3132,13 @@ local function refresh_dialogtext_picker_data()
 	local flat, rows, err = read_active_dialogtext_items(true)
 	if not flat then
 		if err == "no_samp" then
-			dialogtext_picker_state.error = "Модуль samp не подключён."
+			dialogtext_picker_state.error = L("tags.text.samp_104")
 		elseif err == "no_dialog" then
-			dialogtext_picker_state.error = "Нет активного диалога."
+			dialogtext_picker_state.error = L("tags.text.text_105")
 		elseif err == "no_reader" then
-			dialogtext_picker_state.error = "Функция sampGetDialogText недоступна."
+			dialogtext_picker_state.error = L("tags.text.sampgetdialogtext")
 		else
-			dialogtext_picker_state.error = "Не удалось прочитать текст диалога."
+			dialogtext_picker_state.error = L("tags.text.text_106")
 		end
 		return false
 	end
@@ -2230,7 +3152,7 @@ local function refresh_dialogtext_picker_data()
 		end
 	end
 	if dialogtext_picker_state.token_count == 0 then
-		dialogtext_picker_state.error = "В тексте диалога не найдено элементов."
+		dialogtext_picker_state.error = L("tags.text.text_107")
 		return false
 	end
 	return true
@@ -2238,11 +3160,11 @@ end
 
 local function request_dialogtext_picker_open(popup_id)
 	if not samp then
-		log_chat("[Tags] [dialogtext(...)] недоступен: модуль samp не подключён", 0xAA3333)
+		log_chat(L("tags.text.tags_dialogtext_samp"), 0xAA3333)
 		return
 	end
 	if not (samp.isDialogActive and samp.isDialogActive()) then
-		log_chat("[Tags] [dialogtext(...)] нет активного диалога", 0xAA3333)
+		log_chat(L("tags.text.tags_dialogtext_108"), 0xAA3333)
 		return
 	end
 	dialogtext_picker_state.pending_popup = popup_id
@@ -2288,9 +3210,9 @@ local function draw_dialogtext_picker_tokens(child_id)
 
 			imgui.PushIDInt(item.index)
 			if imgui.SmallButton(label) then
-				CopyFlash(("[dialogtext(%d)]"):format(item.index))
+				CopyFlash(L("tags.example.dialogtext_picker_copy", { index = item.index }))
 			end
-			HelpTip(("Элемент #%d\nКлик: скопировать [dialogtext(%d)]"):format(item.index, item.index))
+			HelpTip((L("tags.text.number_dialogtext_number")):format(item.index, item.index))
 			imgui.PopID()
 		end
 		if row_idx < #dialogtext_picker_state.rows then
@@ -2308,15 +3230,15 @@ local function draw_dialogtext_picker_popup(popup_id)
 
 	imgui.SetNextWindowSize(imgui.ImVec2(760, 620), imgui.Cond.Appearing)
 	if imgui.BeginPopupModal(popup_id, nil, imgui.WindowFlags.AlwaysAutoResize) then
-		imgui.TextUnformatted("Выбери нужное слово")
+		imgui.TextUnformatted(L("tags.text.text_109"))
 		if dialogtext_picker_state.caption ~= "" then
-			imgui.TextUnformatted("Диалог: " .. dialogtext_picker_state.caption)
+			imgui.TextUnformatted(L("tags.text.text_110") .. dialogtext_picker_state.caption)
 		end
-		if imgui.Button("Обновить") then
+		if imgui.Button(L("tags.text.text_111")) then
 			refresh_dialogtext_picker_data()
 		end
 		imgui.SameLine()
-		if imgui.Button("Закрыть") then
+		if imgui.Button(L("tags.text.text_112")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.Separator()
@@ -2324,12 +3246,384 @@ local function draw_dialogtext_picker_popup(popup_id)
 		if dialogtext_picker_state.error then
 			imgui.TextUnformatted(dialogtext_picker_state.error)
 		else
-			imgui.TextUnformatted(("Элементов: %d"):format(dialogtext_picker_state.token_count))
+			imgui.TextUnformatted((L("tags.text.number")):format(dialogtext_picker_state.token_count))
 			draw_dialogtext_picker_tokens("dialogtext_picker_tokens##" .. popup_id)
 		end
 
 		imgui.EndPopup()
 	end
+end
+
+local function tag_picker_popup_id(tag_name, context)
+	return ("tags_%s_picker_%s"):format(tostring(tag_name or ""), tostring(context or "default"))
+end
+
+local virtual_key_picker_entries
+local game_key_picker_entries
+local virtual_key_filter = imgui.new.char[96]()
+local game_key_filter = imgui.new.char[96]()
+local dialogitem_filter = imgui.new.char[96]()
+local keydown_duration_ms = imgui.new.int(1000)
+local game_key_state_value = imgui.new.int(32767)
+local tag_picker_state = {
+	pending_popup = nil,
+	pending_open_at = 0,
+	pending_refresh = nil,
+}
+local char_key_examples = {
+	{ copy = L("tags.example.charkeyemulate_char"), desc = L("tags.text.w_119") },
+	{ copy = L("tags.example.charkeyemulate_digit"), desc = L("tags.text.text_1_49") },
+	{ copy = L("tags.example.charkeyemulate_slash"), desc = L("tags.text.text_47_113") },
+	{ copy = L("tags.example.charkeyemulate_space"), desc = L("tags.text.text_32") },
+	{ copy = L("tags.example.charkeyemulate_code"), desc = L("tags.text.text_114") },
+}
+local dialogitem_picker_state = {
+	items = {},
+	header = "",
+	caption = "",
+	error = nil,
+}
+
+local function get_virtual_key_picker_entries()
+	if virtual_key_picker_entries then
+		return virtual_key_picker_entries
+	end
+
+	local out = {}
+	local vk = get_vk_module()
+	for code = 0, 255 do
+		local name = ""
+		if vk and type(vk.id_to_name) == "function" then
+			local ok_name, raw_name = pcall(vk.id_to_name, code)
+			if ok_name and raw_name ~= nil then
+				name = tostring(raw_name)
+			end
+		end
+		if name == "" or name == tostring(code) then
+			name = ("VK_%03d"):format(code)
+		end
+		name = name:gsub("^VK_", ""):gsub("_", " ")
+		out[#out + 1] = {
+			code = code,
+			name = name,
+			search = (name .. " " .. tostring(code)):lower(),
+		}
+	end
+
+	virtual_key_picker_entries = out
+	return virtual_key_picker_entries
+end
+
+local function get_game_key_picker_entries()
+	if game_key_picker_entries then
+		return game_key_picker_entries
+	end
+
+	local out = {}
+	local keys = get_game_keys_module()
+	local function append(group_name, list)
+		for name, code in pairs(list or {}) do
+			if type(code) == "number" then
+				local label = tostring(name):gsub("_", " ")
+				out[#out + 1] = {
+					group = group_name,
+					name = tostring(name),
+					label = label,
+					code = math.floor(code),
+					search = (group_name .. " " .. tostring(name) .. " " .. tostring(code)):lower(),
+				}
+			end
+		end
+	end
+
+	if type(keys) == "table" then
+		append("player", keys.player)
+		append("vehicle", keys.vehicle)
+	end
+
+	table.sort(out, function(a, b)
+		if a.code ~= b.code then
+			return a.code < b.code
+		end
+		if a.group ~= b.group then
+			return a.group < b.group
+		end
+		return a.name < b.name
+	end)
+
+	game_key_picker_entries = out
+	return game_key_picker_entries
+end
+
+local function refresh_dialogitem_picker_data()
+	dialogitem_picker_state.items = {}
+	dialogitem_picker_state.header = ""
+	dialogitem_picker_state.caption = ""
+	dialogitem_picker_state.error = nil
+
+	local items, header_text, err = read_active_dialog_list_items(true)
+	if not items then
+		if err == "no_samp" then
+			dialogitem_picker_state.error = L("tags.text.samp_104")
+		elseif err == "no_dialog" then
+			dialogitem_picker_state.error = L("tags.text.text_105")
+		elseif err == "not_list" then
+			dialogitem_picker_state.error = L("tags.text.text_115")
+		elseif err == "no_reader" then
+			dialogitem_picker_state.error = L("tags.text.sampgetdialogtext")
+		else
+			dialogitem_picker_state.error = L("tags.text.text_116")
+		end
+		return false
+	end
+
+	dialogitem_picker_state.items = items or {}
+	dialogitem_picker_state.header = header_text or ""
+	if samp and samp.get_dialog_caption then
+		local ok_caption, caption = pcall(samp.get_dialog_caption)
+		if ok_caption and type(caption) == "string" then
+			dialogitem_picker_state.caption = to_utf8_safe(caption)
+		end
+	end
+	if #dialogitem_picker_state.items == 0 then
+		dialogitem_picker_state.error = L("tags.text.text_117")
+		return false
+	end
+	return true
+end
+
+local function request_tag_picker_open(popup_id, refresh_fn)
+	if tag_picker_state.pending_popup == popup_id then
+		return
+	end
+	tag_picker_state.pending_popup = popup_id
+	tag_picker_state.pending_open_at = os.clock() + TAG_PICKER_DELAY_SEC
+	tag_picker_state.pending_refresh = refresh_fn
+end
+
+local function process_tag_picker_open(popup_id)
+	if tag_picker_state.pending_popup ~= popup_id then
+		return
+	end
+	if os.clock() < (tag_picker_state.pending_open_at or 0) then
+		return
+	end
+	if type(tag_picker_state.pending_refresh) == "function" then
+		tag_picker_state.pending_refresh()
+	end
+	imgui.OpenPopup(popup_id)
+	tag_picker_state.pending_popup = nil
+	tag_picker_state.pending_open_at = 0
+	tag_picker_state.pending_refresh = nil
+end
+
+local function draw_virtual_key_picker_popup(popup_id, mode)
+	process_tag_picker_open(popup_id)
+	imgui.SetNextWindowSize(imgui.ImVec2(560, 520), imgui.Cond.Appearing)
+	if not imgui.BeginPopup(popup_id) then
+		return
+	end
+
+	if mode == "keydown" then
+		imgui.TextUnformatted(L("tags.text.keydown"))
+		if imgui.InputInt(L("tags.text.text_118") .. popup_id, keydown_duration_ms, 100, 500) then
+			if keydown_duration_ms[0] < 1 then
+				keydown_duration_ms[0] = 1
+			end
+		end
+	else
+		imgui.TextUnformatted(L("tags.text.text_119"))
+	end
+
+	imgui.SetNextItemWidth(260)
+	imgui.InputText(L("tags.text.text_120") .. popup_id, virtual_key_filter, ffi.sizeof(virtual_key_filter))
+	imgui.Separator()
+
+	local filter = ffi.string(virtual_key_filter):lower()
+	imgui.BeginChild("virtual_key_picker_child##" .. popup_id, imgui.ImVec2(520, 360), true)
+	for _, item in ipairs(get_virtual_key_picker_entries()) do
+		if filter == "" or item.search:find(filter, 1, true) then
+			local copy = (mode == "keydown")
+				and L("tags.example.keydown_picker_copy", {
+					code = item.code,
+					duration = math.max(1, tonumber(keydown_duration_ms[0]) or 1000),
+				})
+				or L("tags.example.keyemulate_picker_copy", { code = item.code })
+			local label = (L("tags.format.virtual_key_picker_label")):format(item.code, item.name)
+			if imgui.Selectable(label, false) then
+				CopyFlash(copy)
+				imgui.CloseCurrentPopup()
+			end
+			HelpTip(L("tags.text.text_121") .. copy)
+		end
+	end
+	imgui.EndChild()
+
+	if imgui.Button(L("tags.text.text_122") .. popup_id) then
+		imgui.CloseCurrentPopup()
+	end
+	imgui.EndPopup()
+end
+
+local function draw_char_key_examples_popup(popup_id)
+	process_tag_picker_open(popup_id)
+	imgui.SetNextWindowSize(imgui.ImVec2(460, 250), imgui.Cond.Appearing)
+	if not imgui.BeginPopup(popup_id) then
+		return
+	end
+
+	imgui.TextUnformatted(L("tags.text.charkeyemulate"))
+	imgui.TextWrapped(L("tags.text.text_123"))
+	imgui.Separator()
+	for _, item in ipairs(char_key_examples) do
+		if imgui.Selectable(item.copy, false) then
+			CopyFlash(item.copy)
+			imgui.CloseCurrentPopup()
+		end
+		HelpTip(item.desc)
+	end
+	if imgui.Button(L("tags.text.text_122") .. popup_id) then
+		imgui.CloseCurrentPopup()
+	end
+	imgui.EndPopup()
+end
+
+local function draw_game_key_picker_popup(popup_id)
+	process_tag_picker_open(popup_id)
+	imgui.SetNextWindowSize(imgui.ImVec2(620, 520), imgui.Cond.Appearing)
+	if not imgui.BeginPopup(popup_id) then
+		return
+	end
+
+	imgui.TextUnformatted(L("tags.text.text_124"))
+	if imgui.InputInt(L("tags.text.text_125") .. popup_id, game_key_state_value, 256, 1024) then
+		if game_key_state_value[0] > 32767 then
+			game_key_state_value[0] = 32767
+		elseif game_key_state_value[0] < -32768 then
+			game_key_state_value[0] = -32768
+		end
+	end
+	HelpTip(L("tags.text.text_32767"))
+	imgui.SetNextItemWidth(260)
+	imgui.InputText(L("tags.text.text_120") .. popup_id, game_key_filter, ffi.sizeof(game_key_filter))
+	imgui.Separator()
+
+	local entries = get_game_key_picker_entries()
+	if #entries == 0 then
+		imgui.TextUnformatted(L("tags.text.game_keys"))
+	else
+		local filter = ffi.string(game_key_filter):lower()
+		imgui.BeginChild("game_key_picker_child##" .. popup_id, imgui.ImVec2(580, 340), true)
+		for _, item in ipairs(entries) do
+			if filter == "" or item.search:find(filter, 1, true) then
+				local state = math.max(-32768, math.min(32767, tonumber(game_key_state_value[0]) or 32767))
+				local copy = L("tags.example.gamekeyemulate_picker_copy", { code = item.code, state = state })
+				local label = (L("tags.format.game_key_picker_label")):format(item.code, item.group, item.label)
+				if imgui.Selectable(label, false) then
+					CopyFlash(copy)
+					imgui.CloseCurrentPopup()
+				end
+				HelpTip(L("tags.text.text_121") .. copy)
+			end
+		end
+		imgui.EndChild()
+	end
+
+	if imgui.Button(L("tags.text.text_122") .. popup_id) then
+		imgui.CloseCurrentPopup()
+	end
+	imgui.EndPopup()
+end
+
+local function draw_dialogitem_picker_popup(popup_id)
+	process_tag_picker_open(popup_id)
+	imgui.SetNextWindowSize(imgui.ImVec2(640, 520), imgui.Cond.Appearing)
+	if not imgui.BeginPopup(popup_id) then
+		return
+	end
+
+	imgui.TextUnformatted(L("tags.text.text_126"))
+	if dialogitem_picker_state.caption ~= "" then
+		imgui.TextUnformatted(L("tags.text.text_110") .. dialogitem_picker_state.caption)
+	end
+	if dialogitem_picker_state.header ~= "" then
+		imgui.TextWrapped(L("tags.text.text_127") .. dialogitem_picker_state.header)
+	end
+	if imgui.Button(L("tags.text.text_128") .. popup_id) then
+		refresh_dialogitem_picker_data()
+	end
+	imgui.SameLine()
+	if imgui.Button(L("tags.text.text_122") .. popup_id) then
+		imgui.CloseCurrentPopup()
+	end
+	imgui.SetNextItemWidth(260)
+	imgui.InputText(L("tags.text.text_120") .. popup_id, dialogitem_filter, ffi.sizeof(dialogitem_filter))
+	imgui.Separator()
+
+	if dialogitem_picker_state.error then
+		imgui.TextUnformatted(dialogitem_picker_state.error)
+	else
+		local filter = ffi.string(dialogitem_filter):lower()
+		imgui.BeginChild("dialogitem_picker_child##" .. popup_id, imgui.ImVec2(600, 340), true)
+		for _, item in ipairs(dialogitem_picker_state.items) do
+			local visible_text = item.text ~= "" and item.text or L("tags.text.text_129")
+			local search = (visible_text .. " " .. tostring(item.index1)):lower()
+			if filter == "" or search:find(filter, 1, true) then
+				local copy = L("tags.example.dialogitem_picker_copy", { index = item.index1 })
+				local label = (L("tags.format.dialogitem_picker_label")):format(item.index1, visible_text)
+				if imgui.Selectable(label, false) then
+					CopyFlash(copy)
+					imgui.CloseCurrentPopup()
+				end
+				HelpTip(L("tags.text.text_121") .. copy)
+			end
+		end
+		imgui.EndChild()
+	end
+
+	imgui.EndPopup()
+end
+
+local function draw_tag_picker_button(tag_name, context)
+	local popup_id
+	local tooltip
+	local refresh_fn
+
+	if tag_name == "keyemulate" then
+		popup_id = tag_picker_popup_id(tag_name, context)
+		tooltip = L("tags.text.text_130")
+	elseif tag_name == "keydown" then
+		popup_id = tag_picker_popup_id(tag_name, context)
+		tooltip = L("tags.text.keydown_key_ms")
+	elseif tag_name == "charkeyemulate" then
+		popup_id = tag_picker_popup_id(tag_name, context)
+		tooltip = L("tags.text.text_131")
+	elseif tag_name == "gamekeyemulate" then
+		popup_id = tag_picker_popup_id(tag_name, context)
+		tooltip = L("tags.text.text_132")
+	elseif tag_name == "dialogitem" then
+		popup_id = tag_picker_popup_id(tag_name, context)
+		tooltip = L("tags.text.text_133")
+		refresh_fn = refresh_dialogitem_picker_data
+	else
+		return false
+	end
+
+	local opened = imgui.SmallButton("+##" .. popup_id)
+	if opened then
+		request_tag_picker_open(popup_id, refresh_fn)
+	end
+	HelpTip(tooltip)
+	imgui.SameLine()
+	return true
+end
+
+local function draw_tag_picker_popups(context)
+	draw_virtual_key_picker_popup(tag_picker_popup_id("keyemulate", context), "keyemulate")
+	draw_virtual_key_picker_popup(tag_picker_popup_id("keydown", context), "keydown")
+	draw_char_key_examples_popup(tag_picker_popup_id("charkeyemulate", context))
+	draw_game_key_picker_popup(tag_picker_popup_id("gamekeyemulate", context))
+	draw_dialogitem_picker_popup(tag_picker_popup_id("dialogitem", context))
 end
 
 -- локальные буферы для поиска/ввода
@@ -2346,27 +3640,27 @@ local rename_popup_seeded = false
 function module.DrawSettingsPage()
 	imgui.TextColored(
 		imgui.ImVec4(0.75, 1, 1, 1),
-		"Переменные и теги — удобно и без лишнего шума"
+		L("tags.text.text_134")
 	)
 	imgui.Separator()
 
 	if imgui.BeginTabBar("tags_tabbar") then
 		-- === ВКЛАДКА: Основное ===
-		if imgui.BeginTabItem("Основное") then
-			imgui.Text("Быстрые настройки")
+		if imgui.BeginTabItem(L("tags.text.text_135")) then
+			imgui.Text(L("tags.text.text_136"))
 			imgui.BeginChild("main_opts", imgui.ImVec2(0, 175), true)
 
 			-- Показ уведомления о target
 			do
 				local v = ffi.new("bool[1]", settings.show_target_notice and true or false)
-				if imgui.Checkbox("Показывать уведомление о {targetid}", v) then
+				if imgui.Checkbox(L("tags.text.targetid"), v) then
 					settings.show_target_notice = v[0] and true or false
 					save_config()
 				end
 				imgui.SameLine()
 				Badge("{targetid}")
 				HelpTip(
-					"При смене цели выводится всплывашка с ID. Удобно, если часто используешь теги по цели."
+					L("tags.text.id_137")
 				)
 			end
 
@@ -2374,20 +3668,20 @@ function module.DrawSettingsPage()
 			do
 				local v = ffi.new("bool[1]", settings.allow_unsafe and true or false)
 				if
-					imgui.Checkbox("Разрешить [call] (только если понимаешь риски)", v)
+					imgui.Checkbox(L("tags.text.call"), v)
 				then
 					settings.allow_unsafe = v[0] and true or false
 					save_config()
 				end
 				HelpTip(
-					"Выполнение Lua-выражений из строки. Включай только для своих шаблонов. На чужие не ставь."
+					L("tags.text.lua_138")
 				)
 			end
 
 			-- Маркер над педом при выборе цели
 			do
 				local v = ffi.new("bool[1]", settings.show_target_blip and true or false)
-				if imgui.Checkbox("Показывать маркер над педом при выборе цели", v) then
+				if imgui.Checkbox(L("tags.text.text_139"), v) then
 					settings.show_target_blip = v[0] and true or false
 					if settings.show_target_blip then
 						if target.current_ped then
@@ -2399,26 +3693,26 @@ function module.DrawSettingsPage()
 					save_config()
 				end
 				HelpTip(
-					"Когда включено — над выбранным игроком в прицеле появляется зелёный маркер. Маркер снимается при потере цели или выключении опции."
+					L("tags.text.text_140")
 				)
 			end
 
 			imgui.EndChild()
 
 			-- Управление конфигом
-			imgui.Text("Конфиг")
+			imgui.Text(L("tags.text.text_141"))
 			imgui.BeginChild("cfg_ops", imgui.ImVec2(0, 70), true)
-			if imgui.Button(" Сохранить сейчас") then
+			if imgui.Button(L("tags.text.text_142")) then
 				save_config()
-				flash_copied("Конфиг сохранён")
+				flash_copied(L("tags.text.text_143"))
 			end
 			imgui.SameLine()
-			if imgui.Button(" Перечитать из файла") then
+			if imgui.Button(L("tags.text.text_144")) then
 				module.reload_config()
-				flash_copied("Конфиг перечитан")
+				flash_copied(L("tags.text.text_145"))
 			end
 			imgui.SameLine()
-			if imgui.Button(" Сброс к дефолту") then
+			if imgui.Button(L("tags.text.text_146")) then
 				custom_vars = {}
 				for k, v in pairs(builtin_custom_vars) do
 					custom_vars[k] = v
@@ -2430,7 +3724,7 @@ function module.DrawSettingsPage()
 				rebuild_cvar_buffers()
 				save_config()
 				clear_parse_cache()
-				flash_copied("Сброшено к дефолту")
+				flash_copied(L("tags.text.text_147"))
 			end
 			imgui.EndChild()
 
@@ -2438,22 +3732,22 @@ function module.DrawSettingsPage()
 		end
 
 		-- === ВКЛАДКА: Переменные ===
-		if imgui.BeginTabItem("Переменные") then
-			imgui.Text("Кастомные переменные")
+		if imgui.BeginTabItem(L("tags.text.text_148")) then
+			imgui.Text(L("tags.text.text_149"))
 			imgui.BeginChild("vars_child", imgui.ImVec2(0, -140), true)
 
 			-- Поиск
 			imgui.SetNextItemWidth(240)
-			imgui.InputText(" Поиск по имени/значению", filter_vars, ffi.sizeof(filter_vars))
+			imgui.InputText(L("tags.text.text_150"), filter_vars, ffi.sizeof(filter_vars))
 			local fstr = ffi.string(filter_vars):lower()
 
 			imgui.Separator()
 			imgui.Columns(3, "vars_cols", false)
-			imgui.Text("Имя")
+			imgui.Text(L("tags.text.text_151"))
 			imgui.NextColumn()
-			imgui.Text("Значение")
+			imgui.Text(L("tags.text.text_152"))
 			imgui.NextColumn()
-			imgui.Text("Действия")
+			imgui.Text(L("tags.text.text_153"))
 			imgui.NextColumn()
 			imgui.Separator()
 
@@ -2483,16 +3777,16 @@ function module.DrawSettingsPage()
 					end
 					imgui.NextColumn()
 					-- Кнопки
-					if imgui.SmallButton(" Коп.") then
+					if imgui.SmallButton(L("tags.text.text_154")) then
 						CopyFlash("{" .. name .. "}")
 					end
 					imgui.SameLine()
-					if imgui.SmallButton(" Переим.") then
+					if imgui.SmallButton(L("tags.text.text_155")) then
 						edit_key = name
 						rename_popup_seeded = false
 					end
 					imgui.SameLine()
-					if imgui.SmallButton(" Удал.") then
+					if imgui.SmallButton(L("tags.text.text_156")) then
 						del_key = name
 					end
 					imgui.PopID()
@@ -2503,15 +3797,15 @@ function module.DrawSettingsPage()
 			imgui.EndChild()
 
 			-- Добавить новую
-			imgui.Text("Добавить переменную")
+			imgui.Text(L("tags.text.text_157"))
 			imgui.BeginChild("add_var", imgui.ImVec2(0, 70), true)
 			imgui.SetNextItemWidth(180)
-			imgui.InputText("Имя", new_var_name, ffi.sizeof(new_var_name))
+			imgui.InputText(L("tags.text.text_151"), new_var_name, ffi.sizeof(new_var_name))
 			imgui.SameLine()
 			imgui.SetNextItemWidth(340)
-			imgui.InputText("Значение", new_var_value, ffi.sizeof(new_var_value))
+			imgui.InputText(L("tags.text.text_152"), new_var_value, ffi.sizeof(new_var_value))
 			imgui.SameLine()
-			if imgui.Button(" Добавить") then
+			if imgui.Button(L("tags.text.text_158")) then
 				local k = (ffi.string(new_var_name) or ""):gsub("^%s*(.-)%s*$", "%1")
 				local v = ffi.string(new_var_value) or ""
 				if k ~= "" then
@@ -2531,18 +3825,18 @@ function module.DrawSettingsPage()
 					imgui.StrCopy(rename_var_name, tostring(edit_key))
 					rename_popup_seeded = true
 				end
-				imgui.OpenPopup("Переименование переменной")
+				imgui.OpenPopup(L("tags.text.text_159"))
 			end
 			if
 				imgui.BeginPopupModal(
-					"Переименование переменной",
+					L("tags.text.text_159"),
 					nil,
 					imgui.WindowFlags.AlwaysAutoResize
 				)
 			then
-				imgui_text_safe("Старое имя: {" .. tostring(edit_key) .. "}")
-				imgui.InputText("Новое имя", rename_var_name, ffi.sizeof(rename_var_name))
-				if imgui.Button("OK##rename") then
+				imgui_text_safe(L("tags.text.text_160") .. tostring(edit_key) .. "}")
+				imgui.InputText(L("tags.text.text_161"), rename_var_name, ffi.sizeof(rename_var_name))
+				if imgui.Button(L("common.ok") .. "##rename") then
 					local newname = ffi.string(rename_var_name)
 					if newname ~= "" and newname ~= edit_key then
 						custom_vars[newname] = custom_vars[edit_key]
@@ -2557,7 +3851,7 @@ function module.DrawSettingsPage()
 					imgui.CloseCurrentPopup()
 				end
 				imgui.SameLine()
-				if imgui.Button("Отмена##rename") then
+				if imgui.Button(L("tags.text.rename")) then
 					edit_key = nil
 					rename_popup_seeded = false
 					imgui.CloseCurrentPopup()
@@ -2567,13 +3861,13 @@ function module.DrawSettingsPage()
 
 			-- Попап: удаление
 			if del_key then
-				imgui.OpenPopup("Удалить переменную?")
+				imgui.OpenPopup(L("tags.text.ya"))
 			end
 			if
-				imgui.BeginPopupModal("Удалить переменную?", nil, imgui.WindowFlags.AlwaysAutoResize)
+				imgui.BeginPopupModal(L("tags.text.ya"), nil, imgui.WindowFlags.AlwaysAutoResize)
 			then
-				imgui_text_safe("Точно удалить {" .. tostring(del_key) .. "}?")
-				if imgui.Button("Да##del") then
+				imgui_text_safe(L("tags.text.text_162") .. tostring(del_key) .. "}?")
+				if imgui.Button(L("tags.text.del")) then
 					custom_vars[del_key] = nil
 					cvar_bufs[del_key] = nil
 					save_config()
@@ -2582,7 +3876,7 @@ function module.DrawSettingsPage()
 					imgui.CloseCurrentPopup()
 				end
 				imgui.SameLine()
-				if imgui.Button("Нет##del") then
+				if imgui.Button(L("tags.text.del_163")) then
 					del_key = nil
 					imgui.CloseCurrentPopup()
 				end
@@ -2593,11 +3887,11 @@ function module.DrawSettingsPage()
 		end
 
 		-- === ВКЛАДКА: Теги и функции ===
-		if imgui.BeginTabItem("Теги и функции") then
+		if imgui.BeginTabItem(L("tags.text.text_164")) then
 			imgui.Columns(2, "tf_cols", true)
 
 			-- Переменные (встроенные+внешние)
-			imgui.Text("Переменные")
+			imgui.Text(L("tags.text.text_148"))
 			imgui.BeginChild("vars_list", imgui.ImVec2(0, -30), true)
 			for i, tag in ipairs(get_var_list()) do
 				imgui.PushIDStr("v" .. tostring(i))
@@ -2611,9 +3905,9 @@ function module.DrawSettingsPage()
 			imgui.NextColumn()
 
 			-- Функции-теги
-			imgui.Text("Функции-теги")
+			imgui.Text(L("tags.text.text_165"))
 			imgui.SetNextItemWidth(240)
-			imgui.InputText(" Поиск по функциям", filter_funcs, ffi.sizeof(filter_funcs))
+			imgui.InputText(L("tags.text.text_166"), filter_funcs, ffi.sizeof(filter_funcs))
 			local ff = ffi.string(filter_funcs):lower()
 
 			imgui.BeginChild("funcs_list", imgui.ImVec2(0, -30), true)
@@ -2623,49 +3917,50 @@ function module.DrawSettingsPage()
 				local example = tag.example or name
 				if ff == "" or name:lower():find(ff, 1, true) or desc:lower():find(ff, 1, true) then
 					imgui.PushIDStr("f" .. tostring(i))
-					if tag.tag == "dialogtext" then
+					if not draw_tag_picker_button(tag.tag, "settings") and tag.tag == "dialogtext" then
 						if imgui.SmallButton("+") then
 							request_dialogtext_picker_open(DIALOGTEXT_POPUP_SETTINGS)
 						end
-						HelpTip("Открыть модальное окно выбора элемента из текста открытого диалога.")
+						HelpTip(L("tags.text.text_167"))
 						imgui.SameLine()
 					end
 					if imgui.Selectable(name, false) then
 						CopyFlash(example)
 					end
-					HelpTip((desc ~= "" and (desc .. "\nПример: " .. example)) or ("Пример: " .. example))
+					HelpTip((desc ~= "" and (desc .. L("tags.text.text_168") .. example)) or (L("tags.text.text_169") .. example))
 					imgui.PopID()
 				end
 			end
 			imgui.EndChild()
 			draw_dialogtext_picker_popup(DIALOGTEXT_POPUP_SETTINGS)
+			draw_tag_picker_popups("settings")
 
 			imgui.Columns(1)
 
 			imgui.Separator()
-			if imgui.Button("Открыть отдельное окно справки") then
+			if imgui.Button(L("tags.text.text_170")) then
 				module.showTagsWindow[0] = true
 			end
 			imgui.SameLine()
-			Badge("Клик по пункту — копирование")
+			Badge(L("tags.text.text_171"))
 
 			imgui.EndTabItem()
 		end
 
 		-- === ВКЛАДКА: Импорт/экспорт ===
-		if imgui.BeginTabItem("Импорт/экспорт") then
+		if imgui.BeginTabItem(L("tags.text.text_172")) then
 			imgui.TextWrapped(
-				"Экспортирует/импортирует только пользовательские переменные и настройки."
+				L("tags.text.text_173")
 			)
 			imgui.BeginChild("io_box", imgui.ImVec2(0, 100), true)
-			if imgui.Button(" Экспорт в tags.json") then
+			if imgui.Button(L("tags.text.tags_json")) then
 				save_config()
-				flash_copied("Экспортировано в " .. CONFIG_PATH_REL)
+				flash_copied(L("tags.text.text_174") .. CONFIG_PATH_REL)
 			end
 			imgui.SameLine()
-			if imgui.Button(" Импорт из tags.json") then
+			if imgui.Button(L("tags.text.tags_json_175")) then
 				module.reload_config()
-				flash_copied("Импортировано из " .. CONFIG_PATH_REL)
+				flash_copied(L("tags.text.text_176") .. CONFIG_PATH_REL)
 			end
 			imgui.EndChild()
 			imgui.EndTabItem()
@@ -2682,18 +3977,18 @@ _imguiSubs[#_imguiSubs + 1] = imgui.OnFrame(function()
 	return showTagsWindow[0]
 end, function()
 	imgui.SetNextWindowSize(imgui.ImVec2(820, 700), imgui.Cond.FirstUseEver)
-	imgui.Begin("Справка по тегам / HelperByOrc", showTagsWindow, imgui.WindowFlags.NoCollapse)
+	imgui.Begin(L("tags.text.helperbyorc"), showTagsWindow, imgui.WindowFlags.NoCollapse)
 
 	imgui.TextColored(
 		imgui.ImVec4(0.75, 1, 1, 1),
-		"Подставляй теги — получай готовый текст"
+		L("tags.text.text_177")
 	)
 	imgui.Separator()
 
 	imgui.Columns(2, "help_cols", true)
 
 	-- Переменные
-	imgui.Text("Переменные")
+	imgui.Text(L("tags.text.text_148"))
 	imgui.BeginChild("help_vars", imgui.ImVec2(0, -30), true)
 	for i, tag in ipairs(get_var_list()) do
 		imgui.PushIDStr("hv" .. tostring(i))
@@ -2707,26 +4002,27 @@ end, function()
 	imgui.NextColumn()
 
 	-- Функции-теги
-	imgui.Text("Функции-теги")
+	imgui.Text(L("tags.text.text_165"))
 	imgui.BeginChild("help_funcs", imgui.ImVec2(0, -30), true)
 	for i, tag in ipairs(get_func_list()) do
 		imgui.PushIDStr("hf" .. tostring(i))
 		local copy = tag.example or tag.name
-		if tag.tag == "dialogtext" then
+		if not draw_tag_picker_button(tag.tag, "help") and tag.tag == "dialogtext" then
 			if imgui.SmallButton("+") then
 				request_dialogtext_picker_open(DIALOGTEXT_POPUP_HELP)
 			end
-			HelpTip("Открыть модальное окно выбора элемента из текста открытого диалога.")
+			HelpTip(L("tags.text.text_167"))
 			imgui.SameLine()
 		end
 		if imgui.Selectable(tag.name, false) then
 			CopyFlash(copy)
 		end
-		HelpTip((tag.desc or "") .. (copy and ("\nПример: " .. copy) or ""))
+		HelpTip((tag.desc or "") .. (copy and (L("tags.text.text_168") .. copy) or ""))
 		imgui.PopID()
 	end
 	imgui.EndChild()
 	draw_dialogtext_picker_popup(DIALOGTEXT_POPUP_HELP)
+	draw_tag_picker_popups("help")
 
 	imgui.Columns(1)
 	imgui.Separator()
@@ -2739,7 +4035,7 @@ end, function()
 	end
 
 	imgui.Spacing()
-	if imgui.Button("Закрыть") then
+	if imgui.Button(L("tags.text.text_112")) then
 		showTagsWindow[0] = false
 	end
 	if mimgui_funcs and mimgui_funcs.clampCurrentWindowToScreen then
@@ -2825,6 +4121,7 @@ function module.onTerminate()
 	module._target_tracker_thread = nil
 	module._target_tracker_started = false
 	clear_target_blip()
+	release_all_key_holds()
 	flush_scheduled_config_save(true)
 end
 
@@ -2840,6 +4137,7 @@ function module.onSampReady()
 				while module._target_tracker_active do
 					pcall(read_target_once)
 					pcall(update_target_blip)
+					pcall(process_active_key_holds)
 					wait(TARGET_TRACK_INTERVAL_MS)
 				end
 			end)
@@ -2848,11 +4146,11 @@ function module.onSampReady()
 			else
 				module._target_tracker_started = false
 				module._target_tracker_active = false
-				log_chat("[Tags] Ошибка запуска трекинга цели: " .. tostring(thread_or_err), 0xAA3333)
+				log_chat(L("tags.text.tags") .. tostring(thread_or_err), 0xAA3333)
 			end
 		else
 			log_chat(
-				"[Tags] Предупреждение: lua_thread.create недоступен, трекинг цели отключён",
+				L("tags.text.tags_lua_thread_create"),
 				0xAA8800
 			)
 		end

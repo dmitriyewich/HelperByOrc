@@ -1,0 +1,5257 @@
+{
+    "folders": [
+        {
+            "name": "Тестовый профиль",
+            "quick_conditions": [],
+            "quick_menu": true,
+            "children": [
+                {
+                    "name": "00 Начало",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "01 Горячие клавиши",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "02 Команды",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "03 Способы отправки",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "04 Повтор и очередь",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "05 Окно ввода",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "06 Срабатывание по тексту",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "07 Условия запуска",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "08 Быстрое меню",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": [
+                        {
+                            "name": "01 Видимые",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": []
+                        },
+                        {
+                            "name": "02 Скрытая папка",
+                            "quick_conditions": [],
+                            "quick_menu": false,
+                            "children": []
+                        },
+                        {
+                            "name": "03 Папка по условию",
+                            "quick_conditions": [
+                                false,
+                                true,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false
+                            ],
+                            "quick_menu": true,
+                            "children": []
+                        },
+                        {
+                            "name": "04 Управляемые",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": []
+                        },
+                        {
+                            "name": "05 Условия видимости",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": []
+                        }
+                    ]
+                },
+                {
+                    "name": "09 Управление биндами",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": [
+                        {
+                            "name": "90 Служебные",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": []
+                        },
+                        {
+                            "name": "91 Случайный выбор",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": [
+                                {
+                                    "name": "10 Вложенная папка",
+                                    "quick_conditions": [],
+                                    "quick_menu": true,
+                                    "children": []
+                                }
+                            ]
+                        },
+                        {
+                            "name": "92 Управляемые",
+                            "quick_conditions": [],
+                            "quick_menu": true,
+                            "children": []
+                        }
+                    ]
+                },
+                {
+                    "name": "10 Простые теги",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                },
+                {
+                    "name": "11 Составные теги",
+                    "quick_conditions": [],
+                    "quick_menu": true,
+                    "children": []
+                }
+            ]
+        }
+    ],
+    "hotkeys": [
+        {
+            "label": "00.01 Общая памятка",
+            "keys": [
+                17,
+                16,
+                72
+            ],
+            "messages": [
+                {
+                    "text": "{00C853}Тестовый профиль биндера: команды /01 ... /120",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "Проверка идёт сверху вниз: разделы 00, 01, 02 и далее до 11.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "Раздел 06 теперь ручной: свои же отправки биндер защищает от самосрабатывания триггеров.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "Быстрое меню проверяйте удержанием Ctrl+Q в разделе 08.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "Для части тестов нужны вода, оружие, машина, открытый чат или диалог.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "Пункты про открытый чат и диалог удобнее проверять горячими клавишами, они указаны в названии.",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "00 Начало"
+            ],
+            "command": "/01",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "00.02 Цель всплывающего списка",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Вариант 1: первая строка всплывающего списка",
+                    "interval": 150,
+                    "method": 9
+                },
+                {
+                    "text": "Вариант 2: вторая строка всплывающего списка",
+                    "interval": 150,
+                    "method": 9
+                },
+                {
+                    "text": "Вариант 3: третья строка всплывающего списка",
+                    "interval": 150,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "00 Начало"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "00.03 Всплывающий список по номеру",
+            "keys": [
+                17,
+                16,
+                78
+            ],
+            "messages": [
+                {
+                    "text": "[bindpopup(2)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открылся список строк служебного бинда, выбор по номеру работает.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "00 Начало"
+            ],
+            "command": "/02",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "00.04 Карта разделов",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "01 Горячие клавиши, 02 Команды, 03 Способы отправки, 04 Повтор.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "05 Окно ввода, 06 Срабатывание по тексту, 07 Условия запуска.",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "08 Быстрое меню, 09 Управление биндами, 10 Простые теги, 11 Составные теги.",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "00 Начало"
+            ],
+            "command": "/03",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "01.01 Клавиша F11",
+            "keys": [
+                122
+            ],
+            "messages": [
+                {
+                    "text": "Сработал бинд на F11.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "01 Горячие клавиши"
+            ],
+            "command": "/04",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "01.02 Клавиши Shift+F1",
+            "keys": [
+                16,
+                112
+            ],
+            "messages": [
+                {
+                    "text": "Сработал бинд на Shift+F1.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "01 Горячие клавиши"
+            ],
+            "command": "/05",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "01.03 Клавиши Ctrl+Shift+F2",
+            "keys": [
+                17,
+                16,
+                113
+            ],
+            "messages": [
+                {
+                    "text": "Сработал бинд на Ctrl+Shift+F2.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "01 Горячие клавиши"
+            ],
+            "command": "/06",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "02.01 Команда без аргументов",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Команда без аргументов отработала.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "02 Команды"
+            ],
+            "command": "/07",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "02.02 Команда с аргументами и paramcmd",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "1=[paramcmd(1)] 2=[paramcmd(2)] 2+=[paramcmd(2+)] 1-=[paramcmd(1-)] 2-3=[paramcmd(2-3)]",
+                    "interval": 100,
+                    "method": 9
+                },
+                {
+                    "text": "Запускайте так: /08 один два три четыре",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "02 Команды"
+            ],
+            "command": "/08",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "02.03 Команда и горячая клавиша вместе (Ctrl+F3)",
+            "keys": [
+                17,
+                114
+            ],
+            "messages": [
+                {
+                    "text": "Этот бинд запускается и командой, и клавишами Ctrl+F3.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "02 Команды"
+            ],
+            "command": "/09",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.01 Метод 0, локальный вывод в чат",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "{00FF00}Метод 0: локальная строка с цветом",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/10",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.02 Метод 1, ввод клиенту SA-MP",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/07",
+                    "interval": 100,
+                    "method": 1
+                },
+                {
+                    "text": "Если после этого сработал тест /07, метод 1 работает через клиентский ввод.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/11",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.03 Метод 2, отправка серверу",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕСТ МЕТОДА 2",
+                    "interval": 100,
+                    "method": 2
+                },
+                {
+                    "text": "Строка отправлена как обычное сообщение серверу.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/12",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.04 Метод 3, только действие без отправки текста",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpopup(2)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открылся список строк, метод 3 отработал как действие.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/13",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.05 Метод 4, вписать в чат и закрыть",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕКСТ ДЛЯ МЕТОДА 4",
+                    "interval": 100,
+                    "method": 4
+                },
+                {
+                    "text": "Текст должен появиться в строке чата и поле должно закрыться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/14",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.06 Метод 5, вписать в чат",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕКСТ ДЛЯ МЕТОДА 5",
+                    "interval": 100,
+                    "method": 5
+                },
+                {
+                    "text": "Текст должен появиться в строке чата без автоматической отправки.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/15",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.07 Метод 6, в активный диалог",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕКСТ ДЛЯ МЕТОДА 6",
+                    "interval": 100,
+                    "method": 6
+                },
+                {
+                    "text": "Откройте диалог с полем ввода: текст должен попасть в него.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/16",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.08 Метод 7, буфер обмена",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕКСТ ДЛЯ МЕТОДА 7",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Строка скопирована в буфер обмена, вставьте её в любое поле.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/17",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.09 Метод 8, консоль",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕКСТ ДЛЯ МЕТОДА 8",
+                    "interval": 100,
+                    "method": 8
+                },
+                {
+                    "text": "Строка отправлена в консоль SF или биндера.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/18",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "03.10 Метод 9, уведомление",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ТЕСТ МЕТОДА 9",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "03 Способы отправки"
+            ],
+            "command": "/19",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "04.01 Повтор с фиксированным интервалом 350 мс",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Повтор 350 мс",
+                    "interval": 150,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "04 Повтор и очередь"
+            ],
+            "command": "/20",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": true,
+            "repeat_interval_ms": 350,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "04.02 Повтор по последнему интервалу строки",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Повтор, первая строка",
+                    "interval": 220,
+                    "method": 9
+                },
+                {
+                    "text": "Повтор, вторая строка",
+                    "interval": 480,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "04 Повтор и очередь"
+            ],
+            "command": "/21",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": true,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "04.03 Длинная очередь A",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Очередь A, шаг 1",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь A, шаг 2",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь A, шаг 3",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь A, шаг 4",
+                    "interval": 800,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "04 Повтор и очередь"
+            ],
+            "command": "/22",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "04.04 Длинная очередь B",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Очередь B, шаг 1",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь B, шаг 2",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь B, шаг 3",
+                    "interval": 800,
+                    "method": 9
+                },
+                {
+                    "text": "Очередь B, шаг 4",
+                    "interval": 800,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "04 Повтор и очередь"
+            ],
+            "command": "/23",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "04.05 Остановить все активные бинды",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstopall()]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Все активные очереди и повторы должны остановиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "04 Повтор и очередь"
+            ],
+            "command": "/24",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "05.01 Одно текстовое поле",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "USER={{USER}} user={{user}} пустое='{{NOPE}}'",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/25",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Введите текст",
+                    "hint": "Проверяет один ключ, другой регистр и пустую подстановку.",
+                    "key": "USER",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.02 Только список кнопок",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ЦВЕТ={{COLOR}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/26",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Выберите цвет",
+                    "hint": "",
+                    "key": "COLOR",
+                    "mode": "buttons_list",
+                    "buttons": [
+                        {
+                            "label": "Красный",
+                            "text": "Красный",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Синий",
+                            "text": "Синий",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Зелёный",
+                            "text": "Зелёный",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.03 Список и свой текст",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ФРАЗА={{PHRASE}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/27",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Фраза",
+                    "hint": "",
+                    "key": "PHRASE",
+                    "mode": "buttons_list_text",
+                    "buttons": [
+                        {
+                            "label": "Да",
+                            "text": "Да",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Нет",
+                            "text": "Нет",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Позже",
+                            "text": "Позже",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.04 Старый режим buttons",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "СТАРЫЙ_1={{OLD1}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/28",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Старый режим buttons",
+                    "hint": "В текущей реализации этот режим должен вести себя как список и свой текст.",
+                    "key": "OLD1",
+                    "mode": "buttons",
+                    "buttons": [
+                        {
+                            "label": "Первый",
+                            "text": "Первый",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Второй",
+                            "text": "Второй",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.05 Старый режим buttons_combo",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "СТАРЫЙ_2={{OLD2}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/29",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Старый режим buttons_combo",
+                    "hint": "В текущей реализации этот режим тоже сводится к списку и своему тексту.",
+                    "key": "OLD2",
+                    "mode": "buttons_combo",
+                    "buttons": [
+                        {
+                            "label": "Вариант A",
+                            "text": "Вариант A",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Вариант B",
+                            "text": "Вариант B",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.06 Старый режим без кнопок, откат к text",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ОТКАТ={{FALLBACK}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/30",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Откат к text",
+                    "hint": "Кнопок нет, значит поле должно стать обычным вводом текста.",
+                    "key": "FALLBACK",
+                    "mode": "buttons_combo",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.07 Множественный выбор из списка",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "НЕСКОЛЬКО={{MULTI}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/31",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Выберите несколько значений",
+                    "hint": "",
+                    "key": "MULTI",
+                    "mode": "buttons_list",
+                    "buttons": [
+                        {
+                            "label": "A",
+                            "text": "A",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "B",
+                            "text": "B",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "C",
+                            "text": "C",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": true,
+                    "multi_separator": " | ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.08 Множественный выбор, список и свой текст",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "СМЕШАННЫЙ={{HYBRID}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/32",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Смешанный список",
+                    "hint": "",
+                    "key": "HYBRID",
+                    "mode": "buttons_list_text",
+                    "buttons": [
+                        {
+                            "label": "X",
+                            "text": "X",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Y",
+                            "text": "Y",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Z",
+                            "text": "Z",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": true,
+                    "multi_separator": " / ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.09 Два текстовых поля",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "A={{A}} B={{B}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/33",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Первое поле",
+                    "hint": "",
+                    "key": "A",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                },
+                {
+                    "label": "Второе поле",
+                    "hint": "",
+                    "key": "B",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.10 Каскад, родитель и дочерний список",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "КАТЕГОРИЯ={{CAT}} ЭЛЕМЕНТ={{ITEM}} ПРИМЕЧАНИЕ={{NOTE}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/34",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Категория",
+                    "hint": "",
+                    "key": "CAT",
+                    "mode": "buttons_list",
+                    "buttons": [
+                        {
+                            "label": "Еда",
+                            "text": "Еда",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Транспорт",
+                            "text": "Транспорт",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "Другое",
+                            "text": "Другое",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                },
+                {
+                    "label": "Элемент",
+                    "hint": "",
+                    "key": "ITEM",
+                    "mode": "buttons_list_text",
+                    "buttons": [
+                        {
+                            "label": "Бургер",
+                            "text": "Бургер",
+                            "hint": "",
+                            "when": "Еда"
+                        },
+                        {
+                            "label": "Пицца",
+                            "text": "Пицца",
+                            "hint": "",
+                            "when": "Еда"
+                        },
+                        {
+                            "label": "Седан",
+                            "text": "Седан",
+                            "hint": "",
+                            "when": "Транспорт"
+                        },
+                        {
+                            "label": "Мото",
+                            "text": "Мото",
+                            "hint": "",
+                            "when": "Транспорт"
+                        },
+                        {
+                            "label": "Заметка",
+                            "text": "Заметка",
+                            "hint": "",
+                            "when": "Другое"
+                        },
+                        {
+                            "label": "Общее",
+                            "text": "Общее",
+                            "hint": "",
+                            "when": "Еда,Транспорт,Другое"
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": "CAT"
+                },
+                {
+                    "label": "Примечание",
+                    "hint": "Обычное поле после каскадного выбора.",
+                    "key": "NOTE",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "05.11 Каскад, множественный родитель",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ГРУППЫ={{GRP}} ЭЛЕМЕНТЫ={{ITEMS}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/35",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Группы",
+                    "hint": "",
+                    "key": "GRP",
+                    "mode": "buttons_list",
+                    "buttons": [
+                        {
+                            "label": "A",
+                            "text": "A",
+                            "hint": "",
+                            "when": ""
+                        },
+                        {
+                            "label": "B",
+                            "text": "B",
+                            "hint": "",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": true,
+                    "multi_separator": " | ",
+                    "cascade_parent_key": ""
+                },
+                {
+                    "label": "Элементы",
+                    "hint": "",
+                    "key": "ITEMS",
+                    "mode": "buttons_list_text",
+                    "buttons": [
+                        {
+                            "label": "A1",
+                            "text": "A1",
+                            "hint": "",
+                            "when": "A"
+                        },
+                        {
+                            "label": "A2",
+                            "text": "A2",
+                            "hint": "",
+                            "when": "A"
+                        },
+                        {
+                            "label": "B1",
+                            "text": "B1",
+                            "hint": "",
+                            "when": "B"
+                        },
+                        {
+                            "label": "AB",
+                            "text": "AB",
+                            "hint": "",
+                            "when": "A,B"
+                        }
+                    ],
+                    "multi_select": true,
+                    "multi_separator": " + ",
+                    "cascade_parent_key": "GRP"
+                }
+            ]
+        },
+        {
+            "label": "05.12 Подписи, подсказки и вставляемые значения",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "КОД={{CODE}} ЗАМЕТКА={{NOTE}}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "05 Окно ввода"
+            ],
+            "command": "/36",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Код подразделения",
+                    "hint": "Подпись кнопки может отличаться от того, что подставляется в текст.",
+                    "key": "CODE",
+                    "mode": "buttons_list_text",
+                    "buttons": [
+                        {
+                            "label": "Полиция",
+                            "text": "police",
+                            "hint": "Подставит police",
+                            "when": ""
+                        },
+                        {
+                            "label": "Больница",
+                            "text": "ems",
+                            "hint": "Подставит ems",
+                            "when": ""
+                        },
+                        {
+                            "label": "Новости",
+                            "text": "media",
+                            "hint": "Подставит media",
+                            "when": ""
+                        }
+                    ],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                },
+                {
+                    "label": "Заметка",
+                    "hint": "Свободный комментарий после выбора кода.",
+                    "key": "NOTE",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "06.01 Точный триггер по команде",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал точный триггер по команде /tg1.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "/tg1",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.02 Шаблон по команде",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Шаблон команды: число=[chatwordsex(1)] слово=[chatwordsex(2)]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "^/tg2 (%d+) ([%w_]+)$",
+                "enabled": true,
+                "pattern": true
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.03 Точный триггер по сообщению чата",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал точный триггер по сообщению tg3 exact.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "tg3 exact",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.04 Шаблон по сообщению чата",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Шаблон чата: число=[chatwordsex(1)] слово=[chatwordsex(2)]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "^tg4 (%d+) ([%w_]+)$",
+                "enabled": true,
+                "pattern": true
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.05 Цветовой точный триггер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал точный триггер: цветовой код в начале не помешал совпадению.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "tg5 color",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.06 Подтверждение триггера",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Подтверждение принято: триггер выполнился.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "/tg6",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": [],
+            "text_confirmation": {
+                "enabled": true,
+                "key": 49,
+                "cancel_key": 50,
+                "wait_for_resolution": true
+            }
+        },
+        {
+            "label": "06.07 Тайм-аут подтверждения",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Этот текст появится только если вы всё же подтвердили триггер.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "/tg7",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": [],
+            "text_confirmation": {
+                "enabled": true,
+                "key": 49,
+                "cancel_key": 50,
+                "wait_for_resolution": false
+            }
+        },
+        {
+            "label": "06.08 Входящий точный триггер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал входящий точный триггер.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "tg8 server",
+                "enabled": true,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.09 Входящий шаблон",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Входящий шаблон: число=[chatwordsex(1)] слово=[chatwordsex(2)]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "^tg9 (%d+) ([%w_]+)$",
+                "enabled": true,
+                "pattern": true
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.10 Подсказка, точная команда",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/tg1",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "В буфер обмена скопирована команда /tg1. Вставьте её в чат вручную и отправьте.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/37",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.11 Подсказка, шаблон команды",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/tg2 42 alpha_beta",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопировано значение для шаблона команды. Отправьте его вручную.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/38",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.12 Подсказка, точное сообщение",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "tg3 exact",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопировано точное сообщение для ручной отправки в чат.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/39",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.13 Подсказка, шаблон сообщения",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "tg4 42 alpha_beta",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопировано сообщение для ручной проверки шаблона чата.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/40",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.14 Подсказка, цветовой триггер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "{FF00FF}tg5 color",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопировано сообщение с цветовым кодом. Отправьте его вручную в чат.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/41",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.15 Подсказка, подтвердить триггер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/tg6",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопирована команда /tg6. Отправьте её вручную, затем нажмите клавишу 1 для подтверждения.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/42",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.16 Подсказка, отменить триггер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/tg6",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопирована команда /tg6. Отправьте её вручную, затем нажмите клавишу 2 для отмены.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/43",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.17 Подсказка, тайм-аут подтверждения",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "/tg7",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопирована команда /tg7. Отправьте её вручную и ничего не нажимайте, чтобы увидеть тайм-аут.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/44",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.18 Подсказка, входящее точное сообщение",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "tg8 server",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопирован образец входящей строки. Нужно именно дождаться такого сообщения от сервера.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/45",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "06.19 Подсказка, входящий шаблон",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "tg9 42 alpha_beta",
+                    "interval": 100,
+                    "method": 7
+                },
+                {
+                    "text": "Скопирован образец входящей строки для ручной проверки входящего шаблона.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "06 Срабатывание по тексту"
+            ],
+            "command": "/46",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.01 Только в воде",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие in_water выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/47",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.02 Только мёртвым",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие dead выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/48",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.03 Только в воздухе",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие in_air выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/49",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.04 Только в машине",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие in_any_car выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/50",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.05 Только без оружия",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие without_weapon выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/51",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.06 Только с оружием",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие with_weapon выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/52",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.07 Только пешком",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие on_foot выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/53",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.08 Только при открытом чате (Alt+7)",
+            "keys": [
+                18,
+                55
+            ],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие chat_opened выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/54",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "07.09 Только при открытом диалоге (Alt+8)",
+            "keys": [
+                18,
+                56
+            ],
+            "messages": [
+                {
+                    "text": "Если видите это сообщение, условие dialog_opened выполнено.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "07 Условия запуска"
+            ],
+            "command": "/55",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
+            ],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.01 Видимый пункт быстрого меню",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Этот бинд виден в быстром меню и запускается оттуда.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "01 Видимые"
+            ],
+            "command": "/56",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.02 Скрытый у самого бинда",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Этот бинд не должен показываться в быстром меню, но команда /57 работает.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "01 Видимые"
+            ],
+            "command": "/57",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.03 В скрытой папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Папка скрыта из быстрого меню целиком, поэтому этот бинд там не показывается.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "02 Скрытая папка"
+            ],
+            "command": "/58",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.04 В папке с условием dead",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Этот бинд появится в быстром меню только когда выполнено условие папки dead.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "03 Папка по условию"
+            ],
+            "command": "/59",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.05 Управляемый через теги быстрого меню",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Этот бинд должен появляться и скрываться через bindfastmenu и bindunfastmenu.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "04 Управляемые"
+            ],
+            "command": "/60",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.06 Виден только в воде",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием in_water.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/61",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.07 Виден только мёртвым",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием dead.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/62",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.08 Виден только в воздухе",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием in_air.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/63",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.09 Виден только в машине",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием in_any_car.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/64",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.10 Виден только без оружия",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием without_weapon.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/65",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.11 Виден только с оружием",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием with_weapon.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/66",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.12 Виден только пешком",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием on_foot.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/67",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.13 Виден только при открытом чате",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием chat_opened.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/68",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "08.14 Виден только при открытом диалоге",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Пункт быстрого меню с условием dialog_opened.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "08 Быстрое меню",
+                "05 Условия видимости"
+            ],
+            "command": "/69",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": true,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
+            ],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.01 Всплывающий список текущего бинда",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpopup()]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открылся список строк текущего бинда, контекст без параметров работает.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/70",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.02 Номер текущего бинда",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "THISBIND={thisbind}",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/71",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.03 Завершён ли текущий бинд",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "SELF_ENDED=[bindended()]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/72",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.04 Запуск по части имени",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstart(09.90.01)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должна стартовать длинная служебная цель по части имени.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/73",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.05 Пауза по точному имени и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpause('09.90.01 Длинная служебная цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если цель уже бежала, теперь она должна встать на паузу.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/74",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.06 Продолжить по точному имени и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindunpause('09.90.01 Длинная служебная цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если цель была на паузе, она должна продолжить работу.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/75",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.07 Остановить по точному имени и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstop('09.90.01 Длинная служебная цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если цель была активна, она должна остановиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/76",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.08 Проверка bindended по точному имени",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ENDED=[bindended('09.90.01 Длинная служебная цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/77",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.09 Включить отключённую цель",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindenable('09.90.02 Изначально отключённая цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "После этого отключённую цель можно будет запускать.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/78",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.10 Запустить ранее отключённую цель",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstart('09.90.02 Изначально отключённая цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если цель включена, она должна стартовать.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/79",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.11 Отключить всю папку",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[binddisable(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Все бинды в папке 92 должны выключиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/80",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.12 Включить всю папку",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindenable(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Все бинды в папке 92 должны снова включиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/81",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.13 Добавить бинд в быстрое меню",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindfastmenu('08.05 Управляемый через теги быстрого меню' '04 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Бинд 08.05 должен появиться в быстром меню.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/82",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.14 Убрать бинд из быстрого меню",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindunfastmenu('08.05 Управляемый через теги быстрого меню' '04 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Бинд 08.05 должен исчезнуть из быстрого меню.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/83",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.15 Всплывающий список по точному имени",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpopup('09.90.01 Длинная служебная цель' '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен открыться список строк выбранной цели.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/84",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.16 Случайный запуск по части имени папки",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindrandom(91)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен стартовать случайный бинд из папки 91 Случайный выбор.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/85",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.17 Остановить всё",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstopall()]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Все активные бинды должны остановиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/86",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.18 Всплывающий список по папке и *",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpopup(* '90 Служебные')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открылся список строк любой служебной цели, выбор по папке и * работает.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/87",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.19 Проверка bindended по папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "ENDED_92=[bindended(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 9
+                },
+                {
+                    "text": "До запуска папки 92 значение обычно будет 1, после запуска станет 0.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/88",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.20 Отключить по номеру и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[binddisable(114 '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен отключиться управляемый бинд A по точному номеру в папке.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/89",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.21 Включить по номеру и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindenable(114 '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Управляемый бинд A должен снова включиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/90",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.22 Запустить всю папку",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstart(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Оба управляемых бинда должны стартовать.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/91",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.23 Поставить папку на паузу",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpause(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Оба управляемых бинда должны встать на паузу.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/92",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.24 Снять паузу с папки",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindunpause(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Оба управляемых бинда должны продолжить работу.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/93",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.25 Остановить папку",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstop(* '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Оба управляемых бинда должны остановиться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/94",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.26 Запустить по номеру и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindstart(115 '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен стартовать управляемый бинд B по номеру в папке.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/95",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.27 Случайный запуск по * и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindrandom(* '91 Случайный выбор')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен случайно стартовать один бинд из точной папки.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/96",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.28 Всплывающий список по номеру и папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindpopup(114 '92 Управляемые')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен открыться список строк управляемого бинда A.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/97",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.29 Случайный запуск по точной папке",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[bindrandom('91 Случайный выбор')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Должен стартовать случайный бинд из точной папки 91.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами"
+            ],
+            "command": "/98",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.90.01 Длинная служебная цель",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Служебная цель, шаг 1",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Служебная цель, шаг 2",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Служебная цель, шаг 3",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Служебная цель, шаг 4",
+                    "interval": 900,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "90 Служебные"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.90.02 Изначально отключённая цель",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Отключённая цель, шаг 1",
+                    "interval": 700,
+                    "method": 9
+                },
+                {
+                    "text": "Отключённая цель, шаг 2",
+                    "interval": 700,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "90 Служебные"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": false,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.91.01 Случайный A",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал случайный бинд A",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "91 Случайный выбор"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.91.02 Случайный B",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал случайный бинд B",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "91 Случайный выбор"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.91.03 Случайный C во вложении",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Сработал случайный бинд C из вложенной папки",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "91 Случайный выбор",
+                "10 Вложенная папка"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.92.01 Управляемый A",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Управляемый A, шаг 1",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый A, шаг 2",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый A, шаг 3",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый A, шаг 4",
+                    "interval": 900,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "92 Управляемые"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "09.92.02 Управляемый B",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Управляемый B, шаг 1",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый B, шаг 2",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый B, шаг 3",
+                    "interval": 900,
+                    "method": 9
+                },
+                {
+                    "text": "Управляемый B, шаг 4",
+                    "interval": 900,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "09 Управление биндами",
+                "92 Управляемые"
+            ],
+            "command": "",
+            "command_enabled": false,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.01 Простые теги, личные данные 1",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "id={id} nick={nick} nickru={nickru}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/99",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.02 Простые теги, личные данные 2",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "rpnick={rpnick} name={name} nameru={nameru}",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "surname={surname} surnameru={surnameru} myskin={myskin}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/100",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.03 Простые теги, время и город",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "city={city} date={date} time={time} timenosec={timenosec}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/101",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.04 Простые теги, организация и показатели",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "myorg={myorg} myorgrang={myorgrang}",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "mymoney={mymoney} health={health} armour={armour} vehtype={getvehtype}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/102",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.05 Простые теги, цель и номер бинда",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "targetid={targetid} targetnick={targetnick} targetrpnick={targetrpnick}",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "targetname={targetname} targetsurname={targetsurname} thisbind={thisbind}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/103",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.06 Простые теги, диалог и буфер",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "dialogactive={dialogactive} dialogid={getdialogid}",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "caption={dialogcaption} selected={dialoggetselecteditem}",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "clipboard={clipboard} edit={sampGetDialogEditboxText}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/104",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.07 Простой тег скриншота",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "screen={screen}",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/105",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "10.08 Простой тег ожидания диалога",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "Откройте любой диалог в течение нескольких секунд.",
+                    "interval": 100,
+                    "method": 9
+                },
+                {
+                    "text": "{dialogwaitopen}",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если видите это уведомление, тег дождался открытия диалога.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "10 Простые теги"
+            ],
+            "command": "/106",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.01 Составные теги, список по своему id 1",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "nickid=[nickid({id})] nickru=[nickru({id})] rpnick=[rpnick({id})]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/107",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.02 Составные теги, список по своему id 2",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "name=[name({id})] nameru=[nameru({id})]",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "surname=[surname({id})] surnameru=[surnameru({id})]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/108",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.03 Составные теги, показатели по id",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "health=[health({id})] armour=[armour({id})] vehtype=[getvehtype({id})]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/109",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.04 Строка, математика и условие",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "strlow=[strlow(TeSt_ABC)] math=[math(2+2*3)] if=[ifandor(1==1?ДА:НЕТ)]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/110",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.05 Получить id, размер страницы и сдвиг времени",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[SetPageSize(20)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "idbyname=[GetIDByName({name}_{surname})] addtime=[addtime(00:30)]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/111",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.06 Эмуляция клавиш",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[keyemulate(135)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "[keydown(135;80)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "[charkeyemulate(']')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "[gamekeyemulate(16;0)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если ошибок не было, теги эмуляции клавиш отработали.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/112",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.07 Ожидание и файл скриншота",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[wait(120)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "WAIT OK",
+                    "interval": 100,
+                    "method": 9
+                },
+                {
+                    "text": "[waitif(true)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "WAITIF OK",
+                    "interval": 100,
+                    "method": 9
+                },
+                {
+                    "text": "[screen('binder_multi_screen','C:/Games/CODEX/HelperByOrc/HelperByOrc/Profiles/TEST')]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/113",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.08 Получить строку из диалога",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "dialogtext0=[dialogtext(0)]",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/114",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.09 Записать текст в активный диалог",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[dialogsettext('ТЕСТ ДЛЯ dialogsettext')]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открыт диалог с полем ввода, текст в нём должен измениться.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/115",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.10 Выбрать пункт диалога по номеру",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[dialogitem(1)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открыт список диалога, должен открыться первый пункт.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/116",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.11 Выбрать пункт диалога по тексту",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[dialogitem({{ITEMTEXT}})]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Введите видимый текст пункта списка, который нужно открыть.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/117",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": [
+                {
+                    "label": "Текст пункта",
+                    "hint": "Введите текст строки списка так, как он виден в диалоге.",
+                    "key": "ITEMTEXT",
+                    "mode": "text",
+                    "buttons": [],
+                    "multi_select": false,
+                    "multi_separator": ", ",
+                    "cascade_parent_key": ""
+                }
+            ]
+        },
+        {
+            "label": "11.12 Закрыть диалог как Отмена",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[dialogclose(0)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открыт диалог, он должен закрыться как Esc или Отмена.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/118",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.13 Закрыть диалог как ОК",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "[dialogclose(1)]",
+                    "interval": 100,
+                    "method": 3
+                },
+                {
+                    "text": "Если открыт диалог, он должен закрыться как Enter или ОК.",
+                    "interval": 100,
+                    "method": 9
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/119",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        },
+        {
+            "label": "11.14 Разбор строки из чата",
+            "keys": [],
+            "messages": [
+                {
+                    "text": "CW_A CW_B CW_C CW_D",
+                    "interval": 100,
+                    "method": 0
+                },
+                {
+                    "text": "one=[chatwords(99;1)] rest=[chatwords(99;1+)] range=[chatwords(99;1-2)] before4=[chatwords(99;4-)]",
+                    "interval": 100,
+                    "method": 0
+                }
+            ],
+            "folderPath": [
+                "Тестовый профиль",
+                "11 Составные теги"
+            ],
+            "command": "/120",
+            "command_enabled": true,
+            "enabled": true,
+            "quick_menu": false,
+            "repeat_mode": false,
+            "repeat_interval_ms": null,
+            "conditions": [],
+            "quick_conditions": [],
+            "text_trigger": {
+                "text": "",
+                "enabled": false,
+                "pattern": false
+            },
+            "inputs": []
+        }
+    ],
+    "quickMenuHotkey": [
+        17,
+        81
+    ]
+}

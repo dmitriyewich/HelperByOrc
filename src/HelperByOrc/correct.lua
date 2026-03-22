@@ -10,6 +10,10 @@ local vk = require("vkeys")
 
 local paths = require("HelperByOrc.paths")
 local HotkeyManager = require("HelperByOrc.hotkey_manager")
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
@@ -35,7 +39,7 @@ local hotkeyToString = function(keys)
 		out[#out + 1] = tostring(keys[i])
 	end
 	if #out == 0 then
-		return "[не назначено]"
+		return L("correct.text.text")
 	end
 	return table.concat(out, " + ")
 end
@@ -117,16 +121,16 @@ end
 local function providerLabel(provider)
 	provider = normalizeProvider(provider)
 	if provider == PROVIDER_LANGUAGETOOL then
-		return "LanguageTool"
+		return L("correct.text.languagetool")
 	end
-	return "Yandex Speller"
+	return L("correct.text.yandex_speller")
 end
 
 local function getTargetLabel(target)
 	if target == HOTKEY_TARGET_LANGUAGETOOL then
-		return "LanguageTool"
+		return L("correct.text.languagetool")
 	end
-	return "Yandex Speller"
+	return L("correct.text.yandex_speller")
 end
 
 local function pushToast(message, kind)
@@ -141,13 +145,13 @@ local function pushToast(message, kind)
 		return
 	end
 	if sampAddChatMessage then
-		sampAddChatMessage(u8:decode("[Автокоррект] " .. msg), 0xFFFFAA00)
+		sampAddChatMessage(u8:decode(L("correct.text.text_1") .. msg), 0xFFFFAA00)
 	end
 end
 
 local function refreshHotkeyHelpers()
 	if funcs and type(funcs.getHotkeyHelpers) == "function" then
-		hotkey_helpers = funcs.getHotkeyHelpers(vk, "[не назначено]")
+		hotkey_helpers = funcs.getHotkeyHelpers(vk, language.getText("common.unassigned"))
 		normalizeHotkeyTable = hotkey_helpers.normalizeHotkeyTable
 		hotkeyToString = hotkey_helpers.hotkeyToString
 	else
@@ -159,7 +163,7 @@ local function normalizeCombo(value, fallback)
 	if type(combo) ~= "table" or #combo == 0 then
 		combo = cloneKeys(fallback)
 	end
-	return combo
+	return HotkeyManager.normalizeComboForMode(combo, HotkeyManager.MODE_MODIFIER_TRIGGER) or cloneKeys(fallback)
 end
 
 local function syncDependencies(modules)
@@ -197,8 +201,38 @@ local function serializeConfig(data)
 	}
 end
 
+local function ensureConfigManagerRegistration()
+	if not config_manager then
+		return nil
+	end
+
+	local data = config_manager.get("correct")
+	if type(data) ~= "table" then
+		local snapshot = serializeConfig(cfg)
+		data = config_manager.register("correct", {
+			path = CONFIG_PATH_REL,
+			defaults = snapshot,
+			normalize = normalizeLoadedConfig,
+			serialize = serializeConfig,
+			-- correct may read JSON before attachModules(); seed the manager
+			-- from the current in-memory config so markDirty() always has a target.
+			loader = function(_, defaults)
+				return funcs.deepcopy(defaults or {})
+			end,
+		})
+	end
+
+	if type(data) == "table" then
+		cfg = data
+		configLoaded = true
+	end
+
+	return data
+end
+
 local function saveConfig()
 	if config_manager then
+		ensureConfigManagerRegistration()
 		config_manager.markDirty("correct")
 	elseif funcs and type(funcs.saveTableToJson) == "function" then
 		funcs.saveTableToJson(serializeConfig(cfg), paths.dataPath(CONFIG_PATH_REL))
@@ -207,7 +241,7 @@ end
 
 local function loadConfig()
 	if config_manager then
-		cfg = config_manager.get("correct") or cfg
+		cfg = ensureConfigManagerRegistration() or cfg
 	else
 		local loaded = cfgDefaults
 		if funcs and type(funcs.loadTableFromJson) == "function" then
@@ -248,10 +282,10 @@ local function makeCaptureForTarget(target)
 		on_save = function(keys)
 			local label = getTargetLabel(target)
 			setTargetHotkey(target, keys)
-			pushToast("Горячая клавиша обновлена: " .. label .. ".", "ok")
+			pushToast(L("correct.text.text_2") .. label .. ".", "ok")
 		end,
 		on_timeout = function()
-			pushToast("Режим захвата клавиш завершен по таймауту.", "warn")
+			pushToast(L("correct.text.text_3"), "warn")
 		end,
 	})
 end
@@ -301,7 +335,7 @@ end
 local _reqCounter = 0
 local function asyncRequest(url, resolve, reject)
 	reject = reject or function(err)
-		pushToast(err or "Ошибка запроса.", "err")
+		pushToast(err or L("correct.text.text_4"), "err")
 	end
 
 	_reqCounter = _reqCounter + 1
@@ -313,7 +347,7 @@ local function asyncRequest(url, resolve, reject)
 			local f = io.open(tmpPath, "rb")
 			if not f then
 				os.remove(tmpPath)
-				reject("Не удалось открыть временный файл.")
+				reject(L("correct.text.text_5"))
 				return
 			end
 
@@ -324,11 +358,11 @@ local function asyncRequest(url, resolve, reject)
 			if #data > 0 then
 				resolve(data)
 			else
-				reject("Пустой ответ от сервера.")
+				reject(L("correct.text.text_6"))
 			end
 		elseif status == dlstatus.STATUS_ERROR then
 			os.remove(tmpPath)
-			reject("Ошибка загрузки.")
+			reject(L("correct.text.text_7"))
 		end
 	end)
 end
@@ -535,8 +569,9 @@ local function processConfiguredHotkeys(isKeyDownMsg, msg, wparam)
 	end
 
 	local pressed = correctKeyTracker:getOrdered()
-	local yandexNow = HotkeyManager.comboMatchOrdered(pressed, cfg.hotkeyYandex)
-	local languageToolNow = HotkeyManager.comboMatchOrdered(pressed, cfg.hotkeyLanguageTool)
+	local yandexNow = HotkeyManager.comboMatch(pressed, cfg.hotkeyYandex, HotkeyManager.MODE_MODIFIER_TRIGGER)
+	local languageToolNow =
+		HotkeyManager.comboMatch(pressed, cfg.hotkeyLanguageTool, HotkeyManager.MODE_MODIFIER_TRIGGER)
 
 	if not yandexNow then
 		yandexHotkeyActive = false
@@ -569,11 +604,11 @@ local function onWindowMessage(msg, wparam)
 		return false
 	end
 
-	local isKeyDownMsg = msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN
-	local isKeyUpMsg = msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP
-	if not (isKeyDownMsg or isKeyUpMsg) then
+	local keyInfo = HotkeyManager.getMessageKeyInfo(msg, wparam)
+	if not keyInfo then
 		return false
 	end
+	local isKeyDownMsg = keyInfo.isDown
 
 	local cwm = type(consumeWindowMessage) == "function" and consumeWindowMessage or nil
 	local activeCapture = getActiveCapture()
@@ -686,7 +721,7 @@ function module.handleCorrection(message, setText)
 			setText(corrected)
 		end
 	end, function(err)
-		pushToast(("Yandex Speller: %s"):format(err or "ошибка запроса."), "err")
+		pushToast((L("correct.text.yandex_speller_format")):format(err or L("correct.text.text_8")), "err")
 	end)
 end
 
@@ -712,13 +747,13 @@ function module.handleLanguageTool(message, setText)
 	if not allowed then
 		local messageText
 		if reason == "text_too_long" then
-			messageText = "LanguageTool: текст длиннее 20KB, запрос не отправлен."
+			messageText = L("correct.text.languagetool_20kb")
 		elseif reason == "too_many_requests" then
-			messageText = "LanguageTool: превышен лимит 20 запросов в минуту."
+			messageText = L("correct.text.languagetool_20")
 		elseif reason == "too_much_text" then
-			messageText = "LanguageTool: превышен лимит 75KB текста в минуту."
+			messageText = L("correct.text.languagetool_75kb")
 		else
-			messageText = "LanguageTool: лимит, запрос отклонён."
+			messageText = L("correct.text.languagetool_9")
 		end
 		pushToast(messageText, "warn")
 		return
@@ -739,7 +774,7 @@ function module.handleLanguageTool(message, setText)
 		cacheLT[message] = resultCp
 		setText(resultCp)
 	end, function(err)
-		pushToast(("LanguageTool: %s"):format(err or "ошибка запроса."), "err")
+		pushToast((L("correct.text.languagetool_format")):format(err or L("correct.text.text_8")), "err")
 	end)
 end
 
@@ -755,7 +790,7 @@ function module.DrawSettingsInline()
 	if not (imgui and imgui.CollapsingHeader) then
 		return
 	end
-	local headerOpen = imgui.CollapsingHeader("Автокорректор")
+	local headerOpen = imgui.CollapsingHeader(L("correct.text.text_10"))
 
 	-- Автоматическое завершение захвата при закрытии секции
 	if not headerOpen and activeCaptureTarget then
@@ -766,18 +801,18 @@ function module.DrawSettingsInline()
 		return
 	end
 
-	imgui.Text("Провайдер по кнопке \"Автокоррекция\":")
-	if imgui.RadioButtonBool("Yandex Speller##autocorrect_provider_yandex", cfg.provider == PROVIDER_YANDEX) then
+	imgui.Text(L("correct.text.text_11"))
+	if imgui.RadioButtonBool(L("correct.text.yandex_speller_autocorrect_provider_yandex"), cfg.provider == PROVIDER_YANDEX) then
 		module.setProvider(PROVIDER_YANDEX)
 	end
 	if imgui.RadioButtonBool(
-		"LanguageTool##autocorrect_provider_languagetool",
+		L("correct.text.languagetool_autocorrect_provider_languagetool"),
 		cfg.provider == PROVIDER_LANGUAGETOOL
 	) then
 		module.setProvider(PROVIDER_LANGUAGETOOL)
 	end
 
-	local currentProviderText = "Текущий: " .. module.getActiveProviderLabel()
+	local currentProviderText = L("correct.text.text_12") .. module.getActiveProviderLabel()
 	if mimgui_funcs and type(mimgui_funcs.imgui_text_colored_safe) == "function" then
 		mimgui_funcs.imgui_text_colored_safe(imgui.ImVec4(0.75, 0.9, 1, 1), currentProviderText)
 	else
@@ -785,9 +820,9 @@ function module.DrawSettingsInline()
 	end
 
 	imgui.Separator()
-	imgui.Text("Горячие клавиши (чат/диалог):")
+	imgui.Text(L("correct.text.text_13"))
 
-	imgui.Text("Yandex Speller:")
+	imgui.Text(L("correct.text.yandex_speller_14"))
 	imgui.SameLine()
 	if mimgui_funcs and type(mimgui_funcs.imgui_text_colored_safe) == "function" then
 		mimgui_funcs.imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), hotkeyToString(cfg.hotkeyYandex))
@@ -795,15 +830,15 @@ function module.DrawSettingsInline()
 		imgui.Text(hotkeyToString(cfg.hotkeyYandex))
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Изменить##correct_hotkey_edit_yandex") then
+	if imgui.SmallButton(L("correct.text.correct_hotkey_edit_yandex")) then
 		startCapture(HOTKEY_TARGET_YANDEX)
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Сброс##correct_hotkey_reset_yandex") then
+	if imgui.SmallButton(L("correct.text.correct_hotkey_reset_yandex")) then
 		module.setYandexHotkey(DEFAULT_HOTKEY_YANDEX)
 	end
 
-	imgui.Text("LanguageTool:")
+	imgui.Text(L("correct.text.languagetool_15"))
 	imgui.SameLine()
 	if mimgui_funcs and type(mimgui_funcs.imgui_text_colored_safe) == "function" then
 		mimgui_funcs.imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), hotkeyToString(cfg.hotkeyLanguageTool))
@@ -811,11 +846,11 @@ function module.DrawSettingsInline()
 		imgui.Text(hotkeyToString(cfg.hotkeyLanguageTool))
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Изменить##correct_hotkey_edit_languagetool") then
+	if imgui.SmallButton(L("correct.text.correct_hotkey_edit_languagetool")) then
 		startCapture(HOTKEY_TARGET_LANGUAGETOOL)
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Сброс##correct_hotkey_reset_languagetool") then
+	if imgui.SmallButton(L("correct.text.correct_hotkey_reset_languagetool")) then
 		module.setLanguageToolHotkey(DEFAULT_HOTKEY_LANGUAGETOOL)
 	end
 
@@ -823,7 +858,7 @@ function module.DrawSettingsInline()
 	if activeCapture then
 		local text_colored_fn = (mimgui_funcs and type(mimgui_funcs.imgui_text_colored_safe) == "function")
 			and mimgui_funcs.imgui_text_colored_safe or nil
-		imgui.Text("Запись хоткея: " .. getTargetLabel(activeCaptureTarget))
+		imgui.Text(L("correct.text.text_16") .. getTargetLabel(activeCaptureTarget))
 		HotkeyManager.drawCaptureUI(activeCapture, "correct_hotkey", text_colored_fn)
 	end
 end
@@ -862,14 +897,8 @@ function module.attachModules(modules)
 	if event_bus then
 		event_bus.offByOwner("correct")
 	end
-	if config_manager and not configLoaded then
-		cfg = config_manager.register("correct", {
-			path = CONFIG_PATH_REL,
-			defaults = cfgDefaults,
-			normalize = normalizeLoadedConfig,
-			serialize = serializeConfig,
-		})
-		configLoaded = true
+	if config_manager then
+		ensureConfigManagerRegistration()
 	elseif not configLoaded then
 		loadConfig()
 	end

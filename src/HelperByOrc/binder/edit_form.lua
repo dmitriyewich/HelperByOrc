@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -13,47 +18,125 @@ local editHotkeyNav = { open = false, targetIdx = nil, direction = nil }
 local open_combo_popup = false
 local open_conditions_popup = false
 local open_quick_conditions_popup = false
+local open_text_confirm_popup_target = nil
+local language_generation = -1
 
 -- Попапы редактора
 local combo_capture_hk = nil
-local combo_capture = HotkeyManager.new({ enter_saves = false })
+local text_confirm_capture_hk = nil
+local text_confirm_capture_target = "confirm"
+local hotkey_mode_labels = {}
+local hotkey_mode_labels_ffi
+local combo_capture = HotkeyManager.new({
+	enter_saves = true,
+	on_save = function(keys)
+		if not combo_capture_hk then
+			return
+		end
+		local mode = combo_capture_hk.editHotkeyMode or HotkeyManager.MODE_MODIFIER_TRIGGER
+		combo_capture_hk.editKeys = HotkeyManager.normalizeComboForMode(keys, mode) or {}
+		if ctx and ctx.markHotkeysDirty then
+			ctx.markHotkeysDirty()
+		end
+	end,
+})
 
 -- Подписи
-local send_labels = {
-	"Локально",
-	"Клиенту SA-MP",
-	"Серверу",
-	"Без отправки",
-	"Написать в чат и закрыть его",
-	"Написать в чат",
-	"В активное диалоговое окно",
-	"Скопировать в буфер обмена",
-	"В консоль SF и биндера",
-	"В уведомления",
-}
-local send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+local function pick_single_confirmation_key(keys)
+	for i = #(keys or {}), 1, -1 do
+		local nk = HotkeyManager.normalizeKey(keys[i])
+		if not HotkeyManager.isModifierKey(nk) then
+			return nk
+		end
+	end
+	if type(keys) == "table" and #keys > 0 then
+		return HotkeyManager.normalizeKey(keys[#keys])
+	end
+	return nil
+end
 
-local input_mode_labels = {
-	"Только кнопки (список)",
-	"Свой текст",
-	"Кнопки (комбо)",
-	"Кнопки + свой текст",
-}
+local text_confirm_capture = HotkeyManager.new({
+	enter_saves = true,
+	on_save = function(keys)
+		if not text_confirm_capture_hk then
+			return
+		end
+		local picked = pick_single_confirmation_key(keys)
+		if not picked then
+			return
+		end
+		if ctx and ctx.normalize_text_confirmation_key then
+			if text_confirm_capture_target == "cancel" then
+				picked = ctx.normalize_text_confirmation_key(picked, ctx.C.DEFAULT_TEXT_CANCEL_KEY)
+			else
+				picked = ctx.normalize_text_confirmation_key(picked, ctx.C.DEFAULT_TEXT_CONFIRM_KEY)
+			end
+		end
+		if text_confirm_capture_target == "cancel" then
+			text_confirm_capture_hk.editTriggerConfirmCancelKey = picked
+		else
+			text_confirm_capture_hk.editTriggerConfirmKey = picked
+		end
+		if ctx and ctx.markHotkeysDirty then
+			ctx.markHotkeysDirty()
+		end
+	end,
+})
+
+local send_labels = {}
+local send_labels_ffi
+
+local input_mode_labels = {}
 local input_mode_labels_ffi
 
 local input_mode_values
 local input_mode_to_index
 local input_mode_from_index
 
+local function rebuild_language_cache()
+	hotkey_mode_labels = {
+		L("binder.edit_form.text.modifiers_trigger"),
+		L("binder.edit_form.text.ordered_combo"),
+	}
+	hotkey_mode_labels_ffi = imgui.new["const char*"][#hotkey_mode_labels](hotkey_mode_labels)
+
+	send_labels = {
+		L("binder.edit_form.text.text"),
+		L("binder.edit_form.text.sa_mp"),
+		L("binder.edit_form.text.text_1"),
+		L("binder.edit_form.text.text_2"),
+		L("binder.edit_form.text.text_3"),
+		L("binder.edit_form.text.text_4"),
+		L("binder.edit_form.text.text_5"),
+		L("binder.edit_form.text.text_6"),
+		L("binder.edit_form.text.sf"),
+		L("binder.edit_form.text.text_7"),
+	}
+	send_labels_ffi = imgui.new["const char*"][#send_labels](send_labels)
+
+	input_mode_labels = {
+		L("binder.edit_form.text.text_8"),
+		L("binder.edit_form.text.text_9"),
+		L("binder.edit_form.text.text_11"),
+	}
+	input_mode_labels_ffi = imgui.new["const char*"][#input_mode_labels](input_mode_labels)
+	language_generation = language.getGeneration()
+end
+
+local function ensure_language_cache()
+	if language_generation ~= language.getGeneration() or not hotkey_mode_labels_ffi or not send_labels_ffi or not input_mode_labels_ffi then
+		rebuild_language_cache()
+	end
+end
+
 function M.init(c)
 	ctx = c
+	ensure_language_cache()
 
 	local INPUT_MODE = ctx.INPUT_MODE
-	input_mode_labels_ffi = imgui.new["const char*"][#input_mode_labels](input_mode_labels)
 	input_mode_values = {
 		INPUT_MODE.BUTTONS_LIST,
 		INPUT_MODE.TEXT,
-		INPUT_MODE.BUTTONS_COMBO,
 		INPUT_MODE.BUTTONS_LIST_TEXT,
 	}
 
@@ -75,6 +158,21 @@ function M.init(c)
 		end
 		return mode
 	end
+end
+
+local function hotkey_mode_to_index(mode)
+	mode = HotkeyManager.normalizeMode(mode)
+	if mode == HotkeyManager.MODE_ORDERED then
+		return 1
+	end
+	return 0
+end
+
+local function hotkey_mode_from_index(index)
+	if tonumber(index) == 1 then
+		return HotkeyManager.MODE_ORDERED
+	end
+	return HotkeyManager.MODE_MODIFIER_TRIGGER
 end
 
 -- === ВАЛИДАТОР ===
@@ -101,12 +199,8 @@ local function folderExistsByPath(path)
 	return true
 end
 
-local function normalizeCombo(keys)
-	local t = {}
-	for _, k in ipairs(keys or {}) do
-		t[#t + 1] = ctx._d.normalizeKey(k)
-	end
-	return table.concat(t, ",")
+local function comboSignature(keys, mode)
+	return HotkeyManager.comboSignature(keys or {}, mode)
 end
 
 local function validateHotkeyEdit(hkEdit, idxSelf)
@@ -115,21 +209,22 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 	local trim = ctx.trim
 	local normalize_input_mode = ctx.normalize_input_mode
 	local input_mode_uses_buttons = ctx.input_mode_uses_buttons
+	local normalize_text_confirmation_key = ctx.normalize_text_confirmation_key
 
 	if not hkEdit.editLabel or hkEdit.editLabel:gsub("%s+", "") == "" then
-		errs[#errs + 1] = "Название бинда пустое"
+		errs[#errs + 1] = L("binder.edit_form.text.text_12")
 	end
 
 	local fpath = hotkeys[idxSelf] and hotkeys[idxSelf].folderPath or { ctx.folders[1].name }
 	if not folderExistsByPath(fpath) then
-		errs[#errs + 1] = "Целевая папка не существует: " .. table.concat(fpath, "/")
+		errs[#errs + 1] = L("binder.edit_form.text.text_13") .. table.concat(fpath, "/")
 	end
 
 	if hkEdit.editMsgs then
 		for i, m in ipairs(hkEdit.editMsgs) do
 			local v = tonumber(m.interval)
 			if m.interval ~= "" and (not v or v < 0) then
-				errs[#errs + 1] = ("Строка %d: неверный интервал"):format(i)
+				errs[#errs + 1] = (L("binder.edit_form.text.number")):format(i)
 			end
 		end
 	end
@@ -137,15 +232,23 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 	if hkEdit.editRepeatMode and hkEdit.editRepeatInterval and hkEdit.editRepeatInterval ~= "" then
 		local v = tonumber(hkEdit.editRepeatInterval)
 		if not v or v < 50 then
-			errs[#errs + 1] = "Интервал повтора должен быть числом >= 50 мс"
+			errs[#errs + 1] = L("binder.edit_form.text.text_50")
 		end
 	end
 
 	if hkEdit.editTriggerEnabled and (not hkEdit.editTextTrigger or hkEdit.editTextTrigger:gsub("%s+", "") == "") then
-		errs[#errs + 1] = "Текст триггера пустой"
+		errs[#errs + 1] = L("binder.edit_form.text.text_14")
 	end
 	if hkEdit.editCommandEnabled and (not hkEdit.editCommand or hkEdit.editCommand:gsub("%s+", "") == "") then
-		errs[#errs + 1] = "Команда пустая"
+		errs[#errs + 1] = L("binder.edit_form.text.text_15")
+	end
+
+	if hkEdit.editTriggerConfirmEnabled then
+		local confirm_key = normalize_text_confirmation_key(hkEdit.editTriggerConfirmKey, ctx.C.DEFAULT_TEXT_CONFIRM_KEY)
+		local cancel_key = normalize_text_confirmation_key(hkEdit.editTriggerConfirmCancelKey, ctx.C.DEFAULT_TEXT_CANCEL_KEY)
+		if confirm_key == cancel_key then
+			errs[#errs + 1] = L("binder.edit_form.text.text_16")
+		end
 	end
 
 	if hkEdit.editInputs then
@@ -153,17 +256,17 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 		for i, input in ipairs(hkEdit.editInputs) do
 			local key = trim(input.key or "")
 			if key == "" then
-				errs[#errs + 1] = ("Поле ввода %d: не указан ключ подстановки"):format(
+				errs[#errs + 1] = (L("binder.edit_form.text.number_17")):format(
 					i
 				)
 			elseif not key:match("^[%w_]+$") then
-				errs[#errs + 1] = ("Поле ввода %d: ключ должен содержать только латиницу, цифры и _"):format(
+				errs[#errs + 1] = (L("binder.edit_form.text.number_18")):format(
 					i
 				)
 			else
 				local lower = key:lower()
 				if keysSeen[lower] then
-					errs[#errs + 1] = ("Поле ввода %d: ключ '%s' уже используется"):format(
+					errs[#errs + 1] = (L("binder.edit_form.text.number_format")):format(
 						i,
 						key
 					)
@@ -180,7 +283,7 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 					end
 				end
 				if not hasButtons then
-					errs[#errs + 1] = ("Поле ввода %d: добавьте хотя бы одну кнопку с текстом"):format(
+					errs[#errs + 1] = (L("binder.edit_form.text.number_19")):format(
 						i
 					)
 				end
@@ -188,12 +291,12 @@ local function validateHotkeyEdit(hkEdit, idxSelf)
 		end
 	end
 
-	local myCombo = normalizeCombo(hkEdit.editKeys or {})
-	if myCombo ~= "" then
+	local myCombo = comboSignature(hkEdit.editKeys or {}, hkEdit.editHotkeyMode)
+	if myCombo ~= HotkeyManager.normalizeMode(hkEdit.editHotkeyMode) .. ":" then
 		for j, other in ipairs(hotkeys) do
 			if j ~= idxSelf and other.enabled then
-				if normalizeCombo(other.keys) == myCombo then
-					errs[#errs + 1] = "Дублируется комбинация клавиш с биндом: "
+				if comboSignature(other.keys, other.hotkey_mode) == myCombo then
+					errs[#errs + 1] = L("binder.edit_form.text.text_20")
 						.. (other.label or ("#" .. j))
 					break
 				end
@@ -209,6 +312,7 @@ local function ensureEditBuffers(hk)
 	local normalize_input_mode = ctx.normalize_input_mode
 	local normalize_input_key_ref = ctx.normalize_input_key_ref
 	local clone_buttons = ctx.clone_buttons
+	local clone_text_confirmation = ctx.clone_text_confirmation
 	local normalize_multi_separator = ctx.normalize_multi_separator
 	local ensure_bool = ctx.ensure_bool
 	local cond_labels, cond_count = ctx.execution.getCondLabels()
@@ -247,8 +351,11 @@ local function ensureEditBuffers(hk)
 	if hk.editCommandEnabled == nil then
 		hk.editCommandEnabled = hk.command_enabled or false
 	end
+	if hk.editHotkeyMode == nil then
+		hk.editHotkeyMode = HotkeyManager.normalizeMode(hk.hotkey_mode)
+	end
 	if not hk.editKeys then
-		hk.editKeys = { table.unpack(hk.keys or {}) }
+		hk.editKeys = HotkeyManager.normalizeComboForMode(hk.keys or {}, hk.editHotkeyMode) or {}
 	end
 	if not hk.editConditions then
 		hk.editConditions = {}
@@ -274,6 +381,19 @@ local function ensureEditBuffers(hk)
 	if hk.editTriggerPattern == nil then
 		hk.editTriggerPattern = hk.text_trigger and hk.text_trigger.pattern or false
 	end
+	local text_confirmation = clone_text_confirmation(hk.text_confirmation)
+	if hk.editTriggerConfirmEnabled == nil then
+		hk.editTriggerConfirmEnabled = text_confirmation.enabled
+	end
+	if hk.editTriggerConfirmKey == nil then
+		hk.editTriggerConfirmKey = text_confirmation.key
+	end
+	if hk.editTriggerConfirmCancelKey == nil then
+		hk.editTriggerConfirmCancelKey = text_confirmation.cancel_key
+	end
+	if hk.editTriggerConfirmWait == nil then
+		hk.editTriggerConfirmWait = text_confirmation.wait_for_resolution
+	end
 	if not hk.editQuickConditions then
 		hk.editQuickConditions = {}
 		for i = 1, quick_cond_count do
@@ -297,6 +417,8 @@ local function ensureEditBuffers(hk)
 	hk._bools.rep = ensure_bool(hk._bools.rep, hk.editRepeatMode)
 	hk._bools.triggerEnabled = ensure_bool(hk._bools.triggerEnabled, hk.editTriggerEnabled)
 	hk._bools.triggerPattern = ensure_bool(hk._bools.triggerPattern, hk.editTriggerPattern)
+	hk._bools.triggerConfirm = ensure_bool(hk._bools.triggerConfirm, hk.editTriggerConfirmEnabled)
+	hk._bools.triggerConfirmWait = ensure_bool(hk._bools.triggerConfirmWait, hk.editTriggerConfirmWait)
 	hk._bools.commandEnabled = ensure_bool(hk._bools.commandEnabled, hk.editCommandEnabled)
 	if hk._activeTab == nil then
 		hk._activeTab = 0
@@ -347,20 +469,20 @@ local function syncMultiToMessages(hk)
 	ctx.markHotkeysDirty()
 end
 
-local function openComboPopupNow()
-	imgui.OpenPopup("Назначить новую комбинацию")
-	combo_capture:start()
+local function openComboPopupNow(hk)
+	combo_capture_hk = hk
+	imgui.OpenPopup(L("binder.edit_form.text.text_21"))
+	combo_capture:start(hk and hk.editKeys or nil)
 end
 
 local function drawKeyCapturePopup(hk)
 	local fa = ctx.fa
 	local _d = ctx._d
-	local markHotkeysDirty = ctx.markHotkeysDirty
 
 	combo_capture_hk = hk
 	if
 		imgui.BeginPopupModal(
-			"Назначить новую комбинацию",
+			L("binder.edit_form.text.text_21"),
 			nil,
 			imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoMove
 		)
@@ -371,23 +493,193 @@ local function drawKeyCapturePopup(hk)
 			imgui.EndPopup()
 			return true
 		end
-		_d.imgui_text_safe((fa.KEYBOARD or "") .. "\t" .. "Зажмите нужные клавиши")
+		_d.imgui_text_safe((fa.KEYBOARD or "") .. "\t" .. L("binder.edit_form.text.text_22"))
 		_d.imgui_text_safe(combo_capture:getDraftString())
-		if imgui.Button((fa.XMARK or "X") .. " [CANCEL]") then
-			combo_capture:stop()
-			imgui.CloseCurrentPopup()
-		end
-		imgui.SameLine()
-		if imgui.Button((fa.FLOPPY_DISK or "S") .. " [SAVE]") then
-			local keys = combo_capture:getDraft()
-			hk.editKeys = {}
-			for _, k in ipairs(keys) do
-				table.insert(hk.editKeys, k)
+		if HotkeyManager.comboHasMouse(combo_capture:getDraft()) then
+			_d.imgui_text_safe(L("binder.edit_form.text.enter_save_backspace_clear_esc_cancel"))
+		else
+			if imgui.Button((fa.XMARK or L("common.clear_compact")) .. L("binder.edit_form.text.cancel")) then
+				combo_capture:stop()
+				imgui.CloseCurrentPopup()
 			end
-			combo_capture:stop()
-			imgui.CloseCurrentPopup()
-			markHotkeysDirty()
+			imgui.SameLine()
+			if imgui.Button((fa.FLOPPY_DISK or L("binder.edit_form.text.fallback_save")) .. L("binder.edit_form.text.save")) then
+				combo_capture:save()
+				imgui.CloseCurrentPopup()
+			end
 		end
+		imgui.EndPopup()
+		return true
+	end
+	return false
+end
+
+drawKeyCapturePopup = function(hk)
+	local fa = ctx.fa
+	local _d = ctx._d
+
+	combo_capture_hk = hk
+	if
+		imgui.BeginPopupModal(
+			L("binder.edit_form.text.text_23"),
+			nil,
+			imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoMove
+		)
+	then
+		if not combo_capture:isActive() then
+			imgui.CloseCurrentPopup()
+			imgui.EndPopup()
+			return true
+		end
+		local mouseCaptureArmed = combo_capture:isMouseCaptureArmed()
+		_d.imgui_text_safe((fa.KEYBOARD or "") .. "\t" .. L("binder.edit_form.text.text_24"))
+		_d.imgui_text_safe(combo_capture:getDraftString())
+		if mouseCaptureArmed then
+			_d.imgui_text_safe(L("binder.edit_form.text.mouse_capture_mode_click_a_mouse_button"))
+			_d.imgui_text_safe(L("binder.edit_form.text.enter_save_backspace_clear_esc_cancel"))
+		else
+			if imgui.Button((fa.XMARK or L("common.clear_compact")) .. L("binder.edit_form.text.cancel")) then
+				combo_capture:stop()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.FLOPPY_DISK or L("binder.edit_form.text.fallback_save")) .. L("binder.edit_form.text.save")) then
+				combo_capture:save()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.COMPUTER_MOUSE or fa.MOUSE_POINTER or L("binder.edit_form.text.fallback_mouse")) .. L("binder.edit_form.text.mouse")) then
+				combo_capture:armMouseCapture()
+			end
+		end
+		imgui.EndPopup()
+		return true
+	end
+	return false
+end
+
+local FIXED_COMBO_CAPTURE_POPUP_ID = "###binder_combo_capture_popup"
+
+local function openComboPopupFixed(hk)
+	combo_capture_hk = hk
+	imgui.OpenPopup(L("binder.edit_form.popup.assign_new_combo") .. FIXED_COMBO_CAPTURE_POPUP_ID)
+	combo_capture:start(hk and hk.editKeys or nil)
+end
+
+local function drawKeyCapturePopupFixed(hk)
+	local fa = ctx.fa
+	local _d = ctx._d
+
+	combo_capture_hk = hk
+	if
+		imgui.BeginPopupModal(
+			L("binder.edit_form.popup.assign_new_combo") .. FIXED_COMBO_CAPTURE_POPUP_ID,
+			nil,
+			imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoMove
+		)
+	then
+		if not combo_capture:isActive() then
+			imgui.CloseCurrentPopup()
+			imgui.EndPopup()
+			return true
+		end
+
+		local mouseCaptureArmed = combo_capture:isMouseCaptureArmed()
+		_d.imgui_text_safe((fa.KEYBOARD or "") .. "\t" .. L("binder.edit_form.text.capture_hold_required_keys"))
+		_d.imgui_text_safe(combo_capture:getDraftString())
+
+		if mouseCaptureArmed then
+			_d.imgui_text_safe(L("binder.edit_form.text.mouse_capture_mode_click_a_mouse_button"))
+			_d.imgui_text_safe(L("binder.edit_form.text.enter_save_backspace_clear_esc_cancel"))
+		else
+			if imgui.Button((fa.XMARK or L("common.clear_compact")) .. L("binder.edit_form.text.cancel")) then
+				combo_capture:stop()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.FLOPPY_DISK or L("binder.edit_form.text.fallback_save")) .. L("binder.edit_form.text.save")) then
+				combo_capture:save()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.COMPUTER_MOUSE or fa.MOUSE_POINTER or L("binder.edit_form.text.fallback_mouse")) .. L("binder.edit_form.text.mouse")) then
+				combo_capture:armMouseCapture()
+			end
+		end
+
+		imgui.EndPopup()
+		return true
+	end
+	return false
+end
+
+local TEXT_CONFIRM_CAPTURE_POPUP_ID = "###binder_confirm_key_popup"
+
+local function openTextConfirmPopup(hk, target)
+	text_confirm_capture_hk = hk
+	text_confirm_capture_target = target or "confirm"
+	imgui.OpenPopup(TEXT_CONFIRM_CAPTURE_POPUP_ID)
+	local initialKey = hk and (
+		text_confirm_capture_target == "cancel" and hk.editTriggerConfirmCancelKey or hk.editTriggerConfirmKey
+	) or nil
+	text_confirm_capture:start(initialKey and { initialKey } or nil)
+end
+
+local function drawTextConfirmCapturePopup(hk)
+	local fa = ctx.fa
+	local _d = ctx._d
+
+	text_confirm_capture_hk = hk
+	local popupTitle = L(
+		text_confirm_capture_target == "cancel"
+			and "binder.edit_form.popup.assign_cancel_key"
+			or "binder.edit_form.popup.assign_confirm_key"
+	)
+	if
+		imgui.BeginPopupModal(
+			popupTitle .. TEXT_CONFIRM_CAPTURE_POPUP_ID,
+			nil,
+			imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoMove
+		)
+	then
+		if not text_confirm_capture:isActive() then
+			imgui.CloseCurrentPopup()
+			imgui.EndPopup()
+			return true
+		end
+
+		local mouseCaptureArmed = text_confirm_capture:isMouseCaptureArmed()
+		local isCancelTarget = text_confirm_capture_target == "cancel"
+		_d.imgui_text_safe(
+			(fa.KEYBOARD or "")
+				.. "\t"
+				.. L(
+					isCancelTarget
+						and "binder.edit_form.text.capture_press_cancel_key"
+						or "binder.edit_form.text.capture_press_confirmation_key"
+				)
+		)
+		_d.imgui_text_safe(text_confirm_capture:getDraftString())
+
+		if mouseCaptureArmed then
+			_d.imgui_text_safe(L("binder.edit_form.text.mouse_capture_mode_click_a_mouse_button"))
+			_d.imgui_text_safe(L("binder.edit_form.text.enter_save_backspace_clear_esc_cancel"))
+		else
+			if imgui.Button((fa.XMARK or L("common.clear_compact")) .. L("binder.edit_form.text.cancel")) then
+				text_confirm_capture:stop()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.FLOPPY_DISK or L("binder.edit_form.text.fallback_save")) .. L("binder.edit_form.text.save")) then
+				text_confirm_capture:save()
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button((fa.COMPUTER_MOUSE or fa.MOUSE_POINTER or L("binder.edit_form.text.fallback_mouse")) .. L("binder.edit_form.text.mouse")) then
+				text_confirm_capture:armMouseCapture()
+			end
+		end
+
 		imgui.EndPopup()
 		return true
 	end
@@ -402,7 +694,7 @@ local function drawConditionsPopup(hk)
 	local cond_labels, cond_count = ctx.execution.getCondLabels()
 
 	if imgui.BeginPopup("conditions_popup") then
-		_d.imgui_text_safe(fa.CHECK_DOUBLE .. " " .. "Условия активации")
+		_d.imgui_text_safe(fa.CHECK_DOUBLE .. " " .. L("binder.edit_form.text.text_25"))
 		for i = 1, cond_count do
 			hk._cond_bools[i] = ensure_bool(hk._cond_bools[i], hk.editConditions[i])
 			if imgui.Checkbox(cond_labels[i], hk._cond_bools[i]) then
@@ -412,7 +704,7 @@ local function drawConditionsPopup(hk)
 				markHotkeysDirty()
 			end
 		end
-		if imgui.Button(fa.CHECK .. " " .. "[OK]") then
+		if imgui.Button(fa.CHECK .. " " .. L("binder.edit_form.text.ok_brackets")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()
@@ -429,7 +721,7 @@ local function drawQuickConditionsPopup(hk)
 	local quick_cond_labels, quick_cond_count = ctx.execution.getQuickCondLabels()
 
 	if imgui.BeginPopup("quick_conditions_popup") then
-		_d.imgui_text_safe(fa.BOLT .. " " .. "Появление в быстром меню")
+		_d.imgui_text_safe(fa.BOLT .. " " .. L("binder.edit_form.text.text_26"))
 		for i = 1, quick_cond_count do
 			hk._quick_cond_bools[i] = ensure_bool(hk._quick_cond_bools[i], hk.editQuickConditions[i])
 			if imgui.Checkbox(quick_cond_labels[i], hk._quick_cond_bools[i]) then
@@ -439,7 +731,7 @@ local function drawQuickConditionsPopup(hk)
 				markHotkeysDirty()
 			end
 		end
-		if imgui.Button(fa.CHECK .. " " .. "[OK]") then
+		if imgui.Button(fa.CHECK .. " " .. L("binder.edit_form.text.ok_brackets")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()
@@ -479,16 +771,7 @@ local function drawInputsTabContent(hk)
 	end
 
 	local function normalize_key(s)
-		s = trim(s or "")
-		if s == "" then
-			return ""
-		end
-		s = s:gsub("%s+", "_")
-		s = s:gsub("[^%w_]", "")
-		s = s:gsub("_+", "_")
-		s = s:gsub("^_+", ""):gsub("_+$", "")
-		s = s:upper()
-		return s
+		return normalize_input_key_ref(s)
 	end
 
 	local function key_is_valid(s)
@@ -578,7 +861,7 @@ local function drawInputsTabContent(hk)
 				local b = buttons[j]
 				local label = trim(b.label or "")
 				if label == "" then
-					label = "Кнопка " .. j
+					label = L("binder.edit_form.text.text_27") .. j
 				end
 				local text = b.text or ""
 				local hint = b.hint or ""
@@ -631,7 +914,7 @@ local function drawInputsTabContent(hk)
 
 					a = trim(a)
 					if a == "" then
-						a = "Кнопка " .. tostring(#res + 1)
+						a = L("binder.edit_form.text.text_27") .. tostring(#res + 1)
 					end
 
 					res[#res + 1] = { label = a, text = b, hint = c, when = d }
@@ -664,8 +947,8 @@ local function drawInputsTabContent(hk)
 	-- UI top
 	-- =========================
 
-	imgui.TextDisabled("Используйте {{ключ}} в тексте сообщений")
-	if imgui.Button(fa.SQUARE_PLUS .. " Добавить поле") then
+	imgui.TextDisabled(L("binder.edit_form.text.text_28"))
+	if imgui.Button(fa.SQUARE_PLUS .. L("binder.edit_form.text.text_29")) then
 		table.insert(hk.editInputs, {
 			label = "",
 			hint = "",
@@ -680,33 +963,33 @@ local function drawInputsTabContent(hk)
 		queue_inputs_save()
 	end
 	imgui.SameLine()
-	local helpIcon = (fa.CIRCLE_QUESTION and fa.CIRCLE_QUESTION ~= "") and fa.CIRCLE_QUESTION or "?"
+	local helpIcon = (fa.CIRCLE_QUESTION and fa.CIRCLE_QUESTION ~= "") and fa.CIRCLE_QUESTION
+		or L("binder.edit_form.text.fallback_help")
 	if imgui.Button(helpIcon .. "##inputs_help") then
 		imgui.OpenPopup("inputs_help_popup")
 	end
 	if imgui.BeginPopup("inputs_help_popup") then
-		imgui.TextDisabled("Режимы поля ввода")
-		imgui.BulletText("Только кнопки (список): выбор только кнопкой, без своего текста.")
-		imgui.BulletText("Свой текст: обычное поле ввода, только ручной ввод.")
-		imgui.BulletText("Кнопки (комбо): старый режим с выбором через Combo + ручной ввод.")
-		imgui.BulletText("Кнопки + свой текст: кнопки списком и возможность допечатать вручную.")
+		imgui.TextDisabled(L("binder.edit_form.text.text_30"))
+		imgui.BulletText(L("binder.edit_form.text.text_31"))
+		imgui.BulletText(L("binder.edit_form.text.text_32"))
+		imgui.BulletText(L("binder.edit_form.text.text_33"))
 		imgui.Separator()
-		imgui.TextDisabled("Подсказки")
-		imgui.BulletText("Используйте {{KEY}} в сообщениях для подстановки значения поля.")
-		imgui.BulletText("В списке кнопок работает поиск по названию, тексту и подсказке.")
-		imgui.BulletText("Кнопки без текста не попадут в окно ввода.")
-			imgui.BulletText("Мультивыбор: в режиме списка можно собрать несколько кнопок в одно поле.")
-			imgui.BulletText("Каскад: укажите KEY родителя и when у кнопок дочернего поля.")
-			imgui.BulletText("When: список значений через | или , (по label/text родителя).")
-			imgui.BulletText("Перед отправкой доступен предпросмотр итогового текста бинда.")
+		imgui.TextDisabled(L("binder.edit_form.text.text_34"))
+		imgui.BulletText(L("binder.edit_form.text.key"))
+		imgui.BulletText(L("binder.edit_form.text.text_35"))
+		imgui.BulletText(L("binder.edit_form.text.text_36"))
+			imgui.BulletText(L("binder.edit_form.text.text_37"))
+			imgui.BulletText(L("binder.edit_form.text.key_when"))
+			imgui.BulletText(L("binder.edit_form.text.when_label_text"))
+			imgui.BulletText(L("binder.edit_form.text.text_38"))
 		imgui.EndPopup()
 	end
 	imgui.SameLine()
-	imgui.TextDisabled("Слева список, справа редактор")
+	imgui.TextDisabled(L("binder.edit_form.text.text_39"))
 
-		imgui.TextDisabled("Режим редактора: Расширенный")
-	imgui.TextDisabled("Примеры: {{NICK}}, {{PHONE}}, {{COORDS}}")
-	imgui.TextDisabled("В тексте бинда: Привет, {{NICK}} | Мой номер: {{PHONE}}")
+		imgui.TextDisabled(L("binder.edit_form.text.text_40"))
+	imgui.TextDisabled(L("binder.edit_form.text.nick_phone_coords"))
+	imgui.TextDisabled(L("binder.edit_form.text.nick_phone"))
 
 	-- UI state
 	hk._inputsSel = hk._inputsSel or 1
@@ -722,10 +1005,10 @@ local function drawInputsTabContent(hk)
 		imgui.Spacing()
 		imgui.Spacing()
 		imgui.TextDisabled(
-			"Пока нет полей. Создайте первое и настройте ключ {{KEY}}."
+			L("binder.edit_form.text.key_41")
 		)
 		imgui.Spacing()
-		if imgui.Button("Создать первое поле", imgui.ImVec2(0, 52)) then
+		if imgui.Button(L("binder.edit_form.text.text_42"), imgui.ImVec2(0, 52)) then
 			table.insert(hk.editInputs, {
 			label = "",
 			hint = "",
@@ -787,18 +1070,18 @@ local function drawInputsTabContent(hk)
 		_d.imgui_text_colored_safe(
 			imgui.ImVec4(1.0, 0.75, 0.35, 1.0),
 			string.format(
-				"Проблемы ключей: пустые %d, недопустимые %d, дубликаты %d",
+				L("binder.edit_form.text.number_number_number"),
 				issueEmpty,
 				issueInvalid,
 				issueDup
 			)
 		)
 		imgui.SameLine()
-		if imgui.SmallButton("Перейти к проблеме##inputs_issue_jump") then
+		if imgui.SmallButton(L("binder.edit_form.text.inputs_issue_jump")) then
 			hk._inputsSel = firstIssueIndex
 		end
 	else
-		imgui.TextDisabled("Ключи полей: без ошибок")
+		imgui.TextDisabled(L("binder.edit_form.text.text_43"))
 	end
 
 	-- =========================
@@ -830,7 +1113,7 @@ local function drawInputsTabContent(hk)
 		hk._inputsLeftW = leftW
 
 		imgui.BeginChild("inputs_left", imgui.ImVec2(leftW, 0), true)
-		imgui.TextDisabled("Поля")
+		imgui.TextDisabled(L("binder.edit_form.text.text_44"))
 		imgui.Separator()
 
 		for i = 1, #hk.editInputs do
@@ -839,7 +1122,7 @@ local function drawInputsTabContent(hk)
 
 			local title = trim(input.label or "")
 			if title == "" then
-				title = string.format("Поле #%d", i)
+				title = string.format(L("binder.edit_form.text.number_45"), i)
 			end
 
 			local issues = get_key_issue(input)
@@ -860,24 +1143,24 @@ local function drawInputsTabContent(hk)
 			if imgui.IsItemHovered() then
 				imgui.BeginTooltip()
 				local mode = input_mode_title(input.mode)
-				_d.imgui_text_disabled_safe("Режим: " .. mode)
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_46") .. mode)
 				local kraw = trim(input.key or "")
 				if kraw == "" then
-					imgui.TextDisabled("Ключ: (пусто)")
+					imgui.TextDisabled(L("binder.edit_form.text.text_47"))
 				else
-					_d.imgui_text_disabled_safe("Ключ: " .. kraw)
+					_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_48") .. kraw)
 				end
 				if issues.dup then
-					imgui.TextDisabled("! Дубликат ключа")
+					imgui.TextDisabled(L("binder.edit_form.text.text_49"))
 				end
 				if issues.invalid then
-					imgui.TextDisabled("! Недопустимые символы")
+					imgui.TextDisabled(L("binder.edit_form.text.text_51"))
 				end
 				if issues.empty then
-					imgui.TextDisabled("! Ключ не задан")
+					imgui.TextDisabled(L("binder.edit_form.text.text_52"))
 				end
 				if not issues.empty then
-					_d.imgui_text_disabled_safe("В тексте: {{" .. issues.norm .. "}}")
+					_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_53") .. issues.norm .. "}}")
 				end
 				imgui.EndTooltip()
 			end
@@ -913,7 +1196,7 @@ local function drawInputsTabContent(hk)
 		imgui.BeginChild("inputs_right", imgui.ImVec2(0, 0), true)
 
 		if #hk.editInputs == 0 then
-			imgui.TextDisabled("Полей ввода нет")
+			imgui.TextDisabled(L("binder.edit_form.text.text_54"))
 			imgui.EndChild()
 			imgui.EndChild()
 			imgui.EndTabItem()
@@ -930,7 +1213,7 @@ local function drawInputsTabContent(hk)
 		local idx = hk._inputsSel
 		local input = hk.editInputs[idx]
 		if not input then
-			imgui.TextDisabled("Выберите поле слева.")
+			imgui.TextDisabled(L("binder.edit_form.text.text_55"))
 			imgui.EndChild()
 			imgui.EndChild()
 			imgui.EndTabItem()
@@ -1016,24 +1299,24 @@ local function drawInputsTabContent(hk)
 		end
 
 		-- Header + quick actions
-		_d.imgui_text_safe(string.format("Редактор поля #%d", idx))
+		_d.imgui_text_safe(string.format(L("binder.edit_form.text.number_56"), idx))
 		imgui.SameLine()
 
 		local upLbl = fa.ARROW_UP
 		if not upLbl or upLbl == "" then
-			upLbl = "Up"
+			upLbl = L("binder.edit_form.text.fallback_up")
 		end
 		local dnLbl = fa.ARROW_DOWN
 		if not dnLbl or dnLbl == "" then
-			dnLbl = "Dn"
+			dnLbl = L("binder.edit_form.text.fallback_down")
 		end
 		local trLbl = fa.TRASH
 		if not trLbl or trLbl == "" then
-			trLbl = "X"
+			trLbl = L("binder.edit_form.text.fallback_remove")
 		end
 		local cpLbl = fa.COPY
 		if not cpLbl or cpLbl == "" then
-			cpLbl = "Copy"
+			cpLbl = L("binder.edit_form.text.fallback_copy")
 		end
 
 			if imgui.SmallButton(upLbl .. "##r_up") and idx > 1 then
@@ -1048,7 +1331,7 @@ local function drawInputsTabContent(hk)
 				queue_inputs_save()
 			end
 			imgui.SameLine()
-			if imgui.SmallButton("Дубл##r_dup") then
+			if imgui.SmallButton(L("binder.edit_form.text.r_dup")) then
 				local copy = clone_input(input)
 				table.insert(hk.editInputs, idx + 1, copy)
 				hk._inputsSel = idx + 1
@@ -1068,7 +1351,7 @@ local function drawInputsTabContent(hk)
 
 		if #hk.editInputs == 0 then
 			imgui.Separator()
-			imgui.TextDisabled("Полей ввода нет")
+			imgui.TextDisabled(L("binder.edit_form.text.text_54"))
 			imgui.EndChild()
 			imgui.EndChild()
 			imgui.EndTabItem()
@@ -1100,7 +1383,7 @@ local function drawInputsTabContent(hk)
 			imgui.NextColumn()
 		end
 
-		fieldRow("Тип поля", function()
+		fieldRow(L("binder.edit_form.text.text_57"), function()
 			imgui.PushItemWidth(-1)
 			local modeBuf = imgui.new.int(input_mode_to_index(input.mode))
 			if imgui.Combo("##input_mode", modeBuf, input_mode_labels_ffi, #input_mode_labels) then
@@ -1111,7 +1394,7 @@ local function drawInputsTabContent(hk)
 		end)
 		local modeValue = normalize_input_mode(input.mode)
 		if input_mode_uses_buttons(modeValue) then
-			fieldRow("Мультивыбор кнопок", function()
+			fieldRow(L("binder.edit_form.text.text_58"), function()
 				local multiBuf = imgui.new.bool(input.multi_select == true)
 				if imgui.Checkbox("##input_multi_select", multiBuf) then
 					input.multi_select = multiBuf[0]
@@ -1120,7 +1403,7 @@ local function drawInputsTabContent(hk)
 			end)
 
 			if input.multi_select and (modeValue == INPUT_MODE.BUTTONS_LIST or modeValue == INPUT_MODE.BUTTONS_LIST_TEXT) then
-				fieldRow("Разделитель мультивыбора", function()
+				fieldRow(L("binder.edit_form.text.text_59"), function()
 					imgui.PushItemWidth(-1)
 					if
 						imgui.InputTextWithHint(
@@ -1141,12 +1424,12 @@ local function drawInputsTabContent(hk)
 				end)
 			end
 
-			fieldRow("Каскад от поля (KEY)", function()
+			fieldRow(L("binder.edit_form.text.key_60"), function()
 				imgui.PushItemWidth(-1)
 				if
 					imgui.InputTextWithHint(
 						"##input_cascade_key",
-						"Например DEPT",
+						L("binder.edit_form.text.dept"),
 						ui.cascadeBuf,
 						ui.cascadeSize,
 						_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1159,11 +1442,11 @@ local function drawInputsTabContent(hk)
 					queue_inputs_save()
 				end
 				imgui.PopItemWidth()
-				imgui.TextDisabled("Пусто = без каскада")
+				imgui.TextDisabled(L("binder.edit_form.text.text_61"))
 			end)
 		end
 
-		fieldRow("Заголовок поля", function()
+		fieldRow(L("binder.edit_form.text.text_62"), function()
 			imgui.PushItemWidth(-1)
 			if imgui.InputTextMultiline("##input_label", ui.labelBuf, ui.labelSize, imgui.ImVec2(0, 64)) then
 				local v = buf_get(ui.labelBuf)
@@ -1174,12 +1457,12 @@ local function drawInputsTabContent(hk)
 			imgui.PopItemWidth()
 		end)
 
-		fieldRow("Подсказка", function()
+		fieldRow(L("binder.edit_form.text.text_63"), function()
 			imgui.PushItemWidth(-1)
 			if
 				imgui.InputTextWithHint(
 					"##input_hint",
-					"Например координаты",
+					L("binder.edit_form.text.text_64"),
 					ui.hintBuf,
 					ui.hintSize,
 					_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1193,12 +1476,12 @@ local function drawInputsTabContent(hk)
 			imgui.PopItemWidth()
 		end)
 
-		fieldRow("Код переменной ({{CODE}})", function()
+		fieldRow(L("binder.edit_form.text.code"), function()
 			imgui.PushItemWidth(-1)
 			if
 				imgui.InputTextWithHint(
 					"##input_key",
-					"Например CALLSIGN",
+					L("binder.edit_form.text.callsign"),
 					ui.keyBuf,
 					ui.keySize,
 					_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1221,22 +1504,22 @@ local function drawInputsTabContent(hk)
 
 			if issues.empty then
 				imgui.TextDisabled(
-					"! Ключ не задан. Подстановка в тексте не сработает."
+					L("binder.edit_form.text.text_65")
 				)
 			elseif issues.invalid then
 				imgui.TextDisabled(
-					"! В ключе лишние символы. Допустимо: латиница, цифры, _"
+					L("binder.edit_form.text.text_66")
 				)
 			elseif issues.dup then
 				imgui.TextDisabled(
-					"! Такой ключ уже используется в другом поле."
+					L("binder.edit_form.text.text_67")
 				)
 			else
-				imgui.TextDisabled("Ок.")
+				imgui.TextDisabled(L("binder.edit_form.text.text_68"))
 			end
 
 			if k ~= "" then
-				_d.imgui_text_disabled_safe("В тексте: {{" .. k .. "}}")
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_53") .. k .. "}}")
 				if can_clipboard() then
 					imgui.SameLine()
 					if imgui.SmallButton(cpLbl .. "##copy_key") then
@@ -1254,23 +1537,23 @@ local function drawInputsTabContent(hk)
 		if input_mode_uses_buttons(normalize_input_mode(input.mode)) then
 			imgui.Spacing()
 			imgui.Separator()
-			imgui.Text("Кнопки")
+			imgui.Text(L("binder.edit_form.text.text_69"))
 			imgui.TextDisabled(
-				"Обычный: список слева + редактор справа. Списком: одна строка = одна кнопка."
+				L("binder.edit_form.text.text_70")
 			)
 
 			local tabId = "btn_tabs##" .. tostring(ikey)
 			if imgui.BeginTabBar(tabId) then
 				-- ========= Обычный (двухпанельный) =========
-				if imgui.BeginTabItem("Обычный") then
+				if imgui.BeginTabItem(L("binder.edit_form.text.text_71")) then
 					-- top actions
-					if imgui.Button(fa.SQUARE_PLUS .. " Добавить##btn_add") then
+					if imgui.Button(fa.SQUARE_PLUS .. L("binder.edit_form.text.btn_add")) then
 						table.insert(input.buttons, { label = "", text = "", hint = "", when = "" })
 						ui.btnSel = #input.buttons
 						queue_inputs_save()
 					end
 					imgui.SameLine()
-					if imgui.Button("Дублировать##btn_dup") then
+					if imgui.Button(L("binder.edit_form.text.btn_dup")) then
 						local j = ui.btnSel or 1
 						if j >= 1 and j <= #input.buttons then
 							local copy = clone_button(input.buttons[j])
@@ -1294,7 +1577,7 @@ local function drawInputsTabContent(hk)
 					imgui.BeginChild("btns_root", imgui.ImVec2(0, 320), false)
 
 					imgui.BeginChild("btns_left", imgui.ImVec2(btnLeftW, 0), true)
-					imgui.TextDisabled("Список")
+					imgui.TextDisabled(L("binder.edit_form.text.text_72"))
 					imgui.Separator()
 
 					for j = 1, #input.buttons do
@@ -1303,7 +1586,7 @@ local function drawInputsTabContent(hk)
 
 						local title = trim(b.label or "")
 						if title == "" then
-							title = "Кнопка " .. j
+							title = L("binder.edit_form.text.text_27") .. j
 						end
 
 						local selected = (ui.btnSel == j)
@@ -1317,14 +1600,14 @@ local function drawInputsTabContent(hk)
 							local t = trim(b.text or "")
 							local h = trim(b.hint or "")
 							if t == "" then
-								t = "(текст пустой)"
+								t = L("binder.edit_form.text.text_73")
 							end
 							if h == "" then
-								h = "(подсказка пустая)"
+								h = L("binder.edit_form.text.text_74")
 							end
-							imgui.TextDisabled("Текст:")
+							imgui.TextDisabled(L("binder.edit_form.text.text_75"))
 							_d.imgui_text_safe(t)
-							imgui.TextDisabled("Подсказка:")
+							imgui.TextDisabled(L("binder.edit_form.text.text_76"))
 							_d.imgui_text_safe(h)
 							imgui.EndTooltip()
 						end
@@ -1338,7 +1621,7 @@ local function drawInputsTabContent(hk)
 					imgui.BeginChild("btns_right", imgui.ImVec2(0, 0), true)
 
 					if #input.buttons == 0 then
-						imgui.TextDisabled("Кнопок нет. Нажмите Добавить.")
+						imgui.TextDisabled(L("binder.edit_form.text.text_77"))
 					else
 						if ui.btnSel > #input.buttons then
 							ui.btnSel = #input.buttons
@@ -1399,20 +1682,20 @@ local function drawInputsTabContent(hk)
 							bs.lastWhen = bw
 						end
 
-						_d.imgui_text_safe(string.format("Кнопка #%d", j))
+						_d.imgui_text_safe(string.format(L("binder.edit_form.text.number_78"), j))
 						imgui.SameLine()
 
 						local bUp = fa.ARROW_UP
 						if not bUp or bUp == "" then
-							bUp = "Up"
+							bUp = L("binder.edit_form.text.fallback_up")
 						end
 						local bDn = fa.ARROW_DOWN
 						if not bDn or bDn == "" then
-							bDn = "Dn"
+							bDn = L("binder.edit_form.text.fallback_down")
 						end
 						local bTr = fa.TRASH
 						if not bTr or bTr == "" then
-							bTr = "X"
+							bTr = L("binder.edit_form.text.fallback_remove")
 						end
 
 						if imgui.SmallButton(bUp .. "##btn_up") and j > 1 then
@@ -1427,7 +1710,7 @@ local function drawInputsTabContent(hk)
 							queue_inputs_save()
 						end
 						imgui.SameLine()
-						if imgui.SmallButton("Дубл##btn_dup2") then
+						if imgui.SmallButton(L("binder.edit_form.text.btn_dup2")) then
 							local copy = clone_button(b)
 							table.insert(input.buttons, j + 1, copy)
 							ui.btnSel = j + 1
@@ -1456,12 +1739,12 @@ local function drawInputsTabContent(hk)
 
 							imgui.Separator()
 
-							imgui.TextDisabled("Название")
+							imgui.TextDisabled(L("binder.edit_form.text.text_79"))
 							imgui.PushItemWidth(-1)
 							if
 								imgui.InputTextWithHint(
 									"##btn_label",
-									"Например Кнопка 1",
+									L("binder.edit_form.text.text_1_80"),
 									bs.labelBuf,
 									bs.labelSize,
 									_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1474,7 +1757,7 @@ local function drawInputsTabContent(hk)
 							end
 							imgui.PopItemWidth()
 
-							imgui.TextDisabled("Текст для вставки")
+							imgui.TextDisabled(L("binder.edit_form.text.text_81"))
 							imgui.PushItemWidth(-1)
 							if
 								imgui.InputTextMultiline(
@@ -1491,12 +1774,12 @@ local function drawInputsTabContent(hk)
 							end
 							imgui.PopItemWidth()
 
-							imgui.TextDisabled("Подсказка")
+							imgui.TextDisabled(L("binder.edit_form.text.text_63"))
 							imgui.PushItemWidth(-1)
 							if
 								imgui.InputTextWithHint(
 									"##btn_hint",
-									"Подсказка",
+									L("binder.edit_form.text.text_63"),
 									bs.hintBuf,
 									bs.hintSize,
 									_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1509,12 +1792,12 @@ local function drawInputsTabContent(hk)
 							end
 							imgui.PopItemWidth()
 
-							imgui.TextDisabled("Показывать когда (when)")
+							imgui.TextDisabled(L("binder.edit_form.text.when"))
 							imgui.PushItemWidth(-1)
 							if
 								imgui.InputTextWithHint(
 									"##btn_when",
-									"Например Полиция|Полицейский",
+									L("binder.edit_form.text.text_82"),
 									bs.whenBuf,
 									bs.whenSize,
 									_d.flags_or(imgui.InputTextFlags.AutoSelectAll)
@@ -1526,10 +1809,10 @@ local function drawInputsTabContent(hk)
 								queue_inputs_save()
 							end
 							imgui.PopItemWidth()
-							imgui.TextDisabled("Пусто = кнопка видна всегда")
+							imgui.TextDisabled(L("binder.edit_form.text.text_83"))
 						else
 							imgui.Separator()
-							imgui.TextDisabled("Кнопок нет.")
+							imgui.TextDisabled(L("binder.edit_form.text.text_84"))
 						end
 					end
 
@@ -1540,7 +1823,7 @@ local function drawInputsTabContent(hk)
 				end
 
 				-- ========= Списком (идеальный) =========
-				if imgui.BeginTabItem("Списком") then
+				if imgui.BeginTabItem(L("binder.edit_form.text.text_85")) then
 					local bulk = ui.bulk
 
 					if not bulk.inited then
@@ -1551,37 +1834,37 @@ local function drawInputsTabContent(hk)
 					end
 
 					-- quick templates
-					if imgui.Button(fa.SQUARE_PLUS .. " Строка##bulk_add1") then
+					if imgui.Button(fa.SQUARE_PLUS .. L("binder.edit_form.text.bulk_add1")) then
 						bulk_append_line(bulk, " |  |  | ")
 						bulk.lastPreview = nil
 					end
 					imgui.SameLine()
-					if imgui.Button("+5##bulk_add5") then
+					if imgui.Button(L("binder.edit_form.text.bulk_add5") .. "##bulk_add5") then
 						bulk_append_n_empty(bulk, 5)
 						bulk.lastPreview = nil
 					end
 
 					imgui.Spacing()
 
-					if imgui.Button("Пересобрать из текущих##bulk_sync") then
+					if imgui.Button(L("binder.edit_form.text.bulk_sync")) then
 						local txt = serialize_buttons(input.buttons)
 						buf_set(bulk.buf, bulk.size, txt)
 						bulk.lastPreview = nil
 					end
 					imgui.SameLine()
-					if imgui.Button("Проверить##bulk_check") then
+					if imgui.Button(L("binder.edit_form.text.bulk_check")) then
 						local buttonsTmp, st = parse_buttons_ex(buf_get(bulk.buf))
 						bulk.lastPreview = { st = st, count = #buttonsTmp }
 					end
 					imgui.SameLine()
-					if imgui.Button("Нормализовать##bulk_norm") then
+					if imgui.Button(L("binder.edit_form.text.bulk_norm")) then
 						local buttonsTmp = select(1, parse_buttons_ex(buf_get(bulk.buf)))
 						local txt = serialize_buttons(buttonsTmp)
 						buf_set(bulk.buf, bulk.size, txt)
 						bulk.lastPreview = nil
 					end
 					imgui.SameLine()
-					if imgui.Button("Применить##bulk_apply") then
+					if imgui.Button(L("binder.edit_form.text.bulk_apply")) then
 						local buttonsNew = select(1, parse_buttons_ex(buf_get(bulk.buf)))
 						input.buttons = buttonsNew
 						queue_inputs_save()
@@ -1601,9 +1884,9 @@ local function drawInputsTabContent(hk)
 					end
 
 					imgui.Spacing()
-					imgui.TextDisabled("Формат: Название | Текст | Подсказка | When")
+					imgui.TextDisabled(L("binder.edit_form.text.when_86"))
 					imgui.TextDisabled(
-						"Перенос в тексте: \\n, символ |: \\|. Пустое название станет Кнопка N. Строки с # игнорируются."
+						L("binder.edit_form.text.n_n")
 					)
 
 					local h = math.min(380, 22 * math.max(10, #input.buttons + 6))
@@ -1615,7 +1898,7 @@ local function drawInputsTabContent(hk)
 						imgui.Spacing()
 						imgui.TextDisabled(
 							string.format(
-								"Проверка: всего строк %d, использовано %d, пропущено %d. Кнопок получится %d.",
+								L("binder.edit_form.text.number_number_number_number"),
 								st.total,
 								st.used,
 								st.ignored,
@@ -1624,7 +1907,7 @@ local function drawInputsTabContent(hk)
 						)
 						if st.extraPipes > 0 then
 							imgui.TextDisabled(
-								"Есть строки с лишними |. Если это часть текста, экранируйте как \\|."
+								L("binder.edit_form.text.text_87")
 							)
 						end
 					end
@@ -1643,6 +1926,7 @@ local function drawInputsTabContent(hk)
 end
 
 local function drawEditHotkey(idx)
+	ensure_language_cache()
 	local hotkeys = ctx.hotkeys
 	local editHotkey = ctx.State.editHotkey
 	local fa = ctx.fa
@@ -1662,6 +1946,7 @@ local function drawEditHotkey(idx)
 	local input_mode_uses_buttons = ctx.input_mode_uses_buttons
 	local normalize_input_key_ref = ctx.normalize_input_key_ref
 	local normalize_multi_separator = ctx.normalize_multi_separator
+	local clone_text_confirmation = ctx.clone_text_confirmation
 	local INPUT_MODE = ctx.INPUT_MODE
 	local cond_labels, cond_count = ctx.execution.getCondLabels()
 	local quick_cond_labels, quick_cond_count = ctx.execution.getQuickCondLabels()
@@ -1676,13 +1961,13 @@ local function drawEditHotkey(idx)
 	local headerAvailW = imgui.GetContentRegionAvail().x
 	local compactHeader = headerAvailW < 640
 	imgui.BeginChild("edit_header", imgui.ImVec2(0, compactHeader and 62 or 30), false)
-	if imgui.Button(fa.ARROW_LEFT .. " Назад", imgui.ImVec2(95, 0)) then
+	if imgui.Button(fa.ARROW_LEFT .. L("binder.edit_form.text.text_88"), imgui.ImVec2(95, 0)) then
 		reset_edit_state(hk)
 		editHotkey.active = false
 		return
 	end
 	imgui.SameLine()
-	_d.imgui_text_colored_safe(imgui.GetStyle().Colors[imgui.Col.Text], fa.PEN .. " Редактирование бинда")
+	_d.imgui_text_colored_safe(imgui.GetStyle().Colors[imgui.Col.Text], fa.PEN .. L("binder.edit_form.text.text_89"))
 	local function get_folder_hotkey_indices(path)
 		local list = {}
 		for i, item in ipairs(hotkeys) do
@@ -1734,14 +2019,14 @@ local function drawEditHotkey(idx)
 			local navGap = imgui.GetStyle().ItemSpacing.x
 			local navAvail = imgui.GetContentRegionAvail().x
 			if navAvail < 230 then
-				if disabled_button(fa.ARROW_LEFT .. " Предыдущий", prevIdx ~= nil, imgui.ImVec2(-1, 0)) then
+				if disabled_button(fa.ARROW_LEFT .. L("binder.edit_form.text.text_90"), prevIdx ~= nil, imgui.ImVec2(-1, 0)) then
 					editHotkeyNav.targetIdx = prevIdx
-					editHotkeyNav.direction = "предыдущему"
+					editHotkeyNav.direction = L("binder.edit_form.text.text_91")
 					editHotkeyNav.open = true
 				end
-				if disabled_button("Следующий " .. fa.ARROW_RIGHT, nextIdx ~= nil, imgui.ImVec2(-1, 0)) then
+				if disabled_button(L("binder.edit_form.text.text_92") .. fa.ARROW_RIGHT, nextIdx ~= nil, imgui.ImVec2(-1, 0)) then
 					editHotkeyNav.targetIdx = nextIdx
-					editHotkeyNav.direction = "следующему"
+					editHotkeyNav.direction = L("binder.edit_form.text.text_93")
 					editHotkeyNav.open = true
 				end
 			else
@@ -1749,15 +2034,15 @@ local function drawEditHotkey(idx)
 				if navBtnWidth < 110 then
 					navBtnWidth = 110
 				end
-				if disabled_button(fa.ARROW_LEFT .. " Предыдущий", prevIdx ~= nil, imgui.ImVec2(navBtnWidth, 0)) then
+				if disabled_button(fa.ARROW_LEFT .. L("binder.edit_form.text.text_90"), prevIdx ~= nil, imgui.ImVec2(navBtnWidth, 0)) then
 					editHotkeyNav.targetIdx = prevIdx
-					editHotkeyNav.direction = "предыдущему"
+					editHotkeyNav.direction = L("binder.edit_form.text.text_91")
 					editHotkeyNav.open = true
 				end
 				imgui.SameLine()
-				if disabled_button("Следующий " .. fa.ARROW_RIGHT, nextIdx ~= nil, imgui.ImVec2(navBtnWidth, 0)) then
+				if disabled_button(L("binder.edit_form.text.text_92") .. fa.ARROW_RIGHT, nextIdx ~= nil, imgui.ImVec2(navBtnWidth, 0)) then
 					editHotkeyNav.targetIdx = nextIdx
-					editHotkeyNav.direction = "следующему"
+					editHotkeyNav.direction = L("binder.edit_form.text.text_93")
 					editHotkeyNav.open = true
 				end
 			end
@@ -1769,15 +2054,15 @@ local function drawEditHotkey(idx)
 			else
 				imgui.SameLine()
 			end
-			if disabled_button(fa.ARROW_LEFT .. " Предыдущий", prevIdx ~= nil) then
+			if disabled_button(fa.ARROW_LEFT .. L("binder.edit_form.text.text_90"), prevIdx ~= nil) then
 				editHotkeyNav.targetIdx = prevIdx
-				editHotkeyNav.direction = "предыдущему"
+				editHotkeyNav.direction = L("binder.edit_form.text.text_91")
 				editHotkeyNav.open = true
 			end
 			imgui.SameLine()
-			if disabled_button("Следующий " .. fa.ARROW_RIGHT, nextIdx ~= nil) then
+			if disabled_button(L("binder.edit_form.text.text_92") .. fa.ARROW_RIGHT, nextIdx ~= nil) then
 				editHotkeyNav.targetIdx = nextIdx
-				editHotkeyNav.direction = "следующему"
+				editHotkeyNav.direction = L("binder.edit_form.text.text_93")
 				editHotkeyNav.open = true
 			end
 		end
@@ -1790,10 +2075,10 @@ local function drawEditHotkey(idx)
 		editHotkeyNav.open = false
 	end
 	if imgui.BeginPopupModal("binder_nav_confirm", nil, imgui.WindowFlags.AlwaysAutoResize) then
-		local direction = editHotkeyNav.direction or "следующему"
-		_d.imgui_text_safe(("Перейти к %s бинду?"):format(direction))
+		local direction = editHotkeyNav.direction or L("binder.edit_form.text.text_93")
+		_d.imgui_text_safe((L("binder.edit_form.text.format_ya")):format(direction))
 		imgui.Separator()
-		if imgui.Button("Перейти##bind_nav_ok", imgui.ImVec2(120, 0)) then
+		if imgui.Button(L("binder.edit_form.text.bind_nav_ok"), imgui.ImVec2(120, 0)) then
 			local target = editHotkeyNav.targetIdx
 			if target and hotkeys[target] then
 				reset_edit_state(hk)
@@ -1805,7 +2090,7 @@ local function drawEditHotkey(idx)
 			imgui.CloseCurrentPopup()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##bind_nav_cancel", imgui.ImVec2(120, 0)) then
+		if imgui.Button(L("binder.edit_form.text.bind_nav_cancel"), imgui.ImVec2(120, 0)) then
 			editHotkeyNav.targetIdx = nil
 			editHotkeyNav.direction = nil
 			imgui.CloseCurrentPopup()
@@ -1843,7 +2128,7 @@ local function drawEditHotkey(idx)
 	local compactMeta = topAvailWidth < 620
 
 	if compactMeta then
-		_d.imgui_text_disabled_safe("Название")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_79"))
 		imgui.PushItemWidth(-1)
 		local labelBuf = imgui.new.char[256](hk.editLabel)
 		if imgui.InputText("##edit_label", labelBuf, ffi.sizeof(labelBuf), _d.flags_or(imgui.InputTextFlags.AutoSelectAll)) then
@@ -1852,23 +2137,23 @@ local function drawEditHotkey(idx)
 		imgui.PopItemWidth()
 
 		imgui.Spacing()
-		_d.imgui_text_disabled_safe("Условия")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_94"))
 		local condBtnAvail = imgui.GetContentRegionAvail().x
 		if condBtnAvail < 280 then
-			if imgui.Button(fa.SLIDERS .. " Условия##open_conditions", imgui.ImVec2(-1, 0)) then
+			if imgui.Button(fa.SLIDERS .. L("binder.edit_form.text.open_conditions"), imgui.ImVec2(-1, 0)) then
 				open_conditions_popup = true
 			end
-			if imgui.Button(fa.BOLT .. " Быстрое меню##open_quick_conditions", imgui.ImVec2(-1, 0)) then
+			if imgui.Button(fa.BOLT .. L("binder.edit_form.text.open_quick_conditions"), imgui.ImVec2(-1, 0)) then
 				open_quick_conditions_popup = true
 			end
 		else
 			local condBtnGap = topStyle.ItemSpacing.x
 			local condBtnWidth = (condBtnAvail - condBtnGap) * 0.5
-			if imgui.Button(fa.SLIDERS .. " Условия##open_conditions", imgui.ImVec2(condBtnWidth, 0)) then
+			if imgui.Button(fa.SLIDERS .. L("binder.edit_form.text.open_conditions"), imgui.ImVec2(condBtnWidth, 0)) then
 				open_conditions_popup = true
 			end
 			imgui.SameLine()
-			if imgui.Button(fa.BOLT .. " Быстрое меню##open_quick_conditions", imgui.ImVec2(condBtnWidth, 0)) then
+			if imgui.Button(fa.BOLT .. L("binder.edit_form.text.open_quick_conditions"), imgui.ImVec2(condBtnWidth, 0)) then
 				open_quick_conditions_popup = true
 			end
 		end
@@ -1889,9 +2174,9 @@ local function drawEditHotkey(idx)
 		imgui.Columns(2, "edit_hotkey_meta_row", false)
 		imgui.SetColumnWidth(0, topLeftWidth)
 
-		_d.imgui_text_disabled_safe("Название")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_79"))
 		imgui.NextColumn()
-		_d.imgui_text_disabled_safe("Условия")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_94"))
 		imgui.NextColumn()
 
 		imgui.PushItemWidth(-1)
@@ -1908,11 +2193,11 @@ local function drawEditHotkey(idx)
 		if condBtnWidth < 100 then
 			condBtnWidth = 100
 		end
-		if imgui.Button(fa.SLIDERS .. " Условия##open_conditions", imgui.ImVec2(condBtnWidth, 0)) then
+		if imgui.Button(fa.SLIDERS .. L("binder.edit_form.text.open_conditions"), imgui.ImVec2(condBtnWidth, 0)) then
 			open_conditions_popup = true
 		end
 		imgui.SameLine()
-		if imgui.Button(fa.BOLT .. " Быстрое меню##open_quick_conditions", imgui.ImVec2(condBtnWidth, 0)) then
+		if imgui.Button(fa.BOLT .. L("binder.edit_form.text.open_quick_conditions"), imgui.ImVec2(condBtnWidth, 0)) then
 			open_quick_conditions_popup = true
 		end
 		imgui.NextColumn()
@@ -1926,9 +2211,56 @@ local function drawEditHotkey(idx)
 	local compactFields = fieldsAvail < 640
 	local trigBuf = imgui.new.char[256](hk.editTextTrigger or "")
 	local cmdBuf = imgui.new.char[256](hk.editCommand)
+	local function draw_hotkey_mode_combo(width)
+		local modeIndex = imgui.new.int(hotkey_mode_to_index(hk.editHotkeyMode))
+		imgui.PushItemWidth(width or -1)
+		if imgui.Combo("##edit_hotkey_mode", modeIndex, hotkey_mode_labels_ffi, #hotkey_mode_labels) then
+			hk.editHotkeyMode = hotkey_mode_from_index(modeIndex[0])
+			hk.editKeys = HotkeyManager.normalizeComboForMode(hk.editKeys, hk.editHotkeyMode) or {}
+			markHotkeysDirty()
+		end
+		imgui.PopItemWidth()
+	end
+	local function draw_trigger_confirmation_controls(width)
+		if imgui.Checkbox(L("binder.edit_form.text.trigger_confirm"), hk._bools.triggerConfirm) then
+			hk.editTriggerConfirmEnabled = hk._bools.triggerConfirm[0]
+			markHotkeysDirty()
+		end
+		if hk.editTriggerConfirmEnabled then
+			_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_95"))
+			local btnWidth = width or 140
+			if btnWidth < 90 then
+				btnWidth = 90
+			end
+			local keyLabel = ctx.text_confirmation_key_label(hk.editTriggerConfirmKey)
+			if imgui.Button(keyLabel .. "##trigger_confirm_key", imgui.ImVec2(btnWidth, 0)) then
+				open_text_confirm_popup_target = "confirm"
+			end
+			_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_96"))
+			local cancelLabel = ctx.text_confirmation_key_label(hk.editTriggerConfirmCancelKey)
+			if imgui.Button(cancelLabel .. "##trigger_confirm_cancel_key", imgui.ImVec2(btnWidth, 0)) then
+				open_text_confirm_popup_target = "cancel"
+			end
+			if
+				imgui.Checkbox(
+					L("binder.edit_form.text.trigger_confirm_wait"),
+					hk._bools.triggerConfirmWait
+				)
+			then
+				hk.editTriggerConfirmWait = hk._bools.triggerConfirmWait[0]
+				markHotkeysDirty()
+			end
+			if not hk.editTriggerConfirmWait then
+				_d.imgui_text_disabled_safe((L("binder.edit_form.text.text_1f")):format((C.TEXT_CONFIRM_TIMEOUT_MS or 2000) / 1000))
+			end
+		end
+	end
+	_d.imgui_text_disabled_safe(L("binder.edit_form.text.hotkey_mode"))
+	draw_hotkey_mode_combo(compactFields and -1 or 220)
+	imgui.Spacing()
 
 	if compactFields then
-		_d.imgui_text_disabled_safe("Клавиши")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_97"))
 		local keyBtnWidth = imgui.GetContentRegionAvail().x
 		if keyBtnWidth > 220 then
 			keyBtnWidth = 220
@@ -1939,19 +2271,19 @@ local function drawEditHotkey(idx)
 		do
 			local extLabel = ext_hk:findLabel(hk.editKeys)
 			if extLabel then
-				_d.imgui_text_colored_safe(imgui.ImVec4(1, 0.6, 0.2, 1), "Занято: " .. tostring(extLabel))
+				_d.imgui_text_colored_safe(imgui.ImVec4(1, 0.6, 0.2, 1), L("binder.edit_form.text.text_98") .. tostring(extLabel))
 			end
 		end
 
-		_d.imgui_text_disabled_safe("Активация по тексту в чате")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_99"))
 		imgui.PushItemWidth(-1)
 		if imgui.InputText("##text_trigger", trigBuf, ffi.sizeof(trigBuf), _d.flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			hk.editTextTrigger = ffi.string(trigBuf)
 		end
 		imgui.PopItemWidth()
 
-		_d.imgui_text_disabled_safe("Команда")
-		if imgui.Checkbox("Включить##cmd_enable", hk._bools.commandEnabled) then
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_100"))
+		if imgui.Checkbox(L("binder.edit_form.text.cmd_enable"), hk._bools.commandEnabled) then
 			hk.editCommandEnabled = hk._bools.commandEnabled[0]
 		end
 		imgui.PushItemWidth(-1)
@@ -1986,7 +2318,7 @@ local function drawEditHotkey(idx)
 		imgui.SetColumnWidth(0, fieldsKeyWidth)
 		imgui.SetColumnWidth(1, fieldsTriggerWidth)
 
-		_d.imgui_text_disabled_safe("Клавиши")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_97"))
 		local keyBtnWidth = imgui.GetContentRegionAvail().x
 		if keyBtnWidth < 110 then
 			keyBtnWidth = 110
@@ -1997,12 +2329,12 @@ local function drawEditHotkey(idx)
 		do
 			local extLabel = ext_hk:findLabel(hk.editKeys)
 			if extLabel then
-				_d.imgui_text_colored_safe(imgui.ImVec4(1, 0.6, 0.2, 1), "Занято: " .. tostring(extLabel))
+				_d.imgui_text_colored_safe(imgui.ImVec4(1, 0.6, 0.2, 1), L("binder.edit_form.text.text_98") .. tostring(extLabel))
 			end
 		end
 		imgui.NextColumn()
 
-		_d.imgui_text_disabled_safe("Активация по тексту в чате")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_99"))
 		imgui.PushItemWidth(-1)
 		if imgui.InputText("##text_trigger", trigBuf, ffi.sizeof(trigBuf), _d.flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			hk.editTextTrigger = ffi.string(trigBuf)
@@ -2010,12 +2342,12 @@ local function drawEditHotkey(idx)
 		imgui.PopItemWidth()
 		imgui.NextColumn()
 
-		_d.imgui_text_disabled_safe("Команда")
+		_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_100"))
 		if imgui.Checkbox("##cmd_enable", hk._bools.commandEnabled) then
 			hk.editCommandEnabled = hk._bools.commandEnabled[0]
 		end
 		if imgui.IsItemHovered() then
-			_d.imgui_set_tooltip_safe("Включить команду")
+			_d.imgui_set_tooltip_safe(L("binder.edit_form.text.text_101"))
 		end
 		imgui.SameLine()
 		imgui.PushItemWidth(-1)
@@ -2029,10 +2361,15 @@ local function drawEditHotkey(idx)
 
 	-- Попапы
 	if open_combo_popup then
-		openComboPopupNow()
+		openComboPopupFixed(hk)
 		open_combo_popup = false
 	end
-	drawKeyCapturePopup(hk)
+	drawKeyCapturePopupFixed(hk)
+	if open_text_confirm_popup_target then
+		openTextConfirmPopup(hk, open_text_confirm_popup_target)
+		open_text_confirm_popup_target = nil
+	end
+	drawTextConfirmCapturePopup(hk)
 	if open_conditions_popup then
 		imgui.OpenPopup("conditions_popup")
 		open_conditions_popup = false
@@ -2056,14 +2393,14 @@ local function drawEditHotkey(idx)
 		if imgui.InputTextWithHint then
 			repeatChanged = imgui.InputTextWithHint(
 				"##repInt",
-				"Интервал, мс",
+				L("binder.edit_form.text.text_102"),
 				rbuf,
 				ffi.sizeof(rbuf),
 				_d.flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
 			)
 		else
 			repeatChanged = imgui.InputText(
-				"Интервал, мс##repInt",
+				L("binder.edit_form.text.repint"),
 				rbuf,
 				ffi.sizeof(rbuf),
 				_d.flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
@@ -2081,11 +2418,11 @@ local function drawEditHotkey(idx)
 	local optionsAvail = imgui.GetContentRegionAvail().x
 	local compactOptions = optionsAvail < 620
 	if compactOptions then
-		if imgui.Checkbox(fa.BOLT .. " Быстрое меню##quick_menu", hk._bools.quick) then
+		if imgui.Checkbox(fa.BOLT .. L("binder.edit_form.text.quick_menu"), hk._bools.quick) then
 			hk.editQuickMenu = hk._bools.quick[0]
 			markHotkeysDirty()
 		end
-		if imgui.Checkbox(fa.REPEAT .. " Повтор##repeat", hk._bools.rep) then
+		if imgui.Checkbox(fa.REPEAT .. L("binder.edit_form.text.repeat"), hk._bools.rep) then
 			hk.editRepeatMode = hk._bools.rep[0]
 			markHotkeysDirty()
 		end
@@ -2094,22 +2431,23 @@ local function drawEditHotkey(idx)
 			repeatWidth = 180
 		end
 		draw_repeat_interval(repeatWidth)
-		if imgui.Checkbox("Активация по тексту##trigger_enable", hk._bools.triggerEnabled) then
+		if imgui.Checkbox(L("binder.edit_form.text.trigger_enable"), hk._bools.triggerEnabled) then
 			hk.editTriggerEnabled = hk._bools.triggerEnabled[0]
 			markHotkeysDirty()
 		end
-		if imgui.Checkbox("Lua Pattern##trigger_pattern", hk._bools.triggerPattern) then
+		if imgui.Checkbox(L("binder.edit_form.text.lua_pattern"), hk._bools.triggerPattern) then
 			hk.editTriggerPattern = hk._bools.triggerPattern[0]
 			markHotkeysDirty()
 		end
+		draw_trigger_confirmation_controls(math.min(180, math.max(90, imgui.GetContentRegionAvail().x)))
 	else
-		if imgui.Checkbox(fa.BOLT .. " Быстрое меню##quick_menu", hk._bools.quick) then
+		if imgui.Checkbox(fa.BOLT .. L("binder.edit_form.text.quick_menu"), hk._bools.quick) then
 			hk.editQuickMenu = hk._bools.quick[0]
 			markHotkeysDirty()
 		end
 
 		imgui.SameLine()
-		if imgui.Checkbox(fa.REPEAT .. " Повтор##repeat", hk._bools.rep) then
+		if imgui.Checkbox(fa.REPEAT .. L("binder.edit_form.text.repeat"), hk._bools.rep) then
 			hk.editRepeatMode = hk._bools.rep[0]
 			markHotkeysDirty()
 		end
@@ -2117,20 +2455,21 @@ local function drawEditHotkey(idx)
 		imgui.SameLine()
 		draw_repeat_interval(120)
 
-		if imgui.Checkbox("Активация по тексту##trigger_enable", hk._bools.triggerEnabled) then
+		if imgui.Checkbox(L("binder.edit_form.text.trigger_enable"), hk._bools.triggerEnabled) then
 			hk.editTriggerEnabled = hk._bools.triggerEnabled[0]
 			markHotkeysDirty()
 		end
 		imgui.SameLine()
-		if imgui.Checkbox("Lua Pattern##trigger_pattern", hk._bools.triggerPattern) then
+		if imgui.Checkbox(L("binder.edit_form.text.lua_pattern"), hk._bools.triggerPattern) then
 			hk.editTriggerPattern = hk._bools.triggerPattern[0]
 			markHotkeysDirty()
 		end
+		draw_trigger_confirmation_controls(140)
 	end
 
 	imgui.Separator()
 	if imgui.BeginTabBar("edit_bind_tabs") then
-		if imgui.BeginTabItem("Строки") then
+		if imgui.BeginTabItem(L("binder.edit_form.text.text_103")) then
 			if hk._activeTab ~= 0 then
 				-- При переключении из мульти-ввода — парсим текст обратно в строки
 				if hk._activeTab == 1 then
@@ -2145,7 +2484,7 @@ local function drawEditHotkey(idx)
 			local compactBulkControls = bulkControlsW < 560
 
 			if compactBulkControls then
-				_d.imgui_text_disabled_safe("Куда")
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_104"))
 				imgui.PushItemWidth(-1)
 				if imgui.Combo("##allm", allMBuf, send_labels_ffi, #send_labels) then
 					hk.editBulkMethod = allMBuf[0]
@@ -2156,7 +2495,7 @@ local function drawEditHotkey(idx)
 				end
 				imgui.PopItemWidth()
 
-				_d.imgui_text_disabled_safe("Интервал, мс")
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_102"))
 				local bulkIntervalWidth = imgui.GetContentRegionAvail().x
 				if bulkIntervalWidth > 130 then
 					bulkIntervalWidth = 130
@@ -2181,7 +2520,7 @@ local function drawEditHotkey(idx)
 				end
 				imgui.PopItemWidth()
 
-				if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку##add_line", imgui.ImVec2(-1, 0)) then
+				if imgui.Button(fa.SQUARE_PLUS .. " " .. L("binder.edit_form.text.add_line"), imgui.ImVec2(-1, 0)) then
 					table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
 					markHotkeysDirty()
 				end
@@ -2208,7 +2547,7 @@ local function drawEditHotkey(idx)
 				imgui.SetColumnWidth(1, bulkDelayW)
 				imgui.SetColumnWidth(2, bulkActionW)
 
-				_d.imgui_text_disabled_safe("Куда")
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_104"))
 				imgui.PushItemWidth(-1)
 				if imgui.Combo("##allm", allMBuf, send_labels_ffi, #send_labels) then
 					hk.editBulkMethod = allMBuf[0]
@@ -2220,7 +2559,7 @@ local function drawEditHotkey(idx)
 				imgui.PopItemWidth()
 				imgui.NextColumn()
 
-				_d.imgui_text_disabled_safe("Интервал, мс")
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_102"))
 				imgui.PushItemWidth(-1)
 				if
 					imgui.InputText(
@@ -2242,8 +2581,8 @@ local function drawEditHotkey(idx)
 				imgui.PopItemWidth()
 				imgui.NextColumn()
 
-				_d.imgui_text_disabled_safe("Действия")
-				if imgui.Button(fa.SQUARE_PLUS .. " " .. "Добавить строку##add_line", imgui.ImVec2(-1, 0)) then
+				_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_105"))
+				if imgui.Button(fa.SQUARE_PLUS .. " " .. L("binder.edit_form.text.add_line"), imgui.ImVec2(-1, 0)) then
 					table.insert(hk.editMsgs, { text = "", interval = "0", method = 0 })
 					markHotkeysDirty()
 				end
@@ -2251,7 +2590,7 @@ local function drawEditHotkey(idx)
 				imgui.Columns(1)
 			end
 
-			imgui.TextDisabled("Подсказки: функциональные переменные из tags.lua, например [waitif(expr)]")
+			imgui.TextDisabled(L("binder.edit_form.text.tags_lua_waitif_expr"))
 			imgui.Spacing()
 
 			imgui.BeginChild("messages_list", imgui.ImVec2(0, 0), false)
@@ -2285,11 +2624,11 @@ local function drawEditHotkey(idx)
 			imgui.SetColumnWidth(2, msgMethodW)
 			imgui.SetColumnWidth(3, msgActionsW)
 
-			_d.imgui_text_disabled_safe("Сообщение")
+			_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_106"))
 			imgui.NextColumn()
-			_d.imgui_text_disabled_safe("Задержка")
+			_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_107"))
 			imgui.NextColumn()
-			_d.imgui_text_disabled_safe("Отправка")
+			_d.imgui_text_disabled_safe(L("binder.edit_form.text.text_108"))
 			imgui.NextColumn()
 			_d.imgui_text_disabled_safe(" ")
 			imgui.NextColumn()
@@ -2300,8 +2639,8 @@ local function drawEditHotkey(idx)
 			local moveMsgDst = nil
 			local moveHandleWidth = 22
 			local moveHandleIcon = (fa.ARROWS_UP_DOWN and fa.ARROWS_UP_DOWN ~= "") and fa.ARROWS_UP_DOWN
-				or ((fa.BARS and fa.BARS ~= "") and fa.BARS or "::")
-			local trashIcon = (fa.TRASH and fa.TRASH ~= "") and fa.TRASH or "X"
+				or ((fa.BARS and fa.BARS ~= "") and fa.BARS or L("binder.edit_form.text.fallback_move"))
+			local trashIcon = (fa.TRASH and fa.TRASH ~= "") and fa.TRASH or L("binder.edit_form.text.fallback_remove")
 			for i, m in ipairs(hk.editMsgs) do
 				if removeMsgIdx or moveMsgSrc then
 					break
@@ -2312,15 +2651,15 @@ local function drawEditHotkey(idx)
 					-- drag handle only
 				end
 				if imgui.IsItemHovered() then
-					_d.imgui_set_tooltip_safe("Перетащите, чтобы изменить порядок строки")
+					_d.imgui_set_tooltip_safe(L("binder.edit_form.text.text_109"))
 				end
 				if imgui.BeginDragDropSource() then
 					local payload = ffi.new("int[1]", i)
 					imgui.SetDragDropPayload("BINDER_MSG_ROW", payload, ffi.sizeof(payload))
-					_d.imgui_text_safe(string.format("Строка %d", i))
+					_d.imgui_text_safe(string.format(L("binder.edit_form.text.number_110"), i))
 					local preview = trim(m.text or "")
 					if preview == "" then
-						preview = "(пусто)"
+						preview = L("binder.edit_form.text.text_111")
 					elseif #preview > 80 then
 						preview = preview:sub(1, 77) .. "..."
 					end
@@ -2435,7 +2774,7 @@ local function drawEditHotkey(idx)
 			imgui.EndChild()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem("Мульти-ввод") then
+		if imgui.BeginTabItem(L("binder.edit_form.text.text_112")) then
 			if hk._activeTab ~= 1 then
 				-- При переключении из строк — собираем текст из editMsgs
 				if hk._activeTab == 0 then
@@ -2446,7 +2785,7 @@ local function drawEditHotkey(idx)
 
 			imgui.PushItemWidth(220)
 			local allMBuf = imgui.new.int(hk.editBulkMethod or 0)
-			if imgui.Combo("Куда##allm_multi", allMBuf, send_labels_ffi, #send_labels) then
+			if imgui.Combo(L("binder.edit_form.text.allm_multi"), allMBuf, send_labels_ffi, #send_labels) then
 				hk.editBulkMethod = allMBuf[0]
 			end
 			imgui.PopItemWidth()
@@ -2455,7 +2794,7 @@ local function drawEditHotkey(idx)
 			local allIBuf = imgui.new.char[16](tostring(hk.editBulkInterval or "0"))
 			if
 				imgui.InputText(
-					"мс##alli_multi",
+					L("binder.edit_form.text.alli_multi"),
 					allIBuf,
 					ffi.sizeof(allIBuf),
 					_d.flags_or(imgui.InputTextFlags.CharsDecimal, imgui.InputTextFlags.AutoSelectAll)
@@ -2510,12 +2849,12 @@ local function drawEditHotkey(idx)
 			end
 			imgui.PopItemWidth()
 			imgui.TextDisabled(
-				"Каждая строка будет отправлена отдельно. Пустые строки игнорируются."
+				L("binder.edit_form.text.text_113")
 			)
 			imgui.EndTabItem()
 		end
 		--------------------------------------------------------------
-		if imgui.BeginTabItem("Поля ввода") then
+		if imgui.BeginTabItem(L("binder.edit_form.text.text_114")) then
 			hk._activeTab = 2
 			drawInputsTabContent(hk)
 			imgui.EndTabItem()
@@ -2545,29 +2884,29 @@ local function drawEditHotkey(idx)
 	if compactFooter then
 		local compactSaveW = math.min(220, math.max(120, footerAvail - 24))
 		center_cursor_x(compactSaveW)
-		savePressed = imgui.Button(fa.FLOPPY_DISK .. " Сохранить##edit_save", imgui.ImVec2(compactSaveW, 0))
+		savePressed = imgui.Button(fa.FLOPPY_DISK .. L("binder.edit_form.text.edit_save"), imgui.ImVec2(compactSaveW, 0))
 
 		local compactSideW = math.min(140, math.max(110, footerAvail - 24))
 		if hasTagsButton then
 			local pairTotal = compactSideW * 2 + footerSpacing
 			if pairTotal <= footerAvail then
 				center_cursor_x(pairTotal)
-				if imgui.Button(fa.TAGS .. " Переменные##open_tags", imgui.ImVec2(compactSideW, 0)) then
+				if imgui.Button(fa.TAGS .. L("binder.edit_form.text.open_tags"), imgui.ImVec2(compactSideW, 0)) then
 					tags.showTagsWindow[0] = true
 				end
 				imgui.SameLine()
-				cancelPressed = imgui.Button(fa.XMARK .. " Отмена##edit_cancel", imgui.ImVec2(compactSideW, 0))
+				cancelPressed = imgui.Button(fa.XMARK .. L("binder.edit_form.text.edit_cancel"), imgui.ImVec2(compactSideW, 0))
 			else
 				center_cursor_x(compactSideW)
-				if imgui.Button(fa.TAGS .. " Переменные##open_tags", imgui.ImVec2(compactSideW, 0)) then
+				if imgui.Button(fa.TAGS .. L("binder.edit_form.text.open_tags"), imgui.ImVec2(compactSideW, 0)) then
 					tags.showTagsWindow[0] = true
 				end
 				center_cursor_x(compactSideW)
-				cancelPressed = imgui.Button(fa.XMARK .. " Отмена##edit_cancel", imgui.ImVec2(compactSideW, 0))
+				cancelPressed = imgui.Button(fa.XMARK .. L("binder.edit_form.text.edit_cancel"), imgui.ImVec2(compactSideW, 0))
 			end
 		else
 			center_cursor_x(compactSideW)
-			cancelPressed = imgui.Button(fa.XMARK .. " Отмена##edit_cancel", imgui.ImVec2(compactSideW, 0))
+			cancelPressed = imgui.Button(fa.XMARK .. L("binder.edit_form.text.edit_cancel"), imgui.ImVec2(compactSideW, 0))
 		end
 	else
 		local sideBtnWidth = 140
@@ -2590,14 +2929,14 @@ local function drawEditHotkey(idx)
 		center_cursor_x(totalW)
 
 		if hasTagsButton then
-			if imgui.Button(fa.TAGS .. " Переменные##open_tags", imgui.ImVec2(sideBtnWidth, 0)) then
+			if imgui.Button(fa.TAGS .. L("binder.edit_form.text.open_tags"), imgui.ImVec2(sideBtnWidth, 0)) then
 				tags.showTagsWindow[0] = true
 			end
 			imgui.SameLine()
 		end
-		savePressed = imgui.Button(fa.FLOPPY_DISK .. " Сохранить##edit_save", imgui.ImVec2(saveBtnWidth, 0))
+		savePressed = imgui.Button(fa.FLOPPY_DISK .. L("binder.edit_form.text.edit_save"), imgui.ImVec2(saveBtnWidth, 0))
 		imgui.SameLine()
-		cancelPressed = imgui.Button(fa.XMARK .. " Отмена##edit_cancel", imgui.ImVec2(sideBtnWidth, 0))
+		cancelPressed = imgui.Button(fa.XMARK .. L("binder.edit_form.text.edit_cancel"), imgui.ImVec2(sideBtnWidth, 0))
 	end
 
 	if savePressed then
@@ -2617,7 +2956,8 @@ local function drawEditHotkey(idx)
 		hk.label = hk.editLabel
 		hk.command = hk.editCommand
 		hk.command_enabled = hk.editCommandEnabled
-		hk.keys = { table.unpack(hk.editKeys) }
+		hk.hotkey_mode = HotkeyManager.normalizeMode(hk.editHotkeyMode)
+		hk.keys = HotkeyManager.normalizeComboForMode(hk.editKeys, hk.hotkey_mode) or {}
 		hk.messages = {}
 		for _, m in ipairs(hk.editMsgs) do
 			table.insert(hk.messages, {
@@ -2626,42 +2966,7 @@ local function drawEditHotkey(idx)
 				method = tonumber(m.method) or 0,
 			})
 		end
-		hk.inputs = {}
-		for _, input in ipairs(hk.editInputs or {}) do
-			local key = normalize_input_key_ref(input.key)
-			if key ~= "" then
-				local mode = normalize_input_mode(input.mode)
-				local buttons
-				if input_mode_uses_buttons(mode) then
-					buttons = {}
-					for _, btn in ipairs(input.buttons or {}) do
-						local text = trim(btn.text or "")
-						if text ~= "" then
-							buttons[#buttons + 1] = {
-								label = btn.label or "",
-								text = btn.text or "",
-								hint = btn.hint or "",
-								when = btn.when or "",
-							}
-						end
-					end
-					mode = normalize_runtime_input_mode(mode, buttons)
-					if mode == INPUT_MODE.TEXT then
-						buttons = nil
-					end
-				end
-				table.insert(hk.inputs, {
-					label = input.label or "",
-					hint = input.hint or "",
-					key = key,
-					mode = mode,
-					buttons = buttons,
-					multi_select = input.multi_select == true,
-					multi_separator = normalize_multi_separator(input.multi_separator),
-					cascade_parent_key = normalize_input_key_ref(input.cascade_parent_key),
-				})
-			end
-		end
+		hk.inputs = ctx.normalize_runtime_inputs(hk.editInputs or {})
 		hk.conditions = {}
 		for i = 1, cond_count do
 			hk.conditions[i] = hk.editConditions[i]
@@ -2679,11 +2984,17 @@ local function drawEditHotkey(idx)
 			enabled = hk.editTriggerEnabled,
 			pattern = hk.editTriggerPattern,
 		}
+		hk.text_confirmation = clone_text_confirmation({
+			enabled = hk.editTriggerConfirmEnabled,
+			key = hk.editTriggerConfirmKey,
+			cancel_key = hk.editTriggerConfirmCancelKey,
+			wait_for_resolution = hk.editTriggerConfirmWait,
+		})
 
 		reset_edit_state(hk)
 		editHotkey.active = false
 		markHotkeysDirty(true)
-		pushToast("Бинд сохранен: " .. (hk.label or ""), "ok", 2.5)
+		pushToast(L("binder.edit_form.text.text_115") .. (hk.label or ""), "ok", 2.5)
 		return
 	end
 	if cancelPressed then
@@ -2697,8 +3008,12 @@ end
 M.drawEditHotkey = drawEditHotkey
 M.validateHotkeyEdit = validateHotkeyEdit
 M.getEditHotkeyNav = function() return editHotkeyNav end
-M.getSendLabels = function() return send_labels, send_labels_ffi end
+M.getSendLabels = function()
+	ensure_language_cache()
+	return send_labels, send_labels_ffi
+end
 M.getComboCapture = function() return combo_capture end
+M.getTextConfirmCapture = function() return text_confirm_capture end
 M.input_mode_to_index = function(...) return input_mode_to_index(...) end
 M.input_mode_from_index = function(...) return input_mode_from_index(...) end
 

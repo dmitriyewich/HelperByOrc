@@ -7,6 +7,7 @@ local paths = require("HelperByOrc.paths")
 local funcs = require("HelperByOrc.funcs")
 local mimgui_funcs = require("HelperByOrc.mimgui_funcs")
 local HotkeyManager = require("HelperByOrc.hotkey_manager")
+local language = require("language")
 encoding.default = "CP1251"
 
 local app = {}
@@ -16,7 +17,7 @@ local imgui_text_colored_safe = mimgui_funcs.imgui_text_colored_safe
 
 -- модули будут загружены в main()
 local SMIHelp
-local Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp, toasts, correct
+local Unwanted, myhooks, tags, binder, notepad, VIPandADchat, weapon_rp, toasts, correct, samp_api
 local projectConfig
 local config_manager_ref
 local event_bus_ref
@@ -28,6 +29,30 @@ local runtime_state = {
 local modules_ref
 local reload_in_progress = false
 local requestScriptReload
+local CONFIG_PATH_REL
+local CONFIG_PATH
+local hotkey_helpers
+local normalizeKey
+local keysMatchCombo
+local normalizeHotkeyTable
+local hotkeyToString
+local cloneKeys
+local defaultOpenHotkey
+local CONFIG_DEFAULTS
+local MODULE_STATE_DEFAULTS
+local openHotkey
+local openHotkeyActive
+local normalizeSampBackendMode
+local applySampBackendMode
+local refreshHotkeyHelpers
+local setProjectLanguage
+local saveProjectConfig
+local cloneProjectDefaults
+local sanitizeProjectConfig
+local sanitizeProjectModuleStates
+local serializeProjectConfig
+local applyProjectModuleStates
+local renderHotkeyWnd
 
 local function stopRuntimeThread(thread_handle)
 	if not thread_handle then
@@ -73,6 +98,7 @@ local function bindModules(modules)
 	weapon_rp = modules.weapon_rp or weapon_rp
 	toasts = modules.toasts or toasts
 	correct = modules.correct or correct
+	samp_api = modules.samp or samp_api
 	if correct and type(correct.setEnabled) == "function" then
 		correct.setEnabled(projectConfig.correctEnabled ~= false)
 	end
@@ -87,41 +113,48 @@ function app.attachModules(modules)
 		event_bus_ref.offByOwner("main_app")
 	end
 	if config_manager_ref then
+		local normalizedDuringRegister = false
 		local data = config_manager_ref.register("main", {
 			path = CONFIG_PATH_REL,
-			defaults = CONFIG_DEFAULTS,
+			defaults = cloneProjectDefaults(),
 			normalize = function(loaded)
-				if type(loaded.renderHotkeyWnd) ~= "boolean" then
-					loaded.renderHotkeyWnd = false
-				end
-				if type(loaded.correctEnabled) ~= "boolean" then
-					loaded.correctEnabled = true
-				end
-				loaded.openHotkey = normalizeHotkeyTable(loaded.openHotkey) or cloneKeys(defaultOpenHotkey)
+				local changed = false
+				loaded, changed = sanitizeProjectConfig(loaded)
+				normalizedDuringRegister = normalizedDuringRegister or changed
 				return loaded
 			end,
+			serialize = serializeProjectConfig,
 		})
-		-- Sync live data back to projectConfig
-		for k, v in pairs(data) do
-			projectConfig[k] = v
+		projectConfig = data
+		openHotkey = cloneKeys(projectConfig.openHotkey)
+		setProjectLanguage(projectConfig.language, { save = false })
+		if correct and type(correct.setEnabled) == "function" then
+			correct.setEnabled(projectConfig.correctEnabled ~= false)
+		end
+		local moduleStatesChanged = applyProjectModuleStates({ save = false })
+		if normalizedDuringRegister or moduleStatesChanged then
+			saveProjectConfig()
 		end
 	end
+	applySampBackendMode(projectConfig.sampBackendMode, { save = false })
 end
 
 -- === FontAwesome ===
 local ok2, fa = pcall(require, "fAwesome7")
 
 -- === Интерфейсные переменные ===
-local CONFIG_PATH_REL = "HelperByOrc.json"
-local CONFIG_PATH = paths.dataPath(CONFIG_PATH_REL)
-local hotkey_helpers = funcs.getHotkeyHelpers(vk, "[не назначено]")
-local normalizeKey = hotkey_helpers.normalizeKey
-local isKeyboardKey = hotkey_helpers.isKeyboardKey
-local keysMatchCombo = hotkey_helpers.keysMatchCombo
-local normalizeHotkeyTable = hotkey_helpers.normalizeHotkeyTable
-local hotkeyToString = hotkey_helpers.hotkeyToString
+CONFIG_PATH_REL = "HelperByOrc.json"
+CONFIG_PATH = paths.dataPath(CONFIG_PATH_REL)
+refreshHotkeyHelpers = function()
+	hotkey_helpers = funcs.getHotkeyHelpers(vk, language.getText("common.unassigned"))
+	normalizeKey = hotkey_helpers.normalizeKey
+	keysMatchCombo = hotkey_helpers.keysMatchCombo
+	normalizeHotkeyTable = hotkey_helpers.normalizeHotkeyTable
+	hotkeyToString = hotkey_helpers.hotkeyToString
+end
+refreshHotkeyHelpers()
 
-local function cloneKeys(list)
+cloneKeys = function(list)
 	local res = {}
 	for _, k in ipairs(list or {}) do
 		if type(k) == "number" then
@@ -131,26 +164,134 @@ local function cloneKeys(list)
 	return res
 end
 
-local defaultOpenHotkey = { vk.VK_CONTROL, vk.VK_Z }
-local CONFIG_DEFAULTS = { renderHotkeyWnd = false, openHotkey = cloneKeys(defaultOpenHotkey), correctEnabled = true }
-
-projectConfig = funcs.loadTableFromJson(CONFIG_PATH_REL, CONFIG_DEFAULTS)
-local configSnapshot = funcs.deepCopyTable and funcs.deepCopyTable(projectConfig) or nil
-
-if type(projectConfig.renderHotkeyWnd) ~= "boolean" then
-	projectConfig.renderHotkeyWnd = false
+defaultOpenHotkey = { vk.VK_CONTROL, vk.VK_Z }
+MODULE_STATE_DEFAULTS = {
+	VIPandADchat = true,
+	weapon_rp = true,
+}
+normalizeSampBackendMode = function(mode)
+	mode = tostring(mode or ""):lower()
+	if mode == "sampfuncs" then
+		return "sampfuncs"
+	end
+	if mode == "arizona" then
+		return "arizona"
+	end
+	return "standard"
 end
 
-local openHotkey = normalizeHotkeyTable(projectConfig.openHotkey) or cloneKeys(defaultOpenHotkey)
-projectConfig.openHotkey = cloneKeys(openHotkey)
-local openHotkeyActive = false
-
-if type(projectConfig.correctEnabled) ~= "boolean" then
-	projectConfig.correctEnabled = true
+cloneProjectDefaults = function()
+	return funcs.deepCopyTable and funcs.deepCopyTable(CONFIG_DEFAULTS) or {
+		openHotkey = cloneKeys(CONFIG_DEFAULTS.openHotkey),
+		correctEnabled = CONFIG_DEFAULTS.correctEnabled,
+		language = CONFIG_DEFAULTS.language,
+		sampBackendMode = CONFIG_DEFAULTS.sampBackendMode,
+		moduleStates = {},
+	}
 end
+
+sanitizeProjectModuleStates = function(states)
+	local changed = false
+	if type(states) ~= "table" then
+		states = {}
+		changed = true
+	end
+
+	for module_name in pairs(MODULE_STATE_DEFAULTS) do
+		local value = states[module_name]
+		if value ~= nil and type(value) ~= "boolean" then
+			states[module_name] = MODULE_STATE_DEFAULTS[module_name] ~= false
+			changed = true
+		end
+	end
+
+	return states, changed
+end
+
+sanitizeProjectConfig = function(cfg)
+	local changed = false
+	if type(cfg) ~= "table" then
+		cfg = {}
+		changed = true
+	end
+
+	if cfg.renderHotkeyWnd ~= nil then
+		cfg.renderHotkeyWnd = nil
+		changed = true
+	end
+
+	local normalizedOpenHotkey = HotkeyManager.normalizeComboForMode(
+		normalizeHotkeyTable(cfg.openHotkey) or cloneKeys(defaultOpenHotkey),
+		HotkeyManager.MODE_MODIFIER_TRIGGER
+	) or cloneKeys(defaultOpenHotkey)
+	if not funcs.tablesShallowEqual or not funcs.tablesShallowEqual(cfg.openHotkey, normalizedOpenHotkey) then
+		cfg.openHotkey = cloneKeys(normalizedOpenHotkey)
+		changed = true
+	end
+
+	if type(cfg.correctEnabled) ~= "boolean" then
+		cfg.correctEnabled = true
+		changed = true
+	end
+
+	local normalizedLanguage = language.normalizeCode(cfg.language)
+	if cfg.language ~= normalizedLanguage then
+		cfg.language = normalizedLanguage
+		changed = true
+	end
+
+	local normalizedBackend = normalizeSampBackendMode(cfg.sampBackendMode)
+	if cfg.sampBackendMode ~= normalizedBackend then
+		cfg.sampBackendMode = normalizedBackend
+		changed = true
+	end
+
+	local module_states, module_states_changed = sanitizeProjectModuleStates(cfg.moduleStates)
+	if cfg.moduleStates ~= module_states then
+		cfg.moduleStates = module_states
+		changed = true
+	elseif module_states_changed then
+		changed = true
+	end
+
+	return cfg, changed
+end
+
+serializeProjectConfig = function(cfg)
+	cfg = type(cfg) == "table" and cfg or {}
+	local module_states = {}
+	if type(cfg.moduleStates) == "table" then
+		for module_name in pairs(MODULE_STATE_DEFAULTS) do
+			if type(cfg.moduleStates[module_name]) == "boolean" then
+				module_states[module_name] = cfg.moduleStates[module_name]
+			end
+		end
+	end
+	return {
+		openHotkey = cloneKeys(cfg.openHotkey or defaultOpenHotkey),
+		correctEnabled = cfg.correctEnabled ~= false,
+		language = language.normalizeCode(cfg.language),
+		sampBackendMode = normalizeSampBackendMode(cfg.sampBackendMode),
+		moduleStates = module_states,
+	}
+end
+
+CONFIG_DEFAULTS = {
+	openHotkey = cloneKeys(defaultOpenHotkey),
+	correctEnabled = true,
+	language = language.getDefaultCode(),
+	sampBackendMode = "standard",
+	moduleStates = {},
+}
+
+projectConfig = funcs.loadTableFromJson(CONFIG_PATH_REL, cloneProjectDefaults())
+local initialProjectConfigDirty = false
+projectConfig, initialProjectConfigDirty = sanitizeProjectConfig(projectConfig)
+
+openHotkey = cloneKeys(projectConfig.openHotkey)
+openHotkeyActive = false
 
 local imgui_ready = false
-local renderHotkeyWnd
 
 local function isAnyProjectWindowOpen()
 	if renderHotkeyWnd and renderHotkeyWnd[0] then
@@ -167,46 +308,138 @@ local function isAnyProjectWindowOpen()
 	return false
 end
 
-renderHotkeyWnd = imgui.new.bool(projectConfig.renderHotkeyWnd)
-local function saveProjectConfig()
+renderHotkeyWnd = imgui.new.bool(false)
+saveProjectConfig = function()
+	projectConfig = sanitizeProjectConfig(projectConfig)
 	if config_manager_ref then
 		config_manager_ref.markDirty("main")
+		if type(config_manager_ref.flush) == "function" then
+			config_manager_ref.flush("main", true)
+		end
 	else
 		funcs.saveTableToJson(projectConfig, CONFIG_PATH_REL)
 	end
+end
+
+setProjectLanguage = function(code, opts)
+	opts = opts or {}
+	local normalized = language.setLanguage(code)
+	projectConfig.language = normalized
+	refreshHotkeyHelpers()
+	if opts.save ~= false then
+	saveProjectConfig()
+	end
+	return normalized
+end
+
+applySampBackendMode = function(mode, opts)
+	opts = opts or {}
+	local normalized = normalizeSampBackendMode(mode)
+	projectConfig.sampBackendMode = normalized
+
+	if type(samp_api) == "table" then
+		if type(samp_api.setBackendMode) == "function" then
+			pcall(samp_api.setBackendMode, normalized)
+		elseif type(samp_api.setFunctionBackendMode) == "function" then
+			pcall(samp_api.setFunctionBackendMode, normalized)
+		end
+	end
+
+	if type(myhooks) == "table" then
+		if type(myhooks.setBackendMode) == "function" then
+			pcall(myhooks.setBackendMode, normalized)
+		elseif type(myhooks.setHookBackendMode) == "function" then
+			pcall(myhooks.setHookBackendMode, normalized)
+		end
+	end
+
+	if opts.save ~= false then
+	saveProjectConfig()
+	end
+
+	return normalized
+end
+
+applyProjectModuleStates = function(opts)
+	opts = opts or {}
+	if type(projectConfig) ~= "table" then
+		return false
+	end
+
+	local changed = false
+	local module_states, module_states_changed = sanitizeProjectModuleStates(projectConfig.moduleStates)
+	if projectConfig.moduleStates ~= module_states then
+		projectConfig.moduleStates = module_states
+		changed = true
+	elseif module_states_changed then
+		changed = true
+	end
+
+	local modules_to_sync = {
+		{ name = "VIPandADchat", ref = VIPandADchat },
+		{ name = "weapon_rp", ref = weapon_rp },
+	}
+
+	for i = 1, #modules_to_sync do
+		local module_item = modules_to_sync[i]
+		local module_name = module_item.name
+		local module_ref = module_item.ref
+		local enabled = module_states[module_name]
+		if type(enabled) ~= "boolean" then
+			enabled = MODULE_STATE_DEFAULTS[module_name] ~= false
+			if type(module_ref) == "table" and type(module_ref.isEnabled) == "function" then
+				local ok_enabled, legacy_enabled = pcall(module_ref.isEnabled)
+				if ok_enabled and type(legacy_enabled) == "boolean" then
+					enabled = legacy_enabled
+				end
+			end
+			module_states[module_name] = enabled
+			changed = true
+		end
+
+		if type(module_ref) == "table" and type(module_ref.setEnabled) == "function" then
+			pcall(module_ref.setEnabled, enabled, {
+				save_project = false,
+				flush_project = false,
+				apply_runtime = false,
+			})
+		end
+	end
+
+	if changed and opts.save ~= false then
+		saveProjectConfig()
+	end
+
+	return changed
 end
 
 local function setRenderHotkeyWnd(state)
 	local normalized = not not state
 	if renderHotkeyWnd[0] ~= normalized then
 		renderHotkeyWnd[0] = normalized
-		projectConfig.renderHotkeyWnd = normalized
-		saveProjectConfig()
 	end
 end
 
 local function setOpenHotkey(combo)
-	local normalized = normalizeHotkeyTable(combo) or cloneKeys(defaultOpenHotkey)
+	local normalized = HotkeyManager.normalizeComboForMode(
+		normalizeHotkeyTable(combo) or cloneKeys(defaultOpenHotkey),
+		HotkeyManager.MODE_MODIFIER_TRIGGER
+	) or cloneKeys(defaultOpenHotkey)
 	openHotkey = normalized
 	projectConfig.openHotkey = cloneKeys(normalized)
 	openHotkeyActive = false
-	saveProjectConfig()
 end
+
+setProjectLanguage(projectConfig.language, { save = false })
 
 local function toggleRenderHotkeyWnd()
 	setRenderHotkeyWnd(not renderHotkeyWnd[0])
 end
 
-if configSnapshot and funcs.tablesShallowEqual then
-	local dirty = not funcs.tablesShallowEqual(projectConfig, configSnapshot)
-	if dirty then
+if initialProjectConfigDirty then
 		saveProjectConfig()
 	end
-elseif not configSnapshot then
 	-- deepCopyTable недоступен, fallback: сохраняем как раньше
-	saveProjectConfig()
-end
-configSnapshot = nil
 local correctEnabledBool = imgui.new.bool(projectConfig.correctEnabled ~= false)
 local profileSelectIndex = imgui.new.int(0)
 local newProfileNameBuf = imgui.new.char[64]()
@@ -225,6 +458,47 @@ end
 local function setProfileStatus(text, color)
 	profileStatusText = tostring(text or "")
 	profileStatusColor = color or profileStatusColor
+end
+
+local function tr(key, params)
+	return language.getText(key, params)
+end
+
+local function getSampBackendLabel(mode)
+	mode = normalizeSampBackendMode(mode)
+	if mode == "sampfuncs" then
+		return tr("common.sampfuncs")
+	end
+	if mode == "arizona" then
+		return tr("common.arizona")
+	end
+	return tr("common.standard")
+end
+
+local function getCurrentFunctionBackendStatus()
+	if type(samp_api) ~= "table" then
+		return nil
+	end
+	if type(samp_api.getBackendStatus) == "function" then
+		return samp_api.getBackendStatus()
+	end
+	if type(samp_api.getFunctionBackendStatus) == "function" then
+		return samp_api.getFunctionBackendStatus()
+	end
+	return nil
+end
+
+local function getCurrentHookBackendStatus()
+	if type(myhooks) ~= "table" then
+		return nil
+	end
+	if type(myhooks.getBackendStatus) == "function" then
+		return myhooks.getBackendStatus()
+	end
+	if type(myhooks.getHookBackendStatus) == "function" then
+		return myhooks.getHookBackendStatus()
+	end
+	return nil
 end
 
 local function refreshProfileList()
@@ -351,7 +625,7 @@ end, function()
 		setRenderHotkeyWnd(false)
 	end
 	if closeHovered then
-		imgui.SetTooltip("Закрыть")
+		imgui.SetTooltip(tr("common.close"))
 		if imgui.SetMouseCursor then
 			imgui.SetMouseCursor(imgui.MouseCursor.Hand)
 		end
@@ -359,6 +633,14 @@ end, function()
 
 	local sidebarW = sidebarCollapsed[0] and SIDEBAR_W_COLLAPSED or SIDEBAR_W_EXPANDED
 	local logoSz = sidebarCollapsed[0] and LOGO_SZ_COLLAPSED or LOGO_SZ_EXPANDED
+	local tabLabels = {
+		tr("main.tab.home"),
+		tr("main.tab.binder"),
+		tr("main.tab.smihelp"),
+		tr("main.tab.notepad"),
+		tr("main.tab.misc"),
+		tr("main.tab.settings"),
+	}
 
 	imgui.SetCursorPos(imgui.ImVec2(pad.x, pad.y + titleH))
 
@@ -377,14 +659,7 @@ end, function()
 	if imgui.BeginChild("menu##vertical", imgui.ImVec2(sidebarW, 0), false) then
 		if sidebarCollapsed[0] and ok2 and fa then
 			local icons = { fa.HOUSE, fa.KEYBOARD, fa.NEWSPAPER, fa.BOOK, fa.CUBES, fa.GEAR }
-			local tips = {
-				"Главная",
-				"Биндер",
-				"СМИ Хелпер",
-				"Блокнот",
-				"Прочее",
-				"Настройки",
-			}
+			local tips = tabLabels
 			local itemH = 44
 			local dl = imgui.GetWindowDrawList()
 			local style = imgui.GetStyle()
@@ -428,12 +703,12 @@ end, function()
 		else
 			local menuItems
 			if ok2 and fa then
-				local labelHouse = sidebarCollapsed[0] and fa.HOUSE or (fa.HOUSE .. " Главная")
-				local labelKeyboard = sidebarCollapsed[0] and fa.KEYBOARD or (fa.KEYBOARD .. " Биндер")
-				local labelNewspaper = sidebarCollapsed[0] and fa.NEWSPAPER or (fa.NEWSPAPER .. " СМИ Хелпер")
-				local labelBook = sidebarCollapsed[0] and fa.BOOK or (fa.BOOK .. " Блокнот")
-				local labelCubes = sidebarCollapsed[0] and fa.CUBES or (fa.CUBES .. " Прочее")
-				local labelGear = sidebarCollapsed[0] and fa.GEAR or (fa.GEAR .. " Настройки")
+				local labelHouse = sidebarCollapsed[0] and fa.HOUSE or (fa.HOUSE .. " " .. tabLabels[1])
+				local labelKeyboard = sidebarCollapsed[0] and fa.KEYBOARD or (fa.KEYBOARD .. " " .. tabLabels[2])
+				local labelNewspaper = sidebarCollapsed[0] and fa.NEWSPAPER or (fa.NEWSPAPER .. " " .. tabLabels[3])
+				local labelBook = sidebarCollapsed[0] and fa.BOOK or (fa.BOOK .. " " .. tabLabels[4])
+				local labelCubes = sidebarCollapsed[0] and fa.CUBES or (fa.CUBES .. " " .. tabLabels[5])
+				local labelGear = sidebarCollapsed[0] and fa.GEAR or (fa.GEAR .. " " .. tabLabels[6])
 				menuItems = {
 					{ labelHouse },
 					{ labelKeyboard },
@@ -444,12 +719,12 @@ end, function()
 				}
 			else
 				menuItems = {
-					{ sidebarCollapsed[0] and "H" or "Главная" },
-					{ sidebarCollapsed[0] and "B" or "Биндер" },
-					{ sidebarCollapsed[0] and "S" or "СМИ Хелпер" },
-					{ sidebarCollapsed[0] and "N" or "Блокнот" },
-					{ sidebarCollapsed[0] and "M" or "Прочее" },
-					{ sidebarCollapsed[0] and "C" or "Настройки" },
+					{ sidebarCollapsed[0] and "H" or tabLabels[1] },
+					{ sidebarCollapsed[0] and "B" or tabLabels[2] },
+					{ sidebarCollapsed[0] and "S" or tabLabels[3] },
+					{ sidebarCollapsed[0] and "N" or tabLabels[4] },
+					{ sidebarCollapsed[0] and "M" or tabLabels[5] },
+					{ sidebarCollapsed[0] and "C" or tabLabels[6] },
 				}
 			end
 			if mimgui_funcs and mimgui_funcs.customVerticalMenu then
@@ -511,20 +786,20 @@ end, function()
 			notepad.drawNotepadPanel()
 		elseif currentTab == 5 then
 			if miscPage == 0 then
-				imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "Прочее")
+				imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), tr("main.tab.misc"))
 				imgui.Separator()
 				local items = {}
 				if tags and tags.DrawSettingsPage then
-					table.insert(items, { id = 1, name = "Переменные" })
+					table.insert(items, { id = 1, name = tr("main.misc.variables") })
 				end
 				if VIPandADchat and VIPandADchat.DrawSettingsInline then
-					table.insert(items, { id = 2, name = "VIP/AD чат" })
+					table.insert(items, { id = 2, name = tr("main.misc.vipad_chat") })
 				end
 				if Unwanted and Unwanted.DrawWindowInline then
-					table.insert(items, { id = 3, name = "Игнорируемые сообщения" })
+					table.insert(items, { id = 3, name = tr("main.misc.unwanted_messages") })
 				end
 				if weapon_rp and weapon_rp.DrawSettingsInline then
-					table.insert(items, { id = 4, name = "Оружие RP" })
+					table.insert(items, { id = 4, name = tr("main.misc.weapon_rp") })
 				end
 
 				local avail = imgui.GetContentRegionAvail().x
@@ -555,143 +830,226 @@ end, function()
 				end
 			elseif miscPage == 1 and tags and tags.DrawSettingsPage then
 				imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
-				if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+				if imgui.Button(fa.ARROW_LEFT .. " " .. tr("common.back")) then
 					miscPage = 0
 				end
 				imgui.SameLine()
-				imgui.Text("Переменные")
+				imgui.Text(tr("main.misc.variables"))
 				imgui.EndChild()
 				imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 				tags.DrawSettingsPage()
 				imgui.EndChild()
 			elseif miscPage == 2 and VIPandADchat and VIPandADchat.DrawSettingsInline then
 				imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
-				if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+				if imgui.Button(fa.ARROW_LEFT .. " " .. tr("common.back")) then
 					miscPage = 0
 				end
 				imgui.SameLine()
-				imgui.Text("VIP/AD чат")
+				imgui.Text(tr("main.misc.vipad_chat"))
 				imgui.EndChild()
 				imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 				VIPandADchat.DrawSettingsInline()
 				imgui.EndChild()
 			elseif miscPage == 3 and Unwanted and Unwanted.DrawWindowInline then
 				imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
-				if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+				if imgui.Button(fa.ARROW_LEFT .. " " .. tr("common.back")) then
 					miscPage = 0
 				end
 				imgui.SameLine()
-				imgui.Text("Игнорируемые сообщения")
+				imgui.Text(tr("main.misc.unwanted_messages"))
 				imgui.EndChild()
 				imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 				Unwanted.DrawWindowInline()
 				imgui.EndChild()
 			elseif miscPage == 4 and weapon_rp and weapon_rp.DrawSettingsInline then
 				imgui.BeginChild("misc_header", imgui.ImVec2(0, 20), false)
-				if imgui.Button(fa.ARROW_LEFT .. " Назад") then
+				if imgui.Button(fa.ARROW_LEFT .. " " .. tr("common.back")) then
 					miscPage = 0
 				end
 				imgui.SameLine()
-				imgui.Text("Оружие RP")
+				imgui.Text(tr("main.misc.weapon_rp"))
 				imgui.EndChild()
 				imgui.BeginChild("misc_body", imgui.ImVec2(0, 0), true)
 				weapon_rp.DrawSettingsInline()
 				imgui.EndChild()
 			end
 		elseif currentTab == 6 then
-			imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), "Настройки")
+			imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), tr("main.tab.settings"))
 			imgui.Separator()
-			imgui.Text("Хоткей открытия главного окна:")
+			imgui.Text(tr("main.settings.language.label"))
+			imgui.SameLine()
+			imgui.PushItemWidth(220)
+			do
+				local currentLanguage = language.getLanguage()
+				if imgui.BeginCombo("##project_language", language.getLanguageLabel(currentLanguage)) then
+					for _, lang in ipairs(language.getSupportedLanguages()) do
+						local isSelected = currentLanguage == lang.code
+						if imgui.Selectable(lang.label, isSelected) then
+							setProjectLanguage(lang.code)
+						end
+						if isSelected then
+							imgui.SetItemDefaultFocus()
+						end
+					end
+					imgui.EndCombo()
+				end
+			end
+			imgui.PopItemWidth()
+			imgui.TextDisabled(tr("main.settings.language.fallback_hint"))
+			imgui.Separator()
+			imgui.Text(tr("main.settings.open_hotkey.label"))
 			imgui.SameLine()
 			imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), hotkeyToString(openHotkey))
 			imgui.Separator()
 			if openHotkeyCapture:isActive() then
 				HotkeyManager.drawCaptureUI(openHotkeyCapture, "open_hotkey", imgui_text_colored_safe)
 			else
-				if imgui.Button("Изменить комбинацию") then
+				if imgui.Button(tr("main.settings.open_hotkey.change")) then
 					openHotkeyCapture:start()
 				end
 				imgui.SameLine()
-				if imgui.Button("Сбросить на Ctrl + Z") then
+				if imgui.Button(tr("main.settings.open_hotkey.reset")) then
 					setOpenHotkey(defaultOpenHotkey)
 				end
-				imgui.Text(
-					"Комбинация используется для открытия/закрытия окна HelperByOrc."
-				)
+				imgui.Text(tr("main.settings.open_hotkey.help"))
 			end
 			imgui.Separator()
-			imgui.Text("Профили (все JSON-файлы хранятся в Profiles/<имя_профиля>):")
+			imgui.Text(tr("main.settings.backend.section"))
+			local currentBackendMode = normalizeSampBackendMode(projectConfig.sampBackendMode)
+			imgui.PushItemWidth(220)
+			if imgui.BeginCombo(tr("main.settings.backend.mode_label") .. "##samp_backend_mode", getSampBackendLabel(currentBackendMode)) then
+				local isStandardSelected = currentBackendMode == "standard"
+				if imgui.Selectable(tr("common.standard"), isStandardSelected) then
+					applySampBackendMode("standard")
+				end
+				local isSampfuncsSelected = currentBackendMode == "sampfuncs"
+				if imgui.Selectable(tr("common.sampfuncs"), isSampfuncsSelected) then
+					applySampBackendMode("sampfuncs")
+				end
+				local isArizonaSelected = currentBackendMode == "arizona"
+				if imgui.Selectable(tr("common.arizona"), isArizonaSelected) then
+					applySampBackendMode("arizona")
+				end
+				imgui.EndCombo()
+			end
+			imgui.PopItemWidth()
+			imgui.TextWrapped(tr("main.settings.backend.description"))
+
+			local functionBackendStatus = getCurrentFunctionBackendStatus()
+			if functionBackendStatus then
+				imgui.Text(tr("main.settings.backend.functions_status"))
+				imgui.SameLine()
+				imgui_text_colored_safe(
+					imgui.ImVec4(0.9, 0.9, 0.6, 1),
+					getSampBackendLabel(functionBackendStatus.active or currentBackendMode)
+				)
+				if functionBackendStatus.desired ~= "standard" and functionBackendStatus.active ~= functionBackendStatus.desired then
+					imgui_text_colored_safe(
+						imgui.ImVec4(1, 0.7, 0.45, 1),
+						tr("main.settings.backend.mode_inactive", {
+							mode = getSampBackendLabel(functionBackendStatus.desired),
+							reason = tr("main.settings.backend.reason.no_asi"),
+						})
+					)
+				end
+			end
+
+			local hookBackendStatus = getCurrentHookBackendStatus()
+			if hookBackendStatus then
+				imgui.Text(tr("main.settings.backend.hooks_status"))
+				imgui.SameLine()
+				imgui_text_colored_safe(
+					imgui.ImVec4(0.9, 0.9, 0.6, 1),
+					getSampBackendLabel(hookBackendStatus.active or currentBackendMode)
+				)
+
+				if hookBackendStatus.desired ~= "standard" and hookBackendStatus.active ~= hookBackendStatus.desired then
+					local reason = hookBackendStatus.hasSampfuncs
+						and tr("main.settings.backend.reason.no_events")
+						or tr("main.settings.backend.reason.no_asi")
+					imgui_text_colored_safe(
+						imgui.ImVec4(1, 0.7, 0.45, 1),
+						tr("main.settings.backend.mode_inactive", {
+							mode = getSampBackendLabel(hookBackendStatus.desired),
+							reason = reason,
+						})
+					)
+				end
+			end
+
+			imgui.Separator()
+			imgui.Text(tr("main.settings.profile.section"))
 			if binder and binder.getQuickMenuHotkeyDisplay then
 				local quickMenuCapture = binder.getQuickMenuHotkeyCapture and binder.getQuickMenuHotkeyCapture() or nil
-				imgui.Text("Хоткей открытия быстрого меню:")
+				imgui.Text(tr("main.settings.quick_menu.hotkey_label"))
 				imgui.SameLine()
 				imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), binder.getQuickMenuHotkeyDisplay())
 				imgui.Separator()
 				if quickMenuCapture and quickMenuCapture:isActive() then
 					HotkeyManager.drawCaptureUI(quickMenuCapture, "binder_quick_menu_hotkey", imgui_text_colored_safe)
 				else
-					if imgui.Button("Изменить хоткей быстрого меню") then
+					if imgui.Button(tr("main.settings.quick_menu.change")) then
 						binder.startQuickMenuHotkeyCapture()
 					end
 					imgui.SameLine()
-					if imgui.Button("Сбросить на XBUTTON1") then
+					if imgui.Button(tr("main.settings.quick_menu.reset")) then
 						binder.resetQuickMenuHotkey()
 					end
-					imgui.Text("Комбинацию нужно удерживать для открытия быстрого меню binder.")
+					imgui.Text(tr("main.settings.quick_menu.help"))
 				end
 				imgui.Separator()
 			end
-			imgui.Text("Профили (все JSON-файлы хранятся в Profiles/<имя_профиля>):")
+			imgui.Text(tr("main.settings.profile.section"))
 			local activeProfileName = funcs.getActiveProfileName()
 			imgui.SameLine()
 			imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), activeProfileName)
 
 			if profileNamesFfi and #profileNames > 0 then
 				imgui.PushItemWidth(260)
-				imgui.Combo("Выбранный профиль", profileSelectIndex, profileNamesFfi, #profileNames)
+				imgui.Combo(tr("main.settings.profile.selected") .. "##selected_profile", profileSelectIndex, profileNamesFfi, #profileNames)
 				imgui.PopItemWidth()
 			end
 
-			if imgui.Button("Обновить список профилей") then
+			if imgui.Button(tr("main.settings.profile.refresh")) then
 				refreshProfileList()
-				setProfileStatus("Список профилей обновлён.", imgui.ImVec4(0.7, 0.9, 1, 1))
+				setProfileStatus(tr("main.settings.profile.status.refreshed"), imgui.ImVec4(0.7, 0.9, 1, 1))
 			end
 			imgui.SameLine()
-			if imgui.Button("Применить профиль и перезагрузить") then
+			if imgui.Button(tr("main.settings.profile.apply")) then
 				local selected = profileNames[profileSelectIndex[0] + 1]
 				if selected and selected ~= "" then
 					local ok = funcs.setActiveProfileName(selected)
 					if ok then
-						setProfileStatus("Профиль применён, выполняю перезагрузку...", imgui.ImVec4(0.6, 1, 0.6, 1))
+						setProfileStatus(tr("main.settings.profile.status.applied_reloading"), imgui.ImVec4(0.6, 1, 0.6, 1))
 						refreshProfileList()
 						local reloaded = requestScriptReload(function()
 							setProfileStatus(
-								"Профиль применён. Перезагрузите скрипт вручную.",
+								tr("main.settings.profile.status.applied_manual"),
 								imgui.ImVec4(0.9, 0.85, 0.45, 1)
 							)
 						end)
 						if not reloaded then
 							setProfileStatus(
-								"Профиль применён. Перезагрузите скрипт вручную.",
+								tr("main.settings.profile.status.applied_manual"),
 								imgui.ImVec4(0.9, 0.85, 0.45, 1)
 							)
 						end
 					else
-						setProfileStatus("Не удалось применить профиль.", imgui.ImVec4(1, 0.6, 0.6, 1))
+						setProfileStatus(tr("main.settings.profile.status.apply_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
 					end
 				else
-					setProfileStatus("Выберите профиль.", imgui.ImVec4(1, 0.6, 0.6, 1))
+					setProfileStatus(tr("main.settings.profile.status.select"), imgui.ImVec4(1, 0.6, 0.6, 1))
 				end
 			end
 
 			imgui.PushItemWidth(260)
-			imgui.InputText("Имя нового профиля", newProfileNameBuf, ffi.sizeof(newProfileNameBuf))
+			imgui.InputText(tr("main.settings.profile.new_name") .. "##new_profile_name", newProfileNameBuf, ffi.sizeof(newProfileNameBuf))
 			imgui.PopItemWidth()
 
-			if imgui.Button("Создать профиль") then
+			if imgui.Button(tr("main.settings.profile.create")) then
 				local requested = trimSpaces(ffi.string(newProfileNameBuf))
 				if requested == "" then
-					setProfileStatus("Введите имя нового профиля.", imgui.ImVec4(1, 0.6, 0.6, 1))
+					setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
 				else
 					local ok, createdName = funcs.createProfile(requested, { copy_from = false })
 					if ok then
@@ -703,18 +1061,21 @@ end, function()
 								break
 							end
 						end
-						setProfileStatus("Профиль создан: " .. tostring(createdName), imgui.ImVec4(0.6, 1, 0.6, 1))
+						setProfileStatus(
+							tr("main.settings.profile.status.created", { name = tostring(createdName) }),
+							imgui.ImVec4(0.6, 1, 0.6, 1)
+						)
 					else
-						setProfileStatus("Не удалось создать профиль.", imgui.ImVec4(1, 0.6, 0.6, 1))
+						setProfileStatus(tr("main.settings.profile.status.create_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
 					end
 				end
 			end
 			imgui.SameLine()
-			if imgui.Button("Скопировать профиль в новый") then
+			if imgui.Button(tr("main.settings.profile.copy")) then
 				local requested = trimSpaces(ffi.string(newProfileNameBuf))
 				local sourceProfile = profileNames[profileSelectIndex[0] + 1] or activeProfileName
 				if requested == "" then
-					setProfileStatus("Введите имя нового профиля.", imgui.ImVec4(1, 0.6, 0.6, 1))
+					setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
 				else
 					local ok, createdName = funcs.createProfile(requested, { from = sourceProfile, copy_from = true })
 					if ok then
@@ -727,22 +1088,22 @@ end, function()
 							end
 						end
 						setProfileStatus(
-							"Профиль создан копированием: " .. tostring(createdName),
+							tr("main.settings.profile.status.copy_created", { name = tostring(createdName) }),
 							imgui.ImVec4(0.6, 1, 0.6, 1)
 						)
 					else
-						setProfileStatus("Не удалось скопировать профиль.", imgui.ImVec4(1, 0.6, 0.6, 1))
+						setProfileStatus(tr("main.settings.profile.status.copy_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
 					end
 				end
 			end
 			imgui.SameLine()
-			if imgui.Button("Удалить профиль") then
+			if imgui.Button(tr("main.settings.profile.delete")) then
 				local selected = profileNames[profileSelectIndex[0] + 1]
 				if selected and selected ~= "" then
 					profileDeletePopup.name = selected
 					profileDeletePopup.active = true
 				else
-					setProfileStatus("Выберите профиль для удаления.", imgui.ImVec4(1, 0.6, 0.6, 1))
+					setProfileStatus(tr("main.settings.profile.status.delete_select"), imgui.ImVec4(1, 0.6, 0.6, 1))
 				end
 			end
 
@@ -752,44 +1113,47 @@ end, function()
 			end
 			if imgui.BeginPopupModal("profile_delete_confirm", nil, imgui.WindowFlags.AlwaysAutoResize) then
 				local deleteName = tostring(profileDeletePopup.name or "")
-				imgui_text_safe(('Удалить профиль "%s"?'):format(deleteName))
+				imgui_text_safe(tr("main.settings.profile.delete_confirm.confirm", { name = deleteName }))
 				if deleteName == activeProfileName then
 					imgui_text_colored_safe(
 						imgui.ImVec4(1, 0.7, 0.45, 1),
-						"Активный профиль удалить нельзя. Сначала переключитесь на другой."
+						tr("main.settings.profile.delete_confirm.active_warning")
 					)
 				end
 				if deleteName == funcs.getDefaultProfileName() then
 					imgui_text_colored_safe(
 						imgui.ImVec4(1, 0.7, 0.45, 1),
-						'Профиль "Standard" удалить нельзя.'
+						tr("main.settings.profile.delete_confirm.default_warning")
 					)
 				end
 
-				if imgui.Button("Удалить##profile_confirm", imgui.ImVec2(120, 0)) then
+				if imgui.Button(tr("main.settings.profile.delete") .. "##profile_confirm_delete", imgui.ImVec2(120, 0)) then
 					local ok, reason = false, "unknown"
 					ok, reason = funcs.deleteProfile(deleteName, { keep_default = true, forbid_active = true })
 					if ok then
-						setProfileStatus("Профиль удалён: " .. deleteName, imgui.ImVec4(0.6, 1, 0.6, 1))
+						setProfileStatus(
+							tr("main.settings.profile.status.deleted", { name = deleteName }),
+							imgui.ImVec4(0.6, 1, 0.6, 1)
+						)
 						profileDeletePopup.name = nil
 						refreshProfileList()
 					else
-						local msg = "Не удалось удалить профиль."
+						local msg = tr("main.settings.profile.status.delete_failed")
 						if reason == "active_profile" then
-							msg = "Нельзя удалить активный профиль."
+							msg = tr("main.settings.profile.status.delete_failed_active")
 						elseif reason == "default_profile" then
-							msg = 'Нельзя удалить профиль "Standard".'
+							msg = tr("main.settings.profile.status.delete_failed_default")
 						elseif reason == "not_found" then
-							msg = "Профиль не найден."
+							msg = tr("main.settings.profile.status.delete_failed_not_found")
 						elseif reason == "remove_failed" then
-							msg = "Ошибка удаления файлов профиля."
+							msg = tr("main.settings.profile.status.delete_failed_remove")
 						end
 						setProfileStatus(msg, imgui.ImVec4(1, 0.6, 0.6, 1))
 					end
 					imgui.CloseCurrentPopup()
 				end
 				imgui.SameLine()
-				if imgui.Button("Отмена##profile_confirm", imgui.ImVec2(120, 0)) then
+				if imgui.Button(tr("common.cancel") .. "##profile_confirm_cancel", imgui.ImVec2(120, 0)) then
 					profileDeletePopup.name = nil
 					imgui.CloseCurrentPopup()
 				end
@@ -807,7 +1171,7 @@ end, function()
 
 			if correct then
 				imgui.Separator()
-				if imgui.Checkbox("Автокорректор включён##correct_module_enabled", correctEnabledBool) then
+				if imgui.Checkbox(tr("main.settings.autocorrect.enabled") .. "##correct_module_enabled", correctEnabledBool) then
 					projectConfig.correctEnabled = correctEnabledBool[0]
 					saveProjectConfig()
 					if type(correct.setEnabled) == "function" then
@@ -826,43 +1190,43 @@ end, function()
 			imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), "HelperByOrc")
 			imgui.Separator()
 			imgui.Spacing()
-			imgui_text_safe("Многофункциональный помощник для SA-MP.")
-			imgui_text_safe("Содержит инструменты для удобной игры: биндер, помощник СМИ, блокнот, фильтры чата и автокорректор.")
+			imgui_text_safe(tr("main.home.description.primary"))
+			imgui_text_safe(tr("main.home.description.secondary"))
 			imgui.Spacing()
 			imgui.Separator()
-			imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.6, 1), "Разделы:")
+			imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.6, 1), tr("main.home.sections.title"))
 			imgui.Spacing()
 			local home_sections = {
-				{ "Биндер",       "горячие клавиши для быстрого ввода текста в чат" },
-				{ "СМИ Хелпер",   "шаблоны и инструменты для репортёров" },
-				{ "Блокнот",      "личные заметки прямо в игре" },
-				{ "Прочее",       "теги, VIP/AD чат, фильтры сообщений, оружие RP" },
-				{ "Настройки",    "профили, хоткей открытия, автокорректор" },
+				{ tr("main.tab.binder"),   tr("main.home.sections.binder_desc") },
+				{ tr("main.tab.smihelp"),  tr("main.home.sections.smihelp_desc") },
+				{ tr("main.tab.notepad"),  tr("main.home.sections.notepad_desc") },
+				{ tr("main.tab.misc"),     tr("main.home.sections.misc_desc") },
+				{ tr("main.tab.settings"), tr("main.home.sections.settings_desc") },
 			}
 			for _, row in ipairs(home_sections) do
 				imgui.Bullet()
 				imgui.SameLine()
 				imgui_text_colored_safe(imgui.ImVec4(0.75, 0.9, 1, 1), row[1])
 				imgui.SameLine()
-				imgui_text_safe("— " .. row[2])
+				imgui_text_safe("- " .. row[2])
 			end
 			imgui.Spacing()
 			imgui.Separator()
-			imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.6, 1), "Основные хоткеи:")
+			imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.6, 1), tr("main.home.hotkeys.title"))
 			imgui.Spacing()
 			local home_hotkeys = {
-				{ hotkeyToString(openHotkey), "открыть / закрыть главное окно" },
-				{ "Esc",                      "закрыть окно" },
+				{ hotkeyToString(openHotkey), tr("main.home.hotkeys.main_window") },
+				{ "Esc",                      tr("main.home.hotkeys.close_window") },
 			}
 			for _, row in ipairs(home_hotkeys) do
 				imgui_text_colored_safe(imgui.ImVec4(0.6, 1, 0.7, 1), "[ " .. row[1] .. " ]")
 				imgui.SameLine()
-				imgui_text_safe("— " .. row[2])
+				imgui_text_safe("- " .. row[2])
 			end
 		else
 			imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), "HelperByOrc")
 			imgui.Separator()
-			imgui.Text("Вкладка в разработке. Тут будет контент.")
+			imgui.Text(tr("main.home.in_development"))
 		end
 	end
 	imgui.EndChild()
@@ -928,19 +1292,17 @@ local function onRootWindowMessage(msg, wparam)
 		return
 	end
 
-	local isKeyDownMsg = msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN
-	local isKeyUpMsg = msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP
-	if not (isKeyDownMsg or isKeyUpMsg) then
+	local keyInfo = HotkeyManager.getMessageKeyInfo(msg, wparam)
+	if not keyInfo then
 		return
 	end
 	if now < suppressHotkeysUntil then
 		return
 	end
 
-	local keyCode = normalizeKey(wparam)
-	if not isKeyboardKey(keyCode) then
-		return
-	end
+	local isKeyDownMsg = keyInfo.isDown
+	local isKeyUpMsg = keyInfo.isUp
+	local keyCode = keyInfo.keyCode
 
 	-- Alt+Tab не должен попадать в систему биндов/захвата.
 	if (msg == WM_SYSKEYDOWN or msg == WM_SYSKEYUP) and keyCode == vk.VK_TAB then
@@ -973,7 +1335,11 @@ local function onRootWindowMessage(msg, wparam)
 
 	rootKeyTracker:onWindowMessage(msg, wparam)
 
-	local comboNow = HotkeyManager.comboMatchOrdered(rootKeyTracker:getOrdered(), openHotkey)
+	local comboNow = HotkeyManager.comboMatch(
+		rootKeyTracker:getOrdered(),
+		openHotkey,
+		HotkeyManager.MODE_MODIFIER_TRIGGER
+	)
 	if comboNow and not openHotkeyActive then
 		toggleRenderHotkeyWnd()
 		openHotkeyActive = true
@@ -988,7 +1354,9 @@ local function dispatchModuleWindowMessage(module_ref, msg, wparam, lparam)
 	end
 	local ok, consumed = pcall(module_ref.onWindowMessage, msg, wparam, lparam)
 	if not ok then
-		print("[HelperByOrc] onWindowMessage error: " .. tostring(consumed))
+		print(tr("main.log.on_window_message_error", {
+			error = tostring(consumed),
+		}))
 		return false
 	end
 	return consumed == true
@@ -1018,7 +1386,9 @@ function requestScriptReload(on_fail)
 		if type(on_fail) == "function" then
 			pcall(on_fail, err)
 		end
-		print("[HelperByOrc] reload failed: " .. tostring(err))
+		print(tr("main.log.reload_failed", {
+			error = tostring(err),
+		}))
 	end
 
 	local function doReload()
@@ -1130,10 +1500,10 @@ function app.onSampReady()
 		local yKeys = correct.getYandexHotkey and correct.getYandexHotkey()
 		local ltKeys = correct.getLanguageToolHotkey and correct.getLanguageToolHotkey()
 		if yKeys and #yKeys > 0 then
-			binder.registerExternalHotkey(yKeys, "Автокорректор (Yandex)")
+			binder.registerExternalHotkey(yKeys, tr("correct.external_hotkey.yandex"))
 		end
 		if ltKeys and #ltKeys > 0 then
-			binder.registerExternalHotkey(ltKeys, "Автокорректор (LT)")
+			binder.registerExternalHotkey(ltKeys, tr("correct.external_hotkey.lt"))
 		end
 	end
 

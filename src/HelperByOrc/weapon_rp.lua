@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -272,26 +277,26 @@ M.config = {
 
 	-- общий набор наречий и соединителей (для всех оружий)
 	adverbs_show = {
-		"уверенно",
-		"быстрым движением",
-		"плавно",
-		"ловко",
-		"чётко",
+		L("weapon_rp.text.text"),
+		L("weapon_rp.text.text_1"),
+		L("weapon_rp.text.text_2"),
+		L("weapon_rp.text.text_3"),
+		L("weapon_rp.text.text_4"),
 	},
 	adverbs_hide = {
-		"аккуратно",
-		"спокойно",
-		"без лишнего шума",
-		"коротким движением",
-		"бережно",
+		L("weapon_rp.text.text_5"),
+		L("weapon_rp.text.text_6"),
+		L("weapon_rp.text.text_7"),
+		L("weapon_rp.text.text_8"),
+		L("weapon_rp.text.text_9"),
 	},
 	connectors_full = {
-		", затем ",
-		"; после чего ",
-		"; и тут же ",
-		", не теряя времени, ",
+		L("weapon_rp.text.text_10"),
+		L("weapon_rp.text.text_11"),
+		L("weapon_rp.text.text_12"),
+		L("weapon_rp.text.text_13"),
 	},
-	connectors_short = { ", затем " },
+	connectors_short = { L("weapon_rp.text.text_10") },
 
 	-- отправитель (nil -> sampSendChat)
 	sender = nil,
@@ -299,313 +304,343 @@ M.config = {
 	-- единая таблица оружий
 	weapons = {
 		-- ближний бой
-		[1] = { name = "кастет", short = "кастет" },
+		[1] = { name = L("weapon_rp.text.text_14"), short = L("weapon_rp.text.text_14") },
 		[2] = {
-			name = "клюшку для гольфа",
-			short = "клюшку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_15"),
+			short = L("weapon_rp.text.text_16"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[3] = {
-			name = "дубинку",
-			short = "дубинку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_19"),
+			short = L("weapon_rp.text.text_19"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
-		[4] = { name = "нож", short = "нож", from = "из-за пояса", to = "за пояс" },
+		[4] = { name = L("weapon_rp.text.text_20"), short = L("weapon_rp.text.text_20"), from = L("weapon_rp.text.text_21"), to = L("weapon_rp.text.text_22") },
 		[5] = {
-			name = "бейсбольную биту",
-			short = "биту",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_23"),
+			short = L("weapon_rp.text.text_24"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[6] = {
-			name = "лопату",
-			short = "лопату",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_25"),
+			short = L("weapon_rp.text.text_25"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
-		[7] = { name = "кий", short = "кий", from = "со спины", to = "за спину" },
+		[7] = { name = L("weapon_rp.text.text_26"), short = L("weapon_rp.text.text_26"), from = L("weapon_rp.text.text_17"), to = L("weapon_rp.text.text_18") },
 		[8] = {
-			name = "катану",
-			short = "катану",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_27"),
+			short = L("weapon_rp.text.text_27"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[9] = {
-			name = "бензопилу",
-			short = "бензопилу",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_28"),
+			short = L("weapon_rp.text.text_28"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
-		[10] = { name = "фиолетовый дилдо", short = "дилдо" },
-		[11] = { name = "дилдо", short = "дилдо" },
-		[12] = { name = "вибратор", short = "вибратор" },
-		[13] = { name = "серебристый вибратор", short = "вибратор" },
-		[14] = { name = "цветы", short = "цветы" },
-		[15] = { name = "трость", short = "трость" },
+		[10] = { name = L("weapon_rp.text.text_29"), short = L("weapon_rp.text.text_30") },
+		[11] = { name = L("weapon_rp.text.text_30"), short = L("weapon_rp.text.text_30") },
+		[12] = { name = L("weapon_rp.text.text_31"), short = L("weapon_rp.text.text_31") },
+		[13] = { name = L("weapon_rp.text.text_32"), short = L("weapon_rp.text.text_31") },
+		[14] = { name = L("weapon_rp.text.text_33"), short = L("weapon_rp.text.text_33") },
+		[15] = { name = L("weapon_rp.text.text_34"), short = L("weapon_rp.text.text_34") },
 
 		-- взрывчатка и гранаты
-		[16] = { name = "гранату", short = "гранату" },
-		[17] = { name = "газовую гранату", short = "газовую гранату" },
-		[18] = { name = "коктейль Молотова", short = "Молотов" },
+		[16] = { name = L("weapon_rp.text.text_35"), short = L("weapon_rp.text.text_35") },
+		[17] = { name = L("weapon_rp.text.text_36"), short = L("weapon_rp.text.text_36") },
+		[18] = { name = L("weapon_rp.text.text_37"), short = L("weapon_rp.text.text_38") },
 		[39] = {
-			name = "взрывчатку",
-			short = "сатчел",
-			from = "из сумки",
-			to = "в сумку",
+			name = L("weapon_rp.text.text_39"),
+			short = L("weapon_rp.text.text_40"),
+			from = L("weapon_rp.text.text_41"),
+			to = L("weapon_rp.text.text_42"),
 		},
-		[40] = { name = "детонатор", short = "детонатор" },
+		[40] = { name = L("weapon_rp.text.text_43"), short = L("weapon_rp.text.text_43") },
 
 		-- пистолеты
 		[22] = {
-			name = "пистолет 9mm",
-			short = "9mm",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.text_9mm"),
+			short = L("weapon_rp.text.short_9mm"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[23] = {
-			name = "пистолет с глушителем",
-			short = "9mm с глушителем",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.text_46"),
+			short = L("weapon_rp.text.text_9mm_47"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[24] = {
-			name = "пистолет Desert Eagle",
-			short = "Desert Eagle",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.desert_eagle"),
+			short = L("weapon_rp.text.desert_eagle_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 
 		-- дробовики
 		[25] = {
-			name = "дробовик",
-			short = "дробовик",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_48"),
+			short = L("weapon_rp.text.text_48"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[26] = {
-			name = "обрез",
-			short = "обрез",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_49"),
+			short = L("weapon_rp.text.text_49"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[27] = {
-			name = "боевой дробовик",
-			short = "SPAS-12",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_50"),
+			short = L("weapon_rp.text.spas_12_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
 		-- пистолеты-пулемёты
-		[28] = { name = "Micro Uzi", short = "Uzi", from = "с плеча", to = "на плечо" },
-		[29] = { name = "MP5", short = "MP5", from = "с плеча", to = "на плечо" },
-		[32] = { name = "Tec-9", short = "Tec-9", from = "с плеча", to = "на плечо" },
+		[28] = {
+			name = L("weapon_rp.text.micro_uzi"),
+			short = L("weapon_rp.text.uzi_short"),
+			from = L("weapon_rp.text.text_51"),
+			to = L("weapon_rp.text.text_52"),
+		},
+		[29] = {
+			name = L("weapon_rp.text.mp5_name"),
+			short = L("weapon_rp.text.mp5_short"),
+			from = L("weapon_rp.text.text_51"),
+			to = L("weapon_rp.text.text_52"),
+		},
+		[32] = {
+			name = L("weapon_rp.text.tec_9_name"),
+			short = L("weapon_rp.text.tec_9_short"),
+			from = L("weapon_rp.text.text_51"),
+			to = L("weapon_rp.text.text_52"),
+		},
 
 		-- автоматы и винтовки
-		[30] = { name = "AK-47", short = "AK-47", from = "со спины", to = "за спину" },
-		[31] = { name = "M4", short = "M4", from = "со спины", to = "за спину" },
+		[30] = {
+			name = L("weapon_rp.text.ak_47_name"),
+			short = L("weapon_rp.text.ak_47_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
+		},
+		[31] = {
+			name = L("weapon_rp.text.m4_name"),
+			short = L("weapon_rp.text.m4_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
+		},
 		[33] = {
-			name = "винтовку",
-			short = "винтовку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_53"),
+			short = L("weapon_rp.text.text_53"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[34] = {
-			name = "снайперскую винтовку",
-			short = "винтовку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_54"),
+			short = L("weapon_rp.text.text_53"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
 		-- тяжёлое
-		[35] = { name = "РПГ", short = "РПГ", from = "со спины", to = "за спину" },
+		[35] = { name = L("weapon_rp.text.text_55"), short = L("weapon_rp.text.text_55"), from = L("weapon_rp.text.text_17"), to = L("weapon_rp.text.text_18") },
 		[36] = {
-			name = "наводящийся РПГ",
-			short = "РПГ",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_56"),
+			short = L("weapon_rp.text.text_55"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[37] = {
-			name = "огнемёт",
-			short = "огнемёт",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_57"),
+			short = L("weapon_rp.text.text_57"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[38] = {
-			name = "миниган",
-			short = "миниган",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_58"),
+			short = L("weapon_rp.text.text_58"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
 		-- утилиты
 		[41] = {
-			name = "баллончик с краской",
-			short = "краску",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_59"),
+			short = L("weapon_rp.text.text_60"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 		[42] = {
-			name = "огнетушитель",
-			short = "огнетушитель",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_63"),
+			short = L("weapon_rp.text.text_63"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 		[43] = {
-			name = "фотоаппарат",
-			short = "камеру",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_64"),
+			short = L("weapon_rp.text.text_65"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 		[44] = {
-			name = "прибор ночного видения",
-			short = "ПНВ",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_66"),
+			short = L("weapon_rp.text.text_67"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 		[45] = {
-			name = "тепловизор",
-			short = "тепловизор",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_68"),
+			short = L("weapon_rp.text.text_68"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 		[46] = {
-			name = "парашют",
-			short = "парашют",
-			from = "из рюкзака",
-			to = "в рюкзак",
+			name = L("weapon_rp.text.text_69"),
+			short = L("weapon_rp.text.text_69"),
+			from = L("weapon_rp.text.text_61"),
+			to = L("weapon_rp.text.text_62"),
 		},
 
 		-- ARZ кастом
 		[71] = {
-			name = "пистолет Desert Eagle Steel",
-			short = "Deagle Steel",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.desert_eagle_steel"),
+			short = L("weapon_rp.text.desert_eagle_steel_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[72] = {
-			name = "пистолет Desert Eagle Gold",
-			short = "Deagle Gold",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.desert_eagle_gold"),
+			short = L("weapon_rp.text.desert_eagle_gold_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[73] = {
-			name = "пистолет Glock Gradient",
-			short = "Glock",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.glock_gradient"),
+			short = L("weapon_rp.text.glock_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[74] = {
-			name = "пистолет Desert Eagle Flame",
-			short = "Deagle Flame",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.desert_eagle_flame"),
+			short = L("weapon_rp.text.desert_eagle_flame_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[75] = {
-			name = "револьвер Python Royal",
-			short = "Python R.",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.python_royal"),
+			short = L("weapon_rp.text.python_royal_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 		[76] = {
-			name = "револьвер Python Silver",
-			short = "Python S.",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.python_silver"),
+			short = L("weapon_rp.text.python_silver_short"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 
 		[77] = {
-			name = "автомат AK-47 Roses",
-			short = "AK-47 Roses",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.ak_47_roses"),
+			short = L("weapon_rp.text.ak_47_roses_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[78] = {
-			name = "автомат AK-47 Gold",
-			short = "AK-47 Gold",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.ak_47_gold"),
+			short = L("weapon_rp.text.ak_47_gold_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
 		[79] = {
-			name = "пулемёт M249 Graffiti",
-			short = "M249 Graf.",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.m249_graffiti"),
+			short = L("weapon_rp.text.m249_graffiti_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[80] = {
-			name = "карабин Сайга (золото)",
-			short = "Сайга Gold",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_70"),
+			short = L("weapon_rp.text.gold"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[81] = {
-			name = "пистолет-пулемёт Standard",
-			short = "ПП Std.",
-			from = "с плеча",
-			to = "на плечо",
+			name = L("weapon_rp.text.standard"),
+			short = L("weapon_rp.text.std"),
+			from = L("weapon_rp.text.text_51"),
+			to = L("weapon_rp.text.text_52"),
 		},
-		[82] = { name = "пулемёт M249", short = "M249", from = "со спины", to = "за спину" },
+		[82] = {
+			name = L("weapon_rp.text.m249"),
+			short = L("weapon_rp.text.m249_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
+		},
 		[83] = {
-			name = "пистолет-пулемёт Skorpion",
-			short = "Skorpion",
-			from = "с плеча",
-			to = "на плечо",
+			name = L("weapon_rp.text.skorpion"),
+			short = L("weapon_rp.text.skorpion_short"),
+			from = L("weapon_rp.text.text_51"),
+			to = L("weapon_rp.text.text_52"),
 		},
 
 		[84] = {
-			name = "автомат AKS-74 (камуфляж)",
-			short = "AKS-74 camo",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.aks_74"),
+			short = L("weapon_rp.text.aks_74_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[85] = {
-			name = "автомат AK-47 (камуфляж)",
-			short = "AK-47 camo",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.ak_47"),
+			short = L("weapon_rp.text.ak_47_camo_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[86] = {
-			name = "дробовик Rebecca",
-			short = "Rebecca",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.rebecca"),
+			short = L("weapon_rp.text.rebecca_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
 		[87] = {
-			name = "портальную пушку",
-			short = "портал-пушку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_71"),
+			short = L("weapon_rp.text.text_72"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[88] = {
-			name = "ледяной меч",
-			short = "ледяной меч",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_73"),
+			short = L("weapon_rp.text.text_73"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[89] = {
-			name = "портальную пушку",
-			short = "портал-пушку",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.text_71"),
+			short = L("weapon_rp.text.text_72"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 
-		[90] = { name = "светошумовую гранату", short = "светошум. гранату" },
-		[91] = { name = "ослепляющую гранату", short = "ослепл. гранату" },
+		[90] = { name = L("weapon_rp.text.text_74"), short = L("weapon_rp.text.text_75") },
+		[91] = { name = L("weapon_rp.text.text_76"), short = L("weapon_rp.text.text_77") },
 
 		[92] = {
-			name = "снайперскую винтовку McMillan TAC-50",
-			short = "TAC-50",
-			from = "со спины",
-			to = "за спину",
+			name = L("weapon_rp.text.mcmillan_tac_50"),
+			short = L("weapon_rp.text.mcmillan_tac_50_short"),
+			from = L("weapon_rp.text.text_17"),
+			to = L("weapon_rp.text.text_18"),
 		},
 		[93] = {
-			name = "электрошоковый пистолет",
-			short = "электрошокер",
-			from = "из кобуры",
-			to = "в кобуру",
+			name = L("weapon_rp.text.text_78"),
+			short = L("weapon_rp.text.text_79"),
+			from = L("weapon_rp.text.text_44"),
+			to = L("weapon_rp.text.text_45"),
 		},
 	},
 }
@@ -621,6 +656,7 @@ local DEFAULT_WEAPONS = funcs.deepcopy(M.config.weapons)
 local CONFIG_PATH_REL = "weapon_rp.json"
 local config_manager
 local event_bus
+local module_enabled = true
 
 -- ===== внутренняя служебка =====
 
@@ -629,16 +665,16 @@ local DEFAULT_WEAPON = {
 	enable = true,
 	name = nil, -- будет "оружие %d"
 	short = nil, -- будет "оружие %d"
-	from = "из кармана",
-	to = "в карман",
-	verbs = { show = { "достал" }, hide = { "убрал" } },
+	from = L("weapon_rp.text.text_80"),
+	to = L("weapon_rp.text.text_81"),
+	verbs = { show = { L("weapon_rp.text.text_82") }, hide = { L("weapon_rp.text.text_83") } },
 }
 
 local function normalize_weapon(id, w)
 	w = w or {}
 	local r = {}
 	r.enable = (w.enable ~= false)
-	r.name = w.name or ("оружие %d"):format(id)
+	r.name = w.name or (L("weapon_rp.text.number")):format(id)
 	r.short = w.short or r.name
 	r.from = w.from or DEFAULT_WEAPON.from
 	r.to = w.to or DEFAULT_WEAPON.to
@@ -654,6 +690,29 @@ local prev_weapon, candidate_weapon, stable_count, cooldown = -1, -1, 0, 0
 local pending_old, pending_new
 local cb_any, cb_show, cb_hide, cb_change
 local reset_state
+
+local function persist_main_enabled_state(state, force_flush)
+	if not config_manager then
+		return false
+	end
+	local main_config = config_manager.get("main")
+	if type(main_config) ~= "table" then
+		return false
+	end
+	if type(main_config.moduleStates) ~= "table" then
+		main_config.moduleStates = {}
+	end
+	local normalized = not not state
+	local changed = main_config.moduleStates.weapon_rp ~= normalized
+	main_config.moduleStates.weapon_rp = normalized
+	if changed then
+		config_manager.markDirty("main")
+	end
+	if force_flush and type(config_manager.flush) == "function" then
+		config_manager.flush("main", true)
+	end
+	return true
+end
 
 local function normalize_weapon_rp_config(tbl)
 	if type(tbl) ~= "table" then
@@ -680,9 +739,38 @@ local function serialize_weapon_rp_config(data)
 	return cfg_copy
 end
 
+local function ensure_config_manager_registration()
+	if not config_manager then
+		return nil
+	end
+
+	local data = config_manager.get("weapon_rp")
+	if type(data) ~= "table" then
+		local snapshot = serialize_weapon_rp_config(M.config)
+		data = config_manager.register("weapon_rp", {
+			path = CONFIG_PATH_REL,
+			defaults = snapshot,
+			normalize = normalize_weapon_rp_config,
+			serialize = serialize_weapon_rp_config,
+			-- weapon_rp already loads JSON before attachModules(); seed the manager
+			-- from the current in-memory config so hot-reload/init order can't drop changes.
+			loader = function(_, defaults)
+				return funcs.deepcopy(defaults or {})
+			end,
+		})
+	end
+
+	if type(data) == "table" then
+		M.config = data
+		M._cfg_loaded = true
+	end
+
+	return data
+end
+
 local function load_cfg()
 	if config_manager then
-		local data = config_manager.get("weapon_rp")
+		local data = ensure_config_manager_registration()
 		if data then
 			M.config = data
 		end
@@ -695,9 +783,13 @@ local function load_cfg()
 	end
 end
 
-local function save_cfg()
+local function save_cfg(force_flush)
 	if config_manager then
+		ensure_config_manager_registration()
 		config_manager.markDirty("weapon_rp")
+		if force_flush and type(config_manager.flush) == "function" then
+			config_manager.flush("weapon_rp", true)
+		end
 	else
 		funcs.saveTableToJson(serialize_weapon_rp_config(M.config), paths.dataPath(CONFIG_PATH_REL))
 	end
@@ -708,7 +800,7 @@ local function clear_ui_dirty()
 end
 
 local function save_cfg_with_ui_state()
-	save_cfg()
+	save_cfg(true)
 	clear_ui_dirty()
 end
 
@@ -731,55 +823,55 @@ local settings_ui_cache = {
 	multiline_chars = {},
 	multiline_chars_text = {},
 }
-local mode_labels = { "Авто /me", "По ПКМ" }
+local mode_labels = { L("weapon_rp.text.me"), L("weapon_rp.text.text_84") }
 local mode_labels_ffi = imgui.new["const char*"][#mode_labels](mode_labels)
-local weapon_sort_labels = { "По ID", "По имени", "Вкл сначала", "Кастом сначала" }
+local weapon_sort_labels = { L("weapon_rp.text.id"), L("weapon_rp.text.text_85"), L("weapon_rp.text.text_86"), L("weapon_rp.text.text_87") }
 local weapon_sort_labels_ffi = imgui.new["const char*"][#weapon_sort_labels](weapon_sort_labels)
 local words_presets = {
 	{
 		id = "base",
-		title = "Базовый",
+		title = L("weapon_rp.text.text_88"),
 		data = DEFAULT_WORDS,
 	},
 	{
 		id = "calm",
-		title = "Сдержанный",
+		title = L("weapon_rp.text.text_89"),
 		data = {
-			adverbs_show = { "уверенно", "спокойно", "чётко" },
-			adverbs_hide = { "аккуратно", "спокойно" },
-			connectors_full = { ", затем " },
-			connectors_short = { ", затем " },
+			adverbs_show = { L("weapon_rp.text.text"), L("weapon_rp.text.text_6"), L("weapon_rp.text.text_4") },
+			adverbs_hide = { L("weapon_rp.text.text_5"), L("weapon_rp.text.text_6") },
+			connectors_full = { L("weapon_rp.text.text_10") },
+			connectors_short = { L("weapon_rp.text.text_10") },
 		},
 	},
 	{
 		id = "rich",
-		title = "Выразительный",
+		title = L("weapon_rp.text.text_90"),
 		data = {
 			adverbs_show = {
-				"уверенно",
-				"быстрым движением",
-				"плавно",
-				"ловко",
-				"чётко",
-				"без лишней суеты",
-				"резким движением",
+				L("weapon_rp.text.text"),
+				L("weapon_rp.text.text_1"),
+				L("weapon_rp.text.text_2"),
+				L("weapon_rp.text.text_3"),
+				L("weapon_rp.text.text_4"),
+				L("weapon_rp.text.text_91"),
+				L("weapon_rp.text.text_92"),
 			},
 			adverbs_hide = {
-				"аккуратно",
-				"спокойно",
-				"без лишнего шума",
-				"коротким движением",
-				"бережно",
-				"быстро",
+				L("weapon_rp.text.text_5"),
+				L("weapon_rp.text.text_6"),
+				L("weapon_rp.text.text_7"),
+				L("weapon_rp.text.text_8"),
+				L("weapon_rp.text.text_9"),
+				L("weapon_rp.text.text_93"),
 			},
 			connectors_full = {
-				", затем ",
-				"; после чего ",
-				"; и тут же ",
-				", не теряя времени, ",
-				", выдержав паузу, ",
+				L("weapon_rp.text.text_10"),
+				L("weapon_rp.text.text_11"),
+				L("weapon_rp.text.text_12"),
+				L("weapon_rp.text.text_13"),
+				L("weapon_rp.text.text_94"),
 			},
-			connectors_short = { ", затем ", ", после этого " },
+			connectors_short = { L("weapon_rp.text.text_10"), L("weapon_rp.text.text_95") },
 		},
 	},
 }
@@ -1043,18 +1135,32 @@ function M.attachModules(mod)
 	if event_bus then
 		event_bus.offByOwner("weapon_rp")
 	end
-	if config_manager and not M._cfg_loaded then
-		M.config = config_manager.register("weapon_rp", {
-			path = CONFIG_PATH_REL,
-			defaults = M.config,
-			normalize = normalize_weapon_rp_config,
-			serialize = serialize_weapon_rp_config,
-		})
-		M._cfg_loaded = true
+	if config_manager then
+		ensure_config_manager_registration()
 	elseif not M._cfg_loaded then
 		load_cfg()
 		M._cfg_loaded = true
 	end
+end
+
+function M.isEnabled()
+	return module_enabled
+end
+
+function M.setEnabled(state, opts)
+	opts = opts or {}
+	module_enabled = not not state
+	if opts.save_project ~= false then
+		persist_main_enabled_state(module_enabled, opts.flush_project)
+	end
+	if opts.apply_runtime ~= false then
+		if module_enabled then
+			M.start()
+		else
+			M.stop()
+		end
+	end
+	return module_enabled
 end
 
 function M.onAny(fn)
@@ -1156,7 +1262,7 @@ local function build_part(kind, id, opts)
 	end
 	local verbs = (kind == "show") and w.verbs.show or w.verbs.hide
 	local verb = pick(verbs, id * 7 + (kind == "show" and 1 or 2), opts.plain)
-		or (kind == "show" and "достал" or "убрал")
+		or (kind == "show" and L("weapon_rp.text.text_82") or L("weapon_rp.text.text_83"))
 	local advs = (kind == "show") and M.config.adverbs_show or M.config.adverbs_hide
 	local adv = (opts.use_adv and M.config.flavor_level >= 2) and (pick(advs, id * 11) or "") or ""
 	if adv ~= "" then
@@ -1175,9 +1281,14 @@ local function build_part(kind, id, opts)
 end
 
 local function join_changed(hide_line, show_line, connector)
-	local s1 = hide_line:gsub("^/me%s*", "")
-	local s2 = show_line:gsub("^/me%s*", "")
-	return ("%s %s%s%s"):format(M.config.prefix, s1, connector, s2)
+	local s1 = hide_line:gsub("^/me%s*", ""):gsub("%s+$", "")
+	local s2 = show_line:gsub("^/me%s*", ""):gsub("^%s+", "")
+	local conn = tostring(connector or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	local before = conn:match("^[,;:%.!?%)%]%}]") and "" or " "
+	if conn == "" then
+		return ("%s %s %s"):format(M.config.prefix, s1, s2)
+	end
+	return ("%s %s%s%s %s"):format(M.config.prefix, s1, before, conn, s2)
 end
 
 -- попытки ужатия строки
@@ -1189,7 +1300,7 @@ local function try_build(kind, newId, oldId, level)
 		no_place = (level >= 4),
 	}
 	local conns = (level >= 1) and M.config.connectors_short or M.config.connectors_full
-	local connector = pick(conns, (newId or 0) + (oldId or 0), M.config.flavor_level == 1) or ", затем "
+	local connector = pick(conns, (newId or 0) + (oldId or 0), M.config.flavor_level == 1) or L("weapon_rp.text.text_10")
 
 	if kind == "shown" then
 		return build_part("show", newId, opts)
@@ -1318,6 +1429,9 @@ local function update_once()
 end
 
 function M.start(interval_ms)
+	if not module_enabled then
+		return
+	end
 	if not M._cfg_loaded then
 		load_cfg()
 		M._cfg_loaded = true
@@ -1460,7 +1574,7 @@ end
 local function weapon_matches_filters(id, w, query)
 	-- Проверка поиска
 	if query and query ~= "" then
-		local label = (w.short or w.name or ("Weapon " .. id)):lower()
+		local label = (w.short or w.name or L("weapon_rp.text.weapon_fallback", { id = id })):lower()
 		local id_str = tostring(id)
 		if not (id_str:find(query, 1, true) or label:find(query, 1, true)) then
 			return false
@@ -1492,14 +1606,14 @@ end
 -- Получить статус модуля
 local function get_status_text()
 	if not running then
-		return "Остановлен", imgui.ImVec4(0.7, 0.7, 0.7, 1.0)
+		return L("weapon_rp.text.text_96"), imgui.ImVec4(0.7, 0.7, 0.7, 1.0)
 	end
 
 	if M.config.auto_mode == 1 and pending_new then
-		return "Ожидает ПКМ", imgui.ImVec4(1.0, 0.8, 0.2, 1.0)
+		return L("weapon_rp.text.text_97"), imgui.ImVec4(1.0, 0.8, 0.2, 1.0)
 	end
 
-	return "Активен", imgui.ImVec4(0.2, 0.8, 0.2, 1.0)
+	return L("weapon_rp.text.text_98"), imgui.ImVec4(0.2, 0.8, 0.2, 1.0)
 end
 
 -- Сброс оружия к дефолту
@@ -1571,11 +1685,11 @@ local function draw_weapon_popup(id)
 		local saved_flavor = M.config.flavor_level
 		M.config.flavor_level = 1
 		local line_shown = M.makeRpLine("shown", id, 0)
-		local line_hidden = M.makeRpLine("hidden", id, 0)
+		local line_hidden = M.makeRpLine("hidden", 0, id)
 		local line_changed = M.makeRpLine("changed", id, 22) -- 22 для примера (9mm)
 		M.config.flavor_level = saved_flavor
 
-		imgui.TextColored(imgui.ImVec4(0.5, 0.9, 0.5, 1.0), "Достал:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.9, 0.5, 1.0), L("weapon_rp.text.text_99"))
 		imgui.SameLine()
 		if line_shown then
 			local len_shown = str_len(line_shown)
@@ -1588,7 +1702,7 @@ local function draw_weapon_popup(id)
 			imgui.TextDisabled("—")
 		end
 
-		imgui.TextColored(imgui.ImVec4(0.9, 0.5, 0.5, 1.0), "Убрал:")
+		imgui.TextColored(imgui.ImVec4(0.9, 0.5, 0.5, 1.0), L("weapon_rp.text.text_100"))
 		imgui.SameLine()
 		if line_hidden then
 			local len_hidden = str_len(line_hidden)
@@ -1601,7 +1715,7 @@ local function draw_weapon_popup(id)
 			imgui.TextDisabled("—")
 		end
 
-		imgui.TextColored(imgui.ImVec4(0.5, 0.7, 0.9, 1.0), "Сменил:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.7, 0.9, 1.0), L("weapon_rp.text.text_101"))
 		imgui.SameLine()
 		if line_changed then
 			local len_changed = str_len(line_changed)
@@ -1621,14 +1735,14 @@ local function draw_weapon_popup(id)
 
 		-- Основные настройки
 		local en = ui_bool(prefix .. "enable", w.enable ~= false)
-		if imgui.Checkbox("Включить", en) then
+		if imgui.Checkbox(L("weapon_rp.text.text_102"), en) then
 			w.enable = en[0]
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Учитывать это оружие для RP")
+		tooltip(L("weapon_rp.text.rp"))
 
-		local changed_nm, nm = input_text_dynamic("Полное имя", prefix .. "name", w.name or "", 96)
+		local changed_nm, nm = input_text_dynamic(L("weapon_rp.text.text_103"), prefix .. "name", w.name or "", 96)
 		if changed_nm then
 			w.name = ffi.string(nm)
 			if (w.short or "") == "" then
@@ -1637,34 +1751,34 @@ local function draw_weapon_popup(id)
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Например: пистолет Desert Eagle")
+		tooltip(L("weapon_rp.text.desert_eagle_104"))
 
-		local changed_sh, sh = input_text_dynamic("Короткое имя", prefix .. "short", (w.short or ""), 48)
+		local changed_sh, sh = input_text_dynamic(L("weapon_rp.text.text_105"), prefix .. "short", (w.short or ""), 48)
 		if changed_sh then
 			w.short = ffi.string(sh)
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Например: Deagle")
+		tooltip(L("weapon_rp.text.deagle"))
 
-		local changed_fr, fr = input_text_dynamic("Откуда", prefix .. "from", w.from or "", 48)
+		local changed_fr, fr = input_text_dynamic(L("weapon_rp.text.text_106"), prefix .. "from", w.from or "", 48)
 		if changed_fr then
 			w.from = ffi.string(fr)
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Например: из кобуры, из сумки, со спины")
+		tooltip(L("weapon_rp.text.text_107"))
 
-		local changed_to, to = input_text_dynamic("Куда", prefix .. "to", w.to or "", 48)
+		local changed_to, to = input_text_dynamic(L("weapon_rp.text.text_108"), prefix .. "to", w.to or "", 48)
 		if changed_to then
 			w.to = ffi.string(to)
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Например: в кобуру, в сумку, на плечо")
+		tooltip(L("weapon_rp.text.text_109"))
 
 		local changed_showv, showv = input_text_dynamic(
-			"Глаголы достать",
+			L("weapon_rp.text.text_110"),
 			prefix .. "show_verbs",
 			(table.concat(w.verbs.show or {}, ",")),
 			160
@@ -1676,15 +1790,15 @@ local function draw_weapon_popup(id)
 				table.insert(w.verbs.show, (verb))
 			end
 			if #w.verbs.show == 0 then
-				w.verbs.show = { "достал" }
+				w.verbs.show = { L("weapon_rp.text.text_82") }
 			end
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Через запятую: достал, вытащил, снял")
+		tooltip(L("weapon_rp.text.text_111"))
 
 		local changed_hidev, hidev = input_text_dynamic(
-			"Глаголы убрать",
+			L("weapon_rp.text.text_112"),
 			prefix .. "hide_verbs",
 			(table.concat(w.verbs.hide or {}, ",")),
 			160
@@ -1696,25 +1810,25 @@ local function draw_weapon_popup(id)
 				table.insert(w.verbs.hide, (verb))
 			end
 			if #w.verbs.hide == 0 then
-				w.verbs.hide = { "убрал" }
+				w.verbs.hide = { L("weapon_rp.text.text_83") }
 			end
 			M.config.weapons[id] = w
 			mark_dirty()
 		end
-		tooltip("Через запятую: убрал, спрятал, повесил")
+		tooltip(L("weapon_rp.text.text_113"))
 
 		imgui.Separator()
 
 		-- Кнопки управления
 		if DEFAULT_WEAPONS[id] then
-			if imgui.Button("Сбросить к дефолту") then
+			if imgui.Button(L("weapon_rp.text.text_114")) then
 				reset_weapon_to_default(id)
 			end
-			tooltip("Восстановить стандартные значения")
+			tooltip(L("weapon_rp.text.text_115"))
 			imgui.SameLine()
 		end
 
-		if imgui.Button("Закрыть") then
+		if imgui.Button(L("weapon_rp.text.text_116")) then
 			imgui.CloseCurrentPopup()
 		end
 
@@ -1764,15 +1878,15 @@ local function draw_weapon_row(id, w, is_current, row_idx)
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Включить/выключить")
+	tooltip(L("weapon_rp.text.text_117"))
 
 	-- === 2. Selectable (текст + ПКМ-меню) ===
 	local text_x  = ICON_CELL_W + 26
 	local sel_w   = math.max(10, avail_w - text_x)
 	imgui.SetCursorScreenPos(imgui.ImVec2(start.x + text_x, start.y))
 
-	local weapon_name = w.short or w.name or ("Weapon " .. id)
-	local label_raw   = ("%s [%d]%s"):format(weapon_name, id, is_custom_weapon(id) and " [K]" or "")
+	local weapon_name = w.short or w.name or L("weapon_rp.text.weapon_fallback", { id = id })
+	local label_raw   = ("%s [%d]%s"):format(weapon_name, id, is_custom_weapon(id) and (" " .. L("weapon_rp.text.filter_custom_toggle")) or "")
 	-- Selectable не использует printf-форматирование → экранировать %% не нужно
 	local label_disp  = label_raw .. ("##sel_%d"):format(id)
 
@@ -1795,19 +1909,19 @@ local function draw_weapon_row(id, w, is_current, row_idx)
 
 	-- Контекстное меню по ПКМ на Selectable
 	if imgui.BeginPopupContextItem(("##ctx_%d"):format(id), 1) then
-		if imgui.MenuItemBool("Изменить", "", false, true) then
+		if imgui.MenuItemBool(L("weapon_rp.text.text_118"), "", false, true) then
 			ui_state.selected_weapon_id = id
 		end
 		imgui.Separator()
-		if imgui.MenuItemBool("Скопировать ID", "", false, true) then
+		if imgui.MenuItemBool(L("weapon_rp.text.id_119"), "", false, true) then
 			imgui.SetClipboardText(tostring(id))
 		end
-		if imgui.MenuItemBool("Скопировать имя", "", false, true) then
+		if imgui.MenuItemBool(L("weapon_rp.text.text_120"), "", false, true) then
 			imgui.SetClipboardText(weapon_name)
 		end
 		if DEFAULT_WEAPONS[id] ~= nil then
 			imgui.Separator()
-			if imgui.MenuItemBool("Сбросить к дефолту", "", false, true) then
+			if imgui.MenuItemBool(L("weapon_rp.text.text_114"), "", false, true) then
 				reset_weapon_to_default(id)
 			end
 		end
@@ -1846,10 +1960,10 @@ local function draw_weapon_detail_panel(id)
 	local prefix = "detail_" .. tostring(id) .. "_"
 
 	-- Заголовок
-	imgui.TextColored(imgui.ImVec4(0.80, 0.80, 0.50, 1.0), ("Оружие ID %d"):format(id))
+	imgui.TextColored(imgui.ImVec4(0.80, 0.80, 0.50, 1.0), (L("weapon_rp.text.id_number")):format(id))
 	if is_custom_weapon(id) then
 		imgui.SameLine()
-		imgui.TextColored(imgui.ImVec4(0.50, 0.85, 0.50, 1.0), "[K]")
+		imgui.TextColored(imgui.ImVec4(0.50, 0.85, 0.50, 1.0), L("weapon_rp.text.filter_custom_toggle"))
 	end
 	imgui.Separator()
 
@@ -1860,7 +1974,7 @@ local function draw_weapon_detail_panel(id)
 	local saved_flavor = M.config.flavor_level
 	M.config.flavor_level = 1
 	local line_shown   = M.makeRpLine("shown",   id, 0)
-	local line_hidden  = M.makeRpLine("hidden",  id, 0)
+	local line_hidden  = M.makeRpLine("hidden", 0, id)
 	local line_changed = M.makeRpLine("changed", id, 22)
 	M.config.flavor_level = saved_flavor
 
@@ -1879,9 +1993,9 @@ local function draw_weapon_detail_panel(id)
 			imgui.TextDisabled("---")
 		end
 	end
-	rp_preview_line("Достал:", imgui.ImVec4(0.50, 0.90, 0.50, 1.0), line_shown)
-	rp_preview_line("Убрал:",  imgui.ImVec4(0.90, 0.50, 0.50, 1.0), line_hidden)
-	rp_preview_line("Сменил:", imgui.ImVec4(0.50, 0.70, 0.90, 1.0), line_changed)
+	rp_preview_line(L("weapon_rp.text.text_99"), imgui.ImVec4(0.50, 0.90, 0.50, 1.0), line_shown)
+	rp_preview_line(L("weapon_rp.text.text_100"),  imgui.ImVec4(0.90, 0.50, 0.50, 1.0), line_hidden)
+	rp_preview_line(L("weapon_rp.text.text_101"), imgui.ImVec4(0.50, 0.70, 0.90, 1.0), line_changed)
 
 	imgui.EndChild()
 	imgui.PopStyleColor()
@@ -1890,15 +2004,15 @@ local function draw_weapon_detail_panel(id)
 
 	-- Включить/выключить
 	local en = ui_bool(prefix .. "enable", w.enable ~= false)
-	if imgui.Checkbox("Включить##d", en) then
+	if imgui.Checkbox(L("weapon_rp.text.d"), en) then
 		w.enable = en[0]
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Учитывать это оружие для RP")
+	tooltip(L("weapon_rp.text.rp"))
 
 	-- Полное имя
-	local changed_nm, nm = input_text_dynamic("Полное имя##d", prefix .. "name", w.name or "", 96)
+	local changed_nm, nm = input_text_dynamic(L("weapon_rp.text.d_121"), prefix .. "name", w.name or "", 96)
 	if changed_nm then
 		w.name = ffi.string(nm)
 		if (w.short or "") == "" then w.short = w.name end
@@ -1907,7 +2021,7 @@ local function draw_weapon_detail_panel(id)
 	end
 
 	-- Короткое имя
-	local changed_sh, sh = input_text_dynamic("Короткое имя##d", prefix .. "short", w.short or "", 48)
+	local changed_sh, sh = input_text_dynamic(L("weapon_rp.text.d_122"), prefix .. "short", w.short or "", 48)
 	if changed_sh then
 		w.short = ffi.string(sh)
 		M.config.weapons[id] = w
@@ -1915,65 +2029,65 @@ local function draw_weapon_detail_panel(id)
 	end
 
 	-- Откуда / Куда
-	local changed_fr, fr = input_text_dynamic("Откуда##dfrom", prefix .. "from", w.from or "", 48)
+	local changed_fr, fr = input_text_dynamic(L("weapon_rp.text.dfrom"), prefix .. "from", w.from or "", 48)
 	if changed_fr then
 		w.from = ffi.string(fr)
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Например: из кобуры, из сумки, со спины")
+	tooltip(L("weapon_rp.text.text_107"))
 
-	local changed_to, to = input_text_dynamic("Куда##dto", prefix .. "to", w.to or "", 48)
+	local changed_to, to = input_text_dynamic(L("weapon_rp.text.dto"), prefix .. "to", w.to or "", 48)
 	if changed_to then
 		w.to = ffi.string(to)
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Например: в кобуру, в сумку, за спину")
+	tooltip(L("weapon_rp.text.text_123"))
 
 	-- Глаголы
 	local changed_showv, showv = input_text_dynamic(
-		"Достать##d",
+		L("weapon_rp.text.d_124"),
 		prefix .. "show_verbs",
 		table.concat(w.verbs.show or {}, ","),
 		160
 	)
 	if changed_showv then
 		local vv = funcs.parseList(ffi.string(showv))
-		w.verbs.show = #vv > 0 and vv or { "достал" }
+		w.verbs.show = #vv > 0 and vv or { L("weapon_rp.text.text_82") }
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Через запятую: достал, вытащил, снял")
+	tooltip(L("weapon_rp.text.text_111"))
 
 	local changed_hidev, hidev = input_text_dynamic(
-		"Убрать##d",
+		L("weapon_rp.text.d_125"),
 		prefix .. "hide_verbs",
 		table.concat(w.verbs.hide or {}, ","),
 		160
 	)
 	if changed_hidev then
 		local vv = funcs.parseList(ffi.string(hidev))
-		w.verbs.hide = #vv > 0 and vv or { "убрал" }
+		w.verbs.hide = #vv > 0 and vv or { L("weapon_rp.text.text_83") }
 		M.config.weapons[id] = w
 		mark_dirty()
 	end
-	tooltip("Через запятую: убрал, спрятал, повесил")
+	tooltip(L("weapon_rp.text.text_113"))
 
 	imgui.Separator()
 
 	-- Кнопки управления
 	if DEFAULT_WEAPONS[id] then
-		if imgui.Button("Сбросить##d") then
+		if imgui.Button(L("weapon_rp.text.d_126")) then
 			reset_weapon_to_default(id)
 		end
-		tooltip("Восстановить стандартные значения")
+		tooltip(L("weapon_rp.text.text_115"))
 		imgui.SameLine()
 	end
-	if imgui.Button("Закрыть##d") then
+	if imgui.Button(L("weapon_rp.text.d_127")) then
 		ui_state.selected_weapon_id = nil
 	end
-	tooltip("Закрыть панель редактирования")
+	tooltip(L("weapon_rp.text.text_128"))
 end
 
 -- основная панель
@@ -1984,24 +2098,27 @@ function M.DrawSettingsInline()
 	imgui.BeginChild("##status_panel", imgui.ImVec2(0, 90), true)
 
 	-- Статус модуля
-	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Статус:")
+	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), L("weapon_rp.text.text_129"))
 	imgui.SameLine()
 	imgui.TextColored(status_color, status_text)
 
 	-- Текущее оружие
 	local current_weapon = get_current_weapon_id()
-	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Текущее оружие:")
+	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), L("weapon_rp.text.text_130"))
 	imgui.SameLine()
 	if current_weapon and current_weapon ~= 0 then
 		local w = winfo(current_weapon)
 		local weapon_name = w.name ~= nil and w.name or "-"
-		imgui.Text(("ID %d - %s"):format(current_weapon, weapon_name))
+		imgui.Text(L("weapon_rp.text.current_weapon", {
+			id = current_weapon,
+			name = weapon_name,
+		}))
 	else
-		imgui.TextDisabled("Без оружия")
+		imgui.TextDisabled(L("weapon_rp.text.text_131"))
 	end
 
 	-- Последняя RP-строка
-	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Последняя RP:")
+	imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), L("weapon_rp.text.rp_132"))
 	imgui.SameLine()
 	if ui_state.last_rp_line and ui_state.last_rp_line ~= "" then
 		local last_rp = ui_state.last_rp_line
@@ -2014,35 +2131,31 @@ function M.DrawSettingsInline()
 	imgui.PopStyleColor()
 
 	-- ===== КНОПКИ УПРАВЛЕНИЯ =====
-	local run = ui_bool("running", running)
-	if imgui.Checkbox("Включить модуль", run) then
-		if run[0] then
-			M.start()
-		else
-			M.stop()
-		end
+	local run = ui_bool("running", M.isEnabled())
+	if imgui.Checkbox(L("weapon_rp.text.text_133"), run) then
+		M.setEnabled(run[0], { flush_project = true })
 	end
-	tooltip("Запуск/остановка отслеживания оружия")
+	tooltip(L("weapon_rp.text.text_134"))
 
 	imgui.SameLine()
 	local mode = ui_int("auto_mode", M.config.auto_mode)
-	if imgui.Combo("Режим", mode, mode_labels_ffi, #mode_labels) then
+	if imgui.Combo(L("weapon_rp.text.text_135"), mode, mode_labels_ffi, #mode_labels) then
 		M.config.auto_mode = mode[0]
 		mark_dirty()
 	end
-	tooltip("Автоматически слать RP или по правой кнопке мыши")
+	tooltip(L("weapon_rp.text.rp_136"))
 
 	imgui.SameLine()
 	if ui_state.dirty then
 		imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.7, 0.2, 0.8))
-		if imgui.Button(ICON_SAVE .. " Сохранить") then
+		if imgui.Button(ICON_SAVE .. L("weapon_rp.text.text_137")) then
 			save_cfg_with_ui_state()
 		end
 		imgui.PopStyleColor()
-		tooltip("Сохранить все изменения")
+		tooltip(L("weapon_rp.text.text_138"))
 	else
 		imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.3, 0.3, 0.3, 0.5))
-		imgui.Button(ICON_SAVE .. " Сохранено")
+		imgui.Button(ICON_SAVE .. L("weapon_rp.text.text_139"))
 		imgui.PopStyleColor()
 	end
 
@@ -2051,48 +2164,48 @@ function M.DrawSettingsInline()
 	-- ===== TABBAR =====
 	if imgui.BeginTabBar("##weapon_rp_tabs") then
 		-- ВКЛАДКА: Основное
-		if imgui.BeginTabItem("Основное") then
+		if imgui.BeginTabItem(L("weapon_rp.text.text_140")) then
 			local ign = ui_bool("ignore_knuckles", M.config.ignore_knuckles)
-			if imgui.Checkbox("Игнорировать кастеты как пустые", ign) then
+			if imgui.Checkbox(L("weapon_rp.text.text_141"), ign) then
 				M.config.ignore_knuckles = ign[0]
 				mark_dirty()
 			end
-			tooltip("Не создавать RP при переключении на кастеты (ID 1)")
+			tooltip(L("weapon_rp.text.rp_id_1"))
 
-			local changed_prefix, prefix = input_text_dynamic("Префикс команды", "prefix", (M.config.prefix or ""), 16)
+			local changed_prefix, prefix = input_text_dynamic(L("weapon_rp.text.text_142"), "prefix", (M.config.prefix or ""), 16)
 			if changed_prefix then
 				M.config.prefix = ffi.string(prefix)
 				mark_dirty()
 			end
-			tooltip("Например: /me, /do, /try")
+			tooltip(L("weapon_rp.text.me_do_try"))
 
 			local flavor = ui_int("flavor_level", M.config.flavor_level)
-			if imgui.SliderInt("Степень приукрашивания", flavor, 1, 3) then
+			if imgui.SliderInt(L("weapon_rp.text.text_143"), flavor, 1, 3) then
 				M.config.flavor_level = flavor[0]
 				mark_dirty()
 			end
-			tooltip("1 - сдержанно, 2 - поярче, 3 - разнообразнее")
+			tooltip(L("weapon_rp.text.text_1_2_3"))
 
 			local max_len = ui_int("max_len", M.config.max_len)
-			if imgui.InputInt("Макс длина RP-строки", max_len) then
+			if imgui.InputInt(L("weapon_rp.text.rp_144"), max_len) then
 				M.config.max_len = math.max(30, max_len[0])
 				mark_dirty()
 			end
-			tooltip("Максимальная длина строки в символах (рекомендуется 96)")
+			tooltip(L("weapon_rp.text.text_96_145"))
 
 			local min_gap = ui_int("min_me_gap_ms", M.config.min_me_gap_ms)
-			if imgui.InputInt("Пауза между /me (мс)", min_gap) then
+			if imgui.InputInt(L("weapon_rp.text.me_146"), min_gap) then
 				M.config.min_me_gap_ms = math.max(0, min_gap[0])
 				mark_dirty()
 			end
-			tooltip("Минимальная задержка между отправкой RP-строк")
+			tooltip(L("weapon_rp.text.rp_147"))
 
 			imgui.EndTabItem()
 		end
 
 		-- ВКЛАДКА: Слова
-		if imgui.BeginTabItem("Слова") then
-			imgui.Text("Быстрые пресеты:")
+		if imgui.BeginTabItem(L("weapon_rp.text.text_148")) then
+			imgui.Text(L("weapon_rp.text.text_149"))
 			for _, preset in ipairs(words_presets) do
 				if imgui.Button(preset.title) then
 					M.config.adverbs_show = funcs.deepcopy(preset.data.adverbs_show)
@@ -2108,7 +2221,7 @@ function M.DrawSettingsInline()
 			imgui.Separator()
 
 			local changed_adv_show, adv_show = input_text_multiline_dynamic(
-				"Наречия (достать)",
+				L("weapon_rp.text.text_150"),
 				"adverbs_show",
 				(table.concat(M.config.adverbs_show or {}, "\n")),
 				1024,
@@ -2122,10 +2235,10 @@ function M.DrawSettingsInline()
 				end
 				mark_dirty()
 			end
-			tooltip("Используются при доставании оружия (по одному на строку)")
+			tooltip(L("weapon_rp.text.text_151"))
 
 			local changed_adv_hide, adv_hide = input_text_multiline_dynamic(
-				"Наречия (убрать)",
+				L("weapon_rp.text.text_152"),
 				"adverbs_hide",
 				(table.concat(M.config.adverbs_hide or {}, "\n")),
 				1024,
@@ -2139,10 +2252,10 @@ function M.DrawSettingsInline()
 				end
 				mark_dirty()
 			end
-			tooltip("Используются при убирании оружия (по одному на строку)")
+			tooltip(L("weapon_rp.text.text_153"))
 
 			local changed_conn_full, conn_full = input_text_multiline_dynamic(
-				"Соединители (полные)",
+				L("weapon_rp.text.text_154"),
 				"connectors_full",
 				(table.concat(M.config.connectors_full or {}, "\n")),
 				512,
@@ -2156,10 +2269,10 @@ function M.DrawSettingsInline()
 				end
 				mark_dirty()
 			end
-			tooltip("Используются для связки при смене оружия (по одному на строку)")
+			tooltip(L("weapon_rp.text.text_155"))
 
 			local changed_conn_short, conn_short = input_text_multiline_dynamic(
-				"Соединители (короткие)",
+				L("weapon_rp.text.text_156"),
 				"connectors_short",
 				(table.concat(M.config.connectors_short or {}, "\n")),
 				512,
@@ -2173,13 +2286,13 @@ function M.DrawSettingsInline()
 				end
 				mark_dirty()
 			end
-			tooltip("Короткие соединители для экономии места (по одному на строку)")
+			tooltip(L("weapon_rp.text.text_157"))
 
 			imgui.EndTabItem()
 		end
 
 		-- ВКЛАДКА: Оружие
-		if imgui.BeginTabItem("Оружие") then
+		if imgui.BeginTabItem(L("weapon_rp.text.text_158")) then
 
 			-- Авто-предзагрузка иконок при первом открытии вкладки (FFI-режимы 2/3).
 			if not icon_auto_preload_triggered then
@@ -2196,14 +2309,14 @@ function M.DrawSettingsInline()
 			imgui.SetNextItemWidth(math.max(60, line_w - 100))
 			local _, search_buf = input_text_dynamic("##search", "weapon_search", M._search_text, 64)
 			M._search_text = ffi.string(search_buf)
-			tooltip("Поиск по ID или названию")
+			tooltip(L("weapon_rp.text.id_159"))
 			local query = M._search_text:lower()
 
 			imgui.SameLine()
-			if imgui.Button("x##clrsrch", imgui.ImVec2(22, 0)) then
+			if imgui.Button(L("common.clear_compact") .. "##clrsrch", imgui.ImVec2(22, 0)) then
 				M._search_text = ""
 			end
-			tooltip("Очистить поиск")
+			tooltip(L("weapon_rp.text.text_160"))
 
 			-- === СТРОКА СОРТИРОВКИ И ФИЛЬТРОВ ===
 			imgui.SetNextItemWidth(132)
@@ -2211,13 +2324,13 @@ function M.DrawSettingsInline()
 			if imgui.Combo("##sort", sort_mode, weapon_sort_labels_ffi, #weapon_sort_labels) then
 				ui_state.weapon_sort_mode = sort_mode[0]
 			end
-			tooltip("Сортировка списка оружий")
+			tooltip(L("weapon_rp.text.text_161"))
 
 			imgui.SameLine()
 			if imgui.Button(ui_state.sort_ascending and "Asc##sd" or "Dsc##sd", imgui.ImVec2(36, 0)) then
 				ui_state.sort_ascending = not ui_state.sort_ascending
 			end
-			tooltip("Направление сортировки")
+			tooltip(L("weapon_rp.text.text_162"))
 
 			-- Фильтры-чипы
 			imgui.SameLine()
@@ -2225,25 +2338,25 @@ function M.DrawSettingsInline()
 				ui_state.filter_enabled_only
 					and imgui.ImVec4(0.18, 0.60, 0.18, 0.90)
 					or  imgui.ImVec4(0.25, 0.25, 0.28, 0.70))
-			if imgui.Button("Вкл##fen", imgui.ImVec2(40, 0)) then
+			if imgui.Button(L("weapon_rp.text.fen"), imgui.ImVec2(40, 0)) then
 				ui_state.filter_enabled_only = not ui_state.filter_enabled_only
 			end
 			imgui.PopStyleColor()
-			tooltip("Только включённое оружие")
+			tooltip(L("weapon_rp.text.text_163"))
 
 			imgui.SameLine()
 			imgui.PushStyleColor(imgui.Col.Button,
 				ui_state.filter_custom_only
 					and imgui.ImVec4(0.18, 0.42, 0.65, 0.90)
 					or  imgui.ImVec4(0.25, 0.25, 0.28, 0.70))
-			if imgui.Button("[K]##fcu", imgui.ImVec2(34, 0)) then
+			if imgui.Button(L("weapon_rp.text.filter_custom_toggle") .. "##fcu", imgui.ImVec2(34, 0)) then
 				ui_state.filter_custom_only = not ui_state.filter_custom_only
 			end
 			imgui.PopStyleColor()
-			tooltip("Только кастомное оружие")
+			tooltip(L("weapon_rp.text.text_164"))
 
 			imgui.SameLine()
-			if imgui.Button("Текущее##cur") then
+			if imgui.Button(L("weapon_rp.text.cur")) then
 				local cw = get_current_weapon_id()
 				if cw then
 					ui_state.scroll_to_weapon_id  = cw
@@ -2252,7 +2365,7 @@ function M.DrawSettingsInline()
 					ui_state.scroll_highlight_time = os.clock()
 				end
 			end
-			tooltip("Найти и выделить текущее оружие, подсветить")
+			tooltip(L("weapon_rp.text.text_165"))
 
 			-- Строим видимый список (нужен для счётчика и массовых действий)
 			local sorted_ids = get_sorted_weapon_ids()
@@ -2271,37 +2384,37 @@ function M.DrawSettingsInline()
 				("%d/%d"):format(#visible_weapons, total_count))
 
 			-- === МАССОВЫЕ ДЕЙСТВИЯ ===
-			if imgui.Button("Вкл все##mass", imgui.ImVec2(72, 0)) then
+			if imgui.Button(L("weapon_rp.text.mass"), imgui.ImVec2(72, 0)) then
 				for _, entry in ipairs(visible_weapons) do
 					entry.w.enable = true
 					M.config.weapons[entry.id] = entry.w
 				end
 				mark_dirty()
 			end
-			tooltip("Включить всё оружие по текущему фильтру")
+			tooltip(L("weapon_rp.text.text_166"))
 
 			imgui.SameLine()
-			if imgui.Button("Выкл все##mass", imgui.ImVec2(76, 0)) then
+			if imgui.Button(L("weapon_rp.text.mass_167"), imgui.ImVec2(76, 0)) then
 				for _, entry in ipairs(visible_weapons) do
 					entry.w.enable = false
 					M.config.weapons[entry.id] = entry.w
 				end
 				mark_dirty()
 			end
-			tooltip("Выключить всё оружие по текущему фильтру")
+			tooltip(L("weapon_rp.text.text_168"))
 
 			imgui.SameLine()
-			if imgui.Button("Инверт.##mass", imgui.ImVec2(68, 0)) then
+			if imgui.Button(L("weapon_rp.text.mass_169"), imgui.ImVec2(68, 0)) then
 				for _, entry in ipairs(visible_weapons) do
 					entry.w.enable = not (entry.w.enable ~= false)
 					M.config.weapons[entry.id] = entry.w
 				end
 				mark_dirty()
 			end
-			tooltip("Инвертировать по текущему фильтру")
+			tooltip(L("weapon_rp.text.text_170"))
 
 			imgui.SameLine()
-			if imgui.Button("+ Добавить##addw") then
+			if imgui.Button(L("weapon_rp.text.addw")) then
 				imgui.OpenPopup("weapon_add_popup")
 			end
 
@@ -2310,23 +2423,23 @@ function M.DrawSettingsInline()
 				M._new_id    = M._new_id    or imgui.new.int(0)
 				M._new_name_text  = M._new_name_text  or ""
 				M._new_short_text = M._new_short_text or ""
-				M._new_from_text  = M._new_from_text  or "из кармана"
-				M._new_to_text    = M._new_to_text    or "в карман"
-				M._new_show_text  = M._new_show_text  or "достал, вытащил"
-				M._new_hide_text  = M._new_hide_text  or "убрал, спрятал"
+				M._new_from_text  = M._new_from_text  or L("weapon_rp.text.text_80")
+				M._new_to_text    = M._new_to_text    or L("weapon_rp.text.text_81")
+				M._new_show_text  = M._new_show_text  or L("weapon_rp.text.text_171")
+				M._new_hide_text  = M._new_hide_text  or L("weapon_rp.text.text_172")
 
-				imgui.InputInt("ID", M._new_id)
+				imgui.InputInt(L("common.id"), M._new_id)
 				imgui.SameLine()
-				if imgui.Button("Текущее") then
+				if imgui.Button(L("weapon_rp.text.text_173")) then
 					local cw = get_current_weapon_id()
 					if cw then M._new_id[0] = cw end
 				end
-				local _, new_name_buf = input_text_dynamic("Имя", "new_weapon_name", M._new_name_text, 64)
-				local _, new_short_buf = input_text_dynamic("Коротко", "new_weapon_short", M._new_short_text, 32)
-				local _, new_from_buf = input_text_dynamic("Откуда", "new_weapon_from", M._new_from_text, 32)
-				local _, new_to_buf = input_text_dynamic("Куда", "new_weapon_to", M._new_to_text, 32)
-				local _, new_show_buf = input_text_dynamic("Глаголы достать", "new_weapon_show", M._new_show_text, 128)
-				local _, new_hide_buf = input_text_dynamic("Глаголы убрать", "new_weapon_hide", M._new_hide_text, 128)
+				local _, new_name_buf = input_text_dynamic(L("weapon_rp.text.text_174"), "new_weapon_name", M._new_name_text, 64)
+				local _, new_short_buf = input_text_dynamic(L("weapon_rp.text.text_175"), "new_weapon_short", M._new_short_text, 32)
+				local _, new_from_buf = input_text_dynamic(L("weapon_rp.text.text_106"), "new_weapon_from", M._new_from_text, 32)
+				local _, new_to_buf = input_text_dynamic(L("weapon_rp.text.text_108"), "new_weapon_to", M._new_to_text, 32)
+				local _, new_show_buf = input_text_dynamic(L("weapon_rp.text.text_110"), "new_weapon_show", M._new_show_text, 128)
+				local _, new_hide_buf = input_text_dynamic(L("weapon_rp.text.text_112"), "new_weapon_hide", M._new_hide_text, 128)
 				M._new_name_text = ffi.string(new_name_buf)
 				M._new_short_text = ffi.string(new_short_buf)
 				M._new_from_text = ffi.string(new_from_buf)
@@ -2334,7 +2447,7 @@ function M.DrawSettingsInline()
 				M._new_show_text = ffi.string(new_show_buf)
 				M._new_hide_text = ffi.string(new_hide_buf)
 
-				if imgui.Button("OK##addw") then
+				if imgui.Button(L("common.ok") .. "##addw") then
 					local nid    = M._new_id[0]
 					local nm     = M._new_name_text or ""
 					local sh     = M._new_short_text or ""
@@ -2348,8 +2461,8 @@ function M.DrawSettingsInline()
 							short  = (sh ~= "" and sh or nm),
 							from   = fr, to = to,
 							verbs  = {
-								show = #sv > 0 and sv or { "достал" },
-								hide = #hv > 0 and hv or { "убрал" },
+								show = #sv > 0 and sv or { L("weapon_rp.text.text_82") },
+								hide = #hv > 0 and hv or { L("weapon_rp.text.text_83") },
 							},
 						})
 						mark_dirty()
@@ -2357,7 +2470,7 @@ function M.DrawSettingsInline()
 					imgui.CloseCurrentPopup()
 				end
 				imgui.SameLine()
-				if imgui.Button("Отмена##addw") then imgui.CloseCurrentPopup() end
+				if imgui.Button(L("weapon_rp.text.addw_176")) then imgui.CloseCurrentPopup() end
 				imgui.EndPopup()
 			end
 
@@ -2384,7 +2497,7 @@ function M.DrawSettingsInline()
 				draw_weapon_row(wid, ww, is_cur, row_idx)
 			end
 			if #visible_weapons == 0 then
-				imgui.TextDisabled("Оружие не найдено")
+				imgui.TextDisabled(L("weapon_rp.text.text_177"))
 			end
 			imgui.EndChild()
 
@@ -2400,60 +2513,62 @@ function M.DrawSettingsInline()
 		end
 
 		-- ВКЛАДКА: Расширенное
-		if imgui.BeginTabItem("Расширенное") then
-			imgui.TextWrapped("Технические параметры детектора оружия. Изменяйте только если понимаете, что делаете.")
+		if imgui.BeginTabItem(L("weapon_rp.text.text_178")) then
+			imgui.TextWrapped(L("weapon_rp.text.text_179"))
 			imgui.Separator()
 
 			-- Режим иконок оружия
-			imgui.Text("Режим иконок оружия:")
+			imgui.Text(L("weapon_rp.text.text_180"))
 			local ico_ptr = ui_int("weapon_icon_mode_ui", M.config.weapon_icon_mode)
 
-			if imgui.RadioButtonIntPtr("Стандартный файл##ico", ico_ptr, 0) then
+			if imgui.RadioButtonIntPtr(L("weapon_rp.text.ico"), ico_ptr, 0) then
 				M.config.weapon_icon_mode = 0
 				mark_dirty()
 			end
-			tooltip("Встроенный файл текстур — всегда работает, не требует FFI")
+			tooltip(L("weapon_rp.text.ffi"))
 
-			if imgui.RadioButtonIntPtr("FFI + предзагрузка (держать)##ico", ico_ptr, 2) then
+			if imgui.RadioButtonIntPtr(L("weapon_rp.text.ffi_ico"), ico_ptr, 2) then
 				M.config.weapon_icon_mode = 2
 				mark_dirty()
 			end
-			tooltip("Запросить все модели, загрузить, закешировать иконки — модели остаются в памяти, указатели стабильны")
+			tooltip(L("weapon_rp.text.text_181"))
 
-			if imgui.RadioButtonIntPtr("FFI + предзагрузка (освободить)##ico", ico_ptr, 3) then
+			if imgui.RadioButtonIntPtr(L("weapon_rp.text.ffi_ico_182"), ico_ptr, 3) then
 				M.config.weapon_icon_mode = 3
 				mark_dirty()
 			end
-			tooltip("Запросить все модели, загрузить, закешировать, затем освободить модели — экономия памяти, но TXD может выгрузиться")
+			tooltip(L("weapon_rp.text.txd"))
 
 			-- Кнопка предзагрузки и статус для режимов 2 и 3
 			if M.config.weapon_icon_mode == 2 or M.config.weapon_icon_mode == 3 then
 				imgui.Spacing()
 				if icon_preload_status.running then
 					imgui.TextColored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0),
-						("Загружается... %d / %d"):format(
+						(L("weapon_rp.text.number_number")):format(
 							icon_preload_status.loaded + icon_preload_status.failed,
 							icon_preload_status.total))
 				else
-					local btn_label = icon_preload_status.done and "Перезагрузить##preload" or "Предзагрузить##preload"
+					local btn_label = icon_preload_status.done and L("weapon_rp.text.preload") or L("weapon_rp.text.preload_183")
 					if imgui.Button(btn_label) then
 						start_preload_weapon_icons(M.config.weapon_icon_mode == 2)
 					end
 					if icon_preload_status.done then
 						imgui.SameLine()
-						imgui.TextColored(imgui.ImVec4(0.3, 0.9, 0.3, 1.0),
-							("OK: %d"):format(icon_preload_status.loaded))
+						imgui.TextColored(
+							imgui.ImVec4(0.3, 0.9, 0.3, 1.0),
+							L("weapon_rp.text.preload_ok", { count = icon_preload_status.loaded })
+						)
 						if icon_preload_status.failed > 0 then
 							imgui.SameLine()
 							imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0),
-								("Нет текстуры: %d"):format(icon_preload_status.failed))
+								(L("weapon_rp.text.number_184")):format(icon_preload_status.failed))
 						end
 					end
 				end
 
 				if not icon_preload_status.running and (icon_preload_status.loaded + icon_preload_status.failed) > 0 then
 					imgui.SameLine()
-					if imgui.Button("Очистить кеш##preload") then
+					if imgui.Button(L("weapon_rp.text.preload_185")) then
 						clear_icon_cache()
 					end
 				end
@@ -2462,25 +2577,25 @@ function M.DrawSettingsInline()
 			imgui.Separator()
 
 			local tick = ui_int("tick_ms", M.config.tick_ms)
-			if imgui.InputInt("Интервал проверки (мс)", tick) then
+			if imgui.InputInt(L("weapon_rp.text.text_186"), tick) then
 				M.config.tick_ms = math.max(10, tick[0])
 				mark_dirty()
 			end
-			tooltip("Как часто проверять текущее оружие (по умолчанию 80 мс)")
+			tooltip(L("weapon_rp.text.text_80_187"))
 
 			local stable = ui_int("stable_need", M.config.stable_need)
-			if imgui.InputInt("Кадров стабильности", stable) then
+			if imgui.InputInt(L("weapon_rp.text.text_188"), stable) then
 				M.config.stable_need = math.max(1, stable[0])
 				mark_dirty()
 			end
-			tooltip("Сколько раз подряд оружие должно быть одинаковым (по умолчанию 3)")
+			tooltip(L("weapon_rp.text.text_3_189"))
 
 			local cooldown = ui_int("cooldown_frames", M.config.cooldown_frames)
-			if imgui.InputInt("Кадров задержки", cooldown) then
+			if imgui.InputInt(L("weapon_rp.text.text_190"), cooldown) then
 				M.config.cooldown_frames = math.max(0, cooldown[0])
 				mark_dirty()
 			end
-			tooltip("Задержка после смены оружия в кадрах (по умолчанию 10)")
+			tooltip(L("weapon_rp.text.text_10_191"))
 
 			imgui.EndTabItem()
 		end

@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 -- SMIHelp/constructor.lua — Конструктор объявлений: AD-объект, парсинг, курсор, колбэк
 local M = {}
 
@@ -171,14 +176,14 @@ M.price_label_in_list = price_label_in_list
 -- ========= ПАРСИНГ BODY =========
 local function parse_dialog_body(body)
 	local clean = body:gsub("{.-}", "")
-	local nick = clean:match("Объявление от%s+([%w_]+)")
-	local msg = clean:match("Сообщение:%s*(.-)\n")
+	local nick = clean:match(L("smi_help.constructor.text.format_w"))
+	local msg = clean:match(L("smi_help.constructor.text.format"))
 	return nick or "", msg
 end
 
 local function extract_ad_text_from_dialog_colored(dialog_text)
 	local clean = dialog_text:gsub("{.-}", "")
-	local msg = clean:match("Сообщение:%s*(.-)$")
+	local msg = clean:match(L("smi_help.constructor.text.format_1"))
 	return msg or ""
 end
 
@@ -187,7 +192,7 @@ function M.onShowDialog(dialogid, style, title, button1, button2, text, placehol
 	local State = ctx.State
 	local t = u8(title)
 	local body = u8(text)
-	if t:find("Редактирование") and (body:find("Объявление от") ~= nil) then
+	if t:find(L("smi_help.constructor.text.text")) and (body:find(L("smi_help.constructor.text.text_2")) ~= nil) then
 		State.show_dialog[0] = true
 		State.last_dialog_id = dialogid
 		State.last_dialog_title = t
@@ -233,9 +238,9 @@ function M.OpenEditPreview(text, nick)
 	local State = ctx.State
 	State.show_dialog[0] = true
 	State.last_dialog_id = nil
-	State.last_dialog_title = "Редактирование объявления"
+	State.last_dialog_title = L("smi_help.constructor.text.text_3")
 	State.last_dialog_text = ""
-	State.sender_nick = nick or "Пример"
+	State.sender_nick = nick or L("smi_help.constructor.text.text_4")
 	State.original_ad_text = text or ""
 	State.auto_memory_used = false
 	State.cursor_action = nil
@@ -253,7 +258,7 @@ local function rebuild_cats_if_needed()
 	local tpls = ctx.Config.data.templates or {}
 	local key = {}
 	for i = 1, #tpls do
-		key[#key + 1] = tostring(tpls[i].category or "Прочее")
+		key[#key + 1] = tostring(tpls[i].category or L("smi_help.constructor.text.text_5"))
 	end
 	local key_str = table.concat(key, "\n")
 	if Cache.cats and Cache.cats_key == key_str then
@@ -261,14 +266,14 @@ local function rebuild_cats_if_needed()
 	end
 	local cats_set, cats = {}, {}
 	for _, t in ipairs(tpls) do
-		local c = t.category or "Прочее"
+		local c = t.category or L("smi_help.constructor.text.text_5")
 		if not cats_set[c] then
 			cats_set[c] = true
 			table.insert(cats, c)
 		end
 	end
 	table.sort(cats)
-	table.insert(cats, 1, "Все")
+	table.insert(cats, 1, L("smi_help.constructor.text.text_6"))
 	Cache.cats, Cache.cats_key = cats, key_str
 end
 M.rebuild_cats_if_needed = rebuild_cats_if_needed

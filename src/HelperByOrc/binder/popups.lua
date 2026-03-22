@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 
 local imgui = require("mimgui")
@@ -85,14 +90,14 @@ function M.drawBindLinesPopup()
 
 		local label = trim((hk and hk.label) or "")
 		if label == "" then
-			label = "Без названия"
+			label = L("binder.popups.text.text")
 		end
-		_d.imgui_text_safe("Строки бинда: " .. label)
+		_d.imgui_text_safe(L("binder.popups.text.text_1") .. label)
 		imgui.Separator()
 
-		local searchHint = "Поиск"
+		local searchHint = L("binder.popups.text.text_2")
 		if fa.MAGNIFYING_GLASS and fa.MAGNIFYING_GLASS ~= "" then
-			searchHint = fa.MAGNIFYING_GLASS .. " Поиск"
+			searchHint = fa.MAGNIFYING_GLASS .. L("binder.popups.text.text_3")
 		end
 		imgui.PushItemWidth(-1)
 		imgui.InputTextWithHint("##bind_popup_search", searchHint, st.searchBuf, 256)
@@ -127,14 +132,14 @@ function M.drawBindLinesPopup()
 				end
 			end
 			if shown == 0 then
-				imgui.TextDisabled("Ничего не найдено")
+				imgui.TextDisabled(L("binder.popups.text.text_4"))
 			end
 		else
-			imgui.TextDisabled("У бинда нет строк для отправки")
+			imgui.TextDisabled(L("binder.popups.text.text_5"))
 		end
 		imgui.EndChild()
 
-		if imgui.Button(((fa.XMARK or "X") .. " Закрыть"), imgui.ImVec2(140, 0)) or sent then
+		if imgui.Button(((fa.XMARK or "X") .. L("binder.popups.text.text_6")), imgui.ImVec2(140, 0)) or sent then
 			st.active = false
 			st.hk = nil
 			st.open[0] = false
@@ -171,9 +176,9 @@ function M.drawDeletePopups()
 		if not label or label == "" then
 			label = string.format("#%d", idx or 0)
 		end
-		_d.imgui_text_safe(('Удалить бинд "%s"?'):format(label))
+		_d.imgui_text_safe((L("binder.popups.text.format_ya")):format(label))
 		imgui.Separator()
-		if imgui.Button("Удалить##bind_confirm", imgui.ImVec2(100, 0)) then
+		if imgui.Button(L("binder.popups.text.bind_confirm"), imgui.ImVec2(100, 0)) then
 			if idx and hotkeys[idx] then
 				table.remove(hotkeys, idx)
 				State.hotkeysDirty = true
@@ -188,7 +193,7 @@ function M.drawDeletePopups()
 			imgui.CloseCurrentPopup()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##bind_confirm", imgui.ImVec2(100, 0)) then
+		if imgui.Button(L("binder.popups.text.bind_confirm_7"), imgui.ImVec2(100, 0)) then
 			_G.deleteBindPopup.idx = nil
 			_G.deleteBindPopup.from_edit = false
 			imgui.CloseCurrentPopup()
@@ -203,16 +208,16 @@ function M.drawDeletePopups()
 	if imgui.BeginPopupModal("binder_delete_folder", nil, imgui.WindowFlags.AlwaysAutoResize) then
 		local folder = _G.deleteFolderPopup.folder
 		local name = folder and folder.name or ""
-		_d.imgui_text_safe(('Удалить папку "%s"?'):format(name))
-		imgui.TextDisabled("Будут удалены все дочерние папки.")
+		_d.imgui_text_safe((L("binder.popups.text.format_ya_8")):format(name))
+		imgui.TextDisabled(L("binder.popups.text.text_9"))
 		imgui.Separator()
-		if imgui.Button("Удалить##folder_confirm", imgui.ImVec2(100, 0)) then
+		if imgui.Button(L("binder.popups.text.folder_confirm"), imgui.ImVec2(100, 0)) then
 			if folder then
 				local isOnlyRoot = (folder.parent == nil and #folders <= 1)
 				if isProtectedRootFolder(folder) then
-					pushToast("Нельзя удалить папку \"Основные\"", "warn", 3.0)
+					pushToast(L("binder.popups.text.text_10"), "warn", 3.0)
 				elseif isOnlyRoot then
-					pushToast("Нельзя удалить последнюю корневую папку", "warn", 3.0)
+					pushToast(L("binder.popups.text.text_11"), "warn", 3.0)
 				else
 					local removedPath = folderFullPath(folder)
 					local selectedPath = State.selectedFolder and folderFullPath(State.selectedFolder) or nil
@@ -245,7 +250,7 @@ function M.drawDeletePopups()
 			imgui.CloseCurrentPopup()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##folder_confirm", imgui.ImVec2(100, 0)) then
+		if imgui.Button(L("binder.popups.text.folder_confirm_12"), imgui.ImVec2(100, 0)) then
 			_G.deleteFolderPopup.folder = nil
 			imgui.CloseCurrentPopup()
 		end
@@ -273,7 +278,7 @@ function M.drawMoveBindPopup()
 	if imgui.BeginPopupModal("binder_move_bind", nil, imgui.WindowFlags.NoResize) then
 		local idx = _G.moveBindPopup.hkidx
 		local hk = idx and hotkeys[idx]
-		imgui.Text("Выберите папку для перемещения:")
+		imgui.Text(L("binder.popups.text.text_13"))
 		imgui.Separator()
 
 		local function applyFolder(folder)
@@ -341,7 +346,7 @@ function M.drawMoveBindPopup()
 		imgui.EndChild()
 
 		imgui.Separator()
-		if imgui.Button("Отмена") then
+		if imgui.Button(L("binder.popups.text.text_14")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()

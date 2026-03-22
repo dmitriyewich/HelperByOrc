@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 
 local imgui = require("mimgui")
@@ -223,13 +228,13 @@ end
 -- Лёгкий линтер паттернов (эвристики против «тяжёлых»)
 local function lint_pattern(src)
 	if #src > (tonumber(cfg.settings.max_pattern_len) or 2048) then
-		return false, "Слишком длинный шаблон"
+		return false, L("unwanted.text.text")
 	end
 	if src:find("%.%*") and not (src:find("^%^") or src:find("%$%s*$")) then
-		return false, 'Жадный ".*" без якорей ^ / $ (может тормозить)'
+		return false, L("unwanted.text.text_1")
 	end
 	if src:find("%[%^.-%]%*%.%*") then
-		return false, "Подозрительный класс + жадность (может тормозить)"
+		return false, L("unwanted.text.text_2")
 	end
 	return true
 end
@@ -242,7 +247,7 @@ local function is_valid_pattern(pat_cp1251)
 	local ok1 = pcall(string.find, "", pat_cp1251)
 	local ok2 = pcall(string.find, " ", pat_cp1251)
 	if not ok1 and not ok2 then
-		return false, "Ошибка синтаксиса"
+		return false, L("unwanted.text.text_3")
 	end
 	return true
 end
@@ -279,7 +284,7 @@ local function rebuild_cache()
 					compiled.patterns[#compiled.patterns + 1] = txt_c
 					compiled.flat_patterns_cp1251[#compiled.flat_patterns_cp1251 + 1] = txt_c
 				else
-					error_by_idx[i] = err or "Некорректный Lua-шаблон"
+					error_by_idx[i] = err or L("unwanted.text.lua")
 					invalid_count = invalid_count + 1
 				end
 			end
@@ -654,27 +659,27 @@ local function draw_rule_row(idx, item)
 	if imgui.Checkbox("##sel", cbool(selection[idx])) then
 		selection[idx] = _btmp[0] and true or false
 	end
-	Tooltip("Выделить правило для массовых операций")
+	Tooltip(L("unwanted.text.text_4"))
 	imgui.SameLine()
 
 	if imgui.Checkbox("##en", cbool(rule_enabled(item))) then
 		item.enabled = _btmp[0] and true or false
 		M.save()
 	end
-	Tooltip("Включить/выключить именно это правило")
+	Tooltip(L("unwanted.text.text_5"))
 	imgui.SameLine()
 
-	local typelabel = (item.type == "pattern") and (okfa and (fa.CODE .. " Шаблон") or "[PATTERN] Шаблон")
-		or (okfa and (fa.QUOTE_LEFT .. " Точная") or "[LITERAL] Точная")
+	local typelabel = (item.type == "pattern") and (okfa and (fa.CODE .. L("unwanted.text.text_6")) or L("unwanted.text.pattern"))
+		or (okfa and (fa.QUOTE_LEFT .. L("unwanted.text.text_7")) or L("unwanted.text.literal"))
 	TextRaw(typelabel)
 	HelpMark(
 		(item.type == "pattern")
-				and "Шаблон — продвинутое правило по образцу (Lua-паттерн).\nПримеры:\n• ^%[AD%] — строки, начинающиеся с [AD]\n• %d+ — одна или больше цифр\n• %w+_%w+ — ник Имя_Фамилия\n• ^Текст$ — точное совпадение всей строки\nСовет: избегайте «.*» без якорей ^ и $ — это может тормозить."
-			or "Точная — простая подстрока без спецсимволов.\nСоветы:\n• «Без регистра» — игнорирует регистр.\n• «Целое слово» — только отдельное слово (не часть)."
+				and L("unwanted.text.lua_ad_ad_number_w_w")
+			or L("unwanted.text.text_8")
 	)
 	imgui.SameLine()
 
-	if SmallBtn(okfa and (fa.ANGLE_UP .. " Вверх") or "[UP]", "Переместить выше") and idx > 1 then
+	if SmallBtn(okfa and (fa.ANGLE_UP .. L("unwanted.text.text_9")) or L("unwanted.text.fallback_up"), L("unwanted.text.text_10")) and idx > 1 then
 		cfg.ignore[idx], cfg.ignore[idx - 1] = cfg.ignore[idx - 1], cfg.ignore[idx]
 		selection[idx], selection[idx - 1] = selection[idx - 1], selection[idx]
 		swap_editor(idx, idx - 1)
@@ -682,7 +687,7 @@ local function draw_rule_row(idx, item)
 	end
 	imgui.SameLine()
 	if
-		SmallBtn(okfa and (fa.ANGLE_DOWN .. " Вниз") or "[DOWN]", "Переместить ниже")
+		SmallBtn(okfa and (fa.ANGLE_DOWN .. L("unwanted.text.text_11")) or L("unwanted.text.fallback_down"), L("unwanted.text.text_12"))
 		and idx < #cfg.ignore
 	then
 		cfg.ignore[idx], cfg.ignore[idx + 1] = cfg.ignore[idx + 1], cfg.ignore[idx]
@@ -691,11 +696,11 @@ local function draw_rule_row(idx, item)
 		rebuild_cache()
 	end
 	imgui.SameLine()
-	if SmallBtn(okfa and (fa.PEN .. " Редактировать") or "[EDIT]", "Редактировать") then
+	if SmallBtn(okfa and (fa.PEN .. L("unwanted.text.text_13")) or L("unwanted.text.fallback_edit"), L("unwanted.text.text_14")) then
 		start_edit(idx, item)
 	end
 	imgui.SameLine()
-	if SmallBtn(okfa and (fa.TRASH_CAN .. " Удалить") or "[DEL]", "Удалить правило") then
+	if SmallBtn(okfa and (fa.TRASH_CAN .. L("unwanted.text.text_15")) or L("unwanted.text.fallback_delete"), L("unwanted.text.text_16")) then
 		table.remove(cfg.ignore, idx)
 		remove_editor(idx)
 		selection[idx] = nil
@@ -709,62 +714,62 @@ local function draw_rule_row(idx, item)
 	if st and st.editing then
 		imgui.InputText("##edit_text", st.buf, sizeof(st.buf))
 		Tooltip(
-			"Текст правила. Для шаблонов — Lua-паттерн.\nПримеры:\n• ^%[Подсказка%]\n• %d+ (числа)\n• %w+_%w+ (ник)\n• ^Текст$ (строка целиком)"
+			L("unwanted.text.lua_number_w_w")
 		)
 
 		imgui.SameLine()
-		if imgui.Checkbox(okfa and (fa.CODE .. " Lua-шаблон") or "Lua-шаблон", cbool(st.is_pattern)) then
+		if imgui.Checkbox(okfa and (fa.CODE .. L("unwanted.text.lua_17")) or L("unwanted.text.lua_18"), cbool(st.is_pattern)) then
 			st.is_pattern = _btmp[0] and true or false
 		end
 		Tooltip(
-			"Включите, если хотите использовать шаблон (Lua-паттерн) вместо точной подстроки."
+			L("unwanted.text.lua_19")
 		)
 		imgui.SameLine()
-		if imgui.Checkbox("Вкл", cbool(st.enabled)) then
+		if imgui.Checkbox(L("unwanted.text.text_20"), cbool(st.enabled)) then
 			st.enabled = _btmp[0] and true or false
 		end
-		Tooltip("Включает/выключает это правило.")
+		Tooltip(L("unwanted.text.text_21"))
 
 		if not st.is_pattern then
 			imgui.SameLine()
-			if imgui.Checkbox("Без регистра", cbool(st.nocase)) then
+			if imgui.Checkbox(L("unwanted.text.text_22"), cbool(st.nocase)) then
 				st.nocase = _btmp[0] and true or false
 			end
 			Tooltip(
-				"Искать без учёта регистра.\nПример: «vip» найдёт «VIP», «Vip», «vIp»."
+				L("unwanted.text.vip_vip_vip_vip")
 			)
 			imgui.SameLine()
-			if imgui.Checkbox("Целое слово", cbool(st.whole)) then
+			if imgui.Checkbox(L("unwanted.text.text_23"), cbool(st.whole)) then
 				st.whole = _btmp[0] and true or false
 			end
 			Tooltip(
-				"Совпадение только как отдельного слова.\nПример: «vip» не сработает на «vipка», но сработает на «... vip ...»."
+				L("unwanted.text.vip_vip_vip")
 			)
 		end
 
-		if SmallBtn(okfa and (fa.CHECK .. " Сохранить") or "[SAVE]", "Сохранить изменения") then
+		if SmallBtn(okfa and (fa.CHECK .. L("unwanted.text.text_24")) or L("unwanted.text.fallback_save"), L("unwanted.text.text_25")) then
 			apply_edit(idx)
 		end
 		imgui.SameLine()
-		if SmallBtn(okfa and (fa.XMARK .. " Отмена") or "[CANCEL]", "Отменить изменения") then
+		if SmallBtn(okfa and (fa.XMARK .. L("unwanted.text.text_26")) or L("unwanted.text.fallback_cancel"), L("unwanted.text.text_27")) then
 			cancel_edit(idx)
 		end
 
 		if st.is_pattern then
 			local ok, msg = is_valid_pattern(to_cp1251(str(st.buf)))
 			TextRaw(
-				ok and (okfa and (fa.CHECK .. " Валидно") or "[OK] Валидно")
-					or (okfa and (fa.TRIANGLE_EXCLAMATION .. " Ошибка: " .. (msg or "")) or "[ERROR] " .. (msg or ""))
+				ok and (okfa and (fa.CHECK .. L("unwanted.text.text_28")) or L("unwanted.text.ok"))
+					or (okfa and (fa.TRIANGLE_EXCLAMATION .. L("unwanted.text.text_29") .. (msg or "")) or L("unwanted.text.fallback_error") .. (msg or ""))
 			)
 		end
 	else
 		local tags = {}
 		if item.type == "literal" then
 			if item.nocase then
-				tags[#tags + 1] = "[nocase]"
+				tags[#tags + 1] = L("unwanted.text.tag_nocase")
 			end
 			if item.whole_word then
-				tags[#tags + 1] = "[word]"
+				tags[#tags + 1] = L("unwanted.text.tag_word")
 			end
 		end
 		if #tags > 0 then
@@ -776,14 +781,14 @@ local function draw_rule_row(idx, item)
 			TextWrappedRaw(
 				(item.text or "")
 					.. "   "
-					.. (okfa and (fa.TRIANGLE_EXCLAMATION .. " Ошибка: " .. tostring(err)) or ("[ERROR] " .. tostring(err)))
+					.. (okfa and (fa.TRIANGLE_EXCLAMATION .. L("unwanted.text.text_29") .. tostring(err)) or (L("unwanted.text.fallback_error") .. tostring(err)))
 			)
 		else
 			TextWrappedRaw(item.text or "")
 		end
 		if last_match and last_match.idx == idx then
 			TextRaw(
-				okfa and (fa.CHECK .. " <- совпадение (тестер)") or "<- совпадение (тестер)"
+				okfa and (fa.CHECK .. L("unwanted.text.text_30")) or L("unwanted.text.text_31")
 			)
 		end
 	end
@@ -800,7 +805,7 @@ function M.DrawWindow(inline)
 		end
 		imgui.SetNextWindowSize(imgui.ImVec2(900, 760), imgui.Cond.FirstUseEver)
 		imgui.Begin(
-			I(fa.SHIELD, "Игнорируемые сообщения") .. "##unwanted",
+			I(fa.SHIELD, L("unwanted.text.text_32")) .. "##unwanted",
 			M.showWindow,
 			imgui.WindowFlags.NoCollapse
 		)
@@ -809,123 +814,123 @@ function M.DrawWindow(inline)
 	-- Верхняя панель
 	do
 		imgui.AlignTextToFramePadding()
-		if imgui.Checkbox(" Фильтр включён", cbool(cfg.settings.enabled)) then
+		if imgui.Checkbox(L("unwanted.text.text_33"), cbool(cfg.settings.enabled)) then
 			cfg.settings.enabled = _btmp[0] and true or false
 			save_cfg()
 		end
-		Tooltip("Главный переключатель: включить/выключить весь фильтр.")
+		Tooltip(L("unwanted.text.text_34"))
 
 		imgui.SameLine()
-		if imgui.Button(I(fa.FLOPPY_DISK, "Сохранить")) then
+		if imgui.Button(I(fa.FLOPPY_DISK, L("unwanted.text.text_35"))) then
 			M.save()
 		end
-		Tooltip("Сохранить конфиг на диск.")
+		Tooltip(L("unwanted.text.text_36"))
 
 		imgui.SameLine()
-		if imgui.Button(I(fa.ROTATE_RIGHT, "Перечитать")) then
+		if imgui.Button(I(fa.ROTATE_RIGHT, L("unwanted.text.text_37"))) then
 			M.reload()
 		end
-		Tooltip("Перечитать конфиг с диска.")
+		Tooltip(L("unwanted.text.text_38"))
 
 		imgui.SameLine()
-		if imgui.Button(I(fa.TOGGLE_ON, "Включить все")) then
+		if imgui.Button(I(fa.TOGGLE_ON, L("unwanted.text.text_39"))) then
 			set_all_enabled(true)
 		end
-		Tooltip("Включить ВСЕ правила.")
+		Tooltip(L("unwanted.text.text_40"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить все")) then
+		if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, L("unwanted.text.text_41"))) then
 			set_all_enabled(false)
 		end
-		Tooltip("Выключить ВСЕ правила.")
+		Tooltip(L("unwanted.text.text_42"))
 	end
 	imgui.Spacing()
-	TextRaw(I(fa.GEARS, "Нормализация:"))
+	TextRaw(I(fa.GEARS, L("unwanted.text.text_43")))
 	imgui.SameLine()
 	local n = cfg.settings.normalizer or {}
-	if imgui.Checkbox("Без {цветов}", cbool(n.strip_colors)) then
+	if imgui.Checkbox(L("unwanted.text.text_44"), cbool(n.strip_colors)) then
 		n.strip_colors = _btmp[0] and true or false
 		cfg.settings.normalizer = n
 		save_cfg()
 		rebuild_cache()
 	end
 	Tooltip(
-		"Убирает цветовые коды вида {FFFFFF} из входящего текста перед проверкой.\nРекомендуется оставить включённым."
+		L("unwanted.text.ffffff")
 	)
 	imgui.SameLine()
-	if imgui.Checkbox("Схлоп. пробелы", cbool(n.collapse_ws)) then
+	if imgui.Checkbox(L("unwanted.text.text_45"), cbool(n.collapse_ws)) then
 		n.collapse_ws = _btmp[0] and true or false
 		cfg.settings.normalizer = n
 		save_cfg()
 	end
 	Tooltip(
-		"Заменяет подряд идущие пробелы на один. Помогает, если в чат летят «лохматые» пробелы."
+		L("unwanted.text.text_46")
 	)
 	imgui.SameLine()
-	if imgui.Checkbox("Trim", cbool(n.trim)) then
+	if imgui.Checkbox(L("unwanted.text.trim"), cbool(n.trim)) then
 		n.trim = _btmp[0] and true or false
 		cfg.settings.normalizer = n
 		save_cfg()
 	end
 	Tooltip(
-		"Удаляет пробелы в начале и конце строки.\nПолезно при копировании текста из чата."
+		L("unwanted.text.text_47")
 	)
 
 	imgui.SameLine()
-	TextRaw(I(fa.LIST, (" Правил: %d | Ошибок: %d"):format(#cfg.ignore, invalid_count)))
+	TextRaw(I(fa.LIST, (L("unwanted.text.number_number")):format(#cfg.ignore, invalid_count)))
 
 	imgui.Separator()
-	TextRaw(I(fa.LIST, "Список правил:"))
+	TextRaw(I(fa.LIST, L("unwanted.text.text_48")))
 
 	-- Массовые операции
 	do
-		if imgui.Button(I(fa.SQUARE_CHECK or fa.CHECK, "Выделить все")) then
+		if imgui.Button(I(fa.SQUARE_CHECK or fa.CHECK, L("unwanted.text.text_49"))) then
 			for i = 1, #cfg.ignore do
 				selection[i] = true
 			end
 		end
-		Tooltip("Выделить весь список правил.")
+		Tooltip(L("unwanted.text.text_50"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.SQUARE_MINUS or fa.MINUS, "Снять выделение")) then
+		if imgui.Button(I(fa.SQUARE_MINUS or fa.MINUS, L("unwanted.text.text_51"))) then
 			selection = {}
 		end
-		Tooltip("Снять выделение со всех правил.")
+		Tooltip(L("unwanted.text.text_52"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.TRASH_CAN, "Удалить выделенные")) then
+		if imgui.Button(I(fa.TRASH_CAN, L("unwanted.text.text_53"))) then
 			bulk_delete()
 		end
-		Tooltip("Удалить все выделенные правила.")
+		Tooltip(L("unwanted.text.text_54"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.TOGGLE_ON, "Включить выделенные")) then
+		if imgui.Button(I(fa.TOGGLE_ON, L("unwanted.text.text_55"))) then
 			bulk_set_enabled(true)
 		end
-		Tooltip("Включить все выделенные правила.")
+		Tooltip(L("unwanted.text.text_56"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, "Выключить выделенные")) then
+		if imgui.Button(I(fa.TOGGLE_OFF or fa.POWER_OFF, L("unwanted.text.text_57"))) then
 			bulk_set_enabled(false)
 		end
-		Tooltip("Выключить все выделенные правила.")
+		Tooltip(L("unwanted.text.text_58"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.RECYCLE or fa.REPEAT, "Удалить дубли")) then
+		if imgui.Button(I(fa.RECYCLE or fa.REPEAT, L("unwanted.text.text_59"))) then
 			remove_duplicates()
 		end
-		Tooltip("Удаляет дубликаты (совпадают тип, текст и флаги).")
+		Tooltip(L("unwanted.text.text_60"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.LIST_OL or fa.SORT_UP, "Сортировать по типу")) then
+		if imgui.Button(I(fa.LIST_OL or fa.SORT_UP, L("unwanted.text.text_61"))) then
 			sort_by_type()
 		end
-		Tooltip("Сначала точные, затем шаблоны. Внутри — по тексту.")
+		Tooltip(L("unwanted.text.text_62"))
 		imgui.SameLine()
-		if imgui.Button(I(fa.LIST_UL or fa.SORT_UP, "Сортировать по тексту")) then
+		if imgui.Button(I(fa.LIST_UL or fa.SORT_UP, L("unwanted.text.text_63"))) then
 			sort_by_text()
 		end
-		Tooltip("Чистая алфавитная сортировка по тексту.")
+		Tooltip(L("unwanted.text.text_64"))
 	end
 
 	-- Список
 	local list_h = 330
 	if imgui.BeginChild("list_ignore", imgui.ImVec2(0, list_h), true) then
 		if #cfg.ignore == 0 then
-			TextRaw("Пусто. Добавьте правило ниже.")
+			TextRaw(L("unwanted.text.text_65"))
 			imgui.Separator()
 		else
 			for i, it in ipairs(cfg.ignore) do
@@ -937,27 +942,27 @@ function M.DrawWindow(inline)
 
 	-- Добавление
 	imgui.Separator()
-	TextRaw(I(fa.SQUARE_PLUS, "Добавить правило:"))
+	TextRaw(I(fa.SQUARE_PLUS, L("unwanted.text.text_66")))
 	imgui.InputText("##new_rule", new_buf, sizeof(new_buf))
-	Tooltip("Текст правила.\nДля «Lua-шаблон» используйте примеры ниже.")
+	Tooltip(L("unwanted.text.lua_67"))
 	imgui.SameLine()
-	imgui.Checkbox(I(fa.CODE, "Lua-шаблон"), new_is_pat)
+	imgui.Checkbox(I(fa.CODE, L("unwanted.text.lua_18")), new_is_pat)
 	Tooltip(
-		"Включите для шаблонов (Lua-паттерны):\n• ^%[AD%] — строки, начинающиеся с [AD]\n• %d+ — цифры\n• %w+_%w+ — ник Имя_Фамилия\n• ^Текст$ — строка целиком\nИзбегайте «.*» без ^ и $ — может тормозить."
+		L("unwanted.text.lua_ad_ad_number_w_w_68")
 	)
 	imgui.SameLine()
-	imgui.Checkbox("Без регистра", new_nocase)
+	imgui.Checkbox(L("unwanted.text.text_22"), new_nocase)
 	Tooltip(
-		"Для Точных правил: игнорировать регистр.\nПример: «vip» найдёт «VIP», «Vip», «vIp»."
+		L("unwanted.text.vip_vip_vip_vip_69")
 	)
 	imgui.SameLine()
-	imgui.Checkbox("Целое слово", new_whole)
+	imgui.Checkbox(L("unwanted.text.text_23"), new_whole)
 	Tooltip(
-		"Для Точных правил: совпадение только как отдельного слова.\nПример: «vip» не совпадёт с «vipка», но совпадёт в «... vip ...»."
+		L("unwanted.text.vip_vip_vip_70")
 	)
 
 	imgui.SameLine()
-	if imgui.Button(I(fa.SQUARE_PLUS, "Добавить")) then
+	if imgui.Button(I(fa.SQUARE_PLUS, L("unwanted.text.text_71"))) then
 		local txt = str(new_buf)
 		if txt ~= "" then
 			local it = {
@@ -981,58 +986,58 @@ function M.DrawWindow(inline)
 
 	-- Тестер
 	imgui.Separator()
-	TextRaw(I(fa.FLASK_VIAL, "Тестер:"))
+	TextRaw(I(fa.FLASK_VIAL, L("unwanted.text.text_72")))
 	imgui.InputText("##test_text", test_buf, sizeof(test_buf))
 	Tooltip(
-		"Вставьте сюда текст из чата и нажмите «Проверить».\nПокажем номер сработавшего правила и совпавшую подстроку."
+		L("unwanted.text.text_73")
 	)
 	imgui.SameLine()
-	if imgui.Button(I(fa.MAGNIFYING_GLASS, "Проверить")) then
+	if imgui.Button(I(fa.MAGNIFYING_GLASS, L("unwanted.text.text_74"))) then
 		run_tester()
 	end
 	imgui.SameLine()
 	if last_match and last_match.idx and last_match.idx > 0 then
-		TextRaw(I(fa.CHECK, (" Совпало с правилом #%d (%s)"):format(last_match.idx, last_match.kind)))
-		TextWrappedRaw("Подстрока: " .. (last_match.s_utf8 or ""))
-		TextRaw(("Позиция: %d..%d"):format(last_match.a or 0, last_match.b or 0))
+		TextRaw(I(fa.CHECK, (L("unwanted.text.number_format")):format(last_match.idx, last_match.kind)))
+		TextWrappedRaw(L("unwanted.text.text_75") .. (last_match.s_utf8 or ""))
+		TextRaw((L("unwanted.text.number_number_76")):format(last_match.a or 0, last_match.b or 0))
 	else
-		TextRaw("Совпадений нет")
+		TextRaw(L("unwanted.text.text_77"))
 	end
 
 	-- Автопомощник
 	imgui.Separator()
-	TextRaw(I(fa.WAND_MAGIC, "Автопомощник шаблонов (введите пример сообщения)"))
+	TextRaw(I(fa.WAND_MAGIC, L("unwanted.text.text_78")))
 	imgui.InputText("##helper_in", helper_buf, sizeof(helper_buf))
 	Tooltip(
-		"Пример: [Информация] {ffffff}Вы получили $18.400 за отредактированое вами объявление."
+		L("unwanted.text.ffffff_18_400")
 	)
 	-- настройки помощника
-	imgui.TextUnformatted("Обобщать:")
+	imgui.TextUnformatted(L("unwanted.text.text_79"))
 	imgui.SameLine()
-	imgui.Checkbox("Якоря ^ $", hp_anchor)
+	imgui.Checkbox(L("unwanted.text.text_80"), hp_anchor)
 	Tooltip(
-		"Добавляет ^ в начало и $ в конец — совпадение по всей строке целиком."
+		L("unwanted.text.text_81")
 	)
 	imgui.SameLine()
-	imgui.Checkbox("Деньги $123", hp_money)
-	Tooltip("Превращает «$18.400» в шаблон «\\%$%d[%d%.,]*».")
+	imgui.Checkbox(L("unwanted.text.text_123"), hp_money)
+	Tooltip(L("unwanted.text.text_18_400_number_number"))
 	imgui.SameLine()
-	imgui.Checkbox("Числа", hp_numbers)
-	Tooltip("Числа и числа с разделителями заменяются на «%d+».")
+	imgui.Checkbox(L("unwanted.text.text_82"), hp_numbers)
+	Tooltip(L("unwanted.text.number"))
 	imgui.SameLine()
-	imgui.Checkbox("Время 12:34", hp_time)
-	Tooltip("Фрагменты вида 12:34 заменяются на «%d%d:%d%d».")
+	imgui.Checkbox(L("unwanted.text.text_12_34"), hp_time)
+	Tooltip(L("unwanted.text.text_12_34_number_number_number_number"))
 	imgui.SameLine()
-	imgui.Checkbox("Цвета {HEX}", hp_colors)
-	Tooltip("Фрагменты вида {ffffff} заменяются на «{%x%x%x%x%x%x}».")
+	imgui.Checkbox(L("unwanted.text.hex"), hp_colors)
+	Tooltip(L("unwanted.text.ffffff_x_x_x_x_x_x"))
 	imgui.SameLine()
-	imgui.Checkbox("Ник Имя_Фамилия", hp_nick)
-	Tooltip("Фрагменты вида Имя_Фамилия заменяются на «%w+_%w+».")
+	imgui.Checkbox(L("unwanted.text.text_83"), hp_nick)
+	Tooltip(L("unwanted.text.w_w"))
 	imgui.SameLine()
-	imgui.Checkbox("Тег [..] в начале", hp_bracket_tag)
-	Tooltip("Если строка начинается с [Текст], заменит его на «%b[]».")
+	imgui.Checkbox(L("unwanted.text.text_84"), hp_bracket_tag)
+	Tooltip(L("unwanted.text.b"))
 
-	if imgui.Button(I(fa.WAND_MAGIC or fa.MAGIC, "Сгенерировать")) then
+	if imgui.Button(I(fa.WAND_MAGIC or fa.MAGIC, L("unwanted.text.text_85"))) then
 		local opts = {
 			anchor = hp_anchor[0],
 			money = hp_money[0],
@@ -1049,56 +1054,56 @@ function M.DrawWindow(inline)
 
 	if helper_exact_out ~= "" or helper_general_out ~= "" then
 		imgui.Separator()
-		TextRaw("Подсказки:")
+		TextRaw(L("unwanted.text.text_86"))
 		if helper_exact_out ~= "" then
-			TextRaw("• Точный (экранированный):")
+			TextRaw(L("unwanted.text.text_87"))
 			TextWrappedRaw(helper_exact_out)
 			imgui.SameLine()
-			if imgui.Button("[ADD exact]") then
+			if imgui.Button(L("unwanted.text.add_exact")) then
 				table.insert(cfg.ignore, { type = "pattern", text = helper_exact_out, enabled = true })
 				rebuild_cache()
 				save_cfg()
 			end
 			imgui.SameLine()
-			if imgui.Button("[COPY exact]") and imgui.SetClipboardText then
+			if imgui.Button(L("unwanted.text.copy_exact")) and imgui.SetClipboardText then
 				imgui.SetClipboardText(helper_exact_out)
 			end
 			HelpMark(
-				"Просто экранированная версия — совпадение именно с такой строкой (удобно с ^ и $)."
+				L("unwanted.text.text_88")
 			)
 		end
 		if helper_general_out ~= "" then
-			TextRaw("• Обобщённый:")
+			TextRaw(L("unwanted.text.text_89"))
 			TextWrappedRaw(helper_general_out)
 			imgui.SameLine()
-			if imgui.Button("[ADD general]") then
+			if imgui.Button(L("unwanted.text.add_general")) then
 				table.insert(cfg.ignore, { type = "pattern", text = helper_general_out, enabled = true })
 				rebuild_cache()
 				save_cfg()
 			end
 			imgui.SameLine()
-			if imgui.Button("[COPY general]") and imgui.SetClipboardText then
+			if imgui.Button(L("unwanted.text.copy_general")) and imgui.SetClipboardText then
 				imgui.SetClipboardText(helper_general_out)
 			end
 			HelpMark(
-				"Включает замены:\n— деньги -> \\%$%d[%d%.,]*\n— числа -> %d+\n— время -> %d%d:%d%d\n— цвет -> {%x%x%x%x%x%x}\n— ник -> %w+_%w+"
+				L("unwanted.text.number_number_number_number_number_number_number_x_x_x_x_x_x_w_w")
 			)
 		end
 	end
 
 	imgui.Separator()
-	TextRaw(I(fa.BOOK, " Краткие примеры:"))
+	TextRaw(I(fa.BOOK, L("unwanted.text.text_90")))
 	TextWrappedRaw(
-		"Точная подстрока:\n"
-			.. "  • «VIP» — уберёт любые сообщения, где встречается VIP.\n"
-			.. "  • Флаги: «Без регистра», «Целое слово».\n\n"
-			.. "Lua-шаблон (продвинутый):\n"
-			.. "  • ^%[Подсказка%] — сообщение начинается с [Подсказка]\n"
-			.. "  • %d+ — любая последовательность цифр\n"
-			.. "  • %w+_%w+ — ник Имя_Фамилия\n"
-			.. "  • { %x%x%x%x%x%x } — цветовой код, например {ffffff}\n"
-			.. "  • ^Текст$ — строка должна совпасть полностью\n"
-			.. "  • Избегайте «.*» без якорей ^ и $, это может тормозить."
+		L("unwanted.text.text_91")
+			.. L("unwanted.text.vip_vip")
+			.. L("unwanted.text.text_92")
+			.. L("unwanted.text.lua_93")
+			.. L("unwanted.text.text_94")
+			.. L("unwanted.text.number_95")
+			.. L("unwanted.text.w_w_96")
+			.. L("unwanted.text.x_x_x_x_x_x_ffffff")
+			.. L("unwanted.text.text_97")
+			.. L("unwanted.text.text_98")
 	)
 
 	if not inline then

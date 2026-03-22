@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -157,7 +162,7 @@ local function reset_scoreboard()
 	MathQuiz.custom_error = nil
 	State.sms_target_quiz = "math"
 	ctx.update_status(
-		"Игра сброшена. Сгенерируйте пример, чтобы начать раунд."
+		L("smi_live.math_quiz.text.text")
 	)
 	reset_buffers()
 	ctx.Config:clearRuntimeState()
@@ -168,7 +173,7 @@ local function start_new_game()
 	MathQuiz.active = true
 	reset_scoreboard()
 	ctx.update_status(
-		"Игра началась. Цель - %d очка(ов).",
+		L("smi_live.math_quiz.text.number"),
 		MathQuiz.target_scores[MathQuiz.target_index]
 	)
 end
@@ -178,7 +183,7 @@ local function end_game(winner)
 	MathQuiz.active = false
 	MathQuiz.winner = winner
 	ctx.update_status(
-		"%s достигает %d очков и побеждает!",
+		L("smi_live.math_quiz.text.format_number"),
 		winner,
 		MathQuiz.target_scores[MathQuiz.target_index]
 	)
@@ -195,7 +200,7 @@ end
 local function stop_math_game_manually()
 	local MathQuiz = ctx.MathQuiz
 	MathQuiz.active = false
-	ctx.update_status("Игра завершена вручную.")
+	ctx.update_status(L("smi_live.math_quiz.text.text_1"))
 	MathQuiz.current_problem = nil
 	MathQuiz.current_answer = nil
 	MathQuiz.round_answer = nil
@@ -288,7 +293,7 @@ local function start_round(problem, answer)
 	MathQuiz.awaiting_next_round = false
 	MathQuiz.custom_error = nil
 	imgui.StrCopy(MathQuiz.custom_problem_buf, tostring(problem or ""), ffi.sizeof(MathQuiz.custom_problem_buf))
-	ctx.update_status("Раунд %d: огласите пример и ждите ответы.", MathQuiz.round + 1)
+	ctx.update_status(L("smi_live.math_quiz.text.number_2"), MathQuiz.round + 1)
 	reset_buffers()
 	ctx.mark_runtime_save_dirty()
 end
@@ -302,30 +307,30 @@ local function evaluate_custom_problem(problem_text)
 	local trim = ctx.trim
 	local trimmed = trim(problem_text or "")
 	if trimmed == "" then
-		return nil, "Введите текст примера."
+		return nil, L("smi_live.math_quiz.text.text_3")
 	end
 
 	if not trimmed:match("^[%d%+%-%*/%(%)%s]+$") then
 		local invalid = trimmed:match("[^%d%+%-%*/%(%)%s]") or "?"
-		return nil, string.format("Недопустимый символ: %s", invalid)
+		return nil, string.format(L("smi_live.math_quiz.text.format"), invalid)
 	end
 
 	local chunk, err = load("return " .. trimmed, "MathQuizCustom", "t", {})
 	if not chunk then
-		return nil, string.format("Не удалось разобрать пример: %s", err or "ошибка")
+		return nil, string.format(L("smi_live.math_quiz.text.format_4"), err or L("smi_live.math_quiz.text.text_5"))
 	end
 
 	local ok, result = pcall(chunk)
 	if not ok then
-		return nil, string.format("Ошибка при вычислении: %s", result)
+		return nil, string.format(L("smi_live.math_quiz.text.format_6"), result)
 	end
 
 	if type(result) ~= "number" or result ~= result or result == math.huge or result == -math.huge then
-		return nil, "Результат должен быть числом."
+		return nil, L("smi_live.math_quiz.text.text_7")
 	end
 
 	if result <= 0 or math.floor(result) ~= result then
-		return nil, "Ответ должен быть положительным целым числом."
+		return nil, L("smi_live.math_quiz.text.text_8")
 	end
 
 	return trimmed, result
@@ -335,7 +340,7 @@ function M._resolve_math_custom_problem_answer(problem_text)
 	local trim = ctx.trim
 	local prepared_problem = trim(problem_text or "")
 	if prepared_problem == "" then
-		return nil, "Введите текст перед отправкой."
+		return nil, L("smi_live.math_quiz.text.text_9")
 	end
 
 	local _, direct_result = evaluate_custom_problem(prepared_problem)
@@ -367,14 +372,14 @@ function M._resolve_math_custom_problem_answer(problem_text)
 		return nil, direct_error
 	end
 
-	return nil, "Не удалось определить ответ для примера."
+	return nil, L("smi_live.math_quiz.text.text_10")
 end
 
 local function begin_custom_round(problem_text)
 	local trim = ctx.trim
 	local cleaned_problem = trim(problem_text)
 	if cleaned_problem == "" then
-		return false, "Введите текст примера."
+		return false, L("smi_live.math_quiz.text.text_3")
 	end
 
 	local parsed_problem, numeric_answer = evaluate_custom_problem(cleaned_problem)
@@ -415,7 +420,7 @@ local function handle_correct_answer(player_name, player_id)
 	else
 		MathQuiz.awaiting_next_round = true
 		ctx.update_status(
-			"%s получает балл (%d/%d). Запустите следующий пример.",
+			L("smi_live.math_quiz.text.format_number_number"),
 			player_name,
 			entry.score,
 			target
@@ -427,7 +432,7 @@ local function finalize_manual_math_round_winner(player_name, player_id)
 	local MathQuiz = ctx.MathQuiz
 	local answer_value = MathQuiz.current_answer or MathQuiz.round_answer
 	if answer_value == nil then
-		return nil, "Не найден текущий ответ примера."
+		return nil, L("smi_live.math_quiz.text.text_11")
 	end
 
 	local reference_response = ctx.find_response_for_player(MathQuiz.current_responses, player_name, player_id, true)
@@ -438,7 +443,7 @@ local function finalize_manual_math_round_winner(player_name, player_id)
 
 	local player_entry, normalized_name = ensure_player(player_name, player_id)
 	if not player_entry then
-		return nil, "Не удалось обновить счёт игрока."
+		return nil, L("smi_live.math_quiz.text.text_12")
 	end
 
 	MathQuiz.latest_round_stats = {
@@ -532,14 +537,14 @@ function M.record_response_from_sms(player_name, player_id, message)
 
 		if lead then
 			ctx.update_status(
-				"Первый верный ответ: %s за %.2f с (опережение %.2f с). Балл начислите вручную.",
+				L("smi_live.math_quiz.text.format_2f_2f"),
 				player_name,
 				entry.response_time,
 				lead
 			)
 		else
 			ctx.update_status(
-				"Первый верный ответ: %s за %.2f с. Балл начислите вручную.",
+				L("smi_live.math_quiz.text.format_2f"),
 				player_name,
 				entry.response_time
 			)
@@ -552,7 +557,7 @@ function M.record_response_from_sms(player_name, player_id, message)
 	if is_correct then
 		entry.outcome = "correct"
 		ctx.update_status(
-			"%s прислал верный ответ через %.2f с.",
+			L("smi_live.math_quiz.text.format_2f_13"),
 			player_name,
 			entry.response_time
 		)
@@ -561,7 +566,7 @@ function M.record_response_from_sms(player_name, player_id, message)
 		local provided = message ~= "" and message or "-"
 		update_player_last_answer(player_name, provided, false, player_id)
 		ctx.update_status(
-			"%s отвечает через %.2f с: %s (неверно).",
+			L("smi_live.math_quiz.text.format_2f_format"),
 			player_name,
 			entry.response_time,
 			provided
@@ -576,22 +581,22 @@ local function announce_latest_stats(gender)
 	local MathQuiz = ctx.MathQuiz
 	local stats = MathQuiz.latest_round_stats
 	if not stats or not stats.winner then
-		ctx.update_status("Нет данных для объявления ответа.")
+		ctx.update_status(L("smi_live.math_quiz.text.text_14"))
 		return
 	end
 
 	local normalized_gender = gender == "female" and "female" or "male"
 	local has_winner = MathQuiz.winner ~= nil
 	local display_name = ctx.format_display_name(stats.winner, stats.player_id)
-	local subject_label = has_winner and "победителе" or "ответе"
+	local subject_label = has_winner and L("smi_live.math_quiz.text.text_15") or L("smi_live.math_quiz.text.text_16")
 	local send_key = "math_announce_" .. normalized_gender
 
 	ctx.stop_sms_for_announcement()
 	ctx.update_status(
-		"Отправляем сообщение об %s для %s (%s)...",
+		L("smi_live.math_quiz.text.format_format_format"),
 		subject_label,
 		display_name,
-		normalized_gender == "female" and "ж" or "м"
+		normalized_gender == "female" and L("smi_live.math_quiz.text.text_17") or L("smi_live.math_quiz.text.text_18")
 	)
 
 	local sent
@@ -618,23 +623,23 @@ local function announce_latest_stats(gender)
 	end
 
 	if sent then
-		ctx.update_status("Сообщение об %s отправлено для %s.", subject_label, display_name)
+		ctx.update_status(L("smi_live.math_quiz.text.format_format"), subject_label, display_name)
 	end
 end
 
 local function announce_math_answer_from_fields(gender)
 	local MathQuiz = ctx.MathQuiz
 	if not MathQuiz.active then
-		ctx.update_status("Игра не активна. Сначала начните раунд.")
+		ctx.update_status(L("smi_live.math_quiz.text.text_19"))
 		return
 	end
 
 	if not MathQuiz.answer_start_time then
-		ctx.update_status("Нет активного примера для проверки.")
+		ctx.update_status(L("smi_live.math_quiz.text.text_20"))
 		return
 	end
 	if not MathQuiz.accepting_answers then
-		ctx.update_status("Раунд уже закрыт. Запустите следующий пример.")
+		ctx.update_status(L("smi_live.math_quiz.text.text_21"))
 		return
 	end
 
@@ -705,7 +710,7 @@ function M._build_math_winner_message(gender)
 	local normalized_gender = gender == "female" and "female" or "male"
 	local winner_name = trim(tostring(MathQuiz.winner or ""))
 	if winner_name == "" then
-		return nil, "Победитель ещё не определён."
+		return nil, L("smi_live.math_quiz.text.text_22")
 	end
 
 	local normalized_winner = ctx.normalize_player_name(winner_name)
@@ -741,11 +746,11 @@ function M._build_math_winner_message(gender)
 	local template = gendered_messages
 			and #gendered_messages > 0
 			and gendered_messages[math.random(1, #gendered_messages)]
-		or "Викторина завершена! %s набирает %s и побеждает!"
+		or L("smi_live.math_quiz.text.format_format_23")
 	local ok_template, formatted_template = pcall(string.format, template, broadcast_name, score_text)
 	if not ok_template or type(formatted_template) ~= "string" or trim(formatted_template) == "" then
 		formatted_template = string.format(
-			"Викторина завершена! %s набирает %s и побеждает!",
+			L("smi_live.math_quiz.text.format_format_23"),
 			broadcast_name,
 			score_text
 		)
@@ -762,11 +767,11 @@ local function draw_scoreboard_table(height)
 		imgui.BeginChild("math_quiz_scoreboard", imgui.ImVec2(0, height), true, imgui.WindowFlags.HorizontalScrollbar)
 	then
 		imgui.Columns(3, "math_quiz_scoreboard_cols", true)
-		imgui.Text("Игрок")
+		imgui.Text(L("smi_live.math_quiz.text.text_24"))
 		imgui.NextColumn()
-		imgui.Text("Очки")
+		imgui.Text(L("smi_live.math_quiz.text.text_25"))
 		imgui.NextColumn()
-		imgui.Text("Последний ответ")
+		imgui.Text(L("smi_live.math_quiz.text.text_26"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -792,7 +797,7 @@ local function draw_scoreboard_table(height)
 		imgui.Columns(1)
 
 		if not has_rows then
-			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Данных пока нет.")
+			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), L("smi_live.math_quiz.text.text_27"))
 		end
 	end
 	imgui.EndChild()
@@ -805,13 +810,13 @@ local function draw_responses_table(height)
 		imgui.BeginChild("math_quiz_responses", imgui.ImVec2(0, height), true, imgui.WindowFlags.HorizontalScrollbar)
 	then
 		imgui.Columns(4, "math_quiz_responses_cols", true)
-		imgui.Text("Игрок")
+		imgui.Text(L("smi_live.math_quiz.text.text_24"))
 		imgui.NextColumn()
-		imgui.Text("ID")
+		imgui.Text(L("common.id"))
 		imgui.NextColumn()
-		imgui.Text("Ответ")
+		imgui.Text(L("smi_live.math_quiz.text.text_28"))
 		imgui.NextColumn()
-		imgui.Text("Время")
+		imgui.Text(L("smi_live.math_quiz.text.text_29"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -852,7 +857,7 @@ local function draw_responses_table(height)
 		imgui.Columns(1)
 
 		if not has_rows then
-			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Ответов пока нет.")
+			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), L("smi_live.math_quiz.text.text_30"))
 		end
 	end
 	imgui.EndChild()
@@ -868,12 +873,12 @@ local function draw_latest_round_stats()
 
 	local winner = stats.winner or "-"
 	local player_id = stats.player_id and tostring(stats.player_id) or "-"
-	local response_time = stats.response_time and string.format("%.2fс", stats.response_time) or "-"
+	local response_time = stats.response_time and string.format(L("smi_live.math_quiz.text.text_2f"), stats.response_time) or "-"
 	local total_responses = stats.total_responses or 0
 	local summary
 	if stats.points_awarded and stats.points_awarded > 0 then
 		summary = string.format(
-			"Победитель раунда: %s[%s] - %s | Всего ответов: %d",
+			L("smi_live.math_quiz.text.format_format_format_number"),
 			winner,
 			player_id,
 			response_time,
@@ -881,7 +886,7 @@ local function draw_latest_round_stats()
 		)
 	else
 		summary = string.format(
-			"Рекомендация (первый верный): %s[%s] - %s | Всего ответов: %d",
+			L("smi_live.math_quiz.text.format_format_format_number_31"),
 			winner,
 			player_id,
 			response_time,
@@ -898,11 +903,11 @@ local function draw_math_quiz_tables_section()
 	local NEWS_PREFIX = ctx.NEWS_PREFIX
 	local State = ctx.State
 
-	imgui.Text("Таблица очков")
+	imgui.Text(L("smi_live.math_quiz.text.text_32"))
 	draw_scoreboard_table(SCOREBOARD_HEIGHT)
 
 	imgui.Spacing()
-	imgui.Text("Ответы текущего раунда")
+	imgui.Text(L("smi_live.math_quiz.text.text_33"))
 	draw_responses_table(RESPONSES_HEIGHT)
 
 	imgui.Spacing()
@@ -920,7 +925,7 @@ local function draw_math_quiz_tables_section()
 
 	imgui.SameLine()
 	imgui.PushItemWidth(240)
-	if imgui.InputText("Ник игрока##math_player_name", MathQuiz.player_name_buf, 48) then
+	if imgui.InputText(L("smi_live.math_quiz.text.math_player_name"), MathQuiz.player_name_buf, 48) then
 		local name = trim(str(MathQuiz.player_name_buf))
 		if name ~= "" then
 			ctx.try_fill_id_from_name(MathQuiz.player_id_buf, name)
@@ -933,13 +938,13 @@ local function draw_math_quiz_tables_section()
 		local alpha = imgui.GetStyle().Alpha
 		imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha * 0.5)
 	end
-	if imgui.Button("Остановить прием сообщений##math_stop_listen") and has_manual_target then
+	if imgui.Button(L("smi_live.math_quiz.text.math_stop_listen")) and has_manual_target then
 		if not MathQuiz.active then
-			ctx.update_status("Игра не активна. Сначала начните раунд.")
+			ctx.update_status(L("smi_live.math_quiz.text.text_19"))
 		elseif not MathQuiz.answer_start_time then
-			ctx.update_status("Нет активного примера для проверки.")
+			ctx.update_status(L("smi_live.math_quiz.text.text_20"))
 		elseif not MathQuiz.accepting_answers then
-			ctx.update_status("Раунд уже закрыт. Запустите следующий пример.")
+			ctx.update_status(L("smi_live.math_quiz.text.text_21"))
 		else
 			local name, player_id, err = ctx.resolve_player_from_inputs(MathQuiz.player_id_buf, MathQuiz.player_name_buf)
 			if err then
@@ -950,19 +955,19 @@ local function draw_math_quiz_tables_section()
 					ctx.update_status(finalize_err)
 				else
 					local display_name = ctx.format_display_name(stats and stats.winner or name, stats and stats.player_id or player_id)
-					local stop_message = string.format("%s %s", NEWS_PREFIX, "Стоп!")
+					local stop_message = string.format("%s %s", NEWS_PREFIX, L("smi_live.math_quiz.text.text_34"))
 					local sent = ctx.broadcast_sequence({ stop_message }, "math_stop_listen")
 					if sent then
 						ctx.stop_sms_for_announcement()
-						ctx.update_status('Победитель %s зафиксирован. Отправлено сообщение "Стоп!".', display_name)
+						ctx.update_status(L("smi_live.math_quiz.text.format_35"), display_name)
 					elseif ctx.get_selected_method() == 3 then
 						ctx.stop_sms_for_announcement()
 						ctx.update_status(
-							'Победитель %s зафиксирован. Сообщение "Стоп!" не отправлено: выбран режим "В пустоту".',
+							L("smi_live.math_quiz.text.format_36"),
 							display_name
 						)
 					else
-						ctx.update_status('Победитель %s зафиксирован, но сообщение "Стоп!" не отправлено.', display_name)
+						ctx.update_status(L("smi_live.math_quiz.text.format_37"), display_name)
 					end
 					ctx.reset_capitals_buffers()
 				end
@@ -975,11 +980,11 @@ local function draw_math_quiz_tables_section()
 
 	imgui.SameLine()
 	if MathQuiz.active then
-		if imgui.Button("Сбросить игру") then
+		if imgui.Button(L("smi_live.math_quiz.text.text_38")) then
 			start_new_game()
 		end
 	else
-		if imgui.Button("Сбросить таблицу") then
+		if imgui.Button(L("smi_live.math_quiz.text.text_39")) then
 			reset_scoreboard()
 		end
 	end
@@ -1009,7 +1014,7 @@ function M.DrawMathQuiz(show_tables)
 				imgui.SameLine()
 			end
 			imgui.PushIDInt(idx)
-			if imgui.RadioButtonBool(string.format("%d очка", target), MathQuiz.target_index == idx) then
+			if imgui.RadioButtonBool(string.format(L("smi_live.math_quiz.text.number_40"), target), MathQuiz.target_index == idx) then
 				MathQuiz.target_index = idx
 				ctx.Config:save()
 			end
@@ -1018,20 +1023,20 @@ function M.DrawMathQuiz(show_tables)
 
 		imgui.SameLine()
 		push_button_palette(COLOR_ACCENT_SUCCESS)
-		if imgui.Button("Начать игру") then
+		if imgui.Button(L("smi_live.math_quiz.text.text_41")) then
 			start_new_game()
 		end
 		pop_button_palette()
 	else
 		if MathQuiz.awaiting_next_round then
 			push_button_palette(COLOR_ACCENT_PRIMARY)
-			if imgui.Button("Следующий пример") then
+			if imgui.Button(L("smi_live.math_quiz.text.text_42")) then
 				begin_round()
 			end
 			pop_button_palette()
 		else
 			push_button_palette(COLOR_ACCENT_PRIMARY)
-			if imgui.Button("Сгенерировать пример") then
+			if imgui.Button(L("smi_live.math_quiz.text.text_43")) then
 				begin_round()
 			end
 			pop_button_palette()
@@ -1039,7 +1044,7 @@ function M.DrawMathQuiz(show_tables)
 
 		imgui.SameLine()
 		push_button_palette(COLOR_ACCENT_DANGER)
-		if imgui.Button("Завершить игру") then
+		if imgui.Button(L("smi_live.math_quiz.text.text_44")) then
 			stop_math_game_manually()
 		end
 		pop_button_palette()
@@ -1061,7 +1066,7 @@ function M.DrawMathQuiz(show_tables)
 		end
 
 		if displayed_problem then
-			imgui.Text(escape_imgui_text(string.format("Текущий пример: %s", displayed_problem)))
+			imgui.Text(escape_imgui_text(string.format(L("smi_live.math_quiz.text.format_45"), displayed_problem)))
 			if displayed_answer then
 				imgui.SameLine()
 				imgui.TextColored(
@@ -1071,10 +1076,10 @@ function M.DrawMathQuiz(show_tables)
 			end
 		end
 
-		imgui.Text("Текст для отправки:")
+		imgui.Text(L("smi_live.math_quiz.text.text_46"))
 		local style = imgui.GetStyle()
 		local avail = imgui.GetContentRegionAvail()
-		local send_btn_text = "Отправить"
+		local send_btn_text = L("smi_live.math_quiz.text.text_47")
 		local send_btn_width = imgui.CalcTextSize(send_btn_text).x + style.FramePadding.x * 2
 		local input_width = math.max(180, avail.x - send_btn_width - style.ItemSpacing.x)
 		local problem_buf_size = ffi.sizeof(MathQuiz.custom_problem_buf)
@@ -1086,19 +1091,19 @@ function M.DrawMathQuiz(show_tables)
 		if imgui.Button(send_btn_text .. "##math_send_problem", imgui.ImVec2(send_btn_width, 0)) then
 			local prepared_problem = trim(str(MathQuiz.custom_problem_buf))
 			if prepared_problem == "" then
-				local message = "Введите текст перед отправкой."
+				local message = L("smi_live.math_quiz.text.text_9")
 				ctx.update_status(message)
 				MathQuiz.custom_error = message
 			elseif MathQuiz.awaiting_next_round then
-				local message = 'Следующий раунд начнется после объявления победителя. Нажмите "Следующий пример".'
+				local message = L("smi_live.math_quiz.text.text_48")
 				ctx.update_status(message)
 				MathQuiz.custom_error = message
 			else
 				local answer_value, answer_error = M._resolve_math_custom_problem_answer(prepared_problem)
 				if type(answer_value) ~= "number" then
-					local message = answer_error or "Не удалось определить ответ для примера."
-					if type(message) == "string" and message:find("целым", 1, true) then
-						message = "Ответ примера должен быть целым числом (без дробей)."
+					local message = answer_error or L("smi_live.math_quiz.text.text_10")
+					if type(message) == "string" and message:find(L("smi_live.math_quiz.text.text_49"), 1, true) then
+						message = L("smi_live.math_quiz.text.text_50")
 					end
 					ctx.update_status(message)
 					MathQuiz.custom_error = message
@@ -1126,8 +1131,8 @@ function M.DrawMathQuiz(show_tables)
 			preview_line = string.format("%s %s", NEWS_PREFIX, preview_problem)
 		end
 		mimgui_funcs.imgui_hover_tooltip_safe(ctx.build_send_tooltip(preview_line))
-		if type(typed_problem_error) == "string" and typed_problem_error:find("целым", 1, true) then
-			imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.3, 1), "Ответ примера должен быть целым числом (без дробей).")
+		if type(typed_problem_error) == "string" and typed_problem_error:find(L("smi_live.math_quiz.text.text_49"), 1, true) then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.3, 1), L("smi_live.math_quiz.text.text_50"))
 		end
 		if MathQuiz.custom_error then
 			imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), escape_imgui_text(MathQuiz.custom_error))

@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -5,16 +10,16 @@ local str = ffi.string
 local ctx
 
 local default_send_labels = {
-	"Локально",
-	"Клиенту SA-MP",
-	"Серверу",
-	"Без отправки",
-	"Написать в чат и закрыть его",
-	"Написать в чат",
-	"В активное диалоговое окно",
-	"Скопировать в буфер обмена",
-	"В консоль SF и биндера",
-	"В уведомления",
+	L("smi_live.broadcast.text.text"),
+	L("smi_live.broadcast.text.sa_mp"),
+	L("smi_live.broadcast.text.text_1"),
+	L("smi_live.broadcast.text.text_2"),
+	L("smi_live.broadcast.text.text_3"),
+	L("smi_live.broadcast.text.text_4"),
+	L("smi_live.broadcast.text.text_5"),
+	L("smi_live.broadcast.text.text_6"),
+	L("smi_live.broadcast.text.sf"),
+	L("smi_live.broadcast.text.text_7"),
 }
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
 
@@ -76,7 +81,7 @@ local function get_send_fn()
 	local binder = ctx.binder
 	local send_fn = binder and binder.doSend
 	if type(send_fn) ~= "function" then
-		M.update_status("Отправка недоступна: функция binder.doSend не найдена.")
+		M.update_status(L("smi_live.broadcast.text.binder_dosend"))
 		return nil
 	end
 	return send_fn
@@ -85,11 +90,11 @@ end
 function M.cancel_send_queue()
 	local State = ctx.State
 	if not State.send_sequence_running then
-		M.update_status("Активной отправки нет.")
+		M.update_status(L("smi_live.broadcast.text.text_8"))
 		return false
 	end
 	State.send_sequence_cancel = true
-	M.update_status("Отправка сообщений отменена.")
+	M.update_status(L("smi_live.broadcast.text.text_9"))
 	return true
 end
 
@@ -182,7 +187,7 @@ local function send_sequence(messages, method, interval, key)
 
 	local State = ctx.State
 	if State.send_sequence_running then
-		M.update_status("Отправка уже выполняется. Дождитесь завершения или отмените.")
+		M.update_status(L("smi_live.broadcast.text.text_10"))
 		return false
 	end
 
@@ -193,7 +198,7 @@ local function send_sequence(messages, method, interval, key)
 
 	State.send_sequence_running = true
 
-	ctx.run_async("отправки сообщений", function()
+	ctx.run_async(L("smi_live.broadcast.text.text_11"), function()
 		if State.send_sequence_cancel then
 			State.send_sequence_cancel = false
 			State.send_sequence_running = false
@@ -234,7 +239,7 @@ local function send_sequence(messages, method, interval, key)
 			end
 			local ok, err = pcall(send_fn, msg, target)
 			if not ok then
-				M.update_status("Не удалось отправить сообщение #%d: %s", idx, err)
+				M.update_status(L("smi_live.broadcast.text.number_format"), idx, err)
 				break
 			end
 
@@ -273,13 +278,13 @@ end
 function M.send_live_sequence_from_section(section, section_name, key, quiz_kind)
 	local messages = ctx.SMILive._get_live_section_news_messages(section, quiz_kind)
 	if not messages then
-		M.update_status('Добавьте текст для раздела "%s".', section_name)
+		M.update_status(L("smi_live.broadcast.text.format"), section_name)
 		return false
 	end
 
 	if M.get_selected_method() == 3 then
 		M.update_status(
-			'Сообщения для раздела "%s" не отправлены: выбран режим "В пустоту".',
+			L("smi_live.broadcast.text.format_12"),
 			section_name
 		)
 		return false
@@ -289,7 +294,7 @@ function M.send_live_sequence_from_section(section, section_name, key, quiz_kind
 	if not ok then
 		return false
 	end
-	M.update_status("%s отправлено в эфир.", section_name)
+	M.update_status(L("smi_live.broadcast.text.format_13"), section_name)
 	return true
 end
 
@@ -307,7 +312,7 @@ end
 
 function M.broadcast_correct_answer_gender(player_name, answer, score, is_final, player_id, gender, key)
 	local normalized_gender = gender == "female" and "female" or "male"
-	local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+	local submit_verb = normalized_gender == "female" and L("smi_live.broadcast.text.text_14") or L("smi_live.broadcast.text.text_15")
 	local normalized = ctx.normalize_player_name(player_name)
 	if normalized == "" then
 		normalized = ctx.trim(player_name)
@@ -321,15 +326,15 @@ function M.broadcast_correct_answer_gender(player_name, answer, score, is_final,
 	local broadcast_name = ctx.format_broadcast_name(normalized, player_id)
 	local NEWS_PREFIX = ctx.NEWS_PREFIX
 	local messages = {
-		string.format("%s Стоп!", NEWS_PREFIX),
-		string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
-		string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text),
-		string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb),
+		string.format(L("smi_live.broadcast.text.format_16"), NEWS_PREFIX),
+		string.format(L("smi_live.broadcast.text.format_17"), NEWS_PREFIX),
+		string.format(L("smi_live.broadcast.text.format_format"), NEWS_PREFIX, answer_text),
+		string.format(L("smi_live.broadcast.text.format_format_18"), NEWS_PREFIX, submit_verb),
 		string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase),
 	}
 	if is_final then
 		messages[#messages + 1] = string.format(
-			"%s Викторина завершена! %s набирает %s и побеждает!",
+			L("smi_live.broadcast.text.format_format_format"),
 			NEWS_PREFIX,
 			broadcast_name,
 			ctx.pluralize_points(score or 0)
@@ -351,33 +356,33 @@ function M.broadcast_winner_gender(player_name, score, player_id, gender, answer
 	local broadcast_name = ctx.format_broadcast_name(normalized, player_id)
 	local score_text = ctx.pluralize_points(score or 0)
 	local answer_text = ctx.trim(answer)
-	local submit_verb = normalized_gender == "female" and "прислала" or "прислал"
+	local submit_verb = normalized_gender == "female" and L("smi_live.broadcast.text.text_14") or L("smi_live.broadcast.text.text_15")
 	local gained = math.max(0, math.floor(tonumber(points_awarded) or 1))
 	local score_phrase = ctx.format_score_progress(score or 0, gained, normalized_gender)
 
 	local NEWS_PREFIX = ctx.NEWS_PREFIX
 	local messages = {
-		string.format("%s Стоп!", NEWS_PREFIX),
-		string.format("%s У нас есть правильный ответ!", NEWS_PREFIX),
+		string.format(L("smi_live.broadcast.text.format_16"), NEWS_PREFIX),
+		string.format(L("smi_live.broadcast.text.format_17"), NEWS_PREFIX),
 	}
 
 	if answer_text ~= "" then
 		messages[#messages + 1] =
-			string.format("%s Правильный ответ был: %s", NEWS_PREFIX, answer_text)
+			string.format(L("smi_live.broadcast.text.format_format"), NEWS_PREFIX, answer_text)
 	end
 
-	messages[#messages + 1] = string.format("%s Верный ответ %s..", NEWS_PREFIX, submit_verb)
+	messages[#messages + 1] = string.format(L("smi_live.broadcast.text.format_format_18"), NEWS_PREFIX, submit_verb)
 	messages[#messages + 1] = string.format("%s %s! %s", NEWS_PREFIX, broadcast_name, score_phrase)
 
 	local gendered_messages = ctx.get_win_messages_for_gender(normalized_gender)
 	local template = gendered_messages
 			and #gendered_messages > 0
 			and gendered_messages[math.random(1, #gendered_messages)]
-		or "Викторина завершена! %s набирает %s и побеждает!"
+		or L("smi_live.broadcast.text.format_format_19")
 	local ok_template, formatted_template = pcall(string.format, template, broadcast_name, score_text)
 	if not ok_template then
 		formatted_template = string.format(
-			"Викторина завершена! %s набирает %s и побеждает!",
+			L("smi_live.broadcast.text.format_format_19"),
 			broadcast_name,
 			score_text
 		)
@@ -411,7 +416,7 @@ function M.send_screenshot_message()
 	end
 	local ok, err = pcall(send_fn, single, method)
 	if not ok then
-		M.update_status("Не удалось отправить сообщение: %s", err)
+		M.update_status(L("smi_live.broadcast.text.format_20"), err)
 		return false
 	end
 	return true
@@ -439,7 +444,7 @@ end
 function M.take_live_window_screenshot()
 	local funcs = ctx.funcs
 	if not funcs or type(funcs.Take_Screenshot) ~= "function" then
-		M.update_status("Скриншот недоступен: funcs.Take_Screenshot не найден.")
+		M.update_status(L("smi_live.broadcast.text.funcs_take_screenshot"))
 		return
 	end
 
@@ -454,7 +459,7 @@ function M.take_live_window_screenshot()
 			wait(150)
 			local ok_shot, err = pcall(funcs.Take_Screenshot)
 			if not ok_shot then
-				M.update_status("Не удалось сделать скриншот: %s", err)
+				M.update_status(L("smi_live.broadcast.text.format_21"), err)
 			end
 			wait(80)
 			if LiveWindow and LiveWindow.show then
@@ -472,7 +477,7 @@ function M.take_live_window_screenshot()
 	end
 	local ok, err = pcall(funcs.Take_Screenshot)
 	if not ok then
-		M.update_status("Не удалось сделать скриншот: %s", err)
+		M.update_status(L("smi_live.broadcast.text.format_21"), err)
 	end
 	M.schedule_live_window_restore(80)
 end
@@ -491,11 +496,11 @@ function M.parse_sms_message(text)
 	local trim = ctx.trim
 	local cleaned = strip_color_codes(text)
 	local pattern =
-		"%[[^%]]-на студию%]%s*Слушатель%s*:?-?%s*([%w_]+)%[(%d+)%]%s*:%s*(.+)"
+		L("smi_live.broadcast.text.format_format_ya_ya_format_w_number_format_format")
 	local name, id, message = cleaned:match(pattern)
 
 	if not name then
-		if cleaned:find("Слушатель") or cleaned:find("слушатель") then
+		if cleaned:find(L("smi_live.broadcast.text.text_22")) or cleaned:find(L("smi_live.broadcast.text.text_23")) then
 			name, id, message = cleaned:match("([%w_]+)%[(%d+)%]%s*:%s*(.+)")
 		end
 	end
@@ -550,7 +555,7 @@ function M.start_sms_listener(silent)
 	end
 	if not M.can_use_sms_listener() then
 		if not silent then
-			M.update_status("Модуль приёма SMS недоступен.")
+			M.update_status(L("smi_live.broadcast.text.sms"))
 		end
 		return false
 	end
@@ -558,7 +563,7 @@ function M.start_sms_listener(silent)
 	State.sms_listener_active = true
 	if not silent then
 		M.update_status(
-			"Приём SMS-сообщений активирован. Ждите ответы слушателей."
+			L("smi_live.broadcast.text.sms_24")
 		)
 	end
 	return true
@@ -572,14 +577,14 @@ function M.stop_sms_listener(silent)
 	if not M.can_use_sms_listener() then
 		State.sms_listener_active = false
 		if not silent then
-			M.update_status("Приём SMS-сообщений недоступен.")
+			M.update_status(L("smi_live.broadcast.text.sms_25"))
 		end
 		return false
 	end
 	ctx.my_hooks_module.removeServerMessageListener(handle_server_sms)
 	State.sms_listener_active = false
 	if not silent then
-		M.update_status("Приём SMS-сообщений остановлен.")
+		M.update_status(L("smi_live.broadcast.text.sms_26"))
 	end
 	return true
 end

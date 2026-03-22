@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local module = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -49,9 +54,9 @@ local delete_icon = ok2 and fa and fa.TRASH or ""
 local search_icon = ok2 and fa and fa.MAGNIFYING_GLASS or ""
 local star_icon = ok2 and fa and fa.STAR or ""
 local exp_icon = ok2 and fa and fa.FILE_EXPORT or ""
-local arrows_icon = ok2 and fa and fa.ARROWS_LEFT_RIGHT or "<->"
-local folder_plus_icon = ok2 and fa and fa.FOLDER_PLUS or "+"
-local close_icon = ok2 and fa and fa.XMARK or "[X]"
+local arrows_icon = ok2 and fa and fa.ARROWS_LEFT_RIGHT or L("common.move_compact")
+local folder_plus_icon = ok2 and fa and fa.FOLDER_PLUS or L("common.add_compact")
+local close_icon = ok2 and fa and fa.XMARK or L("common.close_brackets")
 
 local filter = imgui.ImGuiTextFilter()
 
@@ -109,39 +114,50 @@ local tree_revision = 0
 local txt_cache_revision = 0
 local global_search_cache = { key = nil, results = {} }
 local txt_tree_filter_cache = { key = nil, matches = nil }
-local bb_help_entries = {
-	{ code = "#img(1.png)", desc = "Картинка из HelperByOrc\\notepad\\images\\." },
-	{ code = "#img(1.png, size(10,10))", desc = "Фиксированный размер изображения." },
-	{ code = "#img(1.png, pos(1,1))", desc = "Позиция X/Y относительно окна шпаргалки." },
-	{ code = "#img(1.png, pos(1,1), size(10,10))", desc = "Позиция + размер." },
-	{ code = "#img(1.png, size(10,10), pos(1,1))", desc = "Порядок size/pos не важен." },
-	{ code = "#img(1.png, size(-1,-1))", desc = "Авторазмер от области окна." },
-	{ code = "#img(weapons/1.png)", desc = "Вложенный путь в images\\." },
-	{ code = "#img(C:\\Users\\user\\Изображения\\Wallpapers\\1.png)", desc = "Абсолютный путь Windows." },
-	{ code = "#img(https://site.com/image.png)", desc = "URL с кешированием в images\\url\\." },
-	{ code = "{ff0000}Красный текст", desc = "Цвет текста строки (RRGGBB)." },
-	{ code = "#color00ff00 Зелёный текст", desc = "Альтернатива цвету через команду." },
-	{ code = "#bg202020 #colorffffff Текст на фоне", desc = "Фон под текстом + цвет текста." },
-	{ code = "#alpha70 Полупрозрачный текст", desc = "Прозрачность 0..100 для строки." },
-	{ code = "#center Заголовок", desc = "Выравнивание по центру." },
-	{ code = "#right Текст справа", desc = "Выравнивание по правому краю." },
-	{ code = "#left Текст слева", desc = "Явное выравнивание по левому краю." },
-	{ code = "#sameline #right Правая часть", desc = "Приклеить к предыдущей строке." },
-	{ code = "#indent24 Отступ 24px", desc = "Отступ от левого края в пикселях." },
-	{ code = "#pad40 Ещё отступ", desc = "Синоним #indent." },
-	{ code = "#tab2 Табуляция", desc = "Быстрый отступ: 1 tab = 32px." },
-	{ code = "#font18 Крупнее", desc = "Размеры: 12, 14, 16, 18, 30." },
-	{ code = "#upper верхний регистр", desc = "Преобразовать строку в UPPERCASE." },
-	{ code = "#lower НИЖНИЙ РЕГИСТР", desc = "Преобразовать строку в lowercase." },
-	{ code = "#bullet Пункт списка", desc = "Маркер списка перед строкой." },
-	{ code = "#br2", desc = "Добавить 2 пустые строки после текущей." },
-	{ code = "#hr", desc = "Горизонтальная линия-разделитель." },
-	{ code = "#hrff8800", desc = "Линия-разделитель с цветом." },
-	{ code = "#iconCOMPASS Навигация", desc = "Иконка FontAwesome7 по имени." },
-	{ code = "{myorg} {myorgrang}", desc = "Переменные из tags.lua работают в просмотре." },
-}
+local bb_help_entries = nil
+local bb_help_generation = -1
+
+local function ensure_bb_help_entries()
+	if bb_help_entries and bb_help_generation == language.getGeneration() then
+		return
+	end
+
+	bb_help_entries = {
+		{ code = L("notepad.example.img_basic"), desc = L("notepad.text.helperbyorc_notepad_images") },
+		{ code = L("notepad.example.img_size"), desc = L("notepad.text.text") },
+		{ code = L("notepad.example.img_pos"), desc = L("notepad.text.x_y") },
+		{ code = L("notepad.example.img_pos_size"), desc = L("notepad.text.text_1") },
+		{ code = L("notepad.example.img_size_pos"), desc = L("notepad.text.size_pos") },
+		{ code = L("notepad.example.img_auto_size"), desc = L("notepad.text.text_2") },
+		{ code = L("notepad.example.img_subdir"), desc = L("notepad.text.images") },
+		{ code = L("notepad.text.img_c_users_user_wallpapers_1_png"), desc = L("notepad.text.windows") },
+		{ code = L("notepad.example.img_url"), desc = L("notepad.text.url_images_url") },
+		{ code = L("notepad.text.ff0000"), desc = L("notepad.text.rrggbb") },
+		{ code = L("notepad.text.color00ff00"), desc = L("notepad.text.text_3") },
+		{ code = L("notepad.text.bg202020_colorffffff"), desc = L("notepad.text.text_4") },
+		{ code = L("notepad.text.alpha70"), desc = L("notepad.text.text_0_100") },
+		{ code = L("notepad.text.center"), desc = L("notepad.text.text_5") },
+		{ code = L("notepad.text.right"), desc = L("notepad.text.text_6") },
+		{ code = L("notepad.text.left"), desc = L("notepad.text.text_7") },
+		{ code = L("notepad.text.sameline_right"), desc = L("notepad.text.text_8") },
+		{ code = L("notepad.text.indent24_24px"), desc = L("notepad.text.text_9") },
+		{ code = L("notepad.text.pad40"), desc = L("notepad.text.indent") },
+		{ code = L("notepad.text.tab2"), desc = L("notepad.text.text_1_tab_32px") },
+		{ code = L("notepad.text.font18"), desc = L("notepad.text.text_12_14_16_18_30") },
+		{ code = L("notepad.text.upper"), desc = L("notepad.text.uppercase") },
+		{ code = L("notepad.text.lower"), desc = L("notepad.text.lowercase") },
+		{ code = L("notepad.text.bullet"), desc = L("notepad.text.text_10") },
+		{ code = L("notepad.example.br2"), desc = L("notepad.text.text_2_11") },
+		{ code = L("notepad.example.hr"), desc = L("notepad.text.text_12") },
+		{ code = L("notepad.example.hr_color"), desc = L("notepad.text.text_13") },
+		{ code = L("notepad.text.iconcompass"), desc = L("notepad.text.fontawesome7") },
+		{ code = L("notepad.example.tags_org"), desc = L("notepad.text.tags_lua") },
+	}
+	bb_help_generation = language.getGeneration()
+end
 
 local function buildBbHelpExamplesText()
+	ensure_bb_help_entries()
 	local lines = {}
 	for _, entry in ipairs(bb_help_entries) do
 		local code = tostring(entry.code or "")
@@ -415,7 +431,7 @@ local function readTxtFile(path, callback)
 					set_txt_cache(path, c)
 				end, full, path)
 			end
-			return callback("[Загрузка большого файла...]")
+			return callback(L("notepad.text.text_14"))
 		end
 	end
 	local f = io.open(full, "r")
@@ -526,7 +542,7 @@ local function createNote()
 		return
 	end
 	if isDuplicateTitle(title) then
-		imgui.OpenPopup("Дубликат")
+		imgui.OpenPopup(L("notepad.text.text_15"))
 		return
 	end
 	table.insert(
@@ -542,7 +558,7 @@ end
 local function duplicateNote(idx)
 	local note = notes[idx]
 	if note then
-		local t = note.title .. "_копия"
+		local t = note.title .. L("notepad.text.text_16")
 		table.insert(notes, {
 			title = t,
 			category = note.category,
@@ -2087,12 +2103,13 @@ local function drawBbHelpPopup()
 		popup_bb_help[0] = false
 	end
 	if imgui.BeginPopupModal("NotepadBbHelp", nil, imgui.WindowFlags.AlwaysAutoResize) then
-		imgui.TextUnformatted("BB-code и #img справка (кнопка копирует шаблон):")
+		ensure_bb_help_entries()
+		imgui.TextUnformatted(L("notepad.text.bb_code_img"))
 		imgui.Separator()
 		imgui.BeginChild("bb_help_items", imgui.ImVec2(650, 330), true)
 		for i, entry in ipairs(bb_help_entries) do
 			imgui.PushIDInt(9000 + i)
-			if imgui.SmallButton("Копировать") then
+			if imgui.SmallButton(L("notepad.text.text_17")) then
 				copyToClipboard(entry.code)
 			end
 			imgui.SameLine()
@@ -2102,10 +2119,10 @@ local function drawBbHelpPopup()
 			imgui.PopID()
 		end
 		imgui.EndChild()
-		if imgui.Button("Закрыть##bbhelp") then
+		if imgui.Button(L("notepad.text.bbhelp")) then
 			imgui.CloseCurrentPopup()
 		end
-		local copy_all_label = "Скопировать всё##bbhelp_copy_all"
+		local copy_all_label = L("notepad.text.bbhelp_copy_all")
 		local copy_all_size = imgui.CalcTextSize(copy_all_label)
 		local copy_all_width = copy_all_size.x + imgui.GetStyle().FramePadding.x * 2
 		local right_x = imgui.GetWindowContentRegionMax().x - copy_all_width
@@ -2234,12 +2251,12 @@ end
 local function drawCat(cat, arr, star)
 	local tree_open = imgui.TreeNodeExStr(folder_icon .. " " .. cat .. (star and (" " .. star_icon) or ""), 0)
 	if imgui.BeginPopupContextItem(cat .. "popupcat") then
-		if imgui.MenuItemBool("Переименовать папку") then
+		if imgui.MenuItemBool(L("notepad.text.text_18")) then
 			imgui.StrCopy(rename_buf, cat)
 			popup_rename[0] = true
 			current_folder = cat
 		end
-		if imgui.MenuItemBool("Удалить все заметки в папке") then
+		if imgui.MenuItemBool(L("notepad.text.text_19")) then
 			local removed = false
 			for i = #notes, 1, -1 do
 				if notes[i].category == cat then
@@ -2250,7 +2267,7 @@ local function drawCat(cat, arr, star)
 				saveNotes()
 			end
 		end
-		if imgui.MenuItemBool("Создать вложенную папку") then
+		if imgui.MenuItemBool(L("notepad.text.text_20")) then
 			imgui.StrCopy(newfolder_buf, "")
 			popup_newfolder[0] = true
 			current_folder = cat
@@ -2280,24 +2297,24 @@ local function drawCat(cat, arr, star)
 					selectJsonNode(v.idx)
 				end
 				if imgui.BeginPopupContextItem("note" .. v.idx) then
-					if imgui.MenuItemBool("Переименовать") then
+					if imgui.MenuItemBool(L("notepad.text.text_21")) then
 						imgui.StrCopy(rename_buf, v.note.title)
 						popup_rename[0] = true
 						current_folder = nil
 						selectJsonNode(v.idx)
 					end
-					if imgui.MenuItemBool("Удалить") then
+					if imgui.MenuItemBool(L("notepad.text.text_22")) then
 						removeNoteAt(v.idx)
 					end
-					if imgui.MenuItemBool("Дублировать") then
+					if imgui.MenuItemBool(L("notepad.text.text_23")) then
 						duplicateNote(v.idx)
 					end
-					if imgui.MenuItemBool("Экспорт") then
+					if imgui.MenuItemBool(L("notepad.text.text_24")) then
 						exportNote(v.note)
 					end
 					if
 						imgui.MenuItemBool(
-							v.note._fav and "Убрать из избранного" or "В избранное"
+							v.note._fav and L("notepad.text.text_25") or L("notepad.text.text_26")
 						)
 					then
 						v.note._fav = not v.note._fav
@@ -2317,17 +2334,17 @@ end
 
 local function drawLeftPanel()
 	imgui.BeginChild("notepad_list", imgui.ImVec2(288, 0), true)
-	if imgui.Button((folder_plus_icon or "+") .. " Создать папку") then
+	if imgui.Button((folder_plus_icon or "+") .. L("notepad.text.text_27")) then
 		imgui.StrCopy(newfolder_buf, "")
 		popup_newfolder[0] = true
 		current_folder = nil
 	end
 	imgui.SameLine()
-	imgui.TextDisabled("ПКМ: папка — меню, заметка — меню")
+	imgui.TextDisabled(L("notepad.text.text_28"))
 
-	imgui.Text(escape_imgui_text((plus_icon or "+") .. " Новая заметка"))
-	imgui.InputTextWithHint("##ntitle", "Заголовок", newNoteTitle, ffi.sizeof(newNoteTitle))
-	imgui.InputTextWithHint("##ncat", "Категория/папка", newNoteCat, ffi.sizeof(newNoteCat))
+	imgui.Text(escape_imgui_text((plus_icon or "+") .. L("notepad.text.text_29")))
+	imgui.InputTextWithHint("##ntitle", L("notepad.text.text_30"), newNoteTitle, ffi.sizeof(newNoteTitle))
+	imgui.InputTextWithHint("##ncat", L("notepad.text.text_31"), newNoteCat, ffi.sizeof(newNoteCat))
 	imgui.SameLine()
 	if imgui.Button((plus_icon or "+") .. "##addnote", imgui.ImVec2(28, 22)) then
 		createNote()
@@ -2335,10 +2352,10 @@ local function drawLeftPanel()
 	imgui.Spacing()
 	imgui.Separator()
 	imgui.PushItemWidth(-38)
-	filter:Draw((search_icon or "") .. " Поиск...", 190)
+	filter:Draw((search_icon or "") .. L("notepad.text.text_32"), 190)
 	imgui.SameLine()
 	if filter:IsActive() then
-		if imgui.Button(close_icon or "[X]", imgui.ImVec2(25, 0)) then
+		if imgui.Button(close_icon or L("common.close_brackets"), imgui.ImVec2(25, 0)) then
 			filter:Clear()
 		end
 	end
@@ -2348,9 +2365,9 @@ local function drawLeftPanel()
 	local txtFilterMatches = hasFilter and getTxtTreeMatchesCached(filterRaw) or nil
 	imgui.Spacing()
 	if star_icon ~= "" then
-		imgui.Text(escape_imgui_text(star_icon .. " Последние"))
+		imgui.Text(escape_imgui_text(star_icon .. L("notepad.text.text_33")))
 	else
-		imgui.Text("Последние")
+		imgui.Text(L("notepad.text.text_34"))
 	end
 	local fixed_height = imgui.GetFontSize() + 8
 	local clipper = imgui.ImGuiListClipper(#history)
@@ -2372,24 +2389,24 @@ local function drawLeftPanel()
 					selectJsonNode(idx)
 				end
 				if imgui.BeginPopupContextItem("note" .. idx) then
-					if imgui.MenuItemBool("Переименовать") then
+					if imgui.MenuItemBool(L("notepad.text.text_21")) then
 						imgui.StrCopy(rename_buf, note.title)
 						popup_rename[0] = true
 						current_folder = nil
 						selectJsonNode(idx)
 					end
-					if imgui.MenuItemBool("Удалить") then
+					if imgui.MenuItemBool(L("notepad.text.text_22")) then
 						removeNoteAt(idx)
 					end
-					if imgui.MenuItemBool("Дублировать") then
+					if imgui.MenuItemBool(L("notepad.text.text_23")) then
 						duplicateNote(idx)
 					end
-					if imgui.MenuItemBool("Экспорт") then
+					if imgui.MenuItemBool(L("notepad.text.text_24")) then
 						exportNote(note)
 					end
 					if
 						imgui.MenuItemBool(
-							note._fav and "Убрать из избранного" or "В избранное"
+							note._fav and L("notepad.text.text_25") or L("notepad.text.text_26")
 						)
 					then
 						note._fav = not note._fav
@@ -2410,7 +2427,7 @@ local function drawLeftPanel()
 		if not noteMatchesFilter(note, filterRaw) then
 			goto continue
 		end
-		local cat = note.category or "Без категории"
+		local cat = note.category or L("notepad.text.text_35")
 		if note._fav then
 			pinned[cat] = pinned[cat] or {}
 			table.insert(pinned[cat], { note = note, idx = i })
@@ -2428,7 +2445,7 @@ local function drawLeftPanel()
 	end
 	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(escape_imgui_text((folder_icon or "") .. " Импортированные .txt"))
+	imgui.Text(escape_imgui_text((folder_icon or "") .. L("notepad.text.txt")))
 	renderTree(tree_root, "", nil, function(path, id)
 		local name = path:match("([^\\]+)$")
 		local name = u8(name)
@@ -2473,7 +2490,7 @@ local function showCopyModeText(raw_text, id_suffix)
 		imgui.StrCopy(copy_mode_buf, text)
 		copy_mode_buf_text = text
 	end
-	imgui.TextDisabled("Режим копирования: выделите текст мышью и нажмите Ctrl+C.")
+	imgui.TextDisabled(L("notepad.text.ctrl_c"))
 	imgui.InputTextMultiline(
 		"##copy_mode_text_" .. tostring(id_suffix or ""),
 		copy_mode_buf,
@@ -2528,7 +2545,7 @@ end
 
 local function showCopyModeClickLines(raw_text, id_suffix)
 	local lines, text = buildCopyModeLines(raw_text)
-	imgui.TextDisabled("Быстрое копирование: ЛКМ по строке копирует строку без BB-code.")
+	imgui.TextDisabled(L("notepad.text.bb_code"))
 	imgui.BeginChild(
 		"##copy_mode_lines_" .. tostring(id_suffix or ""),
 		imgui.ImVec2(-1, getDynamicTextHeight(text)),
@@ -2556,14 +2573,14 @@ local function drawCopyModeSwitch(id_suffix)
 	imgui.SameLine()
 	if mimgui_funcs and type(mimgui_funcs.ItemSelector) == "function" then
 		imgui.PushIDStr("copy_mode_selector_" .. tostring(id_suffix or ""))
-		mimgui_funcs.ItemSelector("", { "Выделение", "ЛКМ строки" }, copyModeKind, 80, false)
+		mimgui_funcs.ItemSelector("", { L("notepad.text.text_36"), L("notepad.text.text_37") }, copyModeKind, 80, false)
 		imgui.PopID()
 	else
-		if imgui.SmallButton((copyModeKind[0] == 1 and "[Выделение]" or "Выделение") .. "##copymode_sel_" .. tostring(id_suffix)) then
+		if imgui.SmallButton((copyModeKind[0] == 1 and L("notepad.text.text_38") or L("notepad.text.text_36")) .. "##copymode_sel_" .. tostring(id_suffix)) then
 			copyModeKind[0] = 1
 		end
 		imgui.SameLine()
-		if imgui.SmallButton((copyModeKind[0] == 2 and "[ЛКМ строки]" or "ЛКМ строки") .. "##copymode_line_" .. tostring(id_suffix)) then
+		if imgui.SmallButton((copyModeKind[0] == 2 and L("notepad.text.text_39") or L("notepad.text.text_37")) .. "##copymode_line_" .. tostring(id_suffix)) then
 			copyModeKind[0] = 2
 		end
 	end
@@ -2579,21 +2596,21 @@ end
 
 local function drawSearchResults(results)
 	imgui.BeginChild("notepad_search", imgui.ImVec2(0, 0), true)
-	imgui.TextDisabled(("Найдено: %d совпадений"):format(#results))
+	imgui.TextDisabled((L("notepad.text.number")):format(#results))
 	imgui.Separator()
 	for i, res in ipairs(results) do
 		if res.isJson then
 			local note = notes[res.idx]
-			local cat = note and (note.category or "Без категории") or ""
+			local cat = note and (note.category or L("notepad.text.text_35")) or ""
 			local title = note and note.title or "?"
 			local title = u8(title)
 			imgui.PushIDInt(i)
 			if res.is_title then
-				if imgui.Selectable(string.format("%s  [Заголовок]  [%s]", title, cat), false) then
+				if imgui.Selectable(string.format(L("notepad.text.format_format"), title, cat), false) then
 					selectJsonNode(res.idx, 0)
 				end
 			else
-				local label = string.format("%s [%s]  строка %d:  %s", title, cat, res.line_idx, res.line)
+				local label = string.format(L("notepad.text.format_format_number_format"), title, cat, res.line_idx, res.line)
 				if imgui.Selectable(label, false) then
 					copyToClipboard(res.line)
 					selectJsonNode(res.idx, res.line_idx)
@@ -2607,13 +2624,13 @@ local function drawSearchResults(results)
 			local cat = path:match("^(.-)[^\\]+$") or ""
 			imgui.PushIDInt(i)
 			if res.is_title then
-				if imgui.Selectable(string.format("%s [файл: %s]", name, cat), false) then
+				if imgui.Selectable(string.format(L("notepad.text.format_format_40"), name, cat), false) then
 					readTxtFile(path, function(content)
 						selectTxtNode(path, content, 0)
 					end)
 				end
 			else
-				local label = string.format("%s (строка %d): %s", name, res.line_idx, res.line)
+				local label = string.format(L("notepad.text.format_number_format"), name, res.line_idx, res.line)
 				if imgui.Selectable(label, false) then
 					copyToClipboard(res.line)
 					readTxtFile(path, function(content)
@@ -2634,7 +2651,7 @@ local function drawRightPanel()
 		local search_results = getSearchResultsCached(filterRaw)
 		drawSearchResults(search_results)
 	elseif not selectedNode then
-		imgui.TextColored(imgui.ImVec4(0.6, 0.7, 0.9, 1), "Выберите или создайте заметку.")
+		imgui.TextColored(imgui.ImVec4(0.6, 0.7, 0.9, 1), L("notepad.text.text_41"))
 	elseif selectedNode.isJson then
 		local idx = selectedNode.idx
 		local note = notes[idx]
@@ -2646,19 +2663,19 @@ local function drawRightPanel()
 				imgui.TextColored(imgui.ImVec4(1, 1, 0.1, 1), escape_imgui_text(star_icon))
 				imgui.SameLine()
 			end
-			if imgui.Button(star_icon .. (note._fav and " Открепить" or " Закрепить")) then
+			if imgui.Button(star_icon .. (note._fav and L("notepad.text.text_42") or L("notepad.text.text_43"))) then
 				note._fav = not note._fav
 				saveNotes()
 			end
 			imgui.SameLine()
-			if imgui.Button(exp_icon .. " Экспорт") then
+			if imgui.Button(exp_icon .. L("notepad.text.text_44")) then
 				exportNote(note)
 			end
 			imgui.SameLine()
-			imgui.Checkbox("Режим копирования##note_copy_mode", copyModeEnabled)
+			imgui.Checkbox(L("notepad.text.note_copy_mode"), copyModeEnabled)
 			drawCopyModeSwitch("json")
 			imgui.SameLine()
-			if imgui.Button((arrows_icon or "<->") .. " Переместить") then
+			if imgui.Button((arrows_icon or "<->") .. L("notepad.text.text_45")) then
 				imgui.StrCopy(move_cat_buf, note.category or "")
 				popup_move[0] = true
 				imgui.OpenPopup("moveNote")
@@ -2678,24 +2695,24 @@ local function drawRightPanel()
 					showNotePreviewText(note.text or "")
 				end
 				imgui.Spacing()
-				imgui.TextDisabled(("Символов: %d"):format(#(note.text or "")))
-				local dateInfo = os.date("Создано: %d.%m.%Y %H:%M", note._ctime)
+				imgui.TextDisabled((L("notepad.text.number_46")):format(#(note.text or "")))
+				local dateInfo = os.date(L("notepad.text.number_m_y_h_m"), note._ctime)
 					.. " | "
-					.. os.date("Изменено: %d.%m.%Y %H:%M", note._mtime)
+					.. os.date(L("notepad.text.number_m_y_h_m_47"), note._mtime)
 				imgui.SameLine()
 				local rightX = imgui.GetWindowContentRegionMax().x - imgui.CalcTextSize(dateInfo).x
 				if rightX > imgui.GetCursorPosX() then
 					imgui.SetCursorPosX(rightX)
 				end
 				imgui.TextDisabled(dateInfo)
-				if imgui.Button((edit_icon or "") .. " Редактировать") then
+				if imgui.Button((edit_icon or "") .. L("notepad.text.text_48")) then
 					editingMode[0] = true
 					editingBufSize = math.max(4096, #(note.text or "") + 2048)
 					editingText = imgui.new.char[editingBufSize](note.text or "")
 				end
 			else
 				imgui.Separator()
-				local savePressed = imgui.Button((save_icon or "") .. " Сохранить   (Ctrl+S)")
+				local savePressed = imgui.Button((save_icon or "") .. L("notepad.text.ctrl_s"))
 					or (imgui.IsKeyDown(0x11) and imgui.IsKeyPressed(0x53))
 				if savePressed then
 					local len = #ffi.string(editingText)
@@ -2710,16 +2727,16 @@ local function drawRightPanel()
 					end
 				end
 				imgui.SameLine()
-				if imgui.Button((cancel_icon or "") .. " Отмена") then
+				if imgui.Button((cancel_icon or "") .. L("notepad.text.text_49")) then
 					editingMode[0] = false
 				end
 				imgui.SameLine()
-				if imgui.Button((delete_icon or "") .. " Удалить") then
+				if imgui.Button((delete_icon or "") .. L("notepad.text.text_50")) then
 					removeNoteAt(idx)
 					return
 				end
 				imgui.SameLine()
-				if imgui.Button("Помощь##bbhelp_edit_note") then
+				if imgui.Button(L("notepad.text.bbhelp_edit_note")) then
 					popup_bb_help[0] = true
 				end
 				imgui.InputTextMultiline(
@@ -2728,7 +2745,7 @@ local function drawRightPanel()
 					editingBufSize,
 					imgui.ImVec2(-1, getDynamicTextHeight(ffi.string(editingText)))
 				)
-				imgui.TextDisabled(("Символов: %d"):format(#ffi.string(editingText)))
+				imgui.TextDisabled((L("notepad.text.number_46")):format(#ffi.string(editingText)))
 			end
 		else
 			selectedNode = nil
@@ -2738,7 +2755,7 @@ local function drawRightPanel()
 		if not selectedNode.path then
 			selectedNode = nil
 			editingMode[0] = false
-			imgui.TextColored(imgui.ImVec4(0.6, 0.7, 0.9, 1), "Выберите или создайте заметку.")
+			imgui.TextColored(imgui.ImVec4(0.6, 0.7, 0.9, 1), L("notepad.text.text_41"))
 		else
 			local name = selectedNode.path:match("([^\\]+)$")
 			local name = u8(name)
@@ -2749,11 +2766,11 @@ local function drawRightPanel()
 			end
 			imgui.Text(escape_imgui_text(name))
 			imgui.SameLine()
-			if imgui.Button(exp_icon .. " Экспорт") then
+			if imgui.Button(exp_icon .. L("notepad.text.text_44")) then
 				exportNote({ title = name, text = content })
 			end
 			imgui.SameLine()
-			imgui.Checkbox("Режим копирования##txt_copy_mode", copyModeEnabled)
+			imgui.Checkbox(L("notepad.text.txt_copy_mode"), copyModeEnabled)
 			drawCopyModeSwitch("txt")
 			imgui.Separator()
 			if not editingMode[0] then
@@ -2769,18 +2786,18 @@ local function drawRightPanel()
 					showNotePreviewText(content)
 				end
 				imgui.Spacing()
-				imgui.TextDisabled(("Символов: %d"):format(#content))
-				if imgui.Button((edit_icon or "") .. " Редактировать") then
+				imgui.TextDisabled((L("notepad.text.number_46")):format(#content))
+				if imgui.Button((edit_icon or "") .. L("notepad.text.text_48")) then
 					editingMode[0] = true
 				end
 			else
 				imgui.Separator()
-				if imgui.Button((save_icon or "") .. " Сохранить как новую") then
+				if imgui.Button((save_icon or "") .. L("notepad.text.text_51")) then
 					table.insert(
 						notes,
 						{
 							title = name,
-							category = "Импорт",
+							category = L("notepad.text.text_52"),
 							text = content,
 							_fav = false,
 							_ctime = os.time(),
@@ -2791,13 +2808,13 @@ local function drawRightPanel()
 					editingMode[0] = false
 				end
 				imgui.SameLine()
-				if imgui.Button((cancel_icon or "") .. " Отмена") then
+				if imgui.Button((cancel_icon or "") .. L("notepad.text.text_49")) then
 					editingMode[0] = false
 					editingBufSize = math.max(4096, #imported_original_text + 2048)
 					editingText = imgui.new.char[editingBufSize](imported_original_text)
 				end
 				imgui.SameLine()
-				if imgui.Button("Помощь##bbhelp_edit_import") then
+				if imgui.Button(L("notepad.text.bbhelp_edit_import")) then
 					popup_bb_help[0] = true
 				end
 				imgui.InputTextMultiline(
@@ -2806,7 +2823,7 @@ local function drawRightPanel()
 					editingBufSize,
 					imgui.ImVec2(-1, getDynamicTextHeight(ffi.string(editingText)))
 				)
-				imgui.TextDisabled(("Символов: %d"):format(#ffi.string(editingText)))
+				imgui.TextDisabled((L("notepad.text.number_46")):format(#ffi.string(editingText)))
 			end
 		end
 	end
@@ -2814,8 +2831,8 @@ local function drawRightPanel()
 	drawBbHelpPopup()
 
 	if imgui.BeginPopup("moveNote") then
-		imgui.InputTextWithHint("##movecat", "Новая категория", move_cat_buf, ffi.sizeof(move_cat_buf))
-		if imgui.Button("OK##movecat") then
+		imgui.InputTextWithHint("##movecat", L("notepad.text.text_53"), move_cat_buf, ffi.sizeof(move_cat_buf))
+		if imgui.Button(L("common.ok") .. "##movecat") then
 			local idx = selectedNode and selectedNode.idx
 			if idx and notes[idx] then
 				notes[idx].category = ffi.string(move_cat_buf)
@@ -2825,7 +2842,7 @@ local function drawRightPanel()
 			popup_move[0] = false
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##movecat") then
+		if imgui.Button(L("notepad.text.movecat")) then
 			imgui.CloseCurrentPopup()
 			popup_move[0] = false
 		end
@@ -2834,9 +2851,9 @@ local function drawRightPanel()
 	if imgui.BeginPopup("longTextWarn") then
 		imgui.TextColored(
 			imgui.ImVec4(1, 0.45, 0.2, 1),
-			"Слишком длинный текст!\nОграничение: 65535 символов."
+			L("notepad.text.text_65535")
 		)
-		if imgui.Button("OK##longwarn") then
+		if imgui.Button(L("common.ok") .. "##longwarn") then
 			imgui.CloseCurrentPopup()
 			popup_warning[0] = false
 		end
@@ -2847,8 +2864,8 @@ local function drawRightPanel()
 		popup_rename[0] = false
 	end
 	if imgui.BeginPopupModal("RenamePopup", nil, imgui.WindowFlags.AlwaysAutoResize) then
-		imgui.InputTextWithHint("##rename", "Новое имя", rename_buf, ffi.sizeof(rename_buf))
-		if imgui.Button("OK##rename") then
+		imgui.InputTextWithHint("##rename", L("notepad.text.text_54"), rename_buf, ffi.sizeof(rename_buf))
+		if imgui.Button(L("common.ok") .. "##rename") then
 			local new_name = ffi.string(rename_buf)
 			if current_folder then
 				for i, note in ipairs(notes) do
@@ -2865,7 +2882,7 @@ local function drawRightPanel()
 			imgui.CloseCurrentPopup()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##rename") then
+		if imgui.Button(L("notepad.text.rename")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()
@@ -2875,8 +2892,8 @@ local function drawRightPanel()
 		popup_newfolder[0] = false
 	end
 	if imgui.BeginPopupModal("NewFolderPopup", nil, imgui.WindowFlags.AlwaysAutoResize) then
-		imgui.InputTextWithHint("##newfolder", "Имя папки", newfolder_buf, ffi.sizeof(newfolder_buf))
-		if imgui.Button("OK##newfolder") then
+		imgui.InputTextWithHint("##newfolder", L("notepad.text.text_55"), newfolder_buf, ffi.sizeof(newfolder_buf))
+		if imgui.Button(L("common.ok") .. "##newfolder") then
 			local new_cat = ffi.string(newfolder_buf)
 			if current_folder then
 				new_cat = current_folder .. "/" .. new_cat
@@ -2884,7 +2901,7 @@ local function drawRightPanel()
 			table.insert(
 				notes,
 				{
-					title = "Новая заметка",
+					title = L("notepad.text.text_56"),
 					category = new_cat,
 					text = "",
 					_fav = false,
@@ -2896,7 +2913,7 @@ local function drawRightPanel()
 			imgui.CloseCurrentPopup()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##newfolder") then
+		if imgui.Button(L("notepad.text.newfolder")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()
@@ -2910,9 +2927,9 @@ function module.drawNotepadPanel()
 	imgui.SameLine()
 	drawRightPanel()
 	imgui.EndChild()
-	if imgui.BeginPopup("Дубликат") then
-		imgui.Text("Заметка с таким заголовком уже есть!")
-		if imgui.Button("OK") then
+	if imgui.BeginPopup(L("notepad.text.text_15")) then
+		imgui.Text(L("notepad.text.text_57"))
+		if imgui.Button(L("common.ok")) then
 			imgui.CloseCurrentPopup()
 		end
 		imgui.EndPopup()

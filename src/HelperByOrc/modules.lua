@@ -1,4 +1,21 @@
 local modules = {}
+local language = require("language")
+
+local function L(key, params)
+	return language.getText(key, params)
+end
+
+do
+	local ok_funcs, funcs = pcall(require, "HelperByOrc.funcs")
+	if ok_funcs and type(funcs) == "table" and type(funcs.loadTableFromJson) == "function" then
+		local loaded = funcs.loadTableFromJson("HelperByOrc.json", {
+			language = language.getDefaultCode(),
+		})
+		if type(loaded) == "table" then
+			language.setLanguage(loaded.language)
+		end
+	end
+end
 
 -- Diagnostic mode: enable modules one by one here.
 local MODULE_FLAGS = {
@@ -152,13 +169,17 @@ function modules.terminateAll(opts)
 				for j = 1, #TERMINATE_METHODS do
 					local method_name = TERMINATE_METHODS[j]
 					local method = module_ref[method_name]
-					if type(method) == "function" then
-						local ok, err = pcall(method, reason)
-						if not ok then
-							errors = errors + 1
-							print(("[HelperByOrc] terminate %s.%s failed: %s"):format(name, method_name, tostring(err)))
+						if type(method) == "function" then
+							local ok, err = pcall(method, reason)
+							if not ok then
+								errors = errors + 1
+								print(L("modules.log.terminate_failed", {
+									module = name,
+									method = method_name,
+									error = tostring(err),
+								}))
+							end
 						end
-					end
 				end
 			end
 		end

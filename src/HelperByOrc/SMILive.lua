@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local SMILive = {}
 
 local imgui = require("mimgui")
@@ -59,7 +64,7 @@ local function run_async(label, fn)
 	local function wrapped()
 		local ok, err = xpcall(fn, debug.traceback)
 		if not ok then
-			broadcast_mod.update_status("Ошибка %s: %s", label or "в фоновом задании", err)
+			broadcast_mod.update_status(L("smi_live.text.format_format"), label or L("smi_live.text.text"), err)
 		end
 	end
 
@@ -68,7 +73,7 @@ local function run_async(label, fn)
 		if ok then
 			return
 		end
-		broadcast_mod.update_status("Не удалось создать поток %s: %s", label or "", err)
+		broadcast_mod.update_status(L("smi_live.text.format_format_1"), label or "", err)
 	end
 
 	wrapped()
@@ -166,7 +171,7 @@ local MathQuiz = {
 	player_name_buf = new.char[48](),
 	custom_problem_buf = new.char[256](),
 	custom_error = nil,
-	status_text = 'Нажмите "Начать новую игру"',
+	status_text = L("smi_live.text.text_2"),
 	players = {},
 	winner = nil,
 	answer_start_time = nil,
@@ -193,7 +198,7 @@ local CapitalsQuiz = {
 	show_answer = new.bool(false),
 	player_id_buf = new.char[8](),
 	player_name_buf = new.char[48](),
-	status_text = 'Нажмите "Начать новую игру"',
+	status_text = L("smi_live.text.text_2"),
 	players = {},
 	winner = nil,
 	answer_start_time = nil,
@@ -270,11 +275,11 @@ local _infra = {}
 
 local DEFAULT_METROPOLIS = {
 	{
-		"Вьетнам",
-		"Ханой",
-		{ "В этой стране едят суп фо и роллы с рисовой бумагой." },
-		{ "Здесь французское влияние в архитектуре и кухне." },
-		{ "Эта страна родина Фо Бо - суп с говядиной и лапшой", "Ещё у нас в штате много шляп из этой страны" },
+		L("smi_live.text.text_3"),
+		L("smi_live.text.text_4"),
+		{ L("smi_live.text.text_5") },
+		{ L("smi_live.text.text_6") },
+		{ L("smi_live.text.text_7"), L("smi_live.text.text_8") },
 	},
 }
 
@@ -359,9 +364,9 @@ end
 
 function SMILive._get_default_round_message_template(gender)
 	if gender == "female" then
-		return "Верный ответ прислала %s. %s"
+		return L("smi_live.text.format_format_9")
 	end
-	return "Верный ответ прислал %s. %s"
+	return L("smi_live.text.format_format_10")
 end
 
 function SMILive._normalize_round_message_templates_text(value, gender)
@@ -652,7 +657,7 @@ function Config:load()
 
 	CapitalsQuiz.entries = sanitize_capitals_entries(capitals_cfg.metropolis)
 	if #CapitalsQuiz.entries == 0 then
-		CapitalsQuiz.data_error = "Таблица столиц пуста. Заполните capitals_quiz.metropolis в SMILive.json."
+		CapitalsQuiz.data_error = L("smi_live.text.capitals_quiz_metropolis_smilive_json")
 	else
 		CapitalsQuiz.data_error = nil
 	end
@@ -1087,16 +1092,16 @@ end
 -- === Shared send targets ===
 
 local default_send_labels = {
-	"Локально",
-	"Клиенту SA-MP",
-	"Серверу",
-	"Без отправки",
-	"Написать в чат и закрыть его",
-	"Написать в чат",
-	"В активное диалоговое окно",
-	"Скопировать в буфер обмена",
-	"В консоль SF и биндера",
-	"В уведомления",
+	L("smi_live.text.text_11"),
+	L("smi_live.text.sa_mp"),
+	L("smi_live.text.text_12"),
+	L("smi_live.text.text_13"),
+	L("smi_live.text.text_14"),
+	L("smi_live.text.text_15"),
+	L("smi_live.text.text_16"),
+	L("smi_live.text.text_17"),
+	L("smi_live.text.sf"),
+	L("smi_live.text.text_18"),
 }
 local default_send_labels_ffi = imgui.new["const char*"][#default_send_labels](default_send_labels)
 
@@ -1109,21 +1114,21 @@ local function pluralize_points(value)
 	local n10 = abs_amount % 10
 	local suffix
 	if n100 >= 11 and n100 <= 14 then
-		suffix = "баллов"
+		suffix = L("smi_live.text.text_19")
 	elseif n10 == 1 then
-		suffix = "балл"
+		suffix = L("smi_live.text.text_20")
 	elseif n10 >= 2 and n10 <= 4 then
-		suffix = "балла"
+		suffix = L("smi_live.text.text_21")
 	else
-		suffix = "баллов"
+		suffix = L("smi_live.text.text_19")
 	end
 	return string.format("%d %s", amount, suffix)
 end
 
 local function format_score_progress(total, gained, gender)
 	gender = gender == "female" and "female" or "male"
-	local earned_verb = gender == "female" and "Заработала" or "Заработал"
-	local possessive_phrase = gender == "female" and "У неё уже" or "У него уже"
+	local earned_verb = gender == "female" and L("smi_live.text.text_22") or L("smi_live.text.text_23")
+	local possessive_phrase = gender == "female" and L("smi_live.text.text_24") or L("smi_live.text.text_25")
 
 	gained = math.max(0, math.floor(tonumber(gained) or 0))
 	total = math.max(0, math.floor(tonumber(total) or 0))
@@ -1131,7 +1136,7 @@ local function format_score_progress(total, gained, gender)
 		if gained > 0 then
 			return string.format("%s %s!", earned_verb, pluralize_points(gained))
 		end
-		return string.format("%s 0 баллов!", earned_verb)
+		return string.format(L("smi_live.text.format_0"), earned_verb)
 	end
 
 	local parts = {}
@@ -1261,7 +1266,7 @@ local function format_display_name(name, player_id)
 		normalized = trim(name)
 	end
 	if normalized == "" then
-		return "игрок"
+		return L("smi_live.text.text_26")
 	end
 	local broadcast_name = format_broadcast_name(normalized, player_id)
 	return broadcast_name ~= "" and broadcast_name or normalized
@@ -1281,7 +1286,7 @@ local function format_seconds(value)
 	if not value then
 		return "-"
 	end
-	return string.format("%.2f с", value)
+	return string.format(L("smi_live.text.text_2f"), value)
 end
 
 local function compute_lead_time(first_response, responses)
@@ -1332,11 +1337,11 @@ local function parse_player_id_from_buf(id_buf)
 	end
 	local id = tonumber(raw)
 	if not id then
-		return nil, "Введите корректный ID игрока."
+		return nil, L("smi_live.text.id")
 	end
 	id = math.floor(id)
 	if id < 0 or id > 1003 then
-		return nil, "ID должен быть в диапазоне 0-1003."
+		return nil, L("smi_live.text.id_0_1003")
 	end
 	return id
 end
@@ -1372,7 +1377,7 @@ end
 
 local function resolve_player_from_inputs(id_buf, name_buf)
 	if not name_buf then
-		return nil, nil, "Буфер имени не инициализирован."
+		return nil, nil, L("smi_live.text.text_27")
 	end
 	local name = trim(str(name_buf))
 	local player_id, id_error = parse_player_id_from_buf(id_buf)
@@ -1384,7 +1389,7 @@ local function resolve_player_from_inputs(id_buf, name_buf)
 		local resolved_name = try_fill_name_from_id(name_buf, player_id)
 		name = trim(resolved_name or str(name_buf))
 		if name == "" then
-			return nil, nil, "Не удалось получить ник по указанному ID."
+			return nil, nil, L("smi_live.text.id_28")
 		end
 	elseif name ~= "" and player_id == nil then
 		player_id = try_fill_id_from_name(id_buf, name)
@@ -1392,7 +1397,7 @@ local function resolve_player_from_inputs(id_buf, name_buf)
 		local resolved_id = try_fill_id_from_name(id_buf, name)
 		if resolved_id ~= nil and resolved_id ~= player_id then
 			return nil, nil, string.format(
-				"ID %d не соответствует нику %s (ожидается %d).",
+				L("smi_live.text.id_number_format_number"),
 				player_id,
 				name,
 				resolved_id
@@ -1401,7 +1406,7 @@ local function resolve_player_from_inputs(id_buf, name_buf)
 	end
 
 	if name == "" then
-		return nil, nil, "Введите ник игрока или ID."
+		return nil, nil, L("smi_live.text.id_29")
 	end
 
 	return name, player_id
@@ -1566,7 +1571,7 @@ SMILive._imguiSub = imgui.OnFrame(function()
 	return LiveWindow.show[0]
 end, function()
 	imgui.SetNextWindowSize(imgui.ImVec2(520, 480), imgui.Cond.FirstUseEver)
-	local opened = imgui.Begin("SMI Live - эфир-викторина", LiveWindow.show, imgui.WindowFlags.NoCollapse)
+	local opened = imgui.Begin(L("smi_live.text.smi_live"), LiveWindow.show, imgui.WindowFlags.NoCollapse)
 	if opened then
 		live_ui_mod._draw_live_window()
 	end

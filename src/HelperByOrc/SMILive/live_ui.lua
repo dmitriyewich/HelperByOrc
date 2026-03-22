@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -112,8 +117,8 @@ end
 
 function M.build_send_tooltip(first_line)
 	local line = M.normalize_tooltip_line(first_line)
-	local send_state = ctx.State.send_sequence_running and "активна" or "нет"
-	return string.format("Первая строка: %s\nОтправка: %s", line, send_state)
+	local send_state = ctx.State.send_sequence_running and L("smi_live.live_ui.text.text") or L("smi_live.live_ui.text.text_1")
+	return string.format(L("smi_live.live_ui.text.format_format"), line, send_state)
 end
 
 function M.combine_send_tooltip(base, first_line)
@@ -165,15 +170,15 @@ function M._draw_live_broadcast_controls(broadcast, id_suffix)
 	local quiz_kind = broadcast == ctx.LiveBroadcast.capitals and "capitals" or "math"
 
 	ctx.push_button_palette(ctx.COLOR_ACCENT_SUCCESS)
-	if imgui.Button("Начать эфир##live_start_" .. suffix) then
-		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.intro, "Вступление", "live_intro_" .. suffix, quiz_kind)
+	if imgui.Button(L("smi_live.live_ui.text.live_start") .. suffix) then
+		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.intro, L("smi_live.live_ui.text.text_2"), "live_intro_" .. suffix, quiz_kind)
 	end
 	ctx.mimgui_funcs.imgui_hover_tooltip_safe(M.build_send_tooltip(get_first_news_line_from_section(broadcast.intro, quiz_kind)))
 	imgui.SameLine()
 	ctx.news_popup_mod._draw_news_popup_editor_button({
 		popup_scope_key = ctx.news_popup_mod._make_news_popup_scope_key(quiz_kind, "live_intro"),
 		popup_id = "news_popup_live_intro_" .. suffix,
-		section_name = "Вступление",
+		section_name = L("smi_live.live_ui.text.text_2"),
 		small_button_label = "..",
 		build_messages_fn = function()
 			return ctx.SMILive._get_live_section_news_messages(broadcast.intro, quiz_kind)
@@ -191,15 +196,15 @@ function M._draw_live_broadcast_controls(broadcast, id_suffix)
 
 	imgui.SameLine()
 	ctx.push_button_palette(ctx.COLOR_ACCENT_DANGER)
-	if imgui.Button("Закончить эфир##live_stop_" .. suffix) then
-		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.outro, "Завершение эфира", "live_outro_" .. suffix, quiz_kind)
+	if imgui.Button(L("smi_live.live_ui.text.live_stop") .. suffix) then
+		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.outro, L("smi_live.live_ui.text.text_3"), "live_outro_" .. suffix, quiz_kind)
 	end
 	ctx.mimgui_funcs.imgui_hover_tooltip_safe(M.build_send_tooltip(get_first_news_line_from_section(broadcast.outro, quiz_kind)))
 	imgui.SameLine()
 	ctx.news_popup_mod._draw_news_popup_editor_button({
 		popup_scope_key = ctx.news_popup_mod._make_news_popup_scope_key(quiz_kind, "live_outro"),
 		popup_id = "news_popup_live_outro_" .. suffix,
-		section_name = "Завершение эфира",
+		section_name = L("smi_live.live_ui.text.text_3"),
 		small_button_label = "..",
 		build_messages_fn = function()
 			return ctx.SMILive._get_live_section_news_messages(broadcast.outro, quiz_kind)
@@ -217,8 +222,8 @@ function M._draw_live_broadcast_controls(broadcast, id_suffix)
 
 	imgui.SameLine()
 	ctx.push_button_palette(ctx.COLOR_ACCENT_PRIMARY)
-	if imgui.Button("Напоминание##live_reminder_" .. suffix) then
-		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.reminder, "Напоминание", "live_reminder_" .. suffix, quiz_kind)
+	if imgui.Button(L("smi_live.live_ui.text.live_reminder") .. suffix) then
+		ctx.broadcast_mod.send_live_sequence_from_section(broadcast.reminder, L("smi_live.live_ui.text.text_4"), "live_reminder_" .. suffix, quiz_kind)
 	end
 	ctx.mimgui_funcs.imgui_hover_tooltip_safe(
 		M.build_send_tooltip(get_first_news_line_from_section(broadcast.reminder, quiz_kind))
@@ -227,7 +232,7 @@ function M._draw_live_broadcast_controls(broadcast, id_suffix)
 	ctx.news_popup_mod._draw_news_popup_editor_button({
 		popup_scope_key = ctx.news_popup_mod._make_news_popup_scope_key(quiz_kind, "live_reminder"),
 		popup_id = "news_popup_live_reminder_" .. suffix,
-		section_name = "Напоминание",
+		section_name = L("smi_live.live_ui.text.text_4"),
 		small_button_label = "..",
 		build_messages_fn = function()
 			return ctx.SMILive._get_live_section_news_messages(broadcast.reminder, quiz_kind)
@@ -252,12 +257,12 @@ function M._draw_sms_listener_controls()
 	local action
 
 	if ctx.State.sms_listener_active then
-		button_label = "Закончить прием сообщений"
+		button_label = L("smi_live.live_ui.text.text_5")
 		action = function()
 			ctx.broadcast_mod.stop_sms_listener(false)
 		end
 	else
-		button_label = "Начать прием сообщений"
+		button_label = L("smi_live.live_ui.text.text_6")
 		action = function()
 			ctx.broadcast_mod.start_sms_listener(false)
 		end
@@ -273,7 +278,7 @@ function M._draw_sms_listener_controls()
 		if controls_available or ctx.State.sms_listener_active then
 			action()
 		else
-			ctx.broadcast_mod.update_status("Модуль my_hooks не поддерживает приём SMS-сообщений.")
+			ctx.broadcast_mod.update_status(L("smi_live.live_ui.text.my_hooks_sms"))
 		end
 	end
 
@@ -283,7 +288,7 @@ function M._draw_sms_listener_controls()
 
 	imgui.SameLine()
 	local status_color = ctx.State.sms_listener_active and imgui.ImVec4(0.4, 1.0, 0.4, 1) or imgui.ImVec4(1.0, 0.6, 0.4, 1)
-	local status_label = ctx.State.sms_listener_active and "активен" or "не активен"
+	local status_label = ctx.State.sms_listener_active and L("smi_live.live_ui.text.text_7") or L("smi_live.live_ui.text.text_8")
 	imgui.TextColored(status_color, status_label)
 end
 
@@ -293,23 +298,23 @@ function M._draw_live_text_inputs(broadcast, id_suffix)
 	broadcast = broadcast or ctx.LiveBroadcast.math
 	local suffix = id_suffix and tostring(id_suffix) or "math"
 
-	imgui.TextDisabled("{balls} - целевое количество очков в текущей игре.")
+	imgui.TextDisabled(L("smi_live.live_ui.text.balls"))
 	imgui.Dummy(imgui.ImVec2(0, 2))
 
 	local intro_changed =
-		ctx.update_live_buffer_from_imgui(broadcast.intro, "Вступление##live_intro_text_" .. suffix, 80)
+		ctx.update_live_buffer_from_imgui(broadcast.intro, L("smi_live.live_ui.text.live_intro_text") .. suffix, 80)
 	if intro_changed then
 		ctx.mark_live_save_dirty()
 	end
 
 	local outro_changed =
-		ctx.update_live_buffer_from_imgui(broadcast.outro, "Завершение эфира##live_outro_text_" .. suffix, 80)
+		ctx.update_live_buffer_from_imgui(broadcast.outro, L("smi_live.live_ui.text.live_outro_text") .. suffix, 80)
 	if outro_changed then
 		ctx.mark_live_save_dirty()
 	end
 
 	local reminder_changed =
-		ctx.update_live_buffer_from_imgui(broadcast.reminder, "Напоминание##live_reminder_text_" .. suffix, 80)
+		ctx.update_live_buffer_from_imgui(broadcast.reminder, L("smi_live.live_ui.text.live_reminder_text") .. suffix, 80)
 	if reminder_changed then
 		ctx.mark_live_save_dirty()
 	end
@@ -319,38 +324,38 @@ end
 
 local function draw_win_message_settings()
 	imgui.TextWrapped(
-		"Каждое сообщение на новой строке. Используйте %%s для имени и %%s для счёта."
+		L("smi_live.live_ui.text.format_format_9")
 	)
 
 	local male_buf = ensure_win_message_buffer("male")
 	local female_buf = ensure_win_message_buffer("female")
 
-	imgui.Text("Сообщения для победителя (м)")
+	imgui.Text(L("smi_live.live_ui.text.text_10"))
 	imgui.InputTextMultiline("##win_male", male_buf.buf, male_buf.size, imgui.ImVec2(0, 100))
 	maybe_grow_win_buffer(male_buf)
 
-	imgui.Text("Сообщения для победительницы (ж)")
+	imgui.Text(L("smi_live.live_ui.text.text_11"))
 	imgui.InputTextMultiline("##win_female", female_buf.buf, female_buf.size, imgui.ImVec2(0, 100))
 	maybe_grow_win_buffer(female_buf)
 
-	if imgui.Button("Сохранить настройки") then
+	if imgui.Button(L("smi_live.live_ui.text.text_12")) then
 		update_win_messages_from_buffer("male", male_buf)
 		update_win_messages_from_buffer("female", female_buf)
 	end
 
 	imgui.SameLine()
-	if imgui.Button("Сбросить к стандартным") then
+	if imgui.Button(L("smi_live.live_ui.text.text_13")) then
 		ctx.Config.data.math_quiz.win_messages = { male = {}, female = {} }
 		M.load_win_message_buffers_from_config()
 		ctx.Config:save()
 	end
 
 	imgui.TextDisabled(
-		'Если список пустой, используется стандартное сообщение: "Викторина завершена! %%s набирает %%s и побеждает!".'
+		L("smi_live.live_ui.text.format_format_14")
 	)
 
 	imgui.Separator()
-	imgui.Text("Сообщения победителя/победительницы раунда")
+	imgui.Text(L("smi_live.live_ui.text.text_15"))
 	local math_cfg = ctx.Config.data and ctx.Config.data.math_quiz or {}
 	local round_cfg = type(math_cfg.round_messages) == "table" and math_cfg.round_messages or {}
 	local male_round = ctx.SMILive._normalize_round_message_templates_text(round_cfg.male, "male")
@@ -364,7 +369,7 @@ local function draw_win_message_settings()
 		ctx.live_settings_ui.round_msg_female_last = female_round
 	end
 
-	imgui.Text("Шаблоны (м)")
+	imgui.Text(L("smi_live.live_ui.text.text_16"))
 	if
 		imgui.InputTextMultiline(
 			"##math_round_message_male",
@@ -380,7 +385,7 @@ local function draw_win_message_settings()
 		ctx.Config:save()
 	end
 
-	imgui.Text("Шаблоны (ж)")
+	imgui.Text(L("smi_live.live_ui.text.text_17"))
 	if
 		imgui.InputTextMultiline(
 			"##math_round_message_female",
@@ -395,8 +400,8 @@ local function draw_win_message_settings()
 		ctx.live_settings_ui.round_msg_female_last = round_cfg.female
 		ctx.Config:save()
 	end
-	imgui.TextDisabled("Каждая строка - отдельный шаблон. Выбор шаблона происходит случайно.")
-	imgui.TextDisabled("Подстановки: 1-й %%s - имя, 2-й %%s - фраза прогресса очков.")
+	imgui.TextDisabled(L("smi_live.live_ui.text.text_18"))
+	imgui.TextDisabled(L("smi_live.live_ui.text.text_1_format_2_format"))
 end
 
 function M.DrawWinMessageSettings()
@@ -407,12 +412,12 @@ end
 
 function M.draw_math_settings_section()
 	imgui.Separator()
-	if imgui.CollapsingHeader("Настройки викторины Математики") then
-		if imgui.CollapsingHeader("Сообщения победителя и победительницы") then
+	if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_19")) then
+		if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_20")) then
 			draw_win_message_settings()
 		end
 
-		if imgui.CollapsingHeader("Тексты эфира") then
+		if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_21")) then
 			M._draw_live_text_inputs(ctx.LiveBroadcast.math, "math")
 		end
 	end
@@ -422,8 +427,8 @@ end
 
 function M.draw_capitals_settings_section()
 	imgui.Separator()
-	if imgui.CollapsingHeader("Настройки викторины Столиц") then
-		if imgui.CollapsingHeader("Тексты эфира") then
+	if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_22")) then
+		if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_21")) then
 			M._draw_live_text_inputs(ctx.LiveBroadcast.capitals, "capitals")
 		end
 	end
@@ -432,7 +437,7 @@ function M.draw_capitals_settings_section()
 end
 
 function M.draw_live_settings_tab()
-	imgui.Text("Общие настройки")
+	imgui.Text(L("smi_live.live_ui.text.text_23"))
 
 	imgui.PushItemWidth(200)
 	local method_buf = ctx.live_settings_ui.method_buf
@@ -443,7 +448,7 @@ function M.draw_live_settings_tab()
 		send_count = #send_labels
 	end
 	if send_labels_ffi and send_count > 0 then
-		if imgui.Combo("Метод отправки", method_buf, send_labels_ffi, send_count) then
+		if imgui.Combo(L("smi_live.live_ui.text.text_24"), method_buf, send_labels_ffi, send_count) then
 			local max_index = math.max(0, send_count - 1)
 			local new_method = method_buf[0]
 			if new_method < 0 then
@@ -455,21 +460,21 @@ function M.draw_live_settings_tab()
 			ctx.Config:save()
 		end
 	else
-		imgui.TextDisabled("Методы отправки недоступны")
+		imgui.TextDisabled(L("smi_live.live_ui.text.text_25"))
 	end
 	imgui.PopItemWidth()
 
 	imgui.PushItemWidth(200)
 	local interval_buf = ctx.live_settings_ui.interval_buf
 	interval_buf[0] = math.floor(tonumber(ctx.MathQuiz.chat_interval_ms) or 0)
-	if imgui.InputInt("Интервал между сообщениями (мс)", interval_buf) then
+	if imgui.InputInt(L("smi_live.live_ui.text.text_26"), interval_buf) then
 		ctx.MathQuiz.chat_interval_ms = math.max(0, interval_buf[0])
 		ctx.Config:save()
 	end
 	imgui.PopItemWidth()
 
 	sync_screenshot_message_buffer()
-	imgui.Text("Текст для отправки перед скриншотом")
+	imgui.Text(L("smi_live.live_ui.text.text_27"))
 	local msg_changed = imgui.InputText(
 		"##quiz_screenshot_message",
 		ctx.screenshot_msg_buf,
@@ -493,7 +498,7 @@ function M._draw_live_window_content()
 	local active_tab = ctx.State.active_live_tab or "math"
 
 	if imgui.BeginTabBar("smilive_tabs") then
-		if imgui.BeginTabItem("Математика") then
+		if imgui.BeginTabItem(L("smi_live.live_ui.text.text_28")) then
 			active_tab = "math"
 			M._draw_live_broadcast_controls(ctx.LiveBroadcast.math, "math")
 			imgui.Dummy(imgui.ImVec2(0, 4))
@@ -505,7 +510,7 @@ function M._draw_live_window_content()
 			imgui.EndTabItem()
 		end
 
-		if imgui.BeginTabItem("Столицы") then
+		if imgui.BeginTabItem(L("smi_live.live_ui.text.text_29")) then
 			active_tab = "capitals"
 			M._draw_live_broadcast_controls(ctx.LiveBroadcast.capitals, "capitals")
 			imgui.Dummy(imgui.ImVec2(0, 4))
@@ -517,7 +522,7 @@ function M._draw_live_window_content()
 			imgui.EndTabItem()
 		end
 
-		if imgui.BeginTabItem("Настройки") then
+		if imgui.BeginTabItem(L("smi_live.live_ui.text.text_30")) then
 			active_tab = "settings"
 			M.draw_live_settings_tab()
 			imgui.EndTabItem()
@@ -546,7 +551,7 @@ function M._draw_live_window()
 	if active_tab == "math" then
 		M.draw_math_settings_section()
 	elseif active_tab == "capitals" then
-		if imgui.CollapsingHeader("Таблица столиц") then
+		if imgui.CollapsingHeader(L("smi_live.live_ui.text.text_31")) then
 			ctx.DrawCapitalsEditor()
 		end
 		M.draw_capitals_settings_section()
@@ -559,9 +564,9 @@ end
 
 function M.DrawHelperSection()
 	imgui.TextWrapped(
-		"Эфир-викторина доступна в отдельном окне. Нажмите кнопку, чтобы открыть помощника эфира."
+		L("smi_live.live_ui.text.text_32")
 	)
-	if imgui.Button("Открыть эфир-викторину") then
+	if imgui.Button(L("smi_live.live_ui.text.text_33")) then
 		ctx.LiveWindow.show[0] = true
 	end
 	imgui.Spacing()

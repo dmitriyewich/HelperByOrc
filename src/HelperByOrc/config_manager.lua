@@ -2,6 +2,11 @@ local module = {}
 
 local funcs
 local paths = require("HelperByOrc.paths")
+local language = require("language")
+
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 -- registrations[name] = {
 --   path         = "toasts.json",         -- relative path as registered
@@ -50,7 +55,9 @@ function module.register(name, opts)
 		return {}
 	end
 	if not opts.path or not opts.defaults then
-		print(("[HelperByOrc][config_manager] register '%s': missing path or defaults"):format(name))
+		print(L("config_manager.log.register_missing_path_or_defaults", {
+			name = name,
+		}))
 		return opts.defaults or {}
 	end
 

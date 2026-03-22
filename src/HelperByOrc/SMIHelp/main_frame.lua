@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 -- SMIHelp/main_frame.lua — Главное окно редактора объявлений
 local M = {}
 
@@ -26,6 +31,22 @@ local ctx -- устанавливается через M.init
 local constructor -- ссылка на модуль конструктора
 
 local pass_filter_opts = { filter_prepared = true, require_include = true }
+
+local function submit_dialog_response(button, input_text)
+	local samp_api = ctx and ctx.samp_module or nil
+	local dialog_id = ctx and ctx.State and ctx.State.last_dialog_id or nil
+	if type(samp_api) == "table" and type(samp_api.sendDialogResponse) == "function" and dialog_id then
+		local ok_call, ok_submit = pcall(samp_api.sendDialogResponse, dialog_id, button, 0, input_text)
+		return ok_call and ok_submit == true
+	end
+
+	if type(sampSendDialogResponse) == "function" and dialog_id then
+		local ok_call, ok_submit = pcall(sampSendDialogResponse, dialog_id, button, 0, input_text)
+		return ok_call and ok_submit == true
+	end
+
+	return false
+end
 
 -- ========= UI УТИЛИТЫ =========
 local function LabelSeparator(text)
@@ -90,11 +111,11 @@ local function DrawTemplatesPanel()
 	local State = ctx.State
 	constructor.rebuild_cats_if_needed()
 
-	imgui.Text("Категория:")
+	imgui.Text(L("smi_help.main_frame.text.text"))
 	imgui.SameLine()
-	local cur_label = State.selected_category or "Все"
+	local cur_label = State.selected_category or L("smi_help.main_frame.text.text_1")
 	if imgui.BeginCombo("##cat_combo", cur_label) then
-		for _, cat in ipairs(constructor.Cache.cats or { "Все" }) do
+		for _, cat in ipairs(constructor.Cache.cats or { L("smi_help.main_frame.text.text_1") }) do
 			local sel = (State.selected_category == cat)
 			if imgui.Selectable(cat, sel) then
 				State.selected_category = cat
@@ -104,15 +125,15 @@ local function DrawTemplatesPanel()
 	end
 
 	imgui.Spacing()
-	LabelSeparator("Шаблоны")
+	LabelSeparator(L("smi_help.main_frame.text.text_2"))
 
 	imgui.BeginChild("templates_list", ImVec2(0, 0), true)
 	local filter_lower = ctx.tolower_utf8(str(State.filter_buf))
 	local has_filter = filter_lower ~= ""
 
 	for _, tpl in ipairs(ctx.Config.data.templates or {}) do
-		local cat = tpl.category or "Прочее"
-		if State.selected_category == "Все" or State.selected_category == cat then
+		local cat = tpl.category or L("smi_help.main_frame.text.text_3")
+		if State.selected_category == L("smi_help.main_frame.text.text_1") or State.selected_category == cat then
 			for _, group in ipairs(constructor.tpl_groups(tpl)) do
 				local display = group[1] or ""
 				local line = ((cat ~= "" and (cat .. ": ") or "") .. (display or ""))
@@ -151,7 +172,7 @@ end
 
 local function DrawHistoryPanel()
 	local State = ctx.State
-	LabelSeparator("История")
+	LabelSeparator(L("smi_help.main_frame.text.text_4"))
 	imgui.BeginChild("history_list", ImVec2(0, 0), true)
 	local filter_lower = ctx.tolower_utf8(str(State.filter_buf))
 	for _, v in ipairs(ctx.Config.data.history or {}) do
@@ -191,7 +212,7 @@ end
 
 -- ========= СБРОС UI-СОСТОЯНИЯ =========
 local function reset_ui_state()
-	ctx.State.selected_category = "Все"
+	ctx.State.selected_category = L("smi_help.main_frame.text.text_1")
 	imgui.StrCopy(ctx.State.filter_buf, "")
 end
 M.reset_ui_state = reset_ui_state
@@ -299,7 +320,7 @@ local function DrawCenteredFilter()
 
 	if show_clear then
 		imgui.SameLine()
-		if imgui.Button("Clear", ImVec2(clearW, 0)) then
+		if imgui.Button(L("common.clear"), ImVec2(clearW, 0)) then
 			imgui.StrCopy(State.filter_buf, "")
 		end
 	end
@@ -309,25 +330,25 @@ end
 local function DrawMetaPanel()
 	local State = ctx.State
 	imgui.BeginChild("meta_panel", ImVec2(0, 92), true)
-	imgui.Text("Отправитель:")
+	imgui.Text(L("smi_help.main_frame.text.text_5"))
 	imgui.SameLine()
 	ctx.imgui_text_colored_safe(ImVec4(0.8, 1.0, 0.8, 1), State.sender_nick ~= "" and State.sender_nick or "-")
 	imgui.SameLine()
-	if imgui.SmallButton("Скопировать ник") then
+	if imgui.SmallButton(L("smi_help.main_frame.text.text_6")) then
 		imgui.SetClipboardText(State.sender_nick or "")
 	end
 	if State.auto_memory_used then
 		imgui.SameLine()
-		imgui.TextColored(ImVec4(0.4, 0.95, 0.4, 1), "[Автовставка из памяти]")
+		imgui.TextColored(ImVec4(0.4, 0.95, 0.4, 1), L("smi_help.main_frame.text.text_7"))
 	end
 
-	imgui.Text("Исходное сообщение:")
+	imgui.Text(L("smi_help.main_frame.text.text_8"))
 	local startX = imgui.GetCursorPosX()
 	imgui.SetCursorPosX(startX + 4)
 	imgui.BeginChild("orig_box", ImVec2(0, 25), true)
 	ctx.imgui_text_wrapped_safe(State.original_ad_text ~= "" and State.original_ad_text or "-")
 	imgui.EndChild()
-	if imgui.SmallButton("Скопировать исходник") then
+	if imgui.SmallButton(L("smi_help.main_frame.text.text_9")) then
 		imgui.SetClipboardText(State.original_ad_text or "")
 	end
 	imgui.EndChild()
@@ -370,7 +391,7 @@ function M.createOnFrame()
 		end
 		imgui.SetNextWindowPos(State.win_pos, imgui.Cond.Always)
 		imgui.SetNextWindowSize(State.win_size, imgui.Cond.Always)
-		local opened = imgui.Begin("СМИ Хелпер", State.show_dialog, WindowFlags.NoCollapse)
+		local opened = imgui.Begin(L("smi_help.main_frame.text.text_10"), State.show_dialog, WindowFlags.NoCollapse)
 		State.win_pos = imgui.GetWindowPos()
 		State.win_size = imgui.GetWindowSize()
 
@@ -385,7 +406,7 @@ function M.createOnFrame()
 			ImVec4(1, 0.95, 0.2, 1),
 			(
 				State.last_dialog_title ~= "" and State.last_dialog_title
-				or "Редактирование объявления"
+				or L("smi_help.main_frame.text.text_11")
 			)
 		)
 		imgui.Separator()
@@ -419,11 +440,11 @@ function M.createOnFrame()
 		local buf_changed = false
 
 		imgui.Spacing()
-		if imgui.SmallButton("Копировать текст") then
+		if imgui.SmallButton(L("smi_help.main_frame.text.text_12")) then
 			imgui.SetClipboardText(edit_buf_text)
 		end
 		imgui.SameLine()
-		if imgui.SmallButton("Автокоррекция") then
+		if imgui.SmallButton(L("smi_help.main_frame.text.text_13")) then
 			local handler = ctx.correct_module and ctx.correct_module.handleAuto
 			if type(handler) == "function" then
 				handler(u8:decode(edit_buf_text), function(newText)
@@ -433,14 +454,14 @@ function M.createOnFrame()
 			end
 		end
 		imgui.SameLine()
-		if imgui.SmallButton("К следующей кавычке") then
+		if imgui.SmallButton(L("smi_help.main_frame.text.text_14")) then
 			State.cursor_action = "to_next_quote"
 			State.cursor_action_data = nil
 			State.want_focus_input = true
 			State.collapse_selection_after_focus = true
 		end
 		imgui.SameLine()
-		if imgui.SmallButton("Курсор в конец") then
+		if imgui.SmallButton(L("smi_help.main_frame.text.text_15")) then
 			State.cursor_action = "to_end"
 			State.cursor_action_data = nil
 			State.want_focus_input = true
@@ -473,19 +494,20 @@ function M.createOnFrame()
 			local avail = imgui.GetContentRegionAvail().x
 			local btnW = floor((avail - item_spacing_x) / 2)
 			local enter_pressed = wasKeyPressed(vk.VK_RETURN) or wasKeyPressed(vk.VK_NUMPADENTER)
-			local btn_send_clicked = imgui.Button("Отправить", ImVec2(btnW, 0)) or enter_pressed
+			local btn_send_clicked = imgui.Button(L("smi_help.main_frame.text.text_16"), ImVec2(btnW, 0)) or enter_pressed
 			imgui.SameLine()
-			if imgui.Button("Отклонить", ImVec2(btnW, 0)) then
+			if imgui.Button(L("smi_help.main_frame.text.text_17"), ImVec2(btnW, 0)) then
 				if State.last_dialog_id then
 					local to_send_utf8 = str(State.edit_buf)
 					local to_send_cp = u8:decode(to_send_utf8)
-					sampSendDialogResponse(State.last_dialog_id, 0, 0, to_send_cp)
-					State.show_dialog[0] = false
-					AD:reset()
-					reset_ui_state()
+					if submit_dialog_response(0, to_send_cp) then
+						State.show_dialog[0] = false
+						AD:reset()
+						reset_ui_state()
+					end
 				end
 			end
-			if imgui.Button("Сбросить к оригиналу", ImVec2(btnW, 0)) then
+			if imgui.Button(L("smi_help.main_frame.text.text_18"), ImVec2(btnW, 0)) then
 				local orig = ctx.clamp80(State.original_ad_text or "")
 				imgui.StrCopy(State.edit_buf, orig)
 				AD:reset()
@@ -494,18 +516,18 @@ function M.createOnFrame()
 				State.collapse_selection_after_focus = true
 			end
 			imgui.SameLine()
-			imgui.Text(string.format("Симв.: %d/%d", char_count, ctx.INPUT_MAX))
+			imgui.Text(string.format(L("smi_help.main_frame.text.number_number"), char_count, ctx.INPUT_MAX))
 			if not SMIHelp.timer_send then
 				imgui.SameLine()
 				imgui.TextColored(
 					ImVec4(1, 0.45, 0.45, 1),
-					string.format(" | Таймер VIP: %.1f c", vip_rem)
+					string.format(L("smi_help.main_frame.text.vip_1f_c"), vip_rem)
 				)
 			elseif SMIHelp.btn_timer_enabled and not SMIHelp.btn_timer then
 				imgui.SameLine()
 				imgui.TextColored(
 					ImVec4(1, 0.45, 0.45, 1),
-					string.format(" | Таймер отправки: %.1f c", btn_rem)
+					string.format(L("smi_help.main_frame.text.text_1f_c"), btn_rem)
 				)
 			end
 			if btn_send_clicked then
@@ -515,15 +537,16 @@ function M.createOnFrame()
 					if State.last_dialog_id then
 						local to_send_utf8 = str(State.edit_buf)
 						local to_send_cp = u8:decode(to_send_utf8)
-						sampSendDialogResponse(State.last_dialog_id, 1, 0, to_send_cp)
-						ctx.add_to_history(to_send_utf8)
-						ctx.nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
-						State.show_dialog[0] = false
-						AD:reset()
-						reset_ui_state()
-						if SMIHelp.btn_timer_enabled then
-							SMIHelp.btn_timer = false
-							SMIHelp.btn_timer_clock = os.clock()
+						if submit_dialog_response(1, to_send_cp) then
+							ctx.add_to_history(to_send_utf8)
+							ctx.nickmem_save(State.sender_nick, State.original_ad_text, to_send_utf8)
+							State.show_dialog[0] = false
+							AD:reset()
+							reset_ui_state()
+							if SMIHelp.btn_timer_enabled then
+								SMIHelp.btn_timer = false
+								SMIHelp.btn_timer_clock = os.clock()
+							end
 						end
 					end
 				end
@@ -531,7 +554,7 @@ function M.createOnFrame()
 		end
 
 		imgui.Spacing()
-		LabelSeparator("Конструктор")
+		LabelSeparator(L("smi_help.main_frame.text.text_19"))
 
 		-- Конструктор: вычисление ширин секций
 		local c_availX = imgui.GetContentRegionAvail().x
@@ -656,7 +679,7 @@ function M.createOnFrame()
 		imgui.Spacing()
 		imgui.BeginChild("##currency_addon", ImVec2(0, 0), false, 0)
 		if imgui.BeginTabBar("##currency_addon_tabs") then
-			if imgui.BeginTabItem("Валюта") then
+			if imgui.BeginTabItem(L("smi_help.main_frame.text.text_20")) then
 				for _, item in ipairs(currencies) do
 					local sel = (AD.currency == item)
 					if imgui.Selectable(item, sel) then
@@ -668,7 +691,7 @@ function M.createOnFrame()
 				end
 				imgui.EndTabItem()
 			end
-			if imgui.BeginTabItem("Дополнения") then
+			if imgui.BeginTabItem(L("smi_help.main_frame.text.text_21")) then
 				for _, item in ipairs(addons) do
 					local sel = (AD.addon == item)
 					if imgui.Selectable(item, sel) then
@@ -696,11 +719,11 @@ function M.createOnFrame()
 			imgui.BeginChild("right_panel", ImVec2(rightW, availY), true)
 			DrawCenteredFilter()
 			if imgui.BeginTabBar("##right_tabs") then
-				if imgui.BeginTabItem("Шаблоны") then
+				if imgui.BeginTabItem(L("smi_help.main_frame.text.text_2")) then
 					DrawTemplatesPanel()
 					imgui.EndTabItem()
 				end
-				if imgui.BeginTabItem("История") then
+				if imgui.BeginTabItem(L("smi_help.main_frame.text.text_4")) then
 					DrawHistoryPanel()
 					imgui.EndTabItem()
 				end

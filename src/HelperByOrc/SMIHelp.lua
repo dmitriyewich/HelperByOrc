@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local SMIHelp = {}
 
 -- ========= ЗАВИСИМОСТИ =========
@@ -41,6 +46,7 @@ local bit_bor = bit.bor
 local funcs
 local SMILive
 local correct_module
+local samp_module
 local trim
 local imgui_text_safe
 local imgui_text_wrapped_safe
@@ -56,6 +62,7 @@ local function syncDependencies(mod)
 	mimgui_funcs = mod.mimgui_funcs or mimgui_funcs or require("HelperByOrc.mimgui_funcs")
 	SMILive = mod.SMILive or SMILive
 	correct_module = mod.correct or correct_module or require("HelperByOrc.correct")
+	samp_module = mod.samp or samp_module
 
 	trim = funcs.trim
 	utf8_len = funcs.utf8_len
@@ -93,26 +100,26 @@ local RIGHT_PANEL_W_COLLAPSED = 0
 local NUMPAD = { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0" }
 
 local OBJECTS_DEFAULT = {
-	{ "а/м", "автомобиль" },
-	{ "а/с", "аксессуар" },
-	{ "р/с", "ресурс" },
-	{ "б/з", "бизнес" },
-	{ "о/д", "объект для дома" },
-	{ "с/б", "сюрприз-бокс" },
-	{ "н/з", "номерной знак" },
-	{ "о/п", "одежду пошива" },
-	{ "т/с", "транспортное средство" },
-	{ "м/ц", "мотоцикл" },
-	{ "в/с", "велосипед" },
-	{ "в/т", "вертолет" },
-	{ "м/с", "морское судно" },
-	{ "л/д", "лодку" },
-	{ "г/ф", "грузовую фуру" },
-	{ "д/т", "деталь тюнинга" },
-	{ "к/т", "комплектацию" },
-	{ "с/о", "серьёзные отношения" },
-	{ "т/ф", "телефон" },
-	{ "с/м", "самолёт" },
+	{ L("smi_help.text.text"), L("smi_help.text.text_1") },
+	{ L("smi_help.text.text_2"), L("smi_help.text.text_3") },
+	{ L("smi_help.text.text_4"), L("smi_help.text.text_5") },
+	{ L("smi_help.text.text_6"), L("smi_help.text.text_7") },
+	{ L("smi_help.text.text_8"), L("smi_help.text.text_9") },
+	{ L("smi_help.text.text_10"), L("smi_help.text.text_11") },
+	{ L("smi_help.text.text_12"), L("smi_help.text.text_13") },
+	{ L("smi_help.text.text_14"), L("smi_help.text.text_15") },
+	{ L("smi_help.text.text_16"), L("smi_help.text.text_17") },
+	{ L("smi_help.text.text_18"), L("smi_help.text.text_19") },
+	{ L("smi_help.text.text_20"), L("smi_help.text.text_21") },
+	{ L("smi_help.text.text_22"), L("smi_help.text.text_23") },
+	{ L("smi_help.text.text_24"), L("smi_help.text.text_25") },
+	{ L("smi_help.text.text_26"), L("smi_help.text.text_27") },
+	{ L("smi_help.text.text_28"), L("smi_help.text.text_29") },
+	{ L("smi_help.text.text_30"), L("smi_help.text.text_31") },
+	{ L("smi_help.text.text_32"), L("smi_help.text.text_33") },
+	{ L("smi_help.text.text_34"), L("smi_help.text.text_35") },
+	{ L("smi_help.text.text_36"), L("smi_help.text.text_37") },
+	{ L("smi_help.text.text_38"), L("smi_help.text.text_39") },
 }
 
 local SPELLER_DEBOUNCE_SEC = 0.5 -- дребезг запуска автокорректора
@@ -183,14 +190,14 @@ function Config:load()
 
 	t.type_buttons = (type(t.type_buttons) == "table" and t.type_buttons)
 		or {
-			"Куплю",
-			"Продам",
-			"Арендую",
-			"Сдам в аренду",
-			"Обменяю",
-			"Ищу",
-			"Предоставляю",
-			"Нуждаюсь",
+			L("smi_help.text.text_40"),
+			L("smi_help.text.text_41"),
+			L("smi_help.text.text_42"),
+			L("smi_help.text.text_43"),
+			L("smi_help.text.text_44"),
+			L("smi_help.text.text_45"),
+			L("smi_help.text.text_46"),
+			L("smi_help.text.text_47"),
 		}
 	t.objects = (type(t.objects) == "table" and t.objects) or OBJECTS_DEFAULT
 	-- миграция старого формата (строки → пары)
@@ -206,15 +213,15 @@ function Config:load()
 		t.objects = migrated
 	end
 	local prices_default = {
-		"Цена:",
-		"Бюджет:",
-		"Цена за шт:",
-		"Бюджет за шт:",
-		"Цена за час:",
-		"Бюджет за час:",
+		L("smi_help.text.text_48"),
+		L("smi_help.text.text_49"),
+		L("smi_help.text.text_50"),
+		L("smi_help.text.text_51"),
+		L("smi_help.text.text_52"),
+		L("smi_help.text.text_53"),
 	}
-	local prices_buy_default = { "Бюджет:", "Бюджет за шт:", "Бюджет за час:" }
-	local prices_sell_default = { "Цена:", "Цена за шт:", "Цена за час:" }
+	local prices_buy_default = { L("smi_help.text.text_49"), L("smi_help.text.text_51"), L("smi_help.text.text_53") }
+	local prices_sell_default = { L("smi_help.text.text_48"), L("smi_help.text.text_50"), L("smi_help.text.text_52") }
 	local function merge_prices_for_load(list_a, list_b)
 		local merged = {}
 		local seen = {}
@@ -238,24 +245,24 @@ function Config:load()
 	t.prices_sell = (type(t.prices_sell) == "table" and t.prices_sell) or prices_sell_default
 	t.prices = merge_prices_for_load(t.prices_buy, t.prices_sell)
 	t.currencies = (type(t.currencies) == "table" and t.currencies)
-		or { "$", "тыс.$", "млн.$", "млрд.$", "Свободный", "Договорная" }
+		or { "$", L("smi_help.text.text_54"), L("smi_help.text.text_55"), L("smi_help.text.text_56"), L("smi_help.text.text_57"), L("smi_help.text.text_58") }
 	t.addons = (type(t.addons) == "table" and t.addons)
-		or { "с гравировкой +", "с вышивкой ", "с биркой ", "в кол-ве " }
+		or { L("smi_help.text.text_59"), L("smi_help.text.text_60"), L("smi_help.text.text_61"), L("smi_help.text.text_62") }
 
 	ensure_table("templates", {
 		{
-			category = "Прочее",
-			text = "Предоставляю услуги охраны, все подробности по телефону",
+			category = L("smi_help.text.text_63"),
+			text = L("smi_help.text.text_64"),
 		},
 		{
-			category = "Реклама",
+			category = L("smi_help.text.text_65"),
 			texts = {
 				{
-					"Работает СМИ г. Сан-Фиерро. Мы ждём ваши объявлений!",
-					"СМИ г. Сан-Фиерро в режиме ожидания ваших объявлений",
-					"Здесь могла быть ваша реклама! Работает СМИ г. Сан-Фиерро!",
+					L("smi_help.text.text_66"),
+					L("smi_help.text.text_67"),
+					L("smi_help.text.text_68"),
 				},
-				{ "Ищу семью. О себе при встрече. Просьба связаться" },
+				{ L("smi_help.text.text_69") },
 			},
 		},
 	})
@@ -264,22 +271,22 @@ function Config:load()
 	t.history_limit = (type(t.history_limit) == "number" and t.history_limit) or 100
 
 	local default_price_type_map = {
-		["Куплю"] = "buy",
-		["Продам"] = "sell",
-		["Арендую"] = "buy",
-		["Сдам в аренду"] = "sell",
-		["Обменяю"] = "buy",
-		["Ищу"] = "both",
-		["Предоставляю"] = "sell",
-		["Нуждаюсь"] = "buy",
+		[L("smi_help.text.text_40")] = "buy",
+		[L("smi_help.text.text_41")] = "sell",
+		[L("smi_help.text.text_42")] = "buy",
+		[L("smi_help.text.text_43")] = "sell",
+		[L("smi_help.text.text_44")] = "buy",
+		[L("smi_help.text.text_45")] = "both",
+		[L("smi_help.text.text_46")] = "sell",
+		[L("smi_help.text.text_47")] = "buy",
 	}
 	ensure_table("price_type_map", default_price_type_map)
 	t.price_type_map = ensure_price_type_map(t.price_type_map, t.type_buttons)
 
 	ensure_table("autocorrect", {
-		{ "!тт", "TwinTurbo" },
-		{ "!см", "Санта-Мария" },
-		{ "!лс", "г. Лос-Сантос" },
+		{ L("smi_help.text.text_70"), "TwinTurbo" },
+		{ L("smi_help.text.text_71"), L("smi_help.text.text_72") },
+		{ L("smi_help.text.text_73"), L("smi_help.text.text_74") },
 	})
 
 	-- память по никнеймам (MRU)
@@ -433,7 +440,7 @@ local State = {
 	sender_nick = "",
 	auto_memory_used = false,
 
-	selected_category = "Все",
+	selected_category = L("smi_help.text.text_75"),
 
 	want_place_cursor = false,
 	want_focus_input = false,
@@ -463,6 +470,7 @@ ctx = {
 	mimgui_funcs = mimgui_funcs,
 	correct_module = correct_module,
 	SMILive = SMILive,
+	samp_module = samp_module,
 	-- кэшированные хелперы
 	trim = trim,
 	utf8_len = utf8_len,
@@ -510,6 +518,7 @@ local function updateCtx()
 	ctx.mimgui_funcs = mimgui_funcs
 	ctx.correct_module = correct_module
 	ctx.SMILive = SMILive
+	ctx.samp_module = samp_module
 	ctx.trim = trim
 	ctx.utf8_len = utf8_len
 	ctx.tolower_utf8 = tolower_utf8

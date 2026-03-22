@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 
 local imgui = require("mimgui")
@@ -67,7 +72,7 @@ function M.DrawQuickMenu()
 	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(8, 8))
 	imgui.PushStyleVarVec2(imgui.StyleVar.FramePadding, imgui.ImVec2(4, 3))
 	imgui.PushStyleVarVec2(imgui.StyleVar.ItemSpacing, imgui.ImVec2(4, 4))
-	imgui.Begin("Быстрое меню биндер", nil, imgui.WindowFlags.NoCollapse)
+	imgui.Begin(L("binder.quick_menu.text.text"), nil, imgui.WindowFlags.NoCollapse)
 	quickMenuPos = imgui.GetWindowPos()
 	quickMenuSize = imgui.GetWindowSize()
 
@@ -128,7 +133,7 @@ function M.DrawQuickMenu()
 				local itemMin  = imgui.GetItemRectMin()
 				local itemMax  = imgui.GetItemRectMax()
 				local winRight = imgui.GetWindowPos().x + imgui.GetWindowSize().x
-				qsf.pos[path] = imgui.ImVec2(winRight, itemMin.y)
+				qsf.pos[path] = imgui.ImVec2(winRight, itemMin.y - 10)
 				local mx, my = io.MousePos.x, io.MousePos.y
 				local inRow = mx >= itemMin.x and mx <= winRight
 				            and my >= itemMin.y and my <= itemMax.y

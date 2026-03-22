@@ -9,6 +9,11 @@ local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
 local paths = require("HelperByOrc.paths")
+local language = require("language")
+
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 function module.CGame__EnableHUD()
 	return memory.getint8(0xBA6769) == 1 and true or false
@@ -1069,6 +1074,26 @@ function module.isKeyboardKey(k, vk)
 	return k >= 0 and k <= 255
 end
 
+function module.isMouseKey(k, vk)
+	if type(k) ~= "number" then
+		return false
+	end
+	if not vk then
+		return false
+	end
+	return k >= vk.VK_LBUTTON and k <= vk.VK_XBUTTON2
+end
+
+function module.isHotkeyKey(k, vk)
+	if type(k) ~= "number" then
+		return false
+	end
+	if module.isMouseKey(k, vk) then
+		return true
+	end
+	return module.isKeyboardKey(k, vk)
+end
+
 function module.keysMatchCombo(current, combo, normalize_fn)
 	if type(combo) ~= "table" or #combo == 0 then
 		return false
@@ -1108,7 +1133,7 @@ function module.hotkeyToString(keys, vk, empty_text)
 	for _, k in ipairs(keys or {}) do
 		out[#out + 1] = vk and vk.id_to_name and vk.id_to_name(k) or tostring(k)
 	end
-	return #out > 0 and table.concat(out, " + ") or (empty_text or "[KEY]")
+	return #out > 0 and table.concat(out, " + ") or (empty_text or L("hotkey_manager.capture.placeholder"))
 end
 
 function module.getHotkeyHelpers(vk, empty_text)
@@ -1119,6 +1144,12 @@ function module.getHotkeyHelpers(vk, empty_text)
 		normalizeKey = normalize_key,
 		isKeyboardKey = function(k)
 			return module.isKeyboardKey(k, vk)
+		end,
+		isMouseKey = function(k)
+			return module.isMouseKey(k, vk)
+		end,
+		isHotkeyKey = function(k)
+			return module.isHotkeyKey(k, vk)
 		end,
 		keysMatchCombo = function(current, combo)
 			return module.keysMatchCombo(current, combo, normalize_key)
@@ -1139,7 +1170,7 @@ function module.normalizeHotkeyTable(tbl, vk)
 		return nil
 	end
 	for _, k in ipairs(tbl) do
-		if module.isKeyboardKey(k, vk) then
+		if module.isHotkeyKey(k, vk) then
 			local nk = module.normalizeKey(k, vk)
 			local dup = false
 			for _, cur in ipairs(combo) do
@@ -2568,13 +2599,13 @@ function module.sendOBS(cmd)
 		[3] = [[ { "request-type": "SaveReplayBuffer", "message-id": "1" } ]],
 	}
 	local cmdLabel = {
-		[1] = "Старт записи",
-		[2] = "Остановка записи",
-		[3] = "Сохранение реплея",
+		[1] = L("funcs.obs.command.start_recording"),
+		[2] = L("funcs.obs.command.stop_recording"),
+		[3] = L("funcs.obs.command.save_replay"),
 	}
 
 	if tbl[cmd] == nil then
-		pushToast("OBS: неизвестная команда.", "warn")
+		pushToast(L("funcs.obs.toast.unknown_command"), "warn")
 		return
 	end
 
@@ -2592,7 +2623,9 @@ function module.sendOBS(cmd)
 
 	if not success then
 		pushToast(
-			("OBS: ошибка подключения (%s)."):format(err or "неизвестно"),
+			L("funcs.obs.toast.connect_error", {
+				error = err or L("funcs.common.unknown"),
+			}),
 			"err"
 		)
 		return false
@@ -2600,13 +2633,15 @@ function module.sendOBS(cmd)
 	client:send(tbl[cmd])
 
 	client:close()
-	pushToast(("OBS: %s."):format(cmdLabel[cmd] or "команда отправлена"), "ok")
+	pushToast(L("funcs.obs.toast.command_sent", {
+		command = cmdLabel[cmd] or L("funcs.obs.command.sent"),
+	}), "ok")
 end
 
 function module.findSignatureInModule(signature, moduleName, data)
 	local moduleAddress = ffi.C.GetModuleHandleA(moduleName)
 	if moduleAddress == nil then
-		return nil, "Module not found"
+		return nil, L("funcs.signature.module_not_found")
 	end
 
 	local processId = ffi.C.GetCurrentProcessId()
@@ -2653,7 +2688,7 @@ function module.findSignatureInModule(signature, moduleName, data)
 	end
 
 	ffi.C.CloseHandle(hProcess)
-	return nil, "Signature not found"
+	return nil, L("funcs.signature.signature_not_found")
 end
 
 local correct_module

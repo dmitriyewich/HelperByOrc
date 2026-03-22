@@ -1,10 +1,11 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local module = {}
 
 -- ===================== ЗАВИСИМОСТИ =====================
-local encoding = require("encoding")
-encoding.default = "CP1251"
-local u8 = encoding.UTF8
-
 local imgui = require("mimgui")
 local ffi = require("ffi")
 local paths = require("HelperByOrc.paths")
@@ -87,6 +88,46 @@ local function sanitize_table_strings_in_place(tbl, seen)
 			sanitize_table_strings_in_place(v, seen)
 		end
 	end
+end
+
+local function normalize_string_list(value, fallback)
+	if type(value) ~= "table" then
+		return clone_table(fallback or {})
+	end
+	local out = {}
+	for i = 1, #value do
+		local item = sanitize_json_string(value[i] or "")
+		if item ~= "" then
+			out[#out + 1] = item
+		end
+	end
+	return out
+end
+
+local function serialize_string_list(list)
+	if type(list) ~= "table" then
+		return ""
+	end
+	local out = {}
+	for i = 1, #list do
+		local item = tostring(list[i] or "")
+		if item ~= "" then
+			out[#out + 1] = item
+		end
+	end
+	return table.concat(out, "\n")
+end
+
+local function parse_string_list(raw)
+	raw = tostring(raw or "")
+	local out = {}
+	for line in raw:gmatch("[^\r\n]+") do
+		local trimmed = line:match("^%s*(.-)%s*$")
+		if trimmed ~= "" then
+			out[#out + 1] = trimmed
+		end
+	end
+	return out
 end
 
 local function deep_copy_sanitized(value, seen)
@@ -311,11 +352,27 @@ local default_config = {
 		"%[FOREVER%]",
 		"%[SERVER%]",
 		"%[ADMIN%]",
-		u8:decode("%{......%}%[Семья%]"),
-		u8:decode("%[Альянс%]"),
+		L("vip_and_ad_chat.text.text"),
+		L("vip_and_ad_chat.text.text_1"),
 		"%[Family Car%]",
-		u8:decode("%[Дальнобойщик]"),
-		u8:decode("%(%( %[Дальнобойщик%]"),
+		L("vip_and_ad_chat.text.text_2"),
+		L("vip_and_ad_chat.text.text_3"),
+	},
+	ad = {
+		main = {
+			"^Объявление:",
+			"^{079C1C}Объявление:",
+			"^%[VIP%] Объявление:.",
+			"^{FCAA4D}%[VIP%] Объявление:.",
+			"^{FCAA4D}%[Реклама Бизнеса%] Объявление:",
+			"^%[Реклама Бизнеса%] Объявление:",
+		},
+		pre_edit = {
+			"^Сообщение до редакции:",
+		},
+		edited = {
+			"Отредактировал сотрудник СМИ %[",
+		},
 	},
 	table_config = { vip_text = {}, ad_text = {}, all = {} },
 
@@ -345,7 +402,39 @@ local vip_buf = CircBuf.new(default_config.vip_limit)
 local ad_buf = CircBuf.new(default_config.ad_limit)
 local all_buf = CircBuf.new(default_config.all_limit)
 
+local function persist_main_enabled_state(state, force_flush)
+	if not config_manager_ref then
+		return false
+	end
+	local main_config = config_manager_ref.get("main")
+	if type(main_config) ~= "table" then
+		return false
+	end
+	if type(main_config.moduleStates) ~= "table" then
+		main_config.moduleStates = {}
+	end
+	local normalized = not not state
+	local changed = main_config.moduleStates.VIPandADchat ~= normalized
+	main_config.moduleStates.VIPandADchat = normalized
+	if changed then
+		config_manager_ref.markDirty("main")
+	end
+	if force_flush and type(config_manager_ref.flush) == "function" then
+		config_manager_ref.flush("main", true)
+	end
+	return true
+end
+
 function module.isEnabled()
+	return config.enabled ~= false
+end
+
+function module.setEnabled(state, opts)
+	opts = opts or {}
+	config.enabled = not not state
+	if opts.save_project ~= false then
+		persist_main_enabled_state(config.enabled, opts.flush_project)
+	end
 	return config.enabled
 end
 
@@ -809,9 +898,9 @@ local function draw_ad_tooltip(main_cp, edited_cp, pre_cp)
 		return
 	end
 
-	local main_u8 = strip_color_tags(u8(main_cp or ""))
-	local edited_u8 = strip_color_tags(u8(edited_cp or ""))
-	local pre_u8 = strip_color_tags(u8(pre_cp or ""))
+	local main_u8 = strip_color_tags(main_cp or "")
+	local edited_u8 = strip_color_tags(edited_cp or "")
+	local pre_u8 = strip_color_tags(pre_cp or "")
 	if main_u8 == "" and edited_u8 == "" and pre_u8 == "" then
 		return
 	end
@@ -820,7 +909,7 @@ local function draw_ad_tooltip(main_cp, edited_cp, pre_cp)
 	begin_tooltip_wrap(560)
 
 	if main_u8 ~= "" then
-		imgui.Text("Message:")
+		imgui.Text(L("vip_and_ad_chat.popup.message"))
 		tooltip_text(main_u8)
 	end
 
@@ -828,7 +917,7 @@ local function draw_ad_tooltip(main_cp, edited_cp, pre_cp)
 		if main_u8 ~= "" then
 			imgui.Separator()
 		end
-		imgui.Text("Edited by:")
+		imgui.Text(L("vip_and_ad_chat.popup.edited_by"))
 		tooltip_text(edited_u8)
 	end
 
@@ -836,7 +925,7 @@ local function draw_ad_tooltip(main_cp, edited_cp, pre_cp)
 		if main_u8 ~= "" or edited_u8 ~= "" then
 			imgui.Separator()
 		end
-		imgui.Text("Before edit:")
+		imgui.Text(L("vip_and_ad_chat.popup.before_edit"))
 		tooltip_text(pre_u8)
 	end
 
@@ -1140,7 +1229,7 @@ local popup_buffers = {
 }
 
 local function fill_char_buffer_from_string(buf, s_cp1251)
-	local us = u8(s_cp1251 or "")
+	local us = tostring(s_cp1251 or "")
 	local maxlen = ffi.sizeof(buf)
 	local n = math.min(#us, maxlen - 1)
 	if n > 0 then
@@ -1263,7 +1352,7 @@ local function draw_readonly_popup_field(title, id, buf, max_w, flags)
 	imgui.Text(title)
 	imgui.SameLine()
 	imgui.PushIDStr(id .. "_copy")
-	if imgui.SmallButton("Copy") then
+	if imgui.SmallButton(L("common.copy")) then
 		copy_to_clipboard(ffi.string(buf))
 	end
 	imgui.PopID()
@@ -1325,12 +1414,12 @@ local function draw_line_popup(anchor_max_w)
 		popup_target.size_dirty = false
 		popup_target.open_try_frames = 0
 
-		imgui.Text("Выдели фрагмент и нажми Ctrl+C.")
+		imgui.Text(L("vip_and_ad_chat.text.ctrl_c"))
 
 		-- Отображение ad_id для AD
 		if popup_target.kind == "ad" and popup_target.ad_id then
 			imgui.SameLine()
-			imgui.TextDisabled(string.format("(AD ID: %d)", popup_target.ad_id))
+			imgui.TextDisabled(string.format(L("vip_and_ad_chat.popup.ad_id"), popup_target.ad_id))
 		end
 
 		imgui.Spacing()
@@ -1342,34 +1431,34 @@ local function draw_line_popup(anchor_max_w)
 		end
 
 		local field_max_w = math.max(220, max_w - 24)
-		draw_readonly_popup_field("Message", "##popup_message", popup_buffers.message, field_max_w, itf)
+		draw_readonly_popup_field(L("vip_and_ad_chat.popup.message"), "##popup_message", popup_buffers.message, field_max_w, itf)
 		if popup_target.kind == "ad" then
 			imgui.Spacing()
-			draw_readonly_popup_field("Edited by", "##popup_edited", popup_buffers.edited, field_max_w, itf)
+			draw_readonly_popup_field(L("vip_and_ad_chat.popup.edited_by"), "##popup_edited", popup_buffers.edited, field_max_w, itf)
 			imgui.Spacing()
-			draw_readonly_popup_field("Before edit", "##popup_before_edit", popup_buffers.before_edit, field_max_w, itf)
+			draw_readonly_popup_field(L("vip_and_ad_chat.popup.before_edit"), "##popup_before_edit", popup_buffers.before_edit, field_max_w, itf)
 		end
 
 		imgui.Spacing()
 
 		-- Кнопка "Copy All"
-		if imgui.Button("Скопировать всё", imgui.ImVec2(120, 0)) then
+		if imgui.Button(L("vip_and_ad_chat.text.text_4"), imgui.ImVec2(120, 0)) then
 			local all_text = ffi.string(popup_buffers.message)
 			if popup_target.kind == "ad" then
 				local edited = ffi.string(popup_buffers.edited)
 				local before = ffi.string(popup_buffers.before_edit)
 				if edited ~= "" then
-					all_text = all_text .. "\n\nEdited by:\n" .. edited
+					all_text = all_text .. "\n\n" .. L("vip_and_ad_chat.popup.edited_by") .. "\n" .. edited
 				end
 				if before ~= "" then
-					all_text = all_text .. "\n\nBefore edit:\n" .. before
+					all_text = all_text .. "\n\n" .. L("vip_and_ad_chat.popup.before_edit") .. "\n" .. before
 				end
 			end
 			copy_to_clipboard(all_text)
 		end
 
 		imgui.SameLine()
-		if imgui.Button("Закрыть", imgui.ImVec2(120, 0)) then
+		if imgui.Button(L("vip_and_ad_chat.text.text_5"), imgui.ImVec2(120, 0)) then
 			imgui.CloseCurrentPopup()
 		end
 
@@ -1412,9 +1501,19 @@ function module.load()
 			config[k] = v
 		end
 	end
+	local loaded_vip = type(loaded) == "table" and deep_copy_sanitized(loaded.vip) or nil
+	local loaded_highlight_words = type(loaded) == "table" and deep_copy_sanitized(loaded.highlightWords) or nil
+	local loaded_ad = type(loaded) == "table" and type(loaded.ad) == "table" and deep_copy_sanitized(loaded.ad) or nil
 
 	merge_defaults(config, default_config)
 	sanitize_table_strings_in_place(config)
+	config.vip = normalize_string_list(loaded_vip, default_config.vip)
+	config.highlightWords = normalize_string_list(loaded_highlight_words, default_config.highlightWords)
+	config.ad = {
+		main = normalize_string_list(loaded_ad and loaded_ad.main or nil, default_config.ad.main),
+		pre_edit = normalize_string_list(loaded_ad and loaded_ad.pre_edit or nil, default_config.ad.pre_edit),
+		edited = normalize_string_list(loaded_ad and loaded_ad.edited or nil, default_config.ad.edited),
+	}
 	config.table_config = config.table_config or { vip_text = {}, ad_text = {}, all = {} }
 	config.table_config.vip_text = config.table_config.vip_text or {}
 	config.table_config.ad_text = config.table_config.ad_text or {}
@@ -1607,6 +1706,13 @@ function module.VIP()
 	return config.vip
 end
 
+function module.AD()
+	if not config.enabled then
+		return { main = {}, pre_edit = {}, edited = {} }
+	end
+	return config.ad or { main = {}, pre_edit = {}, edited = {} }
+end
+
 -- ===================== HUD CHATBOX + ПРОКРУТКА + POPUP =====================
 module.showFeedWindow = imgui.new.bool(false)
 local vip_wrap_cache = { width = 0, src_count = 0, rev = 0, cfg_key = "", lines = {} }
@@ -1782,17 +1888,17 @@ local function draw_chatbox_window()
 		-- Функция отрисовки контекстного меню для строки
 		local function draw_line_context_menu(line, on_open_popup)
 			if imgui.BeginPopupContextItem("##line_ctx") then
-				if imgui.MenuItemBool("Скопировать строку") then
-					local text_no_tags = strip_color_tags(u8(line.src_cp or line.text or ""))
+				if imgui.MenuItemBool(L("vip_and_ad_chat.text.text_6")) then
+					local text_no_tags = strip_color_tags(line.src_cp or line.text or "")
 					copy_to_clipboard(text_no_tags)
 				end
-				if imgui.MenuItemBool("Скопировать без времени") then
-					local text_no_tags = strip_color_tags(u8(line.src_cp or line.text or ""))
+				if imgui.MenuItemBool(L("vip_and_ad_chat.text.text_7")) then
+					local text_no_tags = strip_color_tags(line.src_cp or line.text or "")
 					local text_no_time = strip_leading_timestamp(text_no_tags)
 					copy_to_clipboard(text_no_time)
 				end
 				imgui.Separator()
-				if imgui.MenuItemBool("Подробнее...") then
+				if imgui.MenuItemBool(L("vip_and_ad_chat.text.text_8")) then
 					if on_open_popup then
 						on_open_popup(line)
 					end
@@ -1806,51 +1912,51 @@ local function draw_chatbox_window()
 			imgui.PushIDStr(tab_name .. "_controls")
 
 			-- Кнопка "Вниз"
-			if imgui.SmallButton("Вниз") then
+			if imgui.SmallButton(L("vip_and_ad_chat.text.text_9")) then
 				imgui.SetScrollY(imgui.GetScrollMaxY())
 			end
 			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Прокрутить в конец")
+				imgui.SetTooltip(L("vip_and_ad_chat.text.text_10"))
 			end
 
 			imgui.SameLine()
 
 			-- Кнопка паузы автоскролла
-			local pause_label = autoscroll and (fa.PAUSE .. " Пауза") or (fa.PLAY .. " Авто")
+			local pause_label = autoscroll and (fa.PAUSE .. L("vip_and_ad_chat.text.text_11")) or (fa.PLAY .. L("vip_and_ad_chat.text.text_12"))
 			if imgui.SmallButton(pause_label) then
 				autoscroll = not autoscroll
 			end
 			if imgui.IsItemHovered() then
-				imgui.SetTooltip(autoscroll and "Отключить автопрокрутку" or "Включить автопрокрутку")
+				imgui.SetTooltip(autoscroll and L("vip_and_ad_chat.text.text_13") or L("vip_and_ad_chat.text.text_14"))
 			end
 
 			imgui.SameLine()
 
 			-- Кнопка "Очистить вкладку"
-			if imgui.SmallButton("Очистить") then
+			if imgui.SmallButton(L("vip_and_ad_chat.text.text_15")) then
 				if clear_func then
 					clear_func()
 				end
 			end
 			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Очистить сообщения в этой вкладке")
+				imgui.SetTooltip(L("vip_and_ad_chat.text.text_16"))
 			end
 
 			imgui.SameLine()
 
 			-- Кнопка "Копировать видимое"
-			if imgui.SmallButton("Копировать") then
+			if imgui.SmallButton(L("vip_and_ad_chat.text.text_17")) then
 				if get_visible_text_func then
 					local visible_text = get_visible_text_func()
 					copy_to_clipboard(visible_text)
 				end
 			end
 			if imgui.IsItemHovered() then
-				imgui.SetTooltip("Скопировать видимые сообщения")
+				imgui.SetTooltip(L("vip_and_ad_chat.text.text_18"))
 			end
 
 			imgui.SameLine()
-			imgui.Text("Фильтр:")
+			imgui.Text(L("vip_and_ad_chat.text.text_19"))
 			imgui.SameLine()
 
 			-- Фильтр
@@ -1862,7 +1968,7 @@ local function draw_chatbox_window()
 
 			if filter_text ~= "" then
 				imgui.SameLine()
-				if imgui.SmallButton("X") then
+				if imgui.SmallButton(L("common.clear_compact")) then
 					ffi.fill(filter_buf, ffi.sizeof(filter_buf))
 					filter_text = ""
 				end
@@ -1892,7 +1998,7 @@ local function draw_chatbox_window()
 						local lines = {}
 						for i = 1, #all_wrap_cache.lines do
 							local line = all_wrap_cache.lines[i] or {}
-							local text = strip_color_tags(u8(line.text or ""))
+							local text = strip_color_tags(line.text or "")
 							if all_filter_text == "" or text:lower():find(all_filter_text, 1, true) then
 								lines[#lines + 1] = text
 							end
@@ -1920,7 +2026,7 @@ local function draw_chatbox_window()
 					for i = 1, all:len() do
 						local entry = all[i] or {}
 						local text_cp = entry.text or ""
-						local text = u8(text_cp)
+						local text = tostring(text_cp or "")
 						local wrapped = wrap_to_lines_keep_tags(text, max_px)
 						for j = 1, #wrapped do
 							lines[#lines + 1] = {
@@ -1943,7 +2049,7 @@ local function draw_chatbox_window()
 					if all_filter_text == "" then
 						filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 					else
-						local text_check = strip_color_tags(u8(line.text or "")):lower()
+						local text_check = strip_color_tags(line.text or ""):lower()
 						if text_check:find(all_filter_text, 1, true) then
 							filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 						end
@@ -1988,12 +2094,12 @@ local function draw_chatbox_window()
 
 		if is_chat_open then
 			if imgui.BeginTabBar("##VIPAD_CHATBOX_TABS") then
-				if imgui.BeginTabItem("ALL") then
+				if imgui.BeginTabItem(L("vip_and_ad_chat.tab.all")) then
 					render_all_tab()
 					imgui.EndTabItem()
 				end
 
-				if imgui.BeginTabItem("VIP") then
+				if imgui.BeginTabItem(L("vip_and_ad_chat.tab.vip")) then
 					local vip = vip_buf
 
 					if imgui.BeginChild("##vip_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -2010,7 +2116,7 @@ local function draw_chatbox_window()
 								local lines = {}
 								for i = 1, #vip_wrap_cache.lines do
 									local line = vip_wrap_cache.lines[i] or {}
-									local text = strip_color_tags(u8(line.text or ""))
+									local text = strip_color_tags(line.text or "")
 									if vip_filter_text == "" or text:lower():find(vip_filter_text, 1, true) then
 										lines[#lines + 1] = text
 									end
@@ -2034,7 +2140,7 @@ local function draw_chatbox_window()
 							local lines = {}
 							for i = 1, vip:len() do
 								local text_cp = vip[i] or ""
-								local text = u8(text_cp)
+								local text = tostring(text_cp or "")
 								local wrapped = wrap_to_lines_keep_tags(text, max_px)
 								for j = 1, #wrapped do
 									lines[#lines + 1] = {
@@ -2055,7 +2161,7 @@ local function draw_chatbox_window()
 							if vip_filter_text == "" then
 								filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 							else
-								local text_check = strip_color_tags(u8(line.text or "")):lower()
+								local text_check = strip_color_tags(line.text or ""):lower()
 								if text_check:find(vip_filter_text, 1, true) then
 									filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 								end
@@ -2096,7 +2202,7 @@ local function draw_chatbox_window()
 					imgui.EndTabItem()
 				end
 
-				if imgui.BeginTabItem("AD") then
+				if imgui.BeginTabItem(L("vip_and_ad_chat.tab.ad")) then
 					local ad = ad_buf
 
 					if imgui.BeginChild("##ad_scroll", imgui.ImVec2(0, 0), false, child_flags) then
@@ -2113,7 +2219,7 @@ local function draw_chatbox_window()
 								local lines = {}
 								for i = 1, #ad_wrap_cache.lines do
 									local line = ad_wrap_cache.lines[i] or {}
-									local text = strip_color_tags(u8(line.text or ""))
+									local text = strip_color_tags(line.text or "")
 									if ad_filter_text == "" or text:lower():find(ad_filter_text, 1, true) then
 										lines[#lines + 1] = text
 									end
@@ -2138,7 +2244,7 @@ local function draw_chatbox_window()
 							for i = 1, ad:len() do
 								local entry = ad[i] or {}
 								local text_cp = entry[1] or ""
-								local text = u8(text_cp)
+								local text = tostring(text_cp or "")
 								local wrapped = wrap_to_lines_keep_tags(text, max_px)
 								for j = 1, #wrapped do
 									lines[#lines + 1] = {
@@ -2160,7 +2266,7 @@ local function draw_chatbox_window()
 							if ad_filter_text == "" then
 								filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 							else
-								local text_check = strip_color_tags(u8(line.text or "")):lower()
+								local text_check = strip_color_tags(line.text or ""):lower()
 								if text_check:find(ad_filter_text, 1, true) then
 									filtered_lines[#filtered_lines + 1] = {line = line, index = i}
 								end
@@ -2275,7 +2381,68 @@ module.showSettingsWindow = settings_open
 
 local highlight_words_buf = imgui.new.char[2048]("")
 local highlight_words_last_serialized = ""
+local vip_patterns_buf = imgui.new.char[4096]("")
+local vip_patterns_last_serialized = ""
+local ad_main_patterns_buf = imgui.new.char[4096]("")
+local ad_main_patterns_last_serialized = ""
+local ad_pre_edit_patterns_buf = imgui.new.char[4096]("")
+local ad_pre_edit_patterns_last_serialized = ""
+local ad_edited_patterns_buf = imgui.new.char[4096]("")
+local ad_edited_patterns_last_serialized = ""
 local settings_ui_state = { bools = {}, ints = {}, floats = {} }
+local settings_window_nav = { page = 0 }
+local settings_inline_nav = { page = 0 }
+
+local SETTINGS_SECTION_CHAT_VIEW = 1
+local SETTINGS_SECTION_LIMITS = 2
+local SETTINGS_SECTION_FILTERS = 3
+local SETTINGS_SECTION_POPUP = 4
+
+local function sync_list_buffer(list, buf, last_serialized)
+	local serialized = serialize_string_list(list)
+	if serialized ~= last_serialized then
+		fill_buf_utf8(buf, serialized)
+		return serialized
+	end
+	return last_serialized
+end
+
+local function apply_pattern_list_from_buffer(buf)
+	return parse_string_list(ffi.string(buf))
+end
+
+local function draw_pattern_list_editor(opts)
+	imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L(opts.title_key))
+	imgui.TextWrapped(L(opts.desc_key))
+	imgui.Spacing()
+
+	local last_serialized = sync_list_buffer(opts.list, opts.buf, opts.last_serialized)
+
+	imgui.PushItemWidth(-1)
+	imgui.InputTextMultiline(
+		opts.input_id,
+		opts.buf,
+		ffi.sizeof(opts.buf),
+		imgui.ImVec2(0, opts.height or 110)
+	)
+	imgui.PopItemWidth()
+
+	local changed = false
+	if imgui.Button(L("vip_and_ad_chat.text.ad_patterns_apply") .. opts.apply_id, imgui.ImVec2(120, 0)) then
+		opts.list = apply_pattern_list_from_buffer(opts.buf)
+		last_serialized = serialize_string_list(opts.list)
+		changed = true
+	end
+	imgui.SameLine()
+	if imgui.Button(L("vip_and_ad_chat.text.ad_patterns_reset") .. opts.reset_id, imgui.ImVec2(120, 0)) then
+		opts.list = clone_table(opts.defaults or {})
+		last_serialized = serialize_string_list(opts.list)
+		fill_buf_utf8(opts.buf, last_serialized)
+		changed = true
+	end
+
+	return opts.list, last_serialized, changed
+end
 
 local function ui_bool(id, value)
 	local b = settings_ui_state.bools[id]
@@ -2309,7 +2476,7 @@ end
 
 -- Функция для отрисовки подсказки (?)
 local function help_marker(desc)
-	imgui.TextDisabled("(?)")
+	imgui.TextDisabled(L("vip_and_ad_chat.text.help_short"))
 	if imgui.IsItemHovered() then
 		imgui.BeginTooltip()
 		imgui.PushTextWrapPos(imgui.GetFontSize() * 35.0)
@@ -2327,8 +2494,8 @@ local function aligned_text(label, width)
 end
 
 -- Функция для рисования интерактивного превью
-local function draw_preview_panel()
-	if not imgui.CollapsingHeader("Превью настроек") then
+local function draw_preview_panel(force_visible)
+	if not force_visible and not imgui.CollapsingHeader(L("vip_and_ad_chat.text.text_20")) then
 		return
 	end
 
@@ -2353,9 +2520,9 @@ local function draw_preview_panel()
 
 		-- Фейковые сообщения для превью
 		local fake_messages = {
-			"{FFFF00}[12:34:56] {FFFFFF}[VIP] {00FF00}Player_Name{FFFFFF}: Пример VIP сообщения",
-			"{FFFF00}[12:35:12] {FF00FF}[ADMIN] {FF0000}Admin_John{FFFFFF}: Административное объявление",
-			"{FFFF00}[12:36:48] {00FFFF}[SERVER] {FFFFFF}Новость сервера для всех игроков",
+			L("vip_and_ad_chat.text.ffff00_12_34_56_ffffff_vip_00ff00_player_name_ffffff_vip"),
+			L("vip_and_ad_chat.text.ffff00_12_35_12_ff00ff_admin_ff0000_admin_john_ffffff"),
+			L("vip_and_ad_chat.text.ffff00_12_36_48_00ffff_server_ffffff"),
 		}
 
 		local y_offset = 0
@@ -2381,35 +2548,125 @@ local function draw_preview_panel()
 	imgui.PopStyleVar()
 end
 
-draw_settings_content = function()
+local settings_sections = {
+	{ id = SETTINGS_SECTION_CHAT_VIEW, title = L("vip_and_ad_chat.text.text_21") },
+	{ id = SETTINGS_SECTION_LIMITS, title = L("vip_and_ad_chat.text.text_22") },
+	{ id = SETTINGS_SECTION_FILTERS, title = L("vip_and_ad_chat.text.text_23") },
+	{ id = SETTINGS_SECTION_POPUP, title = L("vip_and_ad_chat.text.text_24") },
+}
+
+local function get_settings_section(page)
+	for i = 1, #settings_sections do
+		local section = settings_sections[i]
+		if section.id == page then
+			return section
+		end
+	end
+end
+
+local function draw_settings_cards(nav)
+	imgui.TextColored(imgui.ImVec4(0.8, 0.8, 1, 1), L("vip_and_ad_chat.text.text_25"))
+	imgui.Spacing()
+
+	local avail = imgui.GetContentRegionAvail().x
+	local cardW, cardH = 220, 60
+	local spacing = 16
+	local cols = math.max(1, math.floor((avail + spacing) / (cardW + spacing)))
+	local start_pos = imgui.GetCursorScreenPos()
+
+	for i = 1, #settings_sections do
+		local section = settings_sections[i]
+		local x = start_pos.x + ((i - 1) % cols) * (cardW + spacing)
+		local y = start_pos.y + math.floor((i - 1) / cols) * (cardH + spacing)
+		imgui.SetCursorScreenPos(imgui.ImVec2(x, y))
+		imgui.InvisibleButton("##vipad_settings_card_" .. section.id, imgui.ImVec2(cardW, cardH))
+
+		local hovered = imgui.IsItemHovered()
+		if imgui.IsItemClicked(0) then
+			nav.page = section.id
+		end
+
+		local pmin = imgui.GetItemRectMin()
+		local pmax = imgui.GetItemRectMax()
+		local style = imgui.GetStyle()
+		local dl = imgui.GetWindowDrawList()
+		local bg = hovered and style.Colors[imgui.Col.FrameBgHovered] or style.Colors[imgui.Col.FrameBg]
+		local text_y = pmin.y + math.max(0, (cardH - imgui.GetTextLineHeight()) * 0.5)
+
+		dl:AddRectFilled(pmin, pmax, imgui.GetColorU32Vec4(bg), 8)
+		dl:AddRect(pmin, pmax, imgui.GetColorU32Vec4(style.Colors[imgui.Col.Border]), 8, 2)
+		dl:AddText(
+			imgui.ImVec2(pmin.x + 12, text_y),
+			imgui.GetColorU32Vec4(style.Colors[imgui.Col.Text]),
+			section.title
+		)
+	end
+
+	local rows = math.ceil(#settings_sections / cols)
+	if rows > 0 then
+		local grid_height = rows * cardH + math.max(0, rows - 1) * spacing
+		imgui.SetCursorScreenPos(imgui.ImVec2(start_pos.x, start_pos.y + grid_height))
+		imgui.Dummy(imgui.ImVec2(0, 1))
+	end
+end
+
+local function draw_settings_detail_header(nav)
+	local section = get_settings_section(nav.page)
+	if not section then
+		nav.page = 0
+		return false
+	end
+
+	if imgui.Button(fa.ARROW_LEFT .. L("vip_and_ad_chat.text.text_26")) then
+		nav.page = 0
+		return false
+	end
+	imgui.SameLine()
+	imgui.Text(section.title)
+	imgui.Separator()
+	return true
+end
+
+draw_settings_content = function(nav)
+	nav = nav or settings_inline_nav
+
 	local en = ui_bool("enabled", config.enabled and true or false)
-	if imgui.Checkbox("Включить модуль", en) then
-		config.enabled = en[0] and true or false
-		module.save()
+	if imgui.Checkbox(L("vip_and_ad_chat.text.text_27"), en) then
+		module.setEnabled(en[0], { flush_project = true })
 	end
 
 	imgui.Separator()
 
-	-- ПРЕВЬЮ
-	draw_preview_panel()
+	if nav.page == 0 then
+		draw_settings_cards(nav)
+		return
+	end
 
-	imgui.Separator()
+	if not draw_settings_detail_header(nav) then
+		if nav.page == 0 then
+			draw_settings_cards(nav)
+		end
+		return
+	end
 
-	-- БЛОК: Окно
-	if imgui.CollapsingHeader("Окно") then
+	if nav.page == SETTINGS_SECTION_CHAT_VIEW then
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_28"))
+		draw_preview_panel(true)
+		imgui.Separator()
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_29"))
 		config.chatbox = config.chatbox or clone_table(default_config.chatbox)
 		local chatbox = config.chatbox
 
 		local chatbox_enabled = ui_bool("chatbox_enabled", chatbox.enabled ~= false)
-		if imgui.Checkbox("Показывать чатбокс##chatbox", chatbox_enabled) then
+		if imgui.Checkbox(L("vip_and_ad_chat.text.chatbox"), chatbox_enabled) then
 			chatbox.enabled = chatbox_enabled[0] and true or false
 			module.save()
 		end
 
 		imgui.Spacing()
-		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), "Позиция и размер:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_30"))
 
-		aligned_text("Позиция X:", 150)
+		aligned_text(L("vip_and_ad_chat.text.x"), 150)
 		imgui.PushItemWidth(150)
 		local chatbox_pos_x = ui_int("chatbox_pos_x", chatbox.pos_x)
 		if imgui.DragInt("##pos_x_chatbox", chatbox_pos_x) then
@@ -2418,9 +2675,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
-		aligned_text("Позиция Y:", 150)
+		aligned_text(L("vip_and_ad_chat.text.y"), 150)
 		imgui.PushItemWidth(150)
 		local chatbox_pos_y = ui_int("chatbox_pos_y", chatbox.pos_y)
 		if imgui.DragInt("##pos_y_chatbox", chatbox_pos_y) then
@@ -2429,9 +2686,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
-		aligned_text("Ширина:", 150)
+		aligned_text(L("vip_and_ad_chat.text.text_32"), 150)
 		imgui.PushItemWidth(150)
 		local chatbox_width = ui_int("chatbox_width", chatbox.width or 520)
 		if imgui.DragInt("##width_chatbox", chatbox_width, 1, 200, 1200) then
@@ -2440,9 +2697,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
-		aligned_text("Высота:", 150)
+		aligned_text(L("vip_and_ad_chat.text.text_33"), 150)
 		imgui.PushItemWidth(150)
 		local chatbox_height = ui_int("chatbox_height", chatbox.height or 210)
 		if imgui.DragInt("##height_chatbox", chatbox_height, 1, 120, 700) then
@@ -2451,34 +2708,34 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
 		imgui.Spacing()
 
 		-- Кнопки управления позицией
-		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), "Быстрая привязка:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_34"))
 		local io = imgui.GetIO()
 		local screen_w, screen_h = io.DisplaySize.x, io.DisplaySize.y
 
-		if imgui.Button(fa.UP_LEFT .. " Верх-Лево") then
+		if imgui.Button(fa.UP_LEFT .. L("vip_and_ad_chat.text.text_35")) then
 			chatbox.pos_x = 10
 			chatbox.pos_y = 10
 			module.save()
 		end
 		imgui.SameLine()
-		if imgui.Button(fa.UP_RIGHT .. " Верх-Право") then
+		if imgui.Button(fa.UP_RIGHT .. L("vip_and_ad_chat.text.text_36")) then
 			chatbox.pos_x = screen_w - chatbox.width - 10
 			chatbox.pos_y = 10
 			module.save()
 		end
 		imgui.SameLine()
-		if imgui.Button(fa.DOWN_LEFT .. " Низ-Лево") then
+		if imgui.Button(fa.DOWN_LEFT .. L("vip_and_ad_chat.text.text_37")) then
 			chatbox.pos_x = 10
 			chatbox.pos_y = screen_h - chatbox.height - 10
 			module.save()
 		end
 		imgui.SameLine()
-		if imgui.Button(fa.DOWN_RIGHT .. " Низ-Право") then
+		if imgui.Button(fa.DOWN_RIGHT .. L("vip_and_ad_chat.text.text_38")) then
 			chatbox.pos_x = screen_w - chatbox.width - 10
 			chatbox.pos_y = screen_h - chatbox.height - 10
 			module.save()
@@ -2486,7 +2743,7 @@ draw_settings_content = function()
 
 		imgui.Spacing()
 
-		if imgui.Button("Сбросить позицию/размер", imgui.ImVec2(200, 0)) then
+		if imgui.Button(L("vip_and_ad_chat.text.text_39"), imgui.ImVec2(200, 0)) then
 			chatbox.pos_x = default_config.chatbox.pos_x
 			chatbox.pos_y = default_config.chatbox.pos_y
 			chatbox.width = default_config.chatbox.width
@@ -2494,18 +2751,18 @@ draw_settings_content = function()
 			module.save()
 		end
 		imgui.SameLine()
-		help_marker("Восстановить значения по умолчанию")
+		help_marker(L("vip_and_ad_chat.text.text_40"))
 
 		imgui.Spacing()
-		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), "Режим перетаскивания:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_41"))
 
 		if chatbox_drag_mode then
-			imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.0, 1.0), fa.HAND .. " Перетаскивайте окно, ЛКМ — зафиксировать")
-			if imgui.Button(fa.STOP .. " Отмена", imgui.ImVec2(200, 0)) then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.6, 0.0, 1.0), fa.HAND .. L("vip_and_ad_chat.text.text_42"))
+			if imgui.Button(fa.STOP .. L("vip_and_ad_chat.text.text_43"), imgui.ImVec2(200, 0)) then
 				chatbox_drag_mode = false
 			end
 		else
-			if imgui.Button(fa.HAND .. " Перетащить мышью", imgui.ImVec2(200, 0)) then
+			if imgui.Button(fa.HAND .. L("vip_and_ad_chat.text.text_44"), imgui.ImVec2(200, 0)) then
 				chatbox_drag_mode = true
 				local w = tonumber(chatbox.width) or 520
 				local h = tonumber(chatbox.height) or 210
@@ -2513,12 +2770,12 @@ draw_settings_content = function()
 			end
 		end
 		imgui.SameLine()
-		help_marker("Нажмите кнопку, затем кликните ЛКМ чтобы зафиксировать позицию")
+		help_marker(L("vip_and_ad_chat.text.text_45"))
 
 		imgui.Spacing()
-		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), "Оформление:")
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_46"))
 
-		aligned_text("Прозрачность фона:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_47"), 180)
 		imgui.PushItemWidth(200)
 		local chatbox_bg_alpha = ui_float("chatbox_bg_alpha", chatbox.bg_alpha or 0)
 		if imgui.SliderFloat("##chatbox_bg_alpha", chatbox_bg_alpha, 0, 1, "%.2f") then
@@ -2527,25 +2784,21 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Прозрачность фона окна чата (0 = прозрачный, 1 = непрозрачный)")
+		help_marker(L("vip_and_ad_chat.text.text_0_1"))
 
-		aligned_text("Скругление углов:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_48"), 180)
 		imgui.PushItemWidth(200)
 		local chatbox_rounding = ui_int("chatbox_rounding", chatbox.rounding or 0)
-		if imgui.SliderInt("##chatbox_rounding", chatbox_rounding, 0, 20, "%d пикс.") then
+		if imgui.SliderInt("##chatbox_rounding", chatbox_rounding, 0, 20, L("vip_and_ad_chat.text.number")) then
 			chatbox.rounding = clamp(chatbox_rounding[0], 0, 20)
 			module.save()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Радиус скругления углов окна")
-	end
-
-	imgui.Separator()
-
-	-- БЛОК: Текст
-	if imgui.CollapsingHeader("Текст") then
-		aligned_text("Прозрачность (чат открыт):", 220)
+		help_marker(L("vip_and_ad_chat.text.text_49"))
+		imgui.Separator()
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_50"))
+		aligned_text(L("vip_and_ad_chat.text.text_51"), 220)
 		imgui.PushItemWidth(200)
 		local text_alpha_chat = ui_float(
 			"chatbox_text_alpha_chat",
@@ -2557,9 +2810,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Прозрачность текста когда чат открыт")
+		help_marker(L("vip_and_ad_chat.text.text_52"))
 
-		aligned_text("Прозрачность (чат закрыт):", 220)
+		aligned_text(L("vip_and_ad_chat.text.text_53"), 220)
 		imgui.PushItemWidth(200)
 		local text_alpha_idle = ui_float(
 			"chatbox_text_alpha_idle",
@@ -2571,23 +2824,19 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Прозрачность текста когда чат закрыт")
-	end
-
-	imgui.Separator()
-
-	-- БЛОК: Время
-	if imgui.CollapsingHeader("Время (Timestamp)") then
+		help_marker(L("vip_and_ad_chat.text.text_54"))
+		imgui.Separator()
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_55"))
 		config.timestamp = config.timestamp or clone_table(default_config.timestamp)
 		local timestamp = config.timestamp
 
 		local timestamp_enabled = ui_bool("timestamp_enabled", timestamp.enabled ~= false)
-		if imgui.Checkbox("Показывать время##timestamp_enabled", timestamp_enabled) then
+		if imgui.Checkbox(L("vip_and_ad_chat.text.timestamp_enabled"), timestamp_enabled) then
 			timestamp.enabled = timestamp_enabled[0] and true or false
 			module.save()
 		end
 
-		aligned_text("Размер времени:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_56"), 180)
 		imgui.PushItemWidth(200)
 		local timestamp_scale = ui_float("timestamp_scale", timestamp.scale or 0.5)
 		if imgui.SliderFloat("##timestamp_scale", timestamp_scale, 0.2, 1.0, "%.2f") then
@@ -2596,36 +2845,31 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Масштаб текста времени относительно основного текста")
+		help_marker(L("vip_and_ad_chat.text.text_57"))
 
-		aligned_text("Отступ после времени:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_58"), 180)
 		imgui.PushItemWidth(200)
 		local timestamp_padding = ui_float("timestamp_padding", timestamp.padding or 0)
-		if imgui.SliderFloat("##timestamp_padding", timestamp_padding, 0, 10, "%.1f пикс.") then
+		if imgui.SliderFloat("##timestamp_padding", timestamp_padding, 0, 10, L("vip_and_ad_chat.text.text_1f")) then
 			timestamp.padding = clamp(timestamp_padding[0], 0, 10)
 			module.save()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Отступ между временем и текстом сообщения")
+		help_marker(L("vip_and_ad_chat.text.text_59"))
 
-		aligned_text("Сдвиг по вертикали:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_60"), 180)
 		imgui.PushItemWidth(200)
 		local timestamp_offset_y = ui_float("timestamp_offset_y", timestamp.offset_y or 0)
-		if imgui.SliderFloat("##timestamp_offset_y", timestamp_offset_y, -10, 10, "%.1f пикс.") then
+		if imgui.SliderFloat("##timestamp_offset_y", timestamp_offset_y, -10, 10, L("vip_and_ad_chat.text.text_1f")) then
 			timestamp.offset_y = clamp(timestamp_offset_y[0], -10, 10)
 			module.save()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Вертикальное смещение времени (для выравнивания базовой линии)")
-	end
-
-	imgui.Separator()
-
-	-- БЛОК: Лимиты
-	if imgui.CollapsingHeader("Лимиты сообщений") then
-		aligned_text("Лимит VIP:", 150)
+		help_marker(L("vip_and_ad_chat.text.text_61"))
+	elseif nav.page == SETTINGS_SECTION_LIMITS then
+		aligned_text(L("vip_and_ad_chat.text.vip"), 150)
 		imgui.PushItemWidth(150)
 		local vip_limit = ui_int("vip_limit", tonumber(config.vip_limit) or default_config.vip_limit or 100)
 		if imgui.InputInt("##vip_limit", vip_limit) then
@@ -2634,11 +2878,11 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("сообщ.")
+		imgui.Text(L("vip_and_ad_chat.text.text_62"))
 		imgui.SameLine()
-		help_marker("Максимальное количество сохраняемых VIP сообщений")
+		help_marker(L("vip_and_ad_chat.text.vip_63"))
 
-		aligned_text("Лимит AD:", 150)
+		aligned_text(L("vip_and_ad_chat.text.ad"), 150)
 		imgui.PushItemWidth(150)
 		local ad_limit = ui_int("ad_limit", tonumber(config.ad_limit) or default_config.ad_limit or 100)
 		if imgui.InputInt("##ad_limit", ad_limit) then
@@ -2647,11 +2891,11 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("сообщ.")
+		imgui.Text(L("vip_and_ad_chat.text.text_62"))
 		imgui.SameLine()
-		help_marker("Максимальное количество сохраняемых AD сообщений")
+		help_marker(L("vip_and_ad_chat.text.ad_64"))
 
-		aligned_text("Лимит ALL:", 150)
+		aligned_text(L("vip_and_ad_chat.text.all"), 150)
 		imgui.PushItemWidth(150)
 		local all_limit = ui_int("all_limit", tonumber(config.all_limit) or default_config.all_limit or 200)
 		if imgui.InputInt("##all_limit", all_limit) then
@@ -2660,23 +2904,119 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("сообщ.")
+		imgui.Text(L("vip_and_ad_chat.text.text_62"))
 		imgui.SameLine()
-		help_marker("Максимальное количество всех сообщений (VIP+AD)")
-	end
-
-	imgui.Separator()
-
-	-- БЛОК: Подсветка
-	if imgui.CollapsingHeader("Подсветка слов") then
-		imgui.TextWrapped("Список слов для подсветки в сообщениях (по одному на строку):")
+		help_marker(L("vip_and_ad_chat.text.vip_ad"))
+	elseif nav.page == SETTINGS_SECTION_FILTERS then
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.vip_65"))
+		imgui.TextWrapped(L("vip_and_ad_chat.text.vip_66"))
+		imgui.Spacing()
+		imgui.TextWrapped(L("vip_and_ad_chat.text.lua"))
 		imgui.Spacing()
 
-		local serialized = table.concat(config.highlightWords or {}, "\n")
-		if serialized ~= highlight_words_last_serialized then
-			fill_buf_utf8(highlight_words_buf, serialized)
-			highlight_words_last_serialized = serialized
+		vip_patterns_last_serialized = sync_list_buffer(config.vip or {}, vip_patterns_buf, vip_patterns_last_serialized)
+
+		imgui.PushItemWidth(-1)
+		imgui.InputTextMultiline(
+			"##vipPatterns",
+			vip_patterns_buf,
+			ffi.sizeof(vip_patterns_buf),
+			imgui.ImVec2(0, 180)
+		)
+		imgui.PopItemWidth()
+
+		if imgui.Button(L("vip_and_ad_chat.text.vip_patterns"), imgui.ImVec2(120, 0)) then
+			local next_patterns = apply_pattern_list_from_buffer(vip_patterns_buf)
+			config.vip = next_patterns
+			vip_patterns_last_serialized = serialize_string_list(next_patterns)
+			module.save()
 		end
+		imgui.SameLine()
+		help_marker(L("vip_and_ad_chat.text.vip_67"))
+
+		imgui.SameLine()
+		if imgui.Button(L("vip_and_ad_chat.text.vip_patterns_reset"), imgui.ImVec2(120, 0)) then
+			config.vip = clone_table(default_config.vip or {})
+			local reset_serialized = serialize_string_list(config.vip)
+			fill_buf_utf8(vip_patterns_buf, reset_serialized)
+			vip_patterns_last_serialized = reset_serialized
+			module.save()
+		end
+		imgui.SameLine()
+		help_marker(L("vip_and_ad_chat.text.text_68"))
+		imgui.Separator()
+		config.ad = config.ad or clone_table(default_config.ad)
+		config.ad.main = config.ad.main or clone_table(default_config.ad.main)
+		config.ad.pre_edit = config.ad.pre_edit or clone_table(default_config.ad.pre_edit)
+		config.ad.edited = config.ad.edited or clone_table(default_config.ad.edited)
+
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.ad_templates"))
+		imgui.TextWrapped(L("vip_and_ad_chat.text.ad_templates_desc"))
+		imgui.Spacing()
+		imgui.TextWrapped(L("vip_and_ad_chat.text.lua"))
+		imgui.Spacing()
+
+		local changed
+		config.ad.main, ad_main_patterns_last_serialized, changed = draw_pattern_list_editor({
+			title_key = "vip_and_ad_chat.text.ad_templates_main",
+			desc_key = "vip_and_ad_chat.text.ad_templates_main_desc",
+			list = config.ad.main,
+			defaults = default_config.ad.main,
+			buf = ad_main_patterns_buf,
+			last_serialized = ad_main_patterns_last_serialized,
+			input_id = "##adMainPatterns",
+			apply_id = "##adMainPatternsApply",
+			reset_id = "##adMainPatternsReset",
+			height = 120,
+		})
+		if changed then
+			module.save()
+		end
+
+		imgui.Spacing()
+		config.ad.pre_edit, ad_pre_edit_patterns_last_serialized, changed = draw_pattern_list_editor({
+			title_key = "vip_and_ad_chat.text.ad_templates_pre_edit",
+			desc_key = "vip_and_ad_chat.text.ad_templates_pre_edit_desc",
+			list = config.ad.pre_edit,
+			defaults = default_config.ad.pre_edit,
+			buf = ad_pre_edit_patterns_buf,
+			last_serialized = ad_pre_edit_patterns_last_serialized,
+			input_id = "##adPreEditPatterns",
+			apply_id = "##adPreEditPatternsApply",
+			reset_id = "##adPreEditPatternsReset",
+			height = 90,
+		})
+		if changed then
+			module.save()
+		end
+
+		imgui.Spacing()
+		config.ad.edited, ad_edited_patterns_last_serialized, changed = draw_pattern_list_editor({
+			title_key = "vip_and_ad_chat.text.ad_templates_edited",
+			desc_key = "vip_and_ad_chat.text.ad_templates_edited_desc",
+			list = config.ad.edited,
+			defaults = default_config.ad.edited,
+			buf = ad_edited_patterns_buf,
+			last_serialized = ad_edited_patterns_last_serialized,
+			input_id = "##adEditedPatterns",
+			apply_id = "##adEditedPatternsApply",
+			reset_id = "##adEditedPatternsReset",
+			height = 90,
+		})
+		if changed then
+			module.save()
+		end
+
+		imgui.Separator()
+		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), L("vip_and_ad_chat.text.text_69"))
+		imgui.TextWrapped(L("vip_and_ad_chat.text.text_70"))
+		imgui.Spacing()
+
+		highlight_words_last_serialized = sync_list_buffer(
+			config.highlightWords or {},
+			highlight_words_buf,
+			highlight_words_last_serialized
+		)
 		imgui.PushItemWidth(-1)
 		imgui.InputTextMultiline(
 			"##highlightWords",
@@ -2686,7 +3026,7 @@ draw_settings_content = function()
 		)
 		imgui.PopItemWidth()
 
-		if imgui.Button("Применить##highlight_words", imgui.ImVec2(120, 0)) then
+		if imgui.Button(L("vip_and_ad_chat.text.highlight_words"), imgui.ImVec2(120, 0)) then
 			local raw = ffi.string(highlight_words_buf)
 			local next_words = {}
 			local seen = {}
@@ -2702,22 +3042,15 @@ draw_settings_content = function()
 			module.save()
 		end
 		imgui.SameLine()
-		help_marker("Сохранить список слов для подсветки")
-	end
-
-	imgui.Separator()
-
-	-- БЛОК: Продвинутое
-	if imgui.CollapsingHeader("Продвинутое") then
-		imgui.TextColored(imgui.ImVec4(1, 0.5, 0, 1), "Осторожно! Эти настройки для опытных пользователей.")
-		imgui.Spacing()
-
+		help_marker(L("vip_and_ad_chat.text.text_71"))
+	elseif nav.page == SETTINGS_SECTION_POPUP then
 		config.popup = config.popup or clone_table(default_config.popup)
 		local popup_cfg = config.popup
 
-		imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1), "Попап копирования:")
+		imgui.TextWrapped(L("vip_and_ad_chat.text.text_72"))
+		imgui.Spacing()
 
-		aligned_text("Мин. ширина:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_73"), 180)
 		imgui.PushItemWidth(150)
 		local popup_min_w = ui_int("popup_min_w", popup_cfg.min_w or 320)
 		if imgui.DragInt("##popup_min_w", popup_min_w, 1, 200, 1000) then
@@ -2726,9 +3059,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
-		aligned_text("Макс. ширина:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_74"), 180)
 		imgui.PushItemWidth(150)
 		local popup_max_w = ui_int("popup_max_w", popup_cfg.max_w or 900)
 		if imgui.DragInt("##popup_max_w", popup_max_w, 1, 400, 1920) then
@@ -2737,9 +3070,9 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		imgui.Text("пикс.")
+		imgui.Text(L("vip_and_ad_chat.text.text_31"))
 
-		aligned_text("Мин. строк:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_75"), 180)
 		imgui.PushItemWidth(150)
 		local popup_min_lines = ui_int("popup_min_lines", popup_cfg.min_lines or 3)
 		if imgui.DragInt("##popup_min_lines", popup_min_lines, 1, 1, 20) then
@@ -2748,7 +3081,7 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 
-		aligned_text("Макс. строк:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_76"), 180)
 		imgui.PushItemWidth(150)
 		local popup_max_lines = ui_int("popup_max_lines", popup_cfg.max_lines or 14)
 		if imgui.DragInt("##popup_max_lines", popup_max_lines, 1, 3, 50) then
@@ -2757,7 +3090,7 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 
-		aligned_text("Символов на строку:", 180)
+		aligned_text(L("vip_and_ad_chat.text.text_77"), 180)
 		imgui.PushItemWidth(150)
 		local popup_chars_per_line = ui_int("popup_chars_per_line", popup_cfg.chars_per_line or 70)
 		if imgui.DragInt("##popup_chars_per_line", popup_chars_per_line, 1, 30, 150) then
@@ -2766,27 +3099,31 @@ draw_settings_content = function()
 		end
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		help_marker("Приблизительное количество символов для расчета высоты попапа")
+		help_marker(L("vip_and_ad_chat.text.text_78"))
 	end
 end
 
 function module.DrawSettingsWindow()
 	if not settings_open[0] then
+		settings_window_nav.page = 0
 		return
 	end
 	imgui.SetNextWindowSize(imgui.ImVec2(650, 600), imgui.Cond.FirstUseEver)
-	if imgui.Begin("VIP/AD чат - настройки", settings_open) then
-		draw_settings_content()
+	if imgui.Begin(L("vip_and_ad_chat.text.vip_ad_79"), settings_open) then
+		draw_settings_content(settings_window_nav)
 		if mimgui_funcs and mimgui_funcs.clampCurrentWindowToScreen then
 			mimgui_funcs.clampCurrentWindowToScreen(5)
 		end
 	end
 	imgui.End()
+	if not settings_open[0] then
+		settings_window_nav.page = 0
+	end
 	flush_save_if_due(false)
 end
 
 function module.DrawSettingsInline()
-	draw_settings_content()
+	draw_settings_content(settings_inline_nav)
 	flush_save_if_due(false)
 end
 
@@ -2807,7 +3144,9 @@ function module.attachModules(mod)
 					return config
 				end,
 				serialize = function(data)
-					return deep_copy_sanitized(data)
+					local serialized = deep_copy_sanitized(data)
+					serialized.enabled = nil
+					return serialized
 				end,
 			})
 		else

@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -65,39 +70,39 @@ local function is_valid_utf8(text)
 end
 
 local UTF8_UPPER_TO_LOWER = {
-	["А"] = "а",
-	["Б"] = "б",
-	["В"] = "в",
-	["Г"] = "г",
-	["Д"] = "д",
-	["Е"] = "е",
-	["Ё"] = "ё",
-	["Ж"] = "ж",
-	["З"] = "з",
-	["И"] = "и",
-	["Й"] = "й",
-	["К"] = "к",
-	["Л"] = "л",
-	["М"] = "м",
-	["Н"] = "н",
-	["О"] = "о",
-	["П"] = "п",
-	["Р"] = "р",
-	["С"] = "с",
-	["Т"] = "т",
-	["У"] = "у",
-	["Ф"] = "ф",
-	["Х"] = "х",
-	["Ц"] = "ц",
-	["Ч"] = "ч",
-	["Ш"] = "ш",
-	["Щ"] = "щ",
-	["Ъ"] = "ъ",
-	["Ы"] = "ы",
-	["Ь"] = "ь",
-	["Э"] = "э",
-	["Ю"] = "ю",
-	["Я"] = "я",
+	[L("smi_live.capitals_quiz.text.text")] = L("smi_live.capitals_quiz.text.text_1"),
+	[L("smi_live.capitals_quiz.text.text_2")] = L("smi_live.capitals_quiz.text.text_3"),
+	[L("smi_live.capitals_quiz.text.text_4")] = L("smi_live.capitals_quiz.text.text_5"),
+	[L("smi_live.capitals_quiz.text.text_6")] = L("smi_live.capitals_quiz.text.text_7"),
+	[L("smi_live.capitals_quiz.text.text_8")] = L("smi_live.capitals_quiz.text.text_9"),
+	[L("smi_live.capitals_quiz.text.text_10")] = L("smi_live.capitals_quiz.text.text_11"),
+	[L("smi_live.capitals_quiz.text.text_12")] = L("smi_live.capitals_quiz.text.text_13"),
+	[L("smi_live.capitals_quiz.text.text_14")] = L("smi_live.capitals_quiz.text.text_15"),
+	[L("smi_live.capitals_quiz.text.text_16")] = L("smi_live.capitals_quiz.text.text_17"),
+	[L("smi_live.capitals_quiz.text.text_18")] = L("smi_live.capitals_quiz.text.text_19"),
+	[L("smi_live.capitals_quiz.text.text_20")] = L("smi_live.capitals_quiz.text.text_21"),
+	[L("smi_live.capitals_quiz.text.text_22")] = L("smi_live.capitals_quiz.text.text_23"),
+	[L("smi_live.capitals_quiz.text.text_24")] = L("smi_live.capitals_quiz.text.text_25"),
+	[L("smi_live.capitals_quiz.text.text_26")] = L("smi_live.capitals_quiz.text.text_27"),
+	[L("smi_live.capitals_quiz.text.text_28")] = L("smi_live.capitals_quiz.text.text_29"),
+	[L("smi_live.capitals_quiz.text.text_30")] = L("smi_live.capitals_quiz.text.text_31"),
+	[L("smi_live.capitals_quiz.text.text_32")] = L("smi_live.capitals_quiz.text.text_33"),
+	[L("smi_live.capitals_quiz.text.text_34")] = L("smi_live.capitals_quiz.text.text_35"),
+	[L("smi_live.capitals_quiz.text.text_36")] = L("smi_live.capitals_quiz.text.text_37"),
+	[L("smi_live.capitals_quiz.text.text_38")] = L("smi_live.capitals_quiz.text.text_39"),
+	[L("smi_live.capitals_quiz.text.text_40")] = L("smi_live.capitals_quiz.text.text_41"),
+	[L("smi_live.capitals_quiz.text.text_42")] = L("smi_live.capitals_quiz.text.text_43"),
+	[L("smi_live.capitals_quiz.text.text_44")] = L("smi_live.capitals_quiz.text.text_45"),
+	[L("smi_live.capitals_quiz.text.text_46")] = L("smi_live.capitals_quiz.text.text_47"),
+	[L("smi_live.capitals_quiz.text.text_48")] = L("smi_live.capitals_quiz.text.text_49"),
+	[L("smi_live.capitals_quiz.text.text_50")] = L("smi_live.capitals_quiz.text.text_51"),
+	[L("smi_live.capitals_quiz.text.text_52")] = L("smi_live.capitals_quiz.text.text_53"),
+	[L("smi_live.capitals_quiz.text.text_54")] = L("smi_live.capitals_quiz.text.text_55"),
+	[L("smi_live.capitals_quiz.text.text_56")] = L("smi_live.capitals_quiz.text.text_57"),
+	[L("smi_live.capitals_quiz.text.text_58")] = L("smi_live.capitals_quiz.text.text_59"),
+	[L("smi_live.capitals_quiz.text.text_60")] = L("smi_live.capitals_quiz.text.text_61"),
+	[L("smi_live.capitals_quiz.text.text_62")] = L("smi_live.capitals_quiz.text.text_63"),
+	[L("smi_live.capitals_quiz.text.text_64")] = L("smi_live.capitals_quiz.text.text_65"),
 }
 
 local function utf8_lower(text)
@@ -118,7 +123,7 @@ end
 
 local function normalize_capital_text_utf8(text)
 	local lowered = utf8_lower(text)
-	lowered = lowered:gsub("С'", "Рµ")
+	lowered = lowered:gsub(L("smi_live.capitals_quiz.text.text_66"), L("smi_live.capitals_quiz.text.text_67"))
 	lowered = lowered:gsub("\226\128\144", "")
 	lowered = lowered:gsub("\226\128\145", "")
 	lowered = lowered:gsub("\226\128\146", "")
@@ -239,7 +244,7 @@ local function build_capitals_answer_candidates(message)
 		return candidates
 	end
 
-	append_unique_candidate(candidates, base:match("[Оо]твет%s*[:%-–—=]+%s*(.+)$"))
+	append_unique_candidate(candidates, base:match(L("smi_live.capitals_quiz.text.format_format")))
 	append_unique_candidate(candidates, base:match(".*[:=]%s*(.+)$"))
 	append_unique_candidate(candidates, base:match(".*%s%-%s+(.+)$"))
 	append_unique_candidate(candidates, base:match(".*%s\226\128\147%s+(.+)$"))
@@ -299,7 +304,7 @@ local function pick_random_capitals_entry()
 	local entries = CapitalsQuiz.entries or {}
 	local count = #entries
 	if count == 0 then
-		return nil, "Таблица столиц пуста. Заполните capitals_quiz.metropolis в SMILive.json."
+		return nil, L("smi_live.capitals_quiz.text.capitals_quiz_metropolis_smilive_json")
 	end
 
 	local available = {}
@@ -310,7 +315,7 @@ local function pick_random_capitals_entry()
 	end
 
 	if #available == 0 then
-		return nil, "Все страны уже были озвучены кнопкой \"Отправить вопрос в чат\". Начните новую игру."
+		return nil, L("smi_live.capitals_quiz.text.text_68")
 	end
 
 	local pool = available
@@ -333,7 +338,7 @@ end
 
 local function build_capitals_fact_messages(entry)
 	if not entry or type(entry.facts) ~= "table" or #entry.facts == 0 then
-		return nil, "Для этой страны нет фактов."
+		return nil, L("smi_live.capitals_quiz.text.text_69")
 	end
 
 	local fact = entry.facts[math.random(1, #entry.facts)]
@@ -341,13 +346,13 @@ local function build_capitals_fact_messages(entry)
 	for _, part in ipairs(fact) do
 		local message, length = ctx.build_news_message_from_text(part)
 		if not message then
-			return nil, string.format("Факт слишком длинный: %d / %d.", length, ctx.NEWS_INPUT_MAX_LENGTH)
+			return nil, string.format(L("smi_live.capitals_quiz.text.number_number"), length, ctx.NEWS_INPUT_MAX_LENGTH)
 		end
 		messages[#messages + 1] = message
 	end
 
 	if #messages == 0 then
-		return nil, "Факт пустой."
+		return nil, L("smi_live.capitals_quiz.text.text_70")
 	end
 
 	return messages
@@ -370,7 +375,7 @@ end
 
 function M.regenerate_capitals_fact_messages(entry)
 	if not entry then
-		return nil, "Нет данных для факта."
+		return nil, L("smi_live.capitals_quiz.text.text_71")
 	end
 
 	local previous = entry._cached_fact_messages
@@ -401,7 +406,7 @@ end
 
 function M.peek_capitals_fact_messages(entry)
 	if not entry then
-		return nil, "Нет данных для факта."
+		return nil, L("smi_live.capitals_quiz.text.text_71")
 	end
 	if entry._cached_fact_messages then
 		return entry._cached_fact_messages
@@ -415,7 +420,7 @@ end
 
 local function consume_capitals_fact_messages(entry)
 	if not entry then
-		return nil, "Нет данных для факта."
+		return nil, L("smi_live.capitals_quiz.text.text_71")
 	end
 	if entry._cached_fact_messages then
 		local messages = entry._cached_fact_messages
@@ -438,7 +443,7 @@ local function broadcast_capitals_question(entry_or_country)
 	end
 
 	if type(country) ~= "string" or country == "" then
-		ctx.update_status("Нет данных для вопроса о столице.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_72"))
 		return false
 	end
 
@@ -455,16 +460,16 @@ local function broadcast_capitals_question(entry_or_country)
 		end
 	end
 
-	local question = string.format("Страна: %s", country)
+	local question = string.format(L("smi_live.capitals_quiz.text.format"), country)
 	local message, length = ctx.build_news_message_from_text(question)
 	if not message then
-		ctx.update_status("Вопрос слишком длинный: %d / %d.", length, ctx.NEWS_INPUT_MAX_LENGTH)
+		ctx.update_status(L("smi_live.capitals_quiz.text.number_number_73"), length, ctx.NEWS_INPUT_MAX_LENGTH)
 		return false
 	end
 	messages[#messages + 1] = message
 
 	if ctx.get_selected_method() == 3 then
-		ctx.update_status('Вопрос не отправлен: выбран режим "В пустоту".')
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_74"))
 		return false
 	end
 
@@ -474,14 +479,14 @@ local function broadcast_capitals_question(entry_or_country)
 	end
 	ctx.start_sms_listener(true)
 	if warning then
-		ctx.update_status("Факт не отправлен: %s. Вопрос отправлен.", warning)
+		ctx.update_status(L("smi_live.capitals_quiz.text.format_75"), warning)
 	end
 	return true
 end
 
 local function send_capitals_fact(entry)
 	if not entry then
-		ctx.update_status("Нет данных для факта.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_71"))
 		return false
 	end
 
@@ -494,7 +499,7 @@ local function send_capitals_fact(entry)
 	end
 
 	if ctx.get_selected_method() == 3 then
-		ctx.update_status('Факт не отправлен: выбран режим "В пустоту".')
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_76"))
 		return false
 	end
 
@@ -502,7 +507,7 @@ local function send_capitals_fact(entry)
 	if not ok then
 		return false
 	end
-	ctx.update_status("Факт отправлен в эфир.")
+	ctx.update_status(L("smi_live.capitals_quiz.text.text_77"))
 	return true
 end
 
@@ -518,7 +523,7 @@ local function get_capitals_question_preview(entry_or_country)
 	if not country or country == "" then
 		return nil
 	end
-	local question = string.format("Страна: %s", country)
+	local question = string.format(L("smi_live.capitals_quiz.text.format"), country)
 	local question_message = ctx.build_news_message_from_text(question)
 	local first_line = question_message or question
 	if entry then
@@ -561,7 +566,7 @@ local function reset_capitals_scoreboard()
 	CapitalsQuiz.last_entry = nil
 	CapitalsQuiz.last_country = nil
 	CapitalsQuiz.announced_countries = {}
-	ctx.update_status("Игра сброшена. Сгенерируйте вопрос, чтобы начать раунд.")
+	ctx.update_status(L("smi_live.capitals_quiz.text.text_78"))
 	reset_capitals_buffers()
 	ctx.Config:clearRuntimeState()
 end
@@ -570,7 +575,7 @@ local function start_new_capitals_game()
 	local CapitalsQuiz = ctx.CapitalsQuiz
 	CapitalsQuiz.active = true
 	reset_capitals_scoreboard()
-	ctx.update_status("Игра началась. Цель - %d очка(ов).", CapitalsQuiz.target_scores[CapitalsQuiz.target_index])
+	ctx.update_status(L("smi_live.capitals_quiz.text.number"), CapitalsQuiz.target_scores[CapitalsQuiz.target_index])
 end
 
 local function end_capitals_game(winner)
@@ -578,7 +583,7 @@ local function end_capitals_game(winner)
 	CapitalsQuiz.active = false
 	CapitalsQuiz.winner = winner
 	ctx.update_status(
-		"%s достигает %d очков и побеждает!",
+		L("smi_live.capitals_quiz.text.format_number"),
 		winner,
 		CapitalsQuiz.target_scores[CapitalsQuiz.target_index]
 	)
@@ -599,7 +604,7 @@ end
 local function stop_capitals_game_manually()
 	local CapitalsQuiz = ctx.CapitalsQuiz
 	CapitalsQuiz.active = false
-	ctx.update_status("Игра завершена вручную.")
+	ctx.update_status(L("smi_live.capitals_quiz.text.text_79"))
 	CapitalsQuiz.current_country = nil
 	CapitalsQuiz.current_capital = nil
 	CapitalsQuiz.current_entry = nil
@@ -704,7 +709,7 @@ local function start_capitals_round(entry)
 	CapitalsQuiz.awaiting_next_round = false
 	CapitalsQuiz.custom_error = nil
 	State.sms_target_quiz = "capitals"
-	ctx.update_status("Раунд %d: огласите страну и ждите ответы.", CapitalsQuiz.round + 1)
+	ctx.update_status(L("smi_live.capitals_quiz.text.number_80"), CapitalsQuiz.round + 1)
 	reset_capitals_buffers()
 	ctx.mark_runtime_save_dirty()
 	return true
@@ -714,7 +719,7 @@ local function begin_capitals_round()
 	local CapitalsQuiz = ctx.CapitalsQuiz
 	local entry, err = pick_random_capitals_entry()
 	if not entry then
-		CapitalsQuiz.custom_error = err or "Не удалось выбрать страну."
+		CapitalsQuiz.custom_error = err or L("smi_live.capitals_quiz.text.text_81")
 		ctx.update_status(CapitalsQuiz.custom_error)
 		return false
 	end
@@ -755,7 +760,7 @@ local function handle_capitals_correct_answer(player_name, player_id)
 	else
 		CapitalsQuiz.awaiting_next_round = true
 		ctx.update_status(
-			"%s получает балл (%d/%d). Запустите следующий вопрос.",
+			L("smi_live.capitals_quiz.text.format_number_number"),
 			player_name,
 			entry.score,
 			target
@@ -768,7 +773,7 @@ function M._finalize_manual_capitals_round_winner(player_name, player_id)
 	local correct_text = CapitalsQuiz.current_capital or CapitalsQuiz.round_answer
 	local correct_norms = CapitalsQuiz.current_answer_norms or CapitalsQuiz.round_answer_norms
 	if not correct_text or correct_text == "" then
-		return nil, "Не найден текущий ответ вопроса."
+		return nil, L("smi_live.capitals_quiz.text.text_82")
 	end
 	if not correct_norms or #correct_norms == 0 then
 		correct_norms = build_capital_variants(correct_text)
@@ -782,7 +787,7 @@ function M._finalize_manual_capitals_round_winner(player_name, player_id)
 
 	local player_entry, normalized_name = ensure_capitals_player(player_name, player_id)
 	if not player_entry then
-		return nil, "Не удалось обновить счёт игрока."
+		return nil, L("smi_live.capitals_quiz.text.text_83")
 	end
 
 	CapitalsQuiz.latest_round_stats = {
@@ -894,14 +899,14 @@ function M.record_response_from_sms(player_name, player_id, message)
 
 		if lead then
 			ctx.update_status(
-				"Первый верный ответ: %s за %.2f с (опережение %.2f с). Балл начислите вручную.",
+				L("smi_live.capitals_quiz.text.format_2f_2f"),
 				player_name,
 				entry.response_time,
 				lead
 			)
 		else
 			ctx.update_status(
-				"Первый верный ответ: %s за %.2f с. Балл начислите вручную.",
+				L("smi_live.capitals_quiz.text.format_2f"),
 				player_name,
 				entry.response_time
 			)
@@ -914,7 +919,7 @@ function M.record_response_from_sms(player_name, player_id, message)
 	if is_correct then
 		entry.outcome = "correct"
 		ctx.update_status(
-			"%s прислал верный ответ через %.2f с.",
+			L("smi_live.capitals_quiz.text.format_2f_84"),
 			player_name,
 			entry.response_time
 		)
@@ -923,7 +928,7 @@ function M.record_response_from_sms(player_name, player_id, message)
 		local provided = display_answer ~= "" and display_answer or "-"
 		update_capitals_player_last_answer(player_name, provided, false, player_id)
 		ctx.update_status(
-			"%s отвечает через %.2f с: %s (неверно).",
+			L("smi_live.capitals_quiz.text.format_2f_format"),
 			player_name,
 			entry.response_time,
 			provided
@@ -938,22 +943,22 @@ local function announce_capitals_stats(gender)
 	local CapitalsQuiz = ctx.CapitalsQuiz
 	local stats = CapitalsQuiz.latest_round_stats
 	if not stats or not stats.winner then
-		ctx.update_status("Нет данных для объявления ответа.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_85"))
 		return
 	end
 
 	local normalized_gender = gender == "female" and "female" or "male"
 	local has_winner = CapitalsQuiz.winner ~= nil
 	local display_name = ctx.format_display_name(stats.winner, stats.player_id)
-	local subject_label = has_winner and "победителе" or "ответе"
+	local subject_label = has_winner and L("smi_live.capitals_quiz.text.text_86") or L("smi_live.capitals_quiz.text.text_87")
 	local send_key = "capitals_announce_" .. normalized_gender
 
 	ctx.stop_sms_for_announcement()
 	ctx.update_status(
-		"Отправляем сообщение об %s для %s (%s)...",
+		L("smi_live.capitals_quiz.text.format_format_format"),
 		subject_label,
 		display_name,
-		normalized_gender == "female" and "ж" or "м"
+		normalized_gender == "female" and L("smi_live.capitals_quiz.text.text_15") or L("smi_live.capitals_quiz.text.text_27")
 	)
 
 	local sent
@@ -980,23 +985,23 @@ local function announce_capitals_stats(gender)
 	end
 
 	if sent then
-		ctx.update_status("Сообщение об %s отправлено для %s.", subject_label, display_name)
+		ctx.update_status(L("smi_live.capitals_quiz.text.format_format_88"), subject_label, display_name)
 	end
 end
 
 local function submit_capitals_answer_from_fields(gender)
 	local CapitalsQuiz = ctx.CapitalsQuiz
 	if not CapitalsQuiz.active then
-		ctx.update_status("Игра не активна. Сначала начните раунд.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_89"))
 		return
 	end
 
 	if not CapitalsQuiz.answer_start_time then
-		ctx.update_status("Нет активного вопроса для проверки.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_90"))
 		return
 	end
 	if not CapitalsQuiz.accepting_answers then
-		ctx.update_status("Раунд уже закрыт. Запустите следующий вопрос.")
+		ctx.update_status(L("smi_live.capitals_quiz.text.text_91"))
 		return
 	end
 
@@ -1064,7 +1069,7 @@ function M._build_capitals_winner_message(gender)
 	local normalized_gender = gender == "female" and "female" or "male"
 	local winner_name = trim(tostring(CapitalsQuiz.winner or ""))
 	if winner_name == "" then
-		return nil, "Победитель ещё не определён."
+		return nil, L("smi_live.capitals_quiz.text.text_92")
 	end
 
 	local normalized_winner = ctx.normalize_player_name(winner_name)
@@ -1100,11 +1105,11 @@ function M._build_capitals_winner_message(gender)
 	local template = gendered_messages
 			and #gendered_messages > 0
 			and gendered_messages[math.random(1, #gendered_messages)]
-		or "Викторина завершена! %s набирает %s и побеждает!"
+		or L("smi_live.capitals_quiz.text.format_format_93")
 	local ok_template, formatted_template = pcall(string.format, template, broadcast_name, score_text)
 	if not ok_template or type(formatted_template) ~= "string" or trim(formatted_template) == "" then
 		formatted_template = string.format(
-			"Викторина завершена! %s набирает %s и побеждает!",
+			L("smi_live.capitals_quiz.text.format_format_93"),
 			broadcast_name,
 			score_text
 		)
@@ -1126,11 +1131,11 @@ local function draw_capitals_scoreboard_table(height)
 		)
 	then
 		imgui.Columns(3, "capitals_quiz_scoreboard_cols", true)
-		imgui.Text("Игрок")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_94"))
 		imgui.NextColumn()
-		imgui.Text("Очки")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_95"))
 		imgui.NextColumn()
-		imgui.Text("Последний ответ")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_96"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -1156,7 +1161,7 @@ local function draw_capitals_scoreboard_table(height)
 		imgui.Columns(1)
 
 		if not has_rows then
-			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Данных пока нет.")
+			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), L("smi_live.capitals_quiz.text.text_97"))
 		end
 	end
 	imgui.EndChild()
@@ -1174,13 +1179,13 @@ local function draw_capitals_responses_table(height)
 		)
 	then
 		imgui.Columns(4, "capitals_quiz_responses_cols", true)
-		imgui.Text("Игрок")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_94"))
 		imgui.NextColumn()
-		imgui.Text("ID")
+		imgui.Text(L("common.id"))
 		imgui.NextColumn()
-		imgui.Text("Ответ")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_98"))
 		imgui.NextColumn()
-		imgui.Text("Время")
+		imgui.Text(L("smi_live.capitals_quiz.text.text_99"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -1221,7 +1226,7 @@ local function draw_capitals_responses_table(height)
 		imgui.Columns(1)
 
 		if not has_rows then
-			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), "Ответов пока нет.")
+			imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1), L("smi_live.capitals_quiz.text.text_100"))
 		end
 	end
 	imgui.EndChild()
@@ -1243,7 +1248,7 @@ local function draw_capitals_latest_round_stats()
 	local summary
 	if stats.points_awarded and stats.points_awarded > 0 then
 		summary = string.format(
-			"Страна: %s | Победитель раунда: %s[%s] - %s | Всего ответов: %d",
+			L("smi_live.capitals_quiz.text.format_format_format_format_number"),
 			country,
 			winner,
 			player_id,
@@ -1252,7 +1257,7 @@ local function draw_capitals_latest_round_stats()
 		)
 	else
 		summary = string.format(
-			"Страна: %s | Рекомендация (первый верный): %s[%s] - %s | Всего ответов: %d",
+			L("smi_live.capitals_quiz.text.format_format_format_format_number_101"),
 			country,
 			winner,
 			player_id,
@@ -1268,11 +1273,11 @@ local function draw_capitals_tables_section()
 	local trim = ctx.trim
 	local NEWS_PREFIX = ctx.NEWS_PREFIX
 
-	imgui.Text("Таблица очков")
+	imgui.Text(L("smi_live.capitals_quiz.text.text_102"))
 	draw_capitals_scoreboard_table(SCOREBOARD_HEIGHT)
 
 	imgui.Spacing()
-	imgui.Text("Ответы текущего раунда")
+	imgui.Text(L("smi_live.capitals_quiz.text.text_103"))
 	draw_capitals_responses_table(RESPONSES_HEIGHT)
 
 	imgui.Spacing()
@@ -1290,7 +1295,7 @@ local function draw_capitals_tables_section()
 
 	imgui.SameLine()
 	imgui.PushItemWidth(240)
-	if imgui.InputText("Ник игрока##capitals_name", CapitalsQuiz.player_name_buf, 48) then
+	if imgui.InputText(L("smi_live.capitals_quiz.text.capitals_name"), CapitalsQuiz.player_name_buf, 48) then
 		local name = trim(str(CapitalsQuiz.player_name_buf))
 		if name ~= "" then
 			ctx.try_fill_id_from_name(CapitalsQuiz.player_id_buf, name)
@@ -1303,13 +1308,13 @@ local function draw_capitals_tables_section()
 		local alpha = imgui.GetStyle().Alpha
 		imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha * 0.5)
 	end
-	if imgui.Button("Остановить прием сообщений##capitals_stop_listen") and has_manual_target then
+	if imgui.Button(L("smi_live.capitals_quiz.text.capitals_stop_listen")) and has_manual_target then
 		if not CapitalsQuiz.active then
-			ctx.update_status("Игра не активна. Сначала начните раунд.")
+			ctx.update_status(L("smi_live.capitals_quiz.text.text_89"))
 		elseif not CapitalsQuiz.answer_start_time then
-			ctx.update_status("Нет активного вопроса для проверки.")
+			ctx.update_status(L("smi_live.capitals_quiz.text.text_90"))
 		elseif not CapitalsQuiz.accepting_answers then
-			ctx.update_status("Раунд уже закрыт. Запустите следующий вопрос.")
+			ctx.update_status(L("smi_live.capitals_quiz.text.text_91"))
 		else
 			local name, player_id, err = ctx.resolve_player_from_inputs(CapitalsQuiz.player_id_buf, CapitalsQuiz.player_name_buf)
 			if err then
@@ -1320,19 +1325,19 @@ local function draw_capitals_tables_section()
 					ctx.update_status(finalize_err)
 				else
 					local display_name = ctx.format_display_name(stats and stats.winner or name, stats and stats.player_id or player_id)
-					local stop_message = string.format("%s %s", NEWS_PREFIX, "Стоп!")
+					local stop_message = string.format("%s %s", NEWS_PREFIX, L("smi_live.capitals_quiz.text.text_104"))
 					local sent = ctx.broadcast_sequence({ stop_message }, "capitals_stop_listen")
 					if sent then
 						ctx.stop_sms_for_announcement()
-						ctx.update_status('Победитель %s зафиксирован. Отправлено сообщение "Стоп!".', display_name)
+						ctx.update_status(L("smi_live.capitals_quiz.text.format_105"), display_name)
 					elseif ctx.get_selected_method() == 3 then
 						ctx.stop_sms_for_announcement()
 						ctx.update_status(
-							'Победитель %s зафиксирован. Сообщение "Стоп!" не отправлено: выбран режим "В пустоту".',
+							L("smi_live.capitals_quiz.text.format_106"),
 							display_name
 						)
 					else
-						ctx.update_status('Победитель %s зафиксирован, но сообщение "Стоп!" не отправлено.', display_name)
+						ctx.update_status(L("smi_live.capitals_quiz.text.format_107"), display_name)
 					end
 				end
 			end
@@ -1344,11 +1349,11 @@ local function draw_capitals_tables_section()
 
 	imgui.SameLine()
 	if CapitalsQuiz.active then
-		if imgui.Button("Сбросить игру##capitals_reset_game") then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_reset_game")) then
 			start_new_capitals_game()
 		end
 	else
-		if imgui.Button("Сбросить таблицу##capitals_reset_table") then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_reset_table")) then
 			reset_capitals_scoreboard()
 		end
 	end
@@ -1382,7 +1387,7 @@ function M.DrawCapitalsQuiz(show_tables)
 				imgui.SameLine()
 			end
 			imgui.PushIDInt(1000 + idx)
-			if imgui.RadioButtonBool(string.format("%d очка", target), CapitalsQuiz.target_index == idx) then
+			if imgui.RadioButtonBool(string.format(L("smi_live.capitals_quiz.text.number_108"), target), CapitalsQuiz.target_index == idx) then
 				CapitalsQuiz.target_index = idx
 				ctx.Config:save()
 			end
@@ -1391,20 +1396,20 @@ function M.DrawCapitalsQuiz(show_tables)
 
 		imgui.SameLine()
 		push_button_palette(COLOR_ACCENT_SUCCESS)
-		if imgui.Button("Начать игру##capitals_start") then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_start")) then
 			start_new_capitals_game()
 		end
 		pop_button_palette()
 	else
 		if CapitalsQuiz.awaiting_next_round then
 			push_button_palette(COLOR_ACCENT_PRIMARY)
-			if imgui.Button("Следующая страна##capitals_next") then
+			if imgui.Button(L("smi_live.capitals_quiz.text.capitals_next")) then
 				begin_capitals_round()
 			end
 			pop_button_palette()
 		else
 			push_button_palette(COLOR_ACCENT_PRIMARY)
-			if imgui.Button("Сгенерировать страну##capitals_generate") then
+			if imgui.Button(L("smi_live.capitals_quiz.text.capitals_generate")) then
 				begin_capitals_round()
 			end
 			pop_button_palette()
@@ -1412,17 +1417,17 @@ function M.DrawCapitalsQuiz(show_tables)
 			if CapitalsQuiz.current_entry then
 				imgui.SameLine()
 				push_button_palette(COLOR_ACCENT_PRIMARY)
-				if imgui.Button("Перегенерировать факт##capitals_regenerate_fact") then
+				if imgui.Button(L("smi_live.capitals_quiz.text.capitals_regenerate_fact")) then
 					local _, err = M.regenerate_capitals_fact_messages(CapitalsQuiz.current_entry)
 					if err then
 						ctx.update_status(err)
 					else
-						ctx.update_status("Факт перегенерирован.")
+						ctx.update_status(L("smi_live.capitals_quiz.text.text_109"))
 					end
 				end
 				local fact_messages = M.peek_capitals_fact_messages(CapitalsQuiz.current_entry)
 				local first_line = fact_messages and fact_messages[1] or nil
-				local tooltip = ctx.combine_send_tooltip("Сгенерировать другой факт для текущей страны.", first_line)
+				local tooltip = ctx.combine_send_tooltip(L("smi_live.capitals_quiz.text.text_110"), first_line)
 				mimgui_funcs.imgui_hover_tooltip_safe(tooltip)
 				pop_button_palette()
 			end
@@ -1430,7 +1435,7 @@ function M.DrawCapitalsQuiz(show_tables)
 
 		imgui.SameLine()
 		push_button_palette(COLOR_ACCENT_DANGER)
-		if imgui.Button("Завершить игру##capitals_stop") then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_stop")) then
 			stop_capitals_game_manually()
 		end
 		pop_button_palette()
@@ -1440,7 +1445,7 @@ function M.DrawCapitalsQuiz(show_tables)
 
 		if CapitalsQuiz.current_country then
 			imgui.Text(
-				escape_imgui_text(string.format("Текущая страна: %s", CapitalsQuiz.current_country))
+				escape_imgui_text(string.format(L("smi_live.capitals_quiz.text.format_111"), CapitalsQuiz.current_country))
 			)
 			if CapitalsQuiz.current_capital then
 				imgui.SameLine()
@@ -1457,12 +1462,12 @@ function M.DrawCapitalsQuiz(show_tables)
 	end
 
 	if CapitalsQuiz.current_country then
-		if imgui.Button("Отправить вопрос в чат##capitals_send") then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_send")) then
 			local payload = CapitalsQuiz.current_entry or CapitalsQuiz.current_country
 			local sent_country = type(payload) == "table" and payload.country or payload
 			if is_capitals_country_announced(sent_country) then
 				ctx.update_status(
-					"Страна \"%s\" уже была озвучена в этой игре. Сгенерируйте следующую.",
+					L("smi_live.capitals_quiz.text.format_112"),
 					tostring(sent_country or "?")
 				)
 			elseif broadcast_capitals_question(payload) then
@@ -1472,13 +1477,13 @@ function M.DrawCapitalsQuiz(show_tables)
 			end
 		end
 		local preview_line = get_capitals_question_preview(CapitalsQuiz.current_entry or CapitalsQuiz.current_country)
-		local tooltip = ctx.combine_send_tooltip("Отправить вопрос в чат.", preview_line)
+		local tooltip = ctx.combine_send_tooltip(L("smi_live.capitals_quiz.text.text_113"), preview_line)
 		mimgui_funcs.imgui_hover_tooltip_safe(tooltip)
 		imgui.SameLine()
 		news_popup._draw_news_popup_editor_button({
 			popup_scope_key = news_popup._make_news_popup_scope_key("capitals", "question"),
 			popup_id = "news_popup_capitals_question",
-			section_name = "Вопрос о столице",
+			section_name = L("smi_live.capitals_quiz.text.text_114"),
 			small_button_label = "..",
 			build_messages_fn = function()
 				local payload = CapitalsQuiz.current_entry or CapitalsQuiz.current_country
@@ -1498,7 +1503,7 @@ function M.DrawCapitalsQuiz(show_tables)
 					end
 				end
 
-				local question = string.format("Страна: %s", country)
+				local question = string.format(L("smi_live.capitals_quiz.text.format"), country)
 				local question_message = ctx.build_news_message_from_text(question)
 				if question_message then
 					messages[#messages + 1] = question_message
@@ -1522,18 +1527,18 @@ function M.DrawCapitalsQuiz(show_tables)
 			imgui.SameLine()
 			local announce_size = imgui.ImVec2(165, 0)
 			push_button_palette(COLOR_ACCENT_PRIMARY)
-			if imgui.Button("Факт о стране##capitals_fact", announce_size) then
+			if imgui.Button(L("smi_live.capitals_quiz.text.capitals_fact"), announce_size) then
 				send_capitals_fact(fact_entry)
 			end
 			local fact_messages = M.peek_capitals_fact_messages(fact_entry)
 			local first_line = fact_messages and fact_messages[1] or nil
-			local tooltip2 = ctx.combine_send_tooltip("Отправить случайный факт о стране.", first_line)
+			local tooltip2 = ctx.combine_send_tooltip(L("smi_live.capitals_quiz.text.text_115"), first_line)
 			mimgui_funcs.imgui_hover_tooltip_safe(tooltip2)
 			imgui.SameLine()
 			news_popup._draw_news_popup_editor_button({
 				popup_scope_key = news_popup._make_news_popup_scope_key("capitals", "fact_current"),
 				popup_id = "news_popup_capitals_fact_current",
-				section_name = "Факт о стране (текущий)",
+				section_name = L("smi_live.capitals_quiz.text.text_116"),
 				small_button_label = "..",
 				build_messages_fn = function()
 					local messages = M.peek_capitals_fact_messages(fact_entry)
@@ -1557,18 +1562,18 @@ function M.DrawCapitalsQuiz(show_tables)
 	if not CapitalsQuiz.current_country and CapitalsQuiz.last_entry then
 		local fact_entry = CapitalsQuiz.last_entry
 		push_button_palette(COLOR_ACCENT_PRIMARY)
-		if imgui.Button("Факт о стране##capitals_fact_last", imgui.ImVec2(165, 0)) then
+		if imgui.Button(L("smi_live.capitals_quiz.text.capitals_fact_last"), imgui.ImVec2(165, 0)) then
 			send_capitals_fact(fact_entry)
 		end
 		local fact_messages = M.peek_capitals_fact_messages(fact_entry)
 		local first_line = fact_messages and fact_messages[1] or nil
-		local tooltip = ctx.combine_send_tooltip("Отправить случайный факт о стране.", first_line)
+		local tooltip = ctx.combine_send_tooltip(L("smi_live.capitals_quiz.text.text_115"), first_line)
 		mimgui_funcs.imgui_hover_tooltip_safe(tooltip)
 		imgui.SameLine()
 		news_popup._draw_news_popup_editor_button({
 			popup_scope_key = news_popup._make_news_popup_scope_key("capitals", "fact_last"),
 			popup_id = "news_popup_capitals_fact_last",
-			section_name = "Факт о стране (последний)",
+			section_name = L("smi_live.capitals_quiz.text.text_117"),
 			small_button_label = "..",
 			build_messages_fn = function()
 				local messages = M.peek_capitals_fact_messages(fact_entry)

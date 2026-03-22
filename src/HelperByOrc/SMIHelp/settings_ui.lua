@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 -- SMIHelp/settings_ui.lua — Панель настроек СМИ Хелпера
 local M = {}
 
@@ -334,12 +339,12 @@ local function DrawSettingsUI_Refactored()
 	S.tpl_action_error = S.tpl_action_error or ""
 
 	local LISTS = {
-		{ id = 1, key = "type_buttons", name = "Типы",      allow_duplicates = false },
-		{ id = 2, key = "objects",      name = "Объекты",   allow_duplicates = false },
-		{ id = 3, key = "prices_buy",   name = "Цены buy",  allow_duplicates = false },
-		{ id = 4, key = "prices_sell",  name = "Цены sell", allow_duplicates = false },
-		{ id = 5, key = "currencies",   name = "Валюты",    allow_duplicates = false },
-		{ id = 6, key = "addons",       name = "Дополнения",allow_duplicates = false },
+		{ id = 1, key = "type_buttons", name = L("smi_help.settings_ui.text.text"),      allow_duplicates = false },
+		{ id = 2, key = "objects",      name = L("smi_help.settings_ui.text.text_1"),   allow_duplicates = false },
+		{ id = 3, key = "prices_buy",   name = L("smi_help.settings_ui.text.buy"),  allow_duplicates = false },
+		{ id = 4, key = "prices_sell",  name = L("smi_help.settings_ui.text.sell"), allow_duplicates = false },
+		{ id = 5, key = "currencies",   name = L("smi_help.settings_ui.text.text_2"),    allow_duplicates = false },
+		{ id = 6, key = "addons",       name = L("smi_help.settings_ui.text.text_3"),allow_duplicates = false },
 	}
 	local LIST_BY_KEY = {}
 	for _, cat in ipairs(LISTS) do
@@ -504,7 +509,7 @@ local function DrawSettingsUI_Refactored()
 		end
 		local payload = table.concat(lines, "\n")
 		if not set_cstring(S.autocorrect, payload) then
-			S.ac_error = "Слишком много правил автокоррекции для текущего буфера."
+			S.ac_error = L("smi_help.settings_ui.text.text_4")
 			return false
 		end
 		S.ac_error = ""
@@ -622,7 +627,7 @@ local function DrawSettingsUI_Refactored()
 
 	local function apply_import_payload(payload)
 		if type(payload) ~= "table" then
-			return false, "Некорректный формат данных."
+			return false, L("smi_help.settings_ui.text.text_5")
 		end
 
 		local pending = {}
@@ -643,7 +648,7 @@ local function DrawSettingsUI_Refactored()
 			ac_text = payload.autocorrect
 		end
 		if ac_text and #ac_text >= sizeof(S.autocorrect) then
-			return false, "Автокоррекция не помещается в буфер."
+			return false, L("smi_help.settings_ui.text.text_6")
 		end
 
 		local map_text = nil
@@ -654,7 +659,7 @@ local function DrawSettingsUI_Refactored()
 			map_text = payload.price_type_map
 		end
 		if map_text and #map_text >= sizeof(S.price_type_map) then
-			return false, "Маппинг типов не помещается в буфер."
+			return false, L("smi_help.settings_ui.text.text_7")
 		end
 
 		for _, item in ipairs(pending) do
@@ -719,33 +724,33 @@ local function DrawSettingsUI_Refactored()
 	local function draw_toolbar()
 		local style = imgui.GetStyle()
 		local spacing = style.ItemSpacing.x
-		local editor_w = imgui.CalcTextSize("Редактор объявлений").x + style.FramePadding.x * 2
-		local live_w = imgui.CalcTextSize("Эфир-викторина").x + style.FramePadding.x * 2
-		local save_w = imgui.CalcTextSize("Сохранить").x + style.FramePadding.x * 2
+		local editor_w = imgui.CalcTextSize(L("smi_help.settings_ui.text.text_8")).x + style.FramePadding.x * 2
+		local live_w = imgui.CalcTextSize(L("smi_help.settings_ui.text.text_9")).x + style.FramePadding.x * 2
+		local save_w = imgui.CalcTextSize(L("smi_help.settings_ui.text.text_10")).x + style.FramePadding.x * 2
 		local dirty_w = S.dirty and (imgui.CalcTextSize("*").x + spacing) or 0
 		local total_w = editor_w + live_w + save_w + spacing * 2 + dirty_w
 
-		imgui.TextUnformatted("СМИ Хелпер - настройки")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_11"))
 		local x = imgui.GetWindowWidth() - style.WindowPadding.x - total_w
 		if x < imgui.GetCursorPosX() then
 			x = imgui.GetCursorPosX()
 		end
 		imgui.SameLine(x)
 
-		if imgui.Button("Редактор объявлений##smi_toolbar_editor") then
+		if imgui.Button(L("smi_help.settings_ui.text.smi_toolbar_editor")) then
 			constructor.OpenEditPreview()
 		end
 		imgui.SameLine()
 
 		local can_live = SMILive and SMILive.OpenWindow
-		if imgui.Button("Эфир-викторина##smi_toolbar_live") then
+		if imgui.Button(L("smi_help.settings_ui.text.smi_toolbar_live")) then
 			if SMILive and SMILive.OpenWindow then
 				SMILive.OpenWindow()
 			end
 		end
 		if not can_live and imgui.IsItemHovered() then
 			if ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("SMILive не подключен или не поддерживает отдельное окно.")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.smilive"))
 			end
 		end
 
@@ -754,7 +759,7 @@ local function DrawSettingsUI_Refactored()
 			imgui.PushStyleColor(Col.Button, ImVec4(0.25, 0.49, 0.86, 1))
 			imgui.PushStyleColor(Col.ButtonHovered, ImVec4(0.31, 0.58, 0.95, 1))
 			imgui.PushStyleColor(Col.ButtonActive, ImVec4(0.22, 0.43, 0.76, 1))
-			if imgui.Button("Сохранить##smi_toolbar_save") then
+			if imgui.Button(L("smi_help.settings_ui.text.smi_toolbar_save")) then
 				save_settings()
 			end
 			imgui.PopStyleColor(3)
@@ -762,9 +767,9 @@ local function DrawSettingsUI_Refactored()
 			imgui.TextColored(ImVec4(1, 0.78, 0.32, 1), "*")
 		else
 			imgui.PushStyleVarFloat(StyleVar.Alpha, style.Alpha * 0.55)
-			imgui.Button("Сохранить##smi_toolbar_save")
+			imgui.Button(L("smi_help.settings_ui.text.smi_toolbar_save"))
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Нет изменений")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_12"))
 			end
 			imgui.PopStyleVar()
 		end
@@ -800,25 +805,25 @@ local function DrawSettingsUI_Refactored()
 		imgui.Separator()
 
 		imgui.PushItemWidth(-190)
-		imgui.InputTextWithHint("##list_filter_" .. id, "Поиск...", state.filter, sizeof(state.filter))
+		imgui.InputTextWithHint("##list_filter_" .. id, L("smi_help.settings_ui.text.text_13"), state.filter, sizeof(state.filter))
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		if imgui.Button("+##list_focus_" .. id) then
+		if imgui.Button(L("common.add_compact") .. "##list_focus_" .. id) then
 			state.focus_new = true
 		end
 		imgui.SameLine()
-		if imgui.Button("Импорт##list_import_btn_" .. id) then
+		if imgui.Button(L("smi_help.settings_ui.text.list_import_btn") .. id) then
 			imgui.OpenPopup("list_import_popup##" .. id)
 		end
 		imgui.SameLine()
-		if imgui.Button("Экспорт##list_export_btn_" .. id) then
+		if imgui.Button(L("smi_help.settings_ui.text.list_export_btn") .. id) then
 			imgui.OpenPopup("list_export_popup##" .. id)
 		end
 
 		if imgui.BeginPopup("list_import_popup##" .. id) then
-			imgui.TextWrapped("Импорт: по одному значению в строке. Пустые строки игнорируются.")
+			imgui.TextWrapped(L("smi_help.settings_ui.text.text_14"))
 			imgui.InputTextMultiline("##list_import_text_" .. id, state.import_buf, sizeof(state.import_buf), ImVec2(0, 170))
-			if imgui.Button("Применить##list_import_apply_" .. id) then
+			if imgui.Button(L("smi_help.settings_ui.text.list_import_apply") .. id) then
 				local backup = clone_string_array(items_table)
 				local changed = false
 				for line in str(state.import_buf):gmatch("[^\r\n]+") do
@@ -832,16 +837,16 @@ local function DrawSettingsUI_Refactored()
 				end
 				if changed then
 					if not commit(backup) then
-						state.error = state.error ~= "" and state.error or "Импорт не применён."
+						state.error = state.error ~= "" and state.error or L("smi_help.settings_ui.text.text_15")
 					end
 				else
-					state.error = "Нет новых значений для импорта."
+					state.error = L("smi_help.settings_ui.text.text_16")
 				end
 				imgui.StrCopy(state.import_buf, "")
 				imgui.CloseCurrentPopup()
 			end
 			imgui.SameLine()
-			if imgui.Button("Закрыть##list_import_close_" .. id) then
+			if imgui.Button(L("smi_help.settings_ui.text.list_import_close") .. id) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
@@ -858,14 +863,14 @@ local function DrawSettingsUI_Refactored()
 				InputTextFlags.ReadOnly
 			)
 			if imgui.SetClipboardText then
-				if imgui.Button("Копировать##list_export_copy_" .. id) then
+				if imgui.Button(L("smi_help.settings_ui.text.list_export_copy") .. id) then
 					imgui.SetClipboardText(str(entry.buf))
 				end
 			else
-				imgui.TextUnformatted("Копирование в буфер недоступно.")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.text_17"))
 			end
 			imgui.SameLine()
-			if imgui.Button("Закрыть##list_export_close_" .. id) then
+			if imgui.Button(L("smi_help.settings_ui.text.list_export_close") .. id) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
@@ -883,9 +888,9 @@ local function DrawSettingsUI_Refactored()
 			col_w = 80
 		end
 		imgui.SetColumnWidth(0, col_w)
-		imgui.TextUnformatted("Значение")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_18"))
 		imgui.NextColumn()
-		imgui.TextUnformatted("Действия")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_19"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -937,7 +942,7 @@ local function DrawSettingsUI_Refactored()
 						table.remove(items_table, i)
 					end
 					if not commit(backup) then
-						state.error = state.error ~= "" and state.error or "Изменение не применено."
+						state.error = state.error ~= "" and state.error or L("smi_help.settings_ui.text.text_20")
 					end
 					modified = true
 				end
@@ -954,7 +959,7 @@ local function DrawSettingsUI_Refactored()
 
 		imgui.Columns(1)
 		if visible_count == 0 then
-			imgui.TextUnformatted("Нет элементов по текущему фильтру.")
+			imgui.TextUnformatted(L("smi_help.settings_ui.text.text_21"))
 		end
 		imgui.EndChild()
 
@@ -965,20 +970,20 @@ local function DrawSettingsUI_Refactored()
 		imgui.PushItemWidth(-120)
 		local submit = imgui.InputTextWithHint(
 			"##list_new_value_" .. id,
-			"Новое значение",
+			L("smi_help.settings_ui.text.text_22"),
 			state.new_value,
 			sizeof(state.new_value),
 			InputTextFlags.EnterReturnsTrue
 		)
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		local clicked = imgui.Button("Добавить##list_add_" .. id)
+		local clicked = imgui.Button(L("smi_help.settings_ui.text.list_add") .. id)
 		if submit or clicked then
 			local value = ctx.trim(str(state.new_value))
 			if value == "" then
-				state.error = "Пустое значение не добавлено."
+				state.error = L("smi_help.settings_ui.text.text_23")
 			elseif (not allow_duplicates) and list_contains(items_table, value) then
-				state.error = "Такое значение уже есть."
+				state.error = L("smi_help.settings_ui.text.text_24")
 			else
 				local backup = clone_string_array(items_table)
 				items_table[#items_table + 1] = value
@@ -986,7 +991,7 @@ local function DrawSettingsUI_Refactored()
 					state.error = ""
 					imgui.StrCopy(state.new_value, "")
 				else
-					state.error = state.error ~= "" and state.error or "Добавление не удалось."
+					state.error = state.error ~= "" and state.error or L("smi_help.settings_ui.text.text_25")
 				end
 			end
 		end
@@ -994,14 +999,14 @@ local function DrawSettingsUI_Refactored()
 
 	local function draw_general_tab()
 		imgui.BeginChild("smi_settings_general", ImVec2(0, 0), false)
-		imgui.TextUnformatted("Память и лимиты")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_26"))
 		imgui.Separator()
 		imgui.PushItemWidth(220)
-		if imgui.InputInt("Лимит истории", S.history_limit, 1, 1000) then
+		if imgui.InputInt(L("smi_help.settings_ui.text.text_27"), S.history_limit, 1, 1000) then
 			set_tab_dirty("general")
 		end
 		clamp_int(S.history_limit, 0, 9999)
-		if imgui.InputInt("Лимит памяти ников", S.nick_memory_limit, 1, 1000) then
+		if imgui.InputInt(L("smi_help.settings_ui.text.text_28"), S.nick_memory_limit, 1, 1000) then
 			set_tab_dirty("general")
 		end
 		clamp_int(S.nick_memory_limit, 0, 9999)
@@ -1011,35 +1016,35 @@ local function DrawSettingsUI_Refactored()
 
 	local function draw_timers_tab()
 		imgui.BeginChild("smi_settings_timers", ImVec2(0, 0), false)
-		imgui.TextUnformatted("Таймеры отправки")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_29"))
 		imgui.Separator()
 
-		if imgui.Checkbox("VIP объявления##vip_enabled", S.vip_timer_enabled) then
+		if imgui.Checkbox(L("smi_help.settings_ui.text.vip_vip_enabled"), S.vip_timer_enabled) then
 			set_tab_dirty("timers")
 		end
 		imgui.SameLine()
 		imgui.PushItemWidth(170)
-		if imgui.InputInt("Задержка (сек)##vip_delay", S.vip_timer_delay, 1, 60) then
+		if imgui.InputInt(L("smi_help.settings_ui.text.vip_delay"), S.vip_timer_delay, 1, 60) then
 			set_tab_dirty("timers")
 		end
 		imgui.PopItemWidth()
 		clamp_int(S.vip_timer_delay, 0, 600)
 
-		if imgui.Checkbox("Кнопка \"Отправить\"##btn_enabled", S.btn_timer_enabled) then
+		if imgui.Checkbox(L("smi_help.settings_ui.text.btn_enabled"), S.btn_timer_enabled) then
 			set_tab_dirty("timers")
 		end
 		imgui.SameLine()
 		imgui.PushItemWidth(170)
-		if imgui.InputInt("Задержка (сек)##btn_delay", S.btn_timer_delay, 1, 60) then
+		if imgui.InputInt(L("smi_help.settings_ui.text.btn_delay"), S.btn_timer_delay, 1, 60) then
 			set_tab_dirty("timers")
 		end
 		imgui.PopItemWidth()
 		clamp_int(S.btn_timer_delay, 0, 600)
 
 		imgui.Spacing()
-		imgui.TextUnformatted("Новости")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_30"))
 		imgui.PushItemWidth(170)
-		if imgui.InputInt("Задержка новостей (сек)", S.timer_news_delay, 1, 60) then
+		if imgui.InputInt(L("smi_help.settings_ui.text.text_31"), S.timer_news_delay, 1, 60) then
 			set_tab_dirty("timers")
 		end
 		imgui.PopItemWidth()
@@ -1055,7 +1060,7 @@ local function DrawSettingsUI_Refactored()
 
 		imgui.BeginChild("smi_settings_lists", ImVec2(0, 0), false)
 		imgui.BeginChild("smi_lists_left", ImVec2(210, 0), true)
-		imgui.TextUnformatted("Категории")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_32"))
 		imgui.Separator()
 		for _, cat in ipairs(LISTS) do
 			local selected = (S.active_list_cat == cat.id)
@@ -1071,9 +1076,9 @@ local function DrawSettingsUI_Refactored()
 		local cat = LISTS[S.active_list_cat] or LISTS[1]
 		local state = ensure_list_state(cat.id)
 		if cat.key == "objects" then
-			imgui.TextColored(ImVec4(0.72, 0.72, 0.72, 1), "Формат записи: сокращение=полное  (пример: а/м=автомобиль)")
+			imgui.TextColored(ImVec4(0.72, 0.72, 0.72, 1), L("smi_help.settings_ui.text.text_33"))
 			imgui.SameLine()
-			if imgui.SmallButton("По умолчанию##objects_reset_defaults") then
+			if imgui.SmallButton(L("smi_help.settings_ui.text.objects_reset_defaults")) then
 				local items = S.list_cache[cat.id]
 				local defaults = objects_to_cache(ctx.OBJECTS_DEFAULT)
 				for i = #items, 1, -1 do
@@ -1086,17 +1091,17 @@ local function DrawSettingsUI_Refactored()
 				set_tab_dirty("lists")
 			end
 			if imgui.IsItemHovered() then
-				ctx.imgui_set_tooltip_safe("Заменить список объектов на встроенный набор по умолчанию")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_34"))
 			end
 			imgui.Spacing()
-			if imgui.Checkbox("Авто: полное название если влезает в 80 символов##objects_use_full", S.objects_use_full) then
+			if imgui.Checkbox(L("smi_help.settings_ui.text.text_80_objects_use_full"), S.objects_use_full) then
 				set_tab_dirty("lists")
 			end
 			if imgui.IsItemHovered() then
 				ctx.imgui_set_tooltip_safe(
 					S.objects_use_full[0]
-					and "Авто: при нажатии кнопки объекта вставляется полное название (если итоговая строка ≤ 80 симв.), иначе — сокращение"
-					or  "Всегда сокращение: при нажатии кнопки объекта всегда вставляется сокращение (а/м, р/с…)"
+					and L("smi_help.settings_ui.text.text_80")
+					or  L("smi_help.settings_ui.text.text_35")
 				)
 			end
 		end
@@ -1141,7 +1146,7 @@ local function DrawSettingsUI_Refactored()
 			local tpl = S.templates_list[idx]
 			local name = ctx.trim(tostring(tpl and tpl.category or ""))
 			if name == "" then
-				name = "Категория " .. tostring(idx)
+				name = L("smi_help.settings_ui.text.text_36") .. tostring(idx)
 			end
 			return name
 		end
@@ -1162,7 +1167,7 @@ local function DrawSettingsUI_Refactored()
 		local function build_unique_category_name(base, skip_idx)
 			base = ctx.trim(tostring(base or ""))
 			if base == "" then
-				base = "Новая категория"
+				base = L("smi_help.settings_ui.text.text_37")
 			end
 			if not has_category_name(base, skip_idx) then
 				return base
@@ -1191,59 +1196,59 @@ local function DrawSettingsUI_Refactored()
 
 		imgui.BeginChild("smi_settings_templates", ImVec2(0, 0), false)
 		imgui.BeginChild("tpl_left_categories", ImVec2(240, 0), true)
-		imgui.TextUnformatted("Категории")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_32"))
 		imgui.Separator()
 		imgui.InputTextWithHint(
 			"##tpl_category_filter",
-			"Поиск категории...",
+			L("smi_help.settings_ui.text.text_38"),
 			S.tpl_category_filter,
 			sizeof(S.tpl_category_filter)
 		)
-		if imgui.Button("+##tpl_cat_add") then
+		if imgui.Button(L("common.add_compact") .. "##tpl_cat_add") then
 			imgui.StrCopy(S.tpl_category_new.buf, "")
 			imgui.OpenPopup("tpl_cat_add_popup")
 		end
 		if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-			ctx.imgui_set_tooltip_safe("Добавить категорию")
+			ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_39"))
 		end
 		imgui.SameLine()
 		local can_rename = S.tpl_active_category > 0 and S.templates_list[S.tpl_active_category] ~= nil
-		if imgui.Button("Переим.##tpl_cat_rename") and can_rename then
+		if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_rename")) and can_rename then
 			imgui.StrCopy(S.tpl_category_rename.buf, category_name(S.tpl_active_category))
 			imgui.OpenPopup("tpl_cat_rename_popup")
 		end
 		if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-			ctx.imgui_set_tooltip_safe("Переименовать категорию")
+			ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_40"))
 		end
 		imgui.SameLine()
-		if imgui.Button("Дубль##tpl_cat_dup") and can_rename then
+		if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_dup")) and can_rename then
 			local src = S.templates_list[S.tpl_active_category]
 			local copy = clone_templates({ src })[1] or { category = category_name(S.tpl_active_category), texts = {} }
-			copy.category = build_unique_category_name(category_name(S.tpl_active_category) .. " копия")
+			copy.category = build_unique_category_name(category_name(S.tpl_active_category) .. L("smi_help.settings_ui.text.text_41"))
 			table.insert(S.templates_list, S.tpl_active_category + 1, copy)
 			S.tpl_active_category = S.tpl_active_category + 1
 			S.tpl_action_error = ""
 			set_tab_dirty("templates")
 		end
 		if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-			ctx.imgui_set_tooltip_safe("Дублировать категорию")
+			ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_42"))
 		end
-		if imgui.Button("Удалить##tpl_cat_del") and can_rename then
+		if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_del")) and can_rename then
 			set_delete_target("category", S.tpl_active_category, 0)
 			imgui.OpenPopup("tpl_delete_confirm_popup")
 		end
 		if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-			ctx.imgui_set_tooltip_safe("Удалить категорию")
+			ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_43"))
 		end
 
 		if imgui.BeginPopup("tpl_cat_add_popup") then
-			imgui.InputText("Название##tpl_cat_add_name", S.tpl_category_new.buf, S.tpl_category_new.size)
-			if imgui.Button("Добавить##tpl_cat_add_ok") then
+			imgui.InputText(L("smi_help.settings_ui.text.tpl_cat_add_name"), S.tpl_category_new.buf, S.tpl_category_new.size)
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_add_ok")) then
 				local name = ctx.trim(str(S.tpl_category_new.buf))
 				if name == "" then
-					S.tpl_action_error = "Название категории не может быть пустым."
+					S.tpl_action_error = L("smi_help.settings_ui.text.text_44")
 				elseif has_category_name(name) then
-					S.tpl_action_error = "Категория с таким названием уже существует."
+					S.tpl_action_error = L("smi_help.settings_ui.text.text_45")
 				else
 					table.insert(S.templates_list, { category = name, texts = {} })
 					S.tpl_active_category = #S.templates_list
@@ -1253,21 +1258,21 @@ local function DrawSettingsUI_Refactored()
 				end
 			end
 			imgui.SameLine()
-			if imgui.Button("Отмена##tpl_cat_add_cancel") then
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_add_cancel")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
 		end
 
 		if imgui.BeginPopup("tpl_cat_rename_popup") then
-			imgui.InputText("Название##tpl_cat_rename_name", S.tpl_category_rename.buf, S.tpl_category_rename.size)
-			if imgui.Button("Применить##tpl_cat_rename_ok") then
+			imgui.InputText(L("smi_help.settings_ui.text.tpl_cat_rename_name"), S.tpl_category_rename.buf, S.tpl_category_rename.size)
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_rename_ok")) then
 				local idx = S.tpl_active_category
 				local name = ctx.trim(str(S.tpl_category_rename.buf))
 				if name == "" then
-					S.tpl_action_error = "Название категории не может быть пустым."
+					S.tpl_action_error = L("smi_help.settings_ui.text.text_44")
 				elseif has_category_name(name, idx) then
-					S.tpl_action_error = "Категория с таким названием уже существует."
+					S.tpl_action_error = L("smi_help.settings_ui.text.text_45")
 				elseif S.templates_list[idx] then
 					S.templates_list[idx].category = name
 					S.tpl_action_error = ""
@@ -1276,7 +1281,7 @@ local function DrawSettingsUI_Refactored()
 				end
 			end
 			imgui.SameLine()
-			if imgui.Button("Отмена##tpl_cat_rename_cancel") then
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_cat_rename_cancel")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
@@ -1296,7 +1301,7 @@ local function DrawSettingsUI_Refactored()
 		imgui.Separator()
 		imgui.BeginChild("tpl_category_list", ImVec2(0, 0), false)
 		if #visible_categories == 0 then
-			imgui.TextUnformatted("Категории не найдены.")
+			imgui.TextUnformatted(L("smi_help.settings_ui.text.text_46"))
 		else
 			local clipper = imgui.ImGuiListClipper(#visible_categories)
 			while clipper:Step() do
@@ -1326,7 +1331,7 @@ local function DrawSettingsUI_Refactored()
 		local active_idx = S.tpl_active_category
 		local active_tpl = S.templates_list[active_idx]
 		if not active_tpl then
-			imgui.TextUnformatted("Выберите категорию или добавьте новую.")
+			imgui.TextUnformatted(L("smi_help.settings_ui.text.text_47"))
 			imgui.EndChild()
 			imgui.EndChild()
 			return
@@ -1346,7 +1351,7 @@ local function DrawSettingsUI_Refactored()
 		imgui.Separator()
 		imgui.InputTextWithHint(
 			"##tpl_template_filter",
-			"Поиск шаблона...",
+			L("smi_help.settings_ui.text.text_48"),
 			S.tpl_template_filter,
 			sizeof(S.tpl_template_filter)
 		)
@@ -1384,9 +1389,9 @@ local function DrawSettingsUI_Refactored()
 			col_w = 120
 		end
 		imgui.SetColumnWidth(0, col_w)
-		imgui.TextUnformatted("Шаблон")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_49"))
 		imgui.NextColumn()
-		imgui.TextUnformatted("Действия")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_19"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -1402,7 +1407,7 @@ local function DrawSettingsUI_Refactored()
 				buf_maybe_grow(buf)
 				imgui.InputTextMultiline("##tpl_edit_" .. active_idx .. "_" .. j, buf.buf, buf.size, ImVec2(0, 76))
 				imgui.NextColumn()
-				if imgui.SmallButton("Сохранить##tpl_row_save_" .. active_idx .. "_" .. j) then
+				if imgui.SmallButton(L("smi_help.settings_ui.text.tpl_row_save") .. active_idx .. "_" .. j) then
 					local edited = {}
 					for line in str(buf.buf):gmatch("[^\r\n]+") do
 						edited[#edited + 1] = line
@@ -1412,14 +1417,14 @@ local function DrawSettingsUI_Refactored()
 					set_tab_dirty("templates")
 				end
 				if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-					ctx.imgui_set_tooltip_safe("Сохранить редактирование")
+					ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_50"))
 				end
 				imgui.SameLine()
-				if imgui.SmallButton("Отмена##tpl_row_cancel_" .. active_idx .. "_" .. j) then
+				if imgui.SmallButton(L("smi_help.settings_ui.text.tpl_row_cancel") .. active_idx .. "_" .. j) then
 					edit_mode[0] = false
 				end
 				if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-					ctx.imgui_set_tooltip_safe("Отменить редактирование")
+					ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_51"))
 				end
 				imgui.NextColumn()
 				return false
@@ -1429,7 +1434,7 @@ local function DrawSettingsUI_Refactored()
 			local line_count = #group
 			local display = first_line
 			if line_count > 1 then
-				display = display .. " (" .. tostring(line_count) .. " строки)"
+				display = display .. " (" .. tostring(line_count) .. L("smi_help.settings_ui.text.text_52")
 			end
 			ctx.imgui_text_safe(display)
 			if line_count > 1 and imgui.IsItemHovered() then
@@ -1446,7 +1451,7 @@ local function DrawSettingsUI_Refactored()
 				return true
 			end
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Переместить выше")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_53"))
 			end
 			imgui.SameLine()
 			if imgui.SmallButton(ICON_DOWN .. "##tpl_down_" .. active_idx .. "_" .. j) and j < #active_tpl.texts then
@@ -1456,7 +1461,7 @@ local function DrawSettingsUI_Refactored()
 				return true
 			end
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Переместить ниже")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_54"))
 			end
 			imgui.SameLine()
 			if imgui.SmallButton(ICON_EDIT .. "##tpl_edit_btn_" .. active_idx .. "_" .. j) then
@@ -1464,7 +1469,7 @@ local function DrawSettingsUI_Refactored()
 				S.tpl_edit_mode[active_idx][j][0] = true
 			end
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Редактировать шаблон")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_55"))
 			end
 			imgui.SameLine()
 			if imgui.SmallButton(ICON_DUPLICATE .. "##tpl_dup_btn_" .. active_idx .. "_" .. j) then
@@ -1474,7 +1479,7 @@ local function DrawSettingsUI_Refactored()
 				return true
 			end
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Дублировать шаблон")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_56"))
 			end
 			imgui.SameLine()
 			if imgui.SmallButton(ICON_DELETE .. "##tpl_del_btn_" .. active_idx .. "_" .. j) then
@@ -1482,7 +1487,7 @@ local function DrawSettingsUI_Refactored()
 				imgui.OpenPopup("tpl_delete_confirm_popup")
 			end
 			if imgui.IsItemHovered() and ctx.imgui_set_tooltip_safe then
-				ctx.imgui_set_tooltip_safe("Удалить шаблон")
+				ctx.imgui_set_tooltip_safe(L("smi_help.settings_ui.text.text_57"))
 			end
 			imgui.NextColumn()
 			return false
@@ -1518,13 +1523,13 @@ local function DrawSettingsUI_Refactored()
 		if imgui.BeginPopup("tpl_delete_confirm_popup") then
 			local target = S.tpl_delete_target
 			if target.kind == "template" then
-				imgui.TextUnformatted("Удалить выбранный шаблон?")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.ya"))
 			elseif target.kind == "category" then
-				imgui.TextUnformatted("Удалить выбранную категорию со всеми шаблонами?")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.ya_58"))
 			else
-				imgui.TextUnformatted("Подтверждение удаления")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.text_59"))
 			end
-			if imgui.Button("Удалить##tpl_delete_yes") then
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_delete_yes")) then
 				if target.kind == "template" then
 					local cat = S.templates_list[target.cat_idx]
 					if cat and type(cat.texts) == "table" and cat.texts[target.tpl_idx] then
@@ -1551,7 +1556,7 @@ local function DrawSettingsUI_Refactored()
 				imgui.CloseCurrentPopup()
 			end
 			imgui.SameLine()
-			if imgui.Button("Отмена##tpl_delete_no") then
+			if imgui.Button(L("smi_help.settings_ui.text.tpl_delete_no")) then
 				set_delete_target("", 0, 0)
 				imgui.CloseCurrentPopup()
 			end
@@ -1563,15 +1568,15 @@ local function DrawSettingsUI_Refactored()
 		if mode ~= 1 and mode ~= 2 and mode ~= 3 then
 			mode = 1
 		end
-		if imgui.RadioButtonBool("Одна строка##tpl_mode_1_" .. active_idx, mode == 1) then
+		if imgui.RadioButtonBool(L("smi_help.settings_ui.text.tpl_mode_1") .. active_idx, mode == 1) then
 			mode = 1
 		end
 		imgui.SameLine()
-		if imgui.RadioButtonBool("Много строк (разбить)##tpl_mode_2_" .. active_idx, mode == 2) then
+		if imgui.RadioButtonBool(L("smi_help.settings_ui.text.tpl_mode_2") .. active_idx, mode == 2) then
 			mode = 2
 		end
 		imgui.SameLine()
-		if imgui.RadioButtonBool("Много строк (группа)##tpl_mode_3_" .. active_idx, mode == 3) then
+		if imgui.RadioButtonBool(L("smi_help.settings_ui.text.tpl_mode_3") .. active_idx, mode == 3) then
 			mode = 3
 		end
 		S.tpl_add_mode[active_idx] = mode
@@ -1579,7 +1584,7 @@ local function DrawSettingsUI_Refactored()
 
 		if mode == 1 then
 			imgui.InputText("##tpl_input_" .. active_idx, S.tpl_input[active_idx].buf, S.tpl_input[active_idx].size)
-			imgui.TextUnformatted("Одна строка: добавится один шаблон")
+			imgui.TextUnformatted(L("smi_help.settings_ui.text.text_60"))
 		else
 			imgui.InputTextMultiline(
 				"##tpl_input_" .. active_idx,
@@ -1588,13 +1593,13 @@ local function DrawSettingsUI_Refactored()
 				ImVec2(0, 72)
 			)
 			if mode == 2 then
-				imgui.TextUnformatted("Много строк: каждая строка добавится отдельным шаблоном")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.text_61"))
 			else
-				imgui.TextUnformatted("Много строк: все строки добавятся одной группой")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.text_62"))
 			end
 		end
 
-		if imgui.Button("Добавить##tpl_add_" .. active_idx) then
+		if imgui.Button(L("smi_help.settings_ui.text.tpl_add") .. active_idx) then
 			local raw = str(S.tpl_input[active_idx].buf)
 			if raw ~= "" then
 				if mode == 1 then
@@ -1634,15 +1639,15 @@ local function DrawSettingsUI_Refactored()
 		end
 
 		imgui.BeginChild("smi_settings_autocorrect", ImVec2(0, 0), false)
-		imgui.TextUnformatted("Правила автокоррекции")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_63"))
 		imgui.Separator()
 
 		buf_maybe_grow(S.ac_new_find)
 		buf_maybe_grow(S.ac_new_repl)
 		imgui.PushItemWidth(180)
 		local submit_find = imgui.InputTextWithHint(
-			"Что##ac_new_find",
-			"Что",
+			L("smi_help.settings_ui.text.ac_new_find"),
+			L("smi_help.settings_ui.text.text_64"),
 			S.ac_new_find.buf,
 			S.ac_new_find.size,
 			InputTextFlags.EnterReturnsTrue
@@ -1651,15 +1656,15 @@ local function DrawSettingsUI_Refactored()
 		imgui.SameLine()
 		imgui.PushItemWidth(220)
 		local submit_repl = imgui.InputTextWithHint(
-			"На что##ac_new_repl",
-			"На что",
+			L("smi_help.settings_ui.text.ac_new_repl"),
+			L("smi_help.settings_ui.text.text_65"),
 			S.ac_new_repl.buf,
 			S.ac_new_repl.size,
 			InputTextFlags.EnterReturnsTrue
 		)
 		imgui.PopItemWidth()
 		imgui.SameLine()
-		if imgui.Button("Добавить##ac_add") or submit_find or submit_repl then
+		if imgui.Button(L("smi_help.settings_ui.text.ac_add")) or submit_find or submit_repl then
 			local find_v = ctx.trim(str(S.ac_new_find.buf))
 			local repl_v = str(S.ac_new_repl.buf)
 			if find_v ~= "" then
@@ -1687,11 +1692,11 @@ local function DrawSettingsUI_Refactored()
 		end
 		imgui.SetColumnWidth(0, col_w)
 		imgui.SetColumnWidth(1, col_w)
-		imgui.TextUnformatted("Что")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_64"))
 		imgui.NextColumn()
-		imgui.TextUnformatted("На что")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_65"))
 		imgui.NextColumn()
-		imgui.TextUnformatted("Действия")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_19"))
 		imgui.NextColumn()
 		imgui.Separator()
 
@@ -1719,7 +1724,7 @@ local function DrawSettingsUI_Refactored()
 			end
 			imgui.NextColumn()
 
-			if imgui.SmallButton("Удалить##ac_del_" .. i) then
+			if imgui.SmallButton(L("smi_help.settings_ui.text.ac_del") .. i) then
 				table.remove(S.autocorrect_rules, i)
 				S.ac_need_rebuild = true
 				sync_ac_to_buffer()
@@ -1733,7 +1738,7 @@ local function DrawSettingsUI_Refactored()
 		imgui.Columns(1)
 		imgui.EndChild()
 
-		if imgui.CollapsingHeader("Сырой формат (совместимость)") then
+		if imgui.CollapsingHeader(L("smi_help.settings_ui.text.text_66")) then
 			if imgui.InputTextMultiline("##ac_raw", S.autocorrect, sizeof(S.autocorrect), ImVec2(0, 140)) then
 				refresh_ac_from_buffer()
 				set_tab_dirty("autocorrect")
@@ -1744,8 +1749,8 @@ local function DrawSettingsUI_Refactored()
 
 	local function draw_import_export_tab()
 		imgui.BeginChild("smi_settings_import_export", ImVec2(0, 0), false)
-		imgui.TextWrapped("Массовые операции импорта/экспорта списков, шаблонов и настроек.")
-		if imgui.Button("Экспорт всего##smi_export_all") then
+		imgui.TextWrapped(L("smi_help.settings_ui.text.text_67"))
+		if imgui.Button(L("smi_help.settings_ui.text.smi_export_all")) then
 			local encoded = ctx.funcs.encodeJsonSafe(collect_export_payload(), { indent = true })
 			if type(encoded) ~= "string" then
 				encoded = ""
@@ -1755,7 +1760,7 @@ local function DrawSettingsUI_Refactored()
 			imgui.OpenPopup("smi_export_all_popup")
 		end
 		imgui.SameLine()
-		if imgui.Button("Импорт всего##smi_import_all") then
+		if imgui.Button(L("smi_help.settings_ui.text.smi_import_all")) then
 			S.import_export_error = ""
 			imgui.OpenPopup("smi_import_all_popup")
 		end
@@ -1774,14 +1779,14 @@ local function DrawSettingsUI_Refactored()
 				InputTextFlags.ReadOnly
 			)
 			if imgui.SetClipboardText then
-				if imgui.Button("Копировать##smi_export_copy") then
+				if imgui.Button(L("smi_help.settings_ui.text.smi_export_copy")) then
 					imgui.SetClipboardText(str(entry.buf))
 				end
 			else
-				imgui.TextUnformatted("Копирование в буфер недоступно.")
+				imgui.TextUnformatted(L("smi_help.settings_ui.text.text_17"))
 			end
 			imgui.SameLine()
-			if imgui.Button("Закрыть##smi_export_close") then
+			if imgui.Button(L("smi_help.settings_ui.text.smi_export_close")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
@@ -1791,31 +1796,31 @@ local function DrawSettingsUI_Refactored()
 			local entry = buf_ensure(S.import_export_buf, "all_import", 16384)
 			buf_maybe_grow(entry)
 			imgui.InputTextMultiline("##smi_import_all_text", entry.buf, entry.size, ImVec2(0, 220))
-			if imgui.Button("Применить##smi_import_apply") then
+			if imgui.Button(L("smi_help.settings_ui.text.smi_import_apply")) then
 				local parsed = ctx.funcs.decodeJsonSafe(str(entry.buf))
 				if type(parsed) ~= "table" then
-					S.import_export_error = "Не удалось разобрать JSON."
+					S.import_export_error = L("smi_help.settings_ui.text.json")
 				else
 					local ok, err = apply_import_payload(parsed)
 					if ok then
 						S.import_export_error = ""
 						imgui.CloseCurrentPopup()
 					else
-						S.import_export_error = err or "Импорт не применён."
+						S.import_export_error = err or L("smi_help.settings_ui.text.text_15")
 					end
 				end
 			end
 			imgui.SameLine()
-			if imgui.Button("Закрыть##smi_import_close") then
+			if imgui.Button(L("smi_help.settings_ui.text.smi_import_close")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
 		end
 
 		imgui.Spacing()
-		imgui.TextUnformatted("Расширенное")
+		imgui.TextUnformatted(L("smi_help.settings_ui.text.text_68"))
 		imgui.Separator()
-		imgui.TextWrapped("Маппинг типов -> цены (buy/sell/both).")
+		imgui.TextWrapped(L("smi_help.settings_ui.text.buy_sell_both"))
 		if imgui.InputTextMultiline("##price_type_map", S.price_type_map, sizeof(S.price_type_map), ImVec2(0, 140)) then
 			set_tab_dirty("import_export")
 		end
@@ -1827,27 +1832,27 @@ local function DrawSettingsUI_Refactored()
 	imgui.Separator()
 
 	if imgui.BeginTabBar("smi_settings_tabs") then
-		if imgui.BeginTabItem(tab_caption("Общее", "general")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_69"), "general")) then
 			draw_general_tab()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem(tab_caption("Таймеры", "timers")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_70"), "timers")) then
 			draw_timers_tab()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem(tab_caption("Списки", "lists")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_71"), "lists")) then
 			draw_lists_tab()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem(tab_caption("Шаблоны", "templates")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_72"), "templates")) then
 			draw_templates_tab()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem(tab_caption("Автокоррекция", "autocorrect")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_73"), "autocorrect")) then
 			draw_autocorrect_tab()
 			imgui.EndTabItem()
 		end
-		if imgui.BeginTabItem(tab_caption("Импорт/экспорт", "import_export")) then
+		if imgui.BeginTabItem(tab_caption(L("smi_help.settings_ui.text.text_74"), "import_export")) then
 			draw_import_export_tab()
 			imgui.EndTabItem()
 		end

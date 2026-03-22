@@ -1,4 +1,9 @@
 local module = {}
+local language = require("language")
+
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 -- listeners[event] = { {callback=fn, owner=string|nil}, ... }
 local listeners = {}
@@ -55,7 +60,10 @@ function module.emit(event, ...)
 		if entry then
 			local ok, err = pcall(entry.callback, ...)
 			if not ok then
-				print(("[HelperByOrc][event_bus] listener error on '%s': %s"):format(event, tostring(err)))
+				print(L("event_bus.log.listener_error", {
+					event = event,
+					error = tostring(err),
+				}))
 			end
 		end
 	end

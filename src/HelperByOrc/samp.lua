@@ -1,243 +1,335 @@
 local module = {}
 local encoding = require("encoding")
+local language = require("language")
 encoding.default = "CP1251"
 local u8 = encoding.UTF8
 local ffi = require("ffi")
 local memory = require("memory")
 local tags
 
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 function module.attachModules(mod)
 	tags = mod.tags
 end
 
 module.currentVersion, module.sampModule = nil, getModuleHandle("samp.dll")
+module._dialog_hook_bypass_depth = 0
+
+local function has_sampfuncs_module()
+	if type(getModuleHandle) ~= "function" then
+		return false
+	end
+	local ok, handle = pcall(getModuleHandle, "SAMPFUNCS.asi")
+	if not ok then
+		return false
+	end
+	return (tonumber(handle) or 0) ~= 0
+end
+
+module.hasSampfuncs = has_sampfuncs_module
+module.BACKEND_STANDARD = "standard"
+module.BACKEND_SAMPFUNCS = "sampfuncs"
+module.BACKEND_ARIZONA = "arizona"
+module._function_backend_mode = module.BACKEND_STANDARD
+module._function_backend_active = module.BACKEND_STANDARD
+module.DIALOG_STYLE_MSGBOX = 0
+module.DIALOG_STYLE_INPUT = 1
+module.DIALOG_STYLE_LIST = 2
+module.DIALOG_STYLE_PASSWORD = 3
+module.DIALOG_STYLE_TABLIST = 4
+module.DIALOG_STYLE_TABLIST_HEADERS = 5
+
+local SAMP_GLOBAL_NAMES = {
+	"sampAddChatMessage",
+	"sampGetChatInputText",
+	"sampGetChatString",
+	"sampIsChatInputActive",
+	"sampIsDialogActive",
+	"sampProcessChatInput",
+	"sampSendChat",
+	"sampSendDialogResponse",
+	"sampSetChatInputEnabled",
+	"sampSetChatInputText",
+}
+
+local ARIZONA_NATIVE_PRIORITY_NAMES = {
+	"sampGetChatInputText",
+	"sampGetChatString",
+	"sampSetChatInputText",
+}
+
+local ARIZONA_NATIVE_PRIORITY_GLOBALS = {
+	sampGetChatInputText = true,
+	sampGetChatString = true,
+	sampSetChatInputText = true,
+}
+
+local SAMP_GLOBAL_STATE_KEY = "__helperbyorc_samp_globals"
+local samp_global_state = rawget(_G, SAMP_GLOBAL_STATE_KEY)
+if type(samp_global_state) ~= "table" then
+	samp_global_state = { originals = {} }
+	rawset(_G, SAMP_GLOBAL_STATE_KEY, samp_global_state)
+end
+
+local managed_samp_globals = {}
+local active_samp_global_sources = {}
+
+local function capture_original_samp_global(name)
+	local originals = samp_global_state.originals
+	if originals[name] ~= nil then
+		return
+	end
+	local current = rawget(_G, name)
+	if current == nil then
+		originals[name] = false
+		return
+	end
+	originals[name] = current
+end
+
+for i = 1, #SAMP_GLOBAL_NAMES do
+	capture_original_samp_global(SAMP_GLOBAL_NAMES[i])
+end
+
+local function get_original_samp_global(name)
+	local value = samp_global_state.originals[name]
+	if value == false then
+		return nil
+	end
+	return value
+end
+
+local function normalize_backend_mode(mode)
+	mode = tostring(mode or ""):lower()
+	if mode == module.BACKEND_SAMPFUNCS then
+		return module.BACKEND_SAMPFUNCS
+	end
+	if mode == module.BACKEND_ARIZONA then
+		return module.BACKEND_ARIZONA
+	end
+	return module.BACKEND_STANDARD
+end
+
+local function should_prefer_native_samp_global(mode, name)
+	if mode == module.BACKEND_SAMPFUNCS then
+		return true
+	end
+	if mode == module.BACKEND_ARIZONA then
+		return ARIZONA_NATIVE_PRIORITY_GLOBALS[name] == true
+	end
+	return false
+end
 
 local entryPoint = {
-	[0x2E2BB7] = { "E", true },
+	[0x2E2BB7] = { "E", false },
 	[0x31DF13] = { "R1", true },
-	[0x3195DD] = { "R2", true },
-	[0xCC490] = { "R3", true },
+	[0x3195DD] = { "R2", false },
+	[0xCC490] = { "R3", false },
 	[0xCC4D0] = { "R3-1", true },
-	[0xCBCD0] = { "R4", true },
-	[0xCBCB0] = { "R4-2", true },
-	[0xCBC90] = { "R5", true },
+	[0xCBCD0] = { "R4", false },
+	[0xCBCB0] = { "R4-2", false },
+	[0xCBC90] = { "R5-2", true },
 	[0xFDB60] = { "DL-R1", true },
 }
 
 module.main_offsets = {
 	["SAMP_INFO_OFFSET"] = {
 		["R1"] = 0x21A0F8,
-		["R2"] = 0x21A100,
 		["R3-1"] = 0x26E8DC,
-		["R4"] = 0x26EA0C,
-		["R4-2"] = 0x26EA0C,
-		["R5"] = 0x26EB94,
+		["R5-2"] = 0x26EB94,
 		["DL-R1"] = 0x2ACA24,
+	},
+	["rakclient_interface"] = {
+		["R1"] = 0x3C9,
+		["R3-1"] = 0x2C,
+		["R5-2"] = 0x0,
+		["DL-R1"] = 0x2C,
 	},
 	["SAMP_DIALOG_INFO_OFFSET"] = {
 		["R1"] = 0x21A0B8,
-		["R2"] = 0x21A0C0,
 		["R3-1"] = 0x26E898,
-		["R4"] = 0x26E9C8,
-		["R4-2"] = 0x26E9C8,
-		["R5"] = 0x26EB50,
+		["R5-2"] = 0x26EB50,
 		["DL-R1"] = 0x2AC9E0,
 	},
 	["SAMP_DIALOG_ACTIVE_OFFSET"] = {
 		["R1"] = 0x28,
-		["R2"] = 0x28,
-		["R3"] = 0x28,
 		["R3-1"] = 0x28,
-		["R4"] = 0x28,
-		["R4-2"] = 0x28,
-		["R5"] = 0x28,
+		["R5-2"] = 0x28,
 		["DL-R1"] = 0x28,
 	},
 	["SAMP_DIALOG_ID_OFFSET"] = {
 		["R1"] = 0x30,
-		["R2"] = 0x30,
-		["R3"] = 0x30,
 		["R3-1"] = 0x30,
-		["R4"] = 0x30,
-		["R4-2"] = 0x30,
-		["R5"] = 0x30,
+		["R5-2"] = 0x30,
 		["DL-R1"] = 0x30,
 	},
 	["SAMP_DIALOG_TEXT_OFFSET"] = {
 		["R1"] = 0x34,
-		["R2"] = 0x34,
-		["R3"] = 0x34,
 		["R3-1"] = 0x34,
-		["R4"] = 0x34,
-		["R4-2"] = 0x34,
-		["R5"] = 0x34,
+		["R5-2"] = 0x34,
 		["DL-R1"] = 0x34,
 	},
 	["CDialog_Show"] = {
 		["R1"] = 0x6B9C0,
-		["R2"] = 0x6BA70,
-		["R3"] = 0x6F8C0,
 		["R3-1"] = 0x6F8C0,
-		["R4"] = 0x6FFE0,
-		["R4-2"] = 0x70010,
-		["R5"] = 0x6FFB0,
+		["R5-2"] = 0x6FFB0,
 		["DL-R1"] = 0x6FA50,
 	},
 	["CDialog_Close"] = {
 		["R1"] = 0x6C040,
-		["R2"] = 0x6C0F0,
-		["R3"] = 0x6FF40,
 		["R3-1"] = 0x6FF40,
-		["R4"] = 0x70660,
-		["R4-2"] = 0x70690,
-		["R5"] = 0x70630,
+		["R5-2"] = 0x70630,
 		["DL-R1"] = 0x700D0,
 	},
 	["SAMP_DIALOG_CAPTION_OFFSET"] = {
 		["R1"] = 0x40,
-		["R2"] = 0x40,
-		["R3"] = 0x40,
 		["R3-1"] = 0x40,
-		["R4"] = 0x40,
-		["R4-2"] = 0x40,
-		["R5"] = 0x40,
+		["R5-2"] = 0x40,
 		["DL-R1"] = 0x40,
 	},
 	["CDXUTEditBox_GetText"] = {
 		["R1"] = 0x81030,
-		["R2"] = 0x810D0,
-		["R3"] = 0x84F40,
 		["R3-1"] = 0x84F40,
-		["R4"] = 0x85680,
-		["R4-2"] = 0x856B0,
-		["R5"] = 0x85650,
+		["R5-2"] = 0x85650,
 		["DL-R1"] = 0x850D0,
 	},
 	["CDXUTEditBox_SetText"] = {
 		["R1"] = 0x80F60,
-		["R2"] = 0x81000,
-		["R3"] = 0x84E70,
 		["R3-1"] = 0x84E70,
-		["R4"] = 0x855B0,
-		["R4-2"] = 0x855E0,
-		["R5"] = 0x85580,
+		["R5-2"] = 0x85580,
 		["DL-R1"] = 0x85000,
 	},
-	["pEditBox"] = { ["R1"] = 0x24, ["R3-1"] = 0x24, ["R5"] = 0x24, ["DL-R1"] = 0x24 },
-	["CDXUTDialog"] = { ["R1"] = 0x1C, ["R3-1"] = 0x1C, ["R5"] = 0x1C, ["DL-R1"] = 0x1C },
-	["SetCursorMode"] = { ["R1"] = 0x9BD30, ["R3-1"] = 0x9FFE0, ["R5"] = 0xA06F0, ["DL-R1"] = 0xA0530 },
-	["RefGame"] = { ["R1"] = 0x21A10C, ["R3-1"] = 0x26E8F4, ["R5"] = 0x26EBAC, ["DL-R1"] = 0x2ACA3C },
+	["pDialogInput_pEditBox"] = { ["R1"] = 0x24, ["R3-1"] = 0x24, ["R5-2"] = 0x24, ["DL-R1"] = 0x24 },
+	["pChatInput_pEditBox"] = { ["R1"] = 0x8, ["R3-1"] = 0x8, ["R5-2"] = 0x8, ["DL-R1"] = 0x8 },
+	["CDXUTDialog"] = { ["R1"] = 0x1C, ["R3-1"] = 0x1C, ["R5-2"] = 0x1C, ["DL-R1"] = 0x1C },
+	["SetCursorMode"] = { ["R1"] = 0x9BD30, ["R3-1"] = 0x9FFE0, ["R5-2"] = 0xA06F0, ["DL-R1"] = 0xA0530 },
+	["RefGame"] = { ["R1"] = 0x21A10C, ["R3-1"] = 0x26E8F4, ["R5-2"] = 0x26EBAC, ["DL-R1"] = 0x2ACA3C },
 	["AddEntry"] = {
 		["R1"] = 0x64010,
-		["R2"] = 0x640E0,
 		["R3-1"] = 0x67460,
-		["R4"] = 0x67BA0,
-		["R4-2"] = 0x67BE0,
+		["R5-2"] = 0x67BE0,
 		["DL-R1"] = 0x067650,
 	},
 	["RenderEntry"] = {
 		["R1"] = 0x638A0,
-		["R2"] = 0x640E0,
 		["R3-1"] = 0x66CF0,
-		["R4"] = 0x67BA0,
-		["R5"] = 0x68380,
+		["R5-2"] = 0x68380,
 		["DL-R1"] = 0x66EE0,
 	},
 	["pChat"] = {
 		["R1"] = 0x21A0E4,
-		["R2"] = 0x21A0EC,
 		["R3-1"] = 0x26E8C8,
-		["R4"] = 0x26E9F8,
-		["R4-2"] = 0x26E9F8,
+		["R5-2"] = 0x26EB80,
 		["DL-R1"] = 0x2ACA10,
+	},
+	["CHAT_TEXT_OFFSET"] = {
+		["R1"] = 0x20,
+		["R3-1"] = 0x20,
+		["R5-2"] = 0x20,
+		["DL-R1"] = 0x20,
+	},
+	["CHAT_PREFIX_TEXT_OFFSET"] = {
+		["R1"] = 0x4,
+		["R3-1"] = 0x4,
+		["R5-2"] = 0x4,
+		["DL-R1"] = 0x4,
+	},
+	["CHAT_COLOR_OFFSET"] = {
+		["R1"] = 0xF4,
+		["R3-1"] = 0xF4,
+		["R5-2"] = 0xF4,
+		["DL-R1"] = 0xF4,
+	},
+	["CHAT_PREFIX_COLOR_OFFSET"] = {
+		["R1"] = 0xF8,
+		["R3-1"] = 0xF8,
+		["R5-2"] = 0xF8,
+		["DL-R1"] = 0xF8,
 	},
 	["AddChatMessage"] = {
 		["R1"] = 0x645A0,
-		["R2"] = 0x64670,
 		["R3-1"] = 0x679F0,
-		["R4"] = 0x68130,
-		["R4-2"] = 0x68070,
+		["R5-2"] = 0x68170,
 		["DL-R1"] = 0x67650,
 	},
 
-	["CInput"] = { ["R1"] = 0x21A0E8, ["R3-1"] = 0x26E8CC, ["R5"] = 0x26EB84, ["DL-R1"] = 0x2ACA14 },
-	["CInput_Opened"] = { ["R1"] = 0x14E0, ["R3-1"] = 0x14E0, ["R5"] = 0x14E0, ["DL-R1"] = 0x14E0 },
+	["SAMP_CHAT_INPUT_INFO_OFFSET"] = { ["R1"] = 0x21A0E8, ["R3-1"] = 0x26E8CC, ["R5-2"] = 0x26EB84, ["DL-R1"] = 0x2ACA14 },
+	["CInput_Opened"] = { ["R1"] = 0x14E0, ["R3-1"] = 0x14E0, ["R5-2"] = 0x14E0, ["DL-R1"] = 0x14E0 },
 
 	["OnResetDevice"] = {
 		["R1"] = 0x64600,
-		["R2"] = 0x646D0,
 		["R3-1"] = 0x67A50,
-		["R4"] = 0x68190,
-		["R4-2"] = 0x681D0,
+		["R5-2"] = 0x681D0,
 		["DL-R1"] = 0x67C40,
 	},
 
-	["CInput_Open"] = { ["R1"] = 0x657E0, ["R3-1"] = 0x68D10, ["R5"] = 0x69480, ["DL-R1"] = 0x68EC0 },
-	["CInput_Close"] = { ["R1"] = 0x658E0, ["R3-1"] = 0x68E10, ["R5"] = 0x69580, ["DL-R1"] = 0x68FC0 },
-	["CInput_Close_fix"] = { ["R1"] = 0x6B9FB, ["R3-1"] = 0x6F8FB, ["R5"] = 0x69580, ["DL-R1"] = 0x68FC0 },
+	["CInput_Open"] = { ["R1"] = 0x657E0, ["R3-1"] = 0x68D10, ["R5-2"] = 0x69480, ["DL-R1"] = 0x68EC0 },
+	["CInput_Close"] = { ["R1"] = 0x658E0, ["R3-1"] = 0x68E10, ["R5-2"] = 0x69580, ["DL-R1"] = 0x68FC0 },
+	["CInput_Close_fix"] = { ["R1"] = 0x6B9FB, ["R3-1"] = 0x6F8FB, ["R5-2"] = 0x69580, ["DL-R1"] = 0x68FC0 },
 
-	["SetPageSize"] = { ["R1"] = 0x636D0, ["R3-1"] = 0x66B20, ["R5"] = 0x672A0, ["DL-R1"] = 0x66D10 },
-	["PageSize_MAX"] = { ["R1"] = 0x64A51, ["R3-1"] = 0x67EB1, ["R5"] = 0x672A0, ["DL-R1"] = 0x66D10 },
-	["PageSize_StringInfo"] = { ["R1"] = 0xD7AD5, ["R3-1"] = 0xE9DB5, ["R5"] = 0x672A0, ["DL-R1"] = 0x66D10 },
+	["SetPageSize"] = { ["R1"] = 0x636D0, ["R3-1"] = 0x66B20, ["R5-2"] = 0x672A0, ["DL-R1"] = 0x66D10 },
+	["PageSize_MAX"] = { ["R1"] = 0x64A51, ["R3-1"] = 0x67EB1, ["R5-2"] = 0x68621, ["DL-R1"] = 0x68091 },
+	["PageSize_StringInfo"] = { ["R1"] = 0xD7AD5, ["R3-1"] = 0xE9DB5, ["R5-2"] = 0xE9E0D, ["DL-R1"] = 0x11BE45 },
 
 	["CInput_Send"] = {
 		["R1"] = 0x65C60,
-		["R2"] = 0x65D30,
 		["R3-1"] = 0x69190,
-		["R4"] = 0x698C0,
-		["R4-2"] = 0x698C0,
+		["R5-2"] = 0x69900,
 		["DL-R1"] = 0x69340,
 	},
 	["CInput_SendSay"] = {
 		["R1"] = 0x57F0,
-		["R2"] = 0x57e0,
 		["R3-1"] = 0x5820,
-		["R4"] = 0x5A00,
-		["R4-2"] = 0x5A00,
+		["R5-2"] = 0x5A10,
 		["DL-R1"] = 0x5860,
 	},
-	["GetName"] = { ["R1"] = 0x13CE0, ["R3-1"] = 0x16F00, ["R5"] = 0x175C0, ["DL-R1"] = 0x170D0 },
-	["SAMP_SLOCALPLAYERID_OFFSET"] = { ["R1"] = 0x4, ["R3-1"] = 0x2F1C, ["R5"] = 0x4, ["DL-R1"] = 0x0 },
-	["SAMP_INFO_OFFSET_Pools"] = { ["R1"] = 0x3CD, ["R3-1"] = 0x3DE, ["R5"] = 0x3DE, ["DL-R1"] = 0x3DE },
-	["SAMP_INFO_OFFSET_Pools_Player"] = { ["R1"] = 0x18, ["R3-1"] = 0x8, ["R5"] = 0x4, ["DL-R1"] = 0x8 },
-	["SAMP_INFO_OFFSET_Pools_Veh"] = { ["R1"] = 0x1C, ["R3-1"] = 0xC, ["R5"] = 0x0, ["DL-R1"] = 0xC },
-	["SAMP_COLOR_OFFSET"] = { ["R1"] = 0x216378, ["R3-1"] = 0x151578, ["R5"] = 0x151828, ["DL-R1"] = 0x18F6C0 },
-	["ID_Find"] = { ["R1"] = 0x10420, ["R3-1"] = 0x13570, ["R5"] = 0x138C0, ["DL-R1"] = 0x137C0 },
-	["CPlayerPool_IsConnected"] = { ["R1"] = 0x10B0, ["R3-1"] = 0x10B0, ["R5"] = 0x10B0, ["DL-R1"] = 0x10B0 },
-	["IDcar_Find"] = { ["R1"] = 0x1B0A0, ["R3-1"] = 0x1E440, ["R5"] = 0x1EB90, ["DL-R1"] = 0x1E650 },
-	["SAMP_PREMOTEPLAYER_OFFSET"] = { ["R1"] = 0x2E, ["R3-1"] = 0x4, ["R5"] = 0x69900, ["DL-R1"] = 0x26 },
-	["SAMP_REMOTEPLAYERDATA_OFFSET"] = { ["R1"] = 0x0, ["R3-1"] = 0x0, ["R5"] = 0x69900, ["DL-R1"] = 0x8 },
-	["pSAMP_Actor"] = { ["R1"] = 0x0, ["R3-1"] = 0x0, ["R5"] = 0x0, ["DL-R1"] = 0x0 },
-	["pGTA_Ped"] = { ["R1"] = 0x2a4, ["R3-1"] = 0x2a4, ["R5"] = 0x2a4, ["DL-R1"] = 0x2a4 },
-	["IsConnected"] = { ["R1"] = 0x10B0, ["R3-1"] = 0x10B0, ["R5"] = 0x10B0, ["DL-R1"] = 0x10B0 },
+	["GetName"] = { ["R1"] = 0x13CE0, ["R3-1"] = 0x16F00, ["R5-2"] = 0x175C0, ["DL-R1"] = 0x170D0 },
+	["SAMP_SLOCALPLAYERID_OFFSET"] = { ["R1"] = 0x4, ["R3-1"] = 0x2F1C, ["R5-2"] = 0x4, ["DL-R1"] = 0x0 },
+	["SAMP_INFO_OFFSET_Pools"] = { ["R1"] = 0x3CD, ["R3-1"] = 0x3DE, ["R5-2"] = 0x3DE, ["DL-R1"] = 0x3DE },
+	["SAMP_INFO_OFFSET_Pools_Player"] = { ["R1"] = 0x18, ["R3-1"] = 0x8, ["R5-2"] = 0x4, ["DL-R1"] = 0x8 },
+	["SAMP_INFO_OFFSET_Pools_Veh"] = { ["R1"] = 0x1C, ["R3-1"] = 0xC, ["R5-2"] = 0x0, ["DL-R1"] = 0xC },
+	["SAMP_COLOR_OFFSET"] = { ["R1"] = 0x216378, ["R3-1"] = 0x151578, ["R5-2"] = 0x151828, ["DL-R1"] = 0x18F6C0 },
+	["ID_Find"] = { ["R1"] = 0x10420, ["R3-1"] = 0x13570, ["R5-2"] = 0x138C0, ["DL-R1"] = 0x137C0 },
+	["CPlayerPool_IsConnected"] = { ["R1"] = 0x10B0, ["R3-1"] = 0x10B0, ["R5-2"] = 0x10B0, ["DL-R1"] = 0x10B0 },
+	["IDcar_Find"] = { ["R1"] = 0x1B0A0, ["R3-1"] = 0x1E440, ["R5-2"] = 0x1EB90, ["DL-R1"] = 0x1E650 },
+	["SAMP_PREMOTEPLAYER_OFFSET"] = { ["R1"] = 0x2E, ["R3-1"] = 0x4, ["R5-2"] = 0x1F8A, ["DL-R1"] = 0x26 },
+	["SAMP_REMOTEPLAYERDATA_OFFSET"] = { ["R1"] = 0x0, ["R3-1"] = 0x0, ["R5-2"] = 0x10, ["DL-R1"] = 0x8 },
+	["pSAMP_Actor"] = { ["R1"] = 0x0, ["R3-1"] = 0x0, ["R5-2"] = 0x0, ["DL-R1"] = 0x0 },
+	["pGTA_Ped"] = { ["R1"] = 0x2a4, ["R3-1"] = 0x2a4, ["R5-2"] = 0x2a4, ["DL-R1"] = 0x2a4 },
+	["IsConnected"] = { ["R1"] = 0x10B0, ["R3-1"] = 0x10B0, ["R5-2"] = 0x10B0, ["DL-R1"] = 0x10B0 },
 
 	["SAMP_REMOTEPLAYERDATA_HEALTH_OFFSET"] = {
 		["R1"] = 0x1BC,
-		["R2"] = 0x1BC,
 		["R3-1"] = 0x1B0,
-		["R4"] = 0x1B0,
-		["R4-2"] = 0x1B0,
+		["R5-2"] = 0x1B0,
 		["DL-R1"] = 0x1B0,
 	},
 	["SAMP_REMOTEPLAYERDATA_ARMOR_OFFSET"] = {
 		["R1"] = 0x1B8,
-		["R2"] = 0x1AC,
 		["R3-1"] = 0x1AC,
-		["R4"] = 0x1AC,
-		["R4-2"] = 0x1AC,
+		["R5-2"] = 0x1B0,
 		["DL-R1"] = 0x1AC,
 	},
 	["CDXUTListBox__GetSelectedIndex"] = {
 		["R1"] = 0x84850,
 		["R3-1"] = 0x88760,
-		["R5"] = 0x88E70,
+		["R5-2"] = 0x88E70,
 		["DL-R1"] = 0x888F0,
 	},
 	["CDXUTListBox__GetItem"] = {
 		["R1"] = 0x86390,
 		["R3-1"] = 0x8A2B0,
-		["R5"] = 0x8A9C0,
+		["R5-2"] = 0x8A9C0,
 		["DL-R1"] = 0x8A440,
+	},
+	["SAMP_SET_DIALOG_LIST_ITEM_OFFSET"] = {
+		["R1"] = 0x863C0,
+		["R3-1"] = 0x8A2E0,
+		["R5-2"] = 0x8A9F0,
+		["DL-R1"] = 0x8A470,
 	},
 }
 
@@ -262,11 +354,13 @@ function module.isSampLoadedLua()
 		local ep = memory.getuint32(module.sampModule + memory.getint32(module.sampModule + 0x3C, false) + 0x28, false)
 		module.currentVersion = entryPoint[ep][1]
 		if not entryPoint[ep][2] then
-			print("Samp version " .. module.currentVersion .. " is not supported")
+			print(L("samp.log.version_not_supported", {
+				version = module.currentVersion,
+			}))
 			thisScript():unload()
 		end
 		if not module.currentVersion then
-			assert(entryPoint[ep], ("Unknown version of SA-MP (Entry point: 0x%X)"):format(ep))
+			assert(entryPoint[ep], (L("samp.error.unknown_version_entry_point")):format(ep))
 		end
 	end
 	return true
@@ -288,6 +382,11 @@ local getEditboxText = ffi.cast(
 local setEditboxText = ffi.cast(
 	"void(__thiscall *)(uintptr_t this, char* text, int i)",
 	module.sampModule + module.main_offsets.CDXUTEditBox_SetText[module.currentVersion]
+)
+
+local SetPageSizeFunc = ffi.cast(
+	"void(__thiscall *)(uintptr_t, int)",
+	module.sampModule + module.main_offsets.SetPageSize[module.currentVersion]
 )
 
 local ID_Find = ffi.cast(
@@ -453,9 +552,7 @@ function module.getCurrentDialogPosition()
 	return 0, 0, 0, 0
 end
 
-function module.CInput_func()
-	return memory.read(module.sampModule + module.main_offsets.CInput[module.currentVersion], 4, true)
-end
+
 
 local SetCursorMode = ffi.cast(
 	"char*(__thiscall *)(uintptr_t, int, bool)",
@@ -477,22 +574,33 @@ end
 
 function module.CDialog_Close_func(int)
 	if module.isDialogActive() then
-		callMethod(
+		module._dialog_hook_bypass_depth = (tonumber(module._dialog_hook_bypass_depth) or 0) + 1
+		local result = { pcall(
+			callMethod,
 			module.sampModule + module.main_offsets.CDialog_Close[module.currentVersion],
 			module.pDialog_func(),
 			1,
 			0,
 			int
-		)
+		) }
+		module._dialog_hook_bypass_depth = math.max((tonumber(module._dialog_hook_bypass_depth) or 1) - 1, 0)
+		if not result[1] then
+			error(result[2], 0)
+		end
+		return unpack(result, 2)
 	end
 end
 
-function module.pEditBox_func()
-	return memory.read(module.pDialog_func() + module.main_offsets.pEditBox[module.currentVersion], 4, true)
+function module.isDialogHookBypassActive()
+	return (tonumber(module._dialog_hook_bypass_depth) or 0) > 0
 end
 
-function module.pEditBox_active_func()
-	return memory.read(module.pEditBox_func() + 0x4, 1, true) == 1 and true or false
+function module.pDialogInput_pEditBox_func()
+	return memory.read(module.pDialog_func() + module.main_offsets.pDialogInput_pEditBox[module.currentVersion], 4, true)
+end
+
+function module.pDialogInput_pEditBox_active_func()
+	return memory.read(module.pDialogInput_pEditBox_func() + 0x4, 1, true) == 1 and true or false
 end
 
 function module.SAMP_DIALOG_ID()
@@ -507,36 +615,40 @@ end
 
 function module.sampSetDialogInputCursor(cursor)
 	if module.isDialogActive() then
-		memory.setint8(module.pEditBox_func() + 0x11E, cursor, false)
-		memory.setint8(module.pEditBox_func() + 0x119, cursor, false)
+		memory.setint8(module.pDialogInput_pEditBox_func() + 0x11E, cursor, false)
+		memory.setint8(module.pDialogInput_pEditBox_func() + 0x119, cursor, false)
 	end
 end
 
 function module.sampGetDialogInputCursor()
-	if module.isDialogActive() and module.pEditBox_active_func() then
-		local pos1 = memory.getint8(module.pEditBox_func() + 0x11E, false) -- Начало выделения
-		local pos2 = memory.getint8(module.pEditBox_func() + 0x119, false) -- Конец выделенного текста.
+	if module.isDialogActive() and module.pDialogInput_pEditBox_active_func() then
+		local pos1 = memory.getint8(module.pDialogInput_pEditBox_func() + 0x11E, false) -- Начало выделения
+		local pos2 = memory.getint8(module.pDialogInput_pEditBox_func() + 0x119, false) -- Конец выделенного текста.
 		return pos1, pos2
 	end
 end
 
-function module.pCInput_func()
-	return memory.read(module.sampModule + module.main_offsets.CInput[module.currentVersion], 4, true)
+function module.SAMP_CHAT_INPUT_INFO_OFFSET_func()
+	return memory.read(module.sampModule + module.main_offsets.SAMP_CHAT_INPUT_INFO_OFFSET[module.currentVersion], 4, true)
 end
 
-function module.pCInput_func_test()
-	return memory.read(module.pCInput_func() + 0x8, 4, true)
+function module.SAMP_CHAT_INPUT_INFO_OFFSET_func_test()
+	return memory.read(module.SAMP_CHAT_INPUT_INFO_OFFSET_func() + 0x8, 4, true)
+end
+
+function module.sampGetChatEditboxText()
+	return ffi.string(getEditboxText(module.SAMP_CHAT_INPUT_INFO_OFFSET_func_test()))
 end
 
 function module.pCInput_Open_Close(bool)
 	local adress = bool and module.main_offsets.CInput_Open[module.currentVersion]
 		or module.main_offsets.CInput_Close[module.currentVersion]
-	callMethod(module.sampModule + adress, module.pCInput_func(), 0, 0)
+	callMethod(module.sampModule + adress, module.SAMP_CHAT_INPUT_INFO_OFFSET_func(), 0, 0)
 end
 
 function module.sampSetChatInputCursor(cursor)
-	memory.setint8(module.pCInput_func_test() + 0x11E, cursor, false)
-	memory.setint8(module.pCInput_func_test() + 0x119, cursor, false)
+	memory.setint8(module.SAMP_CHAT_INPUT_INFO_OFFSET_func_test() + 0x11E, cursor, false)
+	memory.setint8(module.SAMP_CHAT_INPUT_INFO_OFFSET_func_test() + 0x119, cursor, false)
 end
 
 function module.sampGetDialogText()
@@ -576,37 +688,59 @@ function module.get_dialog_caption()
 end
 
 function module.sampGetDialogEditboxText()
-	if module.isDialogActive() and module.pEditBox_active_func() then
-		return ffi.string(getEditboxText(module.pEditBox_func()))
+	local style = module.GetCurrentDialogStyle()
+	if module.isDialogActive() and module.isDialogInputStyle(style) and module.pDialogInput_pEditBox_active_func() then
+		return ffi.string(getEditboxText(module.pDialogInput_pEditBox_func()))
 	end
 	return ""
 end
 
 function module.sampSetDialogEditboxText(text)
-	if module.isDialogActive() and module.pEditBox_active_func() then
-		return setEditboxText(module.pEditBox_func(), ffi.cast("char*", text), 0)
+	local style = module.GetCurrentDialogStyle()
+	if module.isDialogActive() and module.isDialogInputStyle(style) and module.pDialogInput_pEditBox_active_func() then
+		return setEditboxText(module.pDialogInput_pEditBox_func(), ffi.cast("char*", text), 0)
 	end
 end
 
 function module.SetCurrentDialogListItem(int)
-	if module.isDialogActive() then
+	local style = module.GetCurrentDialogStyle()
+	if module.isDialogActive() and module.isDialogListStyle(style) then
 		local SAMP_DIALOG_PTR2_OFFSET = memory.read(module.pDialog_func() + 0x20, 4, true)
-		callMethod(module.sampModule + 0x8A2E0, SAMP_DIALOG_PTR2_OFFSET, 1, 0, int)
+		callMethod(module.sampModule + module.main_offsets.SAMP_SET_DIALOG_LIST_ITEM_OFFSET[module.currentVersion], SAMP_DIALOG_PTR2_OFFSET, 1, 0, int)
 	end
+end
+
+local function getCurrentDialogListBoxPointer()
+	if not module.isDialogActive() then
+		return nil
+	end
+	local style = module.GetCurrentDialogStyle()
+	if not module.isDialogListStyle(style) then
+		return nil
+	end
+	local pListBox = memory.read(module.pDialog_func() + 0x20, 4, true)
+	if not pListBox or pListBox == 0 then
+		return nil
+	end
+	return pListBox
+end
+
+local function getCurrentDialogSelectedIndex()
+	local pListBox = getCurrentDialogListBoxPointer()
+	if not pListBox then
+		return nil
+	end
+	return CDXUTListBox__GetSelectedIndex(pListBox, -1), pListBox
 end
 
 function module.GetCurrentDialogListItem()
-	if module.isDialogActive() then
-		local SAMP_DIALOG_PTR2_OFFSET = memory.read(module.pDialog_func() + 0x20, 4, true)
-		return callMethod(module.sampModule + 0x88760, SAMP_DIALOG_PTR2_OFFSET, 1, 0, -1)
-	end
+	local selectedIndex = getCurrentDialogSelectedIndex()
+	return selectedIndex
 end
 
 function module.getDialogSelectedItemText()
-	if not module.isDialogActive() then return false, "" end
-	local pListBox = memory.read(module.pDialog_func() + 0x20, 4, true)
-	if pListBox == 0 or pListBox == nil then return false, "" end
-	local selectedIndex = CDXUTListBox__GetSelectedIndex(pListBox, -1)
+	local selectedIndex, pListBox = getCurrentDialogSelectedIndex()
+	if selectedIndex == nil or pListBox == nil then return false, "" end
 	local pItem = CDXUTListBox__GetItem(pListBox, selectedIndex)
 	return true, ffi.string(ffi.cast("const char*", pItem))
 end
@@ -617,17 +751,329 @@ function module.GetCurrentDialogStyle()
 	end
 end
 
+function module.isDialogInputStyle(style)
+	style = tonumber(style)
+	return style == module.DIALOG_STYLE_INPUT or style == module.DIALOG_STYLE_PASSWORD
+end
+
+function module.isDialogListStyle(style)
+	style = tonumber(style)
+	return style == module.DIALOG_STYLE_LIST
+		or style == module.DIALOG_STYLE_TABLIST
+		or style == module.DIALOG_STYLE_TABLIST_HEADERS
+end
+
+function module.submitCurrentDialog(button, listItem, inputText)
+	if not module.isDialogActive() then
+		return false, "no_dialog"
+	end
+
+	button = tonumber(button)
+	if button == nil then
+		return false, "invalid_button"
+	end
+	button = math.floor(button)
+	if button ~= 0 and button ~= 1 then
+		return false, "invalid_button"
+	end
+
+	local style = tonumber(module.GetCurrentDialogStyle())
+	if style == nil then
+		return false, "no_style"
+	end
+
+	if button == 1 then
+		if module.isDialogInputStyle(style) then
+			if inputText ~= nil then
+				local ok_set, err = pcall(module.sampSetDialogEditboxText, tostring(inputText))
+				if not ok_set then
+					return false, "set_input_failed", err
+				end
+			end
+		elseif module.isDialogListStyle(style) then
+			if listItem ~= nil then
+				listItem = tonumber(listItem)
+				if listItem == nil then
+					return false, "invalid_listitem"
+				end
+				listItem = math.floor(listItem)
+				local ok_set, err = pcall(module.SetCurrentDialogListItem, listItem)
+				if not ok_set then
+					return false, "set_listitem_failed", err
+				end
+			end
+		end
+	end
+
+	local ok_close, err = pcall(module.CDialog_Close_func, button)
+	if not ok_close then
+		return false, "close_failed", err
+	end
+	return true, style
+end
+
 function module.GetCurrentDialogListboxItemsCount()
-	if module.isDialogActive() then
+	local style = module.GetCurrentDialogStyle()
+	if module.isDialogActive() and module.isDialogListStyle(style) then
 		local SAMP_DIALOG_PTR2_OFFSET = memory.read(module.pDialog_func() + 0x20, 4, true)
 		local SAMP_DIALOG_LINECOUNT_OFFSET = memory.read(SAMP_DIALOG_PTR2_OFFSET + 0x150, 4, true)
 		return SAMP_DIALOG_LINECOUNT_OFFSET
 	end
 end
 
+local bit = require("bit")
+
+pcall(ffi.cdef, [[
+	typedef unsigned long DWORD;
+	typedef struct {
+		void* BaseAddress;
+		void* AllocationBase;
+		DWORD AllocationProtect;
+		size_t RegionSize;
+		DWORD State;
+		DWORD Protect;
+		DWORD Type;
+	} MEMORY_BASIC_INFORMATION;
+	size_t __stdcall VirtualQuery(const void* lpAddress, MEMORY_BASIC_INFORMATION* lpBuffer, size_t dwLength);
+]])
+
+local MEM_COMMIT = 0x1000
+local PAGE_NOACCESS = 0x01
+local PAGE_GUARD = 0x100
+local CHAT_ENTRY_BASE_OFFSET = 0x132
+local CHAT_ENTRY_SIZE = 0xFC
+local CHAT_ENTRY_COUNT = 100
+local READABLE_PAGE_PROTECT = {
+	[0x02] = true, -- PAGE_READONLY
+	[0x04] = true, -- PAGE_READWRITE
+	[0x08] = true, -- PAGE_WRITECOPY
+	[0x20] = true, -- PAGE_EXECUTE_READ
+	[0x40] = true, -- PAGE_EXECUTE_READWRITE
+	[0x80] = true, -- PAGE_EXECUTE_WRITECOPY
+}
+
+local function safe_memory_call(fn, ...)
+	local ok, value = pcall(fn, ...)
+	if not ok then
+		return nil
+	end
+	return value
+end
+
+local function is_readable_memory(address, size)
+	address = tonumber(address)
+	size = tonumber(size)
+	if not address or address <= 0 then
+		return false
+	end
+
+	size = math.floor(size or 1)
+	if size <= 0 then
+		return false
+	end
+
+	local mbi = ffi.new("MEMORY_BASIC_INFORMATION[1]")
+	local current = address
+	local finish = address + size - 1
+
+	while current <= finish do
+		local queried = tonumber(ffi.C.VirtualQuery(ffi.cast("const void*", current), mbi, ffi.sizeof(mbi[0]))) or 0
+		if queried == 0 then
+			return false
+		end
+
+		local protect = tonumber(mbi[0].Protect) or 0
+		if (tonumber(mbi[0].State) or 0) ~= MEM_COMMIT then
+			return false
+		end
+		if bit.band(protect, PAGE_GUARD) ~= 0 or bit.band(protect, PAGE_NOACCESS) ~= 0 then
+			return false
+		end
+		if not READABLE_PAGE_PROTECT[bit.band(protect, 0xFF)] then
+			return false
+		end
+
+		local regionBase = tonumber(ffi.cast("uintptr_t", mbi[0].BaseAddress)) or 0
+		local regionSize = tonumber(mbi[0].RegionSize) or 0
+		if regionBase <= 0 or regionSize <= 0 then
+			return false
+		end
+
+		current = regionBase + regionSize
+	end
+
+	return true
+end
+
+local function safe_memory_tostring(address, size)
+	address = tonumber(address)
+	size = tonumber(size)
+	if not address or address <= 0 then
+		return ""
+	end
+
+	size = math.floor(size or 0)
+	if size <= 0 or not is_readable_memory(address, size) then
+		return ""
+	end
+
+	local text = safe_memory_call(memory.tostring, address, size, false)
+	if type(text) ~= "string" then
+		return ""
+	end
+
+	local zeroPos = text:find("\0", 1, true)
+	if zeroPos then
+		text = text:sub(1, zeroPos - 1)
+	end
+
+	return text
+end
+
+local function safe_memory_uint8(address, unprotect)
+	address = tonumber(address)
+	if not address or address <= 0 or not is_readable_memory(address, 1) then
+		return nil
+	end
+	return safe_memory_call(memory.getuint8, address, unprotect and true or false)
+end
+
+local function safe_memory_uint32(address, unprotect)
+	address = tonumber(address)
+	if not address or address <= 0 or not is_readable_memory(address, 4) then
+		return nil
+	end
+	return safe_memory_call(memory.getuint32, address, unprotect and true or false)
+end
+
+local function safe_memory_int32(address, unprotect)
+	address = tonumber(address)
+	if not address or address <= 0 or not is_readable_memory(address, 4) then
+		return nil
+	end
+	return safe_memory_call(memory.getint32, address, unprotect and true or false)
+end
+
+ffi.cdef[[
+typedef unsigned char  uint8_t;
+typedef unsigned int   uint32_t;
+typedef signed short   int16_t;
+
+typedef struct RakNetBitStreamCompat {
+    uint32_t numberOfBitsUsed;
+    uint32_t numberOfBitsAllocated;
+    uint32_t readOffset;
+    uint8_t* data;
+    bool copyData;
+} RakNetBitStreamCompat;
+]]
+
+function module.getRakClientInterface()
+    local pCNetGame = ffi.cast("uintptr_t*", module.sampModule + module.main_offsets.SAMP_INFO_OFFSET[module.currentVersion])
+    if pCNetGame == nil or pCNetGame[0] == 0 then
+        return nil
+    end
+
+    local pRakClient = ffi.cast("uintptr_t*", pCNetGame[0] + module.main_offsets.rakclient_interface[module.currentVersion])
+    if pRakClient == nil or pRakClient[0] == 0 then
+        return nil
+    end
+
+    return pRakClient[0]
+end
+
+function module.callVirtualMethod(vt, prototype, method, ...)
+    local virtualTable = ffi.cast("intptr_t**", vt)[0]
+    return ffi.cast(prototype, virtualTable[method])(...)
+end
+
+function module.sendRpc(id, bsPtr)
+    local rakClient = module.getRakClientInterface()
+    if not rakClient then
+        return false, L("samp.error.rakclient_not_found")
+    end
+
+    local pRakClient = ffi.cast("void*", rakClient)
+    local pId = ffi.new("int[1]", id)
+
+    local ok = module.callVirtualMethod(
+        rakClient,
+        "bool(__thiscall*)(void*, int*, void*, char, char, char, bool)",
+        25,
+        pRakClient,
+        pId,
+        bsPtr,
+        1,   -- HIGH_PRIORITY
+        9,   -- RELIABLE_ORDERED
+        0,
+        false
+    )
+
+    return ok ~= false
+end
+
+function writeUInt8(buf, pos, value)
+    buf[pos] = bit.band(value, 0xFF)
+    return pos + 1
+end
+
+function writeInt16LE(buf, pos, value)
+    if value < 0 then
+        value = 0x10000 + value
+    end
+    buf[pos] = bit.band(value, 0xFF)
+    buf[pos + 1] = bit.band(bit.rshift(value, 8), 0xFF)
+    return pos + 2
+end
+
+function module.sendDialogResponse(dialogId, button, listItem, inputText)
+    inputText = tostring(inputText or "")
+    listItem = listItem ~= nil and listItem or -1
+    button = button == 1 and 1 or 0
+
+    local textLen = #inputText
+    if textLen > 255 then
+        error(L("samp.error.input_text_too_long"))
+    end
+
+    -- RPC 62: int16 id, uint8 button, int16 listitem, uint8 len, bytes text
+    local payloadSize = 2 + 1 + 2 + 1 + textLen
+    local payload = ffi.new("uint8_t[?]", payloadSize)
+
+    local pos = 0
+    pos = writeInt16LE(payload, pos, dialogId)
+    pos = writeUInt8(payload, pos, button)
+    pos = writeInt16LE(payload, pos, listItem)
+    pos = writeUInt8(payload, pos, textLen)
+
+    if textLen > 0 then
+        ffi.copy(payload + pos, inputText, textLen)
+    end
+
+    -- ВАЖНО: создаем МАССИВ ИЗ 1 ЭЛЕМЕНТА, чтобы получить нормальный указатель
+    local bs = ffi.new("RakNetBitStreamCompat[1]")
+    bs[0].numberOfBitsUsed = payloadSize * 8
+    bs[0].numberOfBitsAllocated = payloadSize * 8
+    bs[0].readOffset = 0
+    bs[0].data = payload
+    bs[0].copyData = false
+
+    -- bs уже является pointer-like объектом, его можно передать как void*
+    local ok, err = module.sendRpc(62, ffi.cast("void*", bs))
+    if not ok then
+        return false, err
+    end
+
+    return true
+end
+-- примеры:
+-- sendDialogResponse(1430, 1, -1, "#Orc") -- INPUT / PASSWORD / MSGBOX
+-- sendDialogResponse(1430, 0, -1, "")         -- Cancel / ESC
+-- sendDialogResponse(500, 1, 2, "")           -- LIST, выбран 3-й пункт
+
 function module.is_chat_opened()
 	local opend_chat = memory.getint32(
-		memory.getint32(module.sampModule + module.main_offsets.CInput[module.currentVersion], false) + 0x14E0,
+		memory.getint32(module.sampModule + module.main_offsets.SAMP_CHAT_INPUT_INFO_OFFSET[module.currentVersion], false) + 0x14E0,
 		false
 	)
 	return opend_chat == 1 and true or false
@@ -654,6 +1100,41 @@ end
 function module.getChatMode()
 	local pChat = memory.getint32(module.sampModule + module.main_offsets.pChat[module.currentVersion], true)
 	return memory.getint8(pChat + 0x8, true)
+end
+
+function module.SetPageSize(pageSize)
+	pageSize = tonumber(pageSize)
+	if not pageSize then
+		return false, "invalid_value"
+	end
+
+	pageSize = math.floor(pageSize)
+	local minSize = 10
+	local maxSize = 20
+	local maxOffset = module.main_offsets.PageSize_MAX[module.currentVersion]
+	if maxOffset then
+		local readMax = memory.getint8(module.sampModule + maxOffset, false)
+		if readMax and readMax > 0 then
+			maxSize = readMax
+		end
+	end
+
+	if pageSize < minSize or pageSize > maxSize then
+		return false, "range", minSize, maxSize
+	end
+
+	local pChatOffset = module.main_offsets.pChat[module.currentVersion]
+	if not pChatOffset then
+		return false, "chat_unavailable"
+	end
+
+	local pChat = memory.getint32(module.sampModule + pChatOffset, true)
+	if not pChat or pChat == 0 then
+		return false, "chat_unavailable"
+	end
+
+	SetPageSizeFunc(pChat, pageSize)
+	return true, pageSize
 end
 
 function module.GetHealthAndArmour(id)
@@ -687,16 +1168,19 @@ function module.GetHealthAndArmour(id)
 	return fHP, fARM
 end
 
-function module.send_chat(text)
-	if text == "" or text == nil or text:len() <= 0 then
-		return
+local function send_chat_internal(text, already_decoded)
+	text = tostring(text or "")
+	if text == "" or text:len() <= 0 then
+		return false
 	end
-	local text = u8:decode(text)
+	if not already_decoded then
+		text = u8:decode(text)
+	end
 	if tags and tags.change_tags then
 		text = tags.change_tags(text)
 	end
 	if text:find("^/") then
-		local pInput = memory.getuint32(module.sampModule + module.main_offsets.CInput[module.currentVersion], true)
+		local pInput = memory.getuint32(module.sampModule + module.main_offsets.SAMP_CHAT_INPUT_INFO_OFFSET[module.currentVersion], true)
 		ffi.cast(
 			"void (__thiscall*)(uintptr_t, const char*)",
 			module.sampModule + module.main_offsets.CInput_Send[module.currentVersion]
@@ -707,6 +1191,11 @@ function module.send_chat(text)
 			module.sampModule + module.main_offsets.CInput_SendSay[module.currentVersion]
 		)(getCharPointer(PLAYER_PED), text)
 	end
+	return true
+end
+
+function module.send_chat(text, already_decoded)
+	return send_chat_internal(text, already_decoded)
 end
 
 function module.memoryAddMessageSamp(szText, ulColor)
@@ -726,15 +1215,240 @@ function module.memoryAddMessageSamp(szText, ulColor)
 	)(pChat, ulColor, szText)
 end
 
-function module.Set_ChatInputText(text, bool)
-	local text = u8:decode(text)
+local function set_chat_input_text_internal(text, bool, already_decoded)
+	text = tostring(text or "")
+	if not already_decoded then
+		text = u8:decode(text)
+	end
 	if tags and tags.change_tags then
 		text = tags.change_tags(text)
 	end
-	sampSetChatInputText(text)
-	if bool then
-		sampSetChatInputEnabled(bool)
+	local pEditBox = module.SAMP_CHAT_INPUT_INFO_OFFSET_func_test()
+	if not pEditBox or pEditBox == 0 then
+		return false
 	end
+	setEditboxText(pEditBox, ffi.cast("char*", text), 0)
+	if bool then
+		module.pCInput_Open_Close(bool)
+	end
+	return true
+end
+
+function module.pGetChatString(index)
+	index = tonumber(index)
+	if not index then
+		return "", "", 0, 0
+	end
+
+	index = math.floor(index)
+	if index < 0 or index >= CHAT_ENTRY_COUNT then
+		return "", "", 0, 0
+	end
+
+	local version = module.currentVersion
+	if not version or version == "UNKNOWN" then
+		return "", "", 0, 0
+	end
+
+	local pChatOffset = module.main_offsets.pChat[version]
+	local textOffset = module.main_offsets.CHAT_TEXT_OFFSET[version]
+	local prefixOffset = module.main_offsets.CHAT_PREFIX_TEXT_OFFSET[version]
+	local colorOffset = module.main_offsets.CHAT_COLOR_OFFSET[version]
+	local prefixColorOffset = module.main_offsets.CHAT_PREFIX_COLOR_OFFSET[version]
+	if not pChatOffset or not textOffset or not prefixOffset or not colorOffset or not prefixColorOffset then
+		return "", "", 0, 0
+	end
+
+	local prefixSize = textOffset - prefixOffset
+	local textSize = colorOffset - textOffset
+	if prefixSize <= 0 or textSize <= 0 then
+		return "", "", 0, 0
+	end
+
+	if not module.sampModule or module.sampModule <= 0 then
+		return "", "", 0, 0
+	end
+
+	local pChat = safe_memory_int32(module.sampModule + pChatOffset, true)
+	if not pChat or pChat == 0 then
+		return "", "", 0, 0
+	end
+
+	local entry = pChat + CHAT_ENTRY_BASE_OFFSET + (index * CHAT_ENTRY_SIZE)
+	if not is_readable_memory(entry, CHAT_ENTRY_SIZE) then
+		return "", "", 0, 0
+	end
+
+	local text = safe_memory_tostring(entry + textOffset, textSize)
+	local prefix = safe_memory_tostring(entry + prefixOffset, prefixSize)
+	local color = safe_memory_uint32(entry + colorOffset, false) or 0
+
+	local prefixColorAddr = entry + prefixColorOffset
+	local prefixColorFlag = safe_memory_uint8(prefixColorAddr, false) or 0
+
+	local prefixColor = 0
+	if prefixColorFlag > 0 then
+		prefixColor = safe_memory_uint32(prefixColorAddr, false) or 0
+	end
+
+	return text, prefix, color, prefixColor
+end
+
+function module.Set_ChatInputText(text, bool, already_decoded)
+	return set_chat_input_text_internal(text, bool, already_decoded)
+end
+
+local function build_custom_samp_globals()
+	return {
+		sampAddChatMessage = function(text, color)
+			return module.memoryAddMessageSamp(text, color)
+		end,
+		sampGetChatInputText = function()
+			local ok, result = pcall(module.sampGetChatEditboxText)
+			if ok and type(result) == "string" then
+				return result
+			end
+			return ""
+		end,
+		sampGetChatString = function(index)
+			return module.pGetChatString(index)
+		end,
+		sampIsChatInputActive = function()
+			return module.is_chat_opened()
+		end,
+		sampIsDialogActive = function()
+			return module.isDialogActive()
+		end,
+		sampProcessChatInput = function(text)
+			return module.send_chat(text, true)
+		end,
+		sampSendChat = function(text)
+			return module.send_chat(text, true)
+		end,
+		sampSendDialogResponse = function(dialogId, button, listItem, inputText)
+			return module.sendDialogResponse(dialogId, button, listItem, inputText)
+		end,
+		sampSetChatInputEnabled = function(bool)
+			return module.pCInput_Open_Close(bool and true or false)
+		end,
+		sampSetChatInputText = function(text)
+			return module.Set_ChatInputText(text, nil, true)
+		end,
+	}
+end
+
+function module.restoreOriginalFunctionGlobals()
+	for i = 1, #SAMP_GLOBAL_NAMES do
+		local name = SAMP_GLOBAL_NAMES[i]
+		local original = get_original_samp_global(name)
+		active_samp_global_sources[name] = original and "native" or "missing"
+		if original ~= nil then
+			_G[name] = original
+		else
+			_G[name] = nil
+		end
+		managed_samp_globals[name] = nil
+	end
+	module._function_backend_active = module.BACKEND_STANDARD
+	return true
+end
+
+function module.applyFunctionBackend(mode)
+	mode = normalize_backend_mode(mode or module._function_backend_mode)
+	module._function_backend_mode = mode
+
+	local custom_globals = build_custom_samp_globals()
+	local native_selected = false
+	local arizona_native_ready = true
+
+	for i = 1, #SAMP_GLOBAL_NAMES do
+		local name = SAMP_GLOBAL_NAMES[i]
+		local original = get_original_samp_global(name)
+		local custom = custom_globals[name]
+		local selected = nil
+		local source = "missing"
+		local prefer_native = should_prefer_native_samp_global(mode, name)
+
+		if prefer_native and type(original) == "function" then
+			selected = original
+			source = "native"
+			native_selected = true
+		elseif type(custom) == "function" then
+			selected = custom
+			source = "custom"
+		elseif type(original) == "function" then
+			selected = original
+			source = "native"
+			native_selected = true
+		end
+
+		if mode == module.BACKEND_ARIZONA and ARIZONA_NATIVE_PRIORITY_GLOBALS[name] and source ~= "native" then
+			arizona_native_ready = false
+		end
+
+		active_samp_global_sources[name] = source
+		managed_samp_globals[name] = selected
+		if selected ~= nil then
+			_G[name] = selected
+		else
+			_G[name] = nil
+		end
+	end
+
+	if mode == module.BACKEND_SAMPFUNCS and native_selected then
+		module._function_backend_active = module.BACKEND_SAMPFUNCS
+	elseif mode == module.BACKEND_ARIZONA and arizona_native_ready then
+		module._function_backend_active = module.BACKEND_ARIZONA
+	else
+		module._function_backend_active = module.BACKEND_STANDARD
+	end
+
+	return true, module._function_backend_active
+end
+
+function module.setFunctionBackendMode(mode)
+	return module.applyFunctionBackend(mode)
+end
+
+function module.getFunctionBackendMode()
+	return module._function_backend_mode
+end
+
+function module.getFunctionBackendStatus()
+	local status = {
+		desired = module._function_backend_mode,
+		active = module._function_backend_active,
+		hasSampfuncs = module.hasSampfuncs(),
+		globals = {},
+		requiredNativeGlobals = {},
+		missingRequiredNativeGlobals = {},
+	}
+	for i = 1, #SAMP_GLOBAL_NAMES do
+		local name = SAMP_GLOBAL_NAMES[i]
+		status.globals[name] = active_samp_global_sources[name] or "missing"
+	end
+	if module._function_backend_mode == module.BACKEND_ARIZONA then
+		for i = 1, #ARIZONA_NATIVE_PRIORITY_NAMES do
+			local name = ARIZONA_NATIVE_PRIORITY_NAMES[i]
+			status.requiredNativeGlobals[#status.requiredNativeGlobals + 1] = name
+			if status.globals[name] ~= "native" then
+				status.missingRequiredNativeGlobals[#status.missingRequiredNativeGlobals + 1] = name
+			end
+		end
+	end
+	return status
+end
+
+module.setBackendMode = module.setFunctionBackendMode
+module.getBackendMode = module.getFunctionBackendMode
+module.getBackendStatus = module.getFunctionBackendStatus
+
+function module.installSampfuncsCompat(mode)
+	return module.applyFunctionBackend(mode)
+end
+
+function module.onTerminate()
+	module.restoreOriginalFunctionGlobals()
 end
 
 --Требуется сампфункс, работа с cef и телефоном аризоны
@@ -749,5 +1463,7 @@ function module.arizonaOpenPhoneApp(appId)
 	raknetSendBitStreamEx(bs, 1, 7, 1)
 	raknetDeleteBitStream(bs)
 end
+
+module.applyFunctionBackend(module._function_backend_mode)
 
 return module

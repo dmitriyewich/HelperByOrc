@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 
 local imgui = require("mimgui")
@@ -52,12 +57,9 @@ end
 
 local function ensureDialogTables(dialog)
 	dialog.buffers = dialog.buffers or {}
-	dialog.combo_selected = dialog.combo_selected or {}
-	dialog.combo_cache = dialog.combo_cache or {}
 	dialog.list_selected = dialog.list_selected or {}
 	dialog.list_multi_selected = dialog.list_multi_selected or {}
 	dialog.search_buffers = dialog.search_buffers or {}
-	dialog.combo_source_selected = dialog.combo_source_selected or {}
 end
 
 local function ensureDialogBuffer(dialog, idx)
@@ -86,7 +88,7 @@ local function dialog_button_label(btn, index)
 	local trim = ctx.trim
 	local label = trim((btn and btn.label) or "")
 	if label == "" then
-		label = ("Вариант %d"):format(index)
+		label = (L("binder.input_dialog.text.number")):format(index)
 	end
 	return label
 end
@@ -153,11 +155,13 @@ local function getDialogFieldSelectedTokens(dialog, idx)
 		end
 	end
 
-	local single_idx = dialog.list_selected and dialog.list_selected[idx] or nil
-	if single_idx and field.buttons[single_idx] then
-		local btn = field.buttons[single_idx]
-		push_token(dialog_button_label(btn, single_idx))
-		push_token(btn.text or "")
+	if field.multi_select ~= true then
+		local single_idx = dialog.list_selected and dialog.list_selected[idx] or nil
+		if single_idx and field.buttons[single_idx] then
+			local btn = field.buttons[single_idx]
+			push_token(dialog_button_label(btn, single_idx))
+			push_token(btn.text or "")
+		end
 	end
 
 	return out
@@ -251,17 +255,28 @@ local function rebuildDialogMultiBuffer(dialog, idx, field)
 	end
 	imgui.StrCopy(buf, table.concat(parts, separator), C.INPUT_BUF_SIZE)
 	if truncated then
-		pushToast("Выбрано слишком много элементов — текст обрезан.", "warn", 3.0)
+		pushToast(L("binder.input_dialog.text.text"), "warn", 3.0)
 	end
 	return buf
 end
 
-local function collectInputDialogValues(dialog)
+local function normalizeDialogSubmitValue(value)
+	value = tostring(value or "")
+	value = value:gsub("\r\n", "\n")
+	value = value:gsub("\r", "\n")
+	value = value:gsub("[ \t]*\n+[ \t]*", " ")
+	return value
+end
+
+local function collectInputDialogValues(dialog, flatten_multiline)
 	local values = {}
 	for i, field in ipairs(dialog.fields or {}) do
 		local key = field.key
 		local b = dialog.buffers and dialog.buffers[i]
 		local value = b and ffi.string(b) or ""
+		if flatten_multiline then
+			value = normalizeDialogSubmitValue(value)
+		end
 
 		if key and key ~= "" then
 			values[key] = value
@@ -294,16 +309,16 @@ end
 
 local function preview_method_label(method)
 	method = tonumber(method) or 0
-	if method == 1 then return "Клиенту SA-MP" end
-	if method == 2 then return "Серверу" end
-	if method == 3 then return "Без отправки" end
-	if method == 4 then return "Написать в чат и закрыть" end
-	if method == 5 then return "Написать в чат" end
-	if method == 6 then return "В активный диалог" end
-	if method == 7 then return "В буфер обмена" end
-	if method == 8 then return "В консоль SF/биндера" end
-	if method == 9 then return "В уведомления" end
-	return "Локально"
+	if method == 1 then return L("binder.input_dialog.text.sa_mp") end
+	if method == 2 then return L("binder.input_dialog.text.text_1") end
+	if method == 3 then return L("binder.input_dialog.text.text_2") end
+	if method == 4 then return L("binder.input_dialog.text.text_3") end
+	if method == 5 then return L("binder.input_dialog.text.text_4") end
+	if method == 6 then return L("binder.input_dialog.text.text_5") end
+	if method == 7 then return L("binder.input_dialog.text.text_6") end
+	if method == 8 then return L("binder.input_dialog.text.sf") end
+	if method == 9 then return L("binder.input_dialog.text.text_7") end
+	return L("binder.input_dialog.text.text_8")
 end
 
 M.preview_method_label = preview_method_label
@@ -314,7 +329,7 @@ local function buildInputDialogPreviewLines(dialog)
 		return {}
 	end
 
-	local values = collectInputDialogValues(dialog)
+	local values = collectInputDialogValues(dialog, true)
 	local function apply_preview_values(text)
 		if not text or text == "" then
 			return text
@@ -361,7 +376,7 @@ local function calcAutoHeight(dialog, text, widthForWrap)
 
 	local lines = 0
 	for line in (text .. "\n"):gmatch("(.-)\n") do
-		local len = #line
+		local len = countCharsForUI(line)
 		local wraps = 1
 		if len > 0 then
 			wraps = math.max(1, math.ceil(len / charPerLine))
@@ -373,39 +388,97 @@ local function calcAutoHeight(dialog, text, widthForWrap)
 	return lines * lineH + style.FramePadding.y * 2 + 10
 end
 
-local function getComboCache(dialog, idx, entries)
-	local trim = ctx.trim
-	entries = entries or {}
-
-	local sigParts = { tostring(#entries) }
-	for j = 1, #entries do
-		local btn = entries[j].button
-		sigParts[#sigParts + 1] = tostring(entries[j].index or j)
-		sigParts[#sigParts + 1] = trim((btn and btn.label) or "")
+local function getDialogPreferredSingleLineInputWidth(dialog)
+	local style = imgui.GetStyle()
+	local C = ctx.C
+	if not dialog._charW then
+		dialog._charW = imgui.CalcTextSize("0").x
 	end
-	local sig = table.concat(sigParts, "|")
+	local charsWidth = dialog._charW * 144
+	local counterWidth = imgui.CalcTextSize(tostring(math.max(0, (C.INPUT_BUF_SIZE or 1) - 1))).x
+	local overlayReserve = counterWidth + style.FramePadding.x * 2 + 12
+	return charsWidth + overlayReserve + style.FramePadding.x * 2
+end
 
-	local cache = dialog.combo_cache[idx]
-	if cache and cache.sig == sig then
-		return cache
-	end
+local function getDialogListHeight(dialog, mode)
+	local normalize_runtime_input_mode = ctx.normalize_runtime_input_mode
+	local INPUT_MODE = ctx.INPUT_MODE
+	local listFields = 0
 
-	local item_list = {}
-	item_list[1] = "Свой текст"
-	for j, entry in ipairs(entries) do
-		local btn = entry.button
-		local label = trim((btn and btn.label) or "")
-		if label == "" then
-			label = ("Вариант %d"):format(j)
+	for _, field in ipairs(dialog.fields or {}) do
+		local fieldMode = normalize_runtime_input_mode(field.mode, field.buttons)
+		if fieldMode == INPUT_MODE.BUTTONS_LIST or fieldMode == INPUT_MODE.BUTTONS_LIST_TEXT then
+			listFields = listFields + 1
 		end
-		item_list[#item_list + 1] = label
 	end
 
-	local ImItems = imgui.new["const char*"][#item_list](item_list)
+	if mode == INPUT_MODE.BUTTONS_LIST then
+		if listFields >= 3 then
+			return 130
+		end
+		if listFields == 2 then
+			return 160
+		end
+		return 220
+	end
 
-	cache = { sig = sig, im = ImItems, count = #item_list }
-	dialog.combo_cache[idx] = cache
-	return cache
+	if listFields >= 3 then
+		return 96
+	end
+	if listFields == 2 then
+		return 110
+	end
+	return 170
+end
+
+local function getDialogViewportSize()
+	if imgui.GetMainViewport then
+		local vp = imgui.GetMainViewport()
+		return imgui.ImVec2(vp.Size.x, vp.Size.y)
+	end
+
+	local io = imgui.GetIO()
+	return imgui.ImVec2(io.DisplaySize.x, io.DisplaySize.y)
+end
+
+local function getDialogPreferredRegularWindowHeight(dialog, hk)
+	local style = imgui.GetStyle()
+	local frameH = imgui.GetFrameHeight()
+	local textLineH = imgui.GetTextLineHeightWithSpacing()
+	local normalize_runtime_input_mode = ctx.normalize_runtime_input_mode
+	local INPUT_MODE = ctx.INPUT_MODE
+	local height = style.WindowPadding.y * 2 + 28
+
+	if hk and hk.label and hk.label ~= "" then
+		height = height + textLineH + style.ItemSpacing.y + 6
+	end
+
+	for _, field in ipairs(dialog.fields or {}) do
+		local mode = normalize_runtime_input_mode(field.mode, field.buttons)
+		local hasList = mode == INPUT_MODE.BUTTONS_LIST or mode == INPUT_MODE.BUTTONS_LIST_TEXT
+		local allowsText = mode == INPUT_MODE.TEXT or mode == INPUT_MODE.BUTTONS_LIST_TEXT
+
+		if field.label and field.label ~= "" then
+			height = height + textLineH
+		end
+		if field.hint and field.hint ~= "" then
+			height = height + textLineH + style.ItemSpacing.y
+		end
+		if hasList then
+			height = height + frameH + style.ItemSpacing.y
+			height = height + getDialogListHeight(dialog, mode) + style.ItemSpacing.y
+			if mode == INPUT_MODE.BUTTONS_LIST then
+				height = height + textLineH + style.ItemSpacing.y
+			end
+		end
+		if allowsText then
+			height = height + frameH + style.ItemSpacing.y * 4 + 10
+		end
+		height = height + style.ItemSpacing.y + 2
+	end
+
+	height = height + textLineH * 2 + frameH + style.ItemSpacing.y * 6 + 18
+	return math.max(320, math.floor(height))
 end
 
 local function drawCharCountOverlay(countStr, rectMin, rectMax)
@@ -421,27 +494,14 @@ local function drawInputMultilineWithCounter(id, buf, bufSize, height)
 	local style = imgui.GetStyle()
 	local text = ffi.string(buf)
 	local countStr = tostring(countCharsForUI(text))
-	local countW = imgui.CalcTextSize(countStr).x
-	local reserved = countW + style.FramePadding.x * 2 + 8
-
 	local fullW = imgui.GetContentRegionAvail().x
-	local inputW = fullW - reserved
-	if inputW < 120 then
-		inputW = math.max(80, fullW)
-	end
 
-	imgui.PushItemWidth(inputW)
-	local changed =
-		imgui.InputTextMultiline(id, buf, bufSize, imgui.ImVec2(0, height), imgui.InputTextFlags.NoHorizontalScroll)
+	imgui.PushItemWidth(fullW)
+	local changed = imgui.InputText(id, buf, bufSize)
 	imgui.PopItemWidth()
 
 	local rectMin = imgui.GetItemRectMin()
 	local rectMax = imgui.GetItemRectMax()
-
-	if inputW < fullW - 1 then
-		imgui.SameLine(0, 0)
-		imgui.Dummy(imgui.ImVec2(fullW - inputW, height))
-	end
 
 	drawCharCountOverlay(countStr, rectMin, rectMax)
 
@@ -458,56 +518,13 @@ function M.cancelInputDialog()
 	if activeInputDialog.hk then
 		activeInputDialog.hk._awaiting_input = false
 		activeInputDialog.hk._pending_chat_trigger = nil
+		activeInputDialog.hk._pending_command_trigger = nil
 	end
 	activeInputDialog = nil
 end
 
 function M.openInputDialog(hk, delay_ms)
-	local trim = ctx.trim
-	local C = ctx.C
-	local normalize_input_mode = ctx.normalize_input_mode
-	local normalize_runtime_input_mode = ctx.normalize_runtime_input_mode
-	local input_mode_uses_buttons = ctx.input_mode_uses_buttons
-	local normalize_input_key_ref = ctx.normalize_input_key_ref
-	local normalize_multi_separator = ctx.normalize_multi_separator
-	local INPUT_MODE = ctx.INPUT_MODE
-
-	local fields = {}
-	for _, input in ipairs(hk.inputs or {}) do
-		local key = trim(input.key or "")
-		if key ~= "" then
-			local mode = normalize_input_mode(input.mode)
-			local buttons
-			if input_mode_uses_buttons(mode) then
-				buttons = {}
-				for _, btn in ipairs(input.buttons or {}) do
-					local text = trim(btn.text or "")
-					if text ~= "" then
-						buttons[#buttons + 1] = {
-							label = btn.label or "",
-							text = btn.text or "",
-							hint = btn.hint or "",
-							when = btn.when or "",
-						}
-					end
-				end
-				mode = normalize_runtime_input_mode(mode, buttons)
-				if mode == INPUT_MODE.TEXT then
-					buttons = nil
-				end
-			end
-			fields[#fields + 1] = {
-				label = input.label or "",
-				hint = input.hint or "",
-				key = normalize_input_key_ref(key),
-				mode = mode,
-				buttons = buttons,
-				multi_select = input.multi_select == true,
-				multi_separator = normalize_multi_separator(input.multi_separator),
-				cascade_parent_key = normalize_input_key_ref(input.cascade_parent_key),
-			}
-		end
-	end
+	local fields = ctx.normalize_runtime_inputs(hk.inputs or {})
 	if #fields == 0 then
 		return false
 	end
@@ -528,14 +545,14 @@ local function submitInputDialog(dialog)
 	if not hk then
 		return false
 	end
-	local values = collectInputDialogValues(dialog)
+	local values = collectInputDialogValues(dialog, true)
 	local startHotkeyCoroutine = ctx.startHotkeyCoroutine
 	if startHotkeyCoroutine and startHotkeyCoroutine(hk, dialog.delay, values) then
 		M.cancelInputDialog()
 		return true
 	end
 	if startHotkeyCoroutine then
-		ctx.pushToast("Не удалось запустить бинд", "err", 3.0)
+		ctx.pushToast(L("binder.input_dialog.text.text_10"), "err", 3.0)
 	end
 	return false
 end
@@ -599,25 +616,56 @@ function M.drawInputDialog()
 	local compactPicker = compactButtonsOnly or compactButtonsWithText
 
 	if compactPicker then
-		imgui.SetNextWindowSize(imgui.ImVec2(360, 420), imgui.Cond.Appearing)
-		imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, imgui.ImVec2(320, 260))
+		local sendFromCompact = compactButtonsWithText or (compactButtonsOnly and compactField.multi_select == true)
+		local viewportSize = getDialogViewportSize()
+		local preferredWindowW = compactButtonsWithText and 520 or 430
+		local maxWindowSize = imgui.ImVec2(
+			math.max(320, viewportSize.x - 60),
+			math.max(220, viewportSize.y - 60)
+		)
+		local minWindowSize = imgui.ImVec2(
+			math.min(maxWindowSize.x, compactButtonsWithText and 440 or 380),
+			math.min(maxWindowSize.y, sendFromCompact and 260 or 220)
+		)
+		local desiredWindowSize = imgui.ImVec2(
+			math.min(maxWindowSize.x, math.max(minWindowSize.x, preferredWindowW)),
+			math.min(maxWindowSize.y, sendFromCompact and 340 or 260)
+		)
+		imgui.SetNextWindowSizeConstraints(minWindowSize, maxWindowSize)
+		imgui.SetNextWindowSize(desiredWindowSize, imgui.Cond.Appearing)
+		imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, minWindowSize)
 	else
-		imgui.SetNextWindowSize(imgui.ImVec2(460, 0), imgui.Cond.Appearing)
-		imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, imgui.ImVec2(420, 160))
+		local viewportSize = getDialogViewportSize()
+		local preferredWindowH = getDialogPreferredRegularWindowHeight(dialog, hk)
+		local maxWindowSize = imgui.ImVec2(
+			math.max(420, viewportSize.x - 40),
+			math.max(260, viewportSize.y - 100)
+		)
+		local minWindowSize = imgui.ImVec2(
+			math.min(maxWindowSize.x, 420),
+			math.min(maxWindowSize.y, math.max(260, preferredWindowH))
+		)
+		local desiredWindowSize = imgui.ImVec2(
+			math.min(maxWindowSize.x, 460),
+			math.min(maxWindowSize.y, math.max(minWindowSize.y, preferredWindowH))
+		)
+		imgui.SetNextWindowSizeConstraints(minWindowSize, maxWindowSize)
+		imgui.SetNextWindowSize(desiredWindowSize, imgui.Cond.Appearing)
+		imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, minWindowSize)
 	end
 
-	if imgui.Begin("Заполните данные##binder_input", dialog.open, imgui.WindowFlags.NoCollapse) then
+	if imgui.Begin(L("binder.input_dialog.text.binder_input"), dialog.open, imgui.WindowFlags.NoCollapse) then
 		local function draw_preview_block()
 			local previewLines = buildInputDialogPreviewLines(dialog)
-			_d.imgui_text_wrapped_safe("Предпросмотр результата")
+			_d.imgui_text_wrapped_safe(L("binder.input_dialog.text.text_11"))
 			if #previewLines == 0 then
 				imgui.PushTextWrapPos()
-				_d.imgui_text_disabled_safe("У бинда нет строк для отправки.")
+				_d.imgui_text_disabled_safe(L("binder.input_dialog.text.text_12"))
 				imgui.PopTextWrapPos()
 				return
 			end
 			imgui.PushTextWrapPos()
-			_d.imgui_text_disabled_safe("Показывает подстановку {{KEY}}. Функциональные теги в превью не выполняются.")
+			_d.imgui_text_disabled_safe(L("binder.input_dialog.text.key"))
 			imgui.PopTextWrapPos()
 			for i = 1, #previewLines do
 				local line = previewLines[i]
@@ -640,9 +688,9 @@ function M.drawInputDialog()
 
 			local searchBuf = ensureDialogSearchBuffer(dialog, idx)
 			if showSearch ~= false then
-				local searchHint = "Поиск"
+				local searchHint = L("binder.input_dialog.text.text_13")
 				if fa.MAGNIFYING_GLASS and fa.MAGNIFYING_GLASS ~= "" then
-					searchHint = fa.MAGNIFYING_GLASS .. " Поиск"
+					searchHint = fa.MAGNIFYING_GLASS .. L("binder.input_dialog.text.text_14")
 				end
 				imgui.PushItemWidth(-1)
 				imgui.InputTextWithHint("##dialog_search" .. idx, searchHint, searchBuf, C.DIALOG_SEARCH_BUF_SIZE)
@@ -660,7 +708,12 @@ function M.drawInputDialog()
 				local btn = entry.button
 				if dialog_button_matches_query(btn, sourceIdx, query) then
 					shown = shown + 1
-					local selected = multiSelect and (selectedMap[sourceIdx] == true) or (dialog.list_selected[idx] == sourceIdx)
+					local selected
+					if multiSelect then
+						selected = selectedMap[sourceIdx] == true
+					else
+						selected = dialog.list_selected[idx] == sourceIdx
+					end
 					if selected then
 						local activeColor = imgui.GetStyle().Colors[imgui.Col.ButtonHovered]
 						imgui.PushStyleColor(imgui.Col.Button, activeColor)
@@ -676,9 +729,9 @@ function M.drawInputDialog()
 						picked = true
 						changed = true
 						chosenHint = ctx.trim((btn and btn.hint) or "")
-						dialog.list_selected[idx] = sourceIdx
 
 						if multiSelect then
+							dialog.list_selected[idx] = nil
 							if selectedMap[sourceIdx] then
 								selectedMap[sourceIdx] = nil
 							else
@@ -686,6 +739,7 @@ function M.drawInputDialog()
 							end
 							rebuildDialogMultiBuffer(dialog, idx, field)
 						else
+							dialog.list_selected[idx] = sourceIdx
 							for k in pairs(selectedMap) do
 								selectedMap[k] = nil
 							end
@@ -705,9 +759,115 @@ function M.drawInputDialog()
 			end
 
 			if shown == 0 then
-				imgui.TextDisabled("Ничего не найдено")
+				imgui.TextDisabled(L("binder.input_dialog.text.text_15"))
 			end
 			imgui.EndChild()
+
+			return picked, chosenHint, changed
+		end
+
+		local function draw_buttons_inline_field(idx, field, buf, showSearch, visibleEntries, maxColumns)
+			visibleEntries = visibleEntries or {}
+			local chosenHint = nil
+			local picked = false
+			local changed = false
+			local multiSelect = field.multi_select == true
+			local selectedMap = dialog.list_multi_selected[idx]
+			if type(selectedMap) ~= "table" then
+				selectedMap = {}
+				dialog.list_multi_selected[idx] = selectedMap
+			end
+
+			local searchBuf = ensureDialogSearchBuffer(dialog, idx)
+			if showSearch ~= false then
+				local searchHint = L("binder.input_dialog.text.text_13")
+				if fa.MAGNIFYING_GLASS and fa.MAGNIFYING_GLASS ~= "" then
+					searchHint = fa.MAGNIFYING_GLASS .. L("binder.input_dialog.text.text_14")
+				end
+				imgui.PushItemWidth(-1)
+				imgui.InputTextWithHint("##dialog_inline_search" .. idx, searchHint, searchBuf, C.DIALOG_SEARCH_BUF_SIZE)
+				imgui.PopItemWidth()
+				imgui.Spacing()
+			end
+
+			local query = ffi.string(searchBuf)
+			local shownEntries = {}
+			for _, entry in ipairs(visibleEntries) do
+				local sourceIdx = entry.index
+				local btn = entry.button
+				if dialog_button_matches_query(btn, sourceIdx, query) then
+					shownEntries[#shownEntries + 1] = entry
+				end
+			end
+
+			if #shownEntries == 0 then
+				imgui.TextDisabled(L("binder.input_dialog.text.text_15"))
+				return picked, chosenHint, changed
+			end
+
+			local columns = 1
+			local availW = imgui.GetContentRegionAvail().x
+			if maxColumns and maxColumns > 1 and #shownEntries >= 6 and availW >= 260 then
+				columns = math.min(maxColumns, 2)
+			end
+			local spacingX = imgui.GetStyle().ItemSpacing.x
+			local buttonW = columns > 1 and math.max(110, (availW - spacingX * (columns - 1)) / columns) or -1
+
+			for shownIdx, entry in ipairs(shownEntries) do
+				local sourceIdx = entry.index
+				local btn = entry.button
+				local selected
+				if multiSelect then
+					selected = selectedMap[sourceIdx] == true
+				else
+					selected = dialog.list_selected[idx] == sourceIdx
+				end
+				if selected then
+					local activeColor = imgui.GetStyle().Colors[imgui.Col.ButtonHovered]
+					imgui.PushStyleColor(imgui.Col.Button, activeColor)
+					imgui.PushStyleColor(imgui.Col.ButtonHovered, activeColor)
+				end
+
+				local label = dialog_button_label(btn, sourceIdx)
+				if selected and multiSelect then
+					label = (fa.CHECK or "*") .. " " .. label
+				end
+
+				if imgui.Button(label .. "##dialog_inline_pick_" .. idx .. "_" .. sourceIdx, imgui.ImVec2(buttonW, 0)) then
+					picked = true
+					changed = true
+					chosenHint = ctx.trim((btn and btn.hint) or "")
+
+					if multiSelect then
+						dialog.list_selected[idx] = nil
+						if selectedMap[sourceIdx] then
+							selectedMap[sourceIdx] = nil
+						else
+							selectedMap[sourceIdx] = true
+						end
+						rebuildDialogMultiBuffer(dialog, idx, field)
+					else
+						dialog.list_selected[idx] = sourceIdx
+						for k in pairs(selectedMap) do
+							selectedMap[k] = nil
+						end
+						selectedMap[sourceIdx] = true
+						imgui.StrCopy(buf, (btn and btn.text) or "", C.INPUT_BUF_SIZE)
+					end
+				end
+
+				if selected then
+					imgui.PopStyleColor(2)
+				end
+
+				if btn and btn.hint and btn.hint ~= "" and imgui.IsItemHovered() then
+					_d.imgui_set_tooltip_safe(btn.hint)
+				end
+
+				if columns > 1 and (shownIdx % columns) ~= 0 and shownIdx < #shownEntries then
+					imgui.SameLine()
+				end
+			end
 
 			return picked, chosenHint, changed
 		end
@@ -720,6 +880,8 @@ function M.drawInputDialog()
 		if compactPicker then
 			local field = compactField
 			local buf = ensureDialogBuffer(dialog, 1)
+			local visibleButtons = getDialogFilteredButtons(dialog, 1, field)
+			local sendFromCompact = compactButtonsWithText or (compactButtonsOnly and field.multi_select == true)
 			if field.label and field.label ~= "" then
 				_d.imgui_text_wrapped_safe(field.label)
 				imgui.Spacing()
@@ -731,32 +893,31 @@ function M.drawInputDialog()
 				imgui.Spacing()
 			end
 
-			local visibleButtons = getDialogFilteredButtons(dialog, 1, field)
-			local sendFromCompact = compactButtonsWithText or (compactButtonsOnly and field.multi_select == true)
-			local extraBottom = sendFromCompact and 178 or 56
-			local listHeight = imgui.GetContentRegionAvail().y - extraBottom
-			local picked = draw_buttons_list_field(1, field, buf, listHeight, true, visibleButtons)
+			local buttonCols = imgui.GetContentRegionAvail().x >= 560 and 2 or 1
+			local picked = draw_buttons_inline_field(1, field, buf, true, visibleButtons, buttonCols)
 			if compactButtonsOnly and field.multi_select ~= true and picked then
 				submitInputDialog(dialog)
 			end
 
 			if compactButtonsWithText then
+				local inputBg = imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
+				imgui.Separator()
 				imgui.Spacing()
 				if dialog.focus_requested then
 					imgui.SetKeyboardFocusHere()
 					dialog.focus_requested = false
 				end
 
-				local text = ffi.string(buf)
-				local h = calcAutoHeight(dialog, text, imgui.GetContentRegionAvail().x)
-				if h < 84 then h = 84 end
-				if h > 140 then h = 140 end
-				local changed = drawInputMultilineWithCounter("##dialog_input_compact", buf, C.INPUT_BUF_SIZE, h)
+				imgui.PushStyleColor(imgui.Col.FrameBg, inputBg)
+				local changed = drawInputMultilineWithCounter(
+					"##dialog_input_compact",
+					buf,
+					C.INPUT_BUF_SIZE,
+					imgui.GetFrameHeight()
+				)
+				imgui.PopStyleColor()
 				if changed then
 					dialog.list_selected[1] = nil
-					dialog.combo_source_selected[1] = nil
-					dialog.combo_selected[1] = dialog.combo_selected[1] or imgui.new.int(0)
-					dialog.combo_selected[1][0] = 0
 					dialog.list_multi_selected[1] = {}
 				end
 				imgui.Spacing()
@@ -764,13 +925,14 @@ function M.drawInputDialog()
 
 			if sendFromCompact then
 				draw_preview_block()
-				if imgui.Button((fa.PAPER_PLANE or fa.CHECK or "") .. " Отправить##dialog_send_compact", imgui.ImVec2(-1, 0)) then
+				imgui.Spacing()
+				if imgui.Button((fa.PAPER_PLANE or fa.CHECK or "") .. L("binder.input_dialog.text.dialog_send_compact"), imgui.ImVec2(-1, 0)) then
 					submitInputDialog(dialog)
 				end
 			end
 
 			imgui.Spacing()
-			local closeText = (fa.XMARK or "X") .. " Закрыть"
+			local closeText = (fa.XMARK or "X") .. L("binder.input_dialog.text.text_16")
 			local closeW = 130
 			local availW = imgui.GetContentRegionAvail().x
 			if availW > closeW then
@@ -820,71 +982,8 @@ function M.drawInputDialog()
 					rebuildDialogMultiBuffer(dialog, idx, field)
 				end
 
-				local hasCombo = mode == INPUT_MODE.BUTTONS_COMBO
 				local hasList = mode == INPUT_MODE.BUTTONS_LIST or mode == INPUT_MODE.BUTTONS_LIST_TEXT
-				local allowsText = mode == INPUT_MODE.TEXT
-					or mode == INPUT_MODE.BUTTONS_COMBO
-					or mode == INPUT_MODE.BUTTONS_LIST_TEXT
-				local combo = dialog.combo_selected[idx]
-
-				if hasCombo then
-					if not combo then
-						combo = imgui.new.int(0)
-						dialog.combo_selected[idx] = combo
-					end
-
-					local sourceSel = dialog.combo_source_selected[idx]
-					if sourceSel then
-						local pos = 0
-						for posIdx = 1, #visibleButtons do
-							if visibleButtons[posIdx].index == sourceSel then
-								pos = posIdx
-								break
-							end
-						end
-						combo[0] = pos
-						if pos == 0 then
-							dialog.combo_source_selected[idx] = nil
-						end
-					elseif combo[0] > #visibleButtons then
-						combo[0] = 0
-					end
-
-					local cache = getComboCache(dialog, idx, visibleButtons)
-					imgui.PushItemWidth(0)
-					local before = combo[0]
-					imgui.Combo("##dialog_combo" .. idx, combo, cache.im, cache.count)
-					imgui.PopItemWidth()
-
-					if combo[0] ~= before and combo[0] > 0 then
-						local entry = visibleButtons[combo[0]]
-						local btn = entry and entry.button
-						imgui.StrCopy(buf, (btn and btn.text) or "", C.INPUT_BUF_SIZE)
-						dialog.combo_source_selected[idx] = entry and entry.index or nil
-						dialog.list_selected[idx] = entry and entry.index or nil
-						for k in pairs(selectedMap) do
-							selectedMap[k] = nil
-						end
-						if entry and entry.index then
-							selectedMap[entry.index] = true
-						end
-					end
-					if combo[0] ~= before and combo[0] == 0 then
-						dialog.combo_source_selected[idx] = nil
-					end
-
-					if combo[0] > 0 then
-						local entry = visibleButtons[combo[0]]
-						local btn = entry and entry.button
-						if btn and btn.hint and btn.hint ~= "" then
-							imgui.PushTextWrapPos()
-							_d.imgui_text_disabled_safe(btn.hint)
-							imgui.PopTextWrapPos()
-						end
-					end
-
-					imgui.Spacing()
-				end
+				local allowsText = mode == INPUT_MODE.TEXT or mode == INPUT_MODE.BUTTONS_LIST_TEXT
 
 				if field.hint and field.hint ~= "" then
 					imgui.PushTextWrapPos()
@@ -894,12 +993,8 @@ function M.drawInputDialog()
 				end
 
 				if hasList then
-					local listHeight = mode == INPUT_MODE.BUTTONS_LIST and 220 or 170
-					local picked, pickedHint = draw_buttons_list_field(idx, field, buf, listHeight, true, visibleButtons)
-					if picked and combo then
-						combo[0] = 0
-						dialog.combo_source_selected[idx] = nil
-					end
+					local listHeight = getDialogListHeight(dialog, mode)
+					local _, pickedHint = draw_buttons_list_field(idx, field, buf, listHeight, true, visibleButtons)
 					if mode == INPUT_MODE.BUTTONS_LIST and pickedHint and pickedHint ~= "" then
 						imgui.Spacing()
 						imgui.PushTextWrapPos()
@@ -910,19 +1005,22 @@ function M.drawInputDialog()
 				end
 
 				if allowsText then
+					local inputBg = imgui.GetStyle().Colors[imgui.Col.FrameBgHovered]
+					imgui.Separator()
+					imgui.Spacing()
 					if dialog.focus_requested then
 						imgui.SetKeyboardFocusHere()
 						dialog.focus_requested = false
 					end
 
-					local text = ffi.string(buf)
-					local approxW = imgui.GetContentRegionAvail().x
-					local h = calcAutoHeight(dialog, text, approxW)
-					local changed = drawInputMultilineWithCounter("##dialog_input" .. idx, buf, C.INPUT_BUF_SIZE, h)
-					if changed and combo then
-						combo[0] = 0
-						dialog.combo_source_selected[idx] = nil
-					end
+					imgui.PushStyleColor(imgui.Col.FrameBg, inputBg)
+					local changed = drawInputMultilineWithCounter(
+						"##dialog_input" .. idx,
+						buf,
+						C.INPUT_BUF_SIZE,
+						imgui.GetFrameHeight()
+					)
+					imgui.PopStyleColor()
 					if changed then
 						dialog.list_selected[idx] = nil
 						dialog.list_multi_selected[idx] = {}
@@ -934,12 +1032,12 @@ function M.drawInputDialog()
 			imgui.Separator()
 			draw_preview_block()
 
-			if imgui.Button((fa.PAPER_PLANE or fa.CHECK or "") .. " Отправить") then
+			if imgui.Button((fa.PAPER_PLANE or fa.CHECK or "") .. L("binder.input_dialog.text.text_17")) then
 				submitInputDialog(dialog)
 			end
 
 			imgui.SameLine()
-			if imgui.Button((fa.XMARK or "X") .. " Отмена") then
+			if imgui.Button((fa.XMARK or "X") .. L("binder.input_dialog.text.text_18")) then
 				M.cancelInputDialog()
 			end
 		end

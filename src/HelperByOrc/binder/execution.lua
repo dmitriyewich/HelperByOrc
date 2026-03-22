@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 
 local ffi = require("ffi")
@@ -22,6 +27,18 @@ local quickMenuHotkeyCapture = HotkeyManager.new({
 		end
 	end,
 })
+local TEXT_EVENT_SOURCE = {
+	INCOMING_SERVER = "incoming_server",
+	OUTGOING_CHAT = "outgoing_chat",
+	OUTGOING_COMMAND = "outgoing_command",
+}
+local OUTGOING_TRIGGER_GUARD_TTL_MS = 2000
+local OUTGOING_TRIGGER_GUARD_MAX = 64
+local outgoingTriggerGuard = {
+	chat = {},
+	command = {},
+}
+local incomingEchoTriggerGuard = {}
 
 -- === Scheduler coroutine ===
 local function log_error(err)
@@ -82,6 +99,54 @@ M.runScheduler = runScheduler
 
 -- === ConditionSystem ===
 local cond_labels, quick_cond_labels, cond_count, quick_cond_count
+local condition_language_generation = -1
+local BUILTIN_CONDITION_TEXT_KEYS = {
+	in_water = {
+		message = "binder.execution.text.text",
+		label = "binder.execution.text.text_1",
+		quick_label = "binder.execution.text.text_2",
+	},
+	dead = {
+		message = "binder.execution.text.text_3",
+		label = "binder.execution.text.text_4",
+		quick_label = "binder.execution.text.text_5",
+	},
+	in_air = {
+		message = "binder.execution.text.text_6",
+		label = "binder.execution.text.text_7",
+		quick_label = "binder.execution.text.text_8",
+	},
+	in_any_car = {
+		message = "binder.execution.text.text_9",
+		label = "binder.execution.text.text_10",
+		quick_label = "binder.execution.text.text_11",
+	},
+	without_weapon = {
+		message = "binder.execution.text.text_12",
+		label = "binder.execution.text.text_13",
+		quick_label = "binder.execution.text.text_14",
+	},
+	with_weapon = {
+		message = "binder.execution.text.text_15",
+		label = "binder.execution.text.text_16",
+		quick_label = "binder.execution.text.text_17",
+	},
+	on_foot = {
+		message = "binder.execution.text.text_18",
+		label = "binder.execution.text.text_19",
+		quick_label = "binder.execution.text.text_20",
+	},
+	chat_opened = {
+		message = "binder.execution.text.text_21",
+		label = "binder.execution.text.text_22",
+		quick_label = "binder.execution.text.text_23",
+	},
+	dialog_opened = {
+		message = "binder.execution.text.text_24",
+		label = "binder.execution.text.text_25",
+		quick_label = "binder.execution.text.text_26",
+	},
+}
 
 local ConditionSystem = {
 	order = {
@@ -92,6 +157,8 @@ local ConditionSystem = {
 		"without_weapon",
 		"with_weapon",
 		"on_foot",
+		"chat_opened",
+		"dialog_opened",
 	},
 
 	conditions = {
@@ -100,36 +167,36 @@ local ConditionSystem = {
 				return isCharInWater(PLAYER_PED)
 			end,
 			priority = 1,
-			message = "Нельзя использовать в воде",
-			label = "Не сработает в воде",
-			quick_label = "Скрывать если в воде",
+			message = L("binder.execution.text.text"),
+			label = L("binder.execution.text.text_1"),
+			quick_label = L("binder.execution.text.text_2"),
 		},
 		dead = {
 			check = function()
 				return isCharDead(PLAYER_PED)
 			end,
 			priority = 2,
-			message = "Нельзя использовать будучи мертвым",
-			label = "Не сработает если игрок мертв",
-			quick_label = "Скрывать если игрок мертв",
+			message = L("binder.execution.text.text_3"),
+			label = L("binder.execution.text.text_4"),
+			quick_label = L("binder.execution.text.text_5"),
 		},
 		in_air = {
 			check = function()
 				return isCharInAir(PLAYER_PED)
 			end,
 			priority = 3,
-			message = "Нельзя использовать в воздухе",
-			label = "Не сработает в воздухе",
-			quick_label = "Скрывать если в воздухе",
+			message = L("binder.execution.text.text_6"),
+			label = L("binder.execution.text.text_7"),
+			quick_label = L("binder.execution.text.text_8"),
 		},
 		in_any_car = {
 			check = function()
 				return isCharInAnyCar(PLAYER_PED)
 			end,
 			priority = 4,
-			message = "Нельзя использовать в машине",
-			label = "Не сработает если игрок в машине",
-			quick_label = "Скрывать если игрок в машине",
+			message = L("binder.execution.text.text_9"),
+			label = L("binder.execution.text.text_10"),
+			quick_label = L("binder.execution.text.text_11"),
 		},
 		without_weapon = {
 			check = function()
@@ -137,9 +204,9 @@ local ConditionSystem = {
 				return weapon == 0
 			end,
 			priority = 5,
-			message = "Нельзя использовать без оружия в руке",
-			label = "Не сработает если в руке нет оружия",
-			quick_label = "Скрывать если в руке нет оружия",
+			message = L("binder.execution.text.text_12"),
+			label = L("binder.execution.text.text_13"),
+			quick_label = L("binder.execution.text.text_14"),
 		},
 		with_weapon = {
 			check = function()
@@ -147,20 +214,96 @@ local ConditionSystem = {
 				return weapon ~= 0
 			end,
 			priority = 6,
-			message = "Нельзя использовать если в руке есть оружие",
-			label = "Не сработает если в руке есть оружие",
-			quick_label = "Скрывать если в руке есть оружие",
+			message = L("binder.execution.text.text_15"),
+			label = L("binder.execution.text.text_16"),
+			quick_label = L("binder.execution.text.text_17"),
 		},
 		on_foot = {
 			check = function()
 				return not isCharInAnyCar(PLAYER_PED)
 			end,
 			priority = 7,
-			message = "Нельзя использовать пешком",
-			label = "Не сработает если игрок пешком",
-			quick_label = "Скрывать если игрок пешком",
+			message = L("binder.execution.text.text_18"),
+			label = L("binder.execution.text.text_19"),
+			quick_label = L("binder.execution.text.text_20"),
 		},
 
+		chat_opened = {
+			check = function()
+				local samp_api = ctx and ctx.module and ctx.module.samp
+				if type(samp_api) ~= "table" then
+					return false
+				end
+
+				local backend = "standard"
+				if type(samp_api.getBackendStatus) == "function" then
+					local status = samp_api.getBackendStatus()
+					if type(status) == "table" and status.active == "sampfuncs" then
+						backend = "sampfuncs"
+					end
+				elseif type(samp_api.getBackendMode) == "function" then
+					backend = tostring(samp_api.getBackendMode() or ""):lower()
+				end
+
+				if backend == "sampfuncs" and type(sampIsChatInputActive) == "function" then
+					local ok, result = pcall(sampIsChatInputActive)
+					if ok then
+						return result and true or false
+					end
+				end
+
+				if type(samp_api.is_chat_opened) == "function" then
+					local ok, result = pcall(samp_api.is_chat_opened)
+					if ok then
+						return result and true or false
+					end
+				end
+
+				return false
+			end,
+			priority = 8,
+			message = L("binder.execution.text.text_21"),
+			label = L("binder.execution.text.text_22"),
+			quick_label = L("binder.execution.text.text_23"),
+		},
+		dialog_opened = {
+			check = function()
+				local samp_api = ctx and ctx.module and ctx.module.samp
+				if type(samp_api) ~= "table" then
+					return false
+				end
+
+				local backend = "standard"
+				if type(samp_api.getBackendStatus) == "function" then
+					local status = samp_api.getBackendStatus()
+					if type(status) == "table" and status.active == "sampfuncs" then
+						backend = "sampfuncs"
+					end
+				elseif type(samp_api.getBackendMode) == "function" then
+					backend = tostring(samp_api.getBackendMode() or ""):lower()
+				end
+
+				if backend == "sampfuncs" and type(sampIsDialogActive) == "function" then
+					local ok, result = pcall(sampIsDialogActive)
+					if ok then
+						return result and true or false
+					end
+				end
+
+				if type(samp_api.isDialogActive) == "function" then
+					local ok, result = pcall(samp_api.isDialogActive)
+					if ok then
+						return result and true or false
+					end
+				end
+
+				return false
+			end,
+			priority = 9,
+			message = L("binder.execution.text.text_24"),
+			label = L("binder.execution.text.text_25"),
+			quick_label = L("binder.execution.text.text_26"),
+		},
 		custom = {},
 	},
 
@@ -168,7 +311,7 @@ local ConditionSystem = {
 		self.conditions.custom[name] = {
 			check = check_fn,
 			priority = priority or 10,
-			message = message or "Условие не выполнено",
+			message = message or L("binder.execution.text.text_27"),
 			label = label,
 			quick_label = quick_label,
 		}
@@ -233,7 +376,25 @@ local ConditionSystem = {
 	end,
 }
 
-ConditionSystem:refresh_labels()
+local function ensure_condition_language_cache()
+	if condition_language_generation == language.getGeneration() then
+		return
+	end
+
+	for name, keys in pairs(BUILTIN_CONDITION_TEXT_KEYS) do
+		local cond = ConditionSystem.conditions[name]
+		if cond then
+			cond.message = L(keys.message)
+			cond.label = L(keys.label)
+			cond.quick_label = L(keys.quick_label)
+		end
+	end
+
+	ConditionSystem:refresh_labels()
+	condition_language_generation = language.getGeneration()
+end
+
+ensure_condition_language_cache()
 
 M.ConditionSystem = ConditionSystem
 
@@ -277,10 +438,12 @@ end
 M.isFolderChainVisible = isFolderChainVisible
 
 function M.getCondLabels()
+	ensure_condition_language_cache()
 	return cond_labels, cond_count
 end
 
 function M.getQuickCondLabels()
+	ensure_condition_language_cache()
 	return quick_cond_labels, quick_cond_count
 end
 
@@ -337,6 +500,113 @@ local function parse_leading_chat_color(text)
 	return text, -1
 end
 
+local function normalize_text_event_value(text)
+	local s = tostring(text or "")
+	s = s:gsub("\r\n", "\n"):gsub("\r", "\n")
+	local trim = ctx and ctx.trim
+	if trim then
+		s = trim(s)
+	else
+		s = s:gsub("^%s+", ""):gsub("%s+$", "")
+	end
+	return s
+end
+
+local function prune_outgoing_trigger_guard_bucket(bucket, now_ms)
+	for i = #bucket, 1, -1 do
+		local item = bucket[i]
+		if not item or now_ms >= (tonumber(item.expire_at) or 0) then
+			table.remove(bucket, i)
+		end
+	end
+end
+
+local function register_binder_outgoing_text_guard(text, thisbind_value)
+	local normalized = normalize_text_event_value(text)
+	if normalized == "" then
+		return
+	end
+
+	local kind = normalized:sub(1, 1) == "/" and "command" or "chat"
+	local now_ms = os.clock() * 1000
+	local bucket = outgoingTriggerGuard[kind]
+	local chain_depth = (tonumber(thisbind_value and thisbind_value._active_trigger_chain_depth) or 0) + 1
+	prune_outgoing_trigger_guard_bucket(bucket, now_ms)
+	bucket[#bucket + 1] = {
+		text = normalized,
+		chain_depth = chain_depth,
+		source_hk = thisbind_value,
+		expire_at = now_ms + OUTGOING_TRIGGER_GUARD_TTL_MS,
+	}
+	while #bucket > OUTGOING_TRIGGER_GUARD_MAX do
+		table.remove(bucket, 1)
+	end
+end
+
+local function register_incoming_echo_trigger_guard(text)
+	local normalized = normalize_text_event_value(text)
+	if normalized == "" then
+		return
+	end
+
+	local now_ms = os.clock() * 1000
+	prune_outgoing_trigger_guard_bucket(incomingEchoTriggerGuard, now_ms)
+	incomingEchoTriggerGuard[#incomingEchoTriggerGuard + 1] = {
+		text = normalized,
+		expire_at = now_ms + OUTGOING_TRIGGER_GUARD_TTL_MS,
+	}
+	while #incomingEchoTriggerGuard > OUTGOING_TRIGGER_GUARD_MAX do
+		table.remove(incomingEchoTriggerGuard, 1)
+	end
+end
+
+local function consume_binder_outgoing_text_guard(text, source_kind)
+	local kind = nil
+	if source_kind == TEXT_EVENT_SOURCE.OUTGOING_CHAT then
+		kind = "chat"
+	elseif source_kind == TEXT_EVENT_SOURCE.OUTGOING_COMMAND then
+		kind = "command"
+	end
+	if not kind then
+		return false
+	end
+
+	local normalized = normalize_text_event_value(text)
+	if normalized == "" then
+		return false
+	end
+
+	local now_ms = os.clock() * 1000
+	local bucket = outgoingTriggerGuard[kind]
+	prune_outgoing_trigger_guard_bucket(bucket, now_ms)
+	for i = 1, #bucket do
+		local item = bucket[i]
+		if item and item.text == normalized then
+			table.remove(bucket, i)
+			return item
+		end
+	end
+	return nil
+end
+
+local function consume_incoming_echo_trigger_guard(text)
+	local normalized = normalize_text_event_value(text)
+	if normalized == "" then
+		return false
+	end
+
+	local now_ms = os.clock() * 1000
+	prune_outgoing_trigger_guard_bucket(incomingEchoTriggerGuard, now_ms)
+	for i = 1, #incomingEchoTriggerGuard do
+		local item = incomingEchoTriggerGuard[i]
+		if item and item.text == normalized then
+			table.remove(incomingEchoTriggerGuard, i)
+			return true
+		end
+	end
+	return false
+end
+
 local function doSend(msg, method, thisbind_value, state)
 	local s_utf8 = tostring(msg or "")
 	method = tonumber(method) or 0
@@ -362,8 +632,12 @@ local function doSend(msg, method, thisbind_value, state)
 		local text, color = parse_leading_chat_color(s)
 		sampAddChatMessage(text, color)
 	elseif method == 1 then
+		register_binder_outgoing_text_guard(s_utf8, thisbind_value)
+		register_incoming_echo_trigger_guard(s_utf8)
 		sampProcessChatInput(s)
 	elseif method == 2 then
+		register_binder_outgoing_text_guard(s_utf8, thisbind_value)
+		register_incoming_echo_trigger_guard(s_utf8)
 		sampSendChat(s)
 	elseif method == 4 then
 		local ok = false
@@ -375,7 +649,7 @@ local function doSend(msg, method, thisbind_value, state)
 			pcall(sampSetChatInputEnabled, false)
 		end
 		if not ok then
-			pushToast("Метод 'Написать в чат и закрыть его' недоступен", "warn", 3.0)
+			pushToast(L("binder.execution.text.text_28"), "warn", 3.0)
 		end
 	elseif method == 5 then
 		local ok = false
@@ -386,7 +660,7 @@ local function doSend(msg, method, thisbind_value, state)
 			end)
 		end
 		if not ok then
-			pushToast("Метод 'Написать в чат' недоступен", "warn", 3.0)
+			pushToast(L("binder.execution.text.text_29"), "warn", 3.0)
 		end
 	elseif method == 6 then
 		local samp_api = module.samp
@@ -433,15 +707,15 @@ local function doSend(msg, method, thisbind_value, state)
 
 		if not ok then
 			if reason == "timeout" then
-				pushToast("Диалог не появился в течение 3 секунд. Строка пропущена.", "warn", 3.0)
+				pushToast(L("binder.execution.text.text_3_30"), "warn", 3.0)
 			elseif reason == "stopped" then
 				return false
 			elseif reason == "samp_missing" then
-				pushToast("Метод 'В активное диалоговое окно' недоступен: модуль samp не подключен", "warn", 3.0)
+				pushToast(L("binder.execution.text.samp"), "warn", 3.0)
 			elseif reason == "api_missing" then
-				pushToast("Метод 'В активное диалоговое окно' недоступен: API не найден", "warn", 3.0)
+				pushToast(L("binder.execution.text.api"), "warn", 3.0)
 			else
-				pushToast("Ошибка метода 'В активное диалоговое окно': " .. tostring(reason), "warn", 3.0)
+				pushToast(L("binder.execution.text.text_31") .. tostring(reason), "warn", 3.0)
 			end
 		end
 	elseif method == 7 then
@@ -459,17 +733,10 @@ local function doSend(msg, method, thisbind_value, state)
 			end
 		end
 		if not ok then
-			pushToast("Не удалось скопировать текст в буфер обмена", "warn", 3.0)
+			pushToast(L("binder.execution.text.text_32"), "warn", 3.0)
 		end
 	elseif method == 8 then
-		if type(sampfuncsLog) == "function" then
-			local ok, err = pcall(sampfuncsLog, s)
-			if not ok then
-				pushToast("Ошибка вывода в консоль SF: " .. tostring(err), "warn", 3.0)
-			end
-		else
-			pushToast("Метод 'В консоль SF и биндера' недоступен: sampfuncsLog не найден", "warn", 3.0)
-		end
+		pcall(print, s)
 	elseif method == 9 then
 		pushToast(s_utf8, "ok")
 	elseif method == 3 then
@@ -480,6 +747,51 @@ local function doSend(msg, method, thisbind_value, state)
 end
 
 M.doSend = doSend
+
+local function get_text_confirmation(hk)
+	local clone_text_confirmation = ctx and ctx.clone_text_confirmation
+	if type(clone_text_confirmation) == "function" then
+		return clone_text_confirmation(hk and hk.text_confirmation)
+	end
+	local C = ctx and ctx.C or {}
+	local cfg = type(hk and hk.text_confirmation) == "table" and hk.text_confirmation or {}
+	return {
+		enabled = cfg.enabled == true,
+		key = tonumber(cfg.key) or C.DEFAULT_TEXT_CONFIRM_KEY or 0x31,
+		cancel_key = tonumber(cfg.cancel_key) or C.DEFAULT_TEXT_CANCEL_KEY or 0x32,
+		wait_for_resolution = cfg.wait_for_resolution ~= false,
+	}
+end
+
+local function clear_text_confirmation_wait(hk, clear_pending_trigger)
+	if not hk then
+		return
+	end
+	hk._awaiting_text_confirmation = nil
+	if clear_pending_trigger then
+		hk._pending_chat_trigger = nil
+	end
+end
+
+local function get_text_confirmation_prompt(hk)
+	local text_confirmation_key_label = ctx and ctx.text_confirmation_key_label
+	local confirm = get_text_confirmation(hk)
+	local confirm_label = type(text_confirmation_key_label) == "function"
+		and text_confirmation_key_label(confirm.key)
+		or tostring(confirm.key or "")
+	local cancel_label = type(text_confirmation_key_label) == "function"
+		and text_confirmation_key_label(confirm.cancel_key)
+		or tostring(confirm.cancel_key or "")
+	local prompt = string.format(
+		L("binder.execution.text.format_format"),
+		confirm_label,
+		cancel_label
+	)
+	if not confirm.wait_for_resolution then
+		prompt = prompt .. string.format(L("binder.execution.text.text_1f"), (ctx.C.TEXT_CONFIRM_TIMEOUT_MS or 2000) / 1000)
+	end
+	return prompt
+end
 
 -- === Корутины отправки ===
 function M.sendHotkeyCoroutine(hk, state)
@@ -516,21 +828,38 @@ local function startHotkeyCoroutine(hk, delay_ms, input_values)
 		return false
 	end
 	if #active_coroutines >= C.MAX_ACTIVE_HOTKEYS then
-		ctx.pushToast("Превышен лимит активных биндов", "warn", 3.0)
+		ctx.pushToast(L("binder.execution.text.text_33"), "warn", 3.0)
 		return false
 	end
 	local state = { paused = false, idx = 1, stopped = false, inputs = input_values or {} }
+	clear_text_confirmation_wait(hk)
 	local pending_trigger = hk._pending_chat_trigger
+	local active_trigger_chain_depth = 0
 	if type(pending_trigger) == "table" then
 		hk._active_chat_trigger_text = tostring(pending_trigger.text or "")
 		hk._active_chat_trigger_pattern = tostring(pending_trigger.pattern or "")
 		hk._active_chat_trigger_at = tonumber(pending_trigger.at) or nil
+		active_trigger_chain_depth = tonumber(pending_trigger.depth) or active_trigger_chain_depth
+		local pending_source = tostring(pending_trigger.source or "")
+		hk._active_chat_trigger_source = pending_source ~= "" and pending_source or nil
 	else
 		hk._active_chat_trigger_text = nil
 		hk._active_chat_trigger_pattern = nil
 		hk._active_chat_trigger_at = nil
+		hk._active_chat_trigger_source = nil
 	end
+	local pending_command = hk._pending_command_trigger
+	if type(pending_command) == "table" then
+		hk._active_command_trigger_text = tostring(pending_command.text or "")
+		hk._active_command_trigger_command = tostring(pending_command.command or hk.command or "")
+		active_trigger_chain_depth = tonumber(pending_command.depth) or active_trigger_chain_depth
+	else
+		hk._active_command_trigger_text = nil
+		hk._active_command_trigger_command = nil
+	end
+	hk._active_trigger_chain_depth = active_trigger_chain_depth > 0 and active_trigger_chain_depth or nil
 	hk._pending_chat_trigger = nil
+	hk._pending_command_trigger = nil
 	hk._co_state = state
 	hk.is_running = true
 	hk._awaiting_input = false
@@ -548,23 +877,30 @@ M.startHotkeyCoroutine = startHotkeyCoroutine
 
 function M.enqueueHotkey(hk, delay_ms)
 	if hk.is_running or hk._awaiting_input or not hk.enabled then
+		clear_text_confirmation_wait(hk)
 		hk._pending_chat_trigger = nil
+		hk._pending_command_trigger = nil
 		return false
 	end
 	if not conditions_ok(hk.conditions) then
+		clear_text_confirmation_wait(hk)
 		hk._pending_chat_trigger = nil
+		hk._pending_command_trigger = nil
 		return false
 	end
+	clear_text_confirmation_wait(hk)
 	if hk.inputs and #hk.inputs > 0 then
 		local input_dialog = ctx.input_dialog
 		local activeDialog = input_dialog.getActiveInputDialog()
 		if activeDialog and activeDialog.hk ~= hk then
 			ctx.pushToast(
-				"Сначала завершите ввод данных для другого бинда",
+				L("binder.execution.text.text_34"),
 				"warn",
 				3.0
 			)
+			clear_text_confirmation_wait(hk)
 			hk._pending_chat_trigger = nil
+			hk._pending_command_trigger = nil
 			return false
 		end
 		if input_dialog.openInputDialog(hk, delay_ms) then
@@ -575,20 +911,13 @@ function M.enqueueHotkey(hk, delay_ms)
 		return startHotkeyCoroutine(hk, delay_ms, nil)
 	end
 	hk._pending_chat_trigger = nil
+	hk._pending_command_trigger = nil
 	return false
 end
 
 -- === Текстовые триггеры ===
 local function normalize_text_trigger_value(text)
-	local s = tostring(text or "")
-	s = s:gsub("\r\n", "\n"):gsub("\r", "\n")
-	local trim = ctx.trim
-	if trim then
-		s = trim(s)
-	else
-		s = s:gsub("^%s+", ""):gsub("%s+$", "")
-	end
-	return s
+	return normalize_text_event_value(text)
 end
 
 local function normalize_hex_tag_case(text)
@@ -636,7 +965,7 @@ local function match_text_trigger_message(message_text, trig, hk, now_ms)
 			if hk and (prev_err ~= tostring(matched) or (now_ms - prev_at) > 1000) then
 				hk._last_trigger_pattern_error = tostring(matched)
 				hk._last_trigger_pattern_error_at = now_ms
-				log_error("Ошибка Lua-паттерна в триггере бинда '" .. tostring(hk.label or "") .. "': " .. tostring(matched))
+				log_error(L("binder.execution.text.lua") .. tostring(hk.label or "") .. "': " .. tostring(matched))
 			end
 		end
 		return false, false, source
@@ -645,27 +974,117 @@ local function match_text_trigger_message(message_text, trig, hk, now_ms)
 	return equals_text_trigger(source, target), false, source
 end
 
-function M.onServerMessage(text)
+local function activate_text_trigger_hotkey(hk, trig, source_text, matched_by_pattern, source_kind, now_ms)
+	local C = ctx.C
+	local pending_chat_trigger = {
+		text = source_text,
+		pattern = matched_by_pattern and trig.text or nil,
+		at = now_ms,
+		source = source_kind,
+	}
+	local text_confirmation = get_text_confirmation(hk)
+	if text_confirmation.enabled then
+		if
+			hk.enabled
+			and not hk.is_running
+			and not hk._awaiting_input
+			and not hk._awaiting_text_confirmation
+			and conditions_ok(hk.conditions)
+		then
+			hk._pending_chat_trigger = pending_chat_trigger
+			hk._awaiting_text_confirmation = {
+				key = text_confirmation.key,
+				cancel_key = text_confirmation.cancel_key,
+				at = now_ms,
+				timeout_at = text_confirmation.wait_for_resolution and nil
+					or (now_ms + (C.TEXT_CONFIRM_TIMEOUT_MS or 2000)),
+			}
+			ctx.pushToast(
+				get_text_confirmation_prompt(hk),
+				"warn",
+				text_confirmation.wait_for_resolution and 4.0 or math.max(2.0, (C.TEXT_CONFIRM_TIMEOUT_MS or 2000) / 1000)
+			)
+		else
+			clear_text_confirmation_wait(hk, true)
+		end
+	else
+		hk._pending_chat_trigger = pending_chat_trigger
+		M.enqueueHotkey(hk)
+	end
+end
+
+local function handle_text_trigger_event(text, source_kind)
+	if source_kind == TEXT_EVENT_SOURCE.INCOMING_SERVER and consume_incoming_echo_trigger_guard(text) then
+		return false, false
+	end
+
 	local hotkeys = ctx.hotkeys
 	local C = ctx.C
 	local nowMs = os.clock() * 1000
+	local handled = false
 	for _, hk in ipairs(hotkeys) do
 		local trig = hk.text_trigger
 		if trig and trig.enabled and trig.text and trig.text ~= "" then
 			local matched, matched_by_pattern, source_text = match_text_trigger_message(text, trig, hk, nowMs)
 			if matched then
 				if not hk._debounce_until or nowMs >= hk._debounce_until then
-					hk._pending_chat_trigger = {
-						text = source_text,
-						pattern = matched_by_pattern and trig.text or nil,
-						at = nowMs,
-					}
-					M.enqueueHotkey(hk)
+					activate_text_trigger_hotkey(hk, trig, source_text, matched_by_pattern, source_kind, nowMs)
 					hk._debounce_until = nowMs + C.DEBOUNCE_MS
+					handled = true
 				end
 			end
 		end
 	end
+	return handled, false
+end
+
+function M.onIncomingTextMessage(text)
+	handle_text_trigger_event(text, TEXT_EVENT_SOURCE.INCOMING_SERVER)
+end
+
+function M.onOutgoingChatInput(text)
+	if consume_binder_outgoing_text_guard(text, TEXT_EVENT_SOURCE.OUTGOING_CHAT) then
+		return false
+	end
+	return handle_text_trigger_event(text, TEXT_EVENT_SOURCE.OUTGOING_CHAT)
+end
+
+function M.onServerMessage(text)
+	M.onIncomingTextMessage(text)
+end
+
+local function expire_pending_text_confirmations(now_ms)
+	local handled = false
+	for _, hk in ipairs(ctx.hotkeys) do
+		local pending = hk._awaiting_text_confirmation
+		if pending and pending.timeout_at and now_ms >= pending.timeout_at then
+			clear_text_confirmation_wait(hk, true)
+			ctx.pushToast(L("binder.execution.text.text_35") .. tostring(hk.label or ""), "warn", 3.0)
+			handled = true
+		end
+	end
+	return handled
+end
+
+local function activate_pending_text_confirmations(key_code)
+	local handled = false
+	for _, hk in ipairs(ctx.hotkeys) do
+		local pending = hk._awaiting_text_confirmation
+		if pending and hk.enabled then
+			if tonumber(pending.key) == tonumber(key_code) then
+				clear_text_confirmation_wait(hk)
+				M.enqueueHotkey(hk)
+				handled = true
+			elseif tonumber(pending.cancel_key) == tonumber(key_code) then
+				clear_text_confirmation_wait(hk, true)
+				ctx.pushToast(L("binder.execution.text.text_36") .. tostring(hk.label or ""), "warn", 3.0)
+				handled = true
+			end
+		elseif pending then
+			clear_text_confirmation_wait(hk, true)
+		end
+	end
+	return handled
 end
 
 local function normalizeActivationText(text)
@@ -689,14 +1108,25 @@ local function matchesActivationCommand(inputText, commandText)
 	return input:sub(1, len) == command and (input:len() == len or input:sub(len + 1, len + 1) == " ")
 end
 
-function M.onPlayerCommand(cmd)
+local function handle_command_activation_input(cmd, opts)
+	opts = opts or {}
 	local hotkeys = ctx.hotkeys
 	local C = ctx.C
 	local nowMs = os.clock() * 1000
+	local chain_depth = tonumber(opts.chain_depth) or 0
 	local handled = false
+	if chain_depth > C.MAX_BIND_DEPTH then
+		ctx.pushToast(L("binder.execution.text.runbind") .. C.MAX_BIND_DEPTH .. ")", "warn", 3.0)
+		return false
+	end
 	for _, hk in ipairs(hotkeys) do
 		if hk.command_enabled and not hk.is_running and matchesActivationCommand(cmd, hk.command) then
 			if not hk._debounce_until or nowMs >= hk._debounce_until then
+				hk._pending_command_trigger = {
+					text = tostring(cmd or ""),
+					command = tostring(hk.command or ""),
+					depth = chain_depth,
+				}
 				M.enqueueHotkey(hk)
 				hk._debounce_until = nowMs + C.DEBOUNCE_MS
 				handled = true
@@ -706,6 +1136,23 @@ function M.onPlayerCommand(cmd)
 	return handled
 end
 
+function M.onOutgoingCommandInput(cmd)
+	local guard_item = consume_binder_outgoing_text_guard(cmd, TEXT_EVENT_SOURCE.OUTGOING_COMMAND)
+	local text_handled = false
+	if not guard_item then
+		text_handled = handle_text_trigger_event(cmd, TEXT_EVENT_SOURCE.OUTGOING_COMMAND)
+	end
+	local command_handled = handle_command_activation_input(cmd, {
+		chain_depth = guard_item and guard_item.chain_depth or 0,
+		source_hk = guard_item and guard_item.source_hk or nil,
+	})
+	return text_handled or command_handled
+end
+
+function M.onPlayerCommand(cmd)
+	return handle_command_activation_input(cmd)
+end
+
 -- === Stop ===
 function M.stopHotkey(hk)
 	local input_dialog = ctx.input_dialog
@@ -713,6 +1160,7 @@ function M.stopHotkey(hk)
 	if activeDialog and activeDialog.hk == hk then
 		input_dialog.cancelInputDialog()
 	end
+	clear_text_confirmation_wait(hk, true)
 	local state = hk._co_state
 	if state then
 		state.stopped = true
@@ -723,6 +1171,9 @@ end
 
 function M.stopAllHotkeys()
 	ctx.input_dialog.cancelInputDialog()
+	for _, hk in ipairs(ctx.hotkeys) do
+		clear_text_confirmation_wait(hk, true)
+	end
 	for i = 1, #active_coroutines do
 		local info = active_coroutines[i]
 		info.state.stopped = true
@@ -1440,6 +1891,7 @@ function M.disableBind(name, folder)
 	local hk = M.findBind(name, folder)
 	if hk then
 		hk.enabled = false
+		clear_text_confirmation_wait(hk, true)
 		ctx.markHotkeysDirty()
 		return true
 	end
@@ -1495,17 +1947,17 @@ function M.runBind(name, folder, opts)
 	local pushToast = ctx.pushToast
 	local depth = tonumber(opts._depth or 0) or 0
 	if depth > C.MAX_BIND_DEPTH then
-		pushToast("runBind: превышена глубина (" .. C.MAX_BIND_DEPTH .. ")", "warn", 3.0)
+		pushToast(L("binder.execution.text.runbind") .. C.MAX_BIND_DEPTH .. ")", "warn", 3.0)
 		return false
 	end
 	local delay = tonumber(opts.delay_ms or 0) or 0
 	local hk = resolveBindForExecution(name, folder)
 	if not hk then
-		pushToast(("Бинд не найден: %s (%s)"):format(tostring(name), tostring(folder or "")), "warn", 3.0)
+		pushToast((L("binder.execution.text.format_format_37")):format(tostring(name), tostring(folder or "")), "warn", 3.0)
 		return false
 	end
 	if not hk.enabled then
-		pushToast(("Бинд выключен: %s"):format(hk.label or "?"), "warn", 3.0)
+		pushToast((L("binder.execution.text.format")):format(hk.label or "?"), "warn", 3.0)
 		return false
 	end
 	M.enqueueHotkey(hk, delay)
@@ -1518,7 +1970,7 @@ function M.runBindRandom(folderPathString, opts)
 	local pushToast = ctx.pushToast
 	local depth = tonumber(opts._depth or 0) or 0
 	if depth > C.MAX_BIND_DEPTH then
-		pushToast("runBindRandom: превышена глубина (" .. C.MAX_BIND_DEPTH .. ")", "warn", 3.0)
+		pushToast(L("binder.execution.text.runbindrandom") .. C.MAX_BIND_DEPTH .. ")", "warn", 3.0)
 		return false
 	end
 	local recursive = not not opts.recursive
@@ -1526,7 +1978,7 @@ function M.runBindRandom(folderPathString, opts)
 	local p = pathFromString(folderPathString)
 	local pool = collectBindsInFolder(p, recursive)
 	if #pool == 0 then
-		pushToast(("Нет биндов в папке: %s"):format(folderPathString or "(все)"), "warn", 3.0)
+		pushToast((L("binder.execution.text.format_38")):format(folderPathString or L("binder.execution.text.text_39")), "warn", 3.0)
 		return false
 	end
 	local target = pool[math.random(1, #pool)]
@@ -1551,7 +2003,7 @@ local function isQuickMenuHotkeyPressed()
 	local getQuickMenuHotkey = ctx and ctx.getQuickMenuHotkey
 	local quickMenuHotkey = type(getQuickMenuHotkey) == "function" and getQuickMenuHotkey() or nil
 	if type(quickMenuHotkey) == "table" and #quickMenuHotkey > 0 then
-		return HotkeyManager.comboMatchOrdered(pressedKeysList, quickMenuHotkey)
+		return HotkeyManager.comboMatch(pressedKeysList, quickMenuHotkey, HotkeyManager.MODE_MODIFIER_TRIGGER)
 	end
 	return isKeyDown(vk.VK_XBUTTON1) and true or false
 end
@@ -1560,6 +2012,7 @@ function M.resetInputState(reason)
 	local State = ctx.State
 	local perf_state = ctx.perf_state
 	local combo_capture = ctx.combo_capture
+	local text_confirm_capture = ctx.text_confirm_capture
 
 	binderKeyTracker:reset()
 	pressedKeysList = {}
@@ -1574,6 +2027,9 @@ function M.resetInputState(reason)
 
 	if combo_capture:isActive() then
 		combo_capture:stop()
+	end
+	if text_confirm_capture and text_confirm_capture:isActive() then
+		text_confirm_capture:stop()
 	end
 	if quickMenuHotkeyCapture:isActive() then
 		quickMenuHotkeyCapture:stop()
@@ -1591,6 +2047,7 @@ function M.onWindowMessage(msg, wparam, lparam)
 	local State = ctx.State
 	local perf_state = ctx.perf_state
 	local combo_capture = ctx.combo_capture
+	local text_confirm_capture = ctx.text_confirm_capture
 
 	local activateState = (tonumber(wparam) or 0) % 0x10000
 	local lostFocus = msg == (wm.WM_KILLFOCUS or 0x0008)
@@ -1609,9 +2066,8 @@ function M.onWindowMessage(msg, wparam, lparam)
 		return false
 	end
 
-	if (msg == wm.WM_KEYDOWN or msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYDOWN or msg == wm.WM_SYSKEYUP)
-		and now < (module._inputSuppressUntil or 0)
-	then
+	local hotkeyMessage = HotkeyManager.getMessageKeyInfo(msg, wparam)
+	if hotkeyMessage and now < (module._inputSuppressUntil or 0) then
 		return false
 	end
 
@@ -1631,13 +2087,20 @@ function M.onWindowMessage(msg, wparam, lparam)
 			return true
 		end
 	end
-
-	if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN
-		or msg == wm.WM_KEYUP or msg == wm.WM_SYSKEYUP
-	then
-		if binderKeyTracker:onWindowMessage(msg, wparam) then
-			pressedKeysList = binderKeyTracker:getOrdered()
+	if text_confirm_capture and text_confirm_capture:isActive() then
+		if text_confirm_capture:onWindowMessage(msg, wparam, cwm) then
+			return true
 		end
+	end
+	if hotkeyMessage and hotkeyMessage.isDown and activate_pending_text_confirmations(hotkeyMessage.keyCode) then
+		if cwm then
+			cwm(true, true)
+		end
+		return true
+	end
+
+	if binderKeyTracker:onWindowMessage(msg, wparam) then
+		pressedKeysList = binderKeyTracker:getOrdered()
 	elseif msg == wm.WM_MOUSEWHEEL then
 		if State.quickMenuOpen then
 			local delta = bit.rshift(bit.band(wparam, 0xFFFF0000), 16)
@@ -1735,7 +2198,7 @@ function M.processHotkeys()
 			or not hk.enabled
 			or not hk.keys
 			or #hk.keys ~= pressedCount
-			or not HotkeyManager.comboMatchOrdered(pressedKeysList, hk.keys)
+			or not HotkeyManager.comboMatch(pressedKeysList, hk.keys, hk.hotkey_mode)
 		then
 			if hk then
 				hk._comboActive = false
@@ -1752,7 +2215,7 @@ function M.processHotkeys()
 	end
 
 	for _, hk in ipairs(candidates) do
-		local comboNow = HotkeyManager.comboMatchOrdered(pressedKeysList, hk.keys)
+		local comboNow = HotkeyManager.comboMatch(pressedKeysList, hk.keys, hk.hotkey_mode)
 		if hk.repeat_mode then
 			if comboNow then
 				local lastInterval = hk.repeat_interval_ms
@@ -1761,7 +2224,7 @@ function M.processHotkeys()
 				end
 				lastInterval = lastInterval or 500
 				local sec = lastInterval / 1000
-				if not hk._lastRepeatPressed or not HotkeyManager.comboMatchOrdered(hk._lastRepeatPressed, hk.keys) then
+				if not hk._lastRepeatPressed or not HotkeyManager.comboMatch(hk._lastRepeatPressed, hk.keys, hk.hotkey_mode) then
 					M.enqueueHotkey(hk)
 					hk.lastActivated = now
 					hk._lastRepeatPressed = { table.unpack(pressedKeysList) }
@@ -1836,6 +2299,7 @@ function M.CheckQuickMenuKey()
 end
 
 function M.OnTick()
+	expire_pending_text_confirmations(os.clock() * 1000)
 	M.CheckQuickMenuKey()
 	M.processHotkeys()
 	runScheduler()
@@ -1844,6 +2308,7 @@ end
 -- === Init / Deinit ===
 function M.init(c)
 	ctx = c
+	ensure_condition_language_cache()
 end
 
 function M.getActiveCoroutines()
@@ -1851,6 +2316,12 @@ function M.getActiveCoroutines()
 end
 
 function M.deinit()
+	for _, hk in ipairs(ctx.hotkeys or {}) do
+		clear_text_confirmation_wait(hk, true)
+	end
+	outgoingTriggerGuard.chat = {}
+	outgoingTriggerGuard.command = {}
+	incomingEchoTriggerGuard = {}
 	for i = #active_coroutines, 1, -1 do
 		local item = active_coroutines[i]
 		if item and item.hk then

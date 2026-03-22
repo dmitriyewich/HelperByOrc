@@ -1,0 +1,1036 @@
+local ffi = require "ffi"
+local bit = require "bit"
+
+ffi.cdef[[
+    typedef unsigned long DWORD;
+    typedef unsigned long SIZE_T;
+    typedef int BOOL;
+    typedef void* LPVOID;
+
+    BOOL  VirtualProtect(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, DWORD* lpflOldProtect);
+    LPVOID VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect);
+    BOOL  VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType);
+]]
+
+local PAGE_READWRITE = 0x04
+local PAGE_EXECUTE_READWRITE = 0x40
+local MEM_COMMIT = 0x1000
+local MEM_RELEASE = 0x8000
+
+local PTR_SIZE = ffi.sizeof("intptr_t")
+local IS_32BIT = (ffi.sizeof("void*") == 4)
+
+if not IS_32BIT then
+    error("[hooksV2] This hooks library is intended for 32-bit process (GTA SA).", 2)
+end
+
+local u8ptr_t = ffi.typeof("uint8_t*")
+local i8ptr_t = ffi.typeof("int8_t*")
+local i32ptr_t = ffi.typeof("int32_t*")
+local u32ptr_t = ffi.typeof("uint32_t*")
+
+local function copy(dst, src, len)
+    return ffi.copy(ffi.cast("void*", dst), ffi.cast("const void*", src), len)
+end
+
+local function to_uintptr(addr)
+    if type(addr) == "number" then
+        return addr
+    end
+    return tonumber(ffi.cast("intptr_t", addr))
+end
+
+local function normalize_cast(cast)
+    return tostring(cast or ""):gsub("%s+", "")
+end
+
+local function safe_jit_off(fn)
+    if jit and jit.off and type(fn) == "function" then
+        jit.off(fn, true)
+    end
+end
+
+local alloc_registry = {
+    order = {},
+    live = {},
+}
+
+local function register_alloc(ptr)
+    if ptr == nil then
+        return
+    end
+    local key = to_uintptr(ptr)
+    if alloc_registry.live[key] == nil then
+        alloc_registry.live[key] = ptr
+        alloc_registry.order[#alloc_registry.order + 1] = key
+    end
+end
+
+local function unregister_alloc(ptr)
+    if ptr == nil then
+        return
+    end
+    alloc_registry.live[to_uintptr(ptr)] = nil
+end
+
+local function VirtualProtect(addr, size, newProtect, oldProtectArr)
+    return ffi.C.VirtualProtect(ffi.cast("void*", addr), size, newProtect, oldProtectArr)
+end
+
+local function VirtualAlloc(size, protect, trackForFree)
+    local p = ffi.C.VirtualAlloc(nil, size, MEM_COMMIT, protect)
+    if p == nil then
+        return nil
+    end
+    if trackForFree then
+        register_alloc(p)
+    end
+    return p
+end
+
+local function VirtualFree(ptr)
+    if ptr ~= nil then
+        unregister_alloc(ptr)
+        ffi.C.VirtualFree(ptr, 0, MEM_RELEASE)
+    end
+end
+
+local function with_protect_write(addr, size, newProtect, fn)
+    local old_prot = ffi.new("DWORD[1]")
+    local ok = VirtualProtect(addr, size, newProtect, old_prot) ~= 0
+    if not ok then
+        return false, "VirtualProtect failed (set)"
+    end
+
+    local ok2, err = pcall(fn)
+
+    VirtualProtect(addr, size, old_prot[0], old_prot)
+
+    if not ok2 then
+        return false, err
+    end
+    return true
+end
+
+local function warn(msg)
+    print("[hooksV2] " .. msg)
+end
+
+local function read_u8(addr, off)
+    return ffi.cast(u8ptr_t, addr)[off or 0]
+end
+
+local function read_i8(addr, off)
+    return ffi.cast(i8ptr_t, addr)[off or 0]
+end
+
+local function read_i32(addr, off)
+    return ffi.cast(i32ptr_t, ffi.cast(u8ptr_t, addr) + (off or 0))[0]
+end
+
+local function read_u32(addr, off)
+    return ffi.cast(u32ptr_t, ffi.cast(u8ptr_t, addr) + (off or 0))[0]
+end
+
+local function set_u8(addr, off, value)
+    ffi.cast(u8ptr_t, addr)[off] = value
+end
+
+local function set_i32(addr, off, value)
+    ffi.cast(i32ptr_t, ffi.cast(u8ptr_t, addr) + off)[0] = value
+end
+
+local PREFIX_BYTES = {
+    [0xF0] = true, [0xF2] = true, [0xF3] = true,
+    [0x2E] = true, [0x36] = true, [0x3E] = true, [0x26] = true,
+    [0x64] = true, [0x65] = true,
+    [0x66] = true, [0x67] = true,
+}
+
+local function decode_modrm(ptr, pos, addr16)
+    local modrm = ptr[pos]
+    local mod = bit.rshift(modrm, 6)
+    local reg = bit.band(bit.rshift(modrm, 3), 0x7)
+    local rm = bit.band(modrm, 0x7)
+
+    local len = 1
+
+    if addr16 then
+        if mod == 0 and rm == 6 then
+            len = len + 2
+        elseif mod == 1 then
+            len = len + 1
+        elseif mod == 2 then
+            len = len + 2
+        end
+    else
+        if mod ~= 3 and rm == 4 then
+            local sib = ptr[pos + len]
+            local base = bit.band(sib, 0x7)
+            len = len + 1
+            if mod == 0 and base == 5 then
+                len = len + 4
+            end
+        end
+
+        if mod == 0 and rm == 5 then
+            len = len + 4
+        elseif mod == 1 then
+            len = len + 1
+        elseif mod == 2 then
+            len = len + 4
+        end
+    end
+
+    return len, reg
+end
+
+local function decode_instruction(addr)
+    local ptr = ffi.cast(u8ptr_t, addr)
+    local pos = 0
+    local operand16 = false
+    local addr16 = false
+
+    while PREFIX_BYTES[ptr[pos]] do
+        if ptr[pos] == 0x66 then
+            operand16 = true
+        elseif ptr[pos] == 0x67 then
+            addr16 = true
+        end
+        pos = pos + 1
+    end
+
+    local prefix_len = pos
+    local opcode = ptr[pos]
+    pos = pos + 1
+
+    local operand_imm = operand16 and 2 or 4
+    local address_imm = addr16 and 2 or 4
+
+    if opcode == 0x0F then
+        local opcode2 = ptr[pos]
+        pos = pos + 1
+
+        if opcode2 >= 0x80 and opcode2 <= 0x8F then
+            local rel = read_i32(ptr + pos, 0)
+            return {
+                len = pos + 4,
+                kind = "jcc_rel32",
+                cc = opcode2,
+                target = addr + pos + 4 + rel,
+                terminal = false,
+            }
+        end
+
+        if opcode2 == 0xBA then
+            local modrm_len = decode_modrm(ptr, pos, addr16)
+            return { len = pos + modrm_len + 1, kind = "copy" }
+        end
+
+        local modrm_only =
+            opcode2 == 0x1F
+            or (opcode2 >= 0x10 and opcode2 <= 0x17)
+            or (opcode2 >= 0x28 and opcode2 <= 0x2F)
+            or (opcode2 >= 0x40 and opcode2 <= 0x4F)
+            or (opcode2 >= 0x90 and opcode2 <= 0x9F)
+            or opcode2 == 0xA3
+            or opcode2 == 0xAB
+            or opcode2 == 0xAF
+            or opcode2 == 0xB0
+            or opcode2 == 0xB1
+            or opcode2 == 0xB3
+            or (opcode2 >= 0xB6 and opcode2 <= 0xBF)
+            or opcode2 == 0xC0
+            or opcode2 == 0xC1
+
+        if modrm_only then
+            local modrm_len = decode_modrm(ptr, pos, addr16)
+            return { len = pos + modrm_len, kind = "copy" }
+        end
+
+        error(("[jmp] unsupported 0F opcode 0x%02X at 0x%X"):format(opcode2, addr), 2)
+    end
+
+    if opcode == 0xE8 then
+        local rel = read_i32(ptr + pos, 0)
+        return {
+            len = pos + 4,
+            kind = "call_rel32",
+            target = addr + pos + 4 + rel,
+            terminal = false,
+        }
+    end
+
+    if opcode == 0xE9 then
+        local rel = read_i32(ptr + pos, 0)
+        return {
+            len = pos + 4,
+            kind = "jmp_rel32",
+            target = addr + pos + 4 + rel,
+            terminal = true,
+        }
+    end
+
+    if opcode == 0xEB then
+        local rel = read_i8(ptr + pos, 0)
+        return {
+            len = pos + 1,
+            kind = "jmp_rel8",
+            target = addr + pos + 1 + rel,
+            terminal = true,
+        }
+    end
+
+    if opcode >= 0x70 and opcode <= 0x7F then
+        local rel = read_i8(ptr + pos, 0)
+        return {
+            len = pos + 1,
+            kind = "jcc_rel8",
+            cc = opcode,
+            target = addr + pos + 1 + rel,
+            terminal = false,
+        }
+    end
+
+    if opcode == 0xE0 or opcode == 0xE1 or opcode == 0xE2 or opcode == 0xE3 then
+        error(("[jmp] unsupported loop/jcxz opcode 0x%02X at 0x%X"):format(opcode, addr), 2)
+    end
+
+    if opcode == 0x68 then
+        return { len = pos + 4, kind = "copy" }
+    end
+
+    if opcode == 0x6A then
+        return { len = pos + 1, kind = "copy" }
+    end
+
+    if opcode >= 0x40 and opcode <= 0x5F then
+        return { len = pos, kind = "copy" }
+    end
+
+    if opcode == 0x60 or opcode == 0x61 or opcode == 0x90 or opcode == 0x91 or opcode == 0x92
+        or opcode == 0x93 or opcode == 0x94 or opcode == 0x95 or opcode == 0x96 or opcode == 0x97
+        or opcode == 0x98 or opcode == 0x99 or opcode == 0x9B or opcode == 0x9C or opcode == 0x9D
+        or opcode == 0x9E or opcode == 0x9F or opcode == 0xC9 or opcode == 0xCC or opcode == 0xCE
+        or opcode == 0xF8 or opcode == 0xF9 or opcode == 0xFA or opcode == 0xFB or opcode == 0xFC
+        or opcode == 0xFD then
+        return { len = pos, kind = "copy" }
+    end
+
+    if opcode >= 0xB0 and opcode <= 0xB7 then
+        return { len = pos + 1, kind = "copy" }
+    end
+
+    if opcode >= 0xB8 and opcode <= 0xBF then
+        return { len = pos + operand_imm, kind = "copy" }
+    end
+
+    if opcode == 0xA0 or opcode == 0xA1 or opcode == 0xA2 or opcode == 0xA3 then
+        return { len = pos + address_imm, kind = "copy" }
+    end
+
+    if opcode == 0xC2 then
+        return { len = pos + 2, kind = "copy", terminal = true }
+    end
+
+    if opcode == 0xC3 then
+        return { len = pos, kind = "copy", terminal = true }
+    end
+
+    if opcode == 0xCD then
+        return { len = pos + 1, kind = "copy" }
+    end
+
+    if opcode == 0x04 or opcode == 0x0C or opcode == 0x14 or opcode == 0x1C
+        or opcode == 0x24 or opcode == 0x2C or opcode == 0x34 or opcode == 0x3C
+        or opcode == 0xA8 then
+        return { len = pos + 1, kind = "copy" }
+    end
+
+    if opcode == 0x05 or opcode == 0x0D or opcode == 0x15 or opcode == 0x1D
+        or opcode == 0x25 or opcode == 0x2D or opcode == 0x35 or opcode == 0x3D
+        or opcode == 0xA9 then
+        return { len = pos + operand_imm, kind = "copy" }
+    end
+
+    local modrm_len
+    local reg
+
+    if opcode == 0x69 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + operand_imm, kind = "copy" }
+    end
+
+    if opcode == 0x6B then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + 1, kind = "copy" }
+    end
+
+    if opcode == 0x80 or opcode == 0x82 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + 1, kind = "copy" }
+    end
+
+    if opcode == 0x81 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + operand_imm, kind = "copy" }
+    end
+
+    if opcode == 0x83 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + 1, kind = "copy" }
+    end
+
+    if opcode == 0xC0 or opcode == 0xC1 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + 1, kind = "copy" }
+    end
+
+    if opcode == 0xC6 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + 1, kind = "copy" }
+    end
+
+    if opcode == 0xC7 then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + operand_imm, kind = "copy" }
+    end
+
+    if opcode == 0xF6 then
+        modrm_len, reg = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + ((reg == 0 or reg == 1) and 1 or 0), kind = "copy" }
+    end
+
+    if opcode == 0xF7 then
+        modrm_len, reg = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len + ((reg == 0 or reg == 1) and operand_imm or 0), kind = "copy" }
+    end
+
+    if opcode == 0xD0 or opcode == 0xD1 or opcode == 0xD2 or opcode == 0xD3
+        or opcode == 0xFE or opcode == 0xFF or opcode == 0x8F then
+        modrm_len, reg = decode_modrm(ptr, pos, addr16)
+        local terminal = (opcode == 0xFF and reg == 4)
+        return { len = pos + modrm_len, kind = "copy", terminal = terminal }
+    end
+
+    if (opcode >= 0x00 and opcode <= 0x03)
+        or (opcode >= 0x08 and opcode <= 0x0B)
+        or (opcode >= 0x10 and opcode <= 0x13)
+        or (opcode >= 0x18 and opcode <= 0x1B)
+        or (opcode >= 0x20 and opcode <= 0x23)
+        or (opcode >= 0x28 and opcode <= 0x2B)
+        or (opcode >= 0x30 and opcode <= 0x33)
+        or (opcode >= 0x38 and opcode <= 0x3B)
+        or opcode == 0x62 or opcode == 0x63
+        or opcode == 0x84 or opcode == 0x85 or opcode == 0x86 or opcode == 0x87
+        or opcode == 0x88 or opcode == 0x89 or opcode == 0x8A or opcode == 0x8B
+        or opcode == 0x8D or opcode == 0xD8 or opcode == 0xD9 or opcode == 0xDA
+        or opcode == 0xDB or opcode == 0xDC or opcode == 0xDD or opcode == 0xDE
+        or opcode == 0xDF then
+        modrm_len = decode_modrm(ptr, pos, addr16)
+        return { len = pos + modrm_len, kind = "copy" }
+    end
+
+    error(("[jmp] unsupported opcode 0x%02X at 0x%X"):format(opcode, addr), 2)
+end
+
+local function detect_preexisting_patch(addr)
+    local p = ffi.cast(u8ptr_t, addr)
+
+    if p[0] == 0xE9 then
+        return { kind = "jmp_rel32", len = 5, target = addr + 5 + read_i32(p + 1, 0) }
+    end
+
+    if p[0] == 0xEB then
+        return { kind = "jmp_rel8", len = 2, target = addr + 2 + read_i8(p + 1, 0) }
+    end
+
+    if p[0] == 0xFF and p[1] == 0x25 then
+        return { kind = "jmp_abs_indirect", len = 6, target_ptr = read_u32(p + 2, 0) }
+    end
+
+    if p[0] == 0x68 and p[5] == 0xC3 then
+        return { kind = "push_ret", len = 6, target = read_u32(p + 1, 0) }
+    end
+
+    if p[0] >= 0xB8 and p[0] <= 0xBF and p[5] == 0xFF then
+        local reg = p[0] - 0xB8
+        local modrm = p[6]
+        local mod = bit.rshift(modrm, 6)
+        local rm = bit.band(modrm, 0x7)
+        local group = bit.band(bit.rshift(modrm, 3), 0x7)
+        if mod == 3 and group == 4 and rm == reg then
+            return { kind = "mov_reg_imm_jmp_reg", len = 7, target = read_u32(p + 1, 0) }
+        end
+    end
+
+    return nil
+end
+
+local function compute_patch_span(addr, requested_size)
+    local total = 0
+    local current = addr
+    while total < requested_size do
+        local insn = decode_instruction(current)
+        total = total + insn.len
+        current = current + insn.len
+    end
+    return total
+end
+
+local function parse_hex_bytes(str, limit)
+    local out = {}
+    for byte in tostring(str or ""):gmatch("(%x%x)") do
+        if limit and #out >= limit then
+            break
+        end
+        out[#out + 1] = tonumber(byte, 16)
+    end
+    return out
+end
+
+local function build_relocation_plan(addr, span)
+    local plan = {}
+    local total = 0
+    local offset = 0
+
+    while offset < span do
+        local insn = decode_instruction(addr + offset)
+        if insn.kind == "call_rel32" then
+            plan[#plan + 1] = { kind = "call_rel32", target = insn.target, len = 5 }
+            total = total + 5
+        elseif insn.kind == "jmp_rel32" then
+            plan[#plan + 1] = { kind = "jmp_rel32", target = insn.target, len = 5 }
+            total = total + 5
+        elseif insn.kind == "jmp_rel8" then
+            plan[#plan + 1] = { kind = "jmp_rel32", target = insn.target, len = 5 }
+            total = total + 5
+        elseif insn.kind == "jcc_rel8" then
+            plan[#plan + 1] = { kind = "jcc_rel32", cc = bit.band(insn.cc, 0x0F), target = insn.target, len = 6 }
+            total = total + 6
+        elseif insn.kind == "jcc_rel32" then
+            plan[#plan + 1] = { kind = "jcc_rel32", cc = bit.band(insn.cc, 0x0F), target = insn.target, len = 6 }
+            total = total + 6
+        else
+            plan[#plan + 1] = { kind = "copy", src = addr + offset, len = insn.len }
+            total = total + insn.len
+        end
+        offset = offset + insn.len
+    end
+
+    return plan, total
+end
+
+local function emit_plan(plan, alloc_addr, out_ptr)
+    local written = 0
+    for i = 1, #plan do
+        local item = plan[i]
+        if item.kind == "copy" then
+            copy(alloc_addr + written, item.src, item.len)
+            written = written + item.len
+        elseif item.kind == "call_rel32" then
+            set_u8(out_ptr, written, 0xE8)
+            set_i32(out_ptr, written + 1, item.target - (alloc_addr + written + 5))
+            written = written + 5
+        elseif item.kind == "jmp_rel32" then
+            set_u8(out_ptr, written, 0xE9)
+            set_i32(out_ptr, written + 1, item.target - (alloc_addr + written + 5))
+            written = written + 5
+        elseif item.kind == "jcc_rel32" then
+            set_u8(out_ptr, written, 0x0F)
+            set_u8(out_ptr, written + 1, 0x80 + item.cc)
+            set_i32(out_ptr, written + 2, item.target - (alloc_addr + written + 6))
+            written = written + 6
+        else
+            error("[jmp] internal relocation error", 2)
+        end
+    end
+    return written
+end
+
+local function build_trampoline(cast, hook_addr, span, saved_bytes, manual_bytes)
+    local tramp_mem
+    local alloc_addr
+
+    if type(manual_bytes) == "string" then
+        tramp_mem = VirtualAlloc(span + 5, PAGE_EXECUTE_READWRITE, true)
+        if tramp_mem == nil then
+            error("[jmp] VirtualAlloc failed for trampoline", 2)
+        end
+
+        alloc_addr = to_uintptr(tramp_mem)
+        local out_ptr = ffi.cast(u8ptr_t, tramp_mem)
+        for i = 0, span + 4 do
+            out_ptr[i] = 0x90
+        end
+
+        local custom = parse_hex_bytes(manual_bytes, span)
+        for i = 1, #custom do
+            out_ptr[i - 1] = custom[i]
+        end
+        if #custom < span then
+            copy(alloc_addr + #custom, saved_bytes + #custom, span - #custom)
+        end
+
+        set_u8(out_ptr, span, 0xE9)
+        set_i32(out_ptr, span + 1, (hook_addr + span) - (alloc_addr + span + 5))
+    else
+        local plan, body_len = build_relocation_plan(hook_addr, span)
+        tramp_mem = VirtualAlloc(body_len + 5, PAGE_EXECUTE_READWRITE, true)
+        if tramp_mem == nil then
+            error("[jmp] VirtualAlloc failed for trampoline", 2)
+        end
+
+        alloc_addr = to_uintptr(tramp_mem)
+        local out_ptr = ffi.cast(u8ptr_t, tramp_mem)
+        for i = 0, body_len + 4 do
+            out_ptr[i] = 0x90
+        end
+
+        local written = emit_plan(plan, alloc_addr, out_ptr)
+        set_u8(out_ptr, written, 0xE9)
+        set_i32(out_ptr, written + 1, (hook_addr + span) - (alloc_addr + written + 5))
+    end
+
+    return tramp_mem, ffi.cast(cast, alloc_addr)
+end
+
+local vmt_hook = { hooks = {} }
+
+function vmt_hook.new(vt)
+    local new_hook = {}
+    local org_func = {}
+
+    local virtual_table = ffi.cast("intptr_t**", vt)[0]
+    new_hook.this = virtual_table
+
+    new_hook.hookMethod = function(cast, func, method)
+        if type(method) ~= "number" then
+            error("[vmt] method index must be a number", 2)
+        end
+
+        safe_jit_off(func)
+
+        if org_func[method] ~= nil then
+            return ffi.cast(cast, org_func[method])
+        end
+
+        org_func[method] = virtual_table[method]
+
+        local slot_addr = to_uintptr(virtual_table + method)
+        local function write()
+            virtual_table[method] = ffi.cast("intptr_t", ffi.cast(cast, func))
+        end
+
+        local ok, err = with_protect_write(slot_addr, PTR_SIZE, PAGE_READWRITE, write)
+        if not ok then
+            org_func[method] = nil
+            error("[vmt] hookMethod failed: " .. tostring(err), 2)
+        end
+
+        return ffi.cast(cast, org_func[method])
+    end
+
+    new_hook.unHookMethod = function(method)
+        if type(method) ~= "number" then
+            return false
+        end
+
+        local original_ptr = org_func[method]
+        if original_ptr == nil then
+            return false
+        end
+
+        local slot_addr = to_uintptr(virtual_table + method)
+        local function write()
+            virtual_table[method] = original_ptr
+        end
+
+        local ok, err = with_protect_write(slot_addr, PTR_SIZE, PAGE_READWRITE, write)
+        if not ok then
+            error("[vmt] unHookMethod failed: " .. tostring(err), 2)
+        end
+
+        org_func[method] = nil
+        return true
+    end
+
+    new_hook.unHookAll = function()
+        local methods = {}
+        for method in pairs(org_func) do
+            methods[#methods + 1] = method
+        end
+        for i = 1, #methods do
+            new_hook.unHookMethod(methods[i])
+        end
+    end
+
+    vmt_hook.hooks[#vmt_hook.hooks + 1] = new_hook.unHookAll
+    return new_hook
+end
+
+local jmp_hook = { hooks = {}, sites = {} }
+
+local function build_site_patch_bytes(site)
+    local dispatcher_addr = to_uintptr(site.dispatcher_cdata)
+    local bytes = ffi.new("uint8_t[?]", site.span, 0x90)
+    bytes[0] = 0xE9
+    ffi.cast("int32_t*", bytes + 1)[0] = dispatcher_addr - site.addr - 5
+    return bytes
+end
+
+local function patch_site(site)
+    if site.patched then
+        return
+    end
+
+    local patch_bytes = build_site_patch_bytes(site)
+    local function write()
+        copy(site.addr, patch_bytes, site.span)
+    end
+
+    local ok, err = with_protect_write(site.addr, site.span, PAGE_EXECUTE_READWRITE, write)
+    if not ok then
+        error("[jmp] patch_site failed: " .. tostring(err), 2)
+    end
+
+    site.patched = true
+end
+
+local function restore_site(site)
+    if not site.patched then
+        return
+    end
+
+    local function write()
+        copy(site.addr, site.saved_bytes, site.span)
+    end
+
+    local ok, err = with_protect_write(site.addr, site.span, PAGE_EXECUTE_READWRITE, write)
+    if not ok then
+        error("[jmp] restore_site failed: " .. tostring(err), 2)
+    end
+
+    site.patched = false
+end
+
+local function count_enabled_hooks(site)
+    local count = 0
+    for i = 1, #site.chain do
+        if site.chain[i].enabled then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function find_next_enabled_index(site, start_index)
+    for i = start_index, #site.chain do
+        local node = site.chain[i]
+        if node ~= nil and node.enabled then
+            return i, node
+        end
+    end
+    return nil, nil
+end
+
+local function find_node_index(site, node)
+    for i = 1, #site.chain do
+        if site.chain[i] == node then
+            return i
+        end
+    end
+    return nil
+end
+
+local function site_dispatch_from(site, start_index, ...)
+    local _, node = find_next_enabled_index(site, start_index)
+    if node ~= nil then
+        return node.callback(...)
+    end
+    return site.base_call(...)
+end
+
+local function release_site(site)
+    if site == nil or site.released then
+        return
+    end
+
+    if site.patched then
+        pcall(restore_site, site)
+    end
+
+    if site.base_trampoline_ptr ~= nil then
+        VirtualFree(site.base_trampoline_ptr)
+        site.base_trampoline_ptr = nil
+    end
+
+    if site.manual_dispatcher_ptr ~= nil then
+        site.manual_dispatcher_ptr = nil
+    end
+    site.dispatcher_cdata = nil
+    site.dispatcher_lua = nil
+    site.base_call = nil
+    site.released = true
+    jmp_hook.sites[site.addr] = nil
+end
+
+local function create_site(cast, hook_addr, size, org_bytes_tramp)
+    local desc = detect_preexisting_patch(hook_addr)
+    local requested = (type(size) == "number" and size) or 5
+    if requested < 5 then
+        error("[jmp] size must be >= 5 for JMP rel32", 2)
+    end
+    if desc and desc.len > requested then
+        requested = desc.len
+    end
+
+    local span = compute_patch_span(hook_addr, requested)
+    local saved_bytes = ffi.new("uint8_t[?]", span)
+    copy(saved_bytes, hook_addr, span)
+
+    local site = {
+        addr = hook_addr,
+        cast = tostring(cast),
+        cast_norm = normalize_cast(cast),
+        span = span,
+        saved_bytes = saved_bytes,
+        patched = false,
+        chain = {},
+        desc = desc,
+    }
+
+    safe_jit_off(function() end)
+
+    local dispatcher_lua = function(...)
+        return site_dispatch_from(site, 1, ...)
+    end
+    safe_jit_off(dispatcher_lua)
+    site.dispatcher_lua = dispatcher_lua
+    site.dispatcher_cdata = ffi.cast(cast, dispatcher_lua)
+
+    local tramp_ptr, base_call = build_trampoline(cast, hook_addr, span, saved_bytes, org_bytes_tramp)
+    site.base_trampoline_ptr = tramp_ptr
+    site.base_call = base_call
+
+    jmp_hook.sites[hook_addr] = site
+
+    if desc then
+        warn(("chained existing entry patch at 0x%X (%s)"):format(hook_addr, desc.kind))
+    end
+
+    return site
+end
+
+function jmp_hook.new(cast, callback, hook_addr, size, trampoline, org_bytes_tramp)
+    safe_jit_off(callback)
+
+    local hook_addr_n = to_uintptr(hook_addr)
+    local cast_norm = normalize_cast(cast)
+
+    local site = jmp_hook.sites[hook_addr_n]
+    if site == nil then
+        site = create_site(cast, hook_addr_n, size, org_bytes_tramp)
+    else
+        if site.cast_norm ~= cast_norm then
+            error(("[jmp] hook at 0x%X already exists with different cast"):format(hook_addr_n), 2)
+        end
+        if type(size) == "number" and size > site.span then
+            error(("[jmp] existing site at 0x%X uses size %d, requested %d"):format(hook_addr_n, site.span, size), 2)
+        end
+    end
+
+    local node = {
+        callback = callback,
+        enabled = true,
+        destroyed = false,
+        site = site,
+    }
+
+    local new_hook = {
+        status = true,
+        _site = site,
+        _node = node,
+        _trampoline_mode = (trampoline == true),
+    }
+
+    local function call_after_self(...)
+        local idx = find_node_index(site, node)
+        if idx == nil then
+            return site.base_call(...)
+        end
+        return site_dispatch_from(site, idx + 1, ...)
+    end
+
+    new_hook.call = call_after_self
+
+    new_hook.stop = function()
+        if node.destroyed or not node.enabled then
+            new_hook.status = false
+            return false
+        end
+
+        node.enabled = false
+        new_hook.status = false
+        if count_enabled_hooks(site) == 0 then
+            restore_site(site)
+        end
+        return true
+    end
+
+    new_hook.start = function()
+        if node.destroyed or node.enabled then
+            new_hook.status = not node.destroyed and node.enabled
+            return false
+        end
+
+        if count_enabled_hooks(site) == 0 then
+            patch_site(site)
+        end
+        node.enabled = true
+        new_hook.status = true
+        return true
+    end
+
+    new_hook.destroy = function()
+        if node.destroyed then
+            return false
+        end
+
+        if node.enabled then
+            new_hook.stop()
+        end
+
+        node.destroyed = true
+        local idx = find_node_index(site, node)
+        if idx ~= nil then
+            table.remove(site.chain, idx)
+        end
+
+        if #site.chain == 0 then
+            release_site(site)
+        end
+
+        return true
+    end
+
+    site.chain[#site.chain + 1] = node
+    patch_site(site)
+
+    jmp_hook.hooks[#jmp_hook.hooks + 1] = new_hook
+
+    return setmetatable(new_hook, {
+        __call = function(self, ...)
+            return self.call(...)
+        end
+    })
+end
+
+local call_hook = { hooks = {} }
+
+function call_hook.new(cast, callback, hook_addr)
+    local hook_addr_n = to_uintptr(hook_addr)
+
+    if ffi.cast("uint8_t*", hook_addr_n)[0] ~= 0xE8 then
+        return nil
+    end
+
+    safe_jit_off(callback)
+
+    local new_hook = {}
+    local detour_addr = to_uintptr(ffi.cast("intptr_t", ffi.cast(cast, callback)))
+
+    local org_bytes = ffi.new("uint8_t[5]")
+    copy(org_bytes, hook_addr_n, 5)
+
+    local hook_bytes = ffi.new("uint8_t[5]", 0x90)
+    hook_bytes[0] = 0xE8
+    ffi.cast("uint32_t*", hook_bytes + 1)[0] = detour_addr - hook_addr_n - 5
+
+    local rel = ffi.cast("int32_t*", hook_addr_n + 1)[0]
+    local target = hook_addr_n + 5 + rel
+    new_hook.call = ffi.cast(cast, target)
+    new_hook.status = false
+
+    local function set_status(bool)
+        if new_hook.status == bool then
+            return
+        end
+        new_hook.status = bool
+
+        local function write()
+            copy(hook_addr_n, bool and hook_bytes or org_bytes, 5)
+        end
+
+        local ok, err = with_protect_write(hook_addr_n, 5, PAGE_EXECUTE_READWRITE, write)
+        if not ok then
+            error("[call] set_status failed: " .. tostring(err), 2)
+        end
+    end
+
+    new_hook.stop = function() set_status(false) end
+    new_hook.start = function() set_status(true) end
+    new_hook.destroy = function()
+        if new_hook.status then
+            new_hook.stop()
+        end
+        return true
+    end
+
+    new_hook.start()
+    call_hook.hooks[#call_hook.hooks + 1] = new_hook
+
+    return setmetatable(new_hook, {
+        __call = function(self, ...)
+            return self.call(...)
+        end
+    })
+end
+
+local function cleanup_all()
+    for i = 1, #jmp_hook.hooks do
+        local hook = jmp_hook.hooks[i]
+        if hook and type(hook.destroy) == "function" then
+            pcall(hook.destroy)
+        end
+    end
+    jmp_hook.hooks = {}
+
+    for i = 1, #call_hook.hooks do
+        local hook = call_hook.hooks[i]
+        if hook and hook.status then
+            pcall(hook.stop)
+        end
+    end
+    call_hook.hooks = {}
+
+    local order = alloc_registry.order
+    for i = 1, #order do
+        local key = order[i]
+        local ptr = alloc_registry.live[key]
+        if ptr ~= nil then
+            pcall(VirtualFree, ptr)
+        end
+    end
+    alloc_registry.order = {}
+    alloc_registry.live = {}
+
+    for i = 1, #vmt_hook.hooks do
+        local unhook = vmt_hook.hooks[i]
+        if type(unhook) == "function" then
+            pcall(unhook)
+        end
+    end
+    vmt_hook.hooks = {}
+    jmp_hook.sites = {}
+end
+
+if type(addEventHandler) == "function" and script and script.this then
+    addEventHandler("onScriptTerminate", function(scr)
+        if scr == script.this then
+            cleanup_all()
+        end
+    end)
+end
+
+return { vmt = vmt_hook, jmp = jmp_hook, call = call_hook, _cleanup = cleanup_all }

@@ -1,5 +1,9 @@
 local imgui = require("mimgui")
 local mimgui_funcs
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
 
 local module = {}
 
@@ -182,24 +186,24 @@ function module.DrawSettingsInline()
 	if not (imgui and imgui.CollapsingHeader) then
 		return
 	end
-	if not imgui.CollapsingHeader("Уведомления") then
+	if not imgui.CollapsingHeader(L("toasts.text.text")) then
 		return
 	end
 
 	local enabled = ui_bool("enabled", cfg.enabled)
-	if imgui.Checkbox("Включить", enabled) then
+	if imgui.Checkbox(L("toasts.text.text_1"), enabled) then
 		setCfg("enabled", enabled[0])
 	end
 
 	imgui.Separator()
-	imgui.Text("Якорь")
+	imgui.Text(L("toasts.text.text_2"))
 	local anchorOptions = {
-		{ label = "Слева сверху", value = "top_left" },
-		{ label = "По центру сверху", value = "top_center" },
-		{ label = "Справа сверху", value = "top_right" },
-		{ label = "Слева снизу", value = "bottom_left" },
-		{ label = "По центру снизу", value = "bottom_center" },
-		{ label = "Справа снизу", value = "bottom_right" },
+		{ label = L("toasts.text.text_3"), value = "top_left" },
+		{ label = L("toasts.text.text_4"), value = "top_center" },
+		{ label = L("toasts.text.text_5"), value = "top_right" },
+		{ label = L("toasts.text.text_6"), value = "bottom_left" },
+		{ label = L("toasts.text.text_7"), value = "bottom_center" },
+		{ label = L("toasts.text.text_8"), value = "bottom_right" },
 	}
 	for i, opt in ipairs(anchorOptions) do
 		if imgui.RadioButtonBool(opt.label, cfg.anchor == opt.value) then
@@ -211,96 +215,96 @@ function module.DrawSettingsInline()
 	end
 
 	imgui.Separator()
-	imgui.Text("Позиционирование и размеры")
+	imgui.Text(L("toasts.text.text_9"))
 	local width = ui_int("width", cfg.width)
-	if imgui.InputInt("Ширина", width) then
+	if imgui.InputInt(L("toasts.text.text_10"), width) then
 		setCfg("width", math.max(1, width[0]))
 	end
 	local offsetX = ui_int("offset_x", cfg.offsetX)
-	if imgui.InputInt("Отступ X", offsetX) then
+	if imgui.InputInt(L("toasts.text.x"), offsetX) then
 		setCfg("offsetX", math.max(0, offsetX[0]))
 	end
 	local offsetY = ui_int("offset_y", cfg.offsetY)
-	if imgui.InputInt("Отступ Y", offsetY) then
+	if imgui.InputInt(L("toasts.text.y"), offsetY) then
 		setCfg("offsetY", math.max(0, offsetY[0]))
 	end
 
 	imgui.Separator()
-	imgui.Text("Длительность")
+	imgui.Text(L("toasts.text.text_11"))
 	local durOk = ui_float("dur_ok", cfg.durOk)
-	if imgui.InputFloat("OK (сек)", durOk) then
+	if imgui.InputFloat(L("toasts.text.ok"), durOk) then
 		setCfg("durOk", math.max(0, durOk[0]))
 	end
 	local durWarn = ui_float("dur_warn", cfg.durWarn)
-	if imgui.InputFloat("WARN (сек)", durWarn) then
+	if imgui.InputFloat(L("toasts.text.warn"), durWarn) then
 		setCfg("durWarn", math.max(0, durWarn[0]))
 	end
 	local durErr = ui_float("dur_err", cfg.durErr)
-	if imgui.InputFloat("ERR (сек)", durErr) then
+	if imgui.InputFloat(L("toasts.text.err"), durErr) then
 		setCfg("durErr", math.max(0, durErr[0]))
 	end
 
 	imgui.Separator()
-	imgui.Text("Плавность")
+	imgui.Text(L("toasts.text.text_12"))
 	local fadeIn = ui_float("fade_in", cfg.fadeIn)
-	if imgui.InputFloat("Fade In", fadeIn) then
+	if imgui.InputFloat(L("toasts.text.fade_in"), fadeIn) then
 		setCfg("fadeIn", math.max(0, fadeIn[0]))
 	end
 	local fadeOut = ui_float("fade_out", cfg.fadeOut)
-	if imgui.InputFloat("Fade Out", fadeOut) then
+	if imgui.InputFloat(L("toasts.text.fade_out"), fadeOut) then
 		setCfg("fadeOut", math.max(0, fadeOut[0]))
 	end
 
 	imgui.Separator()
-	imgui.Text("Лимиты")
+	imgui.Text(L("toasts.text.text_13"))
 	local maxVisible = ui_int("max_visible", cfg.maxVisible)
-	if imgui.InputInt("Max Visible", maxVisible) then
+	if imgui.InputInt(L("toasts.text.max_visible"), maxVisible) then
 		setCfg("maxVisible", math.max(1, maxVisible[0]))
 	end
 	local maxQueue = ui_int("max_queue", cfg.maxQueue)
-	if imgui.InputInt("Max Queue", maxQueue) then
+	if imgui.InputInt(L("toasts.text.max_queue"), maxQueue) then
 		setCfg("maxQueue", math.max(1, maxQueue[0]))
 	end
 	local historyLimit = ui_int("history_limit", cfg.historyLimit)
-	if imgui.InputInt("History Limit", historyLimit) then
+	if imgui.InputInt(L("toasts.text.history_limit"), historyLimit) then
 		setCfg("historyLimit", math.max(0, historyLimit[0]))
 	end
 
 	imgui.Separator()
-	imgui.Text("Внешний вид")
+	imgui.Text(L("toasts.text.text_14"))
 	local bgAlpha = ui_float("bg_alpha", cfg.bgAlpha)
-	if imgui.InputFloat("Прозрачность фона", bgAlpha) then
+	if imgui.InputFloat(L("toasts.text.text_15"), bgAlpha) then
 		setCfg("bgAlpha", math.max(0, math.min(1, bgAlpha[0])))
 	end
 	local rounding = ui_float("rounding", cfg.rounding)
-	if imgui.InputFloat("Скругление", rounding) then
+	if imgui.InputFloat(L("toasts.text.text_16"), rounding) then
 		setCfg("rounding", math.max(0, rounding[0]))
 	end
 	local padX = ui_float("pad_x", cfg.padX)
-	if imgui.InputFloat("Padding X", padX) then
+	if imgui.InputFloat(L("toasts.text.padding_x"), padX) then
 		setCfg("padX", math.max(0, padX[0]))
 	end
 	local padY = ui_float("pad_y", cfg.padY)
-	if imgui.InputFloat("Padding Y", padY) then
+	if imgui.InputFloat(L("toasts.text.padding_y"), padY) then
 		setCfg("padY", math.max(0, padY[0]))
 	end
 
 	imgui.Separator()
-	if imgui.TreeNodeStr("История") then
-		if imgui.Button("Очистить") then
+	if imgui.TreeNodeStr(L("toasts.text.text_17")) then
+		if imgui.Button(L("toasts.text.text_18")) then
 			module.clearHistory()
 		end
 		local listHeight = 140
 		if imgui.BeginChild("ToastHistoryList", imgui.ImVec2(0, listHeight), true) then
 			if #history == 0 then
-				imgui.Text("Записей нет")
+				imgui.Text(L("toasts.text.text_19"))
 			else
 				local limit = cfg.historyLimit > 0 and cfg.historyLimit or 200
 				local first = math.max(1, #history - limit + 1)
 				for i = first, #history do
 					local entry = history[i]
 					imgui.PushStyleColor(imgui.Col.Text, toastColor(entry.kind))
-					local suffix = entry.count and entry.count > 1 and (" x" .. tostring(entry.count)) or ""
+					local suffix = entry.count and entry.count > 1 and L("toasts.text.count_suffix", { count = entry.count }) or ""
 					imgui_text_wrapped_safe(entry.text .. suffix)
 					imgui.PopStyleColor()
 				end
@@ -418,7 +422,7 @@ function module.draw()
 	imgui.SetNextWindowSize(imgui.ImVec2(windowW, 0), imgui.Cond.Always)
 
 	imgui.Begin(
-		"Notifications##toasts",
+		L("toasts.text.text") .. "##toasts",
 		nil,
 		imgui.WindowFlags.NoDecoration
 			+ imgui.WindowFlags.NoMove
@@ -443,7 +447,7 @@ function module.draw()
 		alpha = math.max(0.0, math.min(1.0, alpha))
 		imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha)
 		imgui.PushStyleColor(imgui.Col.Text, toastColor(toast.kind))
-		local suffix = toast.count and toast.count > 1 and (" x" .. tostring(toast.count)) or ""
+		local suffix = toast.count and toast.count > 1 and L("toasts.text.count_suffix", { count = toast.count }) or ""
 		imgui_text_wrapped_safe(toast.text .. suffix)
 		imgui.PopStyleColor()
 		imgui.PopStyleVar(1)

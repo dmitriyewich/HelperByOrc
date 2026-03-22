@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -156,7 +161,7 @@ local function drawBindsGrid()
 	end
 
 	local addLabel = (fa.SQUARE_PLUS ~= "" and (fa.SQUARE_PLUS .. " ") or "")
-		.. "Добавить бинд##add_bind_cols"
+		.. L("binder.grid_ui.text.add_bind_cols")
 	local addSize = imgui.CalcTextSize(addLabel)
 	local rightX = imgui.GetCursorPosX()
 		+ imgui.GetContentRegionAvail().x
@@ -220,15 +225,15 @@ local function drawBindsGrid()
 
 	local activeLabel = (fa.TOGGLE_ON ~= "" and fa.TOGGLE_ON) or (fa.POWER_OFF ~= "" and fa.POWER_OFF) or "A"
 	local menuLabel = (fa.BOLT ~= "" and fa.BOLT) or (fa.STAR ~= "" and fa.STAR) or "M"
-	drawHeaderCentered(activeLabel, "Актив")
+	drawHeaderCentered(activeLabel, L("binder.grid_ui.text.text"))
 	imgui.NextColumn()
-	drawHeaderCentered(menuLabel, "Быстрое меню")
+	drawHeaderCentered(menuLabel, L("binder.grid_ui.text.text_1"))
 	imgui.NextColumn()
-	drawHeaderCentered("Запуск")
+	drawHeaderCentered(L("binder.grid_ui.text.text_2"))
 	imgui.NextColumn()
-	drawHeaderCentered("Бинд")
+	drawHeaderCentered(L("binder.grid_ui.text.text_3"))
 	imgui.NextColumn()
-	drawHeaderCentered("Действия")
+	drawHeaderCentered(L("binder.grid_ui.text.text_4"))
 	imgui.NextColumn()
 	local headerLine = imgui.GetCursorScreenPos()
 	local headerBottomY = headerLine.y
@@ -446,7 +451,7 @@ local function drawBindsGrid()
 				"##hit_toggle_" .. i,
 				toggleIcon,
 				true,
-				"Включить/выключить бинд",
+				L("binder.grid_ui.text.text_5"),
 				actionBtnSize
 			)
 			mark_widget_clicked(toggleClicked)
@@ -474,7 +479,7 @@ local function drawBindsGrid()
 				"##hit_quick_" .. i,
 				quickIcon,
 				isEnabled,
-				"Показывать в быстром меню",
+				L("binder.grid_ui.text.text_6"),
 				actionBtnSize
 			)
 			if isEnabled and not isQuickMenu then
@@ -501,7 +506,7 @@ local function drawBindsGrid()
 				table.insert(parts, {
 					icon = icon,
 					text = trig.text,
-					tooltip = "Триггер: " .. tostring(trig.text),
+					tooltip = L("binder.grid_ui.text.text_7") .. tostring(trig.text),
 					kind = "trig",
 				})
 			end
@@ -510,7 +515,7 @@ local function drawBindsGrid()
 				table.insert(parts, {
 					icon = icon,
 					text = hk.command,
-					tooltip = "Команда: " .. tostring(hk.command),
+					tooltip = L("binder.grid_ui.text.text_8") .. tostring(hk.command),
 					kind = "cmd",
 				})
 			end
@@ -520,7 +525,7 @@ local function drawBindsGrid()
 				table.insert(parts, {
 					icon = icon,
 					text = keysText,
-					tooltip = "Клавиши: " .. keysText,
+					tooltip = L("binder.grid_ui.text.text_9") .. keysText,
 					kind = "keys",
 				})
 			end
@@ -636,7 +641,7 @@ local function drawBindsGrid()
 			centerInColumn(groupW, 4)
 			if not hk.is_running then
 				local playClicked =
-					action_btn("##play_" .. i, fa.PLAY, canAction, "Воспроизвести", actionBtnSize)
+					action_btn("##play_" .. i, fa.PLAY, canAction, L("binder.grid_ui.text.text_10"), actionBtnSize)
 				mark_widget_clicked(playClicked)
 				if playClicked then
 					ctx.execution.enqueueHotkey(hk)
@@ -644,13 +649,13 @@ local function drawBindsGrid()
 			else
 				if hk._co_state and hk._co_state.paused then
 					local resumeClicked =
-						action_btn("##resume_" .. i, fa.PLAY, canAction, "Продолжить", actionBtnSize)
+						action_btn("##resume_" .. i, fa.PLAY, canAction, L("binder.grid_ui.text.text_11"), actionBtnSize)
 					mark_widget_clicked(resumeClicked)
 					if resumeClicked then
 						hk._co_state.paused = false
 					end
 				else
-					local pauseClicked = action_btn("##pause_" .. i, fa.PAUSE, canAction, "Пауза", actionBtnSize)
+					local pauseClicked = action_btn("##pause_" .. i, fa.PAUSE, canAction, L("binder.grid_ui.text.text_12"), actionBtnSize)
 					mark_widget_clicked(pauseClicked)
 					if pauseClicked then
 						hk._co_state = hk._co_state or {}
@@ -658,21 +663,21 @@ local function drawBindsGrid()
 					end
 				end
 				imgui.SameLine()
-				local stopClicked = action_btn("##stop_" .. i, fa.STOP, canAction, "Стоп", actionBtnSize)
+				local stopClicked = action_btn("##stop_" .. i, fa.STOP, canAction, L("binder.grid_ui.text.text_13"), actionBtnSize)
 				mark_widget_clicked(stopClicked)
 				if stopClicked then
 					ctx.execution.stopHotkey(hk)
 				end
 			end
 			imgui.SameLine()
-			local editClicked = action_btn("##edit_" .. i, fa.PEN, true, "Редактировать", actionBtnSize)
+			local editClicked = action_btn("##edit_" .. i, fa.PEN, true, L("binder.grid_ui.text.text_14"), actionBtnSize)
 			mark_widget_clicked(editClicked)
 			if editClicked then
 				State.editHotkey.active = true
 				State.editHotkey.idx = i
 			end
 			imgui.SameLine()
-			local delClicked = action_btn("##del_" .. i, fa.TRASH, true, "Удалить", actionBtnSize)
+			local delClicked = action_btn("##del_" .. i, fa.TRASH, true, L("binder.grid_ui.text.text_15"), actionBtnSize)
 			mark_widget_clicked(delClicked)
 			if delClicked then
 				_G.deleteBindPopup.idx = i
@@ -680,7 +685,7 @@ local function drawBindsGrid()
 				_G.deleteBindPopup.active = true
 			end
 			imgui.SameLine()
-			local ctxClicked = action_btn("##ctx_" .. i, fa.BARS, true, "Меню", actionBtnSize)
+			local ctxClicked = action_btn("##ctx_" .. i, fa.BARS, true, L("binder.grid_ui.text.text_16"), actionBtnSize)
 			mark_widget_clicked(ctxClicked)
 			if ctxClicked then
 				imgui.OpenPopup("ctx_card_" .. i)
@@ -688,7 +693,7 @@ local function drawBindsGrid()
 			imgui.NextColumn()
 
 			if imgui.BeginPopup("ctx_card_" .. i) then
-				local dupClicked = imgui.MenuItemBool("Дублировать", false)
+				local dupClicked = imgui.MenuItemBool(L("binder.grid_ui.text.text_17"), false)
 				mark_widget_clicked(dupClicked)
 				if dupClicked then
 					local newhk = cloneHotkey(hk)
@@ -696,22 +701,22 @@ local function drawBindsGrid()
 					State.hotkeysDirty = true
 					markHotkeysDirty()
 				end
-				local moveClicked = imgui.MenuItemBool("Переместить в...", false)
+				local moveClicked = imgui.MenuItemBool(L("binder.grid_ui.text.text_18"), false)
 				mark_widget_clicked(moveClicked)
 					if moveClicked then
 						_G.moveBindPopup.active = true
 						_G.moveBindPopup.hkidx = i
 						imgui.CloseCurrentPopup()
 					end
-					local popupClicked = imgui.MenuItemBool("Открыть список строк", false)
+					local popupClicked = imgui.MenuItemBool(L("binder.grid_ui.text.text_19"), false)
 					mark_widget_clicked(popupClicked)
 					if popupClicked then
 						local ok_open, open_err = ctx.popups.requestBindLinesPopup(hk)
 						if not ok_open then
 							if open_err == "bind_no_messages" then
-								ctx.pushToast("У бинда нет строк для отправки", "warn", 2.5)
+								ctx.pushToast(L("binder.grid_ui.text.text_20"), "warn", 2.5)
 							else
-								ctx.pushToast("Не удалось открыть список строк", "err", 2.5)
+								ctx.pushToast(L("binder.grid_ui.text.text_21"), "err", 2.5)
 							end
 						else
 							imgui.CloseCurrentPopup()
@@ -752,7 +757,7 @@ local function drawFolderSearchInput()
 	if imgui.InputTextWithHint then
 		imgui.InputTextWithHint(
 			"##folder_search",
-			"Поиск папок и биндов...",
+			L("binder.grid_ui.text.text_22"),
 			searchBuf,
 			ffi.sizeof(searchBuf)
 		)
@@ -767,7 +772,7 @@ local function drawOpenPathBreadcrumbs()
 	local folderFullPath = ctx.folderFullPath
 	local folders = ctx.folders
 	local path = folderFullPath(ctx.State.selectedFolder)
-	imgui.Text("Открыто: ")
+	imgui.Text(L("binder.grid_ui.text.text_23"))
 	imgui.SameLine()
 	local node = nil
 	local style = imgui.GetStyle()
@@ -893,7 +898,7 @@ local function drawFolderTabs()
 		_d.imgui_text_safe(fa.FOLDER .. " " .. f.name)
 		imgui.Separator()
 		-- Добавить подпапку
-		_d.imgui_text_safe(fa.SQUARE_PLUS .. " " .. "Добавить подпапку")
+		_d.imgui_text_safe(fa.SQUARE_PLUS .. " " .. L("binder.grid_ui.text.text_24"))
 		local subBuf = labelInputs["addsub_" .. f._id] or imgui.new.char[256]()
 		if imgui.InputText("##new_sub", subBuf, ffi.sizeof(subBuf), ctx._d.flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			labelInputs["addsub_" .. f._id] = subBuf
@@ -909,7 +914,7 @@ local function drawFolderTabs()
 		end
 		imgui.Separator()
 		-- Переименовать
-		_d.imgui_text_safe(fa.PEN .. " " .. "Переименовать")
+		_d.imgui_text_safe(fa.PEN .. " " .. L("binder.grid_ui.text.text_25"))
 		local renameBuf = labelInputs["ren_" .. f._id] or imgui.new.char[256](f.name)
 		if imgui.InputText("##ren", renameBuf, ffi.sizeof(renameBuf), ctx._d.flags_or(imgui.InputTextFlags.AutoSelectAll)) then
 			labelInputs["ren_" .. f._id] = renameBuf
@@ -930,7 +935,7 @@ local function drawFolderTabs()
 		end
 
 		imgui.Separator()
-		if imgui.SmallButton(fa.BOLT .. " Настройки быстрого меню...") then
+		if imgui.SmallButton(fa.BOLT .. L("binder.grid_ui.text.text_26")) then
 			ctx.module._folderSettingsTarget = f
 			ctx.module._openFolderSettingsModal = true
 			imgui.CloseCurrentPopup()
@@ -938,13 +943,13 @@ local function drawFolderTabs()
 		imgui.Separator()
 		local canDelete = not isProtectedRootFolder(f) and not (f.parent == nil and #folders <= 1)
 		if canDelete then
-			if imgui.SmallButton(fa.TRASH .. " Удалить папку") then
+			if imgui.SmallButton(fa.TRASH .. L("binder.grid_ui.text.text_27")) then
 				_G.deleteFolderPopup.folder = f
 				_G.deleteFolderPopup.active = true
 				imgui.CloseCurrentPopup()
 			end
 		else
-			_d.imgui_text_disabled_safe(fa.TRASH .. " Удалить папку")
+			_d.imgui_text_disabled_safe(fa.TRASH .. L("binder.grid_ui.text.text_27"))
 		end
 	end
 
@@ -1108,7 +1113,7 @@ local function drawFolderTabs()
 	searchQuery = string.lower(ffi.string(searchBuf))
 
 	local addRootLabel = ((fa.SQUARE_PLUS ~= nil and fa.SQUARE_PLUS ~= "") and (fa.SQUARE_PLUS .. " ") or "")
-		.. "Добавить папку"
+		.. L("binder.grid_ui.text.text_28")
 	if imgui.SmallButton(addRootLabel .. "##add_root_folder") then
 		imgui.OpenPopup("binder_add_root_folder_popup")
 	end
@@ -1144,8 +1149,8 @@ local function drawFolderTabs()
 	if imgui.BeginPopupModal("folder_settings_modal") then
 		local f = ctx.module._folderSettingsTarget
 		if not f then
-			imgui.TextDisabled("Папка не выбрана")
-			if imgui.Button("Закрыть") then
+			imgui.TextDisabled(L("binder.grid_ui.text.text_29"))
+			if imgui.Button(L("binder.grid_ui.text.text_30")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()
@@ -1154,7 +1159,7 @@ local function drawFolderTabs()
 			imgui.Separator()
 
 			local quickMenuLabel = (fa.BOLT and fa.BOLT .. " " or "")
-				.. "Быстрое меню##folder_quick_menu_modal"
+				.. L("binder.grid_ui.text.folder_quick_menu_modal")
 			f._quick_menu_bool = ensure_bool(f._quick_menu_bool, f.quick_menu ~= false)
 			if imgui.Checkbox(quickMenuLabel, f._quick_menu_bool) then
 				f.quick_menu = f._quick_menu_bool[0]
@@ -1162,7 +1167,7 @@ local function drawFolderTabs()
 			end
 
 			imgui.Separator()
-			imgui.TextDisabled("Условия быстрого меню")
+			imgui.TextDisabled(L("binder.grid_ui.text.text_31"))
 			imgui.BeginChild("settings_scroll", imgui.ImVec2(0, 180), true)
 			f._quick_cond_bools = f._quick_cond_bools or {}
 			local labels = ctx.execution.getQuickCondLabels()
@@ -1182,7 +1187,7 @@ local function drawFolderTabs()
 			imgui.EndChild()
 
 			imgui.Separator()
-			if imgui.Button("Закрыть") then
+			if imgui.Button(L("binder.grid_ui.text.text_30")) then
 				imgui.CloseCurrentPopup()
 			end
 			imgui.EndPopup()

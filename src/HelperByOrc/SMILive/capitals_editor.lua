@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -335,7 +340,7 @@ function M.save_entries()
 	Config.data = data
 
 	if #CapitalsQuiz.entries == 0 then
-		CapitalsQuiz.data_error = "Таблица столиц пуста. Заполните capitals_quiz.metropolis в SMILive.json."
+		CapitalsQuiz.data_error = L("smi_live.capitals_editor.text.capitals_quiz_metropolis_smilive_json")
 	else
 		CapitalsQuiz.data_error = nil
 	end
@@ -361,7 +366,7 @@ function M.remove_entry(index)
 		end
 	end
 	M.save_entries()
-	ctx.update_status("Удалена страна: %s.", country)
+	ctx.update_status(L("smi_live.capitals_editor.text.format"), country)
 	return true
 end
 
@@ -373,23 +378,23 @@ function M.add_entry()
 	local capital = trim(str(CapitalsEditor.capital_buf))
 
 	if country == "" then
-		CapitalsEditor.error = "Введите страну."
+		CapitalsEditor.error = L("smi_live.capitals_editor.text.text")
 		return false
 	end
 
 	if capital == "" then
-		CapitalsEditor.error = "Введите столицу."
+		CapitalsEditor.error = L("smi_live.capitals_editor.text.text_1")
 		return false
 	end
 
 	if M.find_entry_index_by_country(country) then
-		CapitalsEditor.error = "Такая страна уже есть в таблице."
+		CapitalsEditor.error = L("smi_live.capitals_editor.text.text_2")
 		return false
 	end
 
 	local facts = M.collect_input_facts()
 	if #facts == 0 then
-		CapitalsEditor.error = "Добавьте минимум один факт."
+		CapitalsEditor.error = L("smi_live.capitals_editor.text.text_3")
 		return false
 	end
 
@@ -400,7 +405,7 @@ function M.add_entry()
 	}
 	M.save_entries()
 	M.clear_inputs()
-	ctx.update_status("Добавлена запись: %s - %s.", country, capital)
+	ctx.update_status(L("smi_live.capitals_editor.text.format_format"), country, capital)
 	return true
 end
 
@@ -465,7 +470,7 @@ function M.save_edit()
 	local idx = CapitalsEditor.edit_index
 	local entry = idx and CapitalsQuiz.entries and CapitalsQuiz.entries[idx]
 	if not entry then
-		CapitalsEditor.edit_error = "Запись не найдена."
+		CapitalsEditor.edit_error = L("smi_live.capitals_editor.text.text_4")
 		return false
 	end
 
@@ -474,21 +479,21 @@ function M.save_edit()
 	local facts = M.collect_input_facts(str(CapitalsEditor.edit_facts_buf))
 
 	if country == "" then
-		CapitalsEditor.edit_error = "Введите страну."
+		CapitalsEditor.edit_error = L("smi_live.capitals_editor.text.text")
 		return false
 	end
 	if capital == "" then
-		CapitalsEditor.edit_error = "Введите столицу."
+		CapitalsEditor.edit_error = L("smi_live.capitals_editor.text.text_1")
 		return false
 	end
 	if #facts == 0 then
-		CapitalsEditor.edit_error = "Добавьте минимум один факт."
+		CapitalsEditor.edit_error = L("smi_live.capitals_editor.text.text_3")
 		return false
 	end
 
 	local duplicate_idx = M.find_entry_index_by_country(country)
 	if duplicate_idx and duplicate_idx ~= idx then
-		CapitalsEditor.edit_error = "Такая страна уже есть в таблице."
+		CapitalsEditor.edit_error = L("smi_live.capitals_editor.text.text_2")
 		return false
 	end
 
@@ -499,7 +504,7 @@ function M.save_edit()
 	M.save_entries()
 	CapitalsEditor.edit_error = nil
 	CapitalsEditor.edit_index = nil
-	ctx.update_status("Изменена запись: %s - %s.", country, capital)
+	ctx.update_status(L("smi_live.capitals_editor.text.format_format_5"), country, capital)
 	imgui.CloseCurrentPopup()
 	return true
 end
@@ -516,8 +521,8 @@ function M.draw_edit_modal()
 		local idx = CapitalsEditor.edit_index
 		local entry_exists = idx and CapitalsQuiz.entries and CapitalsQuiz.entries[idx]
 		if not entry_exists then
-			imgui.TextColored(imgui.ImVec4(1.0, 0.45, 0.45, 1), "Запись больше не существует.")
-			if imgui.Button("Закрыть##capitals_editor_edit_close_missing") then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.45, 0.45, 1), L("smi_live.capitals_editor.text.text_6"))
+			if imgui.Button(L("smi_live.capitals_editor.text.capitals_editor_edit_close_missing")) then
 				CapitalsEditor.edit_index = nil
 				CapitalsEditor.edit_error = nil
 				imgui.CloseCurrentPopup()
@@ -526,23 +531,23 @@ function M.draw_edit_modal()
 			return
 		end
 
-		imgui.Text("Редактирование страны")
+		imgui.Text(L("smi_live.capitals_editor.text.text_7"))
 		imgui.PushItemWidth(360)
 		imgui.InputText(
-			"Страна##capitals_editor_edit_country",
+			L("smi_live.capitals_editor.text.capitals_editor_edit_country"),
 			CapitalsEditor.edit_country_buf,
 			CapitalsEditor.edit_country_buf_size
 		)
 		imgui.InputText(
-			"Столица##capitals_editor_edit_capital",
+			L("smi_live.capitals_editor.text.capitals_editor_edit_capital"),
 			CapitalsEditor.edit_capital_buf,
 			CapitalsEditor.edit_capital_buf_size
 		)
 		imgui.TextDisabled(
-			"Факты: каждая строка - отдельный факт. Если строка > 85 символов или есть ||, факт будет разбит на 2 части."
+			L("smi_live.capitals_editor.text.text_85_2")
 		)
 		imgui.InputTextMultiline(
-			"Факты##capitals_editor_edit_facts",
+			L("smi_live.capitals_editor.text.capitals_editor_edit_facts"),
 			CapitalsEditor.edit_facts_buf,
 			CapitalsEditor.edit_facts_buf_size,
 			imgui.ImVec2(0, CapitalsEditor.edit_facts_input_height)
@@ -553,11 +558,11 @@ function M.draw_edit_modal()
 			imgui.TextColored(imgui.ImVec4(1.0, 0.45, 0.45, 1), escape_imgui_text(CapitalsEditor.edit_error))
 		end
 
-		if imgui.Button("Сохранить##capitals_editor_edit_save") then
+		if imgui.Button(L("smi_live.capitals_editor.text.capitals_editor_edit_save")) then
 			M.save_edit()
 		end
 		imgui.SameLine()
-		if imgui.Button("Отмена##capitals_editor_edit_cancel") then
+		if imgui.Button(L("smi_live.capitals_editor.text.capitals_editor_edit_cancel")) then
 			CapitalsEditor.edit_index = nil
 			CapitalsEditor.edit_error = nil
 			imgui.CloseCurrentPopup()
@@ -572,28 +577,28 @@ function M.draw()
 	local CapitalsEditor = ctx.CapitalsEditor
 	local escape_imgui_text = ctx.escape_imgui_text
 	local count = CapitalsQuiz.entries and #CapitalsQuiz.entries or 0
-	imgui.Text(string.format("Стран в таблице: %d", count))
+	imgui.Text(string.format(L("smi_live.capitals_editor.text.number"), count))
 
 	imgui.PushItemWidth(280)
-	imgui.InputText("Страна##capitals_editor_country", CapitalsEditor.country_buf, CapitalsEditor.country_buf_size)
-	imgui.InputText("Столица##capitals_editor_capital", CapitalsEditor.capital_buf, CapitalsEditor.capital_buf_size)
+	imgui.InputText(L("smi_live.capitals_editor.text.capitals_editor_country"), CapitalsEditor.country_buf, CapitalsEditor.country_buf_size)
+	imgui.InputText(L("smi_live.capitals_editor.text.capitals_editor_capital"), CapitalsEditor.capital_buf, CapitalsEditor.capital_buf_size)
 	imgui.PopItemWidth()
 
 	imgui.TextDisabled(
-		"Факты: каждая строка - отдельный факт. Если строка > 85 символов или есть ||, факт будет разбит на 2 части."
+		L("smi_live.capitals_editor.text.text_85_2")
 	)
 	imgui.InputTextMultiline(
-		"Факты##capitals_editor_facts",
+		L("smi_live.capitals_editor.text.capitals_editor_facts"),
 		CapitalsEditor.facts_buf,
 		CapitalsEditor.facts_buf_size,
 		imgui.ImVec2(0, CapitalsEditor.facts_input_height)
 	)
 
-	if imgui.Button("Добавить страну##capitals_editor_add_country") then
+	if imgui.Button(L("smi_live.capitals_editor.text.capitals_editor_add_country")) then
 		M.add_entry()
 	end
 	imgui.SameLine()
-	if imgui.Button("Очистить форму##capitals_editor_clear_form") then
+	if imgui.Button(L("smi_live.capitals_editor.text.capitals_editor_clear_form")) then
 		M.clear_inputs()
 	end
 
@@ -602,7 +607,7 @@ function M.draw()
 	end
 
 	local preview_facts = M.collect_input_facts()
-	imgui.Text(string.format("Факты для новой страны: %d", #preview_facts))
+	imgui.Text(string.format(L("smi_live.capitals_editor.text.number_8"), #preview_facts))
 	if
 		imgui.BeginChild(
 			"capitals_editor_facts_preview",
@@ -611,7 +616,7 @@ function M.draw()
 		)
 	then
 		if #preview_facts == 0 then
-			imgui.TextDisabled("Пока нет фактов.")
+			imgui.TextDisabled(L("smi_live.capitals_editor.text.text_9"))
 		else
 			for _, parts in ipairs(preview_facts) do
 				local preview = (#parts > 1) and (parts[1] .. " || " .. parts[2]) or parts[1]
@@ -621,7 +626,7 @@ function M.draw()
 	end
 	imgui.EndChild()
 
-	imgui.Text("Записи таблицы")
+	imgui.Text(L("smi_live.capitals_editor.text.text_10"))
 	if
 		imgui.BeginChild(
 			"capitals_editor_entries_preview",
@@ -631,18 +636,18 @@ function M.draw()
 		)
 	then
 				imgui.Columns(4, "capitals_editor_entries_cols", true)
-		imgui.Text("Страна")
+		imgui.Text(L("smi_live.capitals_editor.text.text_11"))
 		imgui.NextColumn()
-		imgui.Text("Столица")
+		imgui.Text(L("smi_live.capitals_editor.text.text_12"))
 		imgui.NextColumn()
-		imgui.Text("Фактов")
+		imgui.Text(L("smi_live.capitals_editor.text.text_13"))
 		imgui.NextColumn()
-		imgui.Text("Действие")
+		imgui.Text(L("smi_live.capitals_editor.text.text_14"))
 		imgui.NextColumn()
 		imgui.Separator()
 
 		if count == 0 then
-			imgui.TextDisabled("Таблица пустая.")
+			imgui.TextDisabled(L("smi_live.capitals_editor.text.text_15"))
 			imgui.NextColumn()
 			imgui.TextDisabled("-")
 			imgui.NextColumn()
@@ -659,11 +664,11 @@ function M.draw()
 				imgui.NextColumn()
 				imgui.Text(tostring(#facts))
 				imgui.NextColumn()
-				if imgui.SmallButton("Изм.##capitals_editor_edit_" .. tostring(idx)) then
+				if imgui.SmallButton(L("smi_live.capitals_editor.text.capitals_editor_edit") .. tostring(idx)) then
 					CapitalsEditor.pending_open_edit_index = idx
 				end
 				imgui.SameLine()
-				if imgui.SmallButton("Удалить##capitals_editor_remove_" .. tostring(idx)) then
+				if imgui.SmallButton(L("smi_live.capitals_editor.text.capitals_editor_remove") .. tostring(idx)) then
 					M.remove_entry(idx)
 					break
 				end
@@ -677,7 +682,7 @@ function M.draw()
 		local idx = CapitalsEditor.pending_open_edit_index
 		CapitalsEditor.pending_open_edit_index = nil
 		if not M.open_edit(idx) then
-			CapitalsEditor.error = "Не удалось открыть редактор записи."
+			CapitalsEditor.error = L("smi_live.capitals_editor.text.text_16")
 		end
 	end
 	M.draw_edit_modal()

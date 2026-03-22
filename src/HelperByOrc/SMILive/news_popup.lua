@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local M = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -257,9 +262,9 @@ end
 function M._send_single_news_popup_row(popup_scope_key, line_index, section_name_for_status, send_key)
 	local trim = ctx.trim
 	local scope_key = tostring(popup_scope_key or "")
-	local section_name = tostring(section_name_for_status or "блок")
+	local section_name = tostring(section_name_for_status or L("smi_live.news_popup.text.text"))
 	if scope_key == "" then
-		ctx.update_status('Не удалось отправить строку: пустой ключ popup для блока "%s".', section_name)
+		ctx.update_status(L("smi_live.news_popup.text.popup_format"), section_name)
 		return false
 	end
 
@@ -268,7 +273,7 @@ function M._send_single_news_popup_row(popup_scope_key, line_index, section_name
 	local states = runtime and runtime.states
 	local state = type(states) == "table" and states[scope_key] or nil
 	if type(state) ~= "table" or not state.initialized then
-		ctx.update_status('Не удалось отправить строку: popup state не инициализирован для блока "%s".', section_name)
+		ctx.update_status(L("smi_live.news_popup.text.popup_state_format"), section_name)
 		return false
 	end
 
@@ -278,7 +283,7 @@ function M._send_single_news_popup_row(popup_scope_key, line_index, section_name
 	local row_idx = math.floor(tonumber(line_index) or 0)
 	if row_idx < 1 or row_idx > max_rows then
 		ctx.update_status(
-			'Не удалось отправить строку для блока "%s": индекс %d вне диапазона 1..%d.',
+			L("smi_live.news_popup.text.format_number_1_number"),
 			section_name,
 			row_idx,
 			max_rows
@@ -289,7 +294,7 @@ function M._send_single_news_popup_row(popup_scope_key, line_index, section_name
 	local raw_line = M._get_news_popup_row_text(state, row_idx)
 	local cleaned = trim and trim(raw_line) or tostring(raw_line or ""):gsub("^%s*(.-)%s*$", "%1")
 	if cleaned == "" then
-		ctx.update_status('Строка #%d в блоке "%s" пустая и не отправлена.', row_idx, section_name)
+		ctx.update_status(L("smi_live.news_popup.text.number_format"), row_idx, section_name)
 		return false
 	end
 
@@ -301,7 +306,7 @@ function M._send_single_news_popup_row(popup_scope_key, line_index, section_name
 
 	if ctx.get_selected_method() == 3 then
 		ctx.update_status(
-			'Строка #%d для блока "%s" не отправлена: выбран режим "В пустоту".',
+			L("smi_live.news_popup.text.number_format_1"),
 			row_idx,
 			section_name
 		)
@@ -313,7 +318,7 @@ function M._send_single_news_popup_row(popup_scope_key, line_index, section_name
 		return false
 	end
 
-	ctx.update_status('Отправлена строка #%d для блока "%s".', row_idx, section_name)
+	ctx.update_status(L("smi_live.news_popup.text.number_format_2"), row_idx, section_name)
 	return true
 end
 
@@ -329,10 +334,10 @@ function M._draw_news_popup_editor_button(options)
 	if popup_id == "" then
 		popup_id = "news_popup_editor_" .. popup_scope_key:gsub("[^%w_]+", "_")
 	end
-	local section_name = tostring(options.section_name or "блок")
+	local section_name = tostring(options.section_name or L("smi_live.news_popup.text.text"))
 	local small_button_label = tostring(options.small_button_label or "..")
-	local reset_button_label = tostring(options.reset_button_label or "Сбросить из шаблона")
-	local popup_title = tostring(options.popup_title or "Изменить и отправить строку")
+	local reset_button_label = tostring(options.reset_button_label or L("smi_live.news_popup.text.text_3"))
+	local popup_title = tostring(options.popup_title or L("smi_live.news_popup.text.text_4"))
 	local send_key = options.send_key
 	local build_messages_fn = options.build_messages_fn
 	local send_one_fn = options.send_one_fn
@@ -343,7 +348,7 @@ function M._draw_news_popup_editor_button(options)
 		imgui.OpenPopup(popup_id)
 	end
 	mimgui_funcs.imgui_hover_tooltip_safe(
-		"Открыть мини-редактор строк (/news): изменить и отправить одну строку"
+		L("smi_live.news_popup.text.news")
 	)
 
 	if not imgui.BeginPopup(popup_id) then
@@ -361,7 +366,7 @@ function M._draw_news_popup_editor_button(options)
 				source_messages = messages_or_err
 			end
 		else
-			ctx.update_status('Ошибка получения строк для блока "%s": %s', section_name, tostring(messages_or_err))
+			ctx.update_status(L("smi_live.news_popup.text.format_format"), section_name, tostring(messages_or_err))
 		end
 	end
 
@@ -372,13 +377,13 @@ function M._draw_news_popup_editor_button(options)
 			source_meta = meta_or_err
 		else
 			source_meta = nil
-			ctx.update_status('Ошибка получения meta для блока "%s": %s', section_name, tostring(meta_or_err))
+			ctx.update_status(L("smi_live.news_popup.text.meta_format_format"), section_name, tostring(meta_or_err))
 		end
 	end
 
 	local state = M._init_news_popup_state(popup_scope_key, source_messages, source_meta)
 	if not state then
-		imgui.TextDisabled("Не удалось инициализировать popup state.")
+		imgui.TextDisabled(L("smi_live.news_popup.text.popup_state"))
 		imgui.EndPopup()
 		return
 	end
@@ -390,19 +395,19 @@ function M._draw_news_popup_editor_button(options)
 	if state.source_changed then
 		imgui.TextColored(
 			imgui.ImVec4(1.0, 0.8, 0.3, 1.0),
-			"Шаблон изменился. Нажмите \"Сбросить из шаблона\" для обновления строк."
+			L("smi_live.news_popup.text.text_5")
 		)
 	end
 
 	local row_buffers = type(state.row_buffers) == "table" and state.row_buffers or {}
 	if #row_buffers == 0 then
-		imgui.TextDisabled("Строк пока нет.")
+		imgui.TextDisabled(L("smi_live.news_popup.text.text_6"))
 		imgui.EndPopup()
 		return
 	end
 
 	local style = imgui.GetStyle()
-	local send_btn_text = "Отпр."
+	local send_btn_text = L("smi_live.news_popup.text.text_7")
 	local send_btn_width = imgui.CalcTextSize(send_btn_text).x + style.FramePadding.x * 2
 
 	for idx = 1, #row_buffers do
@@ -431,7 +436,7 @@ function M._draw_news_popup_editor_button(options)
 			local alpha = style.Alpha
 			imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, alpha * 0.5)
 		end
-		local send_clicked = imgui.SmallButton("Отпр.##news_popup_row_send")
+		local send_clicked = imgui.SmallButton(L("smi_live.news_popup.text.news_popup_row_send"))
 		if row_empty then
 			imgui.PopStyleVar()
 		end
@@ -440,7 +445,7 @@ function M._draw_news_popup_editor_button(options)
 				local ok, sent_or_err = pcall(send_one_fn, idx, popup_scope_key, state)
 				if not ok then
 					ctx.update_status(
-						'Не удалось отправить строку #%d для блока "%s": %s',
+						L("smi_live.news_popup.text.number_format_format"),
 						idx,
 						section_name,
 						tostring(sent_or_err)
@@ -452,7 +457,7 @@ function M._draw_news_popup_editor_button(options)
 		end
 		if row_empty then
 			imgui.SameLine()
-			imgui.TextDisabled("Пустая строка")
+			imgui.TextDisabled(L("smi_live.news_popup.text.text_8"))
 		end
 
 		imgui.PopID()
@@ -466,12 +471,12 @@ end
 function M._draw_news_send_cooldown_timer()
 	local remaining_ms = ctx.broadcast_mod._get_news_send_cooldown_remaining_ms()
 	if remaining_ms <= 0 then
-		imgui.TextColored(imgui.ImVec4(0.45, 0.9, 0.45, 1), "/news cooldown: ready")
+		imgui.TextColored(imgui.ImVec4(0.45, 0.9, 0.45, 1), L("smi_live.news_popup.text.cooldown_ready"))
 		return
 	end
 	imgui.TextColored(
 		imgui.ImVec4(1.0, 0.75, 0.35, 1),
-		string.format("/news cooldown: %.1fs", remaining_ms / 1000)
+		(L("smi_live.news_popup.text.cooldown_remaining")):format(remaining_ms / 1000)
 	)
 end
 
@@ -580,7 +585,9 @@ end
 
 function M.run_news_autocorrection(handler, label)
 	if type(handler) ~= "function" then
-		ctx.update_status("Autocorrect %s is unavailable.", label or "")
+		ctx.update_status(L("smi_live.news_popup.text.autocorrect_unavailable", {
+			label = label or "",
+		}))
 		return
 	end
 
@@ -589,7 +596,7 @@ function M.run_news_autocorrection(handler, label)
 	local raw_utf8 = NewsInput.buf and str(NewsInput.buf) or ""
 	local raw_text = u8:decode(raw_utf8)
 	if trim(raw_text) == "" then
-		ctx.update_status("Enter announcement text first.")
+		ctx.update_status(L("smi_live.news_popup.text.enter_text_first"))
 		return
 	end
 
@@ -612,13 +619,13 @@ function M._send_custom_news_message()
 	local NEWS_INPUT_MAX_LENGTH = ctx.NEWS_INPUT_MAX_LENGTH
 	local body = NewsInput.body_text or ""
 	if body == "" then
-		ctx.update_status("Введите текст объявления.")
+		ctx.update_status(L("smi_live.news_popup.text.text_9"))
 		return
 	end
 
 	if NewsInput.over_limit then
 		ctx.update_status(
-			"Объявление не отправлено: превышен лимит %d символов.",
+			L("smi_live.news_popup.text.number"),
 			NEWS_INPUT_MAX_LENGTH
 		)
 		return
@@ -626,7 +633,7 @@ function M._send_custom_news_message()
 
 	local method = ctx.get_selected_method()
 	if method == 3 then
-		ctx.update_status('Объявление не отправлено: выбран режим "В пустоту".')
+		ctx.update_status(L("smi_live.news_popup.text.text_10"))
 		return
 	end
 
@@ -635,7 +642,7 @@ function M._send_custom_news_message()
 	if not ok then
 		return
 	end
-	ctx.update_status("Объявление отправлено.")
+	ctx.update_status(L("smi_live.news_popup.text.text_11"))
 end
 
 -- === Append to news input ===
@@ -660,7 +667,7 @@ function M._append_to_news_input(text)
 	local next_text = current .. separator .. token
 	local max_len = math.max(1, (NewsInput.buf_size or ctx.NEWS_INPUT_BUFFER_SIZE) - 1)
 	if #next_text > max_len then
-		ctx.update_status("Не удалось вставить тег: превышен лимит поля (%d).", max_len)
+		ctx.update_status(L("smi_live.news_popup.text.number_12"), max_len)
 		return false
 	end
 
@@ -672,14 +679,14 @@ end
 function M._open_tags_help_window()
 	local tags_module = ctx.tags_module
 	if not tags_module or not tags_module.showTagsWindow then
-		ctx.update_status("Окно справки по тегам недоступно.")
+		ctx.update_status(L("smi_live.news_popup.text.text_13"))
 		return false
 	end
 	local ok, err = pcall(function()
 		tags_module.showTagsWindow[0] = true
 	end)
 	if not ok then
-		ctx.update_status("Не удалось открыть окно тегов: %s", err)
+		ctx.update_status(L("smi_live.news_popup.text.format"), err)
 		return false
 	end
 	return true
@@ -706,20 +713,22 @@ function M._draw_news_input_panel()
 	local COLOR_ACCENT_DANGER = ctx.COLOR_ACCENT_DANGER
 	local State = ctx.State
 
-	imgui.Text("Отправить /news")
+	imgui.Text(L("smi_live.news_popup.text.news_14"))
 	imgui.SameLine()
-	if imgui.SmallButton("[rpnick()]##news_tag_rpnick") then
-		M._append_to_news_input("[rpnick()]")
+	local rpnick_tag = L("smi_live.news_popup.text.news_tag_rpnick")
+	if imgui.SmallButton(rpnick_tag .. "##news_tag_rpnick") then
+		M._append_to_news_input(rpnick_tag)
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("[nickru()]##news_tag_nickru") then
-		M._append_to_news_input("[nickru()]")
+	local nickru_tag = L("smi_live.news_popup.text.news_tag_nickru")
+	if imgui.SmallButton(nickru_tag .. "##news_tag_nickru") then
+		M._append_to_news_input(nickru_tag)
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Переменные##news_tag_help") then
+	if imgui.SmallButton(L("smi_live.news_popup.text.news_tag_help")) then
 		M._open_tags_help_window()
 	end
-	mimgui_funcs.imgui_hover_tooltip_safe("Открыть окно: Справка по тегам.")
+	mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_15"))
 	local active_quiz_kind = SMILive._active_live_tab == "capitals" and "capitals" or "math"
 	local build_round_message_fn = active_quiz_kind == "capitals" and SMILive._build_capitals_round_answer_message
 		or SMILive._build_math_round_answer_message
@@ -732,7 +741,7 @@ function M._draw_news_input_panel()
 		winner_defined = (not MathQuiz.active) and type(MathQuiz.winner) == "string" and trim(MathQuiz.winner) ~= ""
 	end
 	imgui.SameLine()
-	if imgui.SmallButton("Ответ (М)##news_math_round_male") then
+	if imgui.SmallButton(L("smi_live.news_popup.text.news_math_round_male")) then
 		local message, err = build_round_message_fn("male")
 		if message and message ~= "" then
 			M._append_to_news_input(message)
@@ -740,9 +749,9 @@ function M._draw_news_input_panel()
 			ctx.update_status(err)
 		end
 	end
-	mimgui_funcs.imgui_hover_tooltip_safe("Вставить шаблон ответа победителя раунда (м).")
+	mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_16"))
 	imgui.SameLine()
-	if imgui.SmallButton("Ответ (Ж)##news_math_round_female") then
+	if imgui.SmallButton(L("smi_live.news_popup.text.news_math_round_female")) then
 		local message, err = build_round_message_fn("female")
 		if message and message ~= "" then
 			M._append_to_news_input(message)
@@ -750,10 +759,10 @@ function M._draw_news_input_panel()
 			ctx.update_status(err)
 		end
 	end
-	mimgui_funcs.imgui_hover_tooltip_safe("Вставить шаблон ответа победительницы раунда (ж).")
+	mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_17"))
 	if winner_defined then
 		imgui.SameLine()
-		if imgui.SmallButton("Победитель (М)##news_math_winner_male") then
+		if imgui.SmallButton(L("smi_live.news_popup.text.news_math_winner_male")) then
 			local message, err = build_winner_message_fn("male")
 			if message and message ~= "" then
 				M._append_to_news_input(message)
@@ -761,9 +770,9 @@ function M._draw_news_input_panel()
 				ctx.update_status(err)
 			end
 		end
-		mimgui_funcs.imgui_hover_tooltip_safe("Вставить финальный шаблон победителя викторины (м).")
+		mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_18"))
 		imgui.SameLine()
-		if imgui.SmallButton("Победитель (Ж)##news_math_winner_female") then
+		if imgui.SmallButton(L("smi_live.news_popup.text.news_math_winner_female")) then
 			local message, err = build_winner_message_fn("female")
 			if message and message ~= "" then
 				M._append_to_news_input(message)
@@ -771,14 +780,14 @@ function M._draw_news_input_panel()
 				ctx.update_status(err)
 			end
 		end
-		mimgui_funcs.imgui_hover_tooltip_safe("Вставить финальный шаблон победительницы викторины (ж).")
+		mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_19"))
 	end
 	imgui.Dummy(imgui.ImVec2(0, 2))
 
 	local avail = imgui.GetContentRegionAvail()
 	local input_height = math.max(50, math.min(80, avail.y - 50))
 	local style = imgui.GetStyle()
-	local shot_label = "Сделать\nскриншот"
+	local shot_label = L("smi_live.news_popup.text.text_20")
 	local shot_text_size = imgui.CalcTextSize(shot_label)
 	local shot_w = shot_text_size.x + style.FramePadding.x * 2
 	local shot_h = math.max(input_height, shot_text_size.y + style.FramePadding.y * 2)
@@ -801,39 +810,39 @@ function M._draw_news_input_panel()
 	if NewsInput.had_prefix then
 		imgui.TextColored(
 			imgui.ImVec4(0.7, 0.7, 0.7, 1),
-			"Префикс /news добавляется автоматически."
+			L("smi_live.news_popup.text.news_21")
 		)
 	end
 
 	if NewsInput.tag_error then
 		imgui.TextColored(
 			imgui.ImVec4(1.0, 0.6, 0.3, 1),
-			"Ошибка обработки тегов, используется исходный текст."
+			L("smi_live.news_popup.text.text_22")
 		)
 	end
 
 	if NewsInput.preview ~= "" then
-		imgui.TextWrapped(escape_imgui_text("Предпросмотр: " .. NewsInput.preview))
+		imgui.TextWrapped(escape_imgui_text(L("smi_live.news_popup.text.text_23") .. NewsInput.preview))
 	end
 
 	local len_color = NewsInput.over_limit and imgui.ImVec4(1.0, 0.4, 0.4, 1) or imgui.ImVec4(0.7, 0.9, 1.0, 1)
 	imgui.TextColored(
 		len_color,
-		string.format("Длина: %d / %d", NewsInput.processed_len, NEWS_INPUT_MAX_LENGTH)
+		string.format(L("smi_live.news_popup.text.number_number"), NewsInput.processed_len, NEWS_INPUT_MAX_LENGTH)
 	)
 	imgui.SameLine()
 	local autocorrect_label = correct_module
 		and type(correct_module.getActiveProviderLabel) == "function"
 		and correct_module.getActiveProviderLabel()
-		or "Автокорректор"
-	if imgui.Button("Автокоррекция##live_news_autocorrect") then
+		or L("smi_live.news_popup.text.text_24")
+	if imgui.Button(L("smi_live.news_popup.text.live_news_autocorrect")) then
 		local handler = correct_module and correct_module.handleAuto
 		M.run_news_autocorrection(handler, autocorrect_label)
 	end
-	mimgui_funcs.imgui_hover_tooltip_safe("Используется: " .. tostring(autocorrect_label))
+	mimgui_funcs.imgui_hover_tooltip_safe(L("smi_live.news_popup.text.text_25") .. tostring(autocorrect_label))
 	imgui.SameLine()
 	push_button_palette(COLOR_ACCENT_PRIMARY)
-	if imgui.Button("Отправить /news") then
+	if imgui.Button(L("smi_live.news_popup.text.news_14")) then
 		M._send_custom_news_message()
 	end
 	local preview_line = ""
@@ -845,15 +854,15 @@ function M._draw_news_input_panel()
 
 	imgui.SameLine()
 	push_button_palette(COLOR_ACCENT_DANGER)
-	if imgui.Button("Отменить отправку") then
+	if imgui.Button(L("smi_live.news_popup.text.text_26")) then
 		ctx.cancel_send_queue()
 	end
-	local cancel_tooltip = string.format("Отменить текущую отправку.\nОтправка: %s", State.send_sequence_running and "активна" or "нет")
+	local cancel_tooltip = string.format(L("smi_live.news_popup.text.format_27"), State.send_sequence_running and L("smi_live.news_popup.text.text_28") or L("smi_live.news_popup.text.text_29"))
 	mimgui_funcs.imgui_hover_tooltip_safe(cancel_tooltip)
 	pop_button_palette()
 
 	if NewsInput.over_limit then
-		imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), "Сократите текст объявления.")
+		imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1), L("smi_live.news_popup.text.text_30"))
 	end
 end
 

@@ -1,3 +1,8 @@
+local language = require("language")
+local function L(key, params)
+	return language.getText(key, params)
+end
+
 local module = {}
 local imgui = require("mimgui")
 local ffi = require("ffi")
@@ -26,10 +31,11 @@ local function syncDependencies(mod)
 	funcs = mod.funcs or funcs or require("HelperByOrc.funcs")
 	_d.mimgui_funcs = mod.mimgui_funcs or _d.mimgui_funcs or require("HelperByOrc.mimgui_funcs")
 
-	_d.hotkey_helpers = funcs.getHotkeyHelpers(vk, "[KEY]")
+	_d.hotkey_helpers = funcs.getHotkeyHelpers(vk, L("binder.text.key"))
 	_d.hotkeyToString = _d.hotkey_helpers.hotkeyToString
 	_d.normalizeKey = _d.hotkey_helpers.normalizeKey
 	_d.isKeyboardKey = _d.hotkey_helpers.isKeyboardKey
+	_d.isHotkeyKey = _d.hotkey_helpers.isHotkeyKey or _d.hotkey_helpers.isKeyboardKey
 	_d.keysMatchCombo = _d.hotkey_helpers.keysMatchCombo
 
 	_d.flags_or = funcs.flags_or
@@ -84,7 +90,7 @@ local ext_hk = {
 
 function module.registerExternalHotkey(keys, label)
 	if type(keys) == "table" and #keys > 0 then
-		table.insert(ext_hk.list, { keys = keys, label = label or "???" })
+		table.insert(ext_hk.list, { keys = keys, label = label or L("common.placeholder_unknown") })
 	end
 end
 
@@ -98,7 +104,6 @@ function module.unregisterExternalHotkey(keys)
 end
 
 local QUICK_MENU_FALLBACK_HOTKEY = { vk.VK_XBUTTON1 }
-local QUICK_MENU_EXTERNAL_LABEL = "Быстрое меню"
 local quickMenuHotkey = nil
 
 -- === Константы ===
@@ -113,6 +118,9 @@ local C = {
 	INPUTTEXT_CALLBACK_RESIZE  = imgui.InputTextFlags and imgui.InputTextFlags.CallbackResize,
 	INPUT_BUF_SIZE             = 2048,
 	DIALOG_SEARCH_BUF_SIZE     = 256,
+	DEFAULT_TEXT_CONFIRM_KEY   = 0x31,
+	DEFAULT_TEXT_CANCEL_KEY    = 0x32,
+	TEXT_CONFIRM_TIMEOUT_MS    = 2000,
 }
 
 -- === Утилиты ===
@@ -143,7 +151,11 @@ end
 local function normalizeQuickMenuHotkey(keys)
 	local normalizeHotkeyTable = _d.hotkey_helpers and _d.hotkey_helpers.normalizeHotkeyTable
 	if type(normalizeHotkeyTable) == "function" then
-		return normalizeHotkeyTable(keys)
+		local normalized = normalizeHotkeyTable(keys)
+		if normalized then
+			return HotkeyManager.normalizeComboForMode(normalized, HotkeyManager.MODE_MODIFIER_TRIGGER)
+		end
+		return nil
 	end
 	local copy = cloneKeys(keys)
 	return #copy > 0 and copy or nil
@@ -161,31 +173,30 @@ local function setQuickMenuHotkeyValue(keys)
 	end
 	quickMenuHotkey = normalized and cloneKeys(normalized) or nil
 	if quickMenuHotkey and #quickMenuHotkey > 0 then
-		module.registerExternalHotkey(quickMenuHotkey, QUICK_MENU_EXTERNAL_LABEL)
+		module.registerExternalHotkey(quickMenuHotkey, L("binder.text.text"))
 	end
 end
 
 local INPUT_MODE = {
 	TEXT = "text",
-	BUTTONS_COMBO = "buttons_combo",
 	BUTTONS_LIST = "buttons_list",
 	BUTTONS_LIST_TEXT = "buttons_list_text",
 }
 
+local normalize_input_mode
+
 local function input_mode_uses_buttons(mode)
-	mode = tostring(mode or "")
-	return mode == "buttons" -- legacy
-		or mode == INPUT_MODE.BUTTONS_COMBO
-		or mode == INPUT_MODE.BUTTONS_LIST
+	mode = normalize_input_mode(mode)
+	return mode == INPUT_MODE.BUTTONS_LIST
 		or mode == INPUT_MODE.BUTTONS_LIST_TEXT
 end
 
-local function normalize_input_mode(mode)
+normalize_input_mode = function(mode)
 	mode = tostring(mode or "")
-	if mode == "buttons" then
-		return INPUT_MODE.BUTTONS_COMBO
+	if mode == "buttons" or mode == "buttons_combo" then
+		return INPUT_MODE.BUTTONS_LIST_TEXT
 	end
-	if mode == INPUT_MODE.BUTTONS_COMBO or mode == INPUT_MODE.BUTTONS_LIST or mode == INPUT_MODE.BUTTONS_LIST_TEXT then
+	if mode == INPUT_MODE.BUTTONS_LIST or mode == INPUT_MODE.BUTTONS_LIST_TEXT then
 		return mode
 	end
 	return INPUT_MODE.TEXT
@@ -205,15 +216,12 @@ end
 local function input_mode_title(mode)
 	mode = normalize_input_mode(mode)
 	if mode == INPUT_MODE.BUTTONS_LIST then
-		return "Только кнопки (список)"
-	end
-	if mode == INPUT_MODE.BUTTONS_COMBO then
-		return "Кнопки (комбо)"
+		return L("binder.text.text_1")
 	end
 	if mode == INPUT_MODE.BUTTONS_LIST_TEXT then
-		return "Кнопки + свой текст"
+		return L("binder.text.text_3")
 	end
-	return "Свой текст"
+	return L("binder.text.text_4")
 end
 
 local function normalize_input_key_ref(key)
@@ -237,6 +245,81 @@ local function normalize_multi_separator(sep)
 	return sep
 end
 
+local function normalize_text_confirmation_key(key, fallback_key)
+	local nk = tonumber(key)
+	if nk ~= nil then
+		nk = _d.normalizeKey(nk)
+	end
+	if nk ~= nil and _d.isHotkeyKey and _d.isHotkeyKey(nk) then
+		return nk
+	end
+	return fallback_key or C.DEFAULT_TEXT_CONFIRM_KEY
+end
+
+local function clone_text_confirmation(cfg)
+	cfg = type(cfg) == "table" and cfg or {}
+	return {
+		enabled = cfg.enabled == true,
+		key = normalize_text_confirmation_key(cfg.key, C.DEFAULT_TEXT_CONFIRM_KEY),
+		cancel_key = normalize_text_confirmation_key(cfg.cancel_key, C.DEFAULT_TEXT_CANCEL_KEY),
+		wait_for_resolution = cfg.wait_for_resolution ~= false,
+	}
+end
+
+local function text_confirmation_key_label(key)
+	return _d.hotkeyToString({ normalize_text_confirmation_key(key) })
+end
+
+local function normalize_runtime_input(input)
+	local key = normalize_input_key_ref(input and input.key)
+	if key == "" then
+		return nil
+	end
+
+	local mode = normalize_input_mode(input.mode)
+	local buttons = nil
+	if input_mode_uses_buttons(mode) then
+		buttons = {}
+		for _, btn in ipairs(input.buttons or {}) do
+			local text = trim(btn.text or "")
+			if text ~= "" then
+				buttons[#buttons + 1] = {
+					label = btn.label or "",
+					text = btn.text or "",
+					hint = btn.hint or "",
+					when = btn.when or "",
+				}
+			end
+		end
+		mode = normalize_runtime_input_mode(mode, buttons)
+		if mode == INPUT_MODE.TEXT then
+			buttons = nil
+		end
+	end
+
+	return {
+		label = input.label or "",
+		hint = input.hint or "",
+		key = key,
+		mode = mode,
+		buttons = buttons,
+		multi_select = input.multi_select == true,
+		multi_separator = normalize_multi_separator(input.multi_separator),
+		cascade_parent_key = normalize_input_key_ref(input.cascade_parent_key),
+	}
+end
+
+local function normalize_runtime_inputs(inputs)
+	local normalized = {}
+	for _, input in ipairs(inputs or {}) do
+		local entry = normalize_runtime_input(input)
+		if entry then
+			normalized[#normalized + 1] = entry
+		end
+	end
+	return normalized
+end
+
 -- === Toasts ===
 local function pushToast(...)
 	if event_bus_ref then
@@ -257,7 +340,7 @@ _imguiSubs[#_imguiSubs + 1] = imgui.OnInitialize(function()
 end)
 
 -- === Данные ===
-local folders = { { name = "Основные", children = {}, parent = nil, quick_conditions = {}, quick_menu = true } }
+local folders = { { name = L("binder.text.text_5"), children = {}, parent = nil, quick_conditions = {}, quick_menu = true } }
 local hotkeys = {}
 local labelInputs = setmetatable({}, { __mode = "k" })
 local nextFolderId = 1
@@ -301,10 +384,13 @@ local function reset_edit_state(hk)
 	end
 	hk.editMsgs, hk.editLabel, hk.editKeys, hk.editCommand, hk.editConditions, hk.editCommandEnabled =
 		nil, nil, nil, nil, nil, nil
+	hk.editHotkeyMode = nil
 	hk.editRepeatMode, hk.editQuickMenu, hk.editRepeatInterval, hk.editQuickConditions = nil, nil, nil, nil
 	hk.editBulkMethod, hk.editBulkInterval, hk.editMultiline, hk.editMultiText = nil, nil, nil, nil
 	reset_multi_buffer(hk)
 	hk.editTextTrigger, hk.editTriggerEnabled, hk.editTriggerPattern = nil, nil, nil
+	hk.editTriggerConfirmEnabled, hk.editTriggerConfirmKey = nil, nil
+	hk.editTriggerConfirmCancelKey, hk.editTriggerConfirmWait = nil, nil
 	hk.editInputs = nil
 end
 
@@ -631,42 +717,11 @@ function module.saveHotkeys()
 		for _, m in ipairs(hk.messages or {}) do
 			table.insert(msgs, { text = m.text, interval = m.interval, method = m.method })
 		end
-		local inputs = {}
-		for _, input in ipairs(hk.inputs or {}) do
-			local mode = normalize_input_mode(input.mode)
-			local buttons
-			if input_mode_uses_buttons(mode) then
-				buttons = {}
-				for _, btn in ipairs(input.buttons or {}) do
-					local text = trim(btn.text or "")
-					if text ~= "" then
-						buttons[#buttons + 1] = {
-							label = btn.label or "",
-							text = btn.text or "",
-							hint = btn.hint or "",
-							when = btn.when or "",
-						}
-					end
-				end
-				mode = normalize_runtime_input_mode(mode, buttons)
-				if mode == INPUT_MODE.TEXT then
-					buttons = nil
-				end
-			end
-			table.insert(inputs, {
-				label = input.label or "",
-				hint = input.hint or "",
-				key = normalize_input_key_ref(input.key),
-				mode = mode,
-				buttons = buttons,
-				multi_select = input.multi_select == true,
-				multi_separator = normalize_multi_separator(input.multi_separator),
-				cascade_parent_key = normalize_input_key_ref(input.cascade_parent_key),
-			})
-		end
+		local inputs = normalize_runtime_inputs(hk.inputs)
 		table.insert(config.hotkeys, {
 			label = hk.label,
 			keys = hk.keys,
+			hotkey_mode = hk.hotkey_mode or HotkeyManager.MODE_MODIFIER_TRIGGER,
 			repeat_mode = hk.repeat_mode,
 			repeat_interval_ms = hk.repeat_interval_ms,
 			enabled = hk.enabled or false,
@@ -678,6 +733,7 @@ function module.saveHotkeys()
 			command_enabled = hk.command_enabled or false,
 			folderPath = hk.folderPath,
 			text_trigger = hk.text_trigger,
+			text_confirmation = clone_text_confirmation(hk.text_confirmation),
 			number = hk._number or idx,
 			inputs = inputs,
 		})
@@ -692,7 +748,7 @@ function module.saveHotkeys()
 	else
 		local ok = funcs.saveTableToJson(config, C.json_path)
 		if not ok then
-			pushToast("Не удалось сохранить бинды", "err", 4.0)
+			pushToast(L("binder.text.text_6"), "err", 4.0)
 		end
 	end
 end
@@ -725,11 +781,13 @@ end
 
 local function newHotkeyBase()
 	return {
-		label = "Новый бинд",
+		label = L("binder.text.text_7"),
 		keys = {},
+		hotkey_mode = HotkeyManager.MODE_MODIFIER_TRIGGER,
 		messages = {},
 		inputs = {},
 		text_trigger = { text = "", enabled = false, pattern = false },
+		text_confirmation = clone_text_confirmation(),
 		repeat_mode = false,
 		repeat_interval_ms = nil,
 		conditions = {},
@@ -761,47 +819,14 @@ function module.registerHotkey(
 	folderPath,
 	text_trigger,
 	command_enabled,
-	inputs
+	inputs,
+	hotkey_mode
 )
 	local hk = newHotkeyBase()
-	hk.keys = keys or {}
+	hk.hotkey_mode = HotkeyManager.normalizeMode(hotkey_mode)
+	hk.keys = HotkeyManager.normalizeComboForMode(keys, hk.hotkey_mode) or {}
 	hk.messages = messages or {}
-	hk.inputs = {}
-	for _, input in ipairs(inputs or {}) do
-		local key = trim(input.key or "")
-		if key ~= "" then
-			local mode = normalize_input_mode(input.mode)
-			local buttons
-			if input_mode_uses_buttons(mode) then
-				buttons = {}
-				for _, btn in ipairs(input.buttons or {}) do
-					local text = trim(btn.text or "")
-					if text ~= "" then
-						buttons[#buttons + 1] = {
-							label = btn.label or "",
-							text = btn.text or "",
-							hint = btn.hint or "",
-							when = btn.when or "",
-						}
-					end
-				end
-				mode = normalize_runtime_input_mode(mode, buttons)
-				if mode == INPUT_MODE.TEXT then
-					buttons = nil
-				end
-			end
-			table.insert(hk.inputs, {
-				label = input.label or "",
-				hint = input.hint or "",
-				key = normalize_input_key_ref(key),
-				mode = mode,
-				buttons = buttons,
-				multi_select = input.multi_select == true,
-				multi_separator = normalize_multi_separator(input.multi_separator),
-				cascade_parent_key = normalize_input_key_ref(input.cascade_parent_key),
-			})
-		end
-	end
+	hk.inputs = normalize_runtime_inputs(inputs)
 	hk.label = label or hk.label
 	hk.repeat_mode = not not repeat_mode
 	hk.conditions = normalizeConditions(conditions)
@@ -818,7 +843,7 @@ end
 function module.loadHotkeys()
 	local actual_json_path = funcs.resolveJsonPath(C.json_path)
 	if doesFileExist and not doesFileExist(actual_json_path) then
-		pushToast("Файл биндов не найден, создан новый", "warn", 3.0)
+		pushToast(L("binder.text.text_8"), "warn", 3.0)
 	end
 	local tbl
 	if config_manager_ref then
@@ -838,7 +863,7 @@ function module.loadHotkeys()
 				table.insert(folders, folder)
 			end
 		else
-			table.insert(folders, createFolder("Основные", nil))
+			table.insert(folders, createFolder(L("binder.text.text_5"), nil))
 		end
 		for _, f in ipairs(folders) do
 			assignFolderTree(f)
@@ -855,7 +880,8 @@ function module.loadHotkeys()
 				hk.folderPath or { folders[1].name },
 				hk.text_trigger,
 				hk.command_enabled,
-				hk.inputs
+				hk.inputs,
+				hk.hotkey_mode
 			)
 			local last = hotkeys[#hotkeys]
 			last.enabled = hk.enabled == nil and true or hk.enabled
@@ -863,6 +889,7 @@ function module.loadHotkeys()
 			last.repeat_interval_ms = tonumber(hk.repeat_interval_ms) or nil
 			last.quick_conditions = normalizeConditions(hk.quick_conditions)
 			last.text_trigger = hk.text_trigger or { text = "", enabled = false, pattern = false }
+			last.text_confirmation = clone_text_confirmation(hk.text_confirmation)
 			last.command_enabled = hk.command_enabled == nil and (hk.command ~= "") or hk.command_enabled
 		end
 		refreshHotkeyNumbers()
@@ -909,12 +936,17 @@ ctx = {
 	reset_edit_state = reset_edit_state,
 	ensure_multi_buffer = ensure_multi_buffer,
 	normalize_input_mode = normalize_input_mode,
+	normalize_runtime_input = normalize_runtime_input,
+	normalize_runtime_inputs = normalize_runtime_inputs,
 	normalize_runtime_input_mode = normalize_runtime_input_mode,
 	input_mode_uses_buttons = input_mode_uses_buttons,
 	normalize_input_key_ref = normalize_input_key_ref,
 	normalize_multi_separator = normalize_multi_separator,
+	normalize_text_confirmation_key = normalize_text_confirmation_key,
 	input_mode_title = input_mode_title,
 	clone_buttons = clone_buttons,
+	clone_text_confirmation = clone_text_confirmation,
+	text_confirmation_key_label = text_confirmation_key_label,
 	normalizeConditions = normalizeConditions,
 
 	-- Path/folder functions
@@ -962,6 +994,7 @@ grid_ui.init(ctx)
 
 -- Cross-module wiring (после init, чтобы экспорты были доступны)
 ctx.combo_capture = edit_form.getComboCapture()
+ctx.text_confirm_capture = edit_form.getTextConfirmCapture()
 ctx.doSend = execution.doSend
 ctx.preview_method_label = input_dialog.preview_method_label
 ctx.enqueueHotkey = execution.enqueueHotkey
@@ -1066,6 +1099,9 @@ module.runBindRandom = function(...) return execution.runBindRandom(...) end
 module.enqueueHotkey = function(...) return execution.enqueueHotkey(...) end
 module.stopHotkey = function(...) return execution.stopHotkey(...) end
 module.stopAllHotkeys = function(...) return execution.stopAllHotkeys(...) end
+module.onIncomingTextMessage = function(...) return execution.onIncomingTextMessage(...) end
+module.onOutgoingChatInput = function(...) return execution.onOutgoingChatInput(...) end
+module.onOutgoingCommandInput = function(...) return execution.onOutgoingCommandInput(...) end
 module.onServerMessage = function(...) return execution.onServerMessage(...) end
 module.onPlayerCommand = function(...) return execution.onPlayerCommand(...) end
 module.sendHotkeyCoroutine = function(...) return execution.sendHotkeyCoroutine(...) end
