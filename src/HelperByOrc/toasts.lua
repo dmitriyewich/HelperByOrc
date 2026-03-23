@@ -81,6 +81,8 @@ local cfg = normalizeConfig(cfgDefaults)
 local COL_OK = imgui.ImVec4(0.4, 0.9, 0.4, 1.0)
 local COL_WARN = imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
 local COL_ERR = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
+local SETTINGS_SECTION_COLOR = imgui.ImVec4(0.75, 0.9, 1, 1)
+local SETTINGS_HINT_COLOR = imgui.ImVec4(0.72, 0.77, 0.84, 1)
 local settings_ui_cache = { bools = {}, ints = {}, floats = {} }
 
 local function ui_bool(id, value)
@@ -129,6 +131,32 @@ local function nowSec()
 	return os.clock()
 end
 
+local function drawWrappedText(text)
+	text = tostring(text or "")
+	if text == "" then
+		return
+	end
+	if type(imgui_text_wrapped_safe) == "function" then
+		imgui_text_wrapped_safe(text)
+	else
+		imgui.TextWrapped(text)
+	end
+end
+
+local function drawSettingsHint(text, color)
+	text = tostring(text or "")
+	if text == "" then
+		return
+	end
+	imgui.PushStyleColor(imgui.Col.Text, color or SETTINGS_HINT_COLOR)
+	drawWrappedText(text)
+	imgui.PopStyleColor()
+end
+
+local function drawSettingsSection(text)
+	imgui.TextColored(SETTINGS_SECTION_COLOR, tostring(text or ""))
+end
+
 local function setCfg(key, value)
 	if cfg[key] ~= value then
 		cfg[key] = value
@@ -172,6 +200,14 @@ function module.setAnchor(a)
 	end
 end
 
+function module.setEnabled(state)
+	setCfg("enabled", not not state)
+end
+
+function module.isEnabled()
+	return cfg.enabled ~= false
+end
+
 function module.getHistory()
 	return history
 end
@@ -186,17 +222,21 @@ function module.DrawSettingsInline()
 	if not (imgui and imgui.CollapsingHeader) then
 		return
 	end
-	if not imgui.CollapsingHeader(L("toasts.text.text")) then
-		return
-	end
 
 	local enabled = ui_bool("enabled", cfg.enabled)
 	if imgui.Checkbox(L("toasts.text.text_1"), enabled) then
-		setCfg("enabled", enabled[0])
+		module.setEnabled(enabled[0])
 	end
+	drawSettingsHint(L("toasts.text.enabled_hint"))
 
-	imgui.Separator()
-	imgui.Text(L("toasts.text.text_2"))
+	if not imgui.CollapsingHeader(L("toasts.text.settings_header")) then
+		return
+	end
+	drawSettingsHint(L("toasts.text.settings_hint"))
+	imgui.Spacing()
+
+	drawSettingsSection(L("toasts.text.text_2"))
+	drawSettingsHint(L("toasts.text.anchor_hint"))
 	local anchorOptions = {
 		{ label = L("toasts.text.text_3"), value = "top_left" },
 		{ label = L("toasts.text.text_4"), value = "top_center" },
@@ -214,8 +254,11 @@ function module.DrawSettingsInline()
 		end
 	end
 
+	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(L("toasts.text.text_9"))
+	drawSettingsSection(L("toasts.text.text_9"))
+	drawSettingsHint(L("toasts.text.position_hint"))
+	imgui.PushItemWidth(160)
 	local width = ui_int("width", cfg.width)
 	if imgui.InputInt(L("toasts.text.text_10"), width) then
 		setCfg("width", math.max(1, width[0]))
@@ -228,9 +271,13 @@ function module.DrawSettingsInline()
 	if imgui.InputInt(L("toasts.text.y"), offsetY) then
 		setCfg("offsetY", math.max(0, offsetY[0]))
 	end
+	imgui.PopItemWidth()
 
+	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(L("toasts.text.text_11"))
+	drawSettingsSection(L("toasts.text.text_11"))
+	drawSettingsHint(L("toasts.text.duration_hint"))
+	imgui.PushItemWidth(160)
 	local durOk = ui_float("dur_ok", cfg.durOk)
 	if imgui.InputFloat(L("toasts.text.ok"), durOk) then
 		setCfg("durOk", math.max(0, durOk[0]))
@@ -243,9 +290,13 @@ function module.DrawSettingsInline()
 	if imgui.InputFloat(L("toasts.text.err"), durErr) then
 		setCfg("durErr", math.max(0, durErr[0]))
 	end
+	imgui.PopItemWidth()
 
+	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(L("toasts.text.text_12"))
+	drawSettingsSection(L("toasts.text.text_12"))
+	drawSettingsHint(L("toasts.text.animation_hint"))
+	imgui.PushItemWidth(160)
 	local fadeIn = ui_float("fade_in", cfg.fadeIn)
 	if imgui.InputFloat(L("toasts.text.fade_in"), fadeIn) then
 		setCfg("fadeIn", math.max(0, fadeIn[0]))
@@ -254,9 +305,13 @@ function module.DrawSettingsInline()
 	if imgui.InputFloat(L("toasts.text.fade_out"), fadeOut) then
 		setCfg("fadeOut", math.max(0, fadeOut[0]))
 	end
+	imgui.PopItemWidth()
 
+	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(L("toasts.text.text_13"))
+	drawSettingsSection(L("toasts.text.text_13"))
+	drawSettingsHint(L("toasts.text.limits_hint"))
+	imgui.PushItemWidth(160)
 	local maxVisible = ui_int("max_visible", cfg.maxVisible)
 	if imgui.InputInt(L("toasts.text.max_visible"), maxVisible) then
 		setCfg("maxVisible", math.max(1, maxVisible[0]))
@@ -269,9 +324,13 @@ function module.DrawSettingsInline()
 	if imgui.InputInt(L("toasts.text.history_limit"), historyLimit) then
 		setCfg("historyLimit", math.max(0, historyLimit[0]))
 	end
+	imgui.PopItemWidth()
 
+	imgui.Spacing()
 	imgui.Separator()
-	imgui.Text(L("toasts.text.text_14"))
+	drawSettingsSection(L("toasts.text.text_14"))
+	drawSettingsHint(L("toasts.text.appearance_hint"))
+	imgui.PushItemWidth(160)
 	local bgAlpha = ui_float("bg_alpha", cfg.bgAlpha)
 	if imgui.InputFloat(L("toasts.text.text_15"), bgAlpha) then
 		setCfg("bgAlpha", math.max(0, math.min(1, bgAlpha[0])))
@@ -288,9 +347,12 @@ function module.DrawSettingsInline()
 	if imgui.InputFloat(L("toasts.text.padding_y"), padY) then
 		setCfg("padY", math.max(0, padY[0]))
 	end
+	imgui.PopItemWidth()
 
+	imgui.Spacing()
 	imgui.Separator()
 	if imgui.TreeNodeStr(L("toasts.text.text_17")) then
+		drawSettingsHint(L("toasts.text.history_hint"))
 		if imgui.Button(L("toasts.text.text_18")) then
 			module.clearHistory()
 		end

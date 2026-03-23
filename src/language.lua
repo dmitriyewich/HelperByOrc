@@ -7,13 +7,11 @@ local generation = 0
 local supported_languages = {
 	{ code = "ru", label = "Русский" },
 	{ code = "en", label = "English" },
-	{ code = "pt", label = "Português" },
 }
 
 local translations = {
 	ru = require("language.ru"),
 	en = require("language.en"),
-	pt = require("language.pt"),
 }
 
 local supported_lookup = {}

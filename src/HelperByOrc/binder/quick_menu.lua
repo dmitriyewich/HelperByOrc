@@ -18,8 +18,12 @@ local qsf = {
 	node  = {},
 	sc    = {},
 	paths = {},
+	close_deadline = {},
+	window_open = imgui.new.bool(true),
 	flags = nil,
 }
+
+local SUBMENU_CLOSE_GRACE_SEC = 0.5
 
 function M.init(c)
 	ctx = c
@@ -38,6 +42,9 @@ function M.DrawQuickMenu()
 	local perf_state = ctx.perf_state
 	local module = ctx.module
 	local enqueueHotkey = ctx.enqueueHotkey
+	local activationMode = type(ctx.getQuickMenuActivationMode) == "function" and ctx.getQuickMenuActivationMode()
+		or module.QUICK_MENU_ACTIVATION_MODE_HOLD
+	local persistentOpen = activationMode == module.QUICK_MENU_ACTIVATION_MODE_TOGGLE
 
 	if State.hotkeysDirty then
 		ctx.refreshHotkeyNumbers()
@@ -72,7 +79,12 @@ function M.DrawQuickMenu()
 	imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(8, 8))
 	imgui.PushStyleVarVec2(imgui.StyleVar.FramePadding, imgui.ImVec2(4, 3))
 	imgui.PushStyleVarVec2(imgui.StyleVar.ItemSpacing, imgui.ImVec2(4, 4))
-	imgui.Begin(L("binder.quick_menu.text.text"), nil, imgui.WindowFlags.NoCollapse)
+	if persistentOpen then
+		qsf.window_open[0] = true
+		imgui.Begin(L("binder.quick_menu.text.text"), qsf.window_open, imgui.WindowFlags.NoCollapse)
+	else
+		imgui.Begin(L("binder.quick_menu.text.text"), nil, imgui.WindowFlags.NoCollapse)
+	end
 	quickMenuPos = imgui.GetWindowPos()
 	quickMenuSize = imgui.GetWindowSize()
 
@@ -80,6 +92,23 @@ function M.DrawQuickMenu()
 	local ICON_KEYB   = (fa.KEYBOARD ~= "" and (fa.KEYBOARD .. " ") or "")
 	local ICON_ARROW  = (fa.ANGLE_RIGHT ~= "" and (" " .. fa.ANGLE_RIGHT) or " >")
 	local io = imgui.GetIO()
+	local now = os.clock()
+	local selectedHotkey = nil
+	local hoveredAnyMenuWindow = false
+	local submenuTriggerHovered = false
+
+	local function closeQuickMenuForSelection(hk)
+		if not hk or selectedHotkey then
+			return
+		end
+		selectedHotkey = hk
+		State.quickMenuOpen = false
+		State.quickMenuReopenBlocked = true
+		module.quickMenuOpen = false
+		State.quickMenuScrollQueued = 0
+		State.quickMenuSelectRequest = nil
+		M.resetState()
+	end
 
 	for k in pairs(qsf.sc) do qsf.sc[k] = nil end
 	for path in pairs(qsf.open) do
@@ -91,7 +120,6 @@ function M.DrawQuickMenu()
 			imgui.WindowFlags.NoMove,
 			imgui.WindowFlags.AlwaysAutoResize,
 			imgui.WindowFlags.NoSavedSettings,
-			imgui.WindowFlags.NoFocusOnAppearing,
 			imgui.WindowFlags.NoNav
 		)
 	end
@@ -104,11 +132,17 @@ function M.DrawQuickMenu()
 	end
 
 	local function drawRec(node)
+		if selectedHotkey then
+			return
+		end
 		if not quickFrameState.isFolderVisible(node) then
 			return
 		end
 		local nodeEntries = quickFrameState.quickEntriesFor(node)
 		for _, entry in ipairs(nodeEntries) do
+			if selectedHotkey then
+				break
+			end
 			local hk, i = entry.hk, entry.idx
 			local displayNumber = hk._number or i
 			local visibleLabel = ICON_KEYB .. (hk.label or ("bind" .. displayNumber))
@@ -120,10 +154,17 @@ function M.DrawQuickMenu()
 				shortcut = ""
 			end
 			if quickMenuItem(label, shortcut, hk.enabled) then
-				enqueueHotkey(hk)
+				closeQuickMenuForSelection(hk)
+				break
 			end
 		end
+		if selectedHotkey then
+			return
+		end
 		for _, child in ipairs(node.children or {}) do
+			if selectedHotkey then
+				break
+			end
 			if quickFrameState.folderHasQuickBindsVisible(child) then
 				local path = quickFrameState.folderKey(child)
 				local isOpen = qsf.open[path] or false
@@ -138,15 +179,18 @@ function M.DrawQuickMenu()
 				local inRow = mx >= itemMin.x and mx <= winRight
 				            and my >= itemMin.y and my <= itemMax.y
 				if imgui.IsItemHovered() or inRow then
+					submenuTriggerHovered = true
 					qsf.open[path] = true
 					qsf.node[path] = child
 					qsf.sc[path]   = false
+					qsf.close_deadline[path] = nil
 				end
 			end
 		end
 	end
 
 	local hoveredQuickMenu = imgui.IsWindowHovered((imgui.HoveredFlags and imgui.HoveredFlags.RootAndChildWindows) or 0)
+	hoveredAnyMenuWindow = hoveredQuickMenu or hoveredAnyMenuWindow
 
 	local visibleCount = #visibleFolders
 	if visibleCount == 0 then
@@ -178,6 +222,9 @@ function M.DrawQuickMenu()
 
 	if imgui.BeginTabBar("##quickbinder_tabbar") then
 		for idx, folder in ipairs(visibleFolders) do
+			if selectedHotkey then
+				break
+			end
 			local tabFlags = 0
 			local hasSelectFlag = _d.mimgui_funcs and _d.mimgui_funcs.TabItemFlags and _d.mimgui_funcs.TabItemFlags.SetSelected
 			if State.quickMenuSelectRequest == idx and hasSelectFlag then
@@ -205,6 +252,19 @@ function M.DrawQuickMenu()
 	end
 	imgui.End()
 	imgui.PopStyleVar(3)
+	if persistentOpen and not qsf.window_open[0] then
+		State.quickMenuOpen = false
+		State.quickMenuReopenBlocked = true
+		module.quickMenuOpen = false
+		State.quickMenuScrollQueued = 0
+		State.quickMenuSelectRequest = nil
+		M.resetState()
+		return
+	end
+	if selectedHotkey then
+		enqueueHotkey(selectedHotkey)
+		return
+	end
 
 	local n = 0
 	for path in pairs(qsf.open) do
@@ -227,10 +287,19 @@ function M.DrawQuickMenu()
 			) or 96
 			if imgui.IsWindowHovered(hflags) then
 				qsf.sc[path] = false
+				hoveredAnyMenuWindow = true
+				qsf.close_deadline[path] = nil
 			end
 			imgui.End()
 			imgui.PopStyleVar(3)
 		end
+		if selectedHotkey then
+			break
+		end
+	end
+	if selectedHotkey then
+		enqueueHotkey(selectedHotkey)
+		return
 	end
 
 	for _ = 1, 3 do
@@ -251,8 +320,32 @@ function M.DrawQuickMenu()
 	end
 
 	for path, shouldClose in pairs(qsf.sc) do
-		if shouldClose then
+		if not shouldClose then
+			qsf.close_deadline[path] = nil
+		elseif submenuTriggerHovered then
 			qsf.open[path] = nil
+			qsf.pos[path] = nil
+			qsf.node[path] = nil
+			qsf.close_deadline[path] = nil
+		else
+			local deadline = qsf.close_deadline[path]
+			if hoveredAnyMenuWindow then
+				qsf.close_deadline[path] = now + SUBMENU_CLOSE_GRACE_SEC
+				qsf.sc[path] = false
+			else
+				if not deadline then
+					deadline = now + SUBMENU_CLOSE_GRACE_SEC
+					qsf.close_deadline[path] = deadline
+				end
+				if now < deadline then
+					qsf.sc[path] = false
+				else
+					qsf.open[path] = nil
+					qsf.pos[path] = nil
+					qsf.node[path] = nil
+					qsf.close_deadline[path] = nil
+				end
+			end
 		end
 	end
 end
@@ -261,6 +354,7 @@ function M.resetState()
 	for k in pairs(qsf.open) do qsf.open[k] = nil end
 	for k in pairs(qsf.pos)  do qsf.pos[k]  = nil end
 	for k in pairs(qsf.node) do qsf.node[k] = nil end
+	for k in pairs(qsf.close_deadline) do qsf.close_deadline[k] = nil end
 end
 
 return M

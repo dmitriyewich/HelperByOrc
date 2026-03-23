@@ -14,6 +14,7 @@ local app = {}
 
 local imgui_text_safe = mimgui_funcs.imgui_text_safe
 local imgui_text_colored_safe = mimgui_funcs.imgui_text_colored_safe
+local imgui_text_wrapped_safe = mimgui_funcs.imgui_text_wrapped_safe
 
 -- модули будут загружены в main()
 local SMIHelp
@@ -85,6 +86,9 @@ local function bindModules(modules)
 		end
 		if type(mimgui_funcs.imgui_text_colored_safe) == "function" then
 			imgui_text_colored_safe = mimgui_funcs.imgui_text_colored_safe
+		end
+		if type(mimgui_funcs.imgui_text_wrapped_safe) == "function" then
+			imgui_text_wrapped_safe = mimgui_funcs.imgui_text_wrapped_safe
 		end
 	end
 
@@ -539,6 +543,415 @@ local SIDEBAR_W_EXPANDED = 128
 local SIDEBAR_W_COLLAPSED = 44
 local LOGO_SZ_EXPANDED = 128
 local LOGO_SZ_COLLAPSED = 44
+local SETTINGS_SECTION_COLOR = imgui.ImVec4(0.75, 0.9, 1, 1)
+local SETTINGS_HINT_COLOR = imgui.ImVec4(0.72, 0.77, 0.84, 1)
+local SETTINGS_VALUE_COLOR = imgui.ImVec4(0.9, 0.9, 0.6, 1)
+
+local function drawWrappedTextSafe(text)
+	text = tostring(text or "")
+	if text == "" then
+		return
+	end
+	if type(imgui_text_wrapped_safe) == "function" then
+		imgui_text_wrapped_safe(text)
+	else
+		imgui.TextWrapped(text)
+	end
+end
+
+local function drawSettingsHint(text, color)
+	text = tostring(text or "")
+	if text == "" then
+		return
+	end
+	imgui.PushStyleColor(imgui.Col.Text, color or SETTINGS_HINT_COLOR)
+	drawWrappedTextSafe(text)
+	imgui.PopStyleColor()
+end
+
+local function drawSettingsSubsection(text)
+	imgui_text_colored_safe(SETTINGS_SECTION_COLOR, tostring(text or ""))
+end
+
+local function drawSettingsValue(text, color)
+	imgui_text_colored_safe(color or SETTINGS_VALUE_COLOR, tostring(text or ""))
+end
+
+local function beginSettingsSection(id, titleKey, descKey)
+	if not imgui.CollapsingHeader(tr(titleKey) .. "##" .. id) then
+		return false
+	end
+	if descKey then
+		drawSettingsHint(tr(descKey))
+		imgui.Spacing()
+	end
+	return true
+end
+
+local function drawMainSettingsTab()
+	imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), tr("main.tab.settings"))
+	imgui.Separator()
+	drawSettingsHint(tr("main.settings.intro"))
+	imgui.Spacing()
+
+	if beginSettingsSection("settings_interface", "main.settings.section.interface", "main.settings.section.interface_desc") then
+		imgui.Text(tr("main.settings.language.label"))
+		imgui.PushItemWidth(240)
+		do
+			local currentLanguage = language.getLanguage()
+			if imgui.BeginCombo("##project_language", language.getLanguageLabel(currentLanguage)) then
+				for _, lang in ipairs(language.getSupportedLanguages()) do
+					local isSelected = currentLanguage == lang.code
+					if imgui.Selectable(lang.label, isSelected) then
+						setProjectLanguage(lang.code)
+					end
+					if isSelected then
+						imgui.SetItemDefaultFocus()
+					end
+				end
+				imgui.EndCombo()
+			end
+		end
+		imgui.PopItemWidth()
+		drawSettingsHint(tr("main.settings.language.fallback_hint"))
+		imgui.Spacing()
+	end
+
+	local quickMenuCapture = binder and binder.getQuickMenuHotkeyCapture and binder.getQuickMenuHotkeyCapture() or nil
+	if not beginSettingsSection("settings_hotkeys", "main.settings.section.hotkeys", "main.settings.section.hotkeys_desc") then
+		if openHotkeyCapture:isActive() then
+			openHotkeyCapture:stop()
+		end
+		if quickMenuCapture and quickMenuCapture.isActive and quickMenuCapture.stop and quickMenuCapture:isActive() then
+			quickMenuCapture:stop()
+		end
+	else
+		drawSettingsSubsection(tr("main.settings.open_hotkey.section"))
+		imgui.Text(tr("main.settings.open_hotkey.label"))
+		drawSettingsValue(hotkeyToString(openHotkey))
+
+		if openHotkeyCapture:isActive() then
+			HotkeyManager.drawCaptureUI(openHotkeyCapture, "open_hotkey", imgui_text_colored_safe)
+		else
+			if imgui.Button(tr("main.settings.open_hotkey.change")) then
+				openHotkeyCapture:start()
+			end
+			imgui.SameLine()
+			if imgui.Button(tr("main.settings.open_hotkey.reset")) then
+				setOpenHotkey(defaultOpenHotkey)
+			end
+			drawSettingsHint(tr("main.settings.open_hotkey.help"))
+		end
+
+		if binder and binder.getQuickMenuHotkeyDisplay then
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.Spacing()
+			drawSettingsSubsection(tr("main.settings.quick_menu.section"))
+
+			local quickMenuActivationMode = binder.getQuickMenuActivationMode and binder.getQuickMenuActivationMode()
+				or binder.QUICK_MENU_ACTIVATION_MODE_HOLD
+			imgui.Text(tr("main.settings.quick_menu.hotkey_label"))
+			drawSettingsValue(binder.getQuickMenuHotkeyDisplay())
+
+			if quickMenuCapture and quickMenuCapture:isActive() then
+				HotkeyManager.drawCaptureUI(quickMenuCapture, "binder_quick_menu_hotkey", imgui_text_colored_safe)
+			else
+				if imgui.Button(tr("main.settings.quick_menu.change")) then
+					binder.startQuickMenuHotkeyCapture()
+				end
+				imgui.SameLine()
+				if imgui.Button(tr("main.settings.quick_menu.reset")) then
+					binder.resetQuickMenuHotkey()
+				end
+				imgui.Spacing()
+				imgui.Text(tr("main.settings.quick_menu.mode_label"))
+				local holdSelected = quickMenuActivationMode == binder.QUICK_MENU_ACTIVATION_MODE_HOLD
+				if imgui.RadioButtonBool(tr("main.settings.quick_menu.mode_hold"), holdSelected) and not holdSelected then
+					binder.setQuickMenuActivationMode(binder.QUICK_MENU_ACTIVATION_MODE_HOLD)
+					quickMenuActivationMode = binder.QUICK_MENU_ACTIVATION_MODE_HOLD
+				end
+				local toggleSelected = quickMenuActivationMode == binder.QUICK_MENU_ACTIVATION_MODE_TOGGLE
+				if imgui.RadioButtonBool(tr("main.settings.quick_menu.mode_toggle"), toggleSelected) and not toggleSelected then
+					binder.setQuickMenuActivationMode(binder.QUICK_MENU_ACTIVATION_MODE_TOGGLE)
+					quickMenuActivationMode = binder.QUICK_MENU_ACTIVATION_MODE_TOGGLE
+				end
+				if quickMenuActivationMode == binder.QUICK_MENU_ACTIVATION_MODE_TOGGLE then
+					drawSettingsHint(tr("main.settings.quick_menu.help_toggle"))
+				else
+					drawSettingsHint(tr("main.settings.quick_menu.help_hold"))
+				end
+			end
+		end
+
+		imgui.Spacing()
+	end
+
+	if beginSettingsSection("settings_backend", "main.settings.section.backend", "main.settings.section.backend_desc") then
+		local currentBackendMode = normalizeSampBackendMode(projectConfig.sampBackendMode)
+		imgui.Text(tr("main.settings.backend.mode_label"))
+		imgui.PushItemWidth(240)
+		if imgui.BeginCombo("##samp_backend_mode", getSampBackendLabel(currentBackendMode)) then
+			local isStandardSelected = currentBackendMode == "standard"
+			if imgui.Selectable(tr("common.standard"), isStandardSelected) then
+				applySampBackendMode("standard")
+			end
+			local isSampfuncsSelected = currentBackendMode == "sampfuncs"
+			if imgui.Selectable(tr("common.sampfuncs"), isSampfuncsSelected) then
+				applySampBackendMode("sampfuncs")
+			end
+			local isArizonaSelected = currentBackendMode == "arizona"
+			if imgui.Selectable(tr("common.arizona"), isArizonaSelected) then
+				applySampBackendMode("arizona")
+			end
+			imgui.EndCombo()
+		end
+		imgui.PopItemWidth()
+		drawSettingsHint(tr("main.settings.backend.description"))
+
+		local functionBackendStatus = getCurrentFunctionBackendStatus()
+		if functionBackendStatus then
+			imgui.Spacing()
+			imgui.Text(tr("main.settings.backend.functions_status"))
+			imgui.SameLine()
+			drawSettingsValue(getSampBackendLabel(functionBackendStatus.active or currentBackendMode))
+			if functionBackendStatus.desired ~= "standard" and functionBackendStatus.active ~= functionBackendStatus.desired then
+				drawSettingsHint(
+					tr("main.settings.backend.mode_inactive", {
+						mode = getSampBackendLabel(functionBackendStatus.desired),
+						reason = tr("main.settings.backend.reason.no_asi"),
+					}),
+					imgui.ImVec4(1, 0.7, 0.45, 1)
+				)
+			end
+		end
+
+		local hookBackendStatus = getCurrentHookBackendStatus()
+		if hookBackendStatus then
+			imgui.Text(tr("main.settings.backend.hooks_status"))
+			imgui.SameLine()
+			drawSettingsValue(getSampBackendLabel(hookBackendStatus.active or currentBackendMode))
+
+			if hookBackendStatus.desired ~= "standard" and hookBackendStatus.active ~= hookBackendStatus.desired then
+				local reason = hookBackendStatus.hasSampfuncs
+					and tr("main.settings.backend.reason.no_events")
+					or tr("main.settings.backend.reason.no_asi")
+				drawSettingsHint(
+					tr("main.settings.backend.mode_inactive", {
+						mode = getSampBackendLabel(hookBackendStatus.desired),
+						reason = reason,
+					}),
+					imgui.ImVec4(1, 0.7, 0.45, 1)
+				)
+			end
+		end
+
+		imgui.Spacing()
+	end
+
+	if beginSettingsSection("settings_profiles", "main.settings.section.profiles", "main.settings.section.profiles_desc") then
+		local activeProfileName = funcs.getActiveProfileName()
+		drawSettingsSubsection(tr("main.settings.profile.active"))
+		drawSettingsValue(activeProfileName)
+		imgui.Spacing()
+
+		if profileNamesFfi and #profileNames > 0 then
+			imgui.Text(tr("main.settings.profile.selected"))
+			imgui.PushItemWidth(280)
+			imgui.Combo("##selected_profile", profileSelectIndex, profileNamesFfi, #profileNames)
+			imgui.PopItemWidth()
+		end
+
+		if imgui.Button(tr("main.settings.profile.refresh")) then
+			refreshProfileList()
+			setProfileStatus(tr("main.settings.profile.status.refreshed"), imgui.ImVec4(0.7, 0.9, 1, 1))
+		end
+		imgui.SameLine()
+		if imgui.Button(tr("main.settings.profile.apply")) then
+			local selected = profileNames[profileSelectIndex[0] + 1]
+			if selected and selected ~= "" then
+				local ok = funcs.setActiveProfileName(selected)
+				if ok then
+					setProfileStatus(tr("main.settings.profile.status.applied_reloading"), imgui.ImVec4(0.6, 1, 0.6, 1))
+					refreshProfileList()
+					local reloaded = requestScriptReload(function()
+						setProfileStatus(tr("main.settings.profile.status.applied_manual"), imgui.ImVec4(0.9, 0.85, 0.45, 1))
+					end)
+					if not reloaded then
+						setProfileStatus(tr("main.settings.profile.status.applied_manual"), imgui.ImVec4(0.9, 0.85, 0.45, 1))
+					end
+				else
+					setProfileStatus(tr("main.settings.profile.status.apply_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
+				end
+			else
+				setProfileStatus(tr("main.settings.profile.status.select"), imgui.ImVec4(1, 0.6, 0.6, 1))
+			end
+		end
+
+		imgui.Spacing()
+		imgui.Text(tr("main.settings.profile.new_name"))
+		imgui.PushItemWidth(280)
+		imgui.InputText("##new_profile_name", newProfileNameBuf, ffi.sizeof(newProfileNameBuf))
+		imgui.PopItemWidth()
+
+		if imgui.Button(tr("main.settings.profile.create")) then
+			local requested = trimSpaces(ffi.string(newProfileNameBuf))
+			if requested == "" then
+				setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
+			else
+				local ok, createdName = funcs.createProfile(requested, { copy_from = false })
+				if ok then
+					imgui.StrCopy(newProfileNameBuf, "")
+					refreshProfileList()
+					for i, name in ipairs(profileNames) do
+						if name == createdName then
+							profileSelectIndex[0] = i - 1
+							break
+						end
+					end
+					setProfileStatus(
+						tr("main.settings.profile.status.created", { name = tostring(createdName) }),
+						imgui.ImVec4(0.6, 1, 0.6, 1)
+					)
+				else
+					setProfileStatus(tr("main.settings.profile.status.create_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
+				end
+			end
+		end
+		imgui.SameLine()
+		if imgui.Button(tr("main.settings.profile.copy")) then
+			local requested = trimSpaces(ffi.string(newProfileNameBuf))
+			local sourceProfile = profileNames[profileSelectIndex[0] + 1] or activeProfileName
+			if requested == "" then
+				setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
+			else
+				local ok, createdName = funcs.createProfile(requested, { from = sourceProfile, copy_from = true })
+				if ok then
+					imgui.StrCopy(newProfileNameBuf, "")
+					refreshProfileList()
+					for i, name in ipairs(profileNames) do
+						if name == createdName then
+							profileSelectIndex[0] = i - 1
+							break
+						end
+					end
+					setProfileStatus(
+						tr("main.settings.profile.status.copy_created", { name = tostring(createdName) }),
+						imgui.ImVec4(0.6, 1, 0.6, 1)
+					)
+				else
+					setProfileStatus(tr("main.settings.profile.status.copy_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
+				end
+			end
+		end
+		imgui.SameLine()
+		if imgui.Button(tr("main.settings.profile.delete")) then
+			local selected = profileNames[profileSelectIndex[0] + 1]
+			if selected and selected ~= "" then
+				profileDeletePopup.name = selected
+				profileDeletePopup.active = true
+			else
+				setProfileStatus(tr("main.settings.profile.status.delete_select"), imgui.ImVec4(1, 0.6, 0.6, 1))
+			end
+		end
+
+		if profileDeletePopup.active then
+			imgui.OpenPopup("profile_delete_confirm")
+			profileDeletePopup.active = false
+		end
+		if imgui.BeginPopupModal("profile_delete_confirm", nil, imgui.WindowFlags.AlwaysAutoResize) then
+			local deleteName = tostring(profileDeletePopup.name or "")
+			imgui_text_safe(tr("main.settings.profile.delete_confirm.confirm", { name = deleteName }))
+			if deleteName == activeProfileName then
+				imgui_text_colored_safe(
+					imgui.ImVec4(1, 0.7, 0.45, 1),
+					tr("main.settings.profile.delete_confirm.active_warning")
+				)
+			end
+			if deleteName == funcs.getDefaultProfileName() then
+				imgui_text_colored_safe(
+					imgui.ImVec4(1, 0.7, 0.45, 1),
+					tr("main.settings.profile.delete_confirm.default_warning")
+				)
+			end
+
+			if imgui.Button(tr("main.settings.profile.delete") .. "##profile_confirm_delete", imgui.ImVec2(120, 0)) then
+				local ok, reason = false, "unknown"
+				ok, reason = funcs.deleteProfile(deleteName, { keep_default = true, forbid_active = true })
+				if ok then
+					setProfileStatus(
+						tr("main.settings.profile.status.deleted", { name = deleteName }),
+						imgui.ImVec4(0.6, 1, 0.6, 1)
+					)
+					profileDeletePopup.name = nil
+					refreshProfileList()
+				else
+					local msg = tr("main.settings.profile.status.delete_failed")
+					if reason == "active_profile" then
+						msg = tr("main.settings.profile.status.delete_failed_active")
+					elseif reason == "default_profile" then
+						msg = tr("main.settings.profile.status.delete_failed_default")
+					elseif reason == "not_found" then
+						msg = tr("main.settings.profile.status.delete_failed_not_found")
+					elseif reason == "remove_failed" then
+						msg = tr("main.settings.profile.status.delete_failed_remove")
+					end
+					setProfileStatus(msg, imgui.ImVec4(1, 0.6, 0.6, 1))
+				end
+				imgui.CloseCurrentPopup()
+			end
+			imgui.SameLine()
+			if imgui.Button(tr("common.cancel") .. "##profile_confirm_cancel", imgui.ImVec2(120, 0)) then
+				profileDeletePopup.name = nil
+				imgui.CloseCurrentPopup()
+			end
+			imgui.EndPopup()
+		end
+
+		if profileStatusText ~= "" then
+			drawSettingsHint(profileStatusText, profileStatusColor)
+		end
+
+		local profilesRootPath = funcs.getProfilesRootPath()
+		if type(profilesRootPath) == "string" and profilesRootPath ~= "" then
+			imgui.Spacing()
+			drawSettingsHint(tr("main.settings.profile.section"))
+			drawSettingsSubsection(tr("main.settings.profile.path"))
+			drawSettingsHint(profilesRootPath, imgui.ImVec4(0.75, 0.75, 0.85, 1))
+		end
+
+		imgui.Spacing()
+	end
+
+	if (correct or toasts) and beginSettingsSection("settings_modules", "main.settings.section.modules", "main.settings.section.modules_desc") then
+		if correct then
+			drawSettingsSubsection(tr("main.settings.modules.autocorrect"))
+			drawSettingsHint(tr("main.settings.modules.autocorrect_desc"))
+			if imgui.Checkbox(tr("main.settings.autocorrect.enabled") .. "##correct_module_enabled", correctEnabledBool) then
+				projectConfig.correctEnabled = correctEnabledBool[0]
+				saveProjectConfig()
+				if type(correct.setEnabled) == "function" then
+					correct.setEnabled(correctEnabledBool[0])
+				end
+			end
+			if correct.DrawSettingsInline then
+				correct.DrawSettingsInline()
+			end
+		end
+
+		if correct and toasts and toasts.DrawSettingsInline then
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.Spacing()
+		end
+
+		if toasts and toasts.DrawSettingsInline then
+			drawSettingsSubsection(tr("main.settings.modules.notifications"))
+			drawSettingsHint(tr("main.settings.modules.notifications_desc"))
+			toasts.DrawSettingsInline()
+		end
+	end
+end
 
 local _imguiSubs = {}
 _imguiSubs[#_imguiSubs + 1] = imgui.OnInitialize(function()
@@ -605,7 +1018,7 @@ end, function()
 	local closeSide = math.max(titleH - 6, math.ceil(math.max(closeTextSize.x, imgui.GetFontSize()) + 4))
 	local closePos = imgui.ImVec2(pmax.x - pad.x - closeSide, pmin.y + (titleH - closeSide) * 0.5)
 	imgui.SetCursorScreenPos(closePos)
-	imgui.InvisibleButton("##close_main_window", imgui.ImVec2(closeSide, closeSide))
+	local closePressed = imgui.InvisibleButton("##close_main_window", imgui.ImVec2(closeSide, closeSide))
 	local closeHovered = imgui.IsItemHovered()
 	local closeActive = imgui.IsItemActive()
 	local closeMin = imgui.GetItemRectMin()
@@ -621,7 +1034,7 @@ end, function()
 	local closeTextPos =
 		imgui.ImVec2(closeMin.x + (closeSide - closeTextSize.x) * 0.5, closeMin.y + (closeSide - imgui.GetFontSize()) * 0.5)
 	dl:AddText(closeTextPos, imgui.GetColorU32Vec4(closeTextColor), closeIcon)
-	if imgui.IsItemClicked(0) then
+	if closePressed then
 		setRenderHotkeyWnd(false)
 	end
 	if closeHovered then
@@ -874,318 +1287,7 @@ end, function()
 				imgui.EndChild()
 			end
 		elseif currentTab == 6 then
-			imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), tr("main.tab.settings"))
-			imgui.Separator()
-			imgui.Text(tr("main.settings.language.label"))
-			imgui.SameLine()
-			imgui.PushItemWidth(220)
-			do
-				local currentLanguage = language.getLanguage()
-				if imgui.BeginCombo("##project_language", language.getLanguageLabel(currentLanguage)) then
-					for _, lang in ipairs(language.getSupportedLanguages()) do
-						local isSelected = currentLanguage == lang.code
-						if imgui.Selectable(lang.label, isSelected) then
-							setProjectLanguage(lang.code)
-						end
-						if isSelected then
-							imgui.SetItemDefaultFocus()
-						end
-					end
-					imgui.EndCombo()
-				end
-			end
-			imgui.PopItemWidth()
-			imgui.TextDisabled(tr("main.settings.language.fallback_hint"))
-			imgui.Separator()
-			imgui.Text(tr("main.settings.open_hotkey.label"))
-			imgui.SameLine()
-			imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), hotkeyToString(openHotkey))
-			imgui.Separator()
-			if openHotkeyCapture:isActive() then
-				HotkeyManager.drawCaptureUI(openHotkeyCapture, "open_hotkey", imgui_text_colored_safe)
-			else
-				if imgui.Button(tr("main.settings.open_hotkey.change")) then
-					openHotkeyCapture:start()
-				end
-				imgui.SameLine()
-				if imgui.Button(tr("main.settings.open_hotkey.reset")) then
-					setOpenHotkey(defaultOpenHotkey)
-				end
-				imgui.Text(tr("main.settings.open_hotkey.help"))
-			end
-			imgui.Separator()
-			imgui.Text(tr("main.settings.backend.section"))
-			local currentBackendMode = normalizeSampBackendMode(projectConfig.sampBackendMode)
-			imgui.PushItemWidth(220)
-			if imgui.BeginCombo(tr("main.settings.backend.mode_label") .. "##samp_backend_mode", getSampBackendLabel(currentBackendMode)) then
-				local isStandardSelected = currentBackendMode == "standard"
-				if imgui.Selectable(tr("common.standard"), isStandardSelected) then
-					applySampBackendMode("standard")
-				end
-				local isSampfuncsSelected = currentBackendMode == "sampfuncs"
-				if imgui.Selectable(tr("common.sampfuncs"), isSampfuncsSelected) then
-					applySampBackendMode("sampfuncs")
-				end
-				local isArizonaSelected = currentBackendMode == "arizona"
-				if imgui.Selectable(tr("common.arizona"), isArizonaSelected) then
-					applySampBackendMode("arizona")
-				end
-				imgui.EndCombo()
-			end
-			imgui.PopItemWidth()
-			imgui.TextWrapped(tr("main.settings.backend.description"))
-
-			local functionBackendStatus = getCurrentFunctionBackendStatus()
-			if functionBackendStatus then
-				imgui.Text(tr("main.settings.backend.functions_status"))
-				imgui.SameLine()
-				imgui_text_colored_safe(
-					imgui.ImVec4(0.9, 0.9, 0.6, 1),
-					getSampBackendLabel(functionBackendStatus.active or currentBackendMode)
-				)
-				if functionBackendStatus.desired ~= "standard" and functionBackendStatus.active ~= functionBackendStatus.desired then
-					imgui_text_colored_safe(
-						imgui.ImVec4(1, 0.7, 0.45, 1),
-						tr("main.settings.backend.mode_inactive", {
-							mode = getSampBackendLabel(functionBackendStatus.desired),
-							reason = tr("main.settings.backend.reason.no_asi"),
-						})
-					)
-				end
-			end
-
-			local hookBackendStatus = getCurrentHookBackendStatus()
-			if hookBackendStatus then
-				imgui.Text(tr("main.settings.backend.hooks_status"))
-				imgui.SameLine()
-				imgui_text_colored_safe(
-					imgui.ImVec4(0.9, 0.9, 0.6, 1),
-					getSampBackendLabel(hookBackendStatus.active or currentBackendMode)
-				)
-
-				if hookBackendStatus.desired ~= "standard" and hookBackendStatus.active ~= hookBackendStatus.desired then
-					local reason = hookBackendStatus.hasSampfuncs
-						and tr("main.settings.backend.reason.no_events")
-						or tr("main.settings.backend.reason.no_asi")
-					imgui_text_colored_safe(
-						imgui.ImVec4(1, 0.7, 0.45, 1),
-						tr("main.settings.backend.mode_inactive", {
-							mode = getSampBackendLabel(hookBackendStatus.desired),
-							reason = reason,
-						})
-					)
-				end
-			end
-
-			imgui.Separator()
-			imgui.Text(tr("main.settings.profile.section"))
-			if binder and binder.getQuickMenuHotkeyDisplay then
-				local quickMenuCapture = binder.getQuickMenuHotkeyCapture and binder.getQuickMenuHotkeyCapture() or nil
-				imgui.Text(tr("main.settings.quick_menu.hotkey_label"))
-				imgui.SameLine()
-				imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), binder.getQuickMenuHotkeyDisplay())
-				imgui.Separator()
-				if quickMenuCapture and quickMenuCapture:isActive() then
-					HotkeyManager.drawCaptureUI(quickMenuCapture, "binder_quick_menu_hotkey", imgui_text_colored_safe)
-				else
-					if imgui.Button(tr("main.settings.quick_menu.change")) then
-						binder.startQuickMenuHotkeyCapture()
-					end
-					imgui.SameLine()
-					if imgui.Button(tr("main.settings.quick_menu.reset")) then
-						binder.resetQuickMenuHotkey()
-					end
-					imgui.Text(tr("main.settings.quick_menu.help"))
-				end
-				imgui.Separator()
-			end
-			imgui.Text(tr("main.settings.profile.section"))
-			local activeProfileName = funcs.getActiveProfileName()
-			imgui.SameLine()
-			imgui_text_colored_safe(imgui.ImVec4(0.9, 0.9, 0.6, 1), activeProfileName)
-
-			if profileNamesFfi and #profileNames > 0 then
-				imgui.PushItemWidth(260)
-				imgui.Combo(tr("main.settings.profile.selected") .. "##selected_profile", profileSelectIndex, profileNamesFfi, #profileNames)
-				imgui.PopItemWidth()
-			end
-
-			if imgui.Button(tr("main.settings.profile.refresh")) then
-				refreshProfileList()
-				setProfileStatus(tr("main.settings.profile.status.refreshed"), imgui.ImVec4(0.7, 0.9, 1, 1))
-			end
-			imgui.SameLine()
-			if imgui.Button(tr("main.settings.profile.apply")) then
-				local selected = profileNames[profileSelectIndex[0] + 1]
-				if selected and selected ~= "" then
-					local ok = funcs.setActiveProfileName(selected)
-					if ok then
-						setProfileStatus(tr("main.settings.profile.status.applied_reloading"), imgui.ImVec4(0.6, 1, 0.6, 1))
-						refreshProfileList()
-						local reloaded = requestScriptReload(function()
-							setProfileStatus(
-								tr("main.settings.profile.status.applied_manual"),
-								imgui.ImVec4(0.9, 0.85, 0.45, 1)
-							)
-						end)
-						if not reloaded then
-							setProfileStatus(
-								tr("main.settings.profile.status.applied_manual"),
-								imgui.ImVec4(0.9, 0.85, 0.45, 1)
-							)
-						end
-					else
-						setProfileStatus(tr("main.settings.profile.status.apply_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
-					end
-				else
-					setProfileStatus(tr("main.settings.profile.status.select"), imgui.ImVec4(1, 0.6, 0.6, 1))
-				end
-			end
-
-			imgui.PushItemWidth(260)
-			imgui.InputText(tr("main.settings.profile.new_name") .. "##new_profile_name", newProfileNameBuf, ffi.sizeof(newProfileNameBuf))
-			imgui.PopItemWidth()
-
-			if imgui.Button(tr("main.settings.profile.create")) then
-				local requested = trimSpaces(ffi.string(newProfileNameBuf))
-				if requested == "" then
-					setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
-				else
-					local ok, createdName = funcs.createProfile(requested, { copy_from = false })
-					if ok then
-						imgui.StrCopy(newProfileNameBuf, "")
-						refreshProfileList()
-						for i, name in ipairs(profileNames) do
-							if name == createdName then
-								profileSelectIndex[0] = i - 1
-								break
-							end
-						end
-						setProfileStatus(
-							tr("main.settings.profile.status.created", { name = tostring(createdName) }),
-							imgui.ImVec4(0.6, 1, 0.6, 1)
-						)
-					else
-						setProfileStatus(tr("main.settings.profile.status.create_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
-					end
-				end
-			end
-			imgui.SameLine()
-			if imgui.Button(tr("main.settings.profile.copy")) then
-				local requested = trimSpaces(ffi.string(newProfileNameBuf))
-				local sourceProfile = profileNames[profileSelectIndex[0] + 1] or activeProfileName
-				if requested == "" then
-					setProfileStatus(tr("main.settings.profile.status.enter_name"), imgui.ImVec4(1, 0.6, 0.6, 1))
-				else
-					local ok, createdName = funcs.createProfile(requested, { from = sourceProfile, copy_from = true })
-					if ok then
-						imgui.StrCopy(newProfileNameBuf, "")
-						refreshProfileList()
-						for i, name in ipairs(profileNames) do
-							if name == createdName then
-								profileSelectIndex[0] = i - 1
-								break
-							end
-						end
-						setProfileStatus(
-							tr("main.settings.profile.status.copy_created", { name = tostring(createdName) }),
-							imgui.ImVec4(0.6, 1, 0.6, 1)
-						)
-					else
-						setProfileStatus(tr("main.settings.profile.status.copy_failed"), imgui.ImVec4(1, 0.6, 0.6, 1))
-					end
-				end
-			end
-			imgui.SameLine()
-			if imgui.Button(tr("main.settings.profile.delete")) then
-				local selected = profileNames[profileSelectIndex[0] + 1]
-				if selected and selected ~= "" then
-					profileDeletePopup.name = selected
-					profileDeletePopup.active = true
-				else
-					setProfileStatus(tr("main.settings.profile.status.delete_select"), imgui.ImVec4(1, 0.6, 0.6, 1))
-				end
-			end
-
-			if profileDeletePopup.active then
-				imgui.OpenPopup("profile_delete_confirm")
-				profileDeletePopup.active = false
-			end
-			if imgui.BeginPopupModal("profile_delete_confirm", nil, imgui.WindowFlags.AlwaysAutoResize) then
-				local deleteName = tostring(profileDeletePopup.name or "")
-				imgui_text_safe(tr("main.settings.profile.delete_confirm.confirm", { name = deleteName }))
-				if deleteName == activeProfileName then
-					imgui_text_colored_safe(
-						imgui.ImVec4(1, 0.7, 0.45, 1),
-						tr("main.settings.profile.delete_confirm.active_warning")
-					)
-				end
-				if deleteName == funcs.getDefaultProfileName() then
-					imgui_text_colored_safe(
-						imgui.ImVec4(1, 0.7, 0.45, 1),
-						tr("main.settings.profile.delete_confirm.default_warning")
-					)
-				end
-
-				if imgui.Button(tr("main.settings.profile.delete") .. "##profile_confirm_delete", imgui.ImVec2(120, 0)) then
-					local ok, reason = false, "unknown"
-					ok, reason = funcs.deleteProfile(deleteName, { keep_default = true, forbid_active = true })
-					if ok then
-						setProfileStatus(
-							tr("main.settings.profile.status.deleted", { name = deleteName }),
-							imgui.ImVec4(0.6, 1, 0.6, 1)
-						)
-						profileDeletePopup.name = nil
-						refreshProfileList()
-					else
-						local msg = tr("main.settings.profile.status.delete_failed")
-						if reason == "active_profile" then
-							msg = tr("main.settings.profile.status.delete_failed_active")
-						elseif reason == "default_profile" then
-							msg = tr("main.settings.profile.status.delete_failed_default")
-						elseif reason == "not_found" then
-							msg = tr("main.settings.profile.status.delete_failed_not_found")
-						elseif reason == "remove_failed" then
-							msg = tr("main.settings.profile.status.delete_failed_remove")
-						end
-						setProfileStatus(msg, imgui.ImVec4(1, 0.6, 0.6, 1))
-					end
-					imgui.CloseCurrentPopup()
-				end
-				imgui.SameLine()
-				if imgui.Button(tr("common.cancel") .. "##profile_confirm_cancel", imgui.ImVec2(120, 0)) then
-					profileDeletePopup.name = nil
-					imgui.CloseCurrentPopup()
-				end
-				imgui.EndPopup()
-			end
-
-			if profileStatusText ~= "" then
-				imgui_text_colored_safe(profileStatusColor, profileStatusText)
-			end
-
-			local profilesRootPath = funcs.getProfilesRootPath()
-			if type(profilesRootPath) == "string" and profilesRootPath ~= "" then
-				imgui_text_colored_safe(imgui.ImVec4(0.75, 0.75, 0.85, 1), profilesRootPath)
-			end
-
-			if correct then
-				imgui.Separator()
-				if imgui.Checkbox(tr("main.settings.autocorrect.enabled") .. "##correct_module_enabled", correctEnabledBool) then
-					projectConfig.correctEnabled = correctEnabledBool[0]
-					saveProjectConfig()
-					if type(correct.setEnabled) == "function" then
-						correct.setEnabled(correctEnabledBool[0])
-					end
-				end
-				if correct.DrawSettingsInline then
-					correct.DrawSettingsInline()
-				end
-			end
-
-			if toasts and toasts.DrawSettingsInline then
-				toasts.DrawSettingsInline()
-			end
+			drawMainSettingsTab()
 		elseif currentTab == 1 then
 			imgui.TextColored(imgui.ImVec4(0.8, 0.95, 1, 1), "HelperByOrc")
 			imgui.Separator()

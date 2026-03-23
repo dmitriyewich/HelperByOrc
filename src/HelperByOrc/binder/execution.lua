@@ -1999,13 +1999,97 @@ local function resetTrackedHotkeys(perf_state)
 	end
 end
 
-local function isQuickMenuHotkeyPressed()
+local function isQuickMenuHotkeyHeldWithMouseExtras(quickMenuHotkey)
+	if type(quickMenuHotkey) ~= "table" or #quickMenuHotkey == 0 then
+		return false
+	end
+
+	local mode = HotkeyManager.MODE_MODIFIER_TRIGGER
+	local comboNormalized = HotkeyManager.normalizeComboForMode(quickMenuHotkey, mode)
+	local pressedNormalized = HotkeyManager.normalizeComboForMode(pressedKeysList, mode)
+	if #pressedNormalized < #comboNormalized then
+		return false
+	end
+
+	local pressedSet = {}
+	for i = 1, #pressedNormalized do
+		pressedSet[pressedNormalized[i]] = true
+	end
+
+	local comboSet = {}
+	for i = 1, #comboNormalized do
+		local key = comboNormalized[i]
+		if not pressedSet[key] then
+			return false
+		end
+		comboSet[key] = true
+	end
+
+	for i = 1, #pressedNormalized do
+		local key = pressedNormalized[i]
+		if not comboSet[key] and not HotkeyManager.isMouseKey(key) then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function getQuickMenuActivationMode()
+	local getMode = ctx and ctx.getQuickMenuActivationMode
+	local module = ctx and ctx.module
+	local mode = type(getMode) == "function" and getMode() or nil
+	if module and mode == module.QUICK_MENU_ACTIVATION_MODE_TOGGLE then
+		return module.QUICK_MENU_ACTIVATION_MODE_TOGGLE
+	end
+	return module and module.QUICK_MENU_ACTIVATION_MODE_HOLD or "hold"
+end
+
+local function isQuickMenuHotkeyExactPressed()
 	local getQuickMenuHotkey = ctx and ctx.getQuickMenuHotkey
 	local quickMenuHotkey = type(getQuickMenuHotkey) == "function" and getQuickMenuHotkey() or nil
 	if type(quickMenuHotkey) == "table" and #quickMenuHotkey > 0 then
 		return HotkeyManager.comboMatch(pressedKeysList, quickMenuHotkey, HotkeyManager.MODE_MODIFIER_TRIGGER)
 	end
 	return isKeyDown(vk.VK_XBUTTON1) and true or false
+end
+
+local function isQuickMenuHotkeyPressed()
+	local getQuickMenuHotkey = ctx and ctx.getQuickMenuHotkey
+	local quickMenuHotkey = type(getQuickMenuHotkey) == "function" and getQuickMenuHotkey() or nil
+	if type(quickMenuHotkey) == "table" and #quickMenuHotkey > 0 then
+		if HotkeyManager.comboMatch(pressedKeysList, quickMenuHotkey, HotkeyManager.MODE_MODIFIER_TRIGGER) then
+			return true
+		end
+
+		local State = ctx and ctx.State
+		if State and State.quickMenuOpen then
+			return isQuickMenuHotkeyHeldWithMouseExtras(quickMenuHotkey)
+		end
+		return false
+	end
+	return isKeyDown(vk.VK_XBUTTON1) and true or false
+end
+
+local function setQuickMenuOpenState(isOpen, opts)
+	local State = ctx.State
+	local module = ctx.module
+	local quick_menu = ctx.quick_menu
+
+	opts = opts or {}
+	State.quickMenuOpen = isOpen and true or false
+	module.quickMenuOpen = State.quickMenuOpen
+
+	if not State.quickMenuOpen then
+		State.quickMenuScrollQueued = 0
+		State.quickMenuSelectRequest = nil
+		if opts.block_reopen then
+			State.quickMenuReopenBlocked = true
+		end
+		if quick_menu then
+			quick_menu.resetState()
+		end
+	end
 end
 
 function M.resetInputState(reason)
@@ -2018,6 +2102,8 @@ function M.resetInputState(reason)
 	pressedKeysList = {}
 	State.quickMenuScrollQueued = 0
 	State.quickMenuSelectRequest = nil
+	State.quickMenuReopenBlocked = false
+	State.quickMenuToggleLatch = false
 	State.quickMenuOpen = false
 
 	local quick_menu = ctx.quick_menu
@@ -2176,6 +2262,7 @@ end
 function M.processHotkeys()
 	local C = ctx.C
 	local perf_state = ctx.perf_state
+	local State = ctx.State
 	local now = os.clock()
 	local nowMs = now * 1000
 	local pressedCount = #pressedKeysList
@@ -2187,6 +2274,11 @@ function M.processHotkeys()
 	end
 
 	if isQuickMenuHotkeyPressed() then
+		resetTrackedHotkeys(perf_state)
+		return
+	end
+
+	if State.quickMenuOpen and getQuickMenuActivationMode() == (ctx.module and ctx.module.QUICK_MENU_ACTIVATION_MODE_TOGGLE) then
 		resetTrackedHotkeys(perf_state)
 		return
 	end
@@ -2285,7 +2377,44 @@ function M.CheckQuickMenuKey()
 		return
 	end
 
-	local wantsOpen = isQuickMenuHotkeyPressed()
+	local activationMode = getQuickMenuActivationMode()
+	local hotkeyHeld = isQuickMenuHotkeyPressed()
+	local hotkeyExact = isQuickMenuHotkeyExactPressed()
+	if State.quickMenuReopenBlocked then
+		if hotkeyHeld then
+			State.quickMenuScrollQueued = 0
+			State.quickMenuSelectRequest = nil
+			State.quickMenuOpen = false
+			return
+		end
+		State.quickMenuReopenBlocked = false
+		State.quickMenuToggleLatch = false
+	end
+
+	if activationMode == (module and module.QUICK_MENU_ACTIVATION_MODE_TOGGLE) then
+		if hotkeyHeld then
+			if hotkeyExact and not State.quickMenuToggleLatch then
+				local shouldOpen = not State.quickMenuOpen
+				if shouldOpen and hasVisibleQuickMenuEntries() then
+					State.quickMenuOpen = true
+					module.quickMenuOpen = true
+					State.quickMenuSelectRequest = State.quickMenuTabIndex
+				else
+					setQuickMenuOpenState(false)
+				end
+				State.quickMenuToggleLatch = true
+			end
+		else
+			State.quickMenuToggleLatch = false
+		end
+		if not State.quickMenuOpen then
+			State.quickMenuScrollQueued = 0
+			State.quickMenuSelectRequest = nil
+		end
+		return
+	end
+
+	local wantsOpen = hotkeyHeld
 	local isOpen = wantsOpen and (State.quickMenuOpen or hasVisibleQuickMenuEntries()) or false
 	if not isOpen then
 		State.quickMenuScrollQueued = 0

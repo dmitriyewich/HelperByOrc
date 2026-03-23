@@ -104,7 +104,10 @@ function module.unregisterExternalHotkey(keys)
 end
 
 local QUICK_MENU_FALLBACK_HOTKEY = { vk.VK_XBUTTON1 }
+local QUICK_MENU_ACTIVATION_MODE_HOLD = "hold"
+local QUICK_MENU_ACTIVATION_MODE_TOGGLE = "toggle"
 local quickMenuHotkey = nil
+local quickMenuActivationMode = QUICK_MENU_ACTIVATION_MODE_HOLD
 
 -- === Константы ===
 local C = {
@@ -165,6 +168,14 @@ local function getQuickMenuFallbackDisplay()
 	return funcs.hotkeyToString(QUICK_MENU_FALLBACK_HOTKEY, vk, "XBUTTON1")
 end
 
+local function normalizeQuickMenuActivationMode(mode)
+	mode = tostring(mode or ""):lower()
+	if mode == QUICK_MENU_ACTIVATION_MODE_TOGGLE then
+		return QUICK_MENU_ACTIVATION_MODE_TOGGLE
+	end
+	return QUICK_MENU_ACTIVATION_MODE_HOLD
+end
+
 local function setQuickMenuHotkeyValue(keys)
 	local prev = quickMenuHotkey and cloneKeys(quickMenuHotkey) or nil
 	local normalized = normalizeQuickMenuHotkey(keys)
@@ -175,6 +186,10 @@ local function setQuickMenuHotkeyValue(keys)
 	if quickMenuHotkey and #quickMenuHotkey > 0 then
 		module.registerExternalHotkey(quickMenuHotkey, L("binder.text.text"))
 	end
+end
+
+local function setQuickMenuActivationModeValue(mode)
+	quickMenuActivationMode = normalizeQuickMenuActivationMode(mode)
 end
 
 local INPUT_MODE = {
@@ -425,6 +440,8 @@ local State = {
 	quickMenuTabIndex = 1,
 	quickMenuScrollQueued = 0,
 	quickMenuSelectRequest = nil,
+	quickMenuReopenBlocked = false,
+	quickMenuToggleLatch = false,
 }
 
 -- === Пути / папки ===
@@ -492,7 +509,12 @@ local function findHotkeyByNumberInScope(num, folderLower)
 end
 
 -- JSON
-local config = { hotkeys = {}, folders = {}, quickMenuHotkey = {} }
+local config = {
+	hotkeys = {},
+	folders = {},
+	quickMenuHotkey = {},
+	quickMenuActivationMode = QUICK_MENU_ACTIVATION_MODE_HOLD,
+}
 
 -- === Папки / пути ===
 local function folderFullPath(folder)
@@ -709,6 +731,7 @@ function module.saveHotkeys()
 	refreshHotkeyNumbers()
 	config.hotkeys, config.folders = {}, {}
 	config.quickMenuHotkey = cloneKeys(quickMenuHotkey)
+	config.quickMenuActivationMode = quickMenuActivationMode
 	for _, f in ipairs(folders) do
 		table.insert(config.folders, serializeFolder(f))
 	end
@@ -853,6 +876,7 @@ function module.loadHotkeys()
 	end
 	if type(tbl) == "table" then
 		setQuickMenuHotkeyValue(tbl.quickMenuHotkey or tbl.quick_menu_hotkey)
+		setQuickMenuActivationModeValue(tbl.quickMenuActivationMode or tbl.quick_menu_activation_mode)
 		nextFolderId = 1
 		-- Очистка in-place (сохраняет ссылки в ctx)
 		for i = #hotkeys, 1, -1 do hotkeys[i] = nil end
@@ -918,6 +942,9 @@ ctx = {
 	module = module,
 	getQuickMenuHotkey = function()
 		return quickMenuHotkey
+	end,
+	getQuickMenuActivationMode = function()
+		return quickMenuActivationMode
 	end,
 
 	-- Dependencies
@@ -1051,6 +1078,10 @@ function module.getQuickMenuHotkeyDisplay()
 	return getQuickMenuFallbackDisplay()
 end
 
+function module.getQuickMenuActivationMode()
+	return quickMenuActivationMode
+end
+
 function module.getQuickMenuHotkeyCapture()
 	return execution.getQuickMenuHotkeyCapture()
 end
@@ -1073,6 +1104,12 @@ end
 function module.resetQuickMenuHotkey()
 	setQuickMenuHotkeyValue(nil)
 	module.resetInputState("quick_menu_hotkey_reset")
+	module.saveHotkeys()
+end
+
+function module.setQuickMenuActivationMode(mode)
+	setQuickMenuActivationModeValue(mode)
+	module.resetInputState("quick_menu_activation_mode_changed")
 	module.saveHotkeys()
 end
 
@@ -1122,14 +1159,23 @@ function module.attachModules(mod)
 	if config_manager_ref then
 		config_manager_ref.register("binder", {
 			path = C.json_path,
-			defaults = { hotkeys = {}, folders = {}, quickMenuHotkey = {} },
+			defaults = {
+				hotkeys = {},
+				folders = {},
+				quickMenuHotkey = {},
+				quickMenuActivationMode = QUICK_MENU_ACTIVATION_MODE_HOLD,
+			},
 			normalize = function(loaded)
 				loaded.hotkeys = type(loaded.hotkeys) == "table" and loaded.hotkeys or {}
 				loaded.folders = type(loaded.folders) == "table" and loaded.folders or {}
 				loaded.quickMenuHotkey = normalizeQuickMenuHotkey(
 					loaded.quickMenuHotkey or loaded.quick_menu_hotkey
 				) or {}
+				loaded.quickMenuActivationMode = normalizeQuickMenuActivationMode(
+					loaded.quickMenuActivationMode or loaded.quick_menu_activation_mode
+				)
 				loaded.quick_menu_hotkey = nil
+				loaded.quick_menu_activation_mode = nil
 				return loaded
 			end,
 		})
@@ -1185,5 +1231,8 @@ end)
 
 -- Автозагрузка
 pcall(module.loadHotkeys)
+
+module.QUICK_MENU_ACTIVATION_MODE_HOLD = QUICK_MENU_ACTIVATION_MODE_HOLD
+module.QUICK_MENU_ACTIVATION_MODE_TOGGLE = QUICK_MENU_ACTIVATION_MODE_TOGGLE
 
 return module
