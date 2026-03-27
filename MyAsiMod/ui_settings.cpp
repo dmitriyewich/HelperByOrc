@@ -1,7 +1,11 @@
 #include "ui_settings.h"
 
 #include "app_config.h"
+#include "hotkey_utils.h"
 #include "json_utils.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +24,7 @@ constexpr float kReferenceHeight = 1080.0f;
 constexpr float kMinAutoScale = 0.85f;
 constexpr float kMaxAutoScale = 1.35f;
 constexpr std::string_view kUiSectionName = "ui";
+constexpr unsigned int kDefaultMenuToggleHotkey[] = { VK_CONTROL, 'Z' };
 
 struct UiTextEntry {
     const char* ru = "";
@@ -49,6 +54,47 @@ const char* LanguageId(UiLanguage language) {
     return language == UiLanguage::English ? "en" : "ru";
 }
 
+std::vector<unsigned int> DefaultMenuToggleHotkey() {
+    return std::vector<unsigned int>(std::begin(kDefaultMenuToggleHotkey), std::end(kDefaultMenuToggleHotkey));
+}
+
+bool HasTriggerHotkeyKey(const std::vector<unsigned int>& keys) {
+    return hotkeys::HasTriggerKey(keys);
+}
+
+std::vector<unsigned int> NormalizeHotkeyCombo(const std::vector<unsigned int>& keys, bool fallbackToDefault) {
+    std::vector<unsigned int> normalized = hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
+    if (HasTriggerHotkeyKey(normalized)) {
+        return normalized;
+    }
+
+    return fallbackToDefault ? DefaultMenuToggleHotkey() : std::vector<unsigned int>{};
+}
+
+std::vector<unsigned int> DeserializeMenuToggleHotkey(const jsonutil::JsonArray* array) {
+    if (!array) {
+        return DefaultMenuToggleHotkey();
+    }
+
+    std::vector<unsigned int> hotkey;
+    hotkey.reserve(array->size());
+    for (const jsonutil::JsonValue& value : *array) {
+        if (const double* number = value.TryNumber()) {
+            hotkey.push_back(static_cast<unsigned int>(*number));
+        }
+    }
+
+    return NormalizeHotkeyCombo(hotkey, true);
+}
+
+jsonutil::JsonArray SerializeMenuToggleHotkey(const std::vector<unsigned int>& keys) {
+    jsonutil::JsonArray array;
+    for (const unsigned int key : NormalizeHotkeyCombo(keys, true)) {
+        array.emplace_back(static_cast<int>(key));
+    }
+    return array;
+}
+
 } // namespace
 
 UiSettings& UiSettings::Instance() {
@@ -64,6 +110,7 @@ void UiSettings::Load() {
         jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f),
         kMinScaleMultiplier,
         kMaxScaleMultiplier);
+    menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     currentScale_ = 1.0f;
 }
 
@@ -107,10 +154,25 @@ void UiSettings::SetScaleMultiplier(float multiplier) {
     QueueSave();
 }
 
+const std::vector<unsigned int>& UiSettings::MenuToggleHotkey() const {
+    return menuToggleHotkey_;
+}
+
+void UiSettings::SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey) {
+    const std::vector<unsigned int> normalized = NormalizeHotkeyCombo(hotkey, true);
+    if (menuToggleHotkey_ == normalized) {
+        return;
+    }
+
+    menuToggleHotkey_ = normalized;
+    QueueSave();
+}
+
 void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
+    menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();
 }
 
@@ -168,6 +230,7 @@ void UiSettings::QueueSave() const {
     section["language"] = LanguageId(language_);
     section["auto_scale"] = autoScaleEnabled_;
     section["scale_multiplier"] = static_cast<double>(scaleMultiplier_);
+    section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
 }
 

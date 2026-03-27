@@ -3,10 +3,15 @@
 #include "debug_log.h"
 #include "font_awesome7_data.h"
 #include "minhook_utils.h"
+#include "ui_settings.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx9.h>
 #include <imgui_impl_win32.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <vector>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
@@ -135,6 +140,51 @@ void ImGuiOverlay::SetMenuOpen(bool open) {
 
 bool ImGuiOverlay::IsMenuOpen() const {
     return menuOpen_;
+}
+
+std::string ImGuiOverlay::MenuToggleHotkeyText() const {
+    return hotkeys::ToString(UiSettings::Instance().MenuToggleHotkey());
+}
+
+void ImGuiOverlay::BeginMenuToggleHotkeyCapture() {
+    menuToggleHotkeyCaptureActive_ = true;
+    menuToggleHotkeyCaptureDraft_ = hotkeys::NormalizeCombo(UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger);
+    menuToggleHotkeyCaptureTracker_.Reset();
+    menuToggleWasDown_ = IsMenuToggleComboDown();
+}
+
+bool ImGuiOverlay::IsMenuToggleHotkeyCaptureActive() const {
+    return menuToggleHotkeyCaptureActive_;
+}
+
+std::string ImGuiOverlay::MenuToggleHotkeyCaptureText() const {
+    return hotkeys::ToString(menuToggleHotkeyCaptureDraft_);
+}
+
+const std::vector<unsigned int>& ImGuiOverlay::MenuToggleHotkeyCaptureDraft() const {
+    return menuToggleHotkeyCaptureDraft_;
+}
+
+bool ImGuiOverlay::CanSaveMenuToggleHotkeyCapture() const {
+    return hotkeys::HasTriggerKey(menuToggleHotkeyCaptureDraft_);
+}
+
+void ImGuiOverlay::SaveMenuToggleHotkeyCapture() {
+    if (!menuToggleHotkeyCaptureActive_ || !CanSaveMenuToggleHotkeyCapture()) {
+        return;
+    }
+
+    UiSettings::Instance().SetMenuToggleHotkey(menuToggleHotkeyCaptureDraft_);
+    menuToggleHotkeyCaptureActive_ = false;
+    menuToggleHotkeyCaptureTracker_.Reset();
+    menuToggleWasDown_ = IsMenuToggleComboDown();
+}
+
+void ImGuiOverlay::CancelMenuToggleHotkeyCapture() {
+    menuToggleHotkeyCaptureActive_ = false;
+    menuToggleHotkeyCaptureDraft_.clear();
+    menuToggleHotkeyCaptureTracker_.Reset();
+    menuToggleWasDown_ = IsMenuToggleComboDown();
 }
 
 void ImGuiOverlay::OnProcessAttach() {
@@ -384,13 +434,49 @@ void ImGuiOverlay::CleanupImGui() {
 }
 
 void ImGuiOverlay::UpdateHotkeyState() {
-    const bool f10Down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
-    if (f10Down && !f10WasDown_) {
+    const bool comboDown = IsMenuToggleComboDown();
+    if (!menuToggleHotkeyCaptureActive_ && comboDown && !menuToggleWasDown_) {
         menuOpen_ = !menuOpen_;
         debuglog::Write("Menu toggled: %s", menuOpen_ ? "open" : "closed");
     }
 
-    f10WasDown_ = f10Down;
+    menuToggleWasDown_ = comboDown;
+}
+
+bool ImGuiOverlay::HandleMenuToggleHotkeyCaptureMessage(UINT message, WPARAM wparam) {
+    const auto keyInfo = hotkeys::GetMessageKeyInfo(message, wparam);
+    if (!menuToggleHotkeyCaptureActive_ || !keyInfo.has_value() || hotkeys::IsMouseKey(keyInfo->keyCode)) {
+        return false;
+    }
+
+    const unsigned int key = keyInfo->keyCode;
+    if (keyInfo->isDown) {
+        if (key == VK_ESCAPE) {
+            CancelMenuToggleHotkeyCapture();
+            return true;
+        }
+
+        menuToggleHotkeyCaptureTracker_.KeyDown(key);
+        const auto draft = hotkeys::NormalizeCombo(menuToggleHotkeyCaptureTracker_.Ordered(), HotkeyMode::ModifierTrigger);
+        if (!draft.empty()) {
+            menuToggleHotkeyCaptureDraft_ = draft;
+        }
+        return true;
+    }
+
+    if (keyInfo->isUp) {
+        menuToggleHotkeyCaptureTracker_.KeyUp(key);
+        return true;
+    }
+
+    return false;
+}
+
+bool ImGuiOverlay::IsMenuToggleComboDown() const {
+    return hotkeys::ComboMatch(
+        hotkeys::CollectPressedKeys(),
+        UiSettings::Instance().MenuToggleHotkey(),
+        HotkeyMode::ModifierTrigger);
 }
 
 bool ImGuiOverlay::IsPrimaryRenderTarget(IDirect3DDevice9* device) const {
@@ -631,6 +717,10 @@ bool ImGuiOverlay::ShouldBlockGameInput(UINT message) const {
 
 LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     if (self_ && self_->imguiInitialized_) {
+        if (self_->HandleMenuToggleHotkeyCaptureMessage(message, wparam)) {
+            return TRUE;
+        }
+
         if (self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
             return TRUE;
         }
@@ -680,7 +770,10 @@ void ImGuiOverlay::Shutdown() {
         initThread_ = nullptr;
     }
 
-    f10WasDown_ = false;
+    menuToggleWasDown_ = false;
+    menuToggleHotkeyCaptureActive_ = false;
+    menuToggleHotkeyCaptureDraft_.clear();
+    menuToggleHotkeyCaptureTracker_.Reset();
     inputCaptureChangedCallback_ = nullptr;
     self_ = nullptr;
 }

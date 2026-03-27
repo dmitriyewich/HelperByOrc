@@ -51,7 +51,7 @@ private:
     void DrawSmiHelperTab() const;
     void DrawMiscTab() const;
     void DrawNotepadTab() const;
-    void DrawSettingsTab() const;
+    void DrawSettingsTab();
 
     HMODULE module_ = nullptr;
     ImGuiOverlay overlay_;

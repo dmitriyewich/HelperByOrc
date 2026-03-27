@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include <string>
+#include <vector>
 
 #define APP_UI_TEXTS(X) \
     X(AppBrand, "HelperByOrc", "HelperByOrc") \
@@ -43,7 +44,13 @@
     X(SettingsResetDefaults, "Сбросить настройки UI", "Reset UI settings") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
-    X(BinderDefaultRootFolder, "Биндер", "Binder") \
+    X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
+    X(SettingsMainWindowHotkeyCapture, "Нажмите новую комбинацию клавиш и затем сохраните или отмените изменение.", "Press a new key combination, then save or cancel the change.") \
+    X(HotkeyConflictFormat, "Комбинация конфликтует с %s.", "This combination conflicts with %s.") \
+    X(HotkeyConflictMainWindowFormat, "хоткеем открытия главного окна (%s)", "the main window hotkey (%s)") \
+    X(HotkeyConflictQuickMenuFormat, "хоткеем быстрого меню (%s)", "the quick menu hotkey (%s)") \
+    X(HotkeyConflictBindFormat, "биндом \"%s\" (%s)", "bind \"%s\" (%s)") \
+    X(BinderDefaultRootFolder, "Основные", "Main") \
     X(BinderDefaultHotkey, "Новый бинд", "New bind") \
     X(BinderDefaultFolder, "Папка", "Folder") \
     X(BinderNewFolder, "Новая папка", "New folder") \
@@ -102,7 +109,7 @@
     X(Name, "Название", "Name") \
     X(Save, "Сохранить", "Save") \
     X(Cancel, "Отмена", "Cancel") \
-    X(DeleteFolderMoveBindsQuestion, "Удалить папку и перенести бинды в родительскую?", "Delete the folder and move binds to the parent folder?") \
+    X(DeleteFolderMoveBindsQuestion, "Удалить папку вместе с подпапками и биндами?", "Delete the folder together with its subfolders and binds?") \
     X(AddField, "+ Поле", "+ Field") \
     X(FieldLabelFormat, "Поле %d", "Field %d") \
     X(UnnamedField, "(без названия)", "(unnamed)") \
@@ -209,6 +216,8 @@ public:
 
     float ScaleMultiplier() const;
     void SetScaleMultiplier(float multiplier);
+    const std::vector<unsigned int>& MenuToggleHotkey() const;
+    void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
 
     void ResetToDefaults();
 
@@ -228,5 +237,6 @@ private:
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
+    std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };

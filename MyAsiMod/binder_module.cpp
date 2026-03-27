@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "debug_log.h"
+#include "hotkey_utils.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -49,6 +50,7 @@ constexpr int kMinMessageIntervalMs = 50;
 constexpr int kDefaultRepeatIntervalMs = 500;
 constexpr int kQuickMenuWidth = 320;
 constexpr int kQuickMenuHeight = 360;
+constexpr double kQuickMenuSubmenuCloseGraceSeconds = 0.5;
 constexpr int kTextConfirmTimeoutMs = 2000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr char kIconToggleOff[] = "\xEF\x88\x84";
@@ -61,6 +63,8 @@ constexpr char kIconPlay[] = "\xEF\x81\x8B";
 constexpr char kIconEdit[] = "\xEF\x81\x84";
 constexpr char kIconDelete[] = "\xEF\x8B\xAD";
 constexpr char kIconBars[] = "\xEF\x83\x89";
+constexpr char kIconAngleRight[] = "\xEF\x84\x85";
+constexpr char kIconFolder[] = "\xEF\x84\x94";
 
 std::string Trim(std::string_view value) {
     std::size_t begin = 0;
@@ -293,6 +297,17 @@ std::string JoinPath(const std::vector<std::string>& path) {
         stream << path[i];
     }
     return stream.str();
+}
+
+std::string FormatFolderLabel(std::string_view name) {
+    if (name.empty()) {
+        return kIconFolder;
+    }
+    return std::string(kIconFolder) + " " + std::string(name);
+}
+
+std::string FormatFolderPathLabel(const std::vector<std::string>& path) {
+    return FormatFolderLabel(JoinPath(path));
 }
 
 std::vector<std::string> Split(std::string_view value, char delimiter) {
@@ -779,11 +794,6 @@ const JsonObject* JsonObjectOrNull(const JsonObject* object, const char* key) {
     return it->second.TryObject();
 }
 
-enum class HotkeyMode {
-    ModifierTrigger,
-    OrderedCombo,
-};
-
 enum class QuickMenuActivationMode {
     Hold,
     Toggle,
@@ -904,12 +914,6 @@ struct InputDialogState {
     std::vector<InputDialogField> fields;
 };
 
-struct CaptureKeyInfo {
-    UINT keyCode = 0;
-    bool isDown = false;
-    bool isUp = false;
-};
-
 enum class CaptureTarget {
     None,
     BindHotkey,
@@ -917,54 +921,6 @@ enum class CaptureTarget {
     ConfirmKey,
     CancelKey,
 };
-
-namespace hotkeys {
-
-UINT NormalizeKey(UINT key);
-bool IsMouseKey(UINT key);
-bool IsModifierKey(UINT key);
-bool IsHotkeyKey(UINT key);
-std::vector<UINT> NormalizeCombo(const std::vector<UINT>& keys, HotkeyMode mode);
-bool ComboMatch(const std::vector<UINT>& pressed, const std::vector<UINT>& combo, HotkeyMode mode);
-std::string KeyName(UINT key);
-std::string ToString(const std::vector<UINT>& keys, HotkeyMode mode = HotkeyMode::ModifierTrigger);
-std::optional<CaptureKeyInfo> GetMessageKeyInfo(UINT message, WPARAM wparam);
-
-class KeyTracker {
-public:
-    void Reset();
-    bool OnWindowMessage(UINT message, WPARAM wparam);
-    const std::vector<UINT>& Ordered() const;
-    void KeyDown(UINT key);
-    void KeyUp(UINT key);
-    void Rebuild();
-
-    std::map<UINT, int> held_{};
-    std::vector<UINT> ordered_{};
-    int counter_ = 0;
-};
-
-class Capture {
-public:
-    void Start(const std::vector<UINT>& initial);
-    void Stop();
-    bool Active() const;
-    void Clear();
-    void ArmMouseCapture();
-    bool MouseCaptureArmed() const;
-    std::vector<UINT> Draft() const;
-    bool Save(std::vector<UINT>& outKeys);
-    bool OnWindowMessage(UINT message, WPARAM wparam, bool& canceled, bool& saved, std::vector<UINT>& outKeys);
-
-private:
-    bool active_ = false;
-    KeyTracker tracker_{};
-    std::vector<UINT> lastCombo_{};
-    bool mouseCaptureArmed_ = false;
-    UINT mousePendingKey_ = 0;
-};
-
-} // namespace hotkeys
 
 enum class ConditionId : std::size_t {
     InWater = 0,
@@ -1027,8 +983,6 @@ const char* ConditionLabel(ConditionId condition) {
 }
 
 namespace {
-
-constexpr UINT kModifierMask[] = { VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN };
 
 std::string StripColorTags(std::string_view text) {
     static const std::regex kColorTagRegex("\\{[0-9a-fA-F]{6,8}\\}");
@@ -1136,463 +1090,6 @@ const char* QuickMenuModeLabel(QuickMenuActivationMode mode) {
 }
 
 } // namespace
-
-UINT hotkeys::NormalizeKey(UINT key) {
-    switch (key) {
-    case VK_LCONTROL:
-    case VK_RCONTROL:
-        return VK_CONTROL;
-    case VK_LSHIFT:
-    case VK_RSHIFT:
-        return VK_SHIFT;
-    case VK_LMENU:
-    case VK_RMENU:
-        return VK_MENU;
-    default:
-        return key;
-    }
-}
-
-bool hotkeys::IsMouseKey(UINT key) {
-    switch (NormalizeKey(key)) {
-    case VK_LBUTTON:
-    case VK_RBUTTON:
-    case VK_MBUTTON:
-    case VK_XBUTTON1:
-    case VK_XBUTTON2:
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool hotkeys::IsModifierKey(UINT key) {
-    switch (NormalizeKey(key)) {
-    case VK_CONTROL:
-    case VK_SHIFT:
-    case VK_MENU:
-    case VK_LWIN:
-    case VK_RWIN:
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool hotkeys::IsHotkeyKey(UINT key) {
-    const UINT normalized = NormalizeKey(key);
-    return normalized != 0 && normalized <= 0xFF;
-}
-
-std::vector<UINT> hotkeys::NormalizeCombo(const std::vector<UINT>& keys, HotkeyMode mode) {
-    std::vector<UINT> normalized;
-    std::set<UINT> seen;
-    normalized.reserve(keys.size());
-    for (const UINT key : keys) {
-        const UINT normalizedKey = NormalizeKey(key);
-        if (!IsHotkeyKey(normalizedKey) || !seen.insert(normalizedKey).second) {
-            continue;
-        }
-        normalized.push_back(normalizedKey);
-    }
-
-    if (mode == HotkeyMode::OrderedCombo) {
-        return normalized;
-    }
-
-    std::vector<UINT> modifiers;
-    std::vector<UINT> triggers;
-    modifiers.reserve(normalized.size());
-    triggers.reserve(normalized.size());
-    for (const UINT key : normalized) {
-        if (IsModifierKey(key)) {
-            modifiers.push_back(key);
-        } else {
-            triggers.push_back(key);
-        }
-    }
-
-    auto modifierOrder = [](UINT key) {
-        switch (key) {
-        case VK_CONTROL:
-            return 1;
-        case VK_SHIFT:
-            return 2;
-        case VK_MENU:
-            return 3;
-        case VK_LWIN:
-            return 4;
-        case VK_RWIN:
-            return 5;
-        default:
-            return 100;
-        }
-    };
-
-    std::sort(modifiers.begin(), modifiers.end(), [&](UINT lhs, UINT rhs) {
-        const int leftOrder = modifierOrder(lhs);
-        const int rightOrder = modifierOrder(rhs);
-        return leftOrder == rightOrder ? lhs < rhs : leftOrder < rightOrder;
-    });
-
-    modifiers.insert(modifiers.end(), triggers.begin(), triggers.end());
-    return modifiers;
-}
-
-bool hotkeys::ComboMatch(const std::vector<UINT>& pressed, const std::vector<UINT>& combo, HotkeyMode mode) {
-    if (combo.empty()) {
-        return false;
-    }
-
-    if (mode == HotkeyMode::OrderedCombo) {
-        if (pressed.size() != combo.size()) {
-            return false;
-        }
-        for (std::size_t i = 0; i < combo.size(); ++i) {
-            if (NormalizeKey(pressed[i]) != NormalizeKey(combo[i])) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    const auto normalizedPressed = NormalizeCombo(pressed, mode);
-    const auto normalizedCombo = NormalizeCombo(combo, mode);
-    return normalizedPressed == normalizedCombo;
-}
-
-std::string hotkeys::KeyName(UINT key) {
-    key = NormalizeKey(key);
-    switch (key) {
-    case VK_CONTROL:
-        return "Ctrl";
-    case VK_SHIFT:
-        return "Shift";
-    case VK_MENU:
-        return "Alt";
-    case VK_LWIN:
-        return "LWin";
-    case VK_RWIN:
-        return "RWin";
-    case VK_RETURN:
-        return "Enter";
-    case VK_SPACE:
-        return "Space";
-    case VK_TAB:
-        return "Tab";
-    case VK_ESCAPE:
-        return "Esc";
-    case VK_BACK:
-        return "Backspace";
-    case VK_DELETE:
-        return "Delete";
-    case VK_INSERT:
-        return "Insert";
-    case VK_HOME:
-        return "Home";
-    case VK_END:
-        return "End";
-    case VK_PRIOR:
-        return "PageUp";
-    case VK_NEXT:
-        return "PageDown";
-    case VK_LEFT:
-        return "Left";
-    case VK_RIGHT:
-        return "Right";
-    case VK_UP:
-        return "Up";
-    case VK_DOWN:
-        return "Down";
-    case VK_LBUTTON:
-        return "Mouse1";
-    case VK_RBUTTON:
-        return "Mouse2";
-    case VK_MBUTTON:
-        return "Mouse3";
-    case VK_XBUTTON1:
-        return "XButton1";
-    case VK_XBUTTON2:
-        return "XButton2";
-    default:
-        break;
-    }
-
-    UINT scanCode = MapVirtualKeyA(key, MAPVK_VK_TO_VSC);
-    if (key == VK_LEFT || key == VK_UP || key == VK_RIGHT || key == VK_DOWN || key == VK_PRIOR || key == VK_NEXT
-        || key == VK_END || key == VK_HOME || key == VK_INSERT || key == VK_DELETE || key == VK_DIVIDE
-        || key == VK_NUMLOCK) {
-        scanCode |= 0x100;
-    }
-
-    char buffer[128]{};
-    if (GetKeyNameTextA(static_cast<LONG>(scanCode << 16), buffer, static_cast<int>(std::size(buffer))) > 0) {
-        return buffer;
-    }
-
-    if (key >= 'A' && key <= 'Z') {
-        return std::string(1, static_cast<char>(key));
-    }
-    if (key >= '0' && key <= '9') {
-        return std::string(1, static_cast<char>(key));
-    }
-
-    char fallback[16]{};
-    std::snprintf(fallback, sizeof(fallback), "0x%02X", key);
-    return fallback;
-}
-
-std::string hotkeys::ToString(const std::vector<UINT>& keys, HotkeyMode mode) {
-    const auto normalized = NormalizeCombo(keys, mode);
-    if (normalized.empty()) {
-        return UiSettings::Instance().Text(UiText::HotkeyNotSet);
-    }
-
-    std::ostringstream stream;
-    for (std::size_t i = 0; i < normalized.size(); ++i) {
-        if (i != 0) {
-            stream << " + ";
-        }
-        stream << KeyName(normalized[i]);
-    }
-    return stream.str();
-}
-
-std::optional<CaptureKeyInfo> hotkeys::GetMessageKeyInfo(UINT message, WPARAM wparam) {
-    std::optional<CaptureKeyInfo> result;
-
-    auto setDown = [&](UINT key) {
-        if (!IsHotkeyKey(key)) {
-            return;
-        }
-        result = CaptureKeyInfo{ NormalizeKey(key), true, false };
-    };
-    auto setUp = [&](UINT key) {
-        if (!IsHotkeyKey(key)) {
-            return;
-        }
-        result = CaptureKeyInfo{ NormalizeKey(key), false, true };
-    };
-
-    switch (message) {
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-        setDown(static_cast<UINT>(wparam));
-        break;
-    case WM_KEYUP:
-    case WM_SYSKEYUP:
-        setUp(static_cast<UINT>(wparam));
-        break;
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-        setDown(VK_LBUTTON);
-        break;
-    case WM_LBUTTONUP:
-        setUp(VK_LBUTTON);
-        break;
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONDBLCLK:
-        setDown(VK_RBUTTON);
-        break;
-    case WM_RBUTTONUP:
-        setUp(VK_RBUTTON);
-        break;
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONDBLCLK:
-        setDown(VK_MBUTTON);
-        break;
-    case WM_MBUTTONUP:
-        setUp(VK_MBUTTON);
-        break;
-    case WM_XBUTTONDOWN:
-    case WM_XBUTTONDBLCLK: {
-        const UINT button = GET_XBUTTON_WPARAM(wparam);
-        setDown(button == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1);
-        break;
-    }
-    case WM_XBUTTONUP: {
-        const UINT button = GET_XBUTTON_WPARAM(wparam);
-        setUp(button == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1);
-        break;
-    }
-    default:
-        break;
-    }
-
-    return result;
-}
-
-void hotkeys::KeyTracker::Reset() {
-    held_.clear();
-    ordered_.clear();
-    counter_ = 0;
-}
-
-void hotkeys::KeyTracker::KeyDown(UINT key) {
-    key = NormalizeKey(key);
-    if (!IsHotkeyKey(key) || held_.contains(key)) {
-        return;
-    }
-    held_[key] = ++counter_;
-    Rebuild();
-}
-
-void hotkeys::KeyTracker::KeyUp(UINT key) {
-    key = NormalizeKey(key);
-    const auto it = held_.find(key);
-    if (it == held_.end()) {
-        return;
-    }
-    held_.erase(it);
-    Rebuild();
-    if (held_.empty()) {
-        counter_ = 0;
-    }
-}
-
-void hotkeys::KeyTracker::Rebuild() {
-    std::vector<std::pair<UINT, int>> orderedPairs;
-    orderedPairs.reserve(held_.size());
-    for (const auto& [key, order] : held_) {
-        orderedPairs.emplace_back(key, order);
-    }
-    std::sort(orderedPairs.begin(), orderedPairs.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.second < rhs.second;
-    });
-
-    ordered_.clear();
-    ordered_.reserve(orderedPairs.size());
-    for (const auto& [key, order] : orderedPairs) {
-        (void)order;
-        ordered_.push_back(key);
-    }
-}
-
-bool hotkeys::KeyTracker::OnWindowMessage(UINT message, WPARAM wparam) {
-    const auto keyInfo = GetMessageKeyInfo(message, wparam);
-    if (!keyInfo.has_value()) {
-        return false;
-    }
-
-    if (keyInfo->isDown) {
-        KeyDown(keyInfo->keyCode);
-    } else if (keyInfo->isUp) {
-        KeyUp(keyInfo->keyCode);
-    }
-    return true;
-}
-
-const std::vector<UINT>& hotkeys::KeyTracker::Ordered() const {
-    return ordered_;
-}
-
-void hotkeys::Capture::Start(const std::vector<UINT>& initial) {
-    active_ = true;
-    tracker_.Reset();
-    lastCombo_ = initial;
-    mouseCaptureArmed_ = false;
-    mousePendingKey_ = 0;
-}
-
-void hotkeys::Capture::Stop() {
-    active_ = false;
-    tracker_.Reset();
-    lastCombo_.clear();
-    mouseCaptureArmed_ = false;
-    mousePendingKey_ = 0;
-}
-
-bool hotkeys::Capture::Active() const {
-    return active_;
-}
-
-void hotkeys::Capture::Clear() {
-    tracker_.Reset();
-    lastCombo_.clear();
-    mouseCaptureArmed_ = false;
-    mousePendingKey_ = 0;
-}
-
-void hotkeys::Capture::ArmMouseCapture() {
-    if (!active_) {
-        return;
-    }
-    mouseCaptureArmed_ = true;
-    mousePendingKey_ = 0;
-}
-
-bool hotkeys::Capture::MouseCaptureArmed() const {
-    return mouseCaptureArmed_;
-}
-
-std::vector<UINT> hotkeys::Capture::Draft() const {
-    if (!tracker_.Ordered().empty()) {
-        return tracker_.Ordered();
-    }
-    return lastCombo_;
-}
-
-bool hotkeys::Capture::Save(std::vector<UINT>& outKeys) {
-    outKeys = Draft();
-    Stop();
-    return true;
-}
-
-bool hotkeys::Capture::OnWindowMessage(UINT message, WPARAM wparam, bool& canceled, bool& saved, std::vector<UINT>& outKeys) {
-    canceled = false;
-    saved = false;
-    outKeys.clear();
-    if (!active_) {
-        return false;
-    }
-
-    const auto keyInfo = GetMessageKeyInfo(message, wparam);
-    if (!keyInfo.has_value()) {
-        return false;
-    }
-
-    const UINT key = keyInfo->keyCode;
-    if (IsMouseKey(key) && !mouseCaptureArmed_) {
-        return false;
-    }
-
-    if (keyInfo->isDown) {
-        if (key == VK_ESCAPE) {
-            Stop();
-            canceled = true;
-            return true;
-        }
-        if (key == VK_RETURN) {
-            Save(outKeys);
-            saved = true;
-            return true;
-        }
-        if (key == VK_BACK) {
-            Clear();
-            return true;
-        }
-
-        tracker_.KeyDown(key);
-        if (!tracker_.Ordered().empty()) {
-            lastCombo_ = tracker_.Ordered();
-        }
-        if (IsMouseKey(key)) {
-            mousePendingKey_ = key;
-        }
-        return true;
-    }
-
-    if (keyInfo->isUp) {
-        tracker_.KeyUp(key);
-        if (IsMouseKey(key) && mousePendingKey_ == key) {
-            mouseCaptureArmed_ = false;
-            mousePendingKey_ = 0;
-        }
-        return true;
-    }
-
-    return false;
-}
 
 bool CheckCondition(ConditionId condition, SampApi* sampApi) {
     auto* player = FindPlayerPed();
@@ -1941,6 +1438,10 @@ bool PathStartsWith(const std::vector<std::string>& path, const std::vector<std:
     return path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin());
 }
 
+bool IsLegacyProtectedRootFolderName(std::string_view name) {
+    return name == "Биндер" || name == "Binder";
+}
+
 std::vector<std::string> ReplacePathPrefix(
     const std::vector<std::string>& path,
     const std::vector<std::string>& oldPrefix,
@@ -2030,6 +1531,8 @@ struct BinderModule::Impl {
     } folderPopup{};
 
     FolderNode* folderDeleteTarget = nullptr;
+    bool folderEditPopupPending = false;
+    bool folderDeletePopupPending = false;
     int bindDeleteTarget = -1;
     bool bindDeletePopupPending = false;
     int moveBindTarget = -1;
@@ -2053,8 +1556,14 @@ struct BinderModule::Impl {
     bool quickMenuReopenBlocked = false;
     bool quickMenuToggleLatch = false;
     int quickMenuTabIndex = 0;
+    int quickMenuTabSelectRequest = -1;
     ImVec2 quickMenuPos{ 0.0f, 0.0f };
     ImVec2 quickMenuSize{ static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight) };
+    std::map<std::string, bool> quickMenuSubmenuOpen{};
+    std::map<std::string, ImVec2> quickMenuSubmenuPos{};
+    std::map<std::string, FolderNode*> quickMenuSubmenuNode{};
+    std::map<std::string, double> quickMenuSubmenuCloseDeadline{};
+    std::vector<std::string> quickMenuSubmenuPaths{};
 
     std::optional<InputDialogState> inputDialog{};
     std::vector<RunningBind> runningBinds{};
@@ -2090,11 +1599,16 @@ struct BinderModule::Impl {
     bool WantsInputCapture() const;
     bool WantsQuickMenuCursor() const;
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
-    void ApplyCapturedKeys(const std::vector<UINT>& keys);
+    bool ApplyCapturedKeys(const std::vector<UINT>& keys);
+    bool DescribeMainWindowHotkeyConflict(const std::vector<UINT>& keys, std::string& description);
+    bool DescribeConflictWithMenuToggleHotkey(const std::vector<UINT>& keys, HotkeyMode mode, std::string& description) const;
+    bool DescribeQuickMenuConflictWithMenuToggleHotkey(const std::vector<UINT>& keys, std::string& description) const;
     std::vector<UINT> CurrentQuickMenuHotkey() const;
     bool IsQuickMenuComboPressed() const;
+    bool IsMainWindowHotkeyPressed() const;
     bool CaptureUsesEditorPopup() const;
     void UpdateQuickMenuState();
+    void ResetQuickMenuVisualState();
     void ProcessHotkeys();
     void ProcessRunningBinds();
     void PruneOutgoingGuards();
@@ -2117,11 +1631,14 @@ struct BinderModule::Impl {
     void DoSend(const std::string& text, int method);
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
     int MoveHotkeysFromFolderPath(const std::vector<std::string>& fromPath, const std::vector<std::string>& toPath);
+    int DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath);
+    bool IsProtectedRootFolder(const FolderNode* folder) const;
+    bool CanDeleteFolder(const FolderNode* folder) const;
+    bool NormalizeProtectedRootFolderName();
     void BeginCapture(CaptureTarget target);
     void DrawCapturePopup(bool insideEditorPopup);
     void DrawQuickMenu();
     void DrawSettingsSection();
-    void DrawQuickFolderRecursive(FolderNode& folder);
     void DrawInputDialog();
     std::vector<int> FilteredBindIndices() const;
     std::string BuildLaunchSummary(const HotkeyEntry& hotkey) const;
@@ -2324,6 +1841,26 @@ FolderNode* BinderModule::Impl::EnsureRootFolder() {
     return folders.front().get();
 }
 
+bool BinderModule::Impl::NormalizeProtectedRootFolderName() {
+    FolderNode* root = EnsureRootFolder();
+    if (!root) {
+        return false;
+    }
+
+    const std::string desiredName = UiSettings::Instance().Text(UiText::BinderDefaultRootFolder);
+    if (root->name == desiredName) {
+        return false;
+    }
+    if (!root->name.empty() && !IsLegacyProtectedRootFolderName(root->name)) {
+        return false;
+    }
+
+    const auto oldPath = BuildFolderPath(root);
+    root->name = desiredName;
+    RemapHotkeysFolderPrefix(oldPath, BuildFolderPath(root));
+    return true;
+}
+
 HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() const {
     HotkeyEntry hotkey;
     hotkey.label = UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
@@ -2435,10 +1972,11 @@ void BinderModule::Impl::LoadConfig() {
     }
 
     EnsureRootFolder();
+    const bool migratedProtectedRoot = NormalizeProtectedRootFolderName();
     selectedFolder = folders.front().get();
     RefreshNumbers();
 
-    if (migratedLegacy) {
+    if (migratedLegacy || migratedProtectedRoot) {
         SaveConfig();
     }
 }
@@ -2732,7 +2270,7 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
     const auto path = BuildFolderPath(&folder);
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         const HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.quickMenu || !hotkey.enabled) {
+        if (!hotkey.quickMenu) {
             continue;
         }
         if (hotkey.folderPath != path) {
@@ -2746,6 +2284,16 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
     return result;
 }
 
+void BinderModule::Impl::ResetQuickMenuVisualState() {
+    quickMenuSubmenuOpen.clear();
+    quickMenuSubmenuPos.clear();
+    quickMenuSubmenuNode.clear();
+    quickMenuSubmenuCloseDeadline.clear();
+    quickMenuSubmenuPaths.clear();
+    quickMenuTabIndex = 0;
+    quickMenuTabSelectRequest = -1;
+}
+
 void BinderModule::Impl::ResetInputState() {
     keyTracker.Reset();
     pressedKeys.clear();
@@ -2757,6 +2305,7 @@ void BinderModule::Impl::ResetInputState() {
     quickMenuOpen = false;
     quickMenuToggleLatch = false;
     quickMenuReopenBlocked = false;
+    ResetQuickMenuVisualState();
 
     if (inputDialog) {
         if (inputDialog->hotkeyIndex >= 0 && inputDialog->hotkeyIndex < static_cast<int>(hotkeys.size())) {
@@ -2824,7 +2373,9 @@ bool BinderModule::Impl::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lpa
     std::vector<UINT> capturedKeys;
     if (capture.Active() && capture.OnWindowMessage(message, wparam, canceled, saved, capturedKeys)) {
         if (saved) {
-            ApplyCapturedKeys(capturedKeys);
+            if (!ApplyCapturedKeys(capturedKeys)) {
+                capture.Start(capturedKeys);
+            }
         } else if (canceled) {
             captureTarget = CaptureTarget::None;
             captureHotkeyIndex = -1;
@@ -2844,7 +2395,8 @@ bool BinderModule::Impl::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lpa
     return false;
 }
 
-void BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
+bool BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
+    UiSettings& ui = UiSettings::Instance();
     switch (captureTarget) {
     case CaptureTarget::BindHotkey:
         if (editor.active) {
@@ -2852,6 +2404,10 @@ void BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
         }
         break;
     case CaptureTarget::QuickMenuHotkey:
+        if (std::string description; DescribeQuickMenuConflictWithMenuToggleHotkey(keys, description)) {
+            PushToast(ui.Format(UiText::HotkeyConflictFormat, description.c_str()), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2800.0);
+            return false;
+        }
         quickMenuHotkey = ::hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
         SaveConfig();
         break;
@@ -2866,12 +2422,96 @@ void BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
         }
         break;
     case CaptureTarget::None:
-        break;
+        return false;
     }
 
     captureTarget = CaptureTarget::None;
     captureHotkeyIndex = -1;
     capturePopupPending = false;
+    return true;
+}
+
+bool BinderModule::Impl::DescribeMainWindowHotkeyConflict(const std::vector<UINT>& keys, std::string& description) {
+    EnsureInitialized();
+    description.clear();
+
+    const auto menuHotkey = ::hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
+    if (!::hotkeys::HasTriggerKey(menuHotkey)) {
+        return false;
+    }
+
+    const auto quickMenuCombo = CurrentQuickMenuHotkey();
+    if (::hotkeys::ContainsCombo(menuHotkey, quickMenuCombo, HotkeyMode::ModifierTrigger)) {
+        description = UiSettings::Instance().Format(
+            UiText::HotkeyConflictQuickMenuFormat,
+            ::hotkeys::ToString(quickMenuCombo).c_str());
+        return true;
+    }
+
+    for (const HotkeyEntry& hotkey : hotkeys) {
+        if (!hotkey.enabled || hotkey.keys.empty()) {
+            continue;
+        }
+        if (!::hotkeys::CombosConflict(menuHotkey, HotkeyMode::ModifierTrigger, hotkey.keys, hotkey.hotkeyMode)) {
+            continue;
+        }
+
+        const std::string label = Trim(hotkey.label).empty()
+            ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey)
+            : hotkey.label;
+        description = UiSettings::Instance().Format(
+            UiText::HotkeyConflictBindFormat,
+            label.c_str(),
+            ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode).c_str());
+        return true;
+    }
+
+    return false;
+}
+
+bool BinderModule::Impl::DescribeConflictWithMenuToggleHotkey(
+    const std::vector<UINT>& keys,
+    HotkeyMode mode,
+    std::string& description) const {
+    description.clear();
+
+    const auto candidate = ::hotkeys::NormalizeCombo(keys, mode);
+    const auto menuHotkey = ::hotkeys::NormalizeCombo(UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger);
+    if (candidate.empty() || !::hotkeys::HasTriggerKey(menuHotkey)) {
+        return false;
+    }
+    if (!::hotkeys::CombosConflict(candidate, mode, menuHotkey, HotkeyMode::ModifierTrigger)) {
+        return false;
+    }
+
+    description = UiSettings::Instance().Format(
+        UiText::HotkeyConflictMainWindowFormat,
+        ::hotkeys::ToString(menuHotkey).c_str());
+    return true;
+}
+
+bool BinderModule::Impl::DescribeQuickMenuConflictWithMenuToggleHotkey(
+    const std::vector<UINT>& keys,
+    std::string& description) const {
+    description.clear();
+
+    std::vector<UINT> quickMenuCombo = ::hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
+    if (quickMenuCombo.empty()) {
+        quickMenuCombo = { kDefaultQuickMenuFallback };
+    }
+
+    const auto menuHotkey = ::hotkeys::NormalizeCombo(UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger);
+    if (!::hotkeys::HasTriggerKey(menuHotkey)) {
+        return false;
+    }
+    if (!::hotkeys::ContainsCombo(menuHotkey, quickMenuCombo, HotkeyMode::ModifierTrigger)) {
+        return false;
+    }
+
+    description = UiSettings::Instance().Format(
+        UiText::HotkeyConflictMainWindowFormat,
+        ::hotkeys::ToString(menuHotkey).c_str());
+    return true;
 }
 
 std::vector<UINT> BinderModule::Impl::CurrentQuickMenuHotkey() const {
@@ -2882,19 +2522,11 @@ std::vector<UINT> BinderModule::Impl::CurrentQuickMenuHotkey() const {
 }
 
 bool BinderModule::Impl::IsQuickMenuComboPressed() const {
-    const auto normalizedPressed = ::hotkeys::NormalizeCombo(pressedKeys, HotkeyMode::ModifierTrigger);
-    const auto normalizedCombo = ::hotkeys::NormalizeCombo(CurrentQuickMenuHotkey(), HotkeyMode::ModifierTrigger);
-    if (normalizedCombo.empty() || normalizedPressed.size() < normalizedCombo.size()) {
-        return false;
-    }
+    return ::hotkeys::ContainsCombo(pressedKeys, CurrentQuickMenuHotkey(), HotkeyMode::ModifierTrigger);
+}
 
-    for (const UINT key : normalizedCombo) {
-        if (std::find(normalizedPressed.begin(), normalizedPressed.end(), key) == normalizedPressed.end()) {
-            return false;
-        }
-    }
-
-    return true;
+bool BinderModule::Impl::IsMainWindowHotkeyPressed() const {
+    return ::hotkeys::ComboMatch(pressedKeys, UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger);
 }
 
 bool BinderModule::Impl::CaptureUsesEditorPopup() const {
@@ -2938,12 +2570,21 @@ void BinderModule::Impl::BeginCapture(CaptureTarget target) {
 void BinderModule::Impl::UpdateQuickMenuState() {
     if (capture.Active()) {
         quickMenuOpen = false;
+        ResetQuickMenuVisualState();
         return;
     }
 
     const bool hasEntries = VisibleQuickMenuEntriesExist();
     if (!hasEntries) {
         quickMenuOpen = false;
+        ResetQuickMenuVisualState();
+        return;
+    }
+
+    if (IsMainWindowHotkeyPressed()) {
+        quickMenuOpen = false;
+        quickMenuToggleLatch = false;
+        ResetQuickMenuVisualState();
         return;
     }
 
@@ -2953,6 +2594,7 @@ void BinderModule::Impl::UpdateQuickMenuState() {
         if (!comboHeld) {
             quickMenuReopenBlocked = false;
             quickMenuToggleLatch = false;
+            ResetQuickMenuVisualState();
         }
         return;
     }
@@ -2969,7 +2611,7 @@ void BinderModule::Impl::UpdateQuickMenuState() {
     }
 
     if (!quickMenuOpen) {
-        quickMenuTabIndex = 0;
+        ResetQuickMenuVisualState();
     }
 }
 
@@ -2984,7 +2626,7 @@ void BinderModule::Impl::ProcessHotkeys() {
         return;
     }
 
-    if (quickMenuOpen || IsQuickMenuComboPressed() || inputDialog.has_value()) {
+    if (quickMenuOpen || IsQuickMenuComboPressed() || inputDialog.has_value() || IsMainWindowHotkeyPressed()) {
         return;
     }
 
@@ -3571,6 +3213,45 @@ int BinderModule::Impl::MoveHotkeysFromFolderPath(
     return changed;
 }
 
+int BinderModule::Impl::DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath) {
+    int removed = 0;
+    hotkeys.erase(
+        std::remove_if(hotkeys.begin(), hotkeys.end(), [&](const HotkeyEntry& hotkey) {
+            if (!PathStartsWith(hotkey.folderPath, fromPath)) {
+                return false;
+            }
+            ++removed;
+            return true;
+        }),
+        hotkeys.end());
+
+    if (removed > 0) {
+        RefreshNumbers();
+        selectedBindIndex = -1;
+        bindDeleteTarget = -1;
+        moveBindTarget = -1;
+        bindLinesTarget = -1;
+    }
+    return removed;
+}
+
+bool BinderModule::Impl::IsProtectedRootFolder(const FolderNode* folder) const {
+    return folder != nullptr && folder->parent == nullptr && !folders.empty() && folders.front().get() == folder;
+}
+
+bool BinderModule::Impl::CanDeleteFolder(const FolderNode* folder) const {
+    if (!folder) {
+        return false;
+    }
+    if (IsProtectedRootFolder(folder)) {
+        return false;
+    }
+    if (folder->parent == nullptr && folders.size() <= 1) {
+        return false;
+    }
+    return true;
+}
+
 std::vector<int> BinderModule::Impl::FilteredBindIndices() const {
     std::vector<int> indices;
     if (!selectedFolder) {
@@ -3624,31 +3305,38 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
 }
 
 bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
+    UiSettings& ui = UiSettings::Instance();
     const std::string label = Trim(editor.draft.label);
     if (label.empty()) {
-        errors.push_back(UiSettings::Instance().Text(UiText::ValidationBindNameRequired));
+        errors.push_back(ui.Text(UiText::ValidationBindNameRequired));
     }
 
     if (editor.draft.folderPath.empty() || !FindFolderByPath(folders, editor.draft.folderPath)) {
-        errors.push_back(UiSettings::Instance().Text(UiText::ValidationExistingFolderRequired));
+        errors.push_back(ui.Text(UiText::ValidationExistingFolderRequired));
     }
 
     if (editor.draft.repeatMode && editor.draft.repeatIntervalMs < kMinMessageIntervalMs) {
-        errors.push_back(UiSettings::Instance().Text(UiText::ValidationRepeatInterval));
+        errors.push_back(ui.Text(UiText::ValidationRepeatInterval));
+    }
+
+    if (editor.draft.enabled && !editor.draft.keys.empty()) {
+        if (std::string description; DescribeConflictWithMenuToggleHotkey(editor.draft.keys, editor.draft.hotkeyMode, description)) {
+            errors.push_back(ui.Format(UiText::HotkeyConflictFormat, description.c_str()));
+        }
     }
 
     std::set<std::string> inputKeys;
     for (const HotkeyInput& input : editor.draft.inputs) {
         const std::string key = NormalizeInputKey(input.key);
         if (key.empty()) {
-            errors.push_back(UiSettings::Instance().Text(UiText::ValidationInputKeyRequired));
+            errors.push_back(ui.Text(UiText::ValidationInputKeyRequired));
             continue;
         }
         if (!inputKeys.insert(key).second) {
-            errors.push_back(UiSettings::Instance().Text(UiText::ValidationInputKeyUnique));
+            errors.push_back(ui.Text(UiText::ValidationInputKeyUnique));
         }
         if (InputModeUsesButtons(input.mode) && input.buttons.empty()) {
-            errors.push_back(UiSettings::Instance().Text(UiText::ValidationButtonsRequired));
+            errors.push_back(ui.Text(UiText::ValidationButtonsRequired));
         }
     }
 
@@ -3657,7 +3345,7 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
             std::regex test(editor.draft.textTrigger.text);
             (void)test;
         } catch (const std::exception& ex) {
-            errors.push_back(UiSettings::Instance().Format(UiText::ValidationInvalidRegex, ex.what()));
+            errors.push_back(ui.Format(UiText::ValidationInvalidRegex, ex.what()));
         }
     }
 
@@ -3732,9 +3420,10 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
     }
 
     ImGui::SetNextItemOpen(folder.open, ImGuiCond_Always);
-    const bool opened = ImGui::TreeNodeEx("##folder_node", flags, "%s", folder.name.c_str());
+    const std::string folderLabel = FormatFolderLabel(folder.name);
+    const bool opened = ImGui::TreeNodeEx("##folder_node", flags, "%s", folderLabel.c_str());
     folder.open = opened;
-    if (ImGui::IsItemClicked()) {
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         selectedFolder = &folder;
     }
 
@@ -3760,7 +3449,7 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
             folderPopup.parent = &folder;
             folderPopup.name = ui.Text(UiText::BinderNewFolder);
             ExpandFolderBranch(&folder);
-            ImGui::OpenPopup("##binder_folder_edit");
+            folderEditPopupPending = true;
             ImGui::CloseCurrentPopup();
         }
 
@@ -3768,17 +3457,17 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
             folderPopup = {};
             folderPopup.target = &folder;
             folderPopup.name = folder.name;
-            ImGui::OpenPopup("##binder_folder_edit");
+            folderEditPopupPending = true;
             ImGui::CloseCurrentPopup();
         }
 
-        const bool canDelete = folder.parent != nullptr;
+        const bool canDelete = CanDeleteFolder(&folder);
         if (!canDelete) {
             ImGui::BeginDisabled();
         }
         if (ImGui::MenuItem(ui.Text(UiText::Delete)) && canDelete) {
             folderDeleteTarget = &folder;
-            ImGui::OpenPopup("##binder_folder_delete");
+            folderDeletePopupPending = true;
             ImGui::CloseCurrentPopup();
         }
         if (!canDelete) {
@@ -3804,29 +3493,26 @@ void BinderModule::Impl::DrawFolderPane() {
     EnsureRootFolder();
     if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::FolderAdd)) + "##folder_add").c_str())) {
         folderPopup = {};
-        folderPopup.parent = selectedFolder ? selectedFolder : EnsureRootFolder();
+        folderPopup.parent = nullptr;
         folderPopup.name = UiSettings::Instance().Text(UiText::BinderNewFolder);
-        if (folderPopup.parent) {
-            ExpandFolderBranch(folderPopup.parent);
-        }
-        ImGui::OpenPopup("##binder_folder_edit");
+        folderEditPopupPending = true;
     }
     ImGui::SameLine();
     if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::FolderRename)) + "##folder_rename").c_str()) && selectedFolder) {
         folderPopup = {};
         folderPopup.target = selectedFolder;
         folderPopup.name = selectedFolder->name;
-        ImGui::OpenPopup("##binder_folder_edit");
+        folderEditPopupPending = true;
     }
     ImGui::SameLine();
-    const bool canDeleteSelected = selectedFolder && selectedFolder->parent;
+    const bool canDeleteSelected = CanDeleteFolder(selectedFolder);
     if (!canDeleteSelected) {
         ImGui::BeginDisabled();
     }
     if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::Delete)) + "##folder_delete").c_str())
         && canDeleteSelected) {
         folderDeleteTarget = selectedFolder;
-        ImGui::OpenPopup("##binder_folder_delete");
+        folderDeletePopupPending = true;
     }
     if (!canDeleteSelected) {
         ImGui::EndDisabled();
@@ -3846,6 +3532,10 @@ void BinderModule::Impl::DrawFolderPane() {
 }
 
 void BinderModule::Impl::DrawFolderPopups() {
+    if (folderEditPopupPending) {
+        ImGui::OpenPopup("##binder_folder_edit");
+        folderEditPopupPending = false;
+    }
     if (ImGui::BeginPopupModal("##binder_folder_edit", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(UiSettings::Instance().Text(folderPopup.target ? UiText::FolderRename : UiText::FolderAdd));
         ImGui::Separator();
@@ -3903,25 +3593,37 @@ void BinderModule::Impl::DrawFolderPopups() {
         ImGui::EndPopup();
     }
 
+    if (folderDeletePopupPending) {
+        ImGui::OpenPopup("##binder_folder_delete");
+        folderDeletePopupPending = false;
+    }
     if (ImGui::BeginPopupModal("##binder_folder_delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("%s", UiSettings::Instance().Text(UiText::DeleteFolderMoveBindsQuestion));
         if (folderDeleteTarget) {
             ImGui::TextDisabled("%s", folderDeleteTarget->name.c_str());
         }
         if (ImGui::Button(UiSettings::Instance().Text(UiText::Delete))) {
-            if (folderDeleteTarget && folderDeleteTarget->parent) {
-                FolderNode* parent = folderDeleteTarget->parent;
+            if (CanDeleteFolder(folderDeleteTarget)) {
+                FolderNode* fallbackFolder = folderDeleteTarget->parent ? folderDeleteTarget->parent : EnsureRootFolder();
                 const auto removedPath = BuildFolderPath(folderDeleteTarget);
-                const auto fallbackPath = BuildFolderPath(parent);
-                MoveHotkeysFromFolderPath(removedPath, fallbackPath);
+                const auto selectedPath = selectedFolder ? BuildFolderPath(selectedFolder) : std::vector<std::string>{};
+                DeleteHotkeysFromFolderPath(removedPath);
 
-                auto& siblings = parent->children;
+                auto& siblings = folderDeleteTarget->parent ? folderDeleteTarget->parent->children : folders;
                 siblings.erase(
                     std::remove_if(siblings.begin(), siblings.end(), [&](const std::unique_ptr<FolderNode>& item) {
                         return item.get() == folderDeleteTarget;
                     }),
                     siblings.end());
-                selectedFolder = parent;
+
+                if (!selectedPath.empty() && PathStartsWith(selectedPath, removedPath)) {
+                    selectedFolder = fallbackFolder;
+                } else if (selectedFolder == folderDeleteTarget) {
+                    selectedFolder = fallbackFolder;
+                }
+                if (!selectedFolder) {
+                    selectedFolder = EnsureRootFolder();
+                }
                 folderDeleteTarget = nullptr;
                 SaveConfig();
                 ImGui::CloseCurrentPopup();
@@ -4057,11 +3759,13 @@ void BinderModule::Impl::DrawEditor() {
 
     std::vector<std::vector<std::string>> folderPaths;
     CollectFolderPaths(folders, folderPaths);
-    std::string currentFolder = JoinPath(editor.draft.folderPath);
+    std::string currentFolder = editor.draft.folderPath.empty()
+        ? std::string()
+        : FormatFolderPathLabel(editor.draft.folderPath);
     if (ImGui::BeginCombo(UiSettings::Instance().Text(UiText::Folder),
             currentFolder.empty() ? UiSettings::Instance().Text(UiText::SelectFolder) : currentFolder.c_str())) {
         for (const auto& path : folderPaths) {
-            const std::string label = JoinPath(path);
+            const std::string label = FormatFolderPathLabel(path);
             const bool selected = path == editor.draft.folderPath;
             if (ImGui::Selectable(label.c_str(), selected)) {
                 editor.draft.folderPath = path;
@@ -4493,7 +4197,8 @@ void BinderModule::Impl::DrawMoveBindPopup() {
             flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
         }
 
-        const bool opened = ImGui::TreeNodeEx(folder.name.c_str(), flags, "%s", folder.name.c_str());
+        const std::string folderLabel = FormatFolderLabel(folder.name);
+        const bool opened = ImGui::TreeNodeEx("##move_folder_node", flags, "%s", folderLabel.c_str());
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
             hotkey->folderPath = BuildFolderPath(&folder);
             SaveConfig();
@@ -4640,9 +4345,12 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
         std::vector<UINT> outKeys;
         if (ImGui::Button(UiSettings::Instance().Text(UiText::Save))) {
             capture.Save(outKeys);
-            ApplyCapturedKeys(outKeys);
-            capturePopupInEditor = false;
-            ImGui::CloseCurrentPopup();
+            if (ApplyCapturedKeys(outKeys)) {
+                capturePopupInEditor = false;
+                ImGui::CloseCurrentPopup();
+            } else {
+                capture.Start(outKeys);
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button(UiSettings::Instance().Text(UiText::Clear))) {
@@ -4664,30 +4372,6 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
     }
 
     ImGui::EndPopup();
-}
-
-void BinderModule::Impl::DrawQuickFolderRecursive(FolderNode& folder) {
-    for (const int index : QuickEntriesForFolder(folder)) {
-        HotkeyEntry& hotkey = hotkeys[index];
-        const std::string buttonLabel = hotkey.label + "##quick_" + std::to_string(index);
-        if (ImGui::Button(buttonLabel.c_str(), ImVec2(-FLT_MIN, 0.0f))) {
-            quickMenuOpen = false;
-            quickMenuReopenBlocked = true;
-            TryEnqueueHotkey(index, 0, "quick_menu", "");
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode).c_str());
-    }
-
-    for (auto& child : folder.children) {
-        if (!child || !FolderHasVisibleQuickEntries(*child)) {
-            continue;
-        }
-        if (ImGui::TreeNodeEx(child.get(), ImGuiTreeNodeFlags_DefaultOpen, "%s", child->name.c_str())) {
-            DrawQuickFolderRecursive(*child);
-            ImGui::TreePop();
-        }
-    }
 }
 
 std::string BinderModule::Impl::BuildLaunchSummary(const HotkeyEntry& hotkey) const {
@@ -4758,6 +4442,7 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
     if (visibleFolders.empty()) {
         quickMenuOpen = false;
+        ResetQuickMenuVisualState();
         return;
     }
 
@@ -4767,30 +4452,287 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuPos = ImVec2((io.DisplaySize.x - quickMenuSize.x) * 0.5f, (io.DisplaySize.y - quickMenuSize.y) * 0.5f);
     }
 
+    const bool persistentOpen = quickMenuActivationMode == QuickMenuActivationMode::Toggle;
     bool windowOpen = true;
-    ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(UiSettings::Instance().Text(UiText::QuickMenuWindowTitle), &windowOpen, ImGuiWindowFlags_NoCollapse)) {
+    int selectedHotkeyIndex = -1;
+    bool hoveredAnyMenuWindow = false;
+    bool submenuTriggerHovered = false;
+    std::map<std::string, bool> shouldCloseSubmenu{};
+    for (const auto& [path, _] : quickMenuSubmenuOpen) {
+        shouldCloseSubmenu[path] = true;
+    }
+
+    const auto closeQuickMenuForSelection = [&]() {
+        quickMenuOpen = false;
+        quickMenuReopenBlocked = true;
+        ResetQuickMenuVisualState();
+    };
+
+    const auto removeSubmenuState = [&](const std::string& path) {
+        quickMenuSubmenuOpen.erase(path);
+        quickMenuSubmenuPos.erase(path);
+        quickMenuSubmenuNode.erase(path);
+        quickMenuSubmenuCloseDeadline.erase(path);
+    };
+
+    const auto quickMenuItem = [&](const std::string& label, const char* shortcut, bool enabled) {
+        ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+        const bool clicked = ImGui::MenuItem(label.c_str(), shortcut, false, enabled);
+        ImGui::PopStyleVar();
+        return clicked;
+    };
+
+    const auto drawNode = [&](auto&& self, FolderNode& node) -> void {
+        if (selectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
+            return;
+        }
+
+        for (const int index : QuickEntriesForFolder(node)) {
+            if (selectedHotkeyIndex >= 0 || index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                break;
+            }
+
+            const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+            const std::string visibleLabel = std::string(kIconKeyboard) + " "
+                + (hotkey.label.empty() ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey) : hotkey.label);
+            const std::string label = visibleLabel + "##quick_bind_" + std::to_string(index);
+            const std::string shortcut = hotkey.keys.empty()
+                ? std::string()
+                : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
+            if (quickMenuItem(label, shortcut.empty() ? nullptr : shortcut.c_str(), hotkey.enabled)) {
+                selectedHotkeyIndex = index;
+                closeQuickMenuForSelection();
+                break;
+            }
+        }
+
+        if (selectedHotkeyIndex >= 0) {
+            return;
+        }
+
+        for (auto& child : node.children) {
+            if (!child || !FolderHasVisibleQuickEntries(*child)) {
+                continue;
+            }
+
+            const std::string path = JoinPath(BuildFolderPath(child.get()));
+            const bool isOpen = quickMenuSubmenuOpen.contains(path);
+            const std::string label = std::string(kIconFolder) + " " + child->name + " " + kIconAngleRight
+                + "##quick_folder_" + path;
+
+            ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+            ImGui::Selectable(label.c_str(), isOpen);
+            ImGui::PopStyleVar();
+
+            const ImVec2 itemMin = ImGui::GetItemRectMin();
+            const ImVec2 itemMax = ImGui::GetItemRectMax();
+            const float windowRight = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x;
+            quickMenuSubmenuPos[path] = ImVec2(windowRight, itemMin.y - ScaleUi(10.0f));
+
+            const bool pointerInRow = io.MousePos.x >= itemMin.x && io.MousePos.x <= windowRight
+                && io.MousePos.y >= itemMin.y && io.MousePos.y <= itemMax.y;
+            if (ImGui::IsItemHovered() || pointerInRow) {
+                submenuTriggerHovered = true;
+                quickMenuSubmenuOpen[path] = true;
+                quickMenuSubmenuNode[path] = child.get();
+                shouldCloseSubmenu[path] = false;
+                quickMenuSubmenuCloseDeadline.erase(path);
+            }
+        }
+    };
+
+    ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
+    if (ImGui::Begin(
+            UiSettings::Instance().Text(UiText::QuickMenuWindowTitle),
+            persistentOpen ? &windowOpen : nullptr,
+            ImGuiWindowFlags_NoCollapse)) {
         quickMenuPos = ImGui::GetWindowPos();
         quickMenuSize = ImGui::GetWindowSize();
+
+        hoveredAnyMenuWindow = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        const int visibleCount = static_cast<int>(visibleFolders.size());
+        if (visibleCount > 0) {
+            const int clampedIndex = std::clamp(quickMenuTabIndex, 0, visibleCount - 1);
+            if (clampedIndex != quickMenuTabIndex) {
+                quickMenuTabIndex = clampedIndex;
+                quickMenuTabSelectRequest = clampedIndex;
+            }
+
+            if (hoveredAnyMenuWindow) {
+                const int scrollSteps = static_cast<int>(io.MouseWheel);
+                if (scrollSteps != 0) {
+                    quickMenuTabIndex += scrollSteps;
+                    while (quickMenuTabIndex < 0) {
+                        quickMenuTabIndex += visibleCount;
+                    }
+                    while (quickMenuTabIndex >= visibleCount) {
+                        quickMenuTabIndex -= visibleCount;
+                    }
+                    quickMenuTabSelectRequest = quickMenuTabIndex;
+                }
+            }
+        }
 
         if (ImGui::BeginTabBar("##quick_menu_tabs")) {
             for (std::size_t i = 0; i < visibleFolders.size(); ++i) {
                 FolderNode& folder = *visibleFolders[i];
-                if (ImGui::BeginTabItem(folder.name.c_str())) {
+                ImGuiTabItemFlags flags = 0;
+                if (quickMenuTabSelectRequest == static_cast<int>(i)) {
+                    flags |= ImGuiTabItemFlags_SetSelected;
+                }
+                const std::string tabLabel = FormatFolderLabel(folder.name);
+                if (ImGui::BeginTabItem(tabLabel.c_str(), nullptr, flags)) {
                     quickMenuTabIndex = static_cast<int>(i);
-                    DrawQuickFolderRecursive(folder);
+                    if (quickMenuTabSelectRequest == static_cast<int>(i)) {
+                        quickMenuTabSelectRequest = -1;
+                    }
+                    drawNode(drawNode, folder);
                     ImGui::EndTabItem();
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    if (quickMenuTabIndex != static_cast<int>(i)) {
+                        quickMenuTabIndex = static_cast<int>(i);
+                    }
+                    quickMenuTabSelectRequest = static_cast<int>(i);
                 }
             }
             ImGui::EndTabBar();
         }
     }
     ImGui::End();
+    ImGui::PopStyleVar(3);
+
+    if (persistentOpen && !windowOpen) {
+        closeQuickMenuForSelection();
+        return;
+    }
+
+    if (selectedHotkeyIndex >= 0) {
+        TryEnqueueHotkey(selectedHotkeyIndex, 0, "quick_menu", "");
+        return;
+    }
+
+    quickMenuSubmenuPaths.clear();
+    quickMenuSubmenuPaths.reserve(quickMenuSubmenuOpen.size());
+    for (const auto& [path, _] : quickMenuSubmenuOpen) {
+        quickMenuSubmenuPaths.push_back(path);
+    }
+
+    const ImGuiWindowFlags submenuFlags = ImGuiWindowFlags_NoDecoration
+        | ImGuiWindowFlags_NoMove
+        | ImGuiWindowFlags_AlwaysAutoResize
+        | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoNav;
+
+    for (const std::string& path : quickMenuSubmenuPaths) {
+        FolderNode* node = nullptr;
+        ImVec2* position = nullptr;
+
+        if (const auto nodeIt = quickMenuSubmenuNode.find(path); nodeIt != quickMenuSubmenuNode.end()) {
+            node = nodeIt->second;
+        }
+        if (const auto posIt = quickMenuSubmenuPos.find(path); posIt != quickMenuSubmenuPos.end()) {
+            position = &posIt->second;
+        }
+        if (!node || !position) {
+            continue;
+        }
+
+        ImGui::SetNextWindowPos(*position, ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
+        if (ImGui::Begin(("##quick_menu_sub_" + path).c_str(), nullptr, submenuFlags)) {
+            drawNode(drawNode, *node);
+            const ImGuiHoveredFlags hoveredFlags = ImGuiHoveredFlags_RootAndChildWindows
+                | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem;
+            if (ImGui::IsWindowHovered(hoveredFlags)) {
+                shouldCloseSubmenu[path] = false;
+                hoveredAnyMenuWindow = true;
+                quickMenuSubmenuCloseDeadline.erase(path);
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+
+        if (selectedHotkeyIndex >= 0) {
+            break;
+        }
+    }
+
+    if (selectedHotkeyIndex >= 0) {
+        TryEnqueueHotkey(selectedHotkeyIndex, 0, "quick_menu", "");
+        return;
+    }
+
+    for (int pass = 0; pass < 3; ++pass) {
+        for (const std::string& path : quickMenuSubmenuPaths) {
+            auto closeIt = shouldCloseSubmenu.find(path);
+            if (closeIt == shouldCloseSubmenu.end() || !closeIt->second) {
+                continue;
+            }
+
+            FolderNode* node = nullptr;
+            if (const auto nodeIt = quickMenuSubmenuNode.find(path); nodeIt != quickMenuSubmenuNode.end()) {
+                node = nodeIt->second;
+            }
+            if (!node) {
+                continue;
+            }
+
+            for (const auto& child : node->children) {
+                if (!child) {
+                    continue;
+                }
+                const std::string childPath = JoinPath(BuildFolderPath(child.get()));
+                if (!quickMenuSubmenuOpen.contains(childPath)) {
+                    continue;
+                }
+
+                const auto childCloseIt = shouldCloseSubmenu.find(childPath);
+                if (childCloseIt != shouldCloseSubmenu.end() && !childCloseIt->second) {
+                    closeIt->second = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    const double now = ImGui::GetTime();
+    for (const auto& [path, shouldClose] : shouldCloseSubmenu) {
+        if (!shouldClose) {
+            quickMenuSubmenuCloseDeadline.erase(path);
+            continue;
+        }
+
+        if (submenuTriggerHovered) {
+            removeSubmenuState(path);
+            continue;
+        }
+
+        if (hoveredAnyMenuWindow) {
+            quickMenuSubmenuCloseDeadline[path] = now + kQuickMenuSubmenuCloseGraceSeconds;
+            continue;
+        }
+
+        const auto deadlineIt = quickMenuSubmenuCloseDeadline.find(path);
+        if (deadlineIt == quickMenuSubmenuCloseDeadline.end()) {
+            quickMenuSubmenuCloseDeadline[path] = now + kQuickMenuSubmenuCloseGraceSeconds;
+            continue;
+        }
+        if (now >= deadlineIt->second) {
+            removeSubmenuState(path);
+        }
+    }
 
     if (!windowOpen) {
         quickMenuOpen = false;
         quickMenuReopenBlocked = true;
+        ResetQuickMenuVisualState();
     }
 }
 
@@ -4992,6 +4934,10 @@ bool BinderModule::WantsInputCapture() const {
 
 bool BinderModule::WantsQuickMenuCursor() const {
     return impl_->WantsQuickMenuCursor();
+}
+
+bool BinderModule::DescribeMainWindowHotkeyConflict(const std::vector<unsigned int>& keys, std::string& description) {
+    return impl_->DescribeMainWindowHotkeyConflict(keys, description);
 }
 
 void BinderModule::DrawMainTab() {

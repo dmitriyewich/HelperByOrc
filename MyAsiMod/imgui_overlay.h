@@ -6,6 +6,10 @@
 #include <d3d9.h>
 
 #include <functional>
+#include <string>
+#include <vector>
+
+#include "hotkey_utils.h"
 
 class ImGuiOverlay {
 public:
@@ -23,6 +27,14 @@ public:
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuOpen(bool open);
     bool IsMenuOpen() const;
+    std::string MenuToggleHotkeyText() const;
+    void BeginMenuToggleHotkeyCapture();
+    bool IsMenuToggleHotkeyCaptureActive() const;
+    std::string MenuToggleHotkeyCaptureText() const;
+    const std::vector<unsigned int>& MenuToggleHotkeyCaptureDraft() const;
+    bool CanSaveMenuToggleHotkeyCapture() const;
+    void SaveMenuToggleHotkeyCapture();
+    void CancelMenuToggleHotkeyCapture();
     void OnProcessAttach();
     void Shutdown();
 
@@ -41,6 +53,7 @@ private:
     void CleanupImGui();
     void RestoreWindowProc();
     void UpdateHotkeyState();
+    bool HandleMenuToggleHotkeyCaptureMessage(UINT message, WPARAM wparam);
     void UpdateInputCaptureState();
     void ApplyInputCaptureState(bool captured);
     void RenderFrame(IDirect3DDevice9* device);
@@ -50,6 +63,7 @@ private:
     HWND ResolveGameWindow(IDirect3DDevice9* device) const;
     bool IsPrimaryRenderTarget(IDirect3DDevice9* device) const;
     bool IsAuxiliaryUiVisible() const;
+    bool IsMenuToggleComboDown() const;
     bool WantsInputRouting() const;
     bool WantsInputCapture() const;
 
@@ -60,7 +74,8 @@ private:
     bool hooksInstalled_ = false;
     bool imguiInitialized_ = false;
     bool menuOpen_ = false;
-    bool f10WasDown_ = false;
+    bool menuToggleWasDown_ = false;
+    bool menuToggleHotkeyCaptureActive_ = false;
     HWND gameWindow_ = nullptr;
     WNDPROC originalWndProc_ = nullptr;
     RenderCallback renderCallback_;
@@ -70,6 +85,8 @@ private:
     VisibilityCallback auxiliaryInputCaptureCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     bool inputCaptureActive_ = false;
+    std::vector<unsigned int> menuToggleHotkeyCaptureDraft_{};
+    hotkeys::KeyTracker menuToggleHotkeyCaptureTracker_{};
 
     void* endSceneTarget_ = nullptr;
     void* resetTarget_ = nullptr;

@@ -4,6 +4,8 @@
 #include <windows.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 class SampApi;
 class SampHooks;
@@ -31,6 +33,7 @@ public:
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;
     bool WantsQuickMenuCursor() const;
+    bool DescribeMainWindowHotkeyConflict(const std::vector<unsigned int>& keys, std::string& description);
 
     void DrawMainTab();
     void DrawSettingsSection();

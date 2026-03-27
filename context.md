@@ -29,6 +29,7 @@
   - Lua-референс по именам и base85-данным: `C:\Games\CODEX\HelperByOrc\lib\fAwesome7.lua`
 - Основные рабочие модули:
   - `imgui_overlay` для D3D9/ImGui overlay.
+  - `hotkey_utils` для общей hotkey-логики (`normalize/match/capture/conflict basis`) между `imgui_overlay` и `binder_module`.
   - `mod_app` для UI-оболочки и жизненного цикла.
   - `samp_api` для нативного доступа к SA:MP.
   - `samp_hooks` для обычных SA:MP hooks.
@@ -108,6 +109,7 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   - `language`: `ru` или `en`.
   - `auto_scale`: `true/false`.
   - `scale_multiplier`: пользовательский множитель масштаба.
+  - `open_menu_hotkey`: массив virtual-key кодов для открытия главного окна, по умолчанию `Ctrl + Z`.
 - Секция `binder` хранит состояние биндов, папок, хоткеев, quick menu и других binder-данных.
 - Пример актуальной формы:
 
@@ -117,7 +119,8 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   "ui": {
     "language": "ru",
     "auto_scale": true,
-    "scale_multiplier": 1.0
+    "scale_multiplier": 1.0,
+    "open_menu_hotkey": [17, 90]
   },
   "binder": {
   }
@@ -206,6 +209,10 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   - `WndProc`, hotkey, render
   - централизованный ownership ввода для `ImGui`
   - при активном `ImGui`-вводе переключает SA:MP cursor mode через `SampApi::Set_CursorMode`
+- `hotkey_utils.*`
+  - shared runtime для hotkey-комбинаций
+  - нормализация, сравнение, capture и базовые conflict-helpers
+  - используется как общая основа для hotkey открытия главного окна и hotkey-логики биндер-модуля
 - `mod_app.*`
   - жизненный цикл мода
   - основной UI shell

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 
 namespace {
 
@@ -25,20 +26,27 @@ constexpr int kSampCursorModeLockCamAndControl = 2;
 constexpr int kSampCursorModeLockCam = 3;
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
+constexpr char kIconHouse[] = "\xEF\xA0\x8C";
+constexpr char kIconKeyboard[] = "\xEF\x84\x9C";
+constexpr char kIconNewspaper[] = "\xEF\x87\xAA";
+constexpr char kIconBook[] = "\xEF\x80\xAD";
+constexpr char kIconCubes[] = "\xEF\x86\xB3";
+constexpr char kIconGear[] = "\xEF\x80\x93";
 
 struct TabDefinition {
     MainTab tab;
     UiText label;
     UiText compactLabel;
+    const char* icon;
 };
 
 const std::array<TabDefinition, 6> kTabs = {{
-    { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact },
-    { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact },
-    { MainTab::SmiHelper, UiText::TabSmiHelper, UiText::TabSmiHelperCompact },
-    { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact },
-    { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact },
-    { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact },
+    { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, kIconHouse },
+    { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, kIconKeyboard },
+    { MainTab::SmiHelper, UiText::TabSmiHelper, UiText::TabSmiHelperCompact, kIconNewspaper },
+    { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, kIconCubes },
+    { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, kIconBook },
+    { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, kIconGear },
 }};
 
 std::size_t ToTabIndex(MainTab tab) {
@@ -52,6 +60,14 @@ const TabDefinition& GetTabDefinition(MainTab tab) {
 const char* GetTabLabel(MainTab tab, bool compact = false) {
     const TabDefinition& definition = GetTabDefinition(tab);
     return UiSettings::Instance().Text(compact ? definition.compactLabel : definition.label);
+}
+
+const char* GetTabIcon(MainTab tab) {
+    return GetTabDefinition(tab).icon;
+}
+
+std::string FormatTabLabelWithIcon(MainTab tab) {
+    return std::string(GetTabIcon(tab)) + " " + GetTabLabel(tab);
 }
 
 float Scale(float value) {
@@ -424,11 +440,16 @@ MainTab ModApp::DrawAnimatedMenu(float width) {
                 cornerRadius);
         }
 
-        const char* text = GetTabLabel(tab.tab, sidebarCollapsed_);
+        const char* text = GetTabIcon(tab.tab);
+        std::string expandedLabel;
+        if (!sidebarCollapsed_) {
+            expandedLabel = FormatTabLabelWithIcon(tab.tab);
+            text = expandedLabel.c_str();
+        }
         const ImVec2 textSize = ImGui::CalcTextSize(text);
         const float textX = sidebarCollapsed_
             ? itemPosition.x + (width - textSize.x) * 0.5f
-            : itemPosition.x + Scale(20.0f) + animation.shift;
+            : itemPosition.x + Scale(16.0f) + animation.shift;
         const float textY = itemPosition.y + (buttonHeight - textSize.y) * 0.5f;
 
         draw->AddText(
@@ -517,7 +538,7 @@ void ModApp::DrawNotepadTab() const {
     ImGui::TextWrapped("%s", ui.Text(UiText::NotepadIntro));
 }
 
-void ModApp::DrawSettingsTab() const {
+void ModApp::DrawSettingsTab() {
     UiSettings& ui = UiSettings::Instance();
     ImGui::SeparatorText(ui.Text(UiText::TabSettings));
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsIntro));
@@ -531,6 +552,46 @@ void ModApp::DrawSettingsTab() const {
     int languageIndex = ui.Language() == UiLanguage::English ? 1 : 0;
     if (ImGui::Combo(ui.Text(UiText::SettingsLanguage), &languageIndex, languageLabels, IM_ARRAYSIZE(languageLabels))) {
         ui.SetLanguage(languages[languageIndex]);
+    }
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted(ui.Text(UiText::SettingsMainWindowHotkey));
+    ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, overlay_.MenuToggleHotkeyText().c_str()).c_str());
+    if (!overlay_.IsMenuToggleHotkeyCaptureActive()) {
+        if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
+            overlay_.BeginMenuToggleHotkeyCapture();
+        }
+    } else {
+        ImGui::TextWrapped("%s", ui.Text(UiText::SettingsMainWindowHotkeyCapture));
+        ImGui::Text(
+            "%s",
+            ui.Format(UiText::CurrentCombinationFormat, overlay_.MenuToggleHotkeyCaptureText().c_str()).c_str());
+
+        std::string hotkeyConflict;
+        const bool hasHotkeyConflict = binder_.DescribeMainWindowHotkeyConflict(overlay_.MenuToggleHotkeyCaptureDraft(), hotkeyConflict);
+        const bool canSaveHotkey = overlay_.CanSaveMenuToggleHotkeyCapture() && !hasHotkeyConflict;
+        if (!canSaveHotkey) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button(ui.Text(UiText::Save))) {
+            overlay_.SaveMenuToggleHotkeyCapture();
+        }
+        if (!canSaveHotkey) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+            overlay_.CancelMenuToggleHotkeyCapture();
+        }
+
+        if (hasHotkeyConflict) {
+            const ImVec4 color(0.90f, 0.35f, 0.35f, 1.00f);
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::TextWrapped("%s", ui.Format(UiText::HotkeyConflictFormat, hotkeyConflict.c_str()).c_str());
+            ImGui::PopStyleColor();
+        }
     }
 
     bool autoScale = ui.AutoScaleEnabled();
@@ -548,6 +609,7 @@ void ModApp::DrawSettingsTab() const {
 
     if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
         ui.ResetToDefaults();
+        overlay_.CancelMenuToggleHotkeyCapture();
     }
 
     ImGui::Spacing();
@@ -634,7 +696,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         draw->AddText(
             ImVec2(titleMin.x + Scale(110.0f), titleMin.y + style.FramePadding.y),
             ImGui::GetColorU32(style.Colors[ImGuiCol_TextDisabled]),
-            GetTabLabel(currentTab_));
+            FormatTabLabelWithIcon(currentTab_).c_str());
 
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
             mainWindowPos_.x += io.MouseDelta.x;

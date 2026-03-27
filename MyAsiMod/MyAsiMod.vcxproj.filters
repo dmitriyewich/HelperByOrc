@@ -51,6 +51,9 @@
     <ClCompile Include="debug_log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="hotkey_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="imgui_overlay.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -131,6 +134,9 @@
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
     <ClInclude Include="debug_log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hotkey_utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="imgui_overlay.h">
