@@ -65,6 +65,14 @@ constexpr char kIconDelete[] = "\xEF\x8B\xAD";
 constexpr char kIconBars[] = "\xEF\x83\x89";
 constexpr char kIconAngleRight[] = "\xEF\x84\x85";
 constexpr char kIconFolder[] = "\xEF\x84\x94";
+constexpr char kIconClone[] = "\xEF\x89\x8D";
+constexpr char kIconMoveRows[] = "\xEF\x81\xBD";
+constexpr char kIconSliders[] = "\xEF\x87\x9E";
+constexpr char kIconTags[] = "\xEF\x80\xAC";
+constexpr char kIconSaveDisk[] = "\xEF\x83\x87";
+constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
+constexpr char kIconChevronRight[] = "\xEF\x81\x94";
+constexpr char kIconStar[] = "\xEF\x80\x86";
 
 std::string Trim(std::string_view value) {
     std::size_t begin = 0;
@@ -1516,11 +1524,36 @@ struct BinderModule::Impl {
     std::string folderSearch{};
 
     struct EditorState {
+        enum class Tab {
+            Scenario = 0,
+            MultiInput = 1,
+            InputFields = 2,
+        };
+
+        enum class PendingAction {
+            None = 0,
+            Close,
+            Navigate,
+        };
+
         bool active = false;
         bool isNew = false;
         int hotkeyIndex = -1;
         int selectedInputIndex = -1;
+        int bulkMethod = 0;
+        int bulkIntervalMs = 0;
+        int pendingTargetIndex = -1;
         std::string selectedButtonsText{};
+        std::string multiText{};
+        Tab activeTab = Tab::Scenario;
+        PendingAction pendingAction = PendingAction::None;
+        bool focusNamePending = false;
+        bool conditionsPopupPending = false;
+        bool quickConditionsPopupPending = false;
+        bool variablesPopupPending = false;
+        bool previewPopupPending = false;
+        bool discardPopupPending = false;
+        HotkeyEntry baseline{};
         HotkeyEntry draft{};
     } editor{};
 
@@ -1643,8 +1676,23 @@ struct BinderModule::Impl {
     std::vector<int> FilteredBindIndices() const;
     std::string BuildLaunchSummary(const HotkeyEntry& hotkey) const;
     void StartEditing(int index, bool isNew);
+    std::vector<HotkeyMessage> ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const;
+    void SyncEditorMessagesToMulti();
+    void SetEditorTab(EditorState::Tab tab);
+    HotkeyEntry BuildEditorComparableDraft() const;
+    bool EditorHasUnsavedChanges() const;
+    std::pair<int, int> EditorNeighborIndices() const;
+    void RequestEditorAction(EditorState::PendingAction action, int targetIndex = -1);
+    void ExecuteEditorPendingAction();
     bool ValidateEditor(std::vector<std::string>& errors);
     void SaveEditor();
+    void DrawEditorConditionsPopup();
+    void DrawEditorQuickConditionsPopup();
+    void DrawEditorVariablesPopup();
+    void DrawEditorPreviewPopup();
+    void DrawEditorDiscardPopup();
+    void DrawEditorInline();
+    void DrawEditorScenarioTab();
     void DrawFolderTreeNode(FolderNode& folder);
     void DrawFolderPane();
     void DrawFolderPopups();
@@ -3301,32 +3349,225 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
         editor.selectedButtonsText = SerializeButtonsText(editor.draft.inputs[0].buttons);
     }
 
-    editorPopupPending = true;
+    if (!editor.draft.messages.empty()) {
+        editor.bulkMethod = editor.draft.messages.front().method;
+        editor.bulkIntervalMs = std::max(editor.draft.messages.front().intervalMs, 0);
+    }
+
+    SyncEditorMessagesToMulti();
+    editor.activeTab = EditorState::Tab::Scenario;
+    editor.baseline = editor.draft;
+    editor.focusNamePending = true;
+    editor.pendingAction = EditorState::PendingAction::None;
+    editor.pendingTargetIndex = -1;
+    editorPopupPending = false;
+    selectedBindIndex = index;
+}
+
+std::vector<HotkeyMessage> BinderModule::Impl::ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const {
+    std::vector<HotkeyMessage> messages;
+    std::istringstream stream(NormalizeLineEndings(editor.multiText));
+    std::string line;
+    std::size_t lineIndex = 0;
+    while (std::getline(stream, line)) {
+        if (line.empty()) {
+            continue;
+        }
+
+        HotkeyMessage message;
+        message.text = line;
+        message.intervalMs = std::max(editor.bulkIntervalMs, 0);
+        message.method = editor.bulkMethod;
+        if (lineIndex < reference.size() && reference[lineIndex].text == line) {
+            message.intervalMs = std::max(reference[lineIndex].intervalMs, 0);
+            message.method = reference[lineIndex].method;
+        }
+        messages.push_back(std::move(message));
+        ++lineIndex;
+    }
+
+    const bool allReferenceEmpty = !reference.empty() && std::all_of(reference.begin(), reference.end(), [](const HotkeyMessage& item) {
+        return Trim(item.text).empty();
+    });
+    if (messages.empty() && allReferenceEmpty) {
+        return reference;
+    }
+
+    return messages;
+}
+
+void BinderModule::Impl::SyncEditorMessagesToMulti() {
+    std::ostringstream stream;
+    for (std::size_t i = 0; i < editor.draft.messages.size(); ++i) {
+        if (i != 0) {
+            stream << '\n';
+        }
+        stream << editor.draft.messages[i].text;
+    }
+    editor.multiText = stream.str();
+    if (!editor.draft.messages.empty()) {
+        editor.bulkMethod = editor.draft.messages.front().method;
+        editor.bulkIntervalMs = std::max(editor.draft.messages.front().intervalMs, 0);
+    }
+}
+
+void BinderModule::Impl::SetEditorTab(EditorState::Tab tab) {
+    if (editor.activeTab == tab) {
+        return;
+    }
+
+    if (editor.activeTab == EditorState::Tab::Scenario && tab == EditorState::Tab::MultiInput) {
+        SyncEditorMessagesToMulti();
+    } else if (editor.activeTab == EditorState::Tab::MultiInput && tab != EditorState::Tab::MultiInput) {
+        editor.draft.messages = ParseEditorMultiMessages(editor.draft.messages);
+    }
+
+    editor.activeTab = tab;
+}
+
+HotkeyEntry BinderModule::Impl::BuildEditorComparableDraft() const {
+    HotkeyEntry comparable = editor.draft;
+    if (editor.activeTab == EditorState::Tab::MultiInput) {
+        comparable.messages = ParseEditorMultiMessages(comparable.messages);
+    }
+    comparable.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    comparable.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    comparable.repeatIntervalMs = std::max(comparable.repeatIntervalMs, 0);
+    return comparable;
+}
+
+bool BinderModule::Impl::EditorHasUnsavedChanges() const {
+    if (!editor.active) {
+        return false;
+    }
+
+    std::string currentSerialized;
+    std::string baselineSerialized;
+    WriteJson(SerializeHotkey(BuildEditorComparableDraft()), currentSerialized);
+    WriteJson(SerializeHotkey(editor.baseline), baselineSerialized);
+    return currentSerialized != baselineSerialized;
+}
+
+std::pair<int, int> BinderModule::Impl::EditorNeighborIndices() const {
+    if (editor.hotkeyIndex < 0 || editor.hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+        return { -1, -1 };
+    }
+
+    const std::vector<std::string>& folderPath = hotkeys[static_cast<std::size_t>(editor.hotkeyIndex)].folderPath;
+    int previous = -1;
+    int next = -1;
+    int last = -1;
+    for (int index = 0; index < static_cast<int>(hotkeys.size()); ++index) {
+        if (hotkeys[static_cast<std::size_t>(index)].folderPath != folderPath) {
+            continue;
+        }
+        if (index == editor.hotkeyIndex) {
+            previous = last;
+            continue;
+        }
+        if (previous != -1 || index > editor.hotkeyIndex) {
+            if (index > editor.hotkeyIndex) {
+                next = index;
+                break;
+            }
+        }
+        last = index;
+    }
+    if (previous == -1) {
+        last = -1;
+        for (int index = 0; index < editor.hotkeyIndex; ++index) {
+            if (hotkeys[static_cast<std::size_t>(index)].folderPath == folderPath) {
+                last = index;
+            }
+        }
+        previous = last;
+    }
+    return { previous, next };
+}
+
+void BinderModule::Impl::RequestEditorAction(EditorState::PendingAction action, int targetIndex) {
+    if (!editor.active) {
+        return;
+    }
+
+    if (action == EditorState::PendingAction::Navigate
+        && (targetIndex < 0 || targetIndex >= static_cast<int>(hotkeys.size()))) {
+        return;
+    }
+
+    editor.pendingAction = action;
+    editor.pendingTargetIndex = targetIndex;
+    if (EditorHasUnsavedChanges()) {
+        editor.discardPopupPending = true;
+        return;
+    }
+
+    ExecuteEditorPendingAction();
+}
+
+void BinderModule::Impl::ExecuteEditorPendingAction() {
+    const EditorState::PendingAction action = editor.pendingAction;
+    const int targetIndex = editor.pendingTargetIndex;
+
+    editor.pendingAction = EditorState::PendingAction::None;
+    editor.pendingTargetIndex = -1;
+    editor.discardPopupPending = false;
+
+    if (capturePopupInEditor) {
+        capture.Stop();
+        captureTarget = CaptureTarget::None;
+        captureHotkeyIndex = -1;
+        capturePopupPending = false;
+        capturePopupInEditor = false;
+    }
+
+    switch (action) {
+    case EditorState::PendingAction::Close:
+        editor = {};
+        return;
+    case EditorState::PendingAction::Navigate:
+        if (targetIndex >= 0 && targetIndex < static_cast<int>(hotkeys.size())) {
+            StartEditing(targetIndex, false);
+        }
+        return;
+    case EditorState::PendingAction::None:
+        return;
+    }
 }
 
 bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
     UiSettings& ui = UiSettings::Instance();
-    const std::string label = Trim(editor.draft.label);
+    const HotkeyEntry current = BuildEditorComparableDraft();
+    const std::string label = Trim(current.label);
+    const std::string command = Trim(current.command);
+    const std::string triggerText = Trim(current.textTrigger.text);
     if (label.empty()) {
         errors.push_back(ui.Text(UiText::ValidationBindNameRequired));
     }
 
-    if (editor.draft.folderPath.empty() || !FindFolderByPath(folders, editor.draft.folderPath)) {
+    if (current.folderPath.empty() || !FindFolderByPath(folders, current.folderPath)) {
         errors.push_back(ui.Text(UiText::ValidationExistingFolderRequired));
     }
 
-    if (editor.draft.repeatMode && editor.draft.repeatIntervalMs < kMinMessageIntervalMs) {
+    const bool hasHotkeyTrigger = !current.keys.empty();
+    const bool hasCommandTrigger = current.commandEnabled && !command.empty();
+    const bool hasTextTrigger = current.textTrigger.enabled && !triggerText.empty();
+    if (!hasHotkeyTrigger && !hasCommandTrigger && !hasTextTrigger) {
+        errors.push_back(ui.Text(UiText::ValidationNeedTrigger));
+    }
+
+    if (current.repeatMode && current.repeatIntervalMs < kMinMessageIntervalMs) {
         errors.push_back(ui.Text(UiText::ValidationRepeatInterval));
     }
 
-    if (editor.draft.enabled && !editor.draft.keys.empty()) {
-        if (std::string description; DescribeConflictWithMenuToggleHotkey(editor.draft.keys, editor.draft.hotkeyMode, description)) {
+    if (current.enabled && !current.keys.empty()) {
+        if (std::string description; DescribeConflictWithMenuToggleHotkey(current.keys, current.hotkeyMode, description)) {
             errors.push_back(ui.Format(UiText::HotkeyConflictFormat, description.c_str()));
         }
     }
 
     std::set<std::string> inputKeys;
-    for (const HotkeyInput& input : editor.draft.inputs) {
+    for (const HotkeyInput& input : current.inputs) {
         const std::string key = NormalizeInputKey(input.key);
         if (key.empty()) {
             errors.push_back(ui.Text(UiText::ValidationInputKeyRequired));
@@ -3340,9 +3581,9 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
         }
     }
 
-    if (editor.draft.textTrigger.enabled && editor.draft.textTrigger.pattern) {
+    if (current.textTrigger.enabled && current.textTrigger.pattern && !triggerText.empty()) {
         try {
-            std::regex test(editor.draft.textTrigger.text);
+            std::regex test(triggerText);
             (void)test;
         } catch (const std::exception& ex) {
             errors.push_back(ui.Format(UiText::ValidationInvalidRegex, ex.what()));
@@ -3353,7 +3594,7 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
 }
 
 void BinderModule::Impl::SaveEditor() {
-    HotkeyEntry saved = editor.draft;
+    HotkeyEntry saved = BuildEditorComparableDraft();
     saved.label = Trim(saved.label);
     saved.keys = ::hotkeys::NormalizeCombo(saved.keys, saved.hotkeyMode);
     saved.command = Trim(saved.command);
@@ -3371,13 +3612,15 @@ void BinderModule::Impl::SaveEditor() {
 
     if (editor.isNew || editor.hotkeyIndex < 0 || editor.hotkeyIndex >= static_cast<int>(hotkeys.size())) {
         hotkeys.push_back(std::move(saved));
+        selectedBindIndex = static_cast<int>(hotkeys.size() - 1);
     } else {
         hotkeys[editor.hotkeyIndex] = std::move(saved);
+        selectedBindIndex = editor.hotkeyIndex;
     }
 
     RefreshNumbers();
     SaveConfig();
-    editor.active = false;
+    editor = {};
     editorPopupPending = false;
 }
 
@@ -3736,7 +3979,703 @@ void BinderModule::Impl::DrawInputEditor() {
     }
 }
 
+void BinderModule::Impl::DrawEditorConditionsPopup() {
+    if (editor.conditionsPopupPending) {
+        ImGui::OpenPopup("##binder_editor_conditions");
+        editor.conditionsPopupPending = false;
+    }
+
+    if (!ImGui::BeginPopup("##binder_editor_conditions")) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextUnformatted(ui.Text(UiText::BlockingConditions));
+    ImGui::Separator();
+    for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+        bool value = editor.draft.conditions[i];
+        if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
+            editor.draft.conditions[i] = value;
+        }
+    }
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Save))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void BinderModule::Impl::DrawEditorQuickConditionsPopup() {
+    if (editor.quickConditionsPopupPending) {
+        ImGui::OpenPopup("##binder_editor_quick_conditions");
+        editor.quickConditionsPopupPending = false;
+    }
+
+    if (!ImGui::BeginPopup("##binder_editor_quick_conditions")) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextUnformatted(ui.Text(UiText::QuickMenuConditions));
+    ImGui::Separator();
+    for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+        bool value = editor.draft.quickConditions[i];
+        if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
+            editor.draft.quickConditions[i] = value;
+        }
+    }
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Save))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void BinderModule::Impl::DrawEditorVariablesPopup() {
+    if (editor.variablesPopupPending) {
+        ImGui::OpenPopup("##binder_editor_variables");
+        editor.variablesPopupPending = false;
+    }
+
+    if (!ImGui::BeginPopupModal("##binder_editor_variables", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextUnformatted(ui.Text(UiText::EditorVariablesTitle));
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", ui.Text(UiText::EditorVariablesHint));
+    ImGui::Spacing();
+
+    if (editor.draft.inputs.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesEmpty));
+    } else if (ImGui::BeginTable(
+                   "##binder_editor_variables_table",
+                   2,
+                   ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn(ui.Text(UiText::Key), ImGuiTableColumnFlags_WidthFixed, ScaleUi(140.0f));
+        ImGui::TableSetupColumn(ui.Text(UiText::Name), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+
+        for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
+            const HotkeyInput& input = editor.draft.inputs[i];
+            const std::string key = NormalizeInputKey(input.key);
+            const std::string label = input.label.empty() ? ui.Text(UiText::UnnamedField) : input.label;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("{{%s}}", key.empty() ? "?" : key.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(label.c_str());
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("{{%d}}", static_cast<int>(i + 1));
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(label.c_str());
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Cancel))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void BinderModule::Impl::DrawEditorPreviewPopup() {
+    if (editor.previewPopupPending) {
+        ImGui::OpenPopup("##binder_editor_preview");
+        editor.previewPopupPending = false;
+    }
+
+    if (!ImGui::BeginPopupModal("##binder_editor_preview", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    const HotkeyEntry preview = BuildEditorComparableDraft();
+    const bool hasPreviewRows = std::any_of(preview.messages.begin(), preview.messages.end(), [](const HotkeyMessage& message) {
+        return !Trim(message.text).empty() || message.intervalMs != 0 || message.method != 0;
+    });
+
+    ImGui::TextUnformatted(ui.Text(UiText::EditorPreviewTitle));
+    ImGui::Separator();
+    if (!hasPreviewRows) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPreviewEmpty));
+    } else if (ImGui::BeginTable(
+                   "##binder_editor_preview_table",
+                   3,
+                   ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnMessage), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnPauseMs), ImGuiTableColumnFlags_WidthFixed, ScaleUi(110.0f));
+        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnDestination), ImGuiTableColumnFlags_WidthFixed, ScaleUi(220.0f));
+        ImGui::TableHeadersRow();
+
+        for (const HotkeyMessage& message : preview.messages) {
+            if (Trim(message.text).empty() && message.intervalMs == 0 && message.method == 0) {
+                continue;
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextWrapped("%s", message.text.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%d", std::max(message.intervalMs, 0));
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextUnformatted(SendMethodLabel(message.method));
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Cancel))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void BinderModule::Impl::DrawEditorDiscardPopup() {
+    if (editor.discardPopupPending) {
+        ImGui::OpenPopup("##binder_editor_discard");
+        editor.discardPopupPending = false;
+    }
+
+    if (!ImGui::BeginPopupModal("##binder_editor_discard", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextUnformatted(ui.Text(UiText::EditorDiscardTitle));
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", ui.Text(UiText::EditorDiscardMessage));
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::EditorDiscardAction), ScaleUi(170.0f, 0.0f))) {
+        ExecuteEditorPendingAction();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::EditorStay), ScaleUi(120.0f, 0.0f))) {
+        editor.pendingAction = EditorState::PendingAction::None;
+        editor.pendingTargetIndex = -1;
+        editor.discardPopupPending = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void BinderModule::Impl::DrawEditorScenarioTab() {
+    UiSettings& ui = UiSettings::Instance();
+    if (editor.draft.messages.empty()) {
+        editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
+    }
+
+    ImGui::TextDisabled("%s", ui.Text(UiText::EditorScenarioHint));
+    ImGui::Spacing();
+
+    int removeIndex = -1;
+    int duplicateIndex = -1;
+    int moveSourceIndex = -1;
+    int moveTargetIndex = -1;
+    if (ImGui::BeginTable(
+            "##binder_editor_steps",
+            5,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
+                | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("##drag", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, ScaleUi(34.0f));
+        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnMessage), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnPauseMs), ImGuiTableColumnFlags_WidthFixed, ScaleUi(110.0f));
+        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnDestination), ImGuiTableColumnFlags_WidthFixed, ScaleUi(220.0f));
+        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnActions), ImGuiTableColumnFlags_WidthFixed, ScaleUi(70.0f));
+        ImGui::TableHeadersRow();
+
+        for (std::size_t i = 0; i < editor.draft.messages.size(); ++i) {
+            HotkeyMessage& message = editor.draft.messages[i];
+            ImGui::TableNextRow();
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::TableSetColumnIndex(0);
+            const float actionSide = std::max(ScaleUi(22.0f), ImGui::GetFrameHeight());
+            SmallIconActionButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(actionSide, actionSide));
+            if (ImGui::BeginDragDropSource()) {
+                const int payloadIndex = static_cast<int>(i);
+                ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
+                ImGui::Text("%s %d", ui.Text(UiText::EditorScenarioTab), static_cast<int>(i + 1));
+                ImGui::EndDragDropSource();
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextString("##step_text", message.text, 0, 256);
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
+                    const int payloadIndex = *static_cast<const int*>(payload->Data);
+                    if (payloadIndex >= 0 && payloadIndex < static_cast<int>(editor.draft.messages.size())
+                        && payloadIndex != static_cast<int>(i)) {
+                        moveSourceIndex = payloadIndex;
+                        moveTargetIndex = static_cast<int>(i);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputInt("##step_delay", &message.intervalMs);
+            if (message.intervalMs < 0) {
+                message.intervalMs = 0;
+            }
+
+            ImGui::TableSetColumnIndex(3);
+            if (ImGui::BeginCombo("##step_method", SendMethodLabel(message.method))) {
+                for (int method = 0; method <= 9; ++method) {
+                    const bool selected = method == message.method;
+                    if (ImGui::Selectable(SendMethodLabel(method), selected)) {
+                        message.method = method;
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::TableSetColumnIndex(4);
+            const ImVec2 iconButtonSize(ScaleUi(24.0f), ScaleUi(24.0f));
+            if (SmallIconActionButton(kIconClone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), iconButtonSize)) {
+                duplicateIndex = static_cast<int>(i);
+            }
+            ImGui::SameLine(0.0f, ScaleUi(4.0f));
+            if (SmallIconActionButton(kIconDelete, "##step_delete", ui.Text(UiText::Delete), iconButtonSize)) {
+                removeIndex = static_cast<int>(i);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    if (moveSourceIndex >= 0 && moveTargetIndex >= 0 && moveSourceIndex != moveTargetIndex) {
+        HotkeyMessage moved = editor.draft.messages[static_cast<std::size_t>(moveSourceIndex)];
+        editor.draft.messages.erase(editor.draft.messages.begin() + moveSourceIndex);
+        if (moveSourceIndex < moveTargetIndex) {
+            --moveTargetIndex;
+        }
+        editor.draft.messages.insert(editor.draft.messages.begin() + moveTargetIndex, std::move(moved));
+    }
+    if (duplicateIndex >= 0 && duplicateIndex < static_cast<int>(editor.draft.messages.size())) {
+        editor.draft.messages.insert(
+            editor.draft.messages.begin() + duplicateIndex + 1,
+            editor.draft.messages[static_cast<std::size_t>(duplicateIndex)]);
+    }
+    if (removeIndex >= 0 && removeIndex < static_cast<int>(editor.draft.messages.size())) {
+        if (editor.draft.messages.size() > 1) {
+            editor.draft.messages.erase(editor.draft.messages.begin() + removeIndex);
+        } else {
+            editor.draft.messages.front() = HotkeyMessage{ "", 0, editor.bulkMethod };
+        }
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::EditorAddStep))) {
+        editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
+    }
+}
+
+void BinderModule::Impl::DrawEditorInline() {
+    UiSettings& ui = UiSettings::Instance();
+    EnsureRootFolder();
+    const auto [prevIndex, nextIndex] = EditorNeighborIndices();
+    const bool hasUnsavedChanges = EditorHasUnsavedChanges();
+
+    const std::string title = ui.Text(editor.isNew ? UiText::NewBindTitle : UiText::EditBindTitle);
+    std::string breadcrumb = ui.Text(UiText::BinderSectionTitle);
+    for (const std::string& part : editor.draft.folderPath) {
+        breadcrumb += " / " + part;
+    }
+    breadcrumb += " / " + (Trim(editor.draft.label).empty()
+        ? std::string(ui.Text(editor.isNew ? UiText::NewBindTitle : UiText::EditBindTitle))
+        : editor.draft.label);
+
+    const ImVec4 headerBg(0.14f, 0.16f, 0.20f, 0.98f);
+    const ImVec4 panelBg(0.12f, 0.14f, 0.18f, 0.98f);
+    const ImVec4 footerBg(0.11f, 0.13f, 0.17f, 0.98f);
+    const std::string conditionsLabel = std::string(kIconSliders) + " " + ui.Text(UiText::EditorOpenConditions);
+    const std::string quickMenuLabel = std::string(kIconBolt) + " " + ui.Text(UiText::QuickMenuWindowTitle);
+    const std::string unsavedLabel = std::string(kIconStar) + " " + ui.Text(UiText::EditorUnsaved);
+    const std::string backLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorBack);
+    const std::string previousLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorPreviousBind);
+    const std::string nextLabel = std::string(ui.Text(UiText::EditorNextBind)) + " " + std::string(kIconChevronRight);
+    const std::string variablesLabel = std::string(kIconTags) + " " + ui.Text(UiText::EditorVariables);
+    const std::string previewLabel = std::string(kIconComment) + " " + ui.Text(UiText::EditorPreview);
+    const std::string saveLabel = std::string(kIconSaveDisk) + " " + ui.Text(UiText::Save);
+    const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
+
+    const auto alignRight = [](float width) {
+        const float startX = ImGui::GetCursorPosX();
+        const float avail = ImGui::GetContentRegionAvail().x;
+        if (avail > width) {
+            ImGui::SetCursorPosX(startX + avail - width);
+        }
+    };
+    const auto drawTabButton = [&](UiText textId, EditorState::Tab tab, float width) {
+        const bool active = editor.activeTab == tab;
+        ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.25f, 0.34f, 0.49f, 1.0f) : ImVec4(0.18f, 0.20f, 0.24f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active ? ImVec4(0.31f, 0.42f, 0.60f, 1.0f) : ImVec4(0.24f, 0.28f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.46f, 0.64f, 1.0f));
+        const bool pressed = ImGui::Button(ui.Text(textId), ScaleUi(width, 0.0f));
+        ImGui::PopStyleColor(3);
+        return pressed;
+    };
+    const auto pushPrimaryButtonStyle = []() {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.39f, 0.68f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.33f, 0.48f, 0.81f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.31f, 0.56f, 1.0f));
+    };
+    const auto popPrimaryButtonStyle = []() {
+        ImGui::PopStyleColor(3);
+    };
+
+    std::vector<std::vector<std::string>> folderPaths;
+    CollectFolderPaths(folders, folderPaths);
+    const std::string currentFolder = editor.draft.folderPath.empty() ? std::string() : FormatFolderPathLabel(editor.draft.folderPath);
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, headerBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 14.0f));
+    if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, ScaleUi(96.0f)), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginTable("##binder_editor_header_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.48f);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.52f);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(title.c_str());
+
+            ImGui::TableSetColumnIndex(1);
+            const float headerActionWidth = ScaleUi(145.0f) + ScaleUi(170.0f)
+                + (hasUnsavedChanges ? ImGui::CalcTextSize(unsavedLabel.c_str()).x + ScaleUi(24.0f) : 0.0f)
+                + (hasUnsavedChanges ? itemSpacingX * 2.0f : itemSpacingX);
+            alignRight(headerActionWidth);
+            if (ImGui::Button(conditionsLabel.c_str(), ScaleUi(145.0f, 0.0f))) {
+                editor.conditionsPopupPending = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(quickMenuLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
+                editor.quickConditionsPopupPending = true;
+            }
+            if (hasUnsavedChanges) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.96f, 0.68f, 0.25f, 1.0f), "%s", unsavedLabel.c_str());
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", breadcrumb.c_str());
+
+            ImGui::TableSetColumnIndex(1);
+            const float navWidth = ScaleUi(108.0f) + ScaleUi(180.0f) + ScaleUi(180.0f) + itemSpacingX * 2.0f;
+            alignRight(navWidth);
+            if (ImGui::Button(backLabel.c_str(), ScaleUi(108.0f, 0.0f))) {
+                RequestEditorAction(EditorState::PendingAction::Close);
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(prevIndex < 0);
+            if (ImGui::Button(previousLabel.c_str(), ScaleUi(180.0f, 0.0f))) {
+                RequestEditorAction(EditorState::PendingAction::Navigate, prevIndex);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(nextIndex < 0);
+            if (ImGui::Button(nextLabel.c_str(), ScaleUi(180.0f, 0.0f))) {
+                RequestEditorAction(EditorState::PendingAction::Navigate, nextIndex);
+            }
+            ImGui::EndDisabled();
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 14.0f));
+    if (ImGui::BeginChild(
+            "##binder_editor_start_panel",
+            ImVec2(0.0f, 0.0f),
+            ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY)) {
+        ImGui::SeparatorText(ui.Text(UiText::EditorStartSection));
+
+        if (ImGui::BeginTable("##binder_editor_meta", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.58f);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.42f);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", ui.Text(UiText::Name));
+            if (editor.focusNamePending) {
+                ImGui::SetKeyboardFocusHere();
+                editor.focusNamePending = false;
+            }
+            InputTextString("##binder_editor_name", editor.draft.label, ImGuiInputTextFlags_AutoSelectAll, 160);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextDisabled("%s", ui.Text(UiText::Folder));
+            if (ImGui::BeginCombo("##binder_editor_folder", currentFolder.empty() ? ui.Text(UiText::SelectFolder) : currentFolder.c_str())) {
+                for (const auto& path : folderPaths) {
+                    const std::string label = FormatFolderPathLabel(path);
+                    const bool selected = path == editor.draft.folderPath;
+                    if (ImGui::Selectable(label.c_str(), selected)) {
+                        editor.draft.folderPath = path;
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", ui.Text(UiText::ColumnHotkey));
+            const std::string hotkeyText = editor.draft.keys.empty() ? ui.Text(UiText::HotkeyNotSet) : ::hotkeys::ToString(editor.draft.keys, editor.draft.hotkeyMode);
+            if (ImGui::Button(hotkeyText.c_str(), ScaleUi(240.0f, 0.0f))) {
+                BeginCapture(CaptureTarget::BindHotkey);
+            }
+            ImGui::SameLine();
+            const HotkeyMode hotkeyModes[] = { HotkeyMode::ModifierTrigger, HotkeyMode::OrderedCombo };
+            const char* hotkeyModeLabels[] = { HotkeyModeLabel(HotkeyMode::ModifierTrigger), HotkeyModeLabel(HotkeyMode::OrderedCombo) };
+            int hotkeyModeIndex = editor.draft.hotkeyMode == HotkeyMode::OrderedCombo ? 1 : 0;
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##binder_editor_hotkey_mode", &hotkeyModeIndex, hotkeyModeLabels, IM_ARRAYSIZE(hotkeyModeLabels))) {
+                editor.draft.hotkeyMode = hotkeyModes[hotkeyModeIndex];
+                editor.draft.keys = ::hotkeys::NormalizeCombo(editor.draft.keys, editor.draft.hotkeyMode);
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextDisabled("%s", ui.Text(UiText::Command));
+            ImGui::Checkbox("##binder_editor_command_enabled", &editor.draft.commandEnabled);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextString("##binder_editor_command", editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
+
+            ImGui::EndTable();
+        }
+
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorLaunchHint));
+        ImGui::Spacing();
+
+        if (ImGui::BeginTable("##binder_editor_trigger_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("text", ImGuiTableColumnFlags_WidthStretch, 0.70f);
+            ImGui::TableSetupColumn("pattern", ImGuiTableColumnFlags_WidthStretch, 0.30f);
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", ui.Text(UiText::TextTrigger));
+            ImGui::Checkbox("##binder_editor_trigger_enabled", &editor.draft.textTrigger.enabled);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextString("##binder_editor_trigger", editor.draft.textTrigger.text, ImGuiInputTextFlags_AutoSelectAll, 256);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Dummy(ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing()));
+            ImGui::Checkbox(ui.Text(UiText::EditorTriggerPatternMode), &editor.draft.textTrigger.pattern);
+            ImGui::EndTable();
+        }
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorTriggerExample));
+
+        ImGui::Spacing();
+        ImGui::Checkbox(ui.Text(UiText::Enabled), &editor.draft.enabled);
+        ImGui::SameLine();
+        ImGui::Checkbox(ui.Text(UiText::ShowInQuickMenu), &editor.draft.quickMenu);
+        ImGui::SameLine();
+        ImGui::Checkbox(ui.Text(UiText::Repeat), &editor.draft.repeatMode);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!editor.draft.repeatMode);
+        ImGui::SetNextItemWidth(ScaleUi(110.0f));
+        ImGui::InputInt("##binder_editor_repeat", &editor.draft.repeatIntervalMs);
+        if (editor.draft.repeatIntervalMs < 0) {
+            editor.draft.repeatIntervalMs = 0;
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Checkbox(ui.Text(UiText::TextConfirmation), &editor.draft.textConfirmation.enabled);
+        if (editor.draft.textConfirmation.enabled) {
+            ImGui::SameLine();
+            ImGui::Checkbox(ui.Text(UiText::WaitWithoutTimeout), &editor.draft.textConfirmation.waitForResolution);
+
+            if (ImGui::BeginTable("##binder_editor_confirmation_keys", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+                ImGui::TableSetupColumn("confirm", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                ImGui::TableSetupColumn("cancel", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+                ImGui::TableNextRow();
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled(
+                    "%s",
+                    ui.Format(UiText::ConfirmKeyFormat, ::hotkeys::KeyName(editor.draft.textConfirmation.key).c_str()).c_str());
+                if (ImGui::Button((std::string(kIconKeyboard) + " " + ui.Text(UiText::Change) + "##confirm").c_str(), ScaleUi(168.0f, 0.0f))) {
+                    BeginCapture(CaptureTarget::ConfirmKey);
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled(
+                    "%s",
+                    ui.Format(UiText::CancelKeyFormat, ::hotkeys::KeyName(editor.draft.textConfirmation.cancelKey).c_str()).c_str());
+                if (ImGui::Button((std::string(kIconKeyboard) + " " + ui.Text(UiText::Change) + "##cancel").c_str(), ScaleUi(168.0f, 0.0f))) {
+                    BeginCapture(CaptureTarget::CancelKey);
+                }
+
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("%s", ui.Text(UiText::EditorConfirmationHint));
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(14.0f, 12.0f));
+    if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -ScaleUi(64.0f)), ImGuiChildFlags_Borders)) {
+        if (drawTabButton(UiText::EditorScenarioTab, EditorState::Tab::Scenario, 176.0f)) {
+            SetEditorTab(EditorState::Tab::Scenario);
+        }
+        ImGui::SameLine();
+        if (drawTabButton(UiText::EditorMultiInputTab, EditorState::Tab::MultiInput, 176.0f)) {
+            SetEditorTab(EditorState::Tab::MultiInput);
+        }
+        ImGui::SameLine();
+        if (drawTabButton(UiText::EditorInputFieldsTab, EditorState::Tab::InputFields, 176.0f)) {
+            SetEditorTab(EditorState::Tab::InputFields);
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        if (ImGui::BeginChild("##binder_editor_work_body", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None)) {
+            if (editor.activeTab == EditorState::Tab::Scenario) {
+                DrawEditorScenarioTab();
+            } else if (editor.activeTab == EditorState::Tab::MultiInput) {
+                if (ImGui::BeginTable("##binder_editor_bulk_meta", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+                    ImGui::TableSetupColumn("method", ImGuiTableColumnFlags_WidthStretch, 0.70f);
+                    ImGui::TableSetupColumn("interval", ImGuiTableColumnFlags_WidthStretch, 0.30f);
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("%s", ui.Text(UiText::EditorColumnDestination));
+                    ImGui::SetNextItemWidth(ScaleUi(240.0f));
+                    if (ImGui::BeginCombo("##binder_editor_bulk_method", SendMethodLabel(editor.bulkMethod))) {
+                        for (int method = 0; method <= 9; ++method) {
+                            const bool selected = method == editor.bulkMethod;
+                            if (ImGui::Selectable(SendMethodLabel(method), selected)) {
+                                editor.bulkMethod = method;
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextDisabled("%s", ui.Text(UiText::EditorColumnPauseMs));
+                    ImGui::SetNextItemWidth(ScaleUi(110.0f));
+                    ImGui::InputInt("##binder_editor_bulk_interval", &editor.bulkIntervalMs);
+                    if (editor.bulkIntervalMs < 0) {
+                        editor.bulkIntervalMs = 0;
+                    }
+
+                    ImGui::EndTable();
+                }
+
+                const float hintReserve = ImGui::GetTextLineHeightWithSpacing() * 2.0f;
+                InputTextMultilineString(
+                    "##binder_editor_multi_text",
+                    editor.multiText,
+                    ImVec2(-FLT_MIN, std::max(ScaleUi(120.0f), ImGui::GetContentRegionAvail().y - hintReserve)),
+                    0,
+                    2048);
+                ImGui::TextDisabled("%s", ui.Text(UiText::EditorMultiInputHint));
+            } else {
+                ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesHint));
+                ImGui::Spacing();
+                DrawInputEditor();
+            }
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, footerBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 10.0f));
+    if (ImGui::BeginChild(
+            "##binder_editor_footer",
+            ImVec2(0.0f, 0.0f),
+            ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY)) {
+        if (ImGui::BeginTable("##binder_editor_footer_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.50f);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.50f);
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Button(variablesLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
+                editor.variablesPopupPending = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(previewLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
+                editor.previewPopupPending = true;
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            const float footerActionWidth = ScaleUi(190.0f) + ScaleUi(130.0f) + itemSpacingX;
+            alignRight(footerActionWidth);
+            pushPrimaryButtonStyle();
+            if (ImGui::Button(saveLabel.c_str(), ScaleUi(190.0f, 0.0f))) {
+                std::vector<std::string> errors;
+                if (ValidateEditor(errors)) {
+                    SaveEditor();
+                    PushToast(ui.Text(UiText::ToastBindSaved), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 1800.0);
+                } else {
+                    for (const std::string& error : errors) {
+                        PushToast(error, ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2800.0);
+                    }
+                }
+            }
+            popPrimaryButtonStyle();
+            ImGui::SameLine();
+            if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(130.0f, 0.0f))) {
+                RequestEditorAction(EditorState::PendingAction::Close);
+            }
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    DrawCapturePopup(true);
+    DrawEditorConditionsPopup();
+    DrawEditorQuickConditionsPopup();
+    DrawEditorVariablesPopup();
+    DrawEditorPreviewPopup();
+    DrawEditorDiscardPopup();
+}
+
 void BinderModule::Impl::DrawEditor() {
+    if (editor.active) {
+        DrawEditorInline();
+        return;
+    }
+
     if (editorPopupPending) {
         ImGui::OpenPopup("##binder_editor_popup");
         editorPopupPending = false;
@@ -4862,6 +5801,13 @@ void BinderModule::Impl::DrawInputDialog() {
 
 void BinderModule::Impl::DrawMainTab() {
     EnsureInitialized();
+
+    if (editor.active) {
+        DrawEditor();
+        DrawFolderPopups();
+        DrawMoveBindPopup();
+        return;
+    }
 
     ImGui::SeparatorText(UiSettings::Instance().Text(UiText::BinderSectionTitle));
 

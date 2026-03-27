@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <imgui.h>
 
@@ -70,16 +70,16 @@
     X(HotkeyModeOrderedCombo, "Последовательная комбинация", "Ordered combo") \
     X(QuickMenuModeHold, "Удержание", "Hold") \
     X(QuickMenuModeToggle, "Переключение", "Toggle") \
-    X(SendLocalChat, "В чат локально", "Local chat") \
-    X(SendViaSamp, "Отправить через SA:MP", "Send via SA:MP") \
-    X(SendDirect, "Отправить напрямую", "Send directly") \
+    X(SendLocalChat, "Локальный чат", "Local chat") \
+    X(SendViaSamp, "Через SA:MP", "Send via SA:MP") \
+    X(SendDirect, "Напрямую", "Send directly") \
     X(SendNoSend, "Без отправки", "No send") \
     X(SendInsertChat, "Вставить в чат", "Insert into chat") \
     X(SendOpenChat, "Открыть чат", "Open chat") \
     X(SendDialog, "В диалог", "Into dialog") \
     X(SendClipboard, "В буфер обмена", "To clipboard") \
     X(SendLog, "В лог", "To log") \
-    X(SendToast, "Тост", "Toast") \
+    X(SendToast, "Уведомление", "Toast") \
     X(SendUnknown, "Неизвестно", "Unknown") \
     X(ToastBindConfirmExpired, "Подтверждение бинда истекло: %s", "Bind confirmation expired: %s") \
     X(ToastBindCanceled, "Бинд отменён: %s", "Bind canceled: %s") \
@@ -124,6 +124,38 @@
     X(ButtonsFormatHint, "Формат строки: label | text | hint | when", "Line format: label | text | hint | when") \
     X(NewBindTitle, "Новый бинд", "New bind") \
     X(EditBindTitle, "Редактирование бинда", "Edit bind") \
+    X(EditorStartSection, "Как запускается", "How it starts") \
+    X(EditorScenarioTab, "Сценарий", "Scenario") \
+    X(EditorMultiInputTab, "Мульти-ввод", "Multi-input") \
+    X(EditorInputFieldsTab, "Поля ввода", "Input fields") \
+    X(EditorOpenConditions, "Условия", "Conditions") \
+    X(EditorBack, "Назад", "Back") \
+    X(EditorPreviousBind, "Предыдущий бинд", "Previous bind") \
+    X(EditorNextBind, "Следующий бинд", "Next bind") \
+    X(EditorUnsaved, "Несохранённые изменения", "Unsaved changes") \
+    X(EditorTriggerPatternMode, "Режим шаблона", "Pattern mode") \
+    X(EditorTriggerExample, "Например: [Гг]олова", "Example: [Hh]ead") \
+    X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
+    X(EditorAddStep, "+ Добавить шаг", "+ Add step") \
+    X(EditorDuplicateStep, "Дублировать шаг", "Duplicate step") \
+    X(EditorMoveStep, "Переместить шаг", "Move step") \
+    X(EditorVariables, "Переменные", "Variables") \
+    X(EditorVariablesTitle, "Переменные бинда", "Bind variables") \
+    X(EditorVariablesHint, "Используйте {{KEY}} или {{1}} в сообщениях, чтобы подставить значения полей ввода.", "Use {{KEY}} or {{1}} in messages to insert input field values.") \
+    X(EditorVariablesEmpty, "Поля ввода ещё не настроены.", "No input fields are configured yet.") \
+    X(EditorPreview, "Предпросмотр", "Preview") \
+    X(EditorPreviewTitle, "Предпросмотр сценария", "Scenario preview") \
+    X(EditorPreviewEmpty, "В сценарии пока нет шагов.", "There are no steps in the scenario yet.") \
+    X(EditorDiscardTitle, "Несохранённые изменения", "Unsaved changes") \
+    X(EditorDiscardMessage, "Изменения не сохранены. Продолжить и потерять правки?", "Changes are not saved. Continue and discard them?") \
+    X(EditorDiscardAction, "Продолжить", "Continue") \
+    X(EditorStay, "Остаться", "Stay") \
+    X(EditorColumnMessage, "Сообщение", "Message") \
+    X(EditorColumnPauseMs, "Пауза (мс)", "Pause (ms)") \
+    X(EditorColumnDestination, "Куда", "Destination") \
+    X(EditorLaunchHint, "Можно комбинировать хоткей, команду и триггер по чату.", "You can combine a hotkey, command, and chat trigger.") \
+    X(EditorConfirmationHint, "После триггера бинд ждёт отдельные клавиши подтверждения и отклонения.", "After a trigger, the bind waits for separate confirm and cancel keys.") \
+    X(EditorMultiInputHint, "Каждая непустая строка станет отдельным шагом. Пустые строки игнорируются.", "Each non-empty line becomes a separate step. Empty lines are ignored.") \
     X(Enabled, "Включён", "Enabled") \
     X(Folder, "Папка", "Folder") \
     X(SelectFolder, "Выберите папку", "Select a folder") \
@@ -145,15 +177,15 @@
     X(ColumnDelay, "Задержка", "Delay") \
     X(ColumnMethod, "Метод", "Method") \
     X(TriggersTab, "Триггеры", "Triggers") \
-    X(TextTrigger, "Текстовый триггер", "Text trigger") \
-    X(EnableTextTrigger, "Включить текстовый триггер", "Enable text trigger") \
+    X(TextTrigger, "Триггер по тексту в чате", "Text trigger") \
+    X(EnableTextTrigger, "Включить триггер по тексту", "Enable text trigger") \
     X(UseRegex, "Использовать regex", "Use regex") \
     X(CommandActivator, "Команда-активатор", "Command activator") \
     X(Command, "Команда", "Command") \
-    X(TextConfirmation, "Подтверждение по тексту", "Text confirmation") \
-    X(WaitWithoutTimeout, "Ждать без тайм-аута", "Wait without timeout") \
+    X(TextConfirmation, "Требовать подтверждение по триггеру", "Require confirmation on trigger") \
+    X(WaitWithoutTimeout, "Дожидаться подтверждения или отклонения", "Wait for confirmation or rejection") \
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
-    X(CancelKeyFormat, "Клавиша отмены: %s", "Cancel key: %s") \
+    X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
     X(Change, "Изменить", "Change") \
     X(BlockingConditions, "Условия блокировки", "Blocking Conditions") \
     X(QuickMenuConditions, "Условия быстрого меню", "Quick Menu Conditions") \
@@ -165,7 +197,7 @@
     X(ColumnLaunch, "Запуск", "Launch") \
     X(ColumnBind, "Бинд", "Bind") \
     X(ColumnName, "Название", "Name") \
-    X(ColumnHotkey, "Хоткей", "Hotkey") \
+    X(ColumnHotkey, "Клавиша", "Hotkey") \
     X(ColumnActions, "Действия", "Actions") \
     X(ActionMoveTo, "Переместить в...", "Move to...") \
     X(ActionDuplicate, "Дублировать", "Duplicate") \
