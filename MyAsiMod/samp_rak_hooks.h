@@ -1,0 +1,147 @@
+#pragma once
+
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "external/raknet/RakClient.h"
+#include "raknet_bitstream_view.h"
+
+class SampApi;
+
+namespace SampRpcIds {
+
+inline constexpr std::uint8_t ShowDialog = 61;
+inline constexpr std::uint8_t DialogResponse = 62;
+inline constexpr std::uint8_t ClientMessage = 93;
+inline constexpr std::uint8_t ServerCommand = 50;
+inline constexpr std::uint8_t Chat = 101;
+
+} // namespace SampRpcIds
+
+class SampRakHooks {
+public:
+    using RawRpcHandler = std::function<bool(std::uint8_t, RakNetBitStreamView&)>;
+    using RawPacketHandler = std::function<bool(std::uint8_t, RakNetBitStreamView&)>;
+    using ServerMessageHandler = std::function<bool(std::int32_t&, std::string&)>;
+    using ShowDialogHandler = std::function<bool(std::uint16_t&, std::uint8_t&, std::string&, std::string&, std::string&, std::string&)>;
+    using SendCommandHandler = std::function<bool(std::string&)>;
+    using SendChatHandler = std::function<bool(std::string&)>;
+    using SendDialogResponseHandler = std::function<bool(std::uint16_t&, std::uint8_t&, std::uint16_t&, std::string&)>;
+
+    struct Stats {
+        std::uint64_t onSendRpcCount = 0;
+        std::uint64_t onSendPacketCount = 0;
+        std::uint64_t onReceiveRpcCount = 0;
+        std::uint64_t onReceivePacketCount = 0;
+        std::uint8_t lastSendRpcId = 0;
+        std::uint8_t lastSendPacketId = 0;
+        std::uint8_t lastReceiveRpcId = 0;
+        std::uint8_t lastReceivePacketId = 0;
+    };
+
+    void SetSampApi(SampApi* sampApi);
+    void Refresh();
+    void Shutdown();
+
+    void AddOnSendRpcHandler(RawRpcHandler handler);
+    void AddOnSendPacketHandler(RawPacketHandler handler);
+    void AddOnReceiveRpcHandler(RawRpcHandler handler);
+    void AddOnReceivePacketHandler(RawPacketHandler handler);
+    void AddOnServerMessageHandler(ServerMessageHandler handler);
+    void AddOnShowDialogHandler(ShowDialogHandler handler);
+    void AddOnSendCommandHandler(SendCommandHandler handler);
+    void AddOnSendChatHandler(SendChatHandler handler);
+    void AddOnSendDialogResponseHandler(SendDialogResponseHandler handler);
+
+    void onSendRpc(RawRpcHandler handler) { AddOnSendRpcHandler(std::move(handler)); }
+    void onSendPacket(RawPacketHandler handler) { AddOnSendPacketHandler(std::move(handler)); }
+    void onReceiveRpc(RawRpcHandler handler) { AddOnReceiveRpcHandler(std::move(handler)); }
+    void onReceivePacket(RawPacketHandler handler) { AddOnReceivePacketHandler(std::move(handler)); }
+    void onServerMessage(ServerMessageHandler handler) { AddOnServerMessageHandler(std::move(handler)); }
+    void onShowDialog(ShowDialogHandler handler) { AddOnShowDialogHandler(std::move(handler)); }
+    void onSendCommand(SendCommandHandler handler) { AddOnSendCommandHandler(std::move(handler)); }
+    void onSendChat(SendChatHandler handler) { AddOnSendChatHandler(std::move(handler)); }
+    void onSendDialogResponse(SendDialogResponseHandler handler) { AddOnSendDialogResponseHandler(std::move(handler)); }
+
+    bool IsInstalled() const;
+    const std::string& statusText() const;
+    Stats stats() const;
+    std::vector<std::string> GetRecentLog() const;
+
+private:
+    using IncomingRpcHandlerFn = bool(__thiscall*)(void*, unsigned char*, int, PlayerID);
+    using SendPacketFn = bool(__thiscall*)(void*, BitStream*, PacketPriority, PacketReliability, char);
+    using ReceivePacketFn = Packet*(__thiscall*)(void*);
+    using DeallocatePacketFn = void(__thiscall*)(void*, Packet*);
+    using SendRpcFn = bool(__thiscall*)(void*, int*, BitStream*, PacketPriority, PacketReliability, char, bool);
+
+    bool Install();
+    void CleanupHooks();
+    bool TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const;
+    bool HandleIncomingRpc(void* self, unsigned char* data, int length, PlayerID playerId);
+    bool HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& view);
+    bool HandleIncomingRpcPayload(std::uint8_t rpcId, RakNetBitStreamView& view);
+    bool HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStreamView& view) const;
+    bool HandleIncomingPacket(std::uint8_t packetId, RakNetBitStreamView& view) const;
+
+    bool DispatchSendCommand(RakNetBitStreamView& view);
+    bool DispatchSendChat(RakNetBitStreamView& view);
+    bool DispatchSendDialogResponse(RakNetBitStreamView& view);
+    bool DispatchServerMessage(RakNetBitStreamView& view);
+    bool DispatchShowDialog(RakNetBitStreamView& view);
+
+    void AppendLog(const char* format, ...);
+    void RecordSendRpc(std::uint8_t id);
+    void RecordSendPacket(std::uint8_t id);
+    void RecordReceiveRpc(std::uint8_t id);
+    void RecordReceivePacket(std::uint8_t id);
+
+    static std::string Truncate(std::string text, std::size_t maxLength);
+
+    static bool SafeReadUInt32(std::uintptr_t address, std::uint32_t& value);
+    static bool ReadString8(RakNetBitStreamView& view, std::string& value);
+    static bool ReadString32(RakNetBitStreamView& view, std::string& value);
+    static bool ReadEncodedString(RakNetBitStreamView& view, std::uintptr_t reader, std::uintptr_t compressor, int maxLength, std::string& value);
+    static void WriteString8(RakNetBitStreamView& view, std::string_view value);
+    static void WriteString32(RakNetBitStreamView& view, std::string_view value);
+    static bool WriteEncodedString(RakNetBitStreamView& view, std::uintptr_t writer, std::uintptr_t compressor, std::string_view value);
+    static bool __fastcall IncomingRpcHandlerDetour(void* self, void* edx, unsigned char* data, int length, PlayerID playerId);
+    static bool __fastcall SendPacketDetour(void* self, void* edx, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel);
+    static Packet* __fastcall ReceivePacketDetour(void* self, void* edx);
+    static bool __fastcall SendRpcDetour(void* self, void* edx, int* id, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, bool shiftTimestamp);
+
+    static inline SampRakHooks* self_ = nullptr;
+
+    SampApi* sampApi_ = nullptr;
+    bool installed_ = false;
+    std::string statusText_ = "waiting for SAMP RakNet";
+    mutable std::mutex logMutex_;
+    std::vector<std::string> recentLog_;
+    mutable std::mutex statsMutex_;
+    Stats stats_;
+
+    std::vector<RawRpcHandler> onSendRpcHandlers_;
+    std::vector<RawPacketHandler> onSendPacketHandlers_;
+    std::vector<RawRpcHandler> onReceiveRpcHandlers_;
+    std::vector<RawPacketHandler> onReceivePacketHandlers_;
+    std::vector<ServerMessageHandler> onServerMessageHandlers_;
+    std::vector<ShowDialogHandler> onShowDialogHandlers_;
+    std::vector<SendCommandHandler> onSendCommandHandlers_;
+    std::vector<SendChatHandler> onSendChatHandlers_;
+    std::vector<SendDialogResponseHandler> onSendDialogResponseHandlers_;
+
+    std::uintptr_t rakClientInterface_ = 0;
+    DeallocatePacketFn deallocatePacket_ = nullptr;
+
+    void* incomingRpcTarget_ = nullptr;
+    void* sendPacketTarget_ = nullptr;
+    void* receivePacketTarget_ = nullptr;
+    void* sendRpcTarget_ = nullptr;
+    IncomingRpcHandlerFn incomingRpcOriginal_ = nullptr;
+    SendPacketFn sendPacketOriginal_ = nullptr;
+    ReceivePacketFn receivePacketOriginal_ = nullptr;
+    SendRpcFn sendRpcOriginal_ = nullptr;
+};

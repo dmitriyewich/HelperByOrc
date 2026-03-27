@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4B04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="External Libraries\ImGui">
+      <UniqueIdentifier>{B53B5B11-4E85-49AE-AEB0-E5344FA61BB1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External Libraries\MinHook">
+      <UniqueIdentifier>{B6135D8D-6326-4A3B-8EC5-358D2D4E1955}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External Libraries\RakNet">
+      <UniqueIdentifier>{D6C6AE64-320B-4DFB-BCC2-879831D1CFD2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\SampApi\Core">
+      <UniqueIdentifier>{D4B91E6D-EB60-4DC5-9410-8A19CC68F34F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\SampApi\Dialog">
+      <UniqueIdentifier>{A2D9E4B8-F9BF-4BDA-8E90-413C5D6F8AC3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\SampApi\Chat">
+      <UniqueIdentifier>{0C0DDDAA-4070-416B-9E7E-F9E5A0FFCA0E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\SampApi\RakNet">
+      <UniqueIdentifier>{37A763D6-6E31-4F17-9051-176AE470B8A6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Binder">
+      <UniqueIdentifier>{8C89B42A-4F31-4F74-9B96-B488D377568A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Binder">
+      <UniqueIdentifier>{209503DE-E4AB-40C5-B6CB-B9D8DC51EF31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{9A54DB63-14A7-4755-B917-63A4FCD54F5E}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="app_config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_module.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="debug_log.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_overlay.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="json_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mod_app.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="raknet_bitstream_view.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="samp_api.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="samp_hooks.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="samp_rak_hooks.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="text_encoding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ui_settings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="external\raknet\BitStream.cpp">
+      <Filter>External Libraries\RakNet</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\imgui.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\imgui_demo.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\imgui_draw.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\imgui_tables.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\imgui_widgets.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\backends\imgui_impl_dx9.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\imgui\backends\imgui_impl_win32.cpp">
+      <Filter>External Libraries\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="external\MinHook\src\buffer.c">
+      <Filter>External Libraries\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="external\MinHook\src\hook.c">
+      <Filter>External Libraries\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="external\MinHook\src\trampoline.c">
+      <Filter>External Libraries\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="external\MinHook\src\hde\hde32.c">
+      <Filter>External Libraries\MinHook</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ui_resources.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="app_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="binder_module.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
+    <ClInclude Include="debug_log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui_overlay.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="json_utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="mod_app.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook_utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="raknet_bitstream_view.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_api.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_api\chat\samp_api_chat.inl">
+      <Filter>Header Files\SampApi\Chat</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_api\core\samp_api_core.inl">
+      <Filter>Header Files\SampApi\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_api\dialog\samp_api_dialog.inl">
+      <Filter>Header Files\SampApi\Dialog</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_api\raknet\samp_api_raknet.inl">
+      <Filter>Header Files\SampApi\RakNet</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_hooks.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="samp_rak_hooks.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="text_encoding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ui_settings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\imgui\imgui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\imgui\imgui_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\imgui\backends\imgui_impl_dx9.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\imgui\backends\imgui_impl_win32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\MinHook\include\MinHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="external\raknet\BitStream.h">
+      <Filter>External Libraries\RakNet</Filter>
+    </ClInclude>
+    <ClInclude Include="external\raknet\RakClient.h">
+      <Filter>External Libraries\RakNet</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="resource\logo.png">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
+</Project>
