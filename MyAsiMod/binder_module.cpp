@@ -3,6 +3,7 @@
 #include "app_config.h"
 #include "debug_log.h"
 #include "hotkey_utils.h"
+#include "json_utils.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -21,12 +22,9 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <memory>
 #include <optional>
@@ -36,12 +34,10 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace {
 
-constexpr char kLegacyConfigFileName[] = "binder.json";
 constexpr UINT kDefaultConfirmKey = '1';
 constexpr UINT kDefaultCancelKey = '2';
 constexpr UINT kDefaultQuickMenuFallback = VK_XBUTTON1;
@@ -51,7 +47,7 @@ constexpr int kDefaultRepeatIntervalMs = 500;
 constexpr int kQuickMenuWidth = 320;
 constexpr int kQuickMenuHeight = 360;
 constexpr double kQuickMenuSubmenuCloseGraceSeconds = 0.5;
-constexpr int kTextConfirmTimeoutMs = 2000;
+constexpr int kTextConfirmTimeoutMs = 5000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr char kIconToggleOff[] = "\xEF\x88\x84";
 constexpr char kIconToggleOn[] = "\xEF\x88\x85";
@@ -333,474 +329,9 @@ std::vector<std::string> Split(std::string_view value, char delimiter) {
     return parts;
 }
 
-std::string EscapeJsonString(std::string_view value) {
-    std::string result;
-    result.reserve(value.size() + 8);
-    for (const unsigned char ch : value) {
-        switch (ch) {
-        case '\\':
-            result += "\\\\";
-            break;
-        case '"':
-            result += "\\\"";
-            break;
-        case '\b':
-            result += "\\b";
-            break;
-        case '\f':
-            result += "\\f";
-            break;
-        case '\n':
-            result += "\\n";
-            break;
-        case '\r':
-            result += "\\r";
-            break;
-        case '\t':
-            result += "\\t";
-            break;
-        default:
-            if (ch < 0x20) {
-                char buffer[7]{};
-                std::snprintf(buffer, sizeof(buffer), "\\u%04X", ch);
-                result += buffer;
-            } else {
-                result.push_back(static_cast<char>(ch));
-            }
-            break;
-        }
-    }
-    return result;
-}
-
-struct JsonValue;
-using JsonObject = std::map<std::string, JsonValue>;
-using JsonArray = std::vector<JsonValue>;
-
-struct JsonValue {
-    using Storage = std::variant<std::nullptr_t, bool, double, std::string, JsonArray, JsonObject>;
-
-    Storage storage = nullptr;
-
-    JsonValue() = default;
-    JsonValue(std::nullptr_t) : storage(nullptr) {
-    }
-    JsonValue(bool value) : storage(value) {
-    }
-    JsonValue(double value) : storage(value) {
-    }
-    JsonValue(int value) : storage(static_cast<double>(value)) {
-    }
-    JsonValue(std::string value) : storage(std::move(value)) {
-    }
-    JsonValue(const char* value) : storage(std::string(value ? value : "")) {
-    }
-    JsonValue(JsonArray value) : storage(std::move(value)) {
-    }
-    JsonValue(JsonObject value) : storage(std::move(value)) {
-    }
-
-    bool IsNull() const { return std::holds_alternative<std::nullptr_t>(storage); }
-    bool IsBool() const { return std::holds_alternative<bool>(storage); }
-    bool IsNumber() const { return std::holds_alternative<double>(storage); }
-    bool IsString() const { return std::holds_alternative<std::string>(storage); }
-    bool IsArray() const { return std::holds_alternative<JsonArray>(storage); }
-    bool IsObject() const { return std::holds_alternative<JsonObject>(storage); }
-
-    const JsonArray* TryArray() const { return std::get_if<JsonArray>(&storage); }
-    const JsonObject* TryObject() const { return std::get_if<JsonObject>(&storage); }
-    const std::string* TryString() const { return std::get_if<std::string>(&storage); }
-    const bool* TryBool() const { return std::get_if<bool>(&storage); }
-    const double* TryNumber() const { return std::get_if<double>(&storage); }
-};
-
-class JsonParser {
-public:
-    explicit JsonParser(std::string_view source) : source_(source) {
-    }
-
-    std::optional<JsonValue> Parse(std::string& error) {
-        SkipWhitespace();
-        JsonValue value;
-        if (!ParseValue(value, error)) {
-            return std::nullopt;
-        }
-        SkipWhitespace();
-        if (pos_ != source_.size()) {
-            error = "unexpected trailing characters";
-            return std::nullopt;
-        }
-        return value;
-    }
-
-private:
-    void SkipWhitespace() {
-        while (pos_ < source_.size() && std::isspace(static_cast<unsigned char>(source_[pos_])) != 0) {
-            ++pos_;
-        }
-    }
-
-    bool Match(std::string_view token) {
-        if (source_.substr(pos_, token.size()) == token) {
-            pos_ += token.size();
-            return true;
-        }
-        return false;
-    }
-
-    bool ParseValue(JsonValue& out, std::string& error);
-    bool ParseObject(JsonValue& out, std::string& error);
-    bool ParseArray(JsonValue& out, std::string& error);
-    bool ParseString(std::string& out, std::string& error);
-    bool ParseNumber(double& out, std::string& error);
-
-    std::string_view source_;
-    std::size_t pos_ = 0;
-};
-
-bool JsonParser::ParseValue(JsonValue& out, std::string& error) {
-    if (pos_ >= source_.size()) {
-        error = "unexpected end of file";
-        return false;
-    }
-
-    const char ch = source_[pos_];
-    if (ch == '{') {
-        return ParseObject(out, error);
-    }
-    if (ch == '[') {
-        return ParseArray(out, error);
-    }
-    if (ch == '"') {
-        std::string text;
-        if (!ParseString(text, error)) {
-            return false;
-        }
-        out = JsonValue(std::move(text));
-        return true;
-    }
-    if (ch == 't' && Match("true")) {
-        out = JsonValue(true);
-        return true;
-    }
-    if (ch == 'f' && Match("false")) {
-        out = JsonValue(false);
-        return true;
-    }
-    if (ch == 'n' && Match("null")) {
-        out = JsonValue(nullptr);
-        return true;
-    }
-    if (ch == '-' || std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-        double number = 0.0;
-        if (!ParseNumber(number, error)) {
-            return false;
-        }
-        out = JsonValue(number);
-        return true;
-    }
-
-    error = "invalid token";
-    return false;
-}
-
-bool JsonParser::ParseObject(JsonValue& out, std::string& error) {
-    JsonObject object;
-    ++pos_;
-    SkipWhitespace();
-    if (pos_ < source_.size() && source_[pos_] == '}') {
-        ++pos_;
-        out = JsonValue(std::move(object));
-        return true;
-    }
-
-    while (pos_ < source_.size()) {
-        std::string key;
-        if (!ParseString(key, error)) {
-            return false;
-        }
-        SkipWhitespace();
-        if (pos_ >= source_.size() || source_[pos_] != ':') {
-            error = "expected ':'";
-            return false;
-        }
-        ++pos_;
-        SkipWhitespace();
-
-        JsonValue value;
-        if (!ParseValue(value, error)) {
-            return false;
-        }
-        object.emplace(std::move(key), std::move(value));
-
-        SkipWhitespace();
-        if (pos_ < source_.size() && source_[pos_] == ',') {
-            ++pos_;
-            SkipWhitespace();
-            continue;
-        }
-        if (pos_ < source_.size() && source_[pos_] == '}') {
-            ++pos_;
-            out = JsonValue(std::move(object));
-            return true;
-        }
-
-        error = "expected ',' or '}'";
-        return false;
-    }
-
-    error = "unexpected end of object";
-    return false;
-}
-
-bool JsonParser::ParseArray(JsonValue& out, std::string& error) {
-    JsonArray array;
-    ++pos_;
-    SkipWhitespace();
-    if (pos_ < source_.size() && source_[pos_] == ']') {
-        ++pos_;
-        out = JsonValue(std::move(array));
-        return true;
-    }
-
-    while (pos_ < source_.size()) {
-        JsonValue value;
-        if (!ParseValue(value, error)) {
-            return false;
-        }
-        array.push_back(std::move(value));
-
-        SkipWhitespace();
-        if (pos_ < source_.size() && source_[pos_] == ',') {
-            ++pos_;
-            SkipWhitespace();
-            continue;
-        }
-        if (pos_ < source_.size() && source_[pos_] == ']') {
-            ++pos_;
-            out = JsonValue(std::move(array));
-            return true;
-        }
-
-        error = "expected ',' or ']'";
-        return false;
-    }
-
-    error = "unexpected end of array";
-    return false;
-}
-
-bool JsonParser::ParseString(std::string& out, std::string& error) {
-    if (pos_ >= source_.size() || source_[pos_] != '"') {
-        error = "expected string";
-        return false;
-    }
-
-    ++pos_;
-    out.clear();
-    while (pos_ < source_.size()) {
-        const char ch = source_[pos_++];
-        if (ch == '"') {
-            return true;
-        }
-        if (ch != '\\') {
-            out.push_back(ch);
-            continue;
-        }
-        if (pos_ >= source_.size()) {
-            error = "invalid escape sequence";
-            return false;
-        }
-        const char esc = source_[pos_++];
-        switch (esc) {
-        case '"':
-        case '\\':
-        case '/':
-            out.push_back(esc);
-            break;
-        case 'b':
-            out.push_back('\b');
-            break;
-        case 'f':
-            out.push_back('\f');
-            break;
-        case 'n':
-            out.push_back('\n');
-            break;
-        case 'r':
-            out.push_back('\r');
-            break;
-        case 't':
-            out.push_back('\t');
-            break;
-        default:
-            error = "unsupported escape sequence";
-            return false;
-        }
-    }
-
-    error = "unterminated string";
-    return false;
-}
-
-bool JsonParser::ParseNumber(double& out, std::string& error) {
-    const std::size_t start = pos_;
-    if (source_[pos_] == '-') {
-        ++pos_;
-    }
-    while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_])) != 0) {
-        ++pos_;
-    }
-    if (pos_ < source_.size() && source_[pos_] == '.') {
-        ++pos_;
-        while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_])) != 0) {
-            ++pos_;
-        }
-    }
-    if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {
-        ++pos_;
-        if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) {
-            ++pos_;
-        }
-        while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_])) != 0) {
-            ++pos_;
-        }
-    }
-
-    const std::string token(source_.substr(start, pos_ - start));
-    char* endPtr = nullptr;
-    out = std::strtod(token.c_str(), &endPtr);
-    if (!endPtr || *endPtr != '\0') {
-        error = "invalid number";
-        return false;
-    }
-    return true;
-}
-
-void WriteJson(const JsonValue& value, std::string& out, int indent = 0) {
-    if (value.IsNull()) {
-        out += "null";
-        return;
-    }
-    if (const bool* boolValue = value.TryBool()) {
-        out += *boolValue ? "true" : "false";
-        return;
-    }
-    if (const double* number = value.TryNumber()) {
-        char buffer[64]{};
-        std::snprintf(buffer, sizeof(buffer), "%.15g", *number);
-        out += buffer;
-        return;
-    }
-    if (const std::string* stringValue = value.TryString()) {
-        out.push_back('"');
-        out += EscapeJsonString(*stringValue);
-        out.push_back('"');
-        return;
-    }
-    if (const JsonArray* array = value.TryArray()) {
-        out += "[";
-        if (!array->empty()) {
-            out += "\n";
-            for (std::size_t i = 0; i < array->size(); ++i) {
-                out.append(static_cast<std::size_t>(indent + 2), ' ');
-                WriteJson((*array)[i], out, indent + 2);
-                if (i + 1 != array->size()) {
-                    out += ",";
-                }
-                out += "\n";
-            }
-            out.append(static_cast<std::size_t>(indent), ' ');
-        }
-        out += "]";
-        return;
-    }
-    if (const JsonObject* object = value.TryObject()) {
-        out += "{";
-        if (!object->empty()) {
-            out += "\n";
-            std::size_t index = 0;
-            for (const auto& [key, child] : *object) {
-                out.append(static_cast<std::size_t>(indent + 2), ' ');
-                out.push_back('"');
-                out += EscapeJsonString(key);
-                out += "\": ";
-                WriteJson(child, out, indent + 2);
-                if (++index != object->size()) {
-                    out += ",";
-                }
-                out += "\n";
-            }
-            out.append(static_cast<std::size_t>(indent), ' ');
-        }
-        out += "}";
-    }
-}
-
-template <typename T>
-T JsonNumberOr(const JsonObject* object, const char* key, T fallback) {
-    if (!object) {
-        return fallback;
-    }
-    const auto it = object->find(key);
-    if (it == object->end()) {
-        return fallback;
-    }
-    if (const double* number = it->second.TryNumber()) {
-        return static_cast<T>(*number);
-    }
-    return fallback;
-}
-
-std::string JsonStringOr(const JsonObject* object, const char* key, std::string fallback = {}) {
-    if (!object) {
-        return fallback;
-    }
-    const auto it = object->find(key);
-    if (it == object->end()) {
-        return fallback;
-    }
-    if (const std::string* text = it->second.TryString()) {
-        return *text;
-    }
-    return fallback;
-}
-
-bool JsonBoolOr(const JsonObject* object, const char* key, bool fallback) {
-    if (!object) {
-        return fallback;
-    }
-    const auto it = object->find(key);
-    if (it == object->end()) {
-        return fallback;
-    }
-    if (const bool* value = it->second.TryBool()) {
-        return *value;
-    }
-    return fallback;
-}
-
-const JsonArray* JsonArrayOrNull(const JsonObject* object, const char* key) {
-    if (!object) {
-        return nullptr;
-    }
-    const auto it = object->find(key);
-    if (it == object->end()) {
-        return nullptr;
-    }
-    return it->second.TryArray();
-}
-
-const JsonObject* JsonObjectOrNull(const JsonObject* object, const char* key) {
-    if (!object) {
-        return nullptr;
-    }
-    const auto it = object->find(key);
-    if (it == object->end()) {
-        return nullptr;
-    }
-    return it->second.TryObject();
-}
+using JsonArray = jsonutil::JsonArray;
+using JsonObject = jsonutil::JsonObject;
+using JsonValue = jsonutil::JsonValue;
 
 enum class QuickMenuActivationMode {
     Hold,
@@ -879,6 +410,62 @@ struct HotkeyEntry {
     std::string pendingTriggerText;
     std::string pendingTriggerSource;
 };
+
+struct LaunchCellContent {
+    std::string primary;
+    std::vector<std::string> secondary;
+};
+
+void AppendLaunchLabel(std::vector<std::string>& labels, const char* icon, std::string text) {
+    if (text.empty()) {
+        return;
+    }
+
+    labels.push_back(std::string(icon) + " " + text);
+}
+
+std::vector<std::string> BuildLaunchLabels(const HotkeyEntry& hotkey) {
+    std::vector<std::string> labels;
+
+    if (!hotkey.keys.empty()) {
+        AppendLaunchLabel(labels, kIconKeyboard, ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode));
+    }
+
+    const std::string commandText = Trim(hotkey.command);
+    if (hotkey.commandEnabled && !commandText.empty()) {
+        AppendLaunchLabel(labels, kIconTerminal, commandText);
+    }
+
+    const std::string triggerText = Trim(hotkey.textTrigger.text);
+    if (hotkey.textTrigger.enabled && !triggerText.empty()) {
+        AppendLaunchLabel(labels, kIconComment, triggerText);
+    }
+
+    return labels;
+}
+
+LaunchCellContent BuildLaunchCellContent(const HotkeyEntry& hotkey) {
+    const std::vector<std::string> labels = BuildLaunchLabels(hotkey);
+    if (labels.empty()) {
+        return { UiSettings::Instance().Text(UiText::HotkeyNotSet), {} };
+    }
+
+    LaunchCellContent content;
+    content.primary = labels.front();
+    content.secondary.assign(labels.begin() + 1, labels.end());
+    return content;
+}
+
+std::string JoinLaunchLabels(const std::vector<std::string>& labels, std::string_view separator) {
+    std::ostringstream stream;
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        if (i != 0) {
+            stream << separator;
+        }
+        stream << labels[i];
+    }
+    return stream.str();
+}
 
 struct FolderNode {
     int id = 0;
@@ -1506,8 +1093,6 @@ bool FolderMatchesSearch(const FolderNode& folder, std::string_view query) {
 } // namespace
 
 struct BinderModule::Impl {
-    HMODULE module = nullptr;
-    std::filesystem::path legacyConfigPath{};
     SampApi* sampApi = nullptr;
     SampHooks* sampHooks = nullptr;
     SampRakHooks* sampRakHooks = nullptr;
@@ -1577,10 +1162,9 @@ struct BinderModule::Impl {
     hotkeys::KeyTracker keyTracker{};
     std::vector<UINT> pressedKeys{};
     hotkeys::Capture capture{};
+    hotkeys::CapturePopupState capturePopupState{};
     CaptureTarget captureTarget = CaptureTarget::None;
     int captureHotkeyIndex = -1;
-    bool editorPopupPending = false;
-    bool capturePopupPending = false;
     bool capturePopupInEditor = false;
 
     std::vector<UINT> quickMenuHotkey{};
@@ -1674,10 +1258,10 @@ struct BinderModule::Impl {
     void DrawSettingsSection();
     void DrawInputDialog();
     std::vector<int> FilteredBindIndices() const;
-    std::string BuildLaunchSummary(const HotkeyEntry& hotkey) const;
     void StartEditing(int index, bool isNew);
     std::vector<HotkeyMessage> ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const;
     void SyncEditorMessagesToMulti();
+    void ApplyEditorMultiToDraft(bool applyBulkToAll);
     void SetEditorTab(EditorState::Tab tab);
     HotkeyEntry BuildEditorComparableDraft() const;
     bool EditorHasUnsavedChanges() const;
@@ -1765,37 +1349,6 @@ namespace {
 
 constexpr std::string_view kBinderConfigSectionName = "binder";
 
-std::optional<JsonObject> ParseLegacyBinderObject(std::string_view content, std::string& error) {
-    JsonParser parser(content);
-    const auto rootValue = parser.Parse(error);
-    const JsonObject* root = rootValue ? rootValue->TryObject() : nullptr;
-    if (!root) {
-        return std::nullopt;
-    }
-
-    return *root;
-}
-
-std::optional<JsonObject> ConvertSharedBinderObject(const jsonutil::JsonObject& object, std::string& error) {
-    std::string serialized;
-    jsonutil::WriteJson(jsonutil::JsonValue(object), serialized, 0);
-    return ParseLegacyBinderObject(serialized, error);
-}
-
-jsonutil::JsonValue ConvertLegacyBinderValue(const JsonValue& value) {
-    std::string serialized;
-    WriteJson(value, serialized, 0);
-
-    std::string error;
-    const auto parsed = jsonutil::ParseJson(serialized, error);
-    if (!parsed) {
-        debuglog::Write("Binder: failed to convert config to shared json: %s", error.c_str());
-        return jsonutil::JsonValue(nullptr);
-    }
-
-    return *parsed;
-}
-
 } // namespace
 
 void BinderModule::Impl::EnsureInitialized() {
@@ -1813,13 +1366,7 @@ void BinderModule::Impl::EnsureInitialized() {
 }
 
 void BinderModule::Impl::OnProcessAttach(HMODULE moduleHandle) {
-    module = moduleHandle;
-    WCHAR path[MAX_PATH]{};
-    if (module && GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path))) > 0) {
-        legacyConfigPath = std::filesystem::path(path).parent_path() / kLegacyConfigFileName;
-    } else {
-        legacyConfigPath = std::filesystem::current_path() / kLegacyConfigFileName;
-    }
+    (void)moduleHandle;
 }
 
 void BinderModule::Impl::SetSampApi(SampApi* api) {
@@ -1948,12 +1495,7 @@ void BinderModule::Impl::SaveConfig() {
     }
     root["hotkeys"] = JsonValue(std::move(hotkeyArray));
 
-    const jsonutil::JsonValue sharedRoot = ConvertLegacyBinderValue(JsonValue(std::move(root)));
-    if (sharedRoot.IsNull()) {
-        return;
-    }
-
-    AppConfig::Instance().QueueSectionReplace(std::string(kBinderConfigSectionName), sharedRoot);
+    AppConfig::Instance().QueueSectionReplace(std::string(kBinderConfigSectionName), JsonValue(std::move(root)));
 }
 
 void BinderModule::Impl::LoadConfig() {
@@ -1963,44 +1505,19 @@ void BinderModule::Impl::LoadConfig() {
     nextFolderId = 1;
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
-    std::optional<JsonObject> loadedRoot;
-    bool migratedLegacy = false;
-
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
-    if (const jsonutil::JsonObject* sharedRoot = sharedSection.TryObject()) {
-        std::string error;
-        loadedRoot = ConvertSharedBinderObject(*sharedRoot, error);
-        if (!loadedRoot) {
-            debuglog::Write("Binder: failed to read unified config section, using defaults: %s", error.c_str());
-        }
-    }
-
-    if (!loadedRoot && !legacyConfigPath.empty() && std::filesystem::exists(legacyConfigPath)) {
-        std::ifstream file(legacyConfigPath, std::ios::binary);
-        if (file) {
-            const std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-            std::string error;
-            loadedRoot = ParseLegacyBinderObject(content, error);
-            if (!loadedRoot) {
-                debuglog::Write("Binder: invalid legacy config, using defaults: %s", error.c_str());
-            } else {
-                migratedLegacy = true;
-            }
-        }
-    }
-
-    if (!loadedRoot) {
+    const JsonObject* root = sharedSection.TryObject();
+    if (!root) {
         EnsureRootFolder();
         return;
     }
 
-    const JsonObject* root = &*loadedRoot;
-
     quickMenuHotkey = ::hotkeys::NormalizeCombo(
-        DeserializeUintArray(JsonArrayOrNull(root, "quick_menu_hotkey")), HotkeyMode::ModifierTrigger);
-    quickMenuActivationMode = NormalizeQuickMenuActivationMode(JsonStringOr(root, "quick_menu_activation_mode", "hold"));
+        DeserializeUintArray(jsonutil::JsonArrayOrNull(root, "quick_menu_hotkey")), HotkeyMode::ModifierTrigger);
+    quickMenuActivationMode =
+        NormalizeQuickMenuActivationMode(jsonutil::JsonStringOr(root, "quick_menu_activation_mode", "hold"));
 
-    if (const JsonArray* folderArray = JsonArrayOrNull(root, "folders")) {
+    if (const JsonArray* folderArray = jsonutil::JsonArrayOrNull(root, "folders")) {
         for (const JsonValue& item : *folderArray) {
             if (const JsonObject* object = item.TryObject()) {
                 auto folder = DeserializeFolder(*object, nullptr);
@@ -2011,7 +1528,7 @@ void BinderModule::Impl::LoadConfig() {
         }
     }
 
-    if (const JsonArray* hotkeyArray = JsonArrayOrNull(root, "hotkeys")) {
+    if (const JsonArray* hotkeyArray = jsonutil::JsonArrayOrNull(root, "hotkeys")) {
         for (const JsonValue& item : *hotkeyArray) {
             if (const JsonObject* object = item.TryObject()) {
                 hotkeys.push_back(DeserializeHotkey(*object));
@@ -2024,7 +1541,7 @@ void BinderModule::Impl::LoadConfig() {
     selectedFolder = folders.front().get();
     RefreshNumbers();
 
-    if (migratedLegacy || migratedProtectedRoot) {
+    if (migratedProtectedRoot) {
         SaveConfig();
     }
 }
@@ -2049,17 +1566,18 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
     auto folder = std::make_unique<FolderNode>();
     folder->id = nextFolderId++;
     folder->parent = parent;
-    folder->name = SanitizeFolderName(JsonStringOr(&object, "name", UiSettings::Instance().Text(UiText::BinderDefaultFolder)));
+    folder->name = SanitizeFolderName(
+        jsonutil::JsonStringOr(&object, "name", UiSettings::Instance().Text(UiText::BinderDefaultFolder)));
     if (folder->name.empty()) {
         folder->name = UiSettings::Instance().Text(UiText::BinderDefaultFolder);
     }
-    folder->quickMenu = JsonBoolOr(&object, "quick_menu", true);
-    folder->quickConditions = DeserializeBoolArray(JsonArrayOrNull(&object, "quick_conditions"));
+    folder->quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", true);
+    folder->quickConditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
     if (folder->quickConditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
         folder->quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     }
 
-    if (const JsonArray* children = JsonArrayOrNull(&object, "children")) {
+    if (const JsonArray* children = jsonutil::JsonArrayOrNull(&object, "children")) {
         for (const JsonValue& childValue : *children) {
             if (const JsonObject* childObject = childValue.TryObject()) {
                 auto child = DeserializeFolder(*childObject, folder.get());
@@ -2139,47 +1657,49 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
 
 HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) const {
     HotkeyEntry hotkey = MakeDefaultHotkey();
-    hotkey.label = JsonStringOr(&object, "label", hotkey.label);
-    hotkey.hotkeyMode = NormalizeHotkeyMode(JsonStringOr(&object, "hotkey_mode", "modifier_trigger"));
+    hotkey.label = jsonutil::JsonStringOr(&object, "label", hotkey.label);
+    hotkey.hotkeyMode = NormalizeHotkeyMode(jsonutil::JsonStringOr(&object, "hotkey_mode", "modifier_trigger"));
     hotkey.keys = ::hotkeys::NormalizeCombo(
-        DeserializeUintArray(JsonArrayOrNull(&object, "keys")), hotkey.hotkeyMode);
-    hotkey.conditions = DeserializeBoolArray(JsonArrayOrNull(&object, "conditions"));
-    hotkey.quickConditions = DeserializeBoolArray(JsonArrayOrNull(&object, "quick_conditions"));
+        DeserializeUintArray(jsonutil::JsonArrayOrNull(&object, "keys")), hotkey.hotkeyMode);
+    hotkey.conditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "conditions"));
+    hotkey.quickConditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
     hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
-    hotkey.repeatMode = JsonBoolOr(&object, "repeat_mode", false);
-    hotkey.repeatIntervalMs = JsonNumberOr<int>(&object, "repeat_interval_ms", kDefaultRepeatIntervalMs);
-    hotkey.enabled = JsonBoolOr(&object, "enabled", true);
-    hotkey.quickMenu = JsonBoolOr(&object, "quick_menu", false);
-    hotkey.command = JsonStringOr(&object, "command", "");
-    hotkey.commandEnabled = JsonBoolOr(&object, "command_enabled", false);
-    hotkey.folderPath = DeserializeStringArray(JsonArrayOrNull(&object, "folder_path"));
+    hotkey.repeatMode = jsonutil::JsonBoolOr(&object, "repeat_mode", false);
+    hotkey.repeatIntervalMs = jsonutil::JsonNumberOr<int>(&object, "repeat_interval_ms", kDefaultRepeatIntervalMs);
+    hotkey.enabled = jsonutil::JsonBoolOr(&object, "enabled", true);
+    hotkey.quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", false);
+    hotkey.command = jsonutil::JsonStringOr(&object, "command", "");
+    hotkey.commandEnabled = jsonutil::JsonBoolOr(&object, "command_enabled", false);
+    hotkey.folderPath = DeserializeStringArray(jsonutil::JsonArrayOrNull(&object, "folder_path"));
 
-    if (const JsonObject* trigger = JsonObjectOrNull(&object, "text_trigger")) {
-        hotkey.textTrigger.text = JsonStringOr(trigger, "text", "");
-        hotkey.textTrigger.enabled = JsonBoolOr(trigger, "enabled", false);
-        hotkey.textTrigger.pattern = JsonBoolOr(trigger, "pattern", false);
+    if (const JsonObject* trigger = jsonutil::JsonObjectOrNull(&object, "text_trigger")) {
+        hotkey.textTrigger.text = jsonutil::JsonStringOr(trigger, "text", "");
+        hotkey.textTrigger.enabled = jsonutil::JsonBoolOr(trigger, "enabled", false);
+        hotkey.textTrigger.pattern = jsonutil::JsonBoolOr(trigger, "pattern", false);
     }
 
-    if (const JsonObject* confirmation = JsonObjectOrNull(&object, "text_confirmation")) {
-        hotkey.textConfirmation.enabled = JsonBoolOr(confirmation, "enabled", false);
-        hotkey.textConfirmation.key = static_cast<UINT>(JsonNumberOr<double>(confirmation, "key", kDefaultConfirmKey));
+    if (const JsonObject* confirmation = jsonutil::JsonObjectOrNull(&object, "text_confirmation")) {
+        hotkey.textConfirmation.enabled = jsonutil::JsonBoolOr(confirmation, "enabled", false);
+        hotkey.textConfirmation.key =
+            static_cast<UINT>(jsonutil::JsonNumberOr<double>(confirmation, "key", kDefaultConfirmKey));
         hotkey.textConfirmation.cancelKey =
-            static_cast<UINT>(JsonNumberOr<double>(confirmation, "cancel_key", kDefaultCancelKey));
-        hotkey.textConfirmation.waitForResolution = JsonBoolOr(confirmation, "wait_for_resolution", true);
+            static_cast<UINT>(jsonutil::JsonNumberOr<double>(confirmation, "cancel_key", kDefaultCancelKey));
+        hotkey.textConfirmation.waitForResolution =
+            jsonutil::JsonBoolOr(confirmation, "wait_for_resolution", true);
     }
 
     hotkey.messages.clear();
-    if (const JsonArray* messages = JsonArrayOrNull(&object, "messages")) {
+    if (const JsonArray* messages = jsonutil::JsonArrayOrNull(&object, "messages")) {
         for (const JsonValue& messageValue : *messages) {
             const JsonObject* message = messageValue.TryObject();
             if (!message) {
                 continue;
             }
             hotkey.messages.push_back(HotkeyMessage{
-                JsonStringOr(message, "text", ""),
-                JsonNumberOr<int>(message, "interval_ms", 0),
-                JsonNumberOr<int>(message, "method", 0),
+                jsonutil::JsonStringOr(message, "text", ""),
+                jsonutil::JsonNumberOr<int>(message, "interval_ms", 0),
+                jsonutil::JsonNumberOr<int>(message, "method", 0),
             });
         }
     }
@@ -2188,7 +1708,7 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) cons
     }
 
     hotkey.inputs.clear();
-    if (const JsonArray* inputs = JsonArrayOrNull(&object, "inputs")) {
+    if (const JsonArray* inputs = jsonutil::JsonArrayOrNull(&object, "inputs")) {
         for (const JsonValue& inputValue : *inputs) {
             const JsonObject* inputObject = inputValue.TryObject();
             if (!inputObject) {
@@ -2196,25 +1716,25 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) cons
             }
 
             HotkeyInput input;
-            input.key = NormalizeInputKey(JsonStringOr(inputObject, "key", ""));
-            input.label = JsonStringOr(inputObject, "label", "");
-            input.hint = JsonStringOr(inputObject, "hint", "");
-            input.mode = NormalizeInputMode(JsonStringOr(inputObject, "mode", "text"));
-            input.multiSelect = JsonBoolOr(inputObject, "multi_select", false);
-            input.multiSeparator = JsonStringOr(inputObject, "multi_separator", ", ");
-            input.cascadeParentKey = NormalizeInputKey(JsonStringOr(inputObject, "cascade_parent_key", ""));
+            input.key = NormalizeInputKey(jsonutil::JsonStringOr(inputObject, "key", ""));
+            input.label = jsonutil::JsonStringOr(inputObject, "label", "");
+            input.hint = jsonutil::JsonStringOr(inputObject, "hint", "");
+            input.mode = NormalizeInputMode(jsonutil::JsonStringOr(inputObject, "mode", "text"));
+            input.multiSelect = jsonutil::JsonBoolOr(inputObject, "multi_select", false);
+            input.multiSeparator = jsonutil::JsonStringOr(inputObject, "multi_separator", ", ");
+            input.cascadeParentKey = NormalizeInputKey(jsonutil::JsonStringOr(inputObject, "cascade_parent_key", ""));
 
-            if (const JsonArray* buttons = JsonArrayOrNull(inputObject, "buttons")) {
+            if (const JsonArray* buttons = jsonutil::JsonArrayOrNull(inputObject, "buttons")) {
                 for (const JsonValue& buttonValue : *buttons) {
                     const JsonObject* buttonObject = buttonValue.TryObject();
                     if (!buttonObject) {
                         continue;
                     }
                     input.buttons.push_back(InputButton{
-                        JsonStringOr(buttonObject, "label", ""),
-                        JsonStringOr(buttonObject, "text", ""),
-                        JsonStringOr(buttonObject, "hint", ""),
-                        JsonStringOr(buttonObject, "when", ""),
+                        jsonutil::JsonStringOr(buttonObject, "label", ""),
+                        jsonutil::JsonStringOr(buttonObject, "text", ""),
+                        jsonutil::JsonStringOr(buttonObject, "hint", ""),
+                        jsonutil::JsonStringOr(buttonObject, "when", ""),
                     });
                 }
             }
@@ -2346,9 +1866,9 @@ void BinderModule::Impl::ResetInputState() {
     keyTracker.Reset();
     pressedKeys.clear();
     capture.Stop();
+    hotkeys::ResetCapturePopupState(capturePopupState);
     captureTarget = CaptureTarget::None;
     captureHotkeyIndex = -1;
-    capturePopupPending = false;
     capturePopupInEditor = false;
     quickMenuOpen = false;
     quickMenuToggleLatch = false;
@@ -2379,7 +1899,6 @@ void BinderModule::Impl::Shutdown() {
     }
 
     editor.active = false;
-    editorPopupPending = false;
     inputDialog.reset();
     runningBinds.clear();
     toasts.clear();
@@ -2425,9 +1944,10 @@ bool BinderModule::Impl::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lpa
                 capture.Start(capturedKeys);
             }
         } else if (canceled) {
+            hotkeys::ResetCapturePopupState(capturePopupState);
             captureTarget = CaptureTarget::None;
             captureHotkeyIndex = -1;
-            capturePopupPending = false;
+            capturePopupInEditor = false;
         }
         return true;
     }
@@ -2475,7 +1995,7 @@ bool BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
 
     captureTarget = CaptureTarget::None;
     captureHotkeyIndex = -1;
-    capturePopupPending = false;
+    hotkeys::ResetCapturePopupState(capturePopupState);
     return true;
 }
 
@@ -2612,7 +2132,7 @@ void BinderModule::Impl::BeginCapture(CaptureTarget target) {
     }
 
     capture.Start(initial);
-    capturePopupPending = true;
+    hotkeys::OpenCapturePopupCenteredOnCurrentWindow(capturePopupState);
 }
 
 void BinderModule::Impl::UpdateQuickMenuState() {
@@ -3360,7 +2880,6 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.focusNamePending = true;
     editor.pendingAction = EditorState::PendingAction::None;
     editor.pendingTargetIndex = -1;
-    editorPopupPending = false;
     selectedBindIndex = index;
 }
 
@@ -3411,15 +2930,23 @@ void BinderModule::Impl::SyncEditorMessagesToMulti() {
     }
 }
 
+void BinderModule::Impl::ApplyEditorMultiToDraft(bool applyBulkToAll) {
+    editor.draft.messages = ParseEditorMultiMessages(editor.draft.messages);
+    if (applyBulkToAll) {
+        for (HotkeyMessage& message : editor.draft.messages) {
+            message.intervalMs = std::max(editor.bulkIntervalMs, 0);
+            message.method = editor.bulkMethod;
+        }
+    }
+}
+
 void BinderModule::Impl::SetEditorTab(EditorState::Tab tab) {
     if (editor.activeTab == tab) {
         return;
     }
 
-    if (editor.activeTab == EditorState::Tab::Scenario && tab == EditorState::Tab::MultiInput) {
+    if (tab == EditorState::Tab::MultiInput) {
         SyncEditorMessagesToMulti();
-    } else if (editor.activeTab == EditorState::Tab::MultiInput && tab != EditorState::Tab::MultiInput) {
-        editor.draft.messages = ParseEditorMultiMessages(editor.draft.messages);
     }
 
     editor.activeTab = tab;
@@ -3427,9 +2954,6 @@ void BinderModule::Impl::SetEditorTab(EditorState::Tab tab) {
 
 HotkeyEntry BinderModule::Impl::BuildEditorComparableDraft() const {
     HotkeyEntry comparable = editor.draft;
-    if (editor.activeTab == EditorState::Tab::MultiInput) {
-        comparable.messages = ParseEditorMultiMessages(comparable.messages);
-    }
     comparable.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     comparable.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     comparable.repeatIntervalMs = std::max(comparable.repeatIntervalMs, 0);
@@ -3443,8 +2967,8 @@ bool BinderModule::Impl::EditorHasUnsavedChanges() const {
 
     std::string currentSerialized;
     std::string baselineSerialized;
-    WriteJson(SerializeHotkey(BuildEditorComparableDraft()), currentSerialized);
-    WriteJson(SerializeHotkey(editor.baseline), baselineSerialized);
+    jsonutil::WriteJson(SerializeHotkey(BuildEditorComparableDraft()), currentSerialized);
+    jsonutil::WriteJson(SerializeHotkey(editor.baseline), baselineSerialized);
     return currentSerialized != baselineSerialized;
 }
 
@@ -3515,9 +3039,9 @@ void BinderModule::Impl::ExecuteEditorPendingAction() {
 
     if (capturePopupInEditor) {
         capture.Stop();
+        hotkeys::ResetCapturePopupState(capturePopupState);
         captureTarget = CaptureTarget::None;
         captureHotkeyIndex = -1;
-        capturePopupPending = false;
         capturePopupInEditor = false;
     }
 
@@ -3539,7 +3063,6 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
     UiSettings& ui = UiSettings::Instance();
     const HotkeyEntry current = BuildEditorComparableDraft();
     const std::string label = Trim(current.label);
-    const std::string command = Trim(current.command);
     const std::string triggerText = Trim(current.textTrigger.text);
     if (label.empty()) {
         errors.push_back(ui.Text(UiText::ValidationBindNameRequired));
@@ -3547,13 +3070,6 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
 
     if (current.folderPath.empty() || !FindFolderByPath(folders, current.folderPath)) {
         errors.push_back(ui.Text(UiText::ValidationExistingFolderRequired));
-    }
-
-    const bool hasHotkeyTrigger = !current.keys.empty();
-    const bool hasCommandTrigger = current.commandEnabled && !command.empty();
-    const bool hasTextTrigger = current.textTrigger.enabled && !triggerText.empty();
-    if (!hasHotkeyTrigger && !hasCommandTrigger && !hasTextTrigger) {
-        errors.push_back(ui.Text(UiText::ValidationNeedTrigger));
     }
 
     if (current.repeatMode && current.repeatIntervalMs < kMinMessageIntervalMs) {
@@ -3621,7 +3137,6 @@ void BinderModule::Impl::SaveEditor() {
     RefreshNumbers();
     SaveConfig();
     editor = {};
-    editorPopupPending = false;
 }
 
 void BinderModule::Impl::DuplicateHotkeyAt(int index) {
@@ -4280,6 +3795,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     if (ImGui::Button(ui.Text(UiText::EditorAddStep))) {
         editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
     }
+
+    SyncEditorMessagesToMulti();
 }
 
 void BinderModule::Impl::DrawEditorInline() {
@@ -4318,15 +3835,6 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::SetCursorPosX(startX + avail - width);
         }
     };
-    const auto drawTabButton = [&](UiText textId, EditorState::Tab tab, float width) {
-        const bool active = editor.activeTab == tab;
-        ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.25f, 0.34f, 0.49f, 1.0f) : ImVec4(0.18f, 0.20f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active ? ImVec4(0.31f, 0.42f, 0.60f, 1.0f) : ImVec4(0.24f, 0.28f, 0.35f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.46f, 0.64f, 1.0f));
-        const bool pressed = ImGui::Button(ui.Text(textId), ScaleUi(width, 0.0f));
-        ImGui::PopStyleColor(3);
-        return pressed;
-    };
     const auto pushPrimaryButtonStyle = []() {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.39f, 0.68f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.33f, 0.48f, 0.81f, 1.0f));
@@ -4335,10 +3843,6 @@ void BinderModule::Impl::DrawEditorInline() {
     const auto popPrimaryButtonStyle = []() {
         ImGui::PopStyleColor(3);
     };
-
-    std::vector<std::vector<std::string>> folderPaths;
-    CollectFolderPaths(folders, folderPaths);
-    const std::string currentFolder = editor.draft.folderPath.empty() ? std::string() : FormatFolderPathLabel(editor.draft.folderPath);
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, headerBg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 14.0f));
@@ -4422,20 +3926,11 @@ void BinderModule::Impl::DrawEditorInline() {
             InputTextString("##binder_editor_name", editor.draft.label, ImGuiInputTextFlags_AutoSelectAll, 160);
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::TextDisabled("%s", ui.Text(UiText::Folder));
-            if (ImGui::BeginCombo("##binder_editor_folder", currentFolder.empty() ? ui.Text(UiText::SelectFolder) : currentFolder.c_str())) {
-                for (const auto& path : folderPaths) {
-                    const std::string label = FormatFolderPathLabel(path);
-                    const bool selected = path == editor.draft.folderPath;
-                    if (ImGui::Selectable(label.c_str(), selected)) {
-                        editor.draft.folderPath = path;
-                    }
-                    if (selected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
+            ImGui::TextDisabled("%s", ui.Text(UiText::Command));
+            ImGui::Checkbox("##binder_editor_command_enabled", &editor.draft.commandEnabled);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextString("##binder_editor_command", editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -4455,32 +3950,30 @@ void BinderModule::Impl::DrawEditorInline() {
             }
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::TextDisabled("%s", ui.Text(UiText::Command));
-            ImGui::Checkbox("##binder_editor_command_enabled", &editor.draft.commandEnabled);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            InputTextString("##binder_editor_command", editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
+            ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
             ImGui::EndTable();
         }
 
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorLaunchHint));
-        ImGui::Spacing();
-
         if (ImGui::BeginTable("##binder_editor_trigger_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
             ImGui::TableSetupColumn("text", ImGuiTableColumnFlags_WidthStretch, 0.70f);
             ImGui::TableSetupColumn("pattern", ImGuiTableColumnFlags_WidthStretch, 0.30f);
-            ImGui::TableNextRow();
 
+            ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("%s", ui.Text(UiText::TextTrigger));
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Dummy(ImVec2(0.0f, 0.0f));
+
+            ImGui::TableSetColumnIndex(0);
             ImGui::Checkbox("##binder_editor_trigger_enabled", &editor.draft.textTrigger.enabled);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             InputTextString("##binder_editor_trigger", editor.draft.textTrigger.text, ImGuiInputTextFlags_AutoSelectAll, 256);
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::Dummy(ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing()));
+            ImGui::AlignTextToFramePadding();
             ImGui::Checkbox(ui.Text(UiText::EditorTriggerPatternMode), &editor.draft.textTrigger.pattern);
             ImGui::EndTable();
         }
@@ -4541,25 +4034,23 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(14.0f, 12.0f));
     if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -ScaleUi(64.0f)), ImGuiChildFlags_Borders)) {
-        if (drawTabButton(UiText::EditorScenarioTab, EditorState::Tab::Scenario, 176.0f)) {
-            SetEditorTab(EditorState::Tab::Scenario);
-        }
-        ImGui::SameLine();
-        if (drawTabButton(UiText::EditorMultiInputTab, EditorState::Tab::MultiInput, 176.0f)) {
-            SetEditorTab(EditorState::Tab::MultiInput);
-        }
-        ImGui::SameLine();
-        if (drawTabButton(UiText::EditorInputFieldsTab, EditorState::Tab::InputFields, 176.0f)) {
-            SetEditorTab(EditorState::Tab::InputFields);
-        }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-
-        if (ImGui::BeginChild("##binder_editor_work_body", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None)) {
-            if (editor.activeTab == EditorState::Tab::Scenario) {
+        if (ImGui::BeginTabBar("##binder_editor_work_tabs")) {
+            if (ImGui::BeginTabItem(
+                    ui.Text(UiText::EditorScenarioTab),
+                    nullptr,
+                    editor.activeTab == EditorState::Tab::Scenario ? ImGuiTabItemFlags_SetSelected : 0)) {
+                SetEditorTab(EditorState::Tab::Scenario);
                 DrawEditorScenarioTab();
-            } else if (editor.activeTab == EditorState::Tab::MultiInput) {
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem(
+                    ui.Text(UiText::EditorMultiInputTab),
+                    nullptr,
+                    editor.activeTab == EditorState::Tab::MultiInput ? ImGuiTabItemFlags_SetSelected : 0)) {
+                SetEditorTab(EditorState::Tab::MultiInput);
+
+                bool bulkChanged = false;
                 if (ImGui::BeginTable("##binder_editor_bulk_meta", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
                     ImGui::TableSetupColumn("method", ImGuiTableColumnFlags_WidthStretch, 0.70f);
                     ImGui::TableSetupColumn("interval", ImGuiTableColumnFlags_WidthStretch, 0.30f);
@@ -4573,6 +4064,7 @@ void BinderModule::Impl::DrawEditorInline() {
                             const bool selected = method == editor.bulkMethod;
                             if (ImGui::Selectable(SendMethodLabel(method), selected)) {
                                 editor.bulkMethod = method;
+                                bulkChanged = true;
                             }
                             if (selected) {
                                 ImGui::SetItemDefaultFocus();
@@ -4584,29 +4076,44 @@ void BinderModule::Impl::DrawEditorInline() {
                     ImGui::TableSetColumnIndex(1);
                     ImGui::TextDisabled("%s", ui.Text(UiText::EditorColumnPauseMs));
                     ImGui::SetNextItemWidth(ScaleUi(110.0f));
-                    ImGui::InputInt("##binder_editor_bulk_interval", &editor.bulkIntervalMs);
+                    if (ImGui::InputInt("##binder_editor_bulk_interval", &editor.bulkIntervalMs)) {
+                        bulkChanged = true;
+                    }
                     if (editor.bulkIntervalMs < 0) {
                         editor.bulkIntervalMs = 0;
+                        bulkChanged = true;
                     }
 
                     ImGui::EndTable();
                 }
 
                 const float hintReserve = ImGui::GetTextLineHeightWithSpacing() * 2.0f;
-                InputTextMultilineString(
+                const bool textChanged = InputTextMultilineString(
                     "##binder_editor_multi_text",
                     editor.multiText,
                     ImVec2(-FLT_MIN, std::max(ScaleUi(120.0f), ImGui::GetContentRegionAvail().y - hintReserve)),
                     0,
                     2048);
+                if (bulkChanged || textChanged) {
+                    ApplyEditorMultiToDraft(bulkChanged);
+                }
                 ImGui::TextDisabled("%s", ui.Text(UiText::EditorMultiInputHint));
-            } else {
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem(
+                    ui.Text(UiText::EditorInputFieldsTab),
+                    nullptr,
+                    editor.activeTab == EditorState::Tab::InputFields ? ImGuiTabItemFlags_SetSelected : 0)) {
+                SetEditorTab(EditorState::Tab::InputFields);
                 ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesHint));
                 ImGui::Spacing();
                 DrawInputEditor();
+                ImGui::EndTabItem();
             }
+
+            ImGui::EndTabBar();
         }
-        ImGui::EndChild();
     }
     ImGui::EndChild();
     ImGui::PopStyleVar();
@@ -4673,207 +4180,7 @@ void BinderModule::Impl::DrawEditorInline() {
 void BinderModule::Impl::DrawEditor() {
     if (editor.active) {
         DrawEditorInline();
-        return;
     }
-
-    if (editorPopupPending) {
-        ImGui::OpenPopup("##binder_editor_popup");
-        editorPopupPending = false;
-    }
-
-    ImGui::SetNextWindowSize(ScaleUi(900.0f, 700.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::BeginPopupModal("##binder_editor_popup", nullptr, ImGuiWindowFlags_NoScrollbar)) {
-        if (editor.active && !ImGui::IsPopupOpen("##binder_editor_popup")) {
-            editor.active = false;
-        }
-        return;
-    }
-
-    EnsureRootFolder();
-    ImGui::TextUnformatted(UiSettings::Instance().Text(editor.isNew ? UiText::NewBindTitle : UiText::EditBindTitle));
-    ImGui::Separator();
-
-    InputTextString(UiSettings::Instance().Text(UiText::Name), editor.draft.label, ImGuiInputTextFlags_AutoSelectAll, 128);
-    ImGui::Checkbox(UiSettings::Instance().Text(UiText::Enabled), &editor.draft.enabled);
-
-    std::vector<std::vector<std::string>> folderPaths;
-    CollectFolderPaths(folders, folderPaths);
-    std::string currentFolder = editor.draft.folderPath.empty()
-        ? std::string()
-        : FormatFolderPathLabel(editor.draft.folderPath);
-    if (ImGui::BeginCombo(UiSettings::Instance().Text(UiText::Folder),
-            currentFolder.empty() ? UiSettings::Instance().Text(UiText::SelectFolder) : currentFolder.c_str())) {
-        for (const auto& path : folderPaths) {
-            const std::string label = FormatFolderPathLabel(path);
-            const bool selected = path == editor.draft.folderPath;
-            if (ImGui::Selectable(label.c_str(), selected)) {
-                editor.draft.folderPath = path;
-            }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
-        }
-        ImGui::EndCombo();
-    }
-
-    const HotkeyMode hotkeyModes[] = { HotkeyMode::ModifierTrigger, HotkeyMode::OrderedCombo };
-    const char* hotkeyModeLabels[] = {
-        HotkeyModeLabel(HotkeyMode::ModifierTrigger),
-        HotkeyModeLabel(HotkeyMode::OrderedCombo),
-    };
-    int hotkeyModeIndex = editor.draft.hotkeyMode == HotkeyMode::OrderedCombo ? 1 : 0;
-    if (ImGui::Combo(UiSettings::Instance().Text(UiText::HotkeyMode), &hotkeyModeIndex, hotkeyModeLabels, IM_ARRAYSIZE(hotkeyModeLabels))) {
-        editor.draft.hotkeyMode = hotkeyModes[hotkeyModeIndex];
-        editor.draft.keys = ::hotkeys::NormalizeCombo(editor.draft.keys, editor.draft.hotkeyMode);
-    }
-    ImGui::Text("%s", UiSettings::Instance().Format(
-        UiText::HotkeyFormat,
-        ::hotkeys::ToString(editor.draft.keys, editor.draft.hotkeyMode).c_str()).c_str());
-    ImGui::SameLine();
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::ChangeHotkey))) {
-        BeginCapture(CaptureTarget::BindHotkey);
-    }
-
-    ImGui::Checkbox(UiSettings::Instance().Text(UiText::ShowInQuickMenu), &editor.draft.quickMenu);
-    ImGui::SameLine();
-    ImGui::Checkbox(UiSettings::Instance().Text(UiText::Repeat), &editor.draft.repeatMode);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ScaleUi(120.0f));
-    ImGui::InputInt(UiSettings::Instance().Text(UiText::RepeatInterval), &editor.draft.repeatIntervalMs);
-    if (editor.draft.repeatIntervalMs < kMinMessageIntervalMs) {
-        editor.draft.repeatIntervalMs = kMinMessageIntervalMs;
-    }
-
-    if (ImGui::BeginTabBar("##binder_edit_tabs")) {
-        if (ImGui::BeginTabItem(UiSettings::Instance().Text(UiText::MessagesTab))) {
-            if (ImGui::Button(UiSettings::Instance().Text(UiText::AddRow))) {
-                editor.draft.messages.push_back(HotkeyMessage{ "", 0, 0 });
-            }
-            ImGui::Separator();
-            if (ImGui::BeginTable("##binder_messages_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnText), ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnDelay), ImGuiTableColumnFlags_WidthFixed, ScaleUi(95.0f));
-                ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnMethod), ImGuiTableColumnFlags_WidthFixed, ScaleUi(160.0f));
-                ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnSpacer), ImGuiTableColumnFlags_WidthFixed, ScaleUi(32.0f));
-                ImGui::TableHeadersRow();
-
-                int removeIndex = -1;
-                for (std::size_t i = 0; i < editor.draft.messages.size(); ++i) {
-                    HotkeyMessage& message = editor.draft.messages[i];
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushID(static_cast<int>(i));
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    InputTextString("##msg_text", message.text, 0, 256);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::InputInt("##msg_delay", &message.intervalMs);
-                    if (message.intervalMs < 0) {
-                        message.intervalMs = 0;
-                    }
-                    ImGui::TableSetColumnIndex(2);
-                    if (ImGui::BeginCombo("##msg_method", SendMethodLabel(message.method))) {
-                        for (int method = 0; method <= 9; ++method) {
-                            const bool selected = method == message.method;
-                            if (ImGui::Selectable(SendMethodLabel(method), selected)) {
-                                message.method = method;
-                            }
-                            if (selected) {
-                                ImGui::SetItemDefaultFocus();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::TableSetColumnIndex(3);
-                    if (ImGui::SmallButton(UiSettings::Instance().Text(UiText::ActionRemoveShort))) {
-                        removeIndex = static_cast<int>(i);
-                    }
-                    ImGui::PopID();
-                }
-
-                if (removeIndex >= 0 && editor.draft.messages.size() > 1) {
-                    editor.draft.messages.erase(editor.draft.messages.begin() + removeIndex);
-                }
-                ImGui::EndTable();
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem(UiSettings::Instance().Text(UiText::TriggersTab))) {
-            InputTextString(UiSettings::Instance().Text(UiText::TextTrigger), editor.draft.textTrigger.text, ImGuiInputTextFlags_AutoSelectAll, 256);
-            ImGui::Checkbox(UiSettings::Instance().Text(UiText::EnableTextTrigger), &editor.draft.textTrigger.enabled);
-            ImGui::Checkbox(UiSettings::Instance().Text(UiText::UseRegex), &editor.draft.textTrigger.pattern);
-            ImGui::Separator();
-            ImGui::Checkbox(UiSettings::Instance().Text(UiText::CommandActivator), &editor.draft.commandEnabled);
-            InputTextString(UiSettings::Instance().Text(UiText::Command), editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
-            ImGui::Separator();
-            ImGui::Checkbox(UiSettings::Instance().Text(UiText::TextConfirmation), &editor.draft.textConfirmation.enabled);
-            ImGui::Checkbox(UiSettings::Instance().Text(UiText::WaitWithoutTimeout), &editor.draft.textConfirmation.waitForResolution);
-            ImGui::Text("%s", UiSettings::Instance().Format(
-                UiText::ConfirmKeyFormat,
-                ::hotkeys::KeyName(editor.draft.textConfirmation.key).c_str()).c_str());
-            ImGui::SameLine();
-            if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::Change)) + "##confirm").c_str())) {
-                BeginCapture(CaptureTarget::ConfirmKey);
-            }
-            ImGui::Text("%s", UiSettings::Instance().Format(
-                UiText::CancelKeyFormat,
-                ::hotkeys::KeyName(editor.draft.textConfirmation.cancelKey).c_str()).c_str());
-            ImGui::SameLine();
-            if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::Change)) + "##cancel").c_str())) {
-                BeginCapture(CaptureTarget::CancelKey);
-            }
-
-            ImGui::SeparatorText(UiSettings::Instance().Text(UiText::BlockingConditions));
-            for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
-                bool value = editor.draft.conditions[i];
-                if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
-                    editor.draft.conditions[i] = value;
-                }
-            }
-            ImGui::SeparatorText(UiSettings::Instance().Text(UiText::QuickMenuConditions));
-            for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
-                bool value = editor.draft.quickConditions[i];
-                if (ImGui::Checkbox((std::string("QM##") + std::to_string(i)).c_str(), &value)) {
-                    editor.draft.quickConditions[i] = value;
-                }
-                ImGui::SameLine();
-                ImGui::TextUnformatted(ConditionLabel(static_cast<ConditionId>(i)));
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem(UiSettings::Instance().Text(UiText::InputTab))) {
-            DrawInputEditor();
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
-    }
-
-    DrawCapturePopup(true);
-
-    ImGui::Separator();
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::Save))) {
-        std::vector<std::string> errors;
-        if (ValidateEditor(errors)) {
-            SaveEditor();
-            PushToast(UiSettings::Instance().Text(UiText::ToastBindSaved), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 1800.0);
-            ImGui::CloseCurrentPopup();
-        } else {
-            for (const std::string& error : errors) {
-                PushToast(error, ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2800.0);
-            }
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
-        editor.active = false;
-        editorPopupPending = false;
-        ImGui::CloseCurrentPopup();
-    }
-
-    ImGui::EndPopup();
 }
 
 void BinderModule::Impl::DrawBindPane() {
@@ -4969,10 +4276,32 @@ void BinderModule::Impl::DrawBindPane() {
             }
 
             ImGui::TableSetColumnIndex(2);
-            const std::string launchSummary = BuildLaunchSummary(hotkey);
-            ImGui::TextDisabled("%s", launchSummary.c_str());
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-                ImGui::SetTooltip("%s", launchSummary.c_str());
+            const LaunchCellContent launchContent = BuildLaunchCellContent(hotkey);
+            const ImVec2 launchCellPos = ImGui::GetCursorScreenPos();
+            const float launchCellWidth = ImGui::GetContentRegionAvail().x;
+            const float launchCellHeight = ImGui::GetFrameHeight();
+            const float launchPadX = ScaleUi(6.0f);
+            const std::string launchLabel =
+                EllipsizeText(launchContent.primary, std::max(0.0f, launchCellWidth - launchPadX * 2.0f));
+            const ImVec2 launchLabelSize = ImGui::CalcTextSize(launchLabel.c_str());
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(
+                    std::floor(launchCellPos.x + (launchCellWidth - launchLabelSize.x) * 0.5f),
+                    std::floor(launchCellPos.y + (launchCellHeight - launchLabelSize.y) * 0.5f)),
+                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                launchLabel.c_str());
+            ImGui::InvisibleButton("##launch_summary", ImVec2(launchCellWidth, launchCellHeight));
+            std::vector<std::string> launchTooltipLines;
+            if (launchLabel != launchContent.primary) {
+                launchTooltipLines.push_back(launchContent.primary);
+            }
+            launchTooltipLines.insert(
+                launchTooltipLines.end(),
+                launchContent.secondary.begin(),
+                launchContent.secondary.end());
+            if (!launchTooltipLines.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                const std::string launchTooltip = JoinLaunchLabels(launchTooltipLines, "\n");
+                ImGui::SetTooltip("%s", launchTooltip.c_str());
             }
 
             ImGui::TableSetColumnIndex(3);
@@ -5256,92 +4585,28 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
         return;
     }
 
-    if (capturePopupPending) {
-        ImGui::OpenPopup("##binder_capture_popup");
-        capturePopupPending = false;
-    }
-
-    if (!ImGui::BeginPopupModal("##binder_capture_popup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        return;
-    }
-
-    if (!capture.Active()) {
-        ImGui::CloseCurrentPopup();
-        capturePopupInEditor = false;
-        ImGui::EndPopup();
-        return;
-    }
-
-    ImGui::TextWrapped("%s", UiSettings::Instance().Text(UiText::CapturePrompt));
-    ImGui::Text("%s", UiSettings::Instance().Format(
-        UiText::CurrentCombinationFormat,
-        ::hotkeys::ToString(capture.Draft()).c_str()).c_str());
-    if (capture.MouseCaptureArmed()) {
-        ImGui::TextDisabled("%s", UiSettings::Instance().Text(UiText::WaitingMouseButton));
-    }
-
-    if (!capture.MouseCaptureArmed()) {
-        std::vector<UINT> outKeys;
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Save))) {
-            capture.Save(outKeys);
-            if (ApplyCapturedKeys(outKeys)) {
+    hotkeys::DrawCapturePopupModal(
+        "##binder_capture_popup",
+        capturePopupState,
+        capture,
+        [this](const std::vector<UINT>& keys) {
+            if (ApplyCapturedKeys(keys)) {
                 capturePopupInEditor = false;
-                ImGui::CloseCurrentPopup();
-            } else {
-                capture.Start(outKeys);
+                return true;
             }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Clear))) {
-            capture.Clear();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Mouse))) {
-            capture.ArmMouseCapture();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
-            capture.Stop();
+            return false;
+        },
+        true,
+        {},
+        [this]() {
             captureTarget = CaptureTarget::None;
             captureHotkeyIndex = -1;
-            capturePopupPending = false;
             capturePopupInEditor = false;
-            ImGui::CloseCurrentPopup();
-        }
+        });
+
+    if (!capture.Active()) {
+        capturePopupInEditor = false;
     }
-
-    ImGui::EndPopup();
-}
-
-std::string BinderModule::Impl::BuildLaunchSummary(const HotkeyEntry& hotkey) const {
-    std::vector<std::string> parts;
-
-    const std::string triggerText = Trim(hotkey.textTrigger.text);
-    if (hotkey.textTrigger.enabled && !triggerText.empty()) {
-        parts.push_back(std::string(kIconComment) + " " + triggerText);
-    }
-
-    const std::string commandText = Trim(hotkey.command);
-    if (hotkey.commandEnabled && !commandText.empty()) {
-        parts.push_back(std::string(kIconTerminal) + " " + commandText);
-    }
-
-    if (!hotkey.keys.empty()) {
-        parts.push_back(std::string(kIconKeyboard) + " " + ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode));
-    }
-
-    if (parts.empty()) {
-        return UiSettings::Instance().Text(UiText::HotkeyNotSet);
-    }
-
-    std::ostringstream stream;
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-        if (i != 0) {
-            stream << "   ";
-        }
-        stream << parts[i];
-    }
-    return stream.str();
 }
 
 void BinderModule::Impl::DrawSettingsSection() {

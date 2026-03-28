@@ -198,6 +198,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetAuxiliaryUiVisibleCallback([this]() { return binder_.WantsOverlayRender(); });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() { return binder_.WantsInputCapture(); });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
+    overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
+        return binder_.DescribeMainWindowHotkeyConflict(keys, description);
+    });
     overlay_.OnProcessAttach();
 }
 
@@ -557,41 +560,8 @@ void ModApp::DrawSettingsTab() {
     ImGui::Spacing();
     ImGui::TextUnformatted(ui.Text(UiText::SettingsMainWindowHotkey));
     ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, overlay_.MenuToggleHotkeyText().c_str()).c_str());
-    if (!overlay_.IsMenuToggleHotkeyCaptureActive()) {
-        if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
-            overlay_.BeginMenuToggleHotkeyCapture();
-        }
-    } else {
-        ImGui::TextWrapped("%s", ui.Text(UiText::SettingsMainWindowHotkeyCapture));
-        ImGui::Text(
-            "%s",
-            ui.Format(UiText::CurrentCombinationFormat, overlay_.MenuToggleHotkeyCaptureText().c_str()).c_str());
-
-        std::string hotkeyConflict;
-        const bool hasHotkeyConflict = binder_.DescribeMainWindowHotkeyConflict(overlay_.MenuToggleHotkeyCaptureDraft(), hotkeyConflict);
-        const bool canSaveHotkey = overlay_.CanSaveMenuToggleHotkeyCapture() && !hasHotkeyConflict;
-        if (!canSaveHotkey) {
-            ImGui::BeginDisabled();
-        }
-        if (ImGui::Button(ui.Text(UiText::Save))) {
-            overlay_.SaveMenuToggleHotkeyCapture();
-        }
-        if (!canSaveHotkey) {
-            ImGui::EndDisabled();
-        }
-
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::Cancel))) {
-            overlay_.CancelMenuToggleHotkeyCapture();
-        }
-
-        if (hasHotkeyConflict) {
-            const ImVec4 color(0.90f, 0.35f, 0.35f, 1.00f);
-            ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Text, color);
-            ImGui::TextWrapped("%s", ui.Format(UiText::HotkeyConflictFormat, hotkeyConflict.c_str()).c_str());
-            ImGui::PopStyleColor();
-        }
+    if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
+        overlay_.BeginMenuToggleHotkeyCapture();
     }
 
     bool autoScale = ui.AutoScaleEnabled();
@@ -808,6 +778,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
 
     ImGui::End();
+    overlay_.DrawMenuToggleHotkeyCapturePopup();
     binder_.DrawOverlay();
     AppConfig::Instance().ProcessPendingWrites();
 }

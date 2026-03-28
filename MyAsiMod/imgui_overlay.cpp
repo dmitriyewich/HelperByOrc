@@ -134,7 +134,14 @@ void ImGuiOverlay::SetInputCaptureChangedCallback(InputCaptureChangedCallback ca
     inputCaptureChangedCallback_ = std::move(callback);
 }
 
+void ImGuiOverlay::SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback) {
+    menuToggleHotkeyConflictCallback_ = std::move(callback);
+}
+
 void ImGuiOverlay::SetMenuOpen(bool open) {
+    if (!open) {
+        CancelMenuToggleHotkeyCapture();
+    }
     menuOpen_ = open;
 }
 
@@ -147,44 +154,41 @@ std::string ImGuiOverlay::MenuToggleHotkeyText() const {
 }
 
 void ImGuiOverlay::BeginMenuToggleHotkeyCapture() {
-    menuToggleHotkeyCaptureActive_ = true;
-    menuToggleHotkeyCaptureDraft_ = hotkeys::NormalizeCombo(UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger);
-    menuToggleHotkeyCaptureTracker_.Reset();
+    menuToggleHotkeyCapture_.Start(hotkeys::NormalizeCombo(UiSettings::Instance().MenuToggleHotkey(), HotkeyMode::ModifierTrigger));
+    hotkeys::OpenCapturePopupCenteredOnCurrentWindow(menuToggleHotkeyCapturePopup_);
     menuToggleWasDown_ = IsMenuToggleComboDown();
 }
 
 bool ImGuiOverlay::IsMenuToggleHotkeyCaptureActive() const {
-    return menuToggleHotkeyCaptureActive_;
-}
-
-std::string ImGuiOverlay::MenuToggleHotkeyCaptureText() const {
-    return hotkeys::ToString(menuToggleHotkeyCaptureDraft_);
-}
-
-const std::vector<unsigned int>& ImGuiOverlay::MenuToggleHotkeyCaptureDraft() const {
-    return menuToggleHotkeyCaptureDraft_;
-}
-
-bool ImGuiOverlay::CanSaveMenuToggleHotkeyCapture() const {
-    return hotkeys::HasTriggerKey(menuToggleHotkeyCaptureDraft_);
-}
-
-void ImGuiOverlay::SaveMenuToggleHotkeyCapture() {
-    if (!menuToggleHotkeyCaptureActive_ || !CanSaveMenuToggleHotkeyCapture()) {
-        return;
-    }
-
-    UiSettings::Instance().SetMenuToggleHotkey(menuToggleHotkeyCaptureDraft_);
-    menuToggleHotkeyCaptureActive_ = false;
-    menuToggleHotkeyCaptureTracker_.Reset();
-    menuToggleWasDown_ = IsMenuToggleComboDown();
+    return menuToggleHotkeyCapture_.Active();
 }
 
 void ImGuiOverlay::CancelMenuToggleHotkeyCapture() {
-    menuToggleHotkeyCaptureActive_ = false;
-    menuToggleHotkeyCaptureDraft_.clear();
-    menuToggleHotkeyCaptureTracker_.Reset();
+    menuToggleHotkeyCapture_.Stop();
+    hotkeys::ResetCapturePopupState(menuToggleHotkeyCapturePopup_);
     menuToggleWasDown_ = IsMenuToggleComboDown();
+}
+
+void ImGuiOverlay::DrawMenuToggleHotkeyCapturePopup() {
+    std::string hotkeyConflict;
+    const bool canSave = CanApplyMenuToggleHotkeyCapture(menuToggleHotkeyCapture_.Draft(), &hotkeyConflict);
+    hotkeys::DrawCapturePopupModal(
+        "##menu_toggle_hotkey_capture_popup",
+        menuToggleHotkeyCapturePopup_,
+        menuToggleHotkeyCapture_,
+        [this](const std::vector<UINT>& keys) { return ApplyMenuToggleHotkeyCapture(keys); },
+        canSave,
+        [&](const std::vector<UINT>&) {
+            if (hotkeyConflict.empty()) {
+                return;
+            }
+
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.35f, 0.35f, 1.00f));
+            ImGui::TextWrapped("%s", UiSettings::Instance().Format(UiText::HotkeyConflictFormat, hotkeyConflict.c_str()).c_str());
+            ImGui::PopStyleColor();
+        },
+        [this]() { CancelMenuToggleHotkeyCapture(); });
 }
 
 void ImGuiOverlay::OnProcessAttach() {
@@ -435,7 +439,7 @@ void ImGuiOverlay::CleanupImGui() {
 
 void ImGuiOverlay::UpdateHotkeyState() {
     const bool comboDown = IsMenuToggleComboDown();
-    if (!menuToggleHotkeyCaptureActive_ && comboDown && !menuToggleWasDown_) {
+    if (!menuToggleHotkeyCapture_.Active() && comboDown && !menuToggleWasDown_) {
         menuOpen_ = !menuOpen_;
         debuglog::Write("Menu toggled: %s", menuOpen_ ? "open" : "closed");
     }
@@ -444,32 +448,23 @@ void ImGuiOverlay::UpdateHotkeyState() {
 }
 
 bool ImGuiOverlay::HandleMenuToggleHotkeyCaptureMessage(UINT message, WPARAM wparam) {
-    const auto keyInfo = hotkeys::GetMessageKeyInfo(message, wparam);
-    if (!menuToggleHotkeyCaptureActive_ || !keyInfo.has_value() || hotkeys::IsMouseKey(keyInfo->keyCode)) {
+    bool canceled = false;
+    bool saved = false;
+    std::vector<UINT> capturedKeys;
+    if (!menuToggleHotkeyCapture_.Active()
+        || !menuToggleHotkeyCapture_.OnWindowMessage(message, wparam, canceled, saved, capturedKeys)) {
         return false;
     }
 
-    const unsigned int key = keyInfo->keyCode;
-    if (keyInfo->isDown) {
-        if (key == VK_ESCAPE) {
-            CancelMenuToggleHotkeyCapture();
-            return true;
+    if (saved) {
+        if (!ApplyMenuToggleHotkeyCapture(capturedKeys)) {
+            menuToggleHotkeyCapture_.Start(capturedKeys);
         }
-
-        menuToggleHotkeyCaptureTracker_.KeyDown(key);
-        const auto draft = hotkeys::NormalizeCombo(menuToggleHotkeyCaptureTracker_.Ordered(), HotkeyMode::ModifierTrigger);
-        if (!draft.empty()) {
-            menuToggleHotkeyCaptureDraft_ = draft;
-        }
-        return true;
+    } else if (canceled) {
+        CancelMenuToggleHotkeyCapture();
     }
 
-    if (keyInfo->isUp) {
-        menuToggleHotkeyCaptureTracker_.KeyUp(key);
-        return true;
-    }
-
-    return false;
+    return true;
 }
 
 bool ImGuiOverlay::IsMenuToggleComboDown() const {
@@ -477,6 +472,38 @@ bool ImGuiOverlay::IsMenuToggleComboDown() const {
         hotkeys::CollectPressedKeys(),
         UiSettings::Instance().MenuToggleHotkey(),
         HotkeyMode::ModifierTrigger);
+}
+
+bool ImGuiOverlay::CanApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys, std::string* description) const {
+    if (description) {
+        description->clear();
+    }
+
+    const auto normalized = hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
+    if (!hotkeys::HasTriggerKey(normalized)) {
+        return false;
+    }
+
+    std::string conflict;
+    if (menuToggleHotkeyConflictCallback_ && menuToggleHotkeyConflictCallback_(normalized, conflict)) {
+        if (description) {
+            *description = conflict;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool ImGuiOverlay::ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys) {
+    if (!CanApplyMenuToggleHotkeyCapture(keys)) {
+        return false;
+    }
+
+    UiSettings::Instance().SetMenuToggleHotkey(hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger));
+    hotkeys::ResetCapturePopupState(menuToggleHotkeyCapturePopup_);
+    menuToggleWasDown_ = IsMenuToggleComboDown();
+    return true;
 }
 
 bool ImGuiOverlay::IsPrimaryRenderTarget(IDirect3DDevice9* device) const {
@@ -755,6 +782,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
 void ImGuiOverlay::Shutdown() {
     shuttingDown_ = true;
     menuOpen_ = false;
+    CancelMenuToggleHotkeyCapture();
     ApplyInputCaptureState(false);
 
     CleanupImGui();
@@ -771,9 +799,6 @@ void ImGuiOverlay::Shutdown() {
     }
 
     menuToggleWasDown_ = false;
-    menuToggleHotkeyCaptureActive_ = false;
-    menuToggleHotkeyCaptureDraft_.clear();
-    menuToggleHotkeyCaptureTracker_.Reset();
     inputCaptureChangedCallback_ = nullptr;
     self_ = nullptr;
 }

@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -69,5 +70,27 @@ private:
     bool mouseCaptureArmed_ = false;
     UINT mousePendingKey_ = 0;
 };
+
+struct CapturePopupState {
+    bool openPending = false;
+    bool hasAnchor = false;
+    float anchorX = 0.0f;
+    float anchorY = 0.0f;
+};
+
+using CapturePopupApplyCallback = std::function<bool(const std::vector<UINT>& keys)>;
+using CapturePopupExtraUiCallback = std::function<void(const std::vector<UINT>& draft)>;
+using CapturePopupCancelCallback = std::function<void()>;
+
+void ResetCapturePopupState(CapturePopupState& state);
+void OpenCapturePopupCenteredOnCurrentWindow(CapturePopupState& state);
+bool DrawCapturePopupModal(
+    const char* popupId,
+    CapturePopupState& state,
+    Capture& capture,
+    const CapturePopupApplyCallback& applyCapture,
+    bool canSave = true,
+    const CapturePopupExtraUiCallback& extraUi = {},
+    const CapturePopupCancelCallback& cancelCapture = {});
 
 } // namespace hotkeys

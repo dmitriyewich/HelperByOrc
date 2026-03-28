@@ -2,6 +2,9 @@
 
 #include "ui_settings.h"
 
+#include <imgui.h>
+#include <imgui_internal.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <iterator>
@@ -518,4 +521,109 @@ bool hotkeys::Capture::OnWindowMessage(UINT message, WPARAM wparam, bool& cancel
     }
 
     return false;
+}
+
+void hotkeys::ResetCapturePopupState(CapturePopupState& state) {
+    state = {};
+}
+
+void hotkeys::OpenCapturePopupCenteredOnCurrentWindow(CapturePopupState& state) {
+    state.openPending = true;
+    state.hasAnchor = false;
+
+    ImGuiContext* context = ImGui::GetCurrentContext();
+    if (!context || !context->CurrentWindow) {
+        return;
+    }
+
+    ImGuiWindow* anchorWindow = context->CurrentWindow->RootWindow ? context->CurrentWindow->RootWindow : context->CurrentWindow;
+    if (!anchorWindow || anchorWindow->Size.x <= 0.0f || anchorWindow->Size.y <= 0.0f) {
+        return;
+    }
+
+    state.anchorX = anchorWindow->Pos.x + anchorWindow->Size.x * 0.5f;
+    state.anchorY = anchorWindow->Pos.y + anchorWindow->Size.y * 0.5f;
+    state.hasAnchor = true;
+}
+
+bool hotkeys::DrawCapturePopupModal(
+    const char* popupId,
+    CapturePopupState& state,
+    Capture& capture,
+    const CapturePopupApplyCallback& applyCapture,
+    bool canSave,
+    const CapturePopupExtraUiCallback& extraUi,
+    const CapturePopupCancelCallback& cancelCapture) {
+    if (state.openPending) {
+        ImGui::OpenPopup(popupId);
+        state.openPending = false;
+    }
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 popupCenter = state.hasAnchor
+        ? ImVec2(state.anchorX, state.anchorY)
+        : ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + viewport->Size.y * 0.5f);
+    ImGui::SetNextWindowPos(popupCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(popupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return false;
+    }
+
+    if (!capture.Active()) {
+        ImGui::CloseCurrentPopup();
+        ResetCapturePopupState(state);
+        ImGui::EndPopup();
+        return false;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextWrapped("%s", ui.Text(UiText::CapturePrompt));
+    ImGui::Text("%s", ui.Format(UiText::CurrentCombinationFormat, ToString(capture.Draft()).c_str()).c_str());
+    if (capture.MouseCaptureArmed()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::WaitingMouseButton));
+    }
+
+    if (extraUi) {
+        extraUi(capture.Draft());
+    }
+
+    if (!capture.MouseCaptureArmed()) {
+        if (!canSave) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button(ui.Text(UiText::Save))) {
+            std::vector<UINT> outKeys;
+            capture.Save(outKeys);
+            const bool applied = !applyCapture || applyCapture(outKeys);
+            if (applied) {
+                ResetCapturePopupState(state);
+                ImGui::CloseCurrentPopup();
+            } else {
+                capture.Start(outKeys);
+            }
+        }
+        if (!canSave) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Clear))) {
+            capture.Clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Mouse))) {
+            capture.ArmMouseCapture();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+            capture.Stop();
+            if (cancelCapture) {
+                cancelCapture();
+            }
+            ResetCapturePopupState(state);
+            ImGui::CloseCurrentPopup();
+        }
+    }
+
+    ImGui::EndPopup();
+    return true;
 }

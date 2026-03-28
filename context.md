@@ -29,7 +29,8 @@
   - Lua-референс по именам и base85-данным: `C:\Games\CODEX\HelperByOrc\lib\fAwesome7.lua`
 - Основные рабочие модули:
   - `imgui_overlay` для D3D9/ImGui overlay.
-  - `hotkey_utils` для общей hotkey-логики (`normalize/match/capture/conflict basis`) между `imgui_overlay` и `binder_module`.
+- `hotkey_utils` для общей hotkey-логики (`normalize/match/capture/conflict basis`) между `imgui_overlay` и `binder_module`.
+  - UI захвата комбинаций тоже должен быть общим: все настройки hotkey в интерфейсе открываются через единый popup из `hotkey_utils`, а не через отдельные inline/popup-реализации по модулям.
   - `mod_app` для UI-оболочки и жизненного цикла.
   - `samp_api` для нативного доступа к SA:MP.
   - `samp_hooks` для обычных SA:MP hooks.
@@ -266,6 +267,7 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
 - Если добавляются новые `Font Awesome 7` иконки, использовать уже vendored-интеграцию через `font_awesome7_data.h` и merge в `imgui_overlay.*`, а не тянуть новый внешний runtime-зависимый источник.
 - Переключение языка должно оставаться доступным во вкладке `Настройки` главного окна.
 - Настройки масштаба интерфейса должны оставаться в главном окне во вкладке `Настройки`; при добавлении нового ImGui UI его размеры и отступы нужно пропускать через общий механизм scale.
+- Все сценарии настройки комбинаций клавиш в UI (`open_menu_hotkey`, hotkey бинда, quick menu, confirm/cancel keys и т.д.) должны использовать единый capture popup из `hotkey_utils`.
 - Любая тяжёлая инициализация должна жить вне `DllMain`.
 - Hooks должны ставиться и сниматься чисто.
 - После shutdown нельзя оставлять подвешенные:

@@ -45,7 +45,6 @@
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
     X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
-    X(SettingsMainWindowHotkeyCapture, "Нажмите новую комбинацию клавиш и затем сохраните или отмените изменение.", "Press a new key combination, then save or cancel the change.") \
     X(HotkeyConflictFormat, "Комбинация конфликтует с %s.", "This combination conflicts with %s.") \
     X(HotkeyConflictMainWindowFormat, "хоткеем открытия главного окна (%s)", "the main window hotkey (%s)") \
     X(HotkeyConflictQuickMenuFormat, "хоткеем быстрого меню (%s)", "the quick menu hotkey (%s)") \
@@ -96,7 +95,6 @@
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
-    X(ValidationNeedTrigger, "Нужен хоткей, команда или текстовый триггер.", "A hotkey, command, or text trigger is required.") \
     X(ValidationRepeatInterval, "Интервал повтора должен быть не меньше 50 мс.", "Repeat interval must be at least 50 ms.") \
     X(ValidationInputKeyRequired, "У каждого поля ввода должен быть ключ.", "Each input field must have a key.") \
     X(ValidationInputKeyUnique, "Ключи полей ввода должны быть уникальными.", "Input field keys must be unique.") \
@@ -153,12 +151,10 @@
     X(EditorColumnMessage, "Сообщение", "Message") \
     X(EditorColumnPauseMs, "Пауза (мс)", "Pause (ms)") \
     X(EditorColumnDestination, "Куда", "Destination") \
-    X(EditorLaunchHint, "Можно комбинировать хоткей, команду и триггер по чату.", "You can combine a hotkey, command, and chat trigger.") \
     X(EditorConfirmationHint, "После триггера бинд ждёт отдельные клавиши подтверждения и отклонения.", "After a trigger, the bind waits for separate confirm and cancel keys.") \
     X(EditorMultiInputHint, "Каждая непустая строка станет отдельным шагом. Пустые строки игнорируются.", "Each non-empty line becomes a separate step. Empty lines are ignored.") \
     X(Enabled, "Включён", "Enabled") \
     X(Folder, "Папка", "Folder") \
-    X(SelectFolder, "Выберите папку", "Select a folder") \
     X(HotkeyMode, "Режим хоткея", "Hotkey mode") \
     X(HotkeyNotSet, "Не задано", "Not set") \
     X(HotkeyFormat, "Хоткей: %s", "Hotkey: %s") \
@@ -166,7 +162,6 @@
     X(ShowInQuickMenu, "Показывать в быстром меню", "Show in quick menu") \
     X(Repeat, "Повтор", "Repeat") \
     X(RepeatInterval, "Интервал повтора", "Repeat interval") \
-    X(MessagesTab, "Сообщения", "Messages") \
     X(AddRow, "+ Строка", "+ Row") \
     X(ColumnSpacer, " ", " ") \
     X(ColumnEnabledShort, "Вкл", "On") \
@@ -176,11 +171,7 @@
     X(ColumnText, "Текст", "Text") \
     X(ColumnDelay, "Задержка", "Delay") \
     X(ColumnMethod, "Метод", "Method") \
-    X(TriggersTab, "Триггеры", "Triggers") \
     X(TextTrigger, "Триггер по тексту в чате", "Text trigger") \
-    X(EnableTextTrigger, "Включить триггер по тексту", "Enable text trigger") \
-    X(UseRegex, "Использовать regex", "Use regex") \
-    X(CommandActivator, "Команда-активатор", "Command activator") \
     X(Command, "Команда", "Command") \
     X(TextConfirmation, "Требовать подтверждение по триггеру", "Require confirmation on trigger") \
     X(WaitWithoutTimeout, "Дожидаться подтверждения или отклонения", "Wait for confirmation or rejection") \
@@ -189,7 +180,6 @@
     X(Change, "Изменить", "Change") \
     X(BlockingConditions, "Условия блокировки", "Blocking Conditions") \
     X(QuickMenuConditions, "Условия быстрого меню", "Quick Menu Conditions") \
-    X(InputTab, "Ввод", "Input") \
     X(AddBind, "+ Бинд", "+ Bind") \
     X(Edit, "Изменить", "Edit") \
     X(Run, "Запустить", "Run") \

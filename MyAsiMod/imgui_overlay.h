@@ -18,6 +18,7 @@ public:
     using WindowMessageCallback = std::function<bool(UINT, WPARAM, LPARAM)>;
     using VisibilityCallback = std::function<bool()>;
     using InputCaptureChangedCallback = std::function<void(bool)>;
+    using HotkeyConflictCallback = std::function<bool(const std::vector<unsigned int>& keys, std::string& description)>;
 
     void SetRenderCallback(RenderCallback callback);
     void SetUpdateCallback(UpdateCallback callback);
@@ -25,16 +26,14 @@ public:
     void SetAuxiliaryUiVisibleCallback(VisibilityCallback callback);
     void SetAuxiliaryInputCaptureCallback(VisibilityCallback callback);
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
+    void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
     void SetMenuOpen(bool open);
     bool IsMenuOpen() const;
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
-    std::string MenuToggleHotkeyCaptureText() const;
-    const std::vector<unsigned int>& MenuToggleHotkeyCaptureDraft() const;
-    bool CanSaveMenuToggleHotkeyCapture() const;
-    void SaveMenuToggleHotkeyCapture();
     void CancelMenuToggleHotkeyCapture();
+    void DrawMenuToggleHotkeyCapturePopup();
     void OnProcessAttach();
     void Shutdown();
 
@@ -64,6 +63,8 @@ private:
     bool IsPrimaryRenderTarget(IDirect3DDevice9* device) const;
     bool IsAuxiliaryUiVisible() const;
     bool IsMenuToggleComboDown() const;
+    bool CanApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys, std::string* description = nullptr) const;
+    bool ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys);
     bool WantsInputRouting() const;
     bool WantsInputCapture() const;
 
@@ -75,7 +76,6 @@ private:
     bool imguiInitialized_ = false;
     bool menuOpen_ = false;
     bool menuToggleWasDown_ = false;
-    bool menuToggleHotkeyCaptureActive_ = false;
     HWND gameWindow_ = nullptr;
     WNDPROC originalWndProc_ = nullptr;
     RenderCallback renderCallback_;
@@ -84,9 +84,10 @@ private:
     VisibilityCallback auxiliaryUiVisibleCallback_;
     VisibilityCallback auxiliaryInputCaptureCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
+    HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
     bool inputCaptureActive_ = false;
-    std::vector<unsigned int> menuToggleHotkeyCaptureDraft_{};
-    hotkeys::KeyTracker menuToggleHotkeyCaptureTracker_{};
+    hotkeys::Capture menuToggleHotkeyCapture_{};
+    hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
 
     void* endSceneTarget_ = nullptr;
     void* resetTarget_ = nullptr;
