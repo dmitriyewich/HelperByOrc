@@ -232,7 +232,13 @@ bool SmallIconActionButton(const char* icon, const char* id, const char* tooltip
     return clicked;
 }
 
-bool IconOnlyButton(const char* icon, const char* id, const char* tooltip, const ImVec2& size, bool active = true) {
+bool IconOnlyButton(
+    const char* icon,
+    const char* id,
+    const char* tooltip,
+    const ImVec2& size,
+    bool active = true,
+    ImDrawList* drawList = nullptr) {
     const bool clicked = ImGui::InvisibleButton(id, size);
     const bool hovered = ImGui::IsItemHovered();
     const bool held = ImGui::IsItemActive();
@@ -268,7 +274,10 @@ bool IconOnlyButton(const char* icon, const char* id, const char* tooltip, const
     if (hovered || held) {
         iconColorId = ImGuiCol_Text;
     }
-    ImGui::GetWindowDrawList()->AddText(iconPos, ImGui::GetColorU32(iconColorId), icon);
+    if (!drawList) {
+        drawList = ImGui::GetWindowDrawList();
+    }
+    drawList->AddText(iconPos, ImGui::GetColorU32(iconColorId), icon);
 
     if (tooltip != nullptr && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::SetTooltip("%s", tooltip);
@@ -3748,10 +3757,15 @@ void BinderModule::Impl::DrawEditorDiscardPopup() {
 void BinderModule::Impl::DrawEditorScenarioTab() {
     UiSettings& ui = UiSettings::Instance();
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float dragHandleSide = std::max(ScaleUi(18.0f), ImGui::GetFrameHeight());
-    const float dragColumnWidth = std::ceil(dragHandleSide + style.CellPadding.x * 2.0f);
+    const float dragHandleWidth = std::ceil(ImGui::CalcTextSize(kIconMoveRows).x + ScaleUi(4.0f));
+    const float dragHandleHeight = ImGui::GetFrameHeight();
+    const float dragColumnWidth = std::ceil(dragHandleWidth + style.CellPadding.x * 2.0f);
     const float destinationColumnWidth = std::ceil(
         ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
+    const ImVec2 actionButtonSize(ScaleUi(24.0f), ScaleUi(24.0f));
+    const float actionButtonsSpacing = ScaleUi(4.0f);
+    const float actionButtonsWidth = actionButtonSize.x * 2.0f + actionButtonsSpacing;
+    const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
     if (editor.draft.messages.empty()) {
         editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
     }
@@ -3763,17 +3777,22 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     int duplicateIndex = -1;
     int moveSourceIndex = -1;
     int moveTargetIndex = -1;
+    const float addButtonReserve = ImGui::GetFrameHeightWithSpacing() + ScaleUi(8.0f);
+    const ImVec2 stepsTableOuterSize(
+        ImGui::GetContentRegionAvail().x,
+        std::max(ScaleUi(180.0f), ImGui::GetContentRegionAvail().y - addButtonReserve));
     if (ImGui::BeginTable(
             "##binder_editor_steps",
             5,
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
-                | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+                | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
+            stepsTableOuterSize)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("##drag", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, dragColumnWidth);
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnMessage), ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnPauseMs), ImGuiTableColumnFlags_WidthFixed, ScaleUi(110.0f));
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnDestination), ImGuiTableColumnFlags_WidthFixed, destinationColumnWidth);
-        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnActions), ImGuiTableColumnFlags_WidthFixed, ScaleUi(70.0f));
+        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnActions), ImGuiTableColumnFlags_WidthFixed, actionsColumnWidth);
         ImGui::TableHeadersRow();
 
         for (std::size_t i = 0; i < editor.draft.messages.size(); ++i) {
@@ -3781,8 +3800,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(i));
             ImGui::TableSetColumnIndex(0);
-            CenterNextItemHorizontally(dragHandleSide);
-            IconOnlyButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleSide, dragHandleSide));
+            CenterNextItemHorizontally(dragHandleWidth);
+            IconOnlyButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleWidth, dragHandleHeight));
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
                 const int payloadIndex = static_cast<int>(i);
                 ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
@@ -3827,6 +3846,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             }
 
             ImGui::TableSetColumnIndex(3);
+            ImGui::SetNextItemWidth(-FLT_MIN);
             if (ImGui::BeginCombo("##step_method", SendMethodLabel(message.method))) {
                 for (int method = 0; method <= 9; ++method) {
                     const bool selected = method == message.method;
@@ -3841,12 +3861,16 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             }
 
             ImGui::TableSetColumnIndex(4);
-            const ImVec2 iconButtonSize(ScaleUi(24.0f), ScaleUi(24.0f));
-            if (SmallIconActionButton(kIconClone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), iconButtonSize)) {
+            const float actionButtonsOffsetY = std::max(0.0f, std::floor((ImGui::GetFrameHeight() - actionButtonSize.y) * 0.5f));
+            if (actionButtonsOffsetY > 0.0f) {
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + actionButtonsOffsetY);
+            }
+            CenterNextItemHorizontally(actionButtonsWidth);
+            if (SmallIconActionButton(kIconClone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), actionButtonSize)) {
                 duplicateIndex = static_cast<int>(i);
             }
-            ImGui::SameLine(0.0f, ScaleUi(4.0f));
-            if (SmallIconActionButton(kIconDelete, "##step_delete", ui.Text(UiText::Delete), iconButtonSize)) {
+            ImGui::SameLine(0.0f, actionButtonsSpacing);
+            if (SmallIconActionButton(kIconDelete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
                 removeIndex = static_cast<int>(i);
             }
             ImGui::PopID();
@@ -3926,16 +3950,21 @@ void BinderModule::Impl::DrawEditorInline() {
     };
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, headerBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 14.0f));
-    if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, ScaleUi(58.0f)), ImGuiChildFlags_Borders)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(14.0f, 10.0f));
+    if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, ScaleUi(64.0f)), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTable("##binder_editor_header_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
-            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.24f);
-            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.76f);
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.34f);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.66f);
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
+            const float backButtonWidth = ScaleUi(92.0f);
             const ImVec2 headerStateIconSize(ScaleUi(20.0f), ImGui::GetFrameHeight());
+            if (ImGui::Button(backLabel.c_str(), ImVec2(backButtonWidth, 0.0f))) {
+                RequestEditorAction(EditorState::PendingAction::Close);
+            }
+            ImGui::SameLine(0.0f, ScaleUi(10.0f));
             if (IconOnlyButton(
                     editor.draft.enabled ? kIconToggleOn : kIconToggleOff,
                     "##binder_editor_enabled",
@@ -3948,6 +3977,8 @@ void BinderModule::Impl::DrawEditorInline() {
                 }
             }
             ImGui::SameLine(0.0f, ScaleUi(8.0f));
+            const float headerTitleStartX = ImGui::GetCursorPosX();
+            const float headerTitleTopY = ImGui::GetCursorPosY();
             ImGui::TextUnformatted(title.c_str());
             if (hasUnsavedChanges) {
                 ImGui::SameLine(0.0f, ScaleUi(10.0f));
@@ -3956,15 +3987,23 @@ void BinderModule::Impl::DrawEditorInline() {
                     ImGui::SetTooltip("%s", ui.Text(UiText::EditorUnsaved));
                 }
             }
+            const float headerBreadcrumbY = std::max(headerTitleTopY + ScaleUi(16.0f), ImGui::GetCursorPosY() - ScaleUi(6.0f));
+            ImGui::SetCursorPos(ImVec2(headerTitleStartX, headerBreadcrumbY));
+            ImGui::SetWindowFontScale(0.75f);
+            const std::string headerBreadcrumb = EllipsizeText(breadcrumb, std::max(0.0f, ImGui::GetContentRegionAvail().x * 2.0f));
+            ImGui::TextDisabled("%s", headerBreadcrumb.c_str());
+            ImGui::SetWindowFontScale(1.0f);
+            if (headerBreadcrumb != breadcrumb && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                ImGui::SetTooltip("%s", breadcrumb.c_str());
+            }
 
             ImGui::TableSetColumnIndex(1);
             const float conditionsButtonWidth = ScaleUi(116.0f);
             const float quickMenuButtonWidth = ScaleUi(134.0f);
-            const float backButtonWidth = ScaleUi(92.0f);
             const float previousButtonWidth = ScaleUi(136.0f);
             const float nextButtonWidth = ScaleUi(136.0f);
-            const float headerActionWidth = conditionsButtonWidth + quickMenuButtonWidth + backButtonWidth + previousButtonWidth + nextButtonWidth
-                + itemSpacingX * 4.0f;
+            const float headerActionWidth = conditionsButtonWidth + quickMenuButtonWidth + previousButtonWidth + nextButtonWidth
+                + itemSpacingX * 3.0f;
             alignRight(headerActionWidth);
             if (ImGui::Button(conditionsLabel.c_str(), ImVec2(conditionsButtonWidth, 0.0f))) {
                 editor.conditionsPopupPending = true;
@@ -3972,10 +4011,6 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::SameLine();
             if (ImGui::Button(quickMenuLabel.c_str(), ImVec2(quickMenuButtonWidth, 0.0f))) {
                 editor.quickConditionsPopupPending = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(backLabel.c_str(), ImVec2(backButtonWidth, 0.0f))) {
-                RequestEditorAction(EditorState::PendingAction::Close);
             }
             ImGui::SameLine();
             ImGui::BeginDisabled(prevIndex < 0);
@@ -3996,13 +4031,6 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::EndChild();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
-
-    ImGui::Spacing();
-    const std::string breadcrumbPreview = EllipsizeText(breadcrumb, ImGui::GetContentRegionAvail().x);
-    ImGui::TextDisabled("%s", breadcrumbPreview.c_str());
-    if (breadcrumbPreview != breadcrumb && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        ImGui::SetTooltip("%s", breadcrumb.c_str());
-    }
     ImGui::Spacing();
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
@@ -4151,12 +4179,14 @@ void BinderModule::Impl::DrawEditorInline() {
     const ImVec2 startPanelCursorRestore = ImGui::GetCursorScreenPos();
     ImGui::SetCursorScreenPos(ImVec2(
         std::floor(startPanelMin.x + (startPanelMax.x - startPanelMin.x - startToggleSize.x) * 0.5f),
-        std::floor(startPanelMin.y - startToggleSize.y * 0.5f)));
+        std::floor(startPanelMin.y - startToggleSize.y * 0.35f)));
     if (IconOnlyButton(
             editor.startSectionCollapsed ? kIconAngleDown : kIconAngleUp,
             "##binder_editor_toggle_start_section",
             ui.Text(editor.startSectionCollapsed ? UiText::EditorExpandStartSection : UiText::EditorCollapseStartSection),
-            startToggleSize)) {
+            startToggleSize,
+            true,
+            ImGui::GetForegroundDrawList())) {
         editor.startSectionCollapsed = !editor.startSectionCollapsed;
     }
     ImGui::SetCursorScreenPos(startPanelCursorRestore);
@@ -4164,8 +4194,8 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::Spacing();
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(14.0f, 12.0f));
-    if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -ScaleUi(64.0f)), ImGuiChildFlags_Borders)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 10.0f));
+    if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -ScaleUi(50.0f)), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTabBar("##binder_editor_work_tabs")) {
             if (ImGui::BeginTabItem(
                     ui.Text(UiText::EditorScenarioTab),
@@ -4252,10 +4282,10 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
 
-    ImGui::Spacing();
+    ImGui::Dummy(ImVec2(0.0f, ScaleUi(2.0f)));
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, footerBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 10.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(12.0f, 6.0f));
     if (ImGui::BeginChild(
             "##binder_editor_footer",
             ImVec2(0.0f, 0.0f),
