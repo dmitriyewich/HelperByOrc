@@ -1184,7 +1184,7 @@ struct BinderModule::Impl {
         bool isNew = false;
         int hotkeyIndex = -1;
         int selectedInputIndex = -1;
-        int bulkMethod = 0;
+        int bulkMethod = 2;
         int bulkIntervalMs = 0;
         int pendingTargetIndex = -1;
         std::string selectedButtonsText{};
@@ -1521,7 +1521,7 @@ HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() const {
     HotkeyEntry hotkey;
     hotkey.label = UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
     hotkey.hotkeyMode = HotkeyMode::ModifierTrigger;
-    hotkey.messages.push_back(HotkeyMessage{ "", 0, 0 });
+    hotkey.messages.push_back(HotkeyMessage{ "", 0, 2 });
     hotkey.conditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.quickConditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.repeatIntervalMs = kDefaultRepeatIntervalMs;
@@ -3673,7 +3673,9 @@ void BinderModule::Impl::DrawEditorPreviewPopup() {
 
     UiSettings& ui = UiSettings::Instance();
     const HotkeyEntry preview = BuildEditorComparableDraft();
-    const float destinationColumnWidth = ScaleUi(128.0f);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float destinationColumnWidth = std::ceil(
+        ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
     const bool hasPreviewRows = std::any_of(preview.messages.begin(), preview.messages.end(), [](const HotkeyMessage& message) {
         return !Trim(message.text).empty() || message.intervalMs != 0 || message.method != 0;
     });
@@ -3745,7 +3747,11 @@ void BinderModule::Impl::DrawEditorDiscardPopup() {
 
 void BinderModule::Impl::DrawEditorScenarioTab() {
     UiSettings& ui = UiSettings::Instance();
-    const float destinationColumnWidth = ScaleUi(128.0f);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float dragHandleSide = std::max(ScaleUi(18.0f), ImGui::GetFrameHeight());
+    const float dragColumnWidth = std::ceil(dragHandleSide + style.CellPadding.x * 2.0f);
+    const float destinationColumnWidth = std::ceil(
+        ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
     if (editor.draft.messages.empty()) {
         editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
     }
@@ -3763,7 +3769,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp
                 | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("##drag", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, ScaleUi(34.0f));
+        ImGui::TableSetupColumn("##drag", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, dragColumnWidth);
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnMessage), ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnPauseMs), ImGuiTableColumnFlags_WidthFixed, ScaleUi(110.0f));
         ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::EditorColumnDestination), ImGuiTableColumnFlags_WidthFixed, destinationColumnWidth);
@@ -3775,8 +3781,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(i));
             ImGui::TableSetColumnIndex(0);
-            const float actionSide = std::max(ScaleUi(22.0f), ImGui::GetFrameHeight());
-            IconOnlyButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(actionSide, actionSide));
+            CenterNextItemHorizontally(dragHandleSide);
+            IconOnlyButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleSide, dragHandleSide));
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
                 const int payloadIndex = static_cast<int>(i);
                 ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
@@ -3923,15 +3929,28 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(16.0f, 14.0f));
     if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, ScaleUi(58.0f)), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTable("##binder_editor_header_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
-            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.18f);
-            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.82f);
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.24f);
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.76f);
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
+            const ImVec2 headerStateIconSize(ScaleUi(20.0f), ImGui::GetFrameHeight());
+            if (IconOnlyButton(
+                    editor.draft.enabled ? kIconToggleOn : kIconToggleOff,
+                    "##binder_editor_enabled",
+                    ui.Text(UiText::Enabled),
+                    headerStateIconSize,
+                    editor.draft.enabled)) {
+                editor.draft.enabled = !editor.draft.enabled;
+                if (!editor.draft.enabled) {
+                    editor.draft.quickMenu = false;
+                }
+            }
+            ImGui::SameLine(0.0f, ScaleUi(8.0f));
             ImGui::TextUnformatted(title.c_str());
             if (hasUnsavedChanges) {
-                ImGui::SameLine();
+                ImGui::SameLine(0.0f, ScaleUi(10.0f));
                 ImGui::TextColored(ImVec4(0.96f, 0.68f, 0.25f, 1.0f), "%s", kIconStar);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                     ImGui::SetTooltip("%s", ui.Text(UiText::EditorUnsaved));
@@ -4006,13 +4025,10 @@ void BinderModule::Impl::DrawEditorInline() {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("%s", ui.Text(UiText::Name));
-                ImGui::SameLine();
-                ImGui::Checkbox(ui.Text(UiText::Enabled), &editor.draft.enabled);
                 if (editor.focusNamePending) {
                     ImGui::SetKeyboardFocusHere();
                     editor.focusNamePending = false;
                 }
-                ImGui::SameLine();
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 InputTextString("##binder_editor_name", editor.draft.label, ImGuiInputTextFlags_AutoSelectAll, 160);
 
