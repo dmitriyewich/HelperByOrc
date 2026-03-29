@@ -8,6 +8,7 @@
 
 #include "external/raknet/RakClient.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -292,6 +293,11 @@ private:
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
+    void RefreshArizonaChatModule();
+    void StartArizonaChatScan(std::uintptr_t moduleBase);
+    bool ReadArizonaChatInputText(std::string& outText) const;
+    bool WriteArizonaChatInputText(std::string_view gameText);
+    bool SetArizonaChatInputDirty(bool dirty);
 
     HMODULE sampModule_ = nullptr;
     bool versionResolved_ = false;
@@ -304,4 +310,9 @@ private:
     int dialogHookBypassDepth_ = 0;
     std::string functionBackendMode_ = BACKEND_STANDARD;
     std::string functionBackendActive_ = BACKEND_STANDARD;
+    std::atomic<std::uintptr_t> arizonaChatModuleBase_{ 0 };
+    std::atomic<std::uintptr_t> arizonaChatStringObject_{ 0 };
+    std::atomic<std::uintptr_t> arizonaChatDirtyFlag_{ 0 };
+    std::atomic<std::uint32_t> arizonaChatScanTicket_{ 0 };
+    std::atomic<int> arizonaChatScanState_{ 0 };
 };

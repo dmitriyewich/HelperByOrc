@@ -221,6 +221,12 @@ std::uintptr_t SampApi::SAMP_CHAT_INPUT_INFO_OFFSET_func_test() {
 }
 
 std::string SampApi::sampGetChatEditboxText() {
+    RefreshArizonaChatModule();
+    std::string arizonaChatText;
+    if (ReadArizonaChatInputText(arizonaChatText)) {
+        return PrepareIncomingText(arizonaChatText);
+    }
+
     const auto address = GetAddress(main_offsets.CDXUTEditBox_GetText);
     const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
     if (address == 0 || editBox == 0) {

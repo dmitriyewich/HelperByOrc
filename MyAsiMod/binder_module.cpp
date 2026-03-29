@@ -1303,13 +1303,13 @@ struct BinderModule::Impl {
     bool ConsumeOutgoingGuard(std::string_view kind, std::string_view text);
     std::string NormalizeActivationText(std::string_view text) const;
     bool MatchesActivationCommand(std::string_view input, std::string_view command) const;
-    void OnOutgoingCommand(const std::string& text);
+    bool OnOutgoingCommand(const std::string& text);
     void OnOutgoingChat(const std::string& text);
     void OnIncomingTextMessage(const std::string& text, std::string_view source);
     void ExpireTextConfirmations();
     bool ActivatePendingTextConfirmations(UINT keyCode);
     bool MatchTextTrigger(const std::string& source, const HotkeyEntry& hotkey);
-    void OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind);
+    bool OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind);
     std::string ApplyInputValues(std::string text, const std::map<std::string, std::string>& values) const;
     std::string BuildInputValue(const InputDialogField& field) const;
     std::vector<int> FilterButtons(const InputDialogState& dialog, std::size_t fieldIndex) const;
@@ -1475,8 +1475,8 @@ void BinderModule::Impl::ConnectHooks() {
 
     if (!rakHooksBound && sampRakHooks) {
         sampRakHooks->AddOnSendCommandHandler([this](std::string& text) {
-            OnOutgoingCommand(ToUtf8ForDisplay(text));
-            return true;
+            const bool handled = OnOutgoingCommand(ToUtf8ForDisplay(text));
+            return !handled;
         });
         sampRakHooks->AddOnSendChatHandler([this](std::string& text) {
             OnOutgoingChat(ToUtf8ForDisplay(text));
@@ -2354,6 +2354,9 @@ void BinderModule::Impl::PruneOutgoingGuards() {
 
 void BinderModule::Impl::RegisterOutgoingGuard(std::string kind, std::string text) {
     text = NormalizeActivationText(text);
+    if (kind == "command" && !text.empty() && text.front() != '/') {
+        text.insert(text.begin(), '/');
+    }
     if (text.empty()) {
         return;
     }
@@ -2369,7 +2372,10 @@ void BinderModule::Impl::RegisterOutgoingGuard(std::string kind, std::string tex
 }
 
 bool BinderModule::Impl::ConsumeOutgoingGuard(std::string_view kind, std::string_view text) {
-    const std::string normalized = NormalizeActivationText(text);
+    std::string normalized = NormalizeActivationText(text);
+    if (kind == "command" && !normalized.empty() && normalized.front() != '/') {
+        normalized.insert(normalized.begin(), '/');
+    }
     if (normalized.empty()) {
         return false;
     }
@@ -2388,8 +2394,16 @@ std::string BinderModule::Impl::NormalizeActivationText(std::string_view text) c
 }
 
 bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::string_view command) const {
-    const std::string normalizedInput = NormalizeActivationText(input);
-    const std::string normalizedCommand = NormalizeActivationText(command);
+    const auto normalizeCommand = [&](std::string_view value) {
+        std::string normalized = NormalizeActivationText(value);
+        if (!normalized.empty() && normalized.front() != '/') {
+            normalized.insert(normalized.begin(), '/');
+        }
+        return normalized;
+    };
+
+    const std::string normalizedInput = normalizeCommand(input);
+    const std::string normalizedCommand = normalizeCommand(command);
     if (normalizedInput.empty() || normalizedCommand.empty()) {
         return false;
     }
@@ -2399,28 +2413,43 @@ bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::s
             || std::isspace(static_cast<unsigned char>(normalizedInput[normalizedCommand.size()])) != 0);
 }
 
-void BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
-    const std::string normalized = NormalizeActivationText(text);
-    if (normalized.empty() || ConsumeOutgoingGuard("command", normalized)) {
-        return;
+bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
+    std::string normalized = NormalizeActivationText(text);
+    if (!normalized.empty() && normalized.front() != '/') {
+        normalized.insert(normalized.begin(), '/');
+    }
+    if (normalized.empty()) {
+        return false;
     }
 
-    OnTextTriggerEvent(normalized, "outgoing_command");
+    const bool consumedGuard = ConsumeOutgoingGuard("command", normalized);
+    bool handled = false;
+    if (!consumedGuard) {
+        handled = OnTextTriggerEvent(normalized, "outgoing_command");
+    }
+
     const double now = static_cast<double>(GetTickCount64());
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
+        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
             continue;
         }
         if (!MatchesActivationCommand(normalized, hotkey.command)) {
+            continue;
+        }
+        if (std::any_of(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
+                return running.hotkeyIndex == static_cast<int>(i);
+            })) {
             continue;
         }
         if (now < hotkey.debounceUntilMs) {
             continue;
         }
         hotkey.debounceUntilMs = now + 40.0;
+        handled = true;
         TryEnqueueHotkey(static_cast<int>(i), 0, "command", normalized);
     }
+    return handled;
 }
 
 void BinderModule::Impl::OnOutgoingChat(const std::string& text) {
@@ -2523,8 +2552,9 @@ bool BinderModule::Impl::MatchTextTrigger(const std::string& source, const Hotke
     return normalizedSource == normalizedTarget;
 }
 
-void BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind) {
+bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind) {
     const double now = static_cast<double>(GetTickCount64());
+    bool handled = false;
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
         if (!hotkey.enabled || !MatchTextTrigger(sourceText, hotkey)) {
@@ -2535,6 +2565,7 @@ void BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
         }
 
         hotkey.debounceUntilMs = now + 40.0;
+        handled = true;
         if (hotkey.textConfirmation.enabled && !hotkey.waitingTextConfirmation && !hotkey.awaitingInput
             && !ConditionsBlock(hotkey.conditions, sampApi)) {
             hotkey.waitingTextConfirmation = true;
@@ -2555,6 +2586,7 @@ void BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
 
         TryEnqueueHotkey(static_cast<int>(i), 0, sourceKind, sourceText);
     }
+    return handled;
 }
 
 std::string BinderModule::Impl::ApplyInputValues(std::string text, const std::map<std::string, std::string>& values) const {
@@ -3931,7 +3963,7 @@ void BinderModule::Impl::DrawEditorInline() {
     const std::string previewLabel = std::string(kIconComment) + " " + ui.Text(UiText::EditorPreview);
     const std::string saveLabel = std::string(kIconSaveDisk) + " " + ui.Text(UiText::Save);
     const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
-    const ImVec2 startToggleSize = ScaleUi(34.0f, 24.0f);
+    const ImVec2 startToggleSize = ScaleUi(46.0f, 30.0f);
 
     const auto alignRight = [](float width) {
         const float startX = ImGui::GetCursorPosX();
@@ -4000,7 +4032,7 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::TableSetColumnIndex(1);
             const float conditionsButtonWidth = ScaleUi(116.0f);
             const float quickMenuButtonWidth = ScaleUi(134.0f);
-            const float previousButtonWidth = ScaleUi(136.0f);
+            const float previousButtonWidth = ScaleUi(148.0f);
             const float nextButtonWidth = ScaleUi(136.0f);
             const float headerActionWidth = conditionsButtonWidth + quickMenuButtonWidth + previousButtonWidth + nextButtonWidth
                 + itemSpacingX * 3.0f;
@@ -4082,7 +4114,15 @@ void BinderModule::Impl::DrawEditorInline() {
 
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextDisabled("%s", ui.Text(UiText::Command));
-                ImGui::Checkbox("##binder_editor_command_enabled", &editor.draft.commandEnabled);
+                const ImVec2 commandIconSize(ScaleUi(20.0f), ImGui::GetFrameHeight());
+                if (IconOnlyButton(
+                        kIconTerminal,
+                        "##binder_editor_command_enabled",
+                        ui.Text(UiText::Command),
+                        commandIconSize,
+                        editor.draft.commandEnabled)) {
+                    editor.draft.commandEnabled = !editor.draft.commandEnabled;
+                }
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 InputTextString("##binder_editor_command", editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
@@ -4179,14 +4219,23 @@ void BinderModule::Impl::DrawEditorInline() {
     const ImVec2 startPanelCursorRestore = ImGui::GetCursorScreenPos();
     ImGui::SetCursorScreenPos(ImVec2(
         std::floor(startPanelMin.x + (startPanelMax.x - startPanelMin.x - startToggleSize.x) * 0.5f),
-        std::floor(startPanelMin.y - startToggleSize.y * 0.35f)));
-    if (IconOnlyButton(
-            editor.startSectionCollapsed ? kIconAngleDown : kIconAngleUp,
-            "##binder_editor_toggle_start_section",
-            ui.Text(editor.startSectionCollapsed ? UiText::EditorExpandStartSection : UiText::EditorCollapseStartSection),
-            startToggleSize,
-            true,
-            ImGui::GetForegroundDrawList())) {
+        std::floor(startPanelMin.y - startToggleSize.y + ScaleUi(4.0f))));
+    const char* startToggleIcon = editor.startSectionCollapsed ? kIconAngleDown : kIconAngleUp;
+    const bool startToggleClicked = ImGui::InvisibleButton("##binder_editor_toggle_start_section", startToggleSize);
+    const bool startToggleHovered = ImGui::IsItemHovered();
+    const bool startToggleHeld = ImGui::IsItemActive();
+    const ImVec2 startToggleMin = ImGui::GetItemRectMin();
+    const ImVec2 startToggleMax = ImGui::GetItemRectMax();
+    const ImVec2 startToggleIconSize = ImGui::CalcTextSize(startToggleIcon);
+    ImVec2 startToggleIconPos(
+        std::floor(startToggleMin.x + (startToggleSize.x - startToggleIconSize.x) * 0.5f),
+        std::floor(startToggleMax.y - startToggleIconSize.y - ScaleUi(2.0f)));
+    ImGuiCol startToggleColor = (startToggleHovered || startToggleHeld) ? ImGuiCol_Text : ImGuiCol_TextDisabled;
+    ImGui::GetForegroundDrawList()->AddText(startToggleIconPos, ImGui::GetColorU32(startToggleColor), startToggleIcon);
+    if (startToggleHovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(editor.startSectionCollapsed ? UiText::EditorExpandStartSection : UiText::EditorCollapseStartSection));
+    }
+    if (startToggleClicked) {
         editor.startSectionCollapsed = !editor.startSectionCollapsed;
     }
     ImGui::SetCursorScreenPos(startPanelCursorRestore);

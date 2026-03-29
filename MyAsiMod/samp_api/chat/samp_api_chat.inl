@@ -267,22 +267,37 @@ SampApi::ChatEntry SampApi::pGetChatString(int index) {
 }
 
 bool SampApi::Set_ChatInputText(std::string_view text, bool openInput, bool alreadyDecoded) {
-    const auto address = GetAddress(main_offsets.CDXUTEditBox_SetText);
-    const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
-    if (address == 0 || editBox == 0) {
-        SetError("Chat input edit box is not available");
-        return false;
-    }
-
+    RefreshArizonaChatModule();
     std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
-    const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
 
-    if (!CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data())) {
-        SetError("Failed to set chat input text");
+    // Arizona's custom chat keeps its own ImGui input state. Opening the chat first
+    // matches the Lua implementation and gives the standard SAMP setter a chance to
+    // propagate through Arizona's hook/sync path before we fall back to raw buffer writes.
+    if (openInput && !pCInput_Open_Close(true)) {
         return false;
     }
 
-    if (openInput && !pCInput_Open_Close(true)) {
+    bool sampEditboxUpdated = false;
+    const auto address = GetAddress(main_offsets.CDXUTEditBox_SetText);
+    if (address != 0) {
+        const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
+        if (editBox != 0) {
+            const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
+            sampEditboxUpdated = CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data());
+        }
+    }
+
+    const bool hasArizonaChat = arizonaChatModuleBase_.load() != 0;
+    const bool arizonaChatUpdated = hasArizonaChat && WriteArizonaChatInputText(gameText);
+
+    if (!sampEditboxUpdated && !arizonaChatUpdated) {
+        if (hasArizonaChat && arizonaChatScanState_.load() == static_cast<int>(ArizonaChatScanState::Scanning)) {
+            SetError("Arizona chat signature scan is still in progress");
+        } else if (hasArizonaChat && arizonaChatScanState_.load() == static_cast<int>(ArizonaChatScanState::Failed)) {
+            SetError("Arizona chat input buffer was not found");
+        } else {
+            SetError("Failed to set chat input text");
+        }
         return false;
     }
 

@@ -110,6 +110,8 @@ void SampApi::Refresh() {
     if (sampModule_ && !versionResolved_) {
         DetectVersion();
     }
+
+    RefreshArizonaChatModule();
 }
 
 bool SampApi::isSampLoadedLua() {

@@ -136,7 +136,7 @@
     X(EditorTriggerHint, "Срабатывает, когда вы отправляете указанную фразу в чат или в виде команды.", "Triggers when you send the specified phrase to chat or as a command.") \
     X(EditorTriggerToggleHint, "Включить или выключить триггер по тексту.", "Enable or disable the text trigger.") \
     X(EditorTriggerPatternMode, "Режим шаблона", "Pattern mode") \
-    X(EditorTriggerExample, "Например: [Гг]олова, /head или !help", "For example: [Hh]ead, /head or !help") \
+    X(EditorTriggerExample, "Например: Голова, [Гг]олова, ^дом\\d+$", "For example: Head, [Hh]ead, ^house\\d+$") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
     X(EditorAddStep, "+ Добавить шаг", "+ Add step") \
     X(EditorDuplicateStep, "Дублировать шаг", "Duplicate step") \
