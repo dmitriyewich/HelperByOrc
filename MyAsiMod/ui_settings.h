@@ -123,6 +123,8 @@
     X(NewBindTitle, "Новый бинд", "New bind") \
     X(EditBindTitle, "Редактирование бинда", "Edit bind") \
     X(EditorStartSection, "Как запускается", "How it starts") \
+    X(EditorCollapseStartSection, "Скрыть блок запуска", "Hide launch block") \
+    X(EditorExpandStartSection, "Показать блок запуска", "Show launch block") \
     X(EditorScenarioTab, "Сценарий", "Scenario") \
     X(EditorMultiInputTab, "Мульти-ввод", "Multi-input") \
     X(EditorInputFieldsTab, "Поля ввода", "Input fields") \
@@ -131,8 +133,10 @@
     X(EditorPreviousBind, "Предыдущий бинд", "Previous bind") \
     X(EditorNextBind, "Следующий бинд", "Next bind") \
     X(EditorUnsaved, "Несохранённые изменения", "Unsaved changes") \
+    X(EditorTriggerHint, "Срабатывает, когда вы отправляете указанную фразу в чат или в виде команды.", "Triggers when you send the specified phrase to chat or as a command.") \
+    X(EditorTriggerToggleHint, "Включить или выключить триггер по тексту.", "Enable or disable the text trigger.") \
     X(EditorTriggerPatternMode, "Режим шаблона", "Pattern mode") \
-    X(EditorTriggerExample, "Например: [Гг]олова", "Example: [Hh]ead") \
+    X(EditorTriggerExample, "Например: [Гг]олова, /head или !help", "For example: [Hh]ead, /head or !help") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
     X(EditorAddStep, "+ Добавить шаг", "+ Add step") \
     X(EditorDuplicateStep, "Дублировать шаг", "Duplicate step") \

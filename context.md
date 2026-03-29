@@ -73,7 +73,7 @@
 
 ## Сборка
 - Использовать `MSBuild` только по этому пути:
-  - `C:\MicrosoftVisualStudio\Packages\MSBuild\Current\Bin\MSBuild.exe`
+  - `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe`
 - Не рассчитывать на `msbuild` из `PATH`.
 - Собирать из директории:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod`
@@ -81,7 +81,7 @@
 
 ```powershell
 cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
-& 'C:\MicrosoftVisualStudio\Packages\MSBuild\Current\Bin\MSBuild.exe' 'MyAsiMod.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'MyAsiMod.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
 ```
 
 - Ожидаемый выходной файл:
