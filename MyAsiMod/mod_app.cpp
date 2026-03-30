@@ -184,13 +184,36 @@ void ModApp::OnProcessAttach(HMODULE module) {
     UiSettings::Instance().Load();
     LoadShellState();
 
-    sampApi_.attachModules([](std::string_view text) { return std::string(text); });
+    tags_.SetSampApi(&sampApi_);
+    tags_.OnProcessAttach();
+    sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
+    sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
+        text = tags_.ExpandOutgoingText(text, "command", text);
+        return true;
+    });
+    sampHooks_.AddOnSendChatHandler([this](std::string& text) {
+        text = tags_.ExpandOutgoingText(text, "chat", text);
+        return true;
+    });
     sampRakHooks_.SetSampApi(&sampApi_);
+    sampRakHooks_.AddOnSendCommandHandler([this](std::string& text) {
+        if (!SampHooks::IsOutgoingInputTransformActive()) {
+            text = tags_.ExpandOutgoingText(text, "command", text);
+        }
+        return true;
+    });
+    sampRakHooks_.AddOnSendChatHandler([this](std::string& text) {
+        if (!SampHooks::IsOutgoingInputTransformActive()) {
+            text = tags_.ExpandOutgoingText(text, "chat", text);
+        }
+        return true;
+    });
     binder_.OnProcessAttach(module);
     binder_.SetSampApi(&sampApi_);
     binder_.SetSampHooks(&sampHooks_);
     binder_.SetSampRakHooks(&sampRakHooks_);
+    binder_.SetTagsModule(&tags_);
 
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
@@ -207,9 +230,10 @@ void ModApp::OnProcessAttach(HMODULE module) {
 }
 
 void ModApp::Shutdown() {
-    AppConfig::Instance().Shutdown();
     overlay_.Shutdown();
     binder_.Shutdown();
+    tags_.Shutdown();
+    AppConfig::Instance().Shutdown();
     overlayCursorMode_ = -1;
     overlayCursorEnabled_ = true;
     UpdateOverlayCursorMode();
@@ -554,17 +578,8 @@ void ModApp::DrawSmiHelperTab() const {
         ImVec4(0.75f, 0.90f, 1.0f, 1.0f));
 }
 
-void ModApp::DrawMiscTab() const {
-    const UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::TabMisc));
-    ImGui::TextWrapped("%s", ui.Text(UiText::MiscIntro));
-    ImGui::Spacing();
-
-    DrawSectionCard(
-        "misc_shell",
-        ui.Text(UiText::MiscShellTitle),
-        ui.Text(UiText::MiscShellDesc),
-        ImVec4(0.95f, 0.85f, 0.55f, 1.0f));
+void ModApp::DrawMiscTab() {
+    tags_.DrawMiscTab();
 }
 
 void ModApp::DrawNotepadTab() const {

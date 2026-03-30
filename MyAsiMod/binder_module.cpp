@@ -7,6 +7,7 @@
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
+#include "tags_module.h"
 #include "text_encoding.h"
 #include "ui_settings.h"
 
@@ -575,6 +576,9 @@ struct RunningBind {
     std::map<std::string, std::string> inputValues;
     std::size_t messageIndex = 0;
     double nextAtMs = 0.0;
+    std::string activationSource;
+    std::string activationText;
+    std::string bindCommand;
 };
 
 struct InputDialogField {
@@ -589,6 +593,9 @@ struct InputDialogState {
     int hotkeyIndex = -1;
     int startDelayMs = 0;
     std::vector<InputDialogField> fields;
+    std::string activationSource;
+    std::string activationText;
+    std::string bindCommand;
 };
 
 struct ButtonsTextParseStats {
@@ -1367,6 +1374,7 @@ struct BinderModule::Impl {
     SampApi* sampApi = nullptr;
     SampHooks* sampHooks = nullptr;
     SampRakHooks* sampRakHooks = nullptr;
+    TagsModule* tagsModule = nullptr;
 
     std::vector<std::unique_ptr<FolderNode>> folders{};
     std::vector<HotkeyEntry> hotkeys{};
@@ -1468,6 +1476,7 @@ struct BinderModule::Impl {
     void SetSampApi(SampApi* api);
     void SetSampHooks(SampHooks* hooks);
     void SetSampRakHooks(SampRakHooks* hooks);
+    void SetTagsModule(TagsModule* module);
     void ConnectHooks();
     FolderNode* EnsureRootFolder();
     HotkeyEntry MakeDefaultHotkey() const;
@@ -1658,6 +1667,10 @@ void BinderModule::Impl::SetSampHooks(SampHooks* hooks) {
 void BinderModule::Impl::SetSampRakHooks(SampRakHooks* hooks) {
     sampRakHooks = hooks;
     ConnectHooks();
+}
+
+void BinderModule::Impl::SetTagsModule(TagsModule* module) {
+    tagsModule = module;
 }
 
 void BinderModule::Impl::ConnectHooks() {
@@ -2535,7 +2548,18 @@ void BinderModule::Impl::ProcessRunningBinds() {
         const HotkeyMessage& message = hotkey.messages[running.messageIndex];
         const std::string finalText = ApplyInputValues(message.text, running.inputValues);
         if (!Trim(finalText).empty()) {
-            DoSend(finalText, message.method);
+            if (tagsModule) {
+                tagsModule->PushContext(TagsModule::EvaluationContext{
+                    sampApi,
+                    running.activationSource,
+                    running.activationText,
+                    running.bindCommand,
+                });
+                DoSend(finalText, message.method);
+                tagsModule->PopContext();
+            } else {
+                DoSend(finalText, message.method);
+            }
         }
 
         ++running.messageIndex;
@@ -2978,6 +3002,9 @@ bool BinderModule::Impl::TryEnqueueHotkey(
         InputDialogState dialog;
         dialog.hotkeyIndex = index;
         dialog.startDelayMs = startDelayMs;
+        dialog.activationSource = std::string(source);
+        dialog.activationText = sourceText;
+        dialog.bindCommand = hotkey.command;
         dialog.fields.reserve(hotkey.inputs.size());
         for (const HotkeyInput& input : hotkey.inputs) {
             InputDialogField field;
@@ -2998,6 +3025,9 @@ bool BinderModule::Impl::TryEnqueueHotkey(
         {},
         0,
         static_cast<double>(GetTickCount64() + std::max(startDelayMs, 0)),
+        std::string(source),
+        sourceText,
+        hotkey.command,
     });
     hotkey.awaitingInput = false;
     return true;
@@ -3008,6 +3038,10 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         return;
     }
 
+    const auto expandWithTags = [&](std::string_view source) {
+        return tagsModule ? tagsModule->ExpandText(source) : std::string(source);
+    };
+
     switch (method) {
     case 0: {
         const auto [messageText, color] = ParseLeadingChatColor(text);
@@ -3017,19 +3051,25 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         break;
     }
     case 1:
-        RegisterOutgoingGuard(!text.empty() && text.front() == '/' ? "command" : "chat", text);
-        RegisterOutgoingGuard("echo", NormalizeTriggerText(text));
+    {
+        const std::string expandedText = expandWithTags(text);
+        RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
+        RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
         if (!sampApi || !sampApi->process_chat_input(text, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
         break;
+    }
     case 2:
-        RegisterOutgoingGuard(!text.empty() && text.front() == '/' ? "command" : "chat", text);
-        RegisterOutgoingGuard("echo", NormalizeTriggerText(text));
+    {
+        const std::string expandedText = expandWithTags(text);
+        RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
+        RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
         if (!sampApi || !sampApi->send_chat(text, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
         break;
+    }
     case 4:
         if (!sampApi || !sampApi->Set_ChatInputText(text, true, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastInsertChatFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
@@ -3048,15 +3088,15 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         }
         break;
     case 7:
-        if (!SetClipboardUtf8Text(text)) {
+        if (!SetClipboardUtf8Text(expandWithTags(text))) {
             PushToast(UiSettings::Instance().Text(UiText::ToastClipboardFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
         break;
     case 8:
-        debuglog::Write("Binder log: %s", text.c_str());
+        debuglog::Write("Binder log: %s", expandWithTags(text).c_str());
         break;
     case 9:
-        PushToast(text, ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2200.0);
+        PushToast(expandWithTags(text), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2200.0);
         break;
     default:
         PushToast(
@@ -6051,6 +6091,14 @@ void BinderModule::Impl::DrawInputDialog() {
         for (std::size_t messageIndex = 0; messageIndex < hotkey.messages.size(); ++messageIndex) {
             const HotkeyMessage& message = hotkey.messages[messageIndex];
             std::string previewText = ApplyInputValues(message.text, values);
+            if (tagsModule) {
+                previewText = tagsModule->ExpandText(previewText, TagsModule::EvaluationContext{
+                                                                     sampApi,
+                                                                     inputDialog->activationSource,
+                                                                     inputDialog->activationText,
+                                                                     inputDialog->bindCommand,
+                                                                 });
+            }
             std::replace(previewText.begin(), previewText.end(), '\r', ' ');
             std::replace(previewText.begin(), previewText.end(), '\n', ' ');
             if (Trim(previewText).empty()) {
@@ -6201,6 +6249,9 @@ void BinderModule::Impl::DrawInputDialog() {
             std::move(values),
             0,
             static_cast<double>(GetTickCount64() + std::max(inputDialog->startDelayMs, 0)),
+            inputDialog->activationSource,
+            inputDialog->activationText,
+            inputDialog->bindCommand,
         });
         hotkey.awaitingInput = false;
         inputDialog.reset();
@@ -6353,6 +6404,10 @@ void BinderModule::SetSampHooks(SampHooks* sampHooks) {
 
 void BinderModule::SetSampRakHooks(SampRakHooks* sampRakHooks) {
     impl_->SetSampRakHooks(sampRakHooks);
+}
+
+void BinderModule::SetTagsModule(TagsModule* tagsModule) {
+    impl_->SetTagsModule(tagsModule);
 }
 
 void BinderModule::Tick() {

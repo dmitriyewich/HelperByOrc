@@ -14,7 +14,7 @@ bool SampApi::sampSetCurrentDialogEditboxTextFix(std::string_view newString, boo
         return false;
     }
 
-    std::string gameText = PrepareOutgoingText(newString, alreadyDecoded, false);
+    std::string gameText = PrepareOutgoingText(newString, alreadyDecoded, true);
     const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
 
     if (!CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data())) {
@@ -361,7 +361,7 @@ bool SampApi::sampSetDialogEditboxText(std::string_view text, bool alreadyDecode
         return false;
     }
 
-    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
+    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
     const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
 
     if (!CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data())) {

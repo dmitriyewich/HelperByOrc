@@ -78,6 +78,9 @@
     <ClCompile Include="samp_rak_hooks.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="tags_module.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="text_encoding.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -173,6 +176,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="samp_rak_hooks.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tags_module.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_encoding.h">

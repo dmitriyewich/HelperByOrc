@@ -33,6 +33,44 @@
     X(MiscIntro, "Служебные тесты, отладочные кнопки и логи убраны. Оставлена только пустая оболочка раздела.", "Service tests, debug buttons, and logs were removed. Only the empty shell of this section remains.") \
     X(MiscShellTitle, "Техническая вкладка", "Technical Tab") \
     X(MiscShellDesc, "Раздел готов для будущих утилит, но сейчас не содержит ни тестовых действий, ни диагностических панелей.", "This section is ready for future utilities, but currently contains no test actions or diagnostic panels.") \
+    X(MiscHomeIntro, "Во вкладке собраны отдельные служебные разделы. Нажмите на карточку нужного модуля, чтобы открыть его экран.", "This tab groups standalone utility sections. Click a module card to open its screen.") \
+    X(MiscVariablesEntryDesc, "Открывает каталог встроенных переменных, описание тегов и sandbox-предпросмотр для быстрой проверки.", "Opens the built-in variables catalog, tag descriptions, and a sandbox preview for quick checks.") \
+    X(MiscOpenSectionAction, "Открыть", "Open") \
+    X(TagsKindSimple, "Простая", "Simple") \
+    X(TagsKindFunction, "Функциональная", "Function") \
+    X(TagsBuiltinIdDescription, "Возвращает ваш локальный ID игрока через SampApi::Local_ID().", "Returns your local player ID via SampApi::Local_ID().") \
+    X(TagsBuiltinNickDescription, "Возвращает ваш текущий ник через GetNameID(Local_ID()).", "Returns your current nickname via GetNameID(Local_ID()).") \
+    X(TagsBuiltinNickFunctionDescription, "Возвращает ник игрока по указанному ID. Работает и в обычном чате, и в биндах.", "Returns a player's nickname for the specified ID. Works in regular chat and in binds.") \
+    X(TagsBuiltinParamcmdDescription, "Достаёт параметры из команды, которой был запущен бинд. Поддерживает селекторы 1, 1+, 3-, 2-4.", "Extracts arguments from the command that launched the bind. Supports selectors like 1, 1+, 3-, and 2-4.") \
+    X(MiscVariablesTitle, "Переменные", "Variables") \
+    X(MiscVariablesIntro, "Отдельный модуль переменных живёт в общем HelperByOrc.json и даёт основу для будущего тегового движка. Сейчас доступны {id}, {nick}, [nick(...)] и binder-специфичная [paramcmd(...)].", "The variables module lives in the shared HelperByOrc.json and lays the groundwork for the future tag engine. Right now it exposes {id}, {nick}, [nick(...)], and the binder-specific [paramcmd(...)].") \
+    X(MiscVariablesCardTitle, "Каталог переменных", "Variables Catalog") \
+    X(MiscVariablesCardDesc, "Экран показывает встроенные и пользовательские переменные, их тип, описание и быстрый sandbox-предпросмотр без запуска бинда.", "This screen shows built-in and custom variables, their type, description, and a quick sandbox preview without launching a bind.") \
+    X(MiscVariablesBuiltinsLabel, "Встроенных", "Built-ins") \
+    X(MiscVariablesSimpleLabel, "Простых", "Simple") \
+    X(MiscVariablesFunctionLabel, "Функциональных", "Function") \
+    X(MiscVariablesCustomLabel, "Пользовательских", "Custom") \
+    X(MiscVariablesConfigLabel, "Секция конфига", "Config section") \
+    X(MiscVariablesCatalogTitle, "Список тегов", "Tag Catalog") \
+    X(MiscVariablesSearchHint, "Поиск по токену или описанию", "Search by token or description") \
+    X(MiscVariablesCatalogEmpty, "По запросу ничего не найдено.", "No tags matched the query.") \
+    X(MiscVariablesInspectorTitle, "Карточка тега", "Tag Card") \
+    X(MiscVariablesInspectorEmpty, "Выберите тег слева, чтобы увидеть описание и пример.", "Select a tag on the left to view its description and example.") \
+    X(MiscVariablesDescriptionLabel, "Описание", "Description") \
+    X(MiscVariablesExampleLabel, "Пример", "Example") \
+    X(MiscVariablesCopyToken, "Скопировать токен", "Copy token") \
+    X(MiscVariablesCopyExample, "Скопировать пример", "Copy example") \
+    X(MiscVariablesParamcmdNote, "[paramcmd(...)] работает только если бинд был запущен именно командой. Аргументы делятся по пробелам, как в Lua-версии.", "[paramcmd(...)] only works when the bind was launched by a command. Arguments are split by spaces, matching the Lua version.") \
+    X(MiscVariablesPreviewTitle, "Sandbox", "Sandbox") \
+    X(MiscVariablesPreviewHint, "Здесь можно быстро проверить, как строка раскроется через текущий движок переменных.", "Use this sandbox to quickly test how a string expands through the current variables engine.") \
+    X(MiscVariablesTemplateLabel, "Шаблон", "Template") \
+    X(MiscVariablesPreviewLaunchManual, "Обычный запуск", "Regular launch") \
+    X(MiscVariablesPreviewLaunchCommand, "Запуск командой", "Command launch") \
+    X(MiscVariablesPreviewSourceLabel, "Источник запуска", "Launch source") \
+    X(MiscVariablesPreviewBindCommandLabel, "Команда бинда", "Bind command") \
+    X(MiscVariablesPreviewCommandTextLabel, "Введённая команда", "Entered command") \
+    X(MiscVariablesPreviewResultLabel, "Результат", "Result") \
+    X(MiscVariablesPreviewEmpty, "Результат пустой.", "The result is empty.") \
     X(NotepadIntro, "Вкладка оставлена как пустая оболочка. При необходимости сюда можно вернуть заметки или встроенный редактор текста.", "The tab is kept as an empty shell. Notes or an embedded text editor can be restored here later if needed.") \
     X(SettingsIntro, "Здесь настраиваются язык интерфейса, автоматический масштаб под разрешение экрана, пользовательский множитель масштаба и параметры быстрого меню.", "Configure interface language, automatic scaling for screen resolution, a custom scale multiplier, and quick menu settings here.") \
     X(GtaVersionFormat, "Версия GTA: %s", "GTA version: %s") \

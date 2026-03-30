@@ -11,16 +11,25 @@ class SampApi;
 class SampHooks {
 public:
     using ChatMessageHandler = std::function<void(int, const std::string&, const std::string&, std::uint32_t, std::uint32_t)>;
+    using SendCommandHandler = std::function<bool(std::string&)>;
+    using SendChatHandler = std::function<bool(std::string&)>;
 
     void SetSampApi(SampApi* sampApi);
     void Refresh();
     void Shutdown();
 
     bool IsInstalled() const;
+    static bool IsOutgoingInputTransformActive();
+    static void PushOutgoingInputTransform();
+    static void PopOutgoingInputTransform();
     const std::string& statusText() const;
     std::vector<std::string> GetRecentLog() const;
     void AddOnChatMessageHandler(ChatMessageHandler handler);
+    void AddOnSendCommandHandler(SendCommandHandler handler);
+    void AddOnSendChatHandler(SendChatHandler handler);
     void onChatMessage(ChatMessageHandler handler) { AddOnChatMessageHandler(std::move(handler)); }
+    void onSendCommand(SendCommandHandler handler) { AddOnSendCommandHandler(std::move(handler)); }
+    void onSendChat(SendChatHandler handler) { AddOnSendChatHandler(std::move(handler)); }
 
 private:
     using ChatAddEntryFn = void(__thiscall*)(void*, int, const char*, const char*, unsigned long, unsigned long);
@@ -42,6 +51,7 @@ private:
     static bool __fastcall ApplyDamageDetour(std::uintptr_t self, void* edx, std::uintptr_t car, int component, float intensity, float arg3);
 
     static inline SampHooks* self_ = nullptr;
+    static inline thread_local int outgoingInputTransformDepth_ = 0;
 
     SampApi* sampApi_ = nullptr;
     bool installed_ = false;
@@ -49,6 +59,8 @@ private:
     mutable std::mutex logMutex_;
     std::vector<std::string> recentLog_;
     std::vector<ChatMessageHandler> onChatMessageHandlers_;
+    std::vector<SendCommandHandler> onSendCommandHandlers_;
+    std::vector<SendChatHandler> onSendChatHandlers_;
 
     void* chatAddEntryTarget_ = nullptr;
     void* dialogShowTarget_ = nullptr;

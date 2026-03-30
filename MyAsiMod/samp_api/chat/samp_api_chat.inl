@@ -146,7 +146,7 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
         return false;
     }
 
-    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
+    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
     if (gameText.empty()) {
         SetError("Chat text is empty after conversion");
         return false;
@@ -203,7 +203,7 @@ bool SampApi::process_chat_input(std::string_view text, bool alreadyDecoded) {
         return false;
     }
 
-    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
+    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
     if (gameText.empty()) {
         SetError("Chat text is empty after conversion");
         return false;

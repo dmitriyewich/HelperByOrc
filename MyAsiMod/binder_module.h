@@ -10,6 +10,7 @@
 class SampApi;
 class SampHooks;
 class SampRakHooks;
+class TagsModule;
 
 class BinderModule {
 public:
@@ -25,6 +26,7 @@ public:
     void SetSampApi(SampApi* sampApi);
     void SetSampHooks(SampHooks* sampHooks);
     void SetSampRakHooks(SampRakHooks* sampRakHooks);
+    void SetTagsModule(TagsModule* tagsModule);
 
     void Tick();
     void Shutdown();

@@ -15,6 +15,16 @@ namespace {
 constexpr std::size_t kMaxLogEntries = 64;
 constexpr std::uintptr_t kDamageManagerApplyDamageAddress = 0x6C24B0;
 
+struct OutgoingInputTransformScope {
+    OutgoingInputTransformScope() {
+        SampHooks::PushOutgoingInputTransform();
+    }
+
+    ~OutgoingInputTransformScope() {
+        SampHooks::PopOutgoingInputTransform();
+    }
+};
+
 } // namespace
 
 void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor) {
@@ -75,24 +85,50 @@ void __fastcall SampHooks::DialogCloseDetour(std::uintptr_t self, void* edx, cha
 void __fastcall SampHooks::InputSendDetour(std::uintptr_t self, void* edx, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const char* forwardedText = text;
+    std::string textUtf8;
+    std::string textGame;
+
     if (SampHooks::self_ && SampHooks::self_->installed_) {
-        SampHooks::self_->AppendLog("CInput_Send text=%s", Truncate(textencoding::GameToUtf8(text ? text : ""), 96).c_str());
+        textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        SampHooks::self_->AppendLog("CInput_Send text=%s", Truncate(textUtf8, 96).c_str());
+        for (const auto& handler : SampHooks::self_->onSendCommandHandlers_) {
+            if (!handler(textUtf8)) {
+                return;
+            }
+        }
+        textGame = textencoding::Utf8ToGame(textUtf8);
+        forwardedText = textGame.c_str();
     }
 
     if (SampHooks::self_ && SampHooks::self_->inputSendOriginal_) {
-        SampHooks::self_->inputSendOriginal_(self, text);
+        const OutgoingInputTransformScope scope;
+        SampHooks::self_->inputSendOriginal_(self, forwardedText);
     }
 }
 
 void __fastcall SampHooks::InputSendSayDetour(std::uintptr_t self, void* edx, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const char* forwardedText = text;
+    std::string textUtf8;
+    std::string textGame;
+
     if (SampHooks::self_ && SampHooks::self_->installed_) {
-        SampHooks::self_->AppendLog("CInput_SendSay text=%s", Truncate(textencoding::GameToUtf8(text ? text : ""), 96).c_str());
+        textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        SampHooks::self_->AppendLog("CInput_SendSay text=%s", Truncate(textUtf8, 96).c_str());
+        for (const auto& handler : SampHooks::self_->onSendChatHandlers_) {
+            if (!handler(textUtf8)) {
+                return;
+            }
+        }
+        textGame = textencoding::Utf8ToGame(textUtf8);
+        forwardedText = textGame.c_str();
     }
 
     if (SampHooks::self_ && SampHooks::self_->inputSendSayOriginal_) {
-        SampHooks::self_->inputSendSayOriginal_(self, text);
+        const OutgoingInputTransformScope scope;
+        SampHooks::self_->inputSendSayOriginal_(self, forwardedText);
     }
 }
 
@@ -161,8 +197,32 @@ void SampHooks::AddOnChatMessageHandler(ChatMessageHandler handler) {
     }
 }
 
+void SampHooks::AddOnSendCommandHandler(SendCommandHandler handler) {
+    if (handler) {
+        onSendCommandHandlers_.push_back(std::move(handler));
+    }
+}
+
+void SampHooks::AddOnSendChatHandler(SendChatHandler handler) {
+    if (handler) {
+        onSendChatHandlers_.push_back(std::move(handler));
+    }
+}
+
 bool SampHooks::IsInstalled() const {
     return installed_;
+}
+
+bool SampHooks::IsOutgoingInputTransformActive() {
+    return outgoingInputTransformDepth_ > 0;
+}
+
+void SampHooks::PushOutgoingInputTransform() {
+    ++outgoingInputTransformDepth_;
+}
+
+void SampHooks::PopOutgoingInputTransform() {
+    --outgoingInputTransformDepth_;
 }
 
 const std::string& SampHooks::statusText() const {

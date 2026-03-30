@@ -13,6 +13,7 @@
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
+#include "tags_module.h"
 
 enum class MainTab : std::uint8_t {
     Home = 0,
@@ -52,7 +53,7 @@ private:
     void DrawHomeTab() const;
     void DrawBinderTab() const;
     void DrawSmiHelperTab() const;
-    void DrawMiscTab() const;
+    void DrawMiscTab();
     void DrawNotepadTab() const;
     void DrawSettingsTab();
 
@@ -77,4 +78,5 @@ private:
     SampHooks sampHooks_{};
     SampRakHooks sampRakHooks_{};
     BinderModule binder_{};
+    TagsModule tags_{};
 };

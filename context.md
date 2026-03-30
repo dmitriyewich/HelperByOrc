@@ -31,11 +31,12 @@
   - `imgui_overlay` для D3D9/ImGui overlay.
 - `hotkey_utils` для общей hotkey-логики (`normalize/match/capture/conflict basis`) между `imgui_overlay` и `binder_module`.
   - UI захвата комбинаций тоже должен быть общим: все настройки hotkey в интерфейсе открываются через единый popup из `hotkey_utils`, а не через отдельные inline/popup-реализации по модулям.
-  - `mod_app` для UI-оболочки и жизненного цикла.
-  - `samp_api` для нативного доступа к SA:MP.
-  - `samp_hooks` для обычных SA:MP hooks.
-  - `samp_rak_hooks` для RakNet hooks и RPC/packet interception.
-  - `text_encoding` для конвертации строк между внутренним `UTF-8` и игровой кодировкой.
+- `mod_app` для UI-оболочки и жизненного цикла.
+- `samp_api` для нативного доступа к SA:MP.
+- `samp_hooks` для обычных SA:MP hooks.
+- `samp_rak_hooks` для RakNet hooks и RPC/packet interception.
+- `tags_module` для отдельного нативного движка переменных/тегов и его UI во вкладке `Прочее`.
+- `text_encoding` для конвертации строк между внутренним `UTF-8` и игровой кодировкой.
 - В активной сборке есть `MinHook`-обвязка:
   - `MyAsiMod/minhook_utils.h`
 - Архивный `_thirdparty/RakLua` не является частью активной сборки `MyAsiMod.vcxproj` и может содержать старые ссылки на `kthook`.
@@ -106,12 +107,15 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   - `schema_version`: версия схемы общего конфига.
   - `ui`: настройки интерфейса и локализации.
   - `binder`: данные биндер-модуля.
+  - `tags`: данные отдельного модуля переменных/тегов.
 - Текущее ожидаемое содержимое секции `ui`:
   - `language`: `ru` или `en`.
   - `auto_scale`: `true/false`.
   - `scale_multiplier`: пользовательский множитель масштаба.
   - `open_menu_hotkey`: массив virtual-key кодов для открытия главного окна, по умолчанию `Ctrl + Z`.
 - Секция `binder` хранит состояние биндов, папок, хоткеев, quick menu и других binder-данных.
+- Секция `tags` зарезервирована под нативный модуль переменных/тегов; текущая минимальная форма:
+  - `custom_vars`: объект пользовательских переменных `name -> value`.
 - Пример актуальной формы:
 
 ```json
@@ -124,6 +128,9 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
     "open_menu_hotkey": [17, 90]
   },
   "binder": {
+  },
+  "tags": {
+    "custom_vars": {}
   }
 }
 ```

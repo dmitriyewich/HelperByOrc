@@ -128,6 +128,7 @@
     <ClCompile Include="samp_api.cpp" />
     <ClCompile Include="samp_hooks.cpp" />
     <ClCompile Include="samp_rak_hooks.cpp" />
+    <ClCompile Include="tags_module.cpp" />
     <ClCompile Include="text_encoding.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="external\raknet\BitStream.cpp" />
@@ -172,6 +173,7 @@
     <ClInclude Include="samp_api\raknet\samp_api_raknet.inl" />
     <ClInclude Include="samp_hooks.h" />
     <ClInclude Include="samp_rak_hooks.h" />
+    <ClInclude Include="tags_module.h" />
     <ClInclude Include="text_encoding.h" />
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="external\MinHook\include\MinHook.h" />
