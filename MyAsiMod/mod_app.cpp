@@ -24,6 +24,7 @@ constexpr float kWindowMargin = 12.0f;
 constexpr int kSampCursorModeNone = 0;
 constexpr int kSampCursorModeLockCamAndControl = 2;
 constexpr int kSampCursorModeLockCam = 3;
+constexpr std::string_view kShellSectionName = "shell";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
 constexpr char kIconHouse[] = "\xEF\xA0\x8C";
@@ -181,6 +182,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     minHookInitialized_ = minhook::Initialize();
     AppConfig::Instance().OnProcessAttach(module);
     UiSettings::Instance().Load();
+    LoadShellState();
 
     sampApi_.attachModules([](std::string_view text) { return std::string(text); });
     sampHooks_.SetSampApi(&sampApi_);
@@ -352,6 +354,36 @@ void ModApp::ApplyMainStyle(float scale) const {
     colors[ImGuiCol_NavWindowingHighlight] = ImVec4(0.47f, 0.60f, 0.80f, 0.70f);
     colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.15f, 0.18f, 0.22f, 0.20f);
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.15f, 0.18f, 0.22f, 0.70f);
+}
+
+void ModApp::LoadShellState() {
+    const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kShellSectionName);
+    sidebarCollapsed_ = jsonutil::JsonBoolOr(&section, "sidebar_collapsed", false);
+}
+
+void ModApp::QueueShellStateSave() const {
+    const bool sidebarCollapsed = sidebarCollapsed_;
+    AppConfig::Instance().QueueMutation([sidebarCollapsed](jsonutil::JsonObject& root) {
+        jsonutil::JsonObject section;
+        const auto existing = root.find(std::string(kShellSectionName));
+        if (existing != root.end()) {
+            if (const jsonutil::JsonObject* object = existing->second.TryObject()) {
+                section = *object;
+            }
+        }
+
+        section["sidebar_collapsed"] = sidebarCollapsed;
+        root[std::string(kShellSectionName)] = jsonutil::JsonValue(std::move(section));
+    });
+}
+
+void ModApp::SetSidebarCollapsed(bool collapsed) {
+    if (sidebarCollapsed_ == collapsed) {
+        return;
+    }
+
+    sidebarCollapsed_ = collapsed;
+    QueueShellStateSave();
 }
 
 void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
@@ -719,6 +751,26 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
                 ImGui::TextUnformatted(
                     UiSettings::Instance().Text(sidebarCollapsed_ ? UiText::AppBrandCompact : UiText::AppBrand));
             }
+
+            const char* toggleIcon = sidebarCollapsed_ ? ">" : "<";
+            const float toggleSide = std::min(Scale(18.0f), std::max(Scale(14.0f), logoSize - Scale(10.0f)));
+            const float togglePad = Scale(4.0f);
+            const ImVec2 togglePos(
+                std::max(0.0f, sidebarWidth - toggleSide - togglePad),
+                togglePad);
+            ImGui::SetCursorPos(togglePos);
+            ImGui::InvisibleButton("##sidebar_toggle", ImVec2(toggleSide, toggleSide));
+            const bool toggleHovered = ImGui::IsItemHovered();
+            const bool togglePressed = ImGui::IsItemClicked();
+            const ImVec2 toggleMin = ImGui::GetItemRectMin();
+            const ImVec2 toggleTextSize = ImGui::CalcTextSize(toggleIcon);
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(toggleMin.x + (toggleSide - toggleTextSize.x) * 0.5f, toggleMin.y + (toggleSide - toggleTextSize.y) * 0.5f),
+                ImGui::GetColorU32(toggleHovered ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled]),
+                toggleIcon);
+            if (togglePressed) {
+                SetSidebarCollapsed(!sidebarCollapsed_);
+            }
         }
         ImGui::EndChild();
 
@@ -726,29 +778,6 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
             DrawAnimatedMenu(sidebarWidth);
         }
         ImGui::EndChild();
-
-        const char* toggleIcon = sidebarCollapsed_ ? ">" : "<";
-        const float toggleWidth = titleHeight - Scale(8.0f);
-        const float toggleHeight = titleHeight - Scale(8.0f);
-        const float toggleX = winPos.x + pad.x + sidebarWidth - toggleWidth - Scale(2.0f);
-        const float toggleY = winPos.y + pad.y + titleHeight + Scale(6.0f);
-        const ImVec2 savedCursor = ImGui::GetCursorPos();
-
-        ImGui::SetCursorScreenPos(ImVec2(toggleX, toggleY));
-        ImGui::InvisibleButton("##sidebar_toggle", ImVec2(toggleWidth, toggleHeight));
-        const bool toggleHovered = ImGui::IsItemHovered();
-        const bool togglePressed = ImGui::IsItemClicked();
-        const ImVec2 toggleMin = ImGui::GetItemRectMin();
-        const ImVec2 toggleTextSize = ImGui::CalcTextSize(toggleIcon);
-        draw->AddText(
-            ImVec2(toggleMin.x + (toggleWidth - toggleTextSize.x) * 0.5f, toggleMin.y + (toggleHeight - toggleTextSize.y) * 0.5f),
-            ImGui::GetColorU32(toggleHovered ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled]),
-            toggleIcon);
-        if (togglePressed) {
-            sidebarCollapsed_ = !sidebarCollapsed_;
-        }
-        ImGui::SetCursorPos(savedCursor);
-        ImGui::Dummy(ImVec2(0.0f, 0.0f));
         ImGui::EndGroup();
 
         ImGui::SameLine();

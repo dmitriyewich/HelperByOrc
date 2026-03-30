@@ -530,20 +530,6 @@ void hotkeys::ResetCapturePopupState(CapturePopupState& state) {
 void hotkeys::OpenCapturePopupCenteredOnCurrentWindow(CapturePopupState& state) {
     state.openPending = true;
     state.hasAnchor = false;
-
-    ImGuiContext* context = ImGui::GetCurrentContext();
-    if (!context || !context->CurrentWindow) {
-        return;
-    }
-
-    ImGuiWindow* anchorWindow = context->CurrentWindow->RootWindow ? context->CurrentWindow->RootWindow : context->CurrentWindow;
-    if (!anchorWindow || anchorWindow->Size.x <= 0.0f || anchorWindow->Size.y <= 0.0f) {
-        return;
-    }
-
-    state.anchorX = anchorWindow->Pos.x + anchorWindow->Size.x * 0.5f;
-    state.anchorY = anchorWindow->Pos.y + anchorWindow->Size.y * 0.5f;
-    state.hasAnchor = true;
 }
 
 bool hotkeys::DrawCapturePopupModal(
@@ -552,6 +538,7 @@ bool hotkeys::DrawCapturePopupModal(
     Capture& capture,
     const CapturePopupApplyCallback& applyCapture,
     bool canSave,
+    HotkeyMode displayMode,
     const CapturePopupExtraUiCallback& extraUi,
     const CapturePopupCancelCallback& cancelCapture) {
     if (state.openPending) {
@@ -577,7 +564,7 @@ bool hotkeys::DrawCapturePopupModal(
 
     UiSettings& ui = UiSettings::Instance();
     ImGui::TextWrapped("%s", ui.Text(UiText::CapturePrompt));
-    ImGui::Text("%s", ui.Format(UiText::CurrentCombinationFormat, ToString(capture.Draft()).c_str()).c_str());
+    ImGui::Text("%s", ui.Format(UiText::CurrentCombinationFormat, ToString(capture.Draft(), displayMode).c_str()).c_str());
     if (capture.MouseCaptureArmed()) {
         ImGui::TextDisabled("%s", ui.Text(UiText::WaitingMouseButton));
     }

@@ -178,6 +178,7 @@ void ImGuiOverlay::DrawMenuToggleHotkeyCapturePopup() {
         menuToggleHotkeyCapture_,
         [this](const std::vector<UINT>& keys) { return ApplyMenuToggleHotkeyCapture(keys); },
         canSave,
+        HotkeyMode::ModifierTrigger,
         [&](const std::vector<UINT>&) {
             if (hotkeyConflict.empty()) {
                 return;

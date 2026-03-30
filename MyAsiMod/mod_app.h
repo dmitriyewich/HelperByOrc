@@ -42,6 +42,9 @@ private:
     void Tick();
     void RenderUi(IDirect3DDevice9* device);
     void ApplyMainStyle(float scale) const;
+    void LoadShellState();
+    void QueueShellStateSave() const;
+    void SetSidebarCollapsed(bool collapsed);
     void EnsureLogoTexture(IDirect3DDevice9* device);
     void ReleaseUiResources();
     MainTab DrawAnimatedMenu(float width);

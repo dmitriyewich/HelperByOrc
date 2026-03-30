@@ -90,6 +90,7 @@ bool DrawCapturePopupModal(
     Capture& capture,
     const CapturePopupApplyCallback& applyCapture,
     bool canSave = true,
+    HotkeyMode displayMode = HotkeyMode::ModifierTrigger,
     const CapturePopupExtraUiCallback& extraUi = {},
     const CapturePopupCancelCallback& cancelCapture = {});
 

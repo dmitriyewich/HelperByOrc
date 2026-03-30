@@ -5576,6 +5576,9 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
         return;
     }
 
+    const HotkeyMode captureDisplayMode =
+        captureTarget == CaptureTarget::BindHotkey && editor.active ? editor.draft.hotkeyMode : HotkeyMode::ModifierTrigger;
+
     hotkeys::DrawCapturePopupModal(
         "##binder_capture_popup",
         capturePopupState,
@@ -5588,6 +5591,7 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
             return false;
         },
         true,
+        captureDisplayMode,
         {},
         [this]() {
             captureTarget = CaptureTarget::None;
