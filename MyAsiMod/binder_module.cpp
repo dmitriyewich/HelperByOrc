@@ -2811,6 +2811,12 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         break;
     }
     case 1:
+        RegisterOutgoingGuard(!text.empty() && text.front() == '/' ? "command" : "chat", text);
+        RegisterOutgoingGuard("echo", NormalizeTriggerText(text));
+        if (!sampApi || !sampApi->process_chat_input(text, true)) {
+            PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+        }
+        break;
     case 2:
         RegisterOutgoingGuard(!text.empty() && text.front() == '/' ? "command" : "chat", text);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(text));

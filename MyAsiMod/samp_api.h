@@ -94,6 +94,7 @@ public:
         VersionedOffset PageSize_StringInfo;
         VersionedOffset CInput_Send;
         VersionedOffset CInput_SendSay;
+        VersionedOffset CInput_ProcessInput;
         VersionedOffset GetName;
         VersionedOffset SAMP_SLOCALPLAYERID_OFFSET;
         VersionedOffset SAMP_INFO_OFFSET_Pools;
@@ -258,6 +259,7 @@ public:
     HealthAndArmour GetHealthAndArmour(int id);
     bool send_chat_internal(std::string_view text, bool alreadyDecoded = false);
     bool send_chat(std::string_view text, bool alreadyDecoded = false);
+    bool process_chat_input(std::string_view text, bool alreadyDecoded = false);
     bool memoryAddMessageSamp(std::string_view text, std::uint32_t color, bool alreadyDecoded = false);
     ChatEntry pGetChatString(int index);
     bool Set_ChatInputText(std::string_view text, bool openInput = false, bool alreadyDecoded = false);
@@ -313,6 +315,7 @@ private:
     std::atomic<std::uintptr_t> arizonaChatModuleBase_{ 0 };
     std::atomic<std::uintptr_t> arizonaChatStringObject_{ 0 };
     std::atomic<std::uintptr_t> arizonaChatDirtyFlag_{ 0 };
+    std::atomic<std::uintptr_t> arizonaChatProcessInput_{ 0 };
     std::atomic<std::uint32_t> arizonaChatScanTicket_{ 0 };
     std::atomic<int> arizonaChatScanState_{ 0 };
 };

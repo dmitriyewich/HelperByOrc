@@ -193,6 +193,95 @@ bool SampApi::send_chat(std::string_view text, bool alreadyDecoded) {
     return send_chat_internal(text, alreadyDecoded);
 }
 
+bool SampApi::process_chat_input(std::string_view text, bool alreadyDecoded) {
+    if (text.empty()) {
+        SetError("Chat text is empty");
+        return false;
+    }
+
+    if (!isSAMPInitilizeLua()) {
+        return false;
+    }
+
+    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
+    if (gameText.empty()) {
+        SetError("Chat text is empty after conversion");
+        return false;
+    }
+
+    RefreshArizonaChatModule();
+    if (arizonaChatModuleBase_.load() != 0) {
+        const auto scanState = static_cast<ArizonaChatScanState>(arizonaChatScanState_.load());
+        if (scanState == ArizonaChatScanState::Idle || scanState == ArizonaChatScanState::Scanning) {
+            SetError("Arizona chat signature scan is still in progress");
+            return false;
+        }
+        if (scanState == ArizonaChatScanState::Failed) {
+            SetError("Arizona chat input buffer was not found");
+            return false;
+        }
+
+        if (!WriteArizonaChatInputText(gameText)) {
+            SetError("Failed to set Arizona chat input text");
+            return false;
+        }
+
+        const auto arizonaProcessInputAddr = arizonaChatProcessInput_.load();
+        if (arizonaProcessInputAddr == 0) {
+            SetError("Arizona chat process input routine is not available");
+            return false;
+        }
+
+        const auto arizonaProcessInput = reinterpret_cast<ArizonaProcessInputFn>(arizonaProcessInputAddr);
+        if (!CallArizonaProcessInput(arizonaProcessInput, 1)) {
+            SetError("Failed to call Arizona chat process input");
+            return false;
+        }
+
+        ClearError();
+        return true;
+    }
+
+    const auto processInputAddr = GetAddress(main_offsets.CInput_ProcessInput);
+    if (processInputAddr == 0) {
+        SetError("CInput::ProcessInput is not available");
+        return false;
+    }
+
+    const auto setTextAddr = GetAddress(main_offsets.CDXUTEditBox_SetText);
+    if (setTextAddr == 0) {
+        SetError("CDXUTEditBox::SetText is not available");
+        return false;
+    }
+
+    const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
+    if (editBox == 0) {
+        SetError("SAMP chat edit box is not available");
+        return false;
+    }
+
+    const auto setText = reinterpret_cast<SetEditboxTextFn>(setTextAddr);
+    if (!CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data())) {
+        SetError("Failed to set chat input text");
+        return false;
+    }
+
+    std::uint32_t input = 0;
+    if (!ResolveChatInput(input) || input == 0) {
+        SetError("SAMP chat input pointer is null");
+        return false;
+    }
+
+    const auto processInput = reinterpret_cast<ProcessInputFn>(processInputAddr);
+    if (!CallProcessInput(processInput, reinterpret_cast<void*>(input))) {
+        SetError("Failed to call CInput::ProcessInput");
+        return false;
+    }
+
+    ClearError();
+    return true;
+}
+
 bool SampApi::memoryAddMessageSamp(std::string_view text, std::uint32_t color, bool alreadyDecoded) {
     if (!isSAMPInitilizeLua()) {
         return false;

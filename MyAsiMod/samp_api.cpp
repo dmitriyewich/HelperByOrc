@@ -30,6 +30,8 @@ using SetCursorModeFn = char*(__thiscall*)(void*, int, bool);
 using DialogCloseFn = void(__thiscall*)(void*, int);
 using InputOpenCloseFn = void(__thiscall*)(void*);
 using SendInputFn = void(__thiscall*)(void*, const char*);
+using ProcessInputFn = void(__thiscall*)(void*);
+using ArizonaProcessInputFn = void(__cdecl*)(std::uint32_t);
 using AddChatMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 
@@ -263,6 +265,61 @@ std::uintptr_t FindPatternMasked(
     return 0;
 }
 
+bool MatchPatternMasked(std::uintptr_t address, const std::uint8_t* pattern, const char* mask, std::size_t patternSize) {
+    if (address == 0 || patternSize == 0 || !pattern || !mask || !IsReadableMemory(address, patternSize)) {
+        return false;
+    }
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(address);
+    for (std::size_t i = 0; i < patternSize; ++i) {
+        if (mask[i] == 'x' && bytes[i] != pattern[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::uintptr_t ResolveRelativeCallTarget(std::uintptr_t instruction) {
+    std::int32_t displacement = 0;
+    if (instruction == 0 || !SafeRead(instruction + 1, displacement)) {
+        return 0;
+    }
+
+    const auto next = static_cast<std::intptr_t>(instruction + 5);
+    return static_cast<std::uintptr_t>(next + displacement);
+}
+
+bool IsAddressInImage(std::uintptr_t address, const ModuleImageInfo& image, std::size_t size = 1) {
+    return address >= image.base && size <= image.size && address - image.base <= image.size - size;
+}
+
+bool IsValidArizonaChatProcessInputCandidate(
+    std::uintptr_t candidate,
+    const ModuleImageInfo& image,
+    std::uintptr_t stringObject) {
+    if (!IsAddressInImage(candidate, image, 51)) {
+        return false;
+    }
+
+    std::array<std::uint8_t, 51> validation = {
+        0x6A, 0x1C, 0xB8, 0x00, 0x00, 0x00, 0x00,
+        0xE8, 0x00, 0x00, 0x00, 0x00,
+        0x33, 0xDB, 0x39, 0x1D, 0x00, 0x00, 0x00, 0x00,
+        0x0F, 0x84, 0x00, 0x00, 0x00, 0x00,
+        0xE8, 0x00, 0x00, 0x00, 0x00,
+        0xE8, 0x00, 0x00, 0x00, 0x00,
+        0xBE, 0x00, 0x00, 0x00, 0x00,
+        0x38, 0x5D, 0x08, 0x74, 0x09, 0xE8,
+        0x00, 0x00, 0x00, 0x00
+    };
+    const auto stringObject32 = static_cast<std::uint32_t>(stringObject);
+    std::memcpy(validation.data() + 37, &stringObject32, sizeof(stringObject32));
+
+    constexpr char kValidationMask[] = "xxx????x????xxxx????xx????x????x????xxxxxxxxxxx????";
+    return MatchPatternMasked(candidate, validation.data(), kValidationMask, validation.size());
+}
+
 std::uintptr_t ScanArizonaChatStringObject(std::uintptr_t moduleBase, std::uintptr_t* callbackOut = nullptr) {
     if (callbackOut) {
         *callbackOut = 0;
@@ -370,6 +427,39 @@ std::uintptr_t ScanArizonaChatDirtyFlag(std::uintptr_t callbackFunction, std::ui
     }
 
     return 0;
+}
+
+std::uintptr_t ScanArizonaChatProcessInput(std::uintptr_t moduleBase, std::uintptr_t stringObject) {
+    if (stringObject == 0) {
+        return 0;
+    }
+
+    ModuleImageInfo image{};
+    if (!ReadModuleImageInfo(reinterpret_cast<HMODULE>(moduleBase), image)) {
+        return 0;
+    }
+
+    constexpr std::array<std::uint8_t, 40> kEnterCallsite = {
+        0x83, 0x7D, 0x10, 0x0D, 0x75, 0x00,
+        0xA1, 0x00, 0x00, 0x00, 0x00,
+        0x83, 0xB8, 0xE0, 0x14, 0x00, 0x00, 0x00,
+        0x74, 0x00,
+        0x81, 0xFE, 0x01, 0x01, 0x00, 0x00, 0x75, 0x08, 0x6A, 0x01,
+        0xE8, 0x00, 0x00, 0x00, 0x00,
+        0x59, 0x32, 0xC0, 0xEB, 0x00
+    };
+    constexpr char kEnterCallsiteMask[] = "xxxxx?x????xxxxxxxx?xxxxxxxxxxx????xxxx?";
+    const auto enterCallsite =
+        FindPatternMasked(image.base, image.size, kEnterCallsite.data(), kEnterCallsiteMask, kEnterCallsite.size());
+    if (enterCallsite != 0) {
+        const auto candidate = ResolveRelativeCallTarget(enterCallsite + 30);
+        if (IsValidArizonaChatProcessInputCandidate(candidate, image, stringObject)) {
+            return candidate;
+        }
+    }
+
+    const auto fallbackCandidate = moduleBase + 0x000176D2;
+    return IsValidArizonaChatProcessInputCandidate(fallbackCandidate, image, stringObject) ? fallbackCandidate : 0;
 }
 
 bool ReadArizonaChatStdString(std::uintptr_t stringObject, std::string& out) {
@@ -641,6 +731,26 @@ bool CallAddChatMessage(AddChatMessageFn fn, void* chat, unsigned long color, co
     }
 }
 
+bool CallProcessInput(ProcessInputFn fn, void* input) {
+    __try {
+        fn(input);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool CallArizonaProcessInput(ArizonaProcessInputFn fn, std::uint32_t mode) {
+    __try {
+        fn(mode);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 } // namespace
 
 void SampApi::RefreshArizonaChatModule() {
@@ -650,6 +760,7 @@ void SampApi::RefreshArizonaChatModule() {
         arizonaChatModuleBase_.store(currentModule);
         arizonaChatStringObject_.store(0);
         arizonaChatDirtyFlag_.store(0);
+        arizonaChatProcessInput_.store(0);
         arizonaChatScanTicket_.fetch_add(1);
         arizonaChatScanState_.store(static_cast<int>(ArizonaChatScanState::Idle));
 
@@ -674,8 +785,12 @@ void SampApi::StartArizonaChatScan(std::uintptr_t moduleBase) {
         std::uintptr_t callbackFunction = 0;
         const auto stringObject = ScanArizonaChatStringObject(moduleBase, &callbackFunction);
         std::uintptr_t dirtyFlag = 0;
+        std::uintptr_t processInput = 0;
         if (stringObject != 0 && callbackFunction != 0) {
             dirtyFlag = ScanArizonaChatDirtyFlag(callbackFunction, stringObject);
+        }
+        if (stringObject != 0) {
+            processInput = ScanArizonaChatProcessInput(moduleBase, stringObject);
         }
         if (arizonaChatScanTicket_.load() != ticket || arizonaChatModuleBase_.load() != moduleBase) {
             return;
@@ -683,6 +798,7 @@ void SampApi::StartArizonaChatScan(std::uintptr_t moduleBase) {
 
         arizonaChatStringObject_.store(stringObject);
         arizonaChatDirtyFlag_.store(dirtyFlag);
+        arizonaChatProcessInput_.store(processInput);
         arizonaChatScanState_.store(static_cast<int>(
             stringObject != 0 ? ArizonaChatScanState::Ready : ArizonaChatScanState::Failed));
 
@@ -692,6 +808,11 @@ void SampApi::StartArizonaChatScan(std::uintptr_t moduleBase) {
                 debuglog::Write("_chat.asi input dirty flag located at 0x%p", reinterpret_cast<void*>(dirtyFlag));
             } else {
                 debuglog::Write("_chat.asi input dirty flag was not found");
+            }
+            if (processInput != 0) {
+                debuglog::Write("_chat.asi process input routine located at 0x%p", reinterpret_cast<void*>(processInput));
+            } else {
+                debuglog::Write("_chat.asi process input routine was not found");
             }
         } else {
             debuglog::Write("_chat.asi input buffer signature was not found");

@@ -71,7 +71,7 @@
     X(QuickMenuModeToggle, "Переключение", "Toggle") \
     X(SendLocalChat, "Локальный чат", "Local chat") \
     X(SendViaSamp, "Через SA:MP", "Send via SA:MP") \
-    X(SendDirect, "Напрямую", "Send directly") \
+    X(SendDirect, "Серверу", "To server") \
     X(SendNoSend, "Без отправки", "No send") \
     X(SendInsertChat, "Вставить в чат", "Insert into chat") \
     X(SendOpenChat, "Открыть чат", "Open chat") \
