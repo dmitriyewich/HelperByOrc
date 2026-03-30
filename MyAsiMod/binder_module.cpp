@@ -167,6 +167,30 @@ bool DecodeFirstUtf8Codepoint(std::string_view text, ImWchar& outCodepoint) {
     return false;
 }
 
+std::size_t CountUtf8Codepoints(std::string_view value) {
+    std::size_t count = 0;
+    while (!value.empty()) {
+        ImWchar codepoint = 0;
+        std::size_t advance = 1;
+        if (DecodeFirstUtf8Codepoint(value, codepoint)) {
+            const unsigned char first = static_cast<unsigned char>(value.front());
+            if (first < 0x80) {
+                advance = 1;
+            } else if ((first & 0xE0) == 0xC0) {
+                advance = 2;
+            } else if ((first & 0xF0) == 0xE0) {
+                advance = 3;
+            } else if ((first & 0xF8) == 0xF0) {
+                advance = 4;
+            }
+        }
+
+        value.remove_prefix(std::min(advance, value.size()));
+        ++count;
+    }
+    return count;
+}
+
 std::string NormalizeLineEndings(std::string_view value) {
     std::string result;
     result.reserve(value.size());
@@ -556,6 +580,7 @@ struct RunningBind {
 struct InputDialogField {
     HotkeyInput input;
     std::string textValue;
+    std::string searchValue;
     std::optional<int> selectedButtonIndex;
     std::set<int> selectedButtons;
 };
@@ -564,6 +589,19 @@ struct InputDialogState {
     int hotkeyIndex = -1;
     int startDelayMs = 0;
     std::vector<InputDialogField> fields;
+};
+
+struct ButtonsTextParseStats {
+    int total = 0;
+    int used = 0;
+    int ignored = 0;
+    int extraPipes = 0;
+};
+
+struct ButtonsBulkPreviewState {
+    bool active = false;
+    int count = 0;
+    ButtonsTextParseStats stats{};
 };
 
 enum class CaptureTarget {
@@ -609,10 +647,21 @@ std::string HotkeyModeId(HotkeyMode mode);
 QuickMenuActivationMode NormalizeQuickMenuActivationMode(std::string_view value);
 std::string QuickMenuActivationModeId(QuickMenuActivationMode mode);
 std::string NormalizeInputKey(std::string_view value);
+std::size_t CountUtf8Codepoints(std::string_view value);
 std::vector<InputButton> ParseButtonsText(std::string_view multiLine);
+std::vector<InputButton> ParseButtonsTextEx(std::string_view multiLine, ButtonsTextParseStats* stats);
 std::string SerializeButtonsText(const std::vector<InputButton>& buttons);
+void AppendButtonsBulkLine(std::string& text, std::string_view line);
+std::string BuildButtonsBulkTemplateLine(int index);
+void AppendButtonsBulkTemplateLines(std::string& text, int count);
 bool InputTextString(const char* label, std::string& value, ImGuiInputTextFlags flags = 0, std::size_t minBuffer = 256);
 bool InputTextMultilineString(
+    const char* label,
+    std::string& value,
+    const ImVec2& size,
+    ImGuiInputTextFlags flags = 0,
+    std::size_t minBuffer = 2048);
+bool InputTextMultilineWithCounterString(
     const char* label,
     std::string& value,
     const ImVec2& size,
@@ -862,51 +911,186 @@ std::string NormalizeInputKey(std::string_view value) {
     return key;
 }
 
-std::vector<InputButton> ParseButtonsText(std::string_view multiLine) {
+std::string EscapeButtonsField(std::string_view value) {
+    std::string escaped;
+    for (const char ch : NormalizeLineEndings(value)) {
+        switch (ch) {
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '|':
+            escaped += "\\|";
+            break;
+        default:
+            escaped.push_back(ch);
+            break;
+        }
+    }
+    return escaped;
+}
+
+std::string UnescapeButtonsField(std::string_view value) {
+    std::string unescaped;
+    unescaped.reserve(value.size());
+    bool escaped = false;
+    for (const char ch : value) {
+        if (escaped) {
+            switch (ch) {
+            case 'n':
+                unescaped.push_back('\n');
+                break;
+            case '|':
+            case '\\':
+                unescaped.push_back(ch);
+                break;
+            default:
+                unescaped.push_back(ch);
+                break;
+            }
+            escaped = false;
+            continue;
+        }
+
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+
+        unescaped.push_back(ch);
+    }
+
+    if (escaped) {
+        unescaped.push_back('\\');
+    }
+    return unescaped;
+}
+
+std::vector<std::string> SplitEscapedButtonsLine(std::string_view line) {
+    std::vector<std::string> parts;
+    std::string current;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char ch = line[i];
+        if (ch == '\\' && i + 1 < line.size()) {
+            current.push_back(ch);
+            current.push_back(line[i + 1]);
+            ++i;
+            continue;
+        }
+
+        if (ch == '|') {
+            parts.push_back(std::move(current));
+            current.clear();
+            continue;
+        }
+
+        current.push_back(ch);
+    }
+    parts.push_back(std::move(current));
+    return parts;
+}
+
+std::vector<InputButton> ParseButtonsTextEx(std::string_view multiLine, ButtonsTextParseStats* stats) {
+    if (stats) {
+        *stats = {};
+    }
+
     std::vector<InputButton> buttons;
     std::istringstream stream(NormalizeLineEndings(multiLine));
     std::string line;
     while (std::getline(stream, line)) {
+        if (stats) {
+            ++stats->total;
+        }
         line = Trim(line);
-        if (line.empty()) {
+        if (line.empty() || line.front() == '#') {
+            if (stats) {
+                ++stats->ignored;
+            }
             continue;
         }
+        if (stats) {
+            ++stats->used;
+        }
 
-        const auto parts = Split(line, '|');
+        std::vector<std::string> parts = SplitEscapedButtonsLine(line);
+        if (parts.size() > 4) {
+            if (stats) {
+                ++stats->extraPipes;
+            }
+            std::ostringstream extra;
+            for (std::size_t i = 3; i < parts.size(); ++i) {
+                if (i != 3) {
+                    extra << '|';
+                }
+                extra << parts[i];
+            }
+            parts.resize(4);
+            parts[3] = extra.str();
+        }
+
         InputButton button;
         if (!parts.empty()) {
-            button.label = Trim(parts[0]);
+            button.label = Trim(UnescapeButtonsField(parts[0]));
         }
         if (parts.size() > 1) {
-            button.text = Trim(parts[1]);
+            button.text = Trim(UnescapeButtonsField(parts[1]));
         }
         if (parts.size() > 2) {
-            button.hint = Trim(parts[2]);
+            button.hint = Trim(UnescapeButtonsField(parts[2]));
         }
         if (parts.size() > 3) {
-            button.when = Trim(parts[3]);
+            button.when = Trim(UnescapeButtonsField(parts[3]));
+        }
+        if (button.label.empty()) {
+            button.label = UiSettings::Instance().Format(UiText::ButtonLabelFormat, static_cast<int>(buttons.size() + 1));
         }
         buttons.push_back(std::move(button));
     }
     return buttons;
 }
 
+std::vector<InputButton> ParseButtonsText(std::string_view multiLine) {
+    return ParseButtonsTextEx(multiLine, nullptr);
+}
+
 std::string SerializeButtonsText(const std::vector<InputButton>& buttons) {
     std::ostringstream stream;
     for (std::size_t i = 0; i < buttons.size(); ++i) {
         const InputButton& button = buttons[i];
-        stream << button.label << " | " << button.text;
-        if (!button.hint.empty() || !button.when.empty()) {
-            stream << " | " << button.hint;
-        }
-        if (!button.when.empty()) {
-            stream << " | " << button.when;
-        }
+        stream << EscapeButtonsField(button.label)
+               << " | " << EscapeButtonsField(button.text)
+               << " | " << EscapeButtonsField(button.hint)
+               << " | " << EscapeButtonsField(button.when);
         if (i + 1 != buttons.size()) {
             stream << "\n";
         }
     }
     return stream.str();
+}
+
+void AppendButtonsBulkLine(std::string& text, std::string_view line) {
+    if (!text.empty() && text.back() != '\n') {
+        text.push_back('\n');
+    }
+    text.append(line.data(), line.size());
+}
+
+std::string BuildButtonsBulkTemplateLine(int index) {
+    UiSettings& ui = UiSettings::Instance();
+    return EscapeButtonsField(ui.Format(UiText::ButtonLabelFormat, index))
+        + " | " + EscapeButtonsField(ui.Format(UiText::ButtonsBulkTemplateValueFormat, index))
+        + " | " + EscapeButtonsField(ui.Format(UiText::ButtonsBulkTemplateHintFormat, index))
+        + " | ";
+}
+
+void AppendButtonsBulkTemplateLines(std::string& text, int count) {
+    const int startIndex = static_cast<int>(ParseButtonsText(text).size()) + 1;
+    for (int i = 0; i < count; ++i) {
+        AppendButtonsBulkLine(text, BuildButtonsBulkTemplateLine(startIndex + i));
+    }
 }
 
 namespace {
@@ -969,6 +1153,25 @@ bool InputTextMultilineString(
     flags |= ImGuiInputTextFlags_CallbackResize;
     return ImGui::InputTextMultiline(
         label, value.data(), value.capacity() + 1, size, flags, ImGuiStringResizeCallback, &userData);
+}
+
+bool InputTextMultilineWithCounterString(
+    const char* label,
+    std::string& value,
+    const ImVec2& size,
+    ImGuiInputTextFlags flags,
+    std::size_t minBuffer) {
+    const bool changed = InputTextMultilineString(label, value, size, flags, minBuffer);
+
+    const std::string counter = std::to_string(CountUtf8Codepoints(value));
+    const float counterWidth = ImGui::CalcTextSize(counter.c_str()).x;
+    const float availableWidth = ImGui::GetContentRegionAvail().x;
+    if (availableWidth > counterWidth) {
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableWidth - counterWidth));
+    }
+    ImGui::TextDisabled("%s", counter.c_str());
+
+    return changed;
 }
 
 JsonValue SerializeBoolArray(const std::vector<bool>& flags) {
@@ -1193,10 +1396,13 @@ struct BinderModule::Impl {
         bool isNew = false;
         int hotkeyIndex = -1;
         int selectedInputIndex = -1;
+        int selectedInputButtonIndex = -1;
         int bulkMethod = 2;
         int bulkIntervalMs = 0;
         int pendingTargetIndex = -1;
         std::string selectedButtonsText{};
+        std::vector<std::string> inputButtonsBulkDrafts{};
+        std::vector<ButtonsBulkPreviewState> inputButtonsBulkPreviews{};
         std::string multiText{};
         Tab activeTab = Tab::Scenario;
         PendingAction pendingAction = PendingAction::None;
@@ -2621,7 +2827,7 @@ std::string BinderModule::Impl::BuildInputValue(const InputDialogField& field) c
             return {};
         }
         const InputButton& button = field.input.buttons[static_cast<std::size_t>(index)];
-        return !button.text.empty() ? button.text : button.label;
+        return button.text;
     };
 
     if (field.input.mode == InputMode::Text) {
@@ -2958,6 +3164,7 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.isNew = isNew;
     editor.hotkeyIndex = index;
     editor.selectedInputIndex = -1;
+    editor.selectedInputButtonIndex = -1;
     editor.draft = (isNew || index < 0 || index >= static_cast<int>(hotkeys.size())) ? MakeDefaultHotkey() : hotkeys[index];
     editor.draft.comboActive = false;
     editor.draft.awaitingInput = false;
@@ -2972,9 +3179,16 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
         editor.draft.folderPath = BuildFolderPath(selectedFolder ? selectedFolder : EnsureRootFolder());
     }
 
+    editor.inputButtonsBulkDrafts.reserve(editor.draft.inputs.size());
+    for (const HotkeyInput& input : editor.draft.inputs) {
+        editor.inputButtonsBulkDrafts.push_back(SerializeButtonsText(input.buttons));
+    }
+    editor.inputButtonsBulkPreviews.assign(editor.draft.inputs.size(), ButtonsBulkPreviewState{});
+
     if (!editor.draft.inputs.empty()) {
         editor.selectedInputIndex = 0;
-        editor.selectedButtonsText = SerializeButtonsText(editor.draft.inputs[0].buttons);
+        editor.selectedButtonsText = editor.inputButtonsBulkDrafts[0];
+        editor.selectedInputButtonIndex = editor.draft.inputs[0].buttons.empty() ? -1 : 0;
     }
 
     if (!editor.draft.messages.empty()) {
@@ -3173,6 +3387,7 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
     const HotkeyEntry current = BuildEditorComparableDraft();
     const std::string label = Trim(current.label);
     const std::string triggerText = Trim(current.textTrigger.text);
+    const std::string commandText = Trim(current.command);
     if (label.empty()) {
         errors.push_back(ui.Text(UiText::ValidationBindNameRequired));
     }
@@ -3183,6 +3398,18 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
 
     if (current.repeatMode && current.repeatIntervalMs < kMinMessageIntervalMs) {
         errors.push_back(ui.Text(UiText::ValidationRepeatInterval));
+    }
+
+    if (current.textTrigger.enabled && triggerText.empty()) {
+        errors.push_back(ui.Text(UiText::ValidationTriggerTextRequired));
+    }
+
+    if (current.commandEnabled && commandText.empty()) {
+        errors.push_back(ui.Text(UiText::ValidationCommandRequired));
+    }
+
+    if (current.textConfirmation.enabled && current.textConfirmation.key == current.textConfirmation.cancelKey) {
+        errors.push_back(ui.Text(UiText::ValidationConfirmCancelKeysDifferent));
     }
 
     if (current.enabled && !current.keys.empty()) {
@@ -3201,8 +3428,18 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
         if (!inputKeys.insert(key).second) {
             errors.push_back(ui.Text(UiText::ValidationInputKeyUnique));
         }
-        if (InputModeUsesButtons(input.mode) && input.buttons.empty()) {
-            errors.push_back(ui.Text(UiText::ValidationButtonsRequired));
+        if (InputModeUsesButtons(input.mode)) {
+            if (input.buttons.empty()) {
+                errors.push_back(ui.Text(UiText::ValidationButtonsRequired));
+                continue;
+            }
+
+            const bool hasValueText = std::any_of(input.buttons.begin(), input.buttons.end(), [](const InputButton& button) {
+                return !Trim(button.text).empty();
+            });
+            if (!hasValueText) {
+                errors.push_back(ui.Text(UiText::ValidationButtonsTextRequired));
+            }
         }
     }
 
@@ -3506,101 +3743,637 @@ void BinderModule::Impl::DrawFolderPopups() {
 }
 
 void BinderModule::Impl::DrawInputEditor() {
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::AddField))) {
+    UiSettings& ui = UiSettings::Instance();
+    const ImVec2 actionButtonSize = ScaleUi(26.0f, 26.0f);
+
+    auto ensureBulkStateStorage = [&]() {
+        if (editor.inputButtonsBulkDrafts.size() < editor.draft.inputs.size()) {
+            const std::size_t oldSize = editor.inputButtonsBulkDrafts.size();
+            editor.inputButtonsBulkDrafts.resize(editor.draft.inputs.size());
+            for (std::size_t i = oldSize; i < editor.draft.inputs.size(); ++i) {
+                editor.inputButtonsBulkDrafts[i] = SerializeButtonsText(editor.draft.inputs[i].buttons);
+            }
+        } else if (editor.inputButtonsBulkDrafts.size() > editor.draft.inputs.size()) {
+            editor.inputButtonsBulkDrafts.resize(editor.draft.inputs.size());
+        }
+
+        if (editor.inputButtonsBulkPreviews.size() < editor.draft.inputs.size()) {
+            editor.inputButtonsBulkPreviews.resize(editor.draft.inputs.size());
+        } else if (editor.inputButtonsBulkPreviews.size() > editor.draft.inputs.size()) {
+            editor.inputButtonsBulkPreviews.resize(editor.draft.inputs.size());
+        }
+    };
+
+    auto selectInput = [&](int index) {
+        ensureBulkStateStorage();
+        if (index < 0 || index >= static_cast<int>(editor.draft.inputs.size())) {
+            editor.selectedInputIndex = -1;
+            editor.selectedInputButtonIndex = -1;
+            editor.selectedButtonsText.clear();
+            return;
+        }
+
+        editor.selectedInputIndex = index;
+        editor.selectedButtonsText = editor.inputButtonsBulkDrafts[static_cast<std::size_t>(index)];
+        editor.selectedInputButtonIndex =
+            editor.draft.inputs[static_cast<std::size_t>(index)].buttons.empty() ? -1 : 0;
+    };
+
+    auto clampSelectedInput = [&]() {
+        ensureBulkStateStorage();
+        if (editor.draft.inputs.empty()) {
+            editor.selectedInputIndex = -1;
+            editor.selectedInputButtonIndex = -1;
+            editor.selectedButtonsText.clear();
+            return;
+        }
+
+        if (editor.selectedInputIndex < 0 || editor.selectedInputIndex >= static_cast<int>(editor.draft.inputs.size())) {
+            editor.selectedInputIndex = 0;
+            editor.selectedButtonsText = editor.inputButtonsBulkDrafts.front();
+        }
+
+        const HotkeyInput& input = editor.draft.inputs[static_cast<std::size_t>(editor.selectedInputIndex)];
+        if (input.buttons.empty()) {
+            editor.selectedInputButtonIndex = -1;
+        } else if (editor.selectedInputButtonIndex < 0 || editor.selectedInputButtonIndex >= static_cast<int>(input.buttons.size())) {
+            editor.selectedInputButtonIndex = 0;
+        }
+    };
+
+    auto syncSelectedButtonsText = [&](const HotkeyInput& input) {
+        ensureBulkStateStorage();
+        if (editor.selectedInputIndex >= 0 && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkDrafts.size())) {
+            const std::string text = SerializeButtonsText(input.buttons);
+            editor.inputButtonsBulkDrafts[static_cast<std::size_t>(editor.selectedInputIndex)] = text;
+            editor.inputButtonsBulkPreviews[static_cast<std::size_t>(editor.selectedInputIndex)] = {};
+            editor.selectedButtonsText = text;
+        } else {
+            editor.selectedButtonsText.clear();
+        }
+        if (input.buttons.empty()) {
+            editor.selectedInputButtonIndex = -1;
+        } else if (editor.selectedInputButtonIndex < 0 || editor.selectedInputButtonIndex >= static_cast<int>(input.buttons.size())) {
+            editor.selectedInputButtonIndex = 0;
+        }
+    };
+
+    auto inputDisplayName = [&](const HotkeyInput& input, int index) {
+        const std::string label = Trim(input.label);
+        if (!label.empty()) {
+            return label;
+        }
+        return ui.Format(UiText::FieldLabelFormat, index + 1);
+    };
+    auto buttonDisplayName = [&](const InputButton& button, int index) {
+        const std::string label = Trim(button.label);
+        if (!label.empty()) {
+            return label;
+        }
+        return ui.Format(UiText::ButtonLabelFormat, index + 1);
+    };
+
+    struct InputKeyIssue {
+        bool empty = false;
+        bool invalid = false;
+        bool duplicate = false;
+        std::string normalized;
+    };
+
+    auto buildInputKeyIssues = [&]() {
+        std::vector<InputKeyIssue> issues(editor.draft.inputs.size());
+        std::map<std::string, int> usage;
+        for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
+            const std::string raw = Trim(editor.draft.inputs[i].key);
+            const std::string normalized = NormalizeInputKey(raw);
+            issues[i].empty = raw.empty();
+            issues[i].invalid = !raw.empty() && normalized != raw;
+            issues[i].normalized = normalized;
+            if (!normalized.empty()) {
+                ++usage[normalized];
+            }
+        }
+        for (std::size_t i = 0; i < issues.size(); ++i) {
+            if (!issues[i].normalized.empty() && usage[issues[i].normalized] > 1) {
+                issues[i].duplicate = true;
+            }
+        }
+        return issues;
+    };
+
+    const auto drawInspectorTable = [&](const char* tableId, const auto& drawRows) {
+        if (!ImGui::BeginTable(
+                tableId,
+                2,
+                ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            return;
+        }
+
+        ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, ScaleUi(190.0f));
+        ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+
+        const auto drawRow = [&](UiText labelId, const auto& drawValue) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", ui.Text(labelId));
+            ImGui::TableSetColumnIndex(1);
+            drawValue();
+        };
+
+        drawRows(drawRow);
+        ImGui::EndTable();
+    };
+
+    if (ImGui::Button(ui.Text(UiText::AddField))) {
         HotkeyInput input;
         input.key = "FIELD_" + std::to_string(editor.draft.inputs.size() + 1);
-        input.label = UiSettings::Instance().Format(UiText::FieldLabelFormat, static_cast<int>(editor.draft.inputs.size() + 1));
+        input.label = ui.Format(UiText::FieldLabelFormat, static_cast<int>(editor.draft.inputs.size() + 1));
         editor.draft.inputs.push_back(std::move(input));
-        editor.selectedInputIndex = static_cast<int>(editor.draft.inputs.size() - 1);
-        editor.selectedButtonsText.clear();
+        editor.inputButtonsBulkDrafts.push_back({});
+        editor.inputButtonsBulkPreviews.push_back({});
+        selectInput(static_cast<int>(editor.draft.inputs.size() - 1));
     }
 
     ImGui::Separator();
-    if (ImGui::BeginTable("##binder_inputs_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnName));
-        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::Key));
-        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::Mode));
-        ImGui::TableSetupColumn(UiSettings::Instance().Text(UiText::ColumnSpacer), ImGuiTableColumnFlags_WidthFixed, ScaleUi(32.0f));
-        ImGui::TableHeadersRow();
+    if (editor.draft.inputs.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::InputFieldsEmpty));
+        return;
+    }
 
-        int removeIndex = -1;
+    clampSelectedInput();
+    std::vector<InputKeyIssue> inputIssues = buildInputKeyIssues();
+
+    if (!ImGui::BeginTable(
+            "##binder_input_editor_layout",
+            2,
+            ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+        return;
+    }
+
+    ImGui::TableSetupColumn("fields", ImGuiTableColumnFlags_WidthFixed, ScaleUi(240.0f));
+    ImGui::TableSetupColumn("details", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginChild("##binder_input_fields_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::InputFieldsListTitle));
+        ImGui::Separator();
+
         for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
-            HotkeyInput& input = editor.draft.inputs[i];
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
+            const HotkeyInput& listInput = editor.draft.inputs[i];
+            const InputKeyIssue& issue = inputIssues[i];
+            const bool hasIssue = issue.empty || issue.invalid || issue.duplicate;
+            const std::string title = (hasIssue ? "! " : "") + inputDisplayName(listInput, static_cast<int>(i));
+            const float labelWidth = std::max(ScaleUi(60.0f), ImGui::GetContentRegionAvail().x - ScaleUi(24.0f));
+            const std::string visibleLabel = EllipsizeText(title, labelWidth);
+            const std::string selectableLabel = visibleLabel + "##binder_input_sel_" + std::to_string(i);
+
             if (ImGui::Selectable(
-                    (input.label.empty() ? UiSettings::Instance().Text(UiText::UnnamedField) : input.label.c_str()),
+                    selectableLabel.c_str(),
                     editor.selectedInputIndex == static_cast<int>(i),
-                    ImGuiSelectableFlags_AllowDoubleClick,
-                    ImVec2(-FLT_MIN, 0.0f))) {
-                editor.selectedInputIndex = static_cast<int>(i);
-                editor.selectedButtonsText = SerializeButtonsText(input.buttons);
+                    0,
+                    ImVec2(0.0f, 0.0f))) {
+                selectInput(static_cast<int>(i));
             }
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(input.key.c_str());
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(InputModeLabel(input.mode));
-            ImGui::TableSetColumnIndex(3);
-            ImGui::PushID(static_cast<int>(i));
-            if (ImGui::SmallButton(UiSettings::Instance().Text(UiText::ActionRemoveShort))) {
-                removeIndex = static_cast<int>(i);
-            }
-            ImGui::PopID();
-        }
 
-        if (removeIndex >= 0) {
-            editor.draft.inputs.erase(editor.draft.inputs.begin() + removeIndex);
-            if (editor.selectedInputIndex == removeIndex) {
-                editor.selectedInputIndex = editor.draft.inputs.empty() ? -1 : 0;
-            } else if (editor.selectedInputIndex > removeIndex) {
-                --editor.selectedInputIndex;
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::TextUnformatted(title.c_str());
+                ImGui::Separator();
+                ImGui::TextDisabled("%s", ui.Text(UiText::ParameterResponseType));
+                ImGui::SameLine();
+                ImGui::TextUnformatted(InputModeLabel(listInput.mode));
+                if (!Trim(listInput.key).empty()) {
+                    ImGui::TextDisabled("%s", ui.Format(UiText::InputFieldPlaceholderFormat, NormalizeInputKey(listInput.key).c_str()).c_str());
+                }
+                if (issue.empty || issue.invalid) {
+                    ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyRequired));
+                }
+                if (issue.duplicate) {
+                    ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyUnique));
+                }
+                ImGui::EndTooltip();
             }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::TableSetColumnIndex(1);
+    if (ImGui::BeginChild("##binder_input_field_details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+        clampSelectedInput();
+        if (editor.selectedInputIndex >= 0 && editor.selectedInputIndex < static_cast<int>(editor.draft.inputs.size())) {
+            int currentIndex = editor.selectedInputIndex;
+            std::string fieldTitle = inputDisplayName(editor.draft.inputs[static_cast<std::size_t>(currentIndex)], currentIndex);
+            ImGui::TextWrapped("%s", fieldTitle.c_str());
+            ImGui::Separator();
+
+            if (SmallIconActionButton(kIconAngleUp, "##binder_input_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
+                && currentIndex > 0) {
+                std::swap(
+                    editor.draft.inputs[static_cast<std::size_t>(currentIndex)],
+                    editor.draft.inputs[static_cast<std::size_t>(currentIndex - 1)]);
+                std::swap(
+                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex)],
+                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex - 1)]);
+                std::swap(
+                    editor.inputButtonsBulkPreviews[static_cast<std::size_t>(currentIndex)],
+                    editor.inputButtonsBulkPreviews[static_cast<std::size_t>(currentIndex - 1)]);
+                selectInput(currentIndex - 1);
+            }
+            ImGui::SameLine();
+            if (SmallIconActionButton(kIconAngleDown, "##binder_input_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
+                && currentIndex + 1 < static_cast<int>(editor.draft.inputs.size())) {
+                std::swap(
+                    editor.draft.inputs[static_cast<std::size_t>(currentIndex)],
+                    editor.draft.inputs[static_cast<std::size_t>(currentIndex + 1)]);
+                std::swap(
+                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex)],
+                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex + 1)]);
+                std::swap(
+                    editor.inputButtonsBulkPreviews[static_cast<std::size_t>(currentIndex)],
+                    editor.inputButtonsBulkPreviews[static_cast<std::size_t>(currentIndex + 1)]);
+                selectInput(currentIndex + 1);
+            }
+            ImGui::SameLine();
+            if (SmallIconActionButton(kIconClone, "##binder_input_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
+                HotkeyInput duplicate = editor.draft.inputs[static_cast<std::size_t>(currentIndex)];
+                editor.draft.inputs.insert(editor.draft.inputs.begin() + currentIndex + 1, std::move(duplicate));
+                editor.inputButtonsBulkDrafts.insert(
+                    editor.inputButtonsBulkDrafts.begin() + currentIndex + 1,
+                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex)]);
+                editor.inputButtonsBulkPreviews.insert(
+                    editor.inputButtonsBulkPreviews.begin() + currentIndex + 1,
+                    {});
+                selectInput(currentIndex + 1);
+            }
+            ImGui::SameLine();
+            if (SmallIconActionButton(kIconDelete, "##binder_input_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+                editor.draft.inputs.erase(editor.draft.inputs.begin() + currentIndex);
+                editor.inputButtonsBulkDrafts.erase(editor.inputButtonsBulkDrafts.begin() + currentIndex);
+                editor.inputButtonsBulkPreviews.erase(editor.inputButtonsBulkPreviews.begin() + currentIndex);
+                if (editor.draft.inputs.empty()) {
+                    editor.selectedInputIndex = -1;
+                    editor.selectedInputButtonIndex = -1;
+                    editor.selectedButtonsText.clear();
+                } else {
+                    selectInput(std::min(currentIndex, static_cast<int>(editor.draft.inputs.size()) - 1));
+                }
+            }
+
+            clampSelectedInput();
             if (editor.selectedInputIndex >= 0 && editor.selectedInputIndex < static_cast<int>(editor.draft.inputs.size())) {
-                editor.selectedButtonsText = SerializeButtonsText(editor.draft.inputs[editor.selectedInputIndex].buttons);
-            } else {
-                editor.selectedButtonsText.clear();
+                HotkeyInput& input = editor.draft.inputs[static_cast<std::size_t>(editor.selectedInputIndex)];
+                const InputKeyIssue currentIssue = inputIssues[static_cast<std::size_t>(editor.selectedInputIndex)];
+                const auto drawModeCombo = [&]() {
+                    const InputMode modes[] = { InputMode::Text, InputMode::ButtonsList, InputMode::ButtonsListText };
+                    const char* modeLabels[] = {
+                        InputModeLabel(InputMode::Text),
+                        InputModeLabel(InputMode::ButtonsList),
+                        InputModeLabel(InputMode::ButtonsListText),
+                    };
+                    int modeIndex = 0;
+                    for (int i = 0; i < 3; ++i) {
+                        if (input.mode == modes[i]) {
+                            modeIndex = i;
+                            break;
+                        }
+                    }
+                    if (ImGui::Combo("##binder_input_mode", &modeIndex, modeLabels, IM_ARRAYSIZE(modeLabels))) {
+                        input.mode = modes[modeIndex];
+                    }
+                };
+
+                ImGui::Spacing();
+                ImGui::SeparatorText(ui.Text(UiText::ParameterQuestionSection));
+                ImGui::TextDisabled("%s", ui.Text(UiText::ParameterQuestionHint));
+                drawInspectorTable("##binder_input_question_table", [&](const auto& drawRow) {
+                    drawRow(UiText::ParameterPrompt, [&]() {
+                        InputTextString("##binder_input_name", input.label, ImGuiInputTextFlags_AutoSelectAll, 128);
+                    });
+                    drawRow(UiText::ParameterHintText, [&]() {
+                        InputTextString("##binder_input_hint", input.hint, ImGuiInputTextFlags_AutoSelectAll, 256);
+                    });
+                });
+
+                ImGui::Spacing();
+                ImGui::SeparatorText(ui.Text(UiText::ParameterResponseSection));
+                ImGui::TextDisabled("%s", ui.Text(UiText::ParameterResponseHint));
+                drawInspectorTable("##binder_input_response_table", [&](const auto& drawRow) {
+                    drawRow(UiText::ParameterResponseType, drawModeCombo);
+                    if (InputModeUsesButtons(input.mode)) {
+                        drawRow(UiText::ParameterAllowMultiple, [&]() {
+                            ImGui::Checkbox("##binder_input_multi", &input.multiSelect);
+                        });
+                        if (input.multiSelect) {
+                            drawRow(UiText::ParameterJoinSeparator, [&]() {
+                                InputTextString(
+                                    "##binder_input_separator",
+                                    input.multiSeparator,
+                                    ImGuiInputTextFlags_AutoSelectAll,
+                                    64);
+                            });
+                        }
+                    }
+                });
+
+                ImGui::Spacing();
+                ImGui::SeparatorText(ui.Text(UiText::ParameterAdvancedSection));
+                ImGui::TextDisabled("%s", ui.Text(UiText::ParameterAdvancedHint));
+                drawInspectorTable("##binder_input_advanced_table", [&](const auto& drawRow) {
+                    drawRow(UiText::ParameterSystemKey, [&]() {
+                        InputTextString("##binder_input_key", input.key, ImGuiInputTextFlags_AutoSelectAll, 64);
+                        input.key = NormalizeInputKey(input.key);
+                    });
+                    if (InputModeUsesButtons(input.mode)) {
+                        drawRow(UiText::ParameterDependsOn, [&]() {
+                            InputTextString("##binder_input_cascade", input.cascadeParentKey, ImGuiInputTextFlags_AutoSelectAll, 64);
+                            input.cascadeParentKey = NormalizeInputKey(input.cascadeParentKey);
+                        });
+                    }
+                });
+
+                const std::string normalizedKey = NormalizeInputKey(input.key);
+                if (!normalizedKey.empty()) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", ui.Format(UiText::InputFieldPlaceholderFormat, normalizedKey.c_str()).c_str());
+                    ImGui::SameLine();
+                    if (SmallIconActionButton(kIconClone, "##binder_copy_input_placeholder", ui.Text(UiText::CopyPlaceholder), actionButtonSize)) {
+                        ImGui::SetClipboardText(("{{" + normalizedKey + "}}").c_str());
+                    }
+                }
+                if (currentIssue.empty || currentIssue.invalid) {
+                    ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyRequired));
+                } else if (currentIssue.duplicate) {
+                    ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyUnique));
+                }
+
+                if (InputModeUsesButtons(input.mode)) {
+                    ImGui::Spacing();
+                    ImGui::SeparatorText(ui.Text(UiText::ParameterVariantsSection));
+                    ImGui::TextDisabled("%s", ui.Text(UiText::ParameterVariantsHint));
+                    if (ImGui::BeginTabBar("##binder_input_buttons_tabs")) {
+                        if (ImGui::BeginTabItem(ui.Text(UiText::ButtonsStructuredTab))) {
+                            if (ImGui::Button(ui.Text(UiText::AddButton))) {
+                                input.buttons.push_back(InputButton{});
+                                editor.selectedInputButtonIndex = static_cast<int>(input.buttons.size() - 1);
+                                syncSelectedButtonsText(input);
+                            }
+
+                            const bool hasSelectedButton =
+                                editor.selectedInputButtonIndex >= 0
+                                && editor.selectedInputButtonIndex < static_cast<int>(input.buttons.size());
+                            if (hasSelectedButton) {
+                                ImGui::SameLine();
+                                if (SmallIconActionButton(kIconClone, "##binder_button_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
+                                    const int selectedButtonIndex = editor.selectedInputButtonIndex;
+                                    InputButton duplicate = input.buttons[static_cast<std::size_t>(selectedButtonIndex)];
+                                    input.buttons.insert(input.buttons.begin() + selectedButtonIndex + 1, std::move(duplicate));
+                                    editor.selectedInputButtonIndex = selectedButtonIndex + 1;
+                                    syncSelectedButtonsText(input);
+                                }
+                                ImGui::SameLine();
+                                if (SmallIconActionButton(kIconAngleUp, "##binder_button_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
+                                    && editor.selectedInputButtonIndex > 0) {
+                                    const int selectedButtonIndex = editor.selectedInputButtonIndex;
+                                    std::swap(
+                                        input.buttons[static_cast<std::size_t>(selectedButtonIndex)],
+                                        input.buttons[static_cast<std::size_t>(selectedButtonIndex - 1)]);
+                                    editor.selectedInputButtonIndex = selectedButtonIndex - 1;
+                                    syncSelectedButtonsText(input);
+                                }
+                                ImGui::SameLine();
+                                if (SmallIconActionButton(kIconAngleDown, "##binder_button_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
+                                    && editor.selectedInputButtonIndex + 1 < static_cast<int>(input.buttons.size())) {
+                                    const int selectedButtonIndex = editor.selectedInputButtonIndex;
+                                    std::swap(
+                                        input.buttons[static_cast<std::size_t>(selectedButtonIndex)],
+                                        input.buttons[static_cast<std::size_t>(selectedButtonIndex + 1)]);
+                                    editor.selectedInputButtonIndex = selectedButtonIndex + 1;
+                                    syncSelectedButtonsText(input);
+                                }
+                                ImGui::SameLine();
+                                if (SmallIconActionButton(kIconDelete, "##binder_button_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+                                    input.buttons.erase(input.buttons.begin() + editor.selectedInputButtonIndex);
+                                    if (input.buttons.empty()) {
+                                        editor.selectedInputButtonIndex = -1;
+                                    } else {
+                                        editor.selectedInputButtonIndex = std::min(
+                                            editor.selectedInputButtonIndex,
+                                            static_cast<int>(input.buttons.size()) - 1);
+                                    }
+                                    syncSelectedButtonsText(input);
+                                }
+                            }
+
+                            const float buttonEditorHeight = std::max(ScaleUi(180.0f), ImGui::GetContentRegionAvail().y - ScaleUi(6.0f));
+                            if (ImGui::BeginTable(
+                                    "##binder_button_editor_layout",
+                                    2,
+                                    ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+                                ImGui::TableSetupColumn("buttons", ImGuiTableColumnFlags_WidthFixed, ScaleUi(230.0f));
+                                ImGui::TableSetupColumn("properties", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableNextRow();
+
+                                ImGui::TableSetColumnIndex(0);
+                                if (ImGui::BeginChild("##binder_button_list", ImVec2(0.0f, buttonEditorHeight), ImGuiChildFlags_Borders)) {
+                                    ImGui::TextDisabled("%s", ui.Text(UiText::ButtonListTitle));
+                                    ImGui::Separator();
+                                    if (input.buttons.empty()) {
+                                        ImGui::TextDisabled("%s", ui.Text(UiText::ButtonsEmpty));
+                                    } else {
+                                        for (std::size_t buttonIndex = 0; buttonIndex < input.buttons.size(); ++buttonIndex) {
+                                            const InputButton& button = input.buttons[buttonIndex];
+                                            const std::string title = buttonDisplayName(button, static_cast<int>(buttonIndex));
+                                            const float labelWidth = std::max(ScaleUi(60.0f), ImGui::GetContentRegionAvail().x - ScaleUi(24.0f));
+                                            const std::string visibleLabel = EllipsizeText(title, labelWidth);
+                                            const std::string selectableLabel = visibleLabel + "##binder_button_sel_" + std::to_string(buttonIndex);
+                                            if (ImGui::Selectable(
+                                                    selectableLabel.c_str(),
+                                                    editor.selectedInputButtonIndex == static_cast<int>(buttonIndex),
+                                                    0,
+                                                    ImVec2(0.0f, 0.0f))) {
+                                                editor.selectedInputButtonIndex = static_cast<int>(buttonIndex);
+                                            }
+
+                                            if (ImGui::IsItemHovered()) {
+                                                ImGui::BeginTooltip();
+                                                ImGui::TextUnformatted(title.c_str());
+                                                ImGui::Separator();
+                                                if (!Trim(button.text).empty()) {
+                                                    ImGui::TextDisabled("%s", ui.Text(UiText::OptionValue));
+                                                    ImGui::TextWrapped("%s", button.text.c_str());
+                                                }
+                                                if (!Trim(button.hint).empty()) {
+                                                    ImGui::TextDisabled("%s", ui.Text(UiText::OptionHint));
+                                                    ImGui::TextWrapped("%s", button.hint.c_str());
+                                                }
+                                                ImGui::EndTooltip();
+                                            }
+                                        }
+                                    }
+                                }
+                                ImGui::EndChild();
+
+                                ImGui::TableSetColumnIndex(1);
+                                if (ImGui::BeginChild("##binder_button_properties", ImVec2(0.0f, buttonEditorHeight), ImGuiChildFlags_Borders)) {
+                                    if (editor.selectedInputButtonIndex >= 0
+                                        && editor.selectedInputButtonIndex < static_cast<int>(input.buttons.size())) {
+                                        InputButton& button = input.buttons[static_cast<std::size_t>(editor.selectedInputButtonIndex)];
+                                        ImGui::TextDisabled("%s", ui.Text(UiText::ButtonPropertiesTitle));
+                                        ImGui::Separator();
+
+                                        bool buttonsChanged = false;
+                                        buttonsChanged |= InputTextString(
+                                            ui.Text(UiText::OptionName),
+                                            button.label,
+                                            ImGuiInputTextFlags_AutoSelectAll,
+                                            128);
+                                        buttonsChanged |= InputTextMultilineString(
+                                            ui.Text(UiText::OptionValue),
+                                            button.text,
+                                            ImVec2(-FLT_MIN, ScaleUi(92.0f)),
+                                            0,
+                                            512);
+                                        buttonsChanged |= InputTextString(
+                                            ui.Text(UiText::OptionHint),
+                                            button.hint,
+                                            ImGuiInputTextFlags_AutoSelectAll,
+                                            256);
+                                        buttonsChanged |= InputTextString(
+                                            ui.Text(UiText::ButtonWhen),
+                                            button.when,
+                                            ImGuiInputTextFlags_AutoSelectAll,
+                                            256);
+                                        ImGui::TextDisabled("%s", ui.Text(UiText::ButtonWhenHint));
+
+                                        if (buttonsChanged) {
+                                            syncSelectedButtonsText(input);
+                                        }
+                                    } else {
+                                        ImGui::TextDisabled("%s", ui.Text(UiText::ButtonsEmpty));
+                                    }
+                                }
+                                ImGui::EndChild();
+
+                                ImGui::EndTable();
+                            }
+
+                            ImGui::EndTabItem();
+                        }
+
+                        if (ImGui::BeginTabItem(ui.Text(UiText::ButtonsBulkTab))) {
+                            ButtonsBulkPreviewState* previewState = nullptr;
+                            if (editor.selectedInputIndex >= 0
+                                && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkPreviews.size())) {
+                                previewState = &editor.inputButtonsBulkPreviews[static_cast<std::size_t>(editor.selectedInputIndex)];
+                            }
+
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkAddLine))) {
+                                AppendButtonsBulkTemplateLines(editor.selectedButtonsText, 1);
+                                if (editor.selectedInputIndex >= 0
+                                    && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkDrafts.size())) {
+                                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(editor.selectedInputIndex)] =
+                                        editor.selectedButtonsText;
+                                }
+                                if (previewState) {
+                                    *previewState = {};
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkAddFiveLines))) {
+                                AppendButtonsBulkTemplateLines(editor.selectedButtonsText, 5);
+                                if (editor.selectedInputIndex >= 0
+                                    && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkDrafts.size())) {
+                                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(editor.selectedInputIndex)] =
+                                        editor.selectedButtonsText;
+                                }
+                                if (previewState) {
+                                    *previewState = {};
+                                }
+                            }
+
+                            ImGui::Spacing();
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkSync))) {
+                                syncSelectedButtonsText(input);
+                                if (previewState) {
+                                    *previewState = {};
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkCheck))) {
+                                ButtonsTextParseStats stats;
+                                const auto buttonsPreview = ParseButtonsTextEx(editor.selectedButtonsText, &stats);
+                                if (previewState) {
+                                    previewState->active = true;
+                                    previewState->count = static_cast<int>(buttonsPreview.size());
+                                    previewState->stats = stats;
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkNormalize))) {
+                                ButtonsTextParseStats stats;
+                                const auto normalizedButtons = ParseButtonsTextEx(editor.selectedButtonsText, &stats);
+                                editor.selectedButtonsText = SerializeButtonsText(normalizedButtons);
+                                if (editor.selectedInputIndex >= 0
+                                    && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkDrafts.size())) {
+                                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(editor.selectedInputIndex)] =
+                                        editor.selectedButtonsText;
+                                }
+                                if (previewState) {
+                                    *previewState = {};
+                                }
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui.Text(UiText::ButtonsBulkApply))) {
+                                input.buttons = ParseButtonsText(editor.selectedButtonsText);
+                                syncSelectedButtonsText(input);
+                            }
+
+                            ImGui::Spacing();
+                            ImGui::TextDisabled("%s", ui.Text(UiText::ButtonsFormatHint));
+                            ImGui::TextDisabled("%s", ui.Text(UiText::ButtonsBulkEscapingHint));
+                            if (InputTextMultilineString(
+                                "##binder_input_buttons_bulk",
+                                editor.selectedButtonsText,
+                                ImVec2(-FLT_MIN, ScaleUi(220.0f)))) {
+                                if (editor.selectedInputIndex >= 0
+                                    && editor.selectedInputIndex < static_cast<int>(editor.inputButtonsBulkDrafts.size())) {
+                                    editor.inputButtonsBulkDrafts[static_cast<std::size_t>(editor.selectedInputIndex)] =
+                                        editor.selectedButtonsText;
+                                }
+                                if (previewState) {
+                                    *previewState = {};
+                                }
+                            }
+
+                            if (previewState && previewState->active) {
+                                ImGui::Spacing();
+                                ImGui::TextDisabled(
+                                    "%s",
+                                    ui.Format(
+                                          UiText::ButtonsBulkPreviewFormat,
+                                          previewState->stats.total,
+                                          previewState->stats.used,
+                                          previewState->stats.ignored,
+                                          previewState->count)
+                                        .c_str());
+                                if (previewState->stats.extraPipes > 0) {
+                                    ImGui::TextDisabled("%s", ui.Text(UiText::ButtonsBulkExtraPipesHint));
+                                }
+                            }
+                            ImGui::EndTabItem();
+                        }
+
+                        ImGui::EndTabBar();
+                    }
+                }
             }
         }
-
-        ImGui::EndTable();
     }
+    ImGui::EndChild();
 
-    if (editor.selectedInputIndex >= 0 && editor.selectedInputIndex < static_cast<int>(editor.draft.inputs.size())) {
-        HotkeyInput& input = editor.draft.inputs[editor.selectedInputIndex];
-        ImGui::SeparatorText(UiSettings::Instance().Text(UiText::FieldProperties));
-        InputTextString(UiSettings::Instance().Text(UiText::Key), input.key, ImGuiInputTextFlags_AutoSelectAll, 64);
-        input.key = NormalizeInputKey(input.key);
-        InputTextString(UiSettings::Instance().Text(UiText::Name), input.label, ImGuiInputTextFlags_AutoSelectAll, 128);
-        InputTextString(UiSettings::Instance().Text(UiText::Hint), input.hint, ImGuiInputTextFlags_AutoSelectAll, 256);
-
-        const InputMode modes[] = { InputMode::Text, InputMode::ButtonsList, InputMode::ButtonsListText };
-        const char* modeLabels[] = {
-            InputModeLabel(InputMode::Text),
-            InputModeLabel(InputMode::ButtonsList),
-            InputModeLabel(InputMode::ButtonsListText),
-        };
-        int modeIndex = 0;
-        for (int i = 0; i < 3; ++i) {
-            if (input.mode == modes[i]) {
-                modeIndex = i;
-                break;
-            }
-        }
-        if (ImGui::Combo(UiSettings::Instance().Text(UiText::Mode), &modeIndex, modeLabels, IM_ARRAYSIZE(modeLabels))) {
-            input.mode = modes[modeIndex];
-        }
-        ImGui::Checkbox(UiSettings::Instance().Text(UiText::MultiSelect), &input.multiSelect);
-        InputTextString(UiSettings::Instance().Text(UiText::Separator), input.multiSeparator, ImGuiInputTextFlags_AutoSelectAll, 64);
-        InputTextString(UiSettings::Instance().Text(UiText::CascadeFromKey), input.cascadeParentKey, ImGuiInputTextFlags_AutoSelectAll, 64);
-        input.cascadeParentKey = NormalizeInputKey(input.cascadeParentKey);
-
-        if (InputModeUsesButtons(input.mode)) {
-            ImGui::SeparatorText(UiSettings::Instance().Text(UiText::Buttons));
-            ImGui::TextDisabled("%s", UiSettings::Instance().Text(UiText::ButtonsFormatHint));
-            InputTextMultilineString("##input_buttons_src", editor.selectedButtonsText, ImVec2(-FLT_MIN, ScaleUi(180.0f)));
-            input.buttons = ParseButtonsText(editor.selectedButtonsText);
-        }
-    }
+    ImGui::EndTable();
 }
 
 void BinderModule::Impl::DrawEditorConditionsPopup() {
@@ -5160,10 +5933,21 @@ void BinderModule::Impl::DrawQuickMenu() {
 
 void BinderModule::Impl::DrawInputDialog() {
     if (inputDialog) {
+        const bool compactDialog = inputDialog->fields.size() == 1;
+        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+        const ImVec2 minWindowSize = compactDialog ? ScaleUi(420.0f, 280.0f) : ScaleUi(560.0f, 360.0f);
+        const ImVec2 preferredWindowSize = compactDialog ? ScaleUi(560.0f, 460.0f) : ScaleUi(720.0f, 560.0f);
+        const ImVec2 maxWindowSize(
+            std::max(minWindowSize.x, displaySize.x - ScaleUi(24.0f)),
+            std::max(minWindowSize.y, displaySize.y - ScaleUi(24.0f)));
+        ImGui::SetNextWindowSizeConstraints(minWindowSize, maxWindowSize);
+        ImGui::SetNextWindowSize(
+            ImVec2(std::min(preferredWindowSize.x, maxWindowSize.x), std::min(preferredWindowSize.y, maxWindowSize.y)),
+            ImGuiCond_Appearing);
         ImGui::OpenPopup("##binder_input_dialog");
     }
 
-    if (!ImGui::BeginPopupModal("##binder_input_dialog", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!ImGui::BeginPopupModal("##binder_input_dialog", nullptr)) {
         return;
     }
 
@@ -5174,8 +5958,24 @@ void BinderModule::Impl::DrawInputDialog() {
         return;
     }
 
+    UiSettings& ui = UiSettings::Instance();
     HotkeyEntry& hotkey = hotkeys[inputDialog->hotkeyIndex];
-    ImGui::TextWrapped("%s", UiSettings::Instance().Format(UiText::FillBindParametersFormat, hotkey.label.c_str()).c_str());
+    const bool compactDialog = inputDialog->fields.size() == 1;
+    const bool dialogAppearing = ImGui::IsWindowAppearing();
+    bool focusAssigned = false;
+    bool submitRequested = false;
+    bool cancelRequested = false;
+    const bool focusSearchShortcut =
+        ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_RouteOverActive);
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Enter, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_RouteOverActive)
+        || ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_KeypadEnter, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_RouteOverActive)) {
+        submitRequested = true;
+    }
+    if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_RouteOverActive)) {
+        cancelRequested = true;
+    }
+
+    ImGui::TextWrapped("%s", ui.Format(UiText::FillBindParametersFormat, hotkey.label.c_str()).c_str());
     ImGui::Separator();
 
     auto rebuildSelectedText = [](InputDialogField& field) {
@@ -5186,70 +5986,200 @@ void BinderModule::Impl::DrawInputDialog() {
                 continue;
             }
             const InputButton& button = field.input.buttons[static_cast<std::size_t>(idx)];
-            const std::string value = !button.text.empty() ? button.text : button.label;
-            if (value.empty()) {
+            if (button.text.empty()) {
                 continue;
             }
             if (!first) {
                 stream << (field.input.multiSeparator.empty() ? ", " : field.input.multiSeparator);
             }
-            stream << value;
+            stream << button.text;
             first = false;
         }
         field.textValue = stream.str();
     };
-
-    for (std::size_t i = 0; i < inputDialog->fields.size(); ++i) {
-        InputDialogField& field = inputDialog->fields[i];
-        ImGui::PushID(static_cast<int>(i));
-        ImGui::SeparatorText(field.input.label.empty() ? field.input.key.c_str() : field.input.label.c_str());
-        if (!field.input.hint.empty()) {
-            ImGui::TextDisabled("%s", field.input.hint.c_str());
+    auto dialogButtonLabel = [](const InputButton& button, int buttonIndex) {
+        const std::string label = Trim(button.label);
+        if (!label.empty()) {
+            return label;
+        }
+        const std::string text = Trim(button.text);
+        if (!text.empty()) {
+            return text;
+        }
+        return std::to_string(buttonIndex + 1);
+    };
+    const auto dialogButtonMatchesQuery = [&](const InputButton& button, int buttonIndex, std::string_view query) {
+        const std::string normalizedQuery = ToLower(Trim(query));
+        if (normalizedQuery.empty()) {
+            return true;
         }
 
-        if (field.input.mode == InputMode::Text) {
-            InputTextString("##input_value", field.textValue, 0, 256);
+        const std::string label = ToLower(dialogButtonLabel(button, buttonIndex));
+        if (label.find(normalizedQuery) != std::string::npos) {
+            return true;
+        }
+        if (ToLower(button.text).find(normalizedQuery) != std::string::npos) {
+            return true;
+        }
+        return ToLower(button.hint).find(normalizedQuery) != std::string::npos;
+    };
+    const auto drawPreviewBlock = [&](bool compactPreview) {
+        std::map<std::string, std::string> values;
+        for (std::size_t fieldIndex = 0; fieldIndex < inputDialog->fields.size(); ++fieldIndex) {
+            const InputDialogField& previewField = inputDialog->fields[fieldIndex];
+            const std::string key = NormalizeInputKey(previewField.input.key);
+            const std::string value = BuildInputValue(previewField);
+            if (!key.empty()) {
+                values[key] = value;
+                values[ToLower(key)] = value;
+            }
+            values[std::to_string(fieldIndex + 1)] = value;
+        }
+
+        ImGui::SeparatorText(ui.Text(UiText::InputDialogPreviewTitle));
+        const ImVec2 previewSize = compactPreview ? ImVec2(0.0f, ScaleUi(104.0f)) : ImVec2(0.0f, ScaleUi(124.0f));
+        if (!ImGui::BeginChild("##binder_input_preview", previewSize, ImGuiChildFlags_FrameStyle)) {
+            ImGui::EndChild();
+            return;
+        }
+
+        bool hasPreviewRows = false;
+        for (std::size_t messageIndex = 0; messageIndex < hotkey.messages.size(); ++messageIndex) {
+            const HotkeyMessage& message = hotkey.messages[messageIndex];
+            std::string previewText = ApplyInputValues(message.text, values);
+            std::replace(previewText.begin(), previewText.end(), '\r', ' ');
+            std::replace(previewText.begin(), previewText.end(), '\n', ' ');
+            if (Trim(previewText).empty()) {
+                continue;
+            }
+
+            hasPreviewRows = true;
+            ImGui::TextWrapped(
+                "%d. [%s] %s",
+                static_cast<int>(messageIndex + 1),
+                SendMethodLabel(message.method),
+                previewText.c_str());
+        }
+
+        if (!hasPreviewRows) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::InputDialogPreviewEmpty));
+        }
+        ImGui::EndChild();
+    };
+    const auto applyButtonSelection = [&](InputDialogField& field, int buttonIndex) {
+        const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
+        if (field.input.multiSelect) {
+            field.selectedButtonIndex.reset();
+            if (field.selectedButtons.contains(buttonIndex)) {
+                field.selectedButtons.erase(buttonIndex);
+            } else {
+                field.selectedButtons.insert(buttonIndex);
+            }
+            rebuildSelectedText(field);
         } else {
-            const auto filteredButtons = FilterButtons(*inputDialog, i);
-            if (ImGui::BeginChild("##input_buttons", ScaleUi(420.0f, 140.0f), ImGuiChildFlags_Borders)) {
-                for (const int buttonIndex : filteredButtons) {
+            field.selectedButtons.clear();
+            field.selectedButtonIndex = buttonIndex;
+            if (field.input.mode == InputMode::ButtonsListText) {
+                field.textValue = button.text;
+            }
+        }
+    };
+    const auto drawSearchInput = [&](InputDialogField& field, bool wantFocus) {
+        if (wantFocus) {
+            ImGui::SetKeyboardFocusHere();
+            focusAssigned = true;
+        }
+        ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_F, ImGuiInputFlags_Tooltip);
+        InputTextWithHintString(
+            "##input_search",
+            ui.Text(UiText::InputDialogSearchHint),
+            field.searchValue,
+            ImGuiInputTextFlags_AutoSelectAll,
+            128);
+    };
+    const auto drawRegularButtonList = [&](InputDialogField& field, const std::vector<int>& shownButtons) -> bool {
+        bool picked = false;
+        if (ImGui::BeginChild("##input_buttons", ImVec2(0.0f, ScaleUi(160.0f)), ImGuiChildFlags_FrameStyle)) {
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(shownButtons.size()));
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const int buttonIndex = shownButtons[static_cast<std::size_t>(row)];
                     const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
-                    const std::string value = !button.text.empty() ? button.text : button.label;
-                    if (field.input.multiSelect) {
-                        const bool selected = field.selectedButtons.contains(buttonIndex);
-                        if (ImGui::Selectable(button.label.c_str(), selected)) {
-                            if (selected) {
-                                field.selectedButtons.erase(buttonIndex);
-                            } else {
-                                field.selectedButtons.insert(buttonIndex);
-                            }
-                            rebuildSelectedText(field);
-                        }
-                    } else {
-                        const bool selected = field.selectedButtonIndex.value_or(-1) == buttonIndex;
-                        if (ImGui::Selectable(button.label.c_str(), selected)) {
-                            field.selectedButtonIndex = buttonIndex;
-                            if (field.input.mode == InputMode::ButtonsListText) {
-                                field.textValue = value;
-                            }
-                        }
+                    const std::string label = dialogButtonLabel(button, buttonIndex);
+                    const bool selected =
+                        field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
+                    if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(-FLT_MIN, 0.0f))) {
+                        applyButtonSelection(field, buttonIndex);
+                        picked = true;
                     }
                     if (!button.hint.empty() && ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("%s", button.hint.c_str());
                     }
                 }
             }
-            ImGui::EndChild();
-
-            if (field.input.mode == InputMode::ButtonsListText) {
-                InputTextString("##input_text_value", field.textValue, 0, 256);
+            if (shownButtons.empty()) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::InputDialogNoOptions));
             }
         }
-        ImGui::PopID();
-    }
-
-    ImGui::Separator();
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::Launch))) {
+        ImGui::EndChild();
+        return picked;
+    };
+    const auto drawCompactButtonList = [&](InputDialogField& field, const std::vector<int>& shownButtons) -> bool {
+        bool picked = false;
+        const bool useTwoColumns = shownButtons.size() >= 4 && ImGui::GetContentRegionAvail().x >= ScaleUi(420.0f);
+        if (ImGui::BeginChild("##input_buttons_compact", ImVec2(0.0f, ScaleUi(176.0f)), ImGuiChildFlags_FrameStyle)) {
+            const float spacingX = ImGui::GetStyle().ItemSpacing.x;
+            const float availableWidth = ImGui::GetContentRegionAvail().x;
+            const float buttonWidth = useTwoColumns ? std::max(ScaleUi(120.0f), (availableWidth - spacingX) * 0.5f) : -FLT_MIN;
+            for (std::size_t shownIndex = 0; shownIndex < shownButtons.size(); ++shownIndex) {
+                const int buttonIndex = shownButtons[shownIndex];
+                const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
+                const bool selected =
+                    field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
+                if (selected) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                }
+                if (ImGui::Button(dialogButtonLabel(button, buttonIndex).c_str(), ImVec2(buttonWidth, 0.0f))) {
+                    applyButtonSelection(field, buttonIndex);
+                    picked = true;
+                }
+                if (selected) {
+                    ImGui::PopStyleColor(2);
+                }
+                if (!button.hint.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", button.hint.c_str());
+                }
+                if (useTwoColumns && (shownIndex % 2) == 0 && shownIndex + 1 < shownButtons.size()) {
+                    ImGui::SameLine();
+                }
+            }
+            if (shownButtons.empty()) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::InputDialogNoOptions));
+            }
+        }
+        ImGui::EndChild();
+        return picked;
+    };
+    const auto drawFieldTextEditor = [&](InputDialogField& field, bool wantFocus, bool compactEditor) {
+        if (wantFocus) {
+            ImGui::SetKeyboardFocusHere();
+            focusAssigned = true;
+        }
+        const float height = compactEditor ? ScaleUi(148.0f) : ScaleUi(112.0f);
+        const bool changed = InputTextMultilineWithCounterString(
+            "##input_text_value",
+            field.textValue,
+            ImVec2(-FLT_MIN, height),
+            ImGuiInputTextFlags_AllowTabInput,
+            512);
+        if (changed && field.input.mode == InputMode::ButtonsListText) {
+            field.selectedButtonIndex.reset();
+            field.selectedButtons.clear();
+        }
+    };
+    const auto submitDialog = [&]() {
         std::map<std::string, std::string> values;
         for (std::size_t i = 0; i < inputDialog->fields.size(); ++i) {
             const InputDialogField& field = inputDialog->fields[i];
@@ -5271,12 +6201,92 @@ void BinderModule::Impl::DrawInputDialog() {
         hotkey.awaitingInput = false;
         inputDialog.reset();
         ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
+    };
+    const auto cancelDialog = [&]() {
         hotkey.awaitingInput = false;
         inputDialog.reset();
         ImGui::CloseCurrentPopup();
+    };
+
+    for (std::size_t i = 0; i < inputDialog->fields.size(); ++i) {
+        InputDialogField& field = inputDialog->fields[i];
+        ImGui::PushID(static_cast<int>(i));
+        if (!compactDialog || i == 0) {
+            const std::string title = field.input.label.empty() ? field.input.key : field.input.label;
+            ImGui::TextWrapped("%s", title.c_str());
+            ImGui::Separator();
+        }
+        if (!field.input.hint.empty()) {
+            ImGui::TextWrapped("%s", field.input.hint.c_str());
+        }
+
+        if (field.input.mode == InputMode::Text) {
+            drawFieldTextEditor(field, !focusAssigned && dialogAppearing, compactDialog);
+        } else {
+            const auto filteredButtons = FilterButtons(*inputDialog, i);
+            std::set<int> visibleButtons(filteredButtons.begin(), filteredButtons.end());
+            if (field.input.multiSelect) {
+                bool selectionChanged = false;
+                for (auto it = field.selectedButtons.begin(); it != field.selectedButtons.end();) {
+                    if (!visibleButtons.contains(*it)) {
+                        it = field.selectedButtons.erase(it);
+                        selectionChanged = true;
+                    } else {
+                        ++it;
+                    }
+                }
+                if (selectionChanged) {
+                    rebuildSelectedText(field);
+                }
+            } else if (field.selectedButtonIndex.has_value() && !visibleButtons.contains(*field.selectedButtonIndex)) {
+                field.selectedButtonIndex.reset();
+            }
+
+            drawSearchInput(
+                field,
+                !focusAssigned && InputModeUsesButtons(field.input.mode) && (dialogAppearing || focusSearchShortcut));
+
+            std::vector<int> shownButtons;
+            shownButtons.reserve(filteredButtons.size());
+            for (const int buttonIndex : filteredButtons) {
+                const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
+                if (dialogButtonMatchesQuery(button, buttonIndex, field.searchValue)) {
+                    shownButtons.push_back(buttonIndex);
+                }
+            }
+
+            const bool picked = compactDialog ? drawCompactButtonList(field, shownButtons) : drawRegularButtonList(field, shownButtons);
+            if (compactDialog && picked && field.input.mode == InputMode::ButtonsList && !field.input.multiSelect) {
+                submitRequested = true;
+            }
+
+            if (field.input.mode == InputMode::ButtonsListText) {
+                drawFieldTextEditor(field, false, compactDialog);
+            }
+        }
+
+        if (!compactDialog && i + 1 != inputDialog->fields.size()) {
+            ImGui::Spacing();
+        }
+        ImGui::PopID();
+    }
+
+    drawPreviewBlock(compactDialog);
+    ImGui::Separator();
+    ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_Enter, ImGuiInputFlags_Tooltip);
+    if (ImGui::Button(ui.Text(UiText::Launch))) {
+        submitRequested = true;
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemShortcut(ImGuiKey_Escape, ImGuiInputFlags_Tooltip);
+    if (ImGui::Button(ui.Text(UiText::Cancel))) {
+        cancelRequested = true;
+    }
+
+    if (submitRequested) {
+        submitDialog();
+    } else if (cancelRequested) {
+        cancelDialog();
     }
 
     ImGui::EndPopup();

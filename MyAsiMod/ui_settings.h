@@ -62,9 +62,9 @@
     X(ConditionOnFoot, "Пешком", "On foot") \
     X(ConditionChatOpened, "Открыт чат", "Chat open") \
     X(ConditionDialogOpened, "Открыт диалог", "Dialog open") \
-    X(InputModeText, "Текст", "Text") \
-    X(InputModeButtonsList, "Список кнопок", "Button list") \
-    X(InputModeButtonsListText, "Кнопки + текст", "Buttons + text") \
+    X(InputModeText, "Свободный ввод", "Free text") \
+    X(InputModeButtonsList, "Выбор из вариантов", "Pick from options") \
+    X(InputModeButtonsListText, "Варианты + свой текст", "Options + custom text") \
     X(HotkeyModeModifierTrigger, "Модификатор + клавиша", "Modifier + key") \
     X(HotkeyModeOrderedCombo, "Последовательная комбинация", "Ordered combo") \
     X(QuickMenuModeHold, "Удержание", "Hold") \
@@ -96,9 +96,13 @@
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
     X(ValidationRepeatInterval, "Интервал повтора должен быть не меньше 50 мс.", "Repeat interval must be at least 50 ms.") \
-    X(ValidationInputKeyRequired, "У каждого поля ввода должен быть ключ.", "Each input field must have a key.") \
-    X(ValidationInputKeyUnique, "Ключи полей ввода должны быть уникальными.", "Input field keys must be unique.") \
-    X(ValidationButtonsRequired, "Для режима с кнопками нужно заполнить список кнопок.", "Button-based modes require a non-empty button list.") \
+    X(ValidationTriggerTextRequired, "Укажите текст триггера.", "Enter trigger text.") \
+    X(ValidationCommandRequired, "Укажите команду.", "Enter a command.") \
+    X(ValidationConfirmCancelKeysDifferent, "Клавиши подтверждения и отклонения должны отличаться.", "Confirm and cancel keys must be different.") \
+    X(ValidationInputKeyRequired, "У каждого параметра должен быть служебный ключ.", "Each parameter must have a service key.") \
+    X(ValidationInputKeyUnique, "Служебные ключи параметров должны быть уникальными.", "Parameter service keys must be unique.") \
+    X(ValidationButtonsRequired, "Для параметра с вариантами нужен хотя бы один вариант.", "Parameters with options require at least one option.") \
+    X(ValidationButtonsTextRequired, "Для параметра с вариантами нужен хотя бы один вариант со значением.", "Parameters with options require at least one option with a value.") \
     X(ValidationInvalidRegex, "Некорректное регулярное выражение триггера: %s", "Invalid trigger regex: %s") \
     X(FolderAdd, "+ Папка", "+ Folder") \
     X(FolderRename, "Переименовать", "Rename") \
@@ -108,18 +112,62 @@
     X(Save, "Сохранить", "Save") \
     X(Cancel, "Отмена", "Cancel") \
     X(DeleteFolderMoveBindsQuestion, "Удалить папку вместе с подпапками и биндами?", "Delete the folder together with its subfolders and binds?") \
-    X(AddField, "+ Поле", "+ Field") \
-    X(FieldLabelFormat, "Поле %d", "Field %d") \
+    X(AddField, "+ Параметр", "+ Parameter") \
+    X(AddButton, "+ Вариант", "+ Option") \
+    X(FieldLabelFormat, "Параметр %d", "Parameter %d") \
+    X(ButtonLabelFormat, "Вариант %d", "Option %d") \
     X(UnnamedField, "(без названия)", "(unnamed)") \
-    X(FieldProperties, "Свойства поля", "Field Properties") \
+    X(FieldProperties, "Свойства параметра", "Parameter properties") \
+    X(ButtonPropertiesTitle, "Свойства варианта", "Option properties") \
+    X(InputFieldsListTitle, "Параметры", "Parameters") \
+    X(InputFieldsEmpty, "Параметры ещё не настроены.", "No parameters are configured yet.") \
+    X(ParameterQuestionSection, "Что увидит игрок", "What the player sees") \
+    X(ParameterQuestionHint, "Название и подсказка этого параметра в окне перед запуском.", "Name and helper text shown before the bind starts.") \
+    X(ParameterPrompt, "Заголовок вопроса", "Prompt title") \
+    X(ParameterHintText, "Подсказка под вопросом", "Hint under the prompt") \
+    X(ParameterResponseSection, "Какой ответ ожидается", "Expected answer") \
+    X(ParameterResponseHint, "Выберите способ ответа и формат значения, которое подставится в сообщения.", "Choose how the player answers and which value will be inserted into messages.") \
+    X(ParameterResponseType, "Тип ответа", "Answer type") \
+    X(ParameterAllowMultiple, "Можно выбрать несколько", "Allow multiple choices") \
+    X(ParameterJoinSeparator, "Разделитель при подстановке", "Separator for inserted values") \
+    X(ParameterVariantsSection, "Варианты ответа", "Answer options") \
+    X(ParameterVariantsHint, "Название показывается игроку, а значение подставляется в {{KEY}}.", "The label is shown to the player, while the value is inserted into {{KEY}}.") \
+    X(ParameterAdvancedSection, "Расширенные настройки", "Advanced settings") \
+    X(ParameterAdvancedHint, "Служебный ключ нужен для {{KEY}}, зависимостей и каскадных списков.", "The service key is used for {{KEY}}, dependencies, and cascading lists.") \
+    X(ParameterSystemKey, "Служебный ключ", "Service key") \
+    X(ParameterDependsOn, "Зависит от параметра", "Depends on parameter") \
+    X(OptionName, "Название варианта", "Option label") \
+    X(OptionValue, "Подставляемое значение", "Inserted value") \
+    X(OptionHint, "Подсказка варианта", "Option hint") \
     X(Key, "Ключ", "Key") \
     X(Hint, "Подсказка", "Hint") \
     X(Mode, "Режим", "Mode") \
     X(MultiSelect, "Множественный выбор", "Multi-select") \
     X(Separator, "Разделитель", "Separator") \
     X(CascadeFromKey, "Каскад от ключа", "Cascade from key") \
-    X(Buttons, "Кнопки", "Buttons") \
-    X(ButtonsFormatHint, "Формат строки: label | text | hint | when", "Line format: label | text | hint | when") \
+    X(Buttons, "Варианты", "Options") \
+    X(ButtonsStructuredTab, "Редактор", "Editor") \
+    X(ButtonsBulkTab, "Списком", "Bulk") \
+    X(ButtonListTitle, "Список вариантов", "Options list") \
+    X(ButtonsEmpty, "Список вариантов пуст.", "The options list is empty.") \
+    X(ButtonsBulkAddLine, "+ 1 строка", "+ 1 line") \
+    X(ButtonsBulkAddFiveLines, "+ 5 строк", "+ 5 lines") \
+    X(ButtonsBulkTemplateValueFormat, "значение_%d", "value_%d") \
+    X(ButtonsBulkTemplateHintFormat, "Подсказка %d", "Hint %d") \
+    X(ButtonsBulkSync, "Синхронизировать", "Sync") \
+    X(ButtonsBulkCheck, "Проверить", "Check") \
+    X(ButtonsBulkNormalize, "Нормализовать", "Normalize") \
+    X(ButtonsBulkApply, "Применить", "Apply") \
+    X(ButtonsFormatHint, "Формат строки: название | значение | подсказка | when", "Line format: label | value | hint | when") \
+    X(ButtonsBulkEscapingHint, "Поддерживаются комментарии # и экранирование \\\\|, \\\\n, \\\\\\\\.", "Supports # comments and escaping \\\\|, \\\\n, \\\\\\\\.") \
+    X(ButtonsBulkPreviewFormat, "Строк: %d, полезных: %d, пропущено: %d, кнопок после разбора: %d", "Lines: %d, used: %d, ignored: %d, buttons after parse: %d") \
+    X(ButtonsBulkExtraPipesHint, "Лишние символы | после третьего столбца объединяются в when.", "Extra | after the third column are merged into when.") \
+    X(ButtonWhen, "Правило показа", "Display rule") \
+    X(ButtonWhenHint, "Показывать вариант, если у родительского параметра совпали label/text через |.", "Show this option when the parent parameter matches one of the label/text tokens separated by |.") \
+    X(MoveUp, "Поднять выше", "Move up") \
+    X(MoveDown, "Опустить ниже", "Move down") \
+    X(CopyPlaceholder, "Скопировать {{KEY}}", "Copy {{KEY}}") \
+    X(InputFieldPlaceholderFormat, "Подстановка: {{%s}}", "Insert token: {{%s}}") \
     X(NewBindTitle, "Новый бинд", "New bind") \
     X(EditBindTitle, "Редактирование бинда", "Edit bind") \
     X(EditorStartSection, "Как запускается", "How it starts") \
@@ -127,7 +175,7 @@
     X(EditorExpandStartSection, "Показать блок запуска", "Show launch block") \
     X(EditorScenarioTab, "Сценарий", "Scenario") \
     X(EditorMultiInputTab, "Мульти-ввод", "Multi-input") \
-    X(EditorInputFieldsTab, "Поля ввода", "Input fields") \
+    X(EditorInputFieldsTab, "Параметры", "Parameters") \
     X(EditorOpenConditions, "Условия", "Conditions") \
     X(EditorBack, "Назад", "Back") \
     X(EditorPreviousBind, "Предыдущий бинд", "Previous bind") \
@@ -143,8 +191,8 @@
     X(EditorMoveStep, "Переместить шаг", "Move step") \
     X(EditorVariables, "Переменные", "Variables") \
     X(EditorVariablesTitle, "Переменные бинда", "Bind variables") \
-    X(EditorVariablesHint, "Используйте {{KEY}} или {{1}} в сообщениях, чтобы подставить значения полей ввода.", "Use {{KEY}} or {{1}} in messages to insert input field values.") \
-    X(EditorVariablesEmpty, "Поля ввода ещё не настроены.", "No input fields are configured yet.") \
+    X(EditorVariablesHint, "Используйте {{KEY}} или {{1}} в сообщениях, чтобы подставить значения параметров.", "Use {{KEY}} or {{1}} in messages to insert parameter values.") \
+    X(EditorVariablesEmpty, "Параметры ещё не настроены.", "No parameters are configured yet.") \
     X(EditorPreview, "Предпросмотр", "Preview") \
     X(EditorPreviewTitle, "Предпросмотр сценария", "Scenario preview") \
     X(EditorPreviewEmpty, "В сценарии пока нет шагов.", "There are no steps in the scenario yet.") \
@@ -184,6 +232,10 @@
     X(Change, "Изменить", "Change") \
     X(BlockingConditions, "Условия блокировки", "Blocking Conditions") \
     X(QuickMenuConditions, "Условия быстрого меню", "Quick Menu Conditions") \
+    X(InputDialogSearchHint, "Поиск по названию, тексту или подсказке", "Search by label, text, or hint") \
+    X(InputDialogNoOptions, "Нет доступных вариантов.", "No available options.") \
+    X(InputDialogPreviewTitle, "Предпросмотр отправки", "Send preview") \
+    X(InputDialogPreviewEmpty, "В сценарии нет сообщений для отправки.", "There are no messages to send in this scenario.") \
     X(AddBind, "+ Бинд", "+ Bind") \
     X(Edit, "Изменить", "Edit") \
     X(Run, "Запустить", "Run") \
