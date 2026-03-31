@@ -1,12 +1,20 @@
 #include "tags_module.h"
 
 #include "app_config.h"
+#include "binder_module.h"
+#include "hotkey_utils.h"
 #include "json_utils.h"
 #include "samp_api.h"
 #include <imgui.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,9 +23,9 @@ namespace {
 
 constexpr std::string_view kTagsSectionName = "tags";
 constexpr std::string_view kCustomVarsKey = "custom_vars";
-constexpr int kPreviewLaunchManual = 0;
-constexpr int kPreviewLaunchCommand = 1;
 constexpr int kRecursionLimit = 10;
+constexpr int kKeyEmulateStartDelayMs = 20;
+constexpr int kKeyEmulateTapMs = 35;
 thread_local std::vector<TagsModule::OwnedEvaluationContext> g_activeContextStack;
 
 struct ImGuiStringUserData {
@@ -64,48 +72,6 @@ bool InputTextWithHintString(
     ImGuiStringUserData userData{ &value, nullptr, nullptr };
     flags |= ImGuiInputTextFlags_CallbackResize;
     return ImGui::InputTextWithHint(label, hint, value.data(), value.capacity() + 1, flags, ImGuiStringResizeCallback, &userData);
-}
-
-bool InputTextMultilineString(
-    const char* label,
-    std::string& value,
-    const ImVec2& size,
-    ImGuiInputTextFlags flags = 0,
-    std::size_t minBuffer = 1024) {
-    if (value.capacity() < minBuffer) {
-        value.reserve(minBuffer);
-    }
-
-    ImGuiStringUserData userData{ &value, nullptr, nullptr };
-    flags |= ImGuiInputTextFlags_CallbackResize;
-    return ImGui::InputTextMultiline(label, value.data(), value.capacity() + 1, size, flags, ImGuiStringResizeCallback, &userData);
-}
-
-std::size_t CountUtf8Codepoints(std::string_view value) {
-    std::size_t count = 0;
-    for (const unsigned char ch : value) {
-        if ((ch & 0xC0u) != 0x80u) {
-            ++count;
-        }
-    }
-    return count;
-}
-
-bool InputTextMultilineWithCounterString(
-    const char* label,
-    std::string& value,
-    const ImVec2& size,
-    ImGuiInputTextFlags flags = 0,
-    std::size_t minBuffer = 1024) {
-    const bool changed = InputTextMultilineString(label, value, size, flags, minBuffer);
-    const std::string counter = std::to_string(CountUtf8Codepoints(value));
-    const float counterWidth = ImGui::CalcTextSize(counter.c_str()).x;
-    const float availableWidth = ImGui::GetContentRegionAvail().x;
-    if (availableWidth > counterWidth) {
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableWidth - counterWidth));
-    }
-    ImGui::TextDisabled("%s", counter.c_str());
-    return changed;
 }
 
 float ScaleUi(float value) {
@@ -190,6 +156,298 @@ bool DrawNavigationCardButton(
     ImGui::PopStyleColor();
 
     return ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+}
+
+std::string ToLowerAscii(std::string_view value) {
+    std::string lowered;
+    lowered.reserve(value.size());
+    for (const unsigned char ch : value) {
+        lowered.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return lowered;
+}
+
+struct VirtualKeyPickerEntry {
+    UINT code = 0;
+    std::string label{};
+    std::string search{};
+};
+
+std::string MakeKeyEmulateToken(UINT keyCode) {
+    return "[keyemulate(" + std::to_string(keyCode) + ")]";
+}
+
+const std::vector<VirtualKeyPickerEntry>& GetVirtualKeyPickerEntries() {
+    static const std::vector<VirtualKeyPickerEntry> entries = [] {
+        std::vector<VirtualKeyPickerEntry> built;
+        built.reserve(255);
+        for (UINT keyCode = 1; keyCode <= 0xFF; ++keyCode) {
+            const std::string name = hotkeys::KeyName(keyCode);
+            const std::string label = std::to_string(keyCode) + " - " + name;
+            built.push_back(VirtualKeyPickerEntry{
+                keyCode,
+                label,
+                ToLowerAscii(label + " " + name),
+            });
+        }
+        return built;
+    }();
+    return entries;
+}
+
+bool IsExtendedVirtualKey(UINT keyCode) {
+    switch (keyCode) {
+    case VK_RMENU:
+    case VK_RCONTROL:
+    case VK_INSERT:
+    case VK_DELETE:
+    case VK_HOME:
+    case VK_END:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_UP:
+    case VK_DOWN:
+    case VK_NUMLOCK:
+    case VK_DIVIDE:
+    case VK_CANCEL:
+    case VK_SNAPSHOT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool SendKeyboardEvent(UINT keyCode, bool keyUp) {
+    INPUT input{};
+    const WORD virtualKey = static_cast<WORD>(keyCode);
+    const WORD scanCode = static_cast<WORD>(MapVirtualKeyW(keyCode, MAPVK_VK_TO_VSC));
+    const DWORD extendedFlag = IsExtendedVirtualKey(keyCode) ? KEYEVENTF_EXTENDEDKEY : 0;
+
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = virtualKey;
+    input.ki.wScan = scanCode;
+    input.ki.dwFlags = extendedFlag | (keyUp ? KEYEVENTF_KEYUP : 0);
+
+    return SendInput(1, &input, sizeof(INPUT)) == 1;
+}
+
+bool SendMouseEvent(DWORD flag, DWORD mouseData = 0) {
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = flag;
+    input.mi.mouseData = mouseData;
+    return SendInput(1, &input, sizeof(INPUT)) == 1;
+}
+
+bool SendVirtualKeyEvent(UINT keyCode, bool keyUp) {
+    if (keyCode == 0 || keyCode > 0xFF) {
+        return false;
+    }
+
+    switch (keyCode) {
+    case VK_LBUTTON:
+        return SendMouseEvent(keyUp ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN);
+    case VK_RBUTTON:
+        return SendMouseEvent(keyUp ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_RIGHTDOWN);
+    case VK_MBUTTON:
+        return SendMouseEvent(keyUp ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_MIDDLEDOWN);
+    case VK_XBUTTON1:
+        return SendMouseEvent(keyUp ? MOUSEEVENTF_XUP : MOUSEEVENTF_XDOWN, XBUTTON1);
+    case VK_XBUTTON2:
+        return SendMouseEvent(keyUp ? MOUSEEVENTF_XUP : MOUSEEVENTF_XDOWN, XBUTTON2);
+    default:
+        return SendKeyboardEvent(keyCode, keyUp);
+    }
+}
+
+class MathExpressionParser {
+public:
+    explicit MathExpressionParser(std::string_view expression)
+        : expression_(expression) {}
+
+    std::optional<double> Evaluate() {
+        const std::optional<double> value = ParseExpression();
+        SkipWhitespace();
+        if (!value.has_value() || pos_ != expression_.size()) {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+private:
+    std::optional<double> ParseExpression() {
+        std::optional<double> value = ParseTerm();
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+
+        while (true) {
+            SkipWhitespace();
+            if (Match('+')) {
+                const std::optional<double> rhs = ParseTerm();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                *value += *rhs;
+            } else if (Match('-')) {
+                const std::optional<double> rhs = ParseTerm();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                *value -= *rhs;
+            } else {
+                return value;
+            }
+        }
+    }
+
+    std::optional<double> ParseTerm() {
+        std::optional<double> value = ParseFactor();
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+
+        while (true) {
+            SkipWhitespace();
+            if (Match('*')) {
+                const std::optional<double> rhs = ParseFactor();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                *value *= *rhs;
+            } else if (Match('/')) {
+                const std::optional<double> rhs = ParseFactor();
+                if (!rhs.has_value() || std::fabs(*rhs) < 1e-12) {
+                    return std::nullopt;
+                }
+                *value /= *rhs;
+            } else if (Match('%')) {
+                const std::optional<double> rhs = ParseFactor();
+                if (!rhs.has_value() || std::fabs(*rhs) < 1e-12) {
+                    return std::nullopt;
+                }
+                *value = std::fmod(*value, *rhs);
+            } else {
+                return value;
+            }
+        }
+    }
+
+    std::optional<double> ParseFactor() {
+        SkipWhitespace();
+        if (Match('+')) {
+            return ParseFactor();
+        }
+        if (Match('-')) {
+            if (std::optional<double> value = ParseFactor(); value.has_value()) {
+                return -*value;
+            }
+            return std::nullopt;
+        }
+        if (Match('(')) {
+            std::optional<double> value = ParseExpression();
+            SkipWhitespace();
+            if (!value.has_value() || !Match(')')) {
+                return std::nullopt;
+            }
+            return value;
+        }
+        return ParseNumber();
+    }
+
+    std::optional<double> ParseNumber() {
+        SkipWhitespace();
+        const std::size_t start = pos_;
+
+        bool hasDigits = false;
+        while (pos_ < expression_.size() && std::isdigit(static_cast<unsigned char>(expression_[pos_])) != 0) {
+            hasDigits = true;
+            ++pos_;
+        }
+
+        if (pos_ < expression_.size() && expression_[pos_] == '.') {
+            ++pos_;
+            while (pos_ < expression_.size() && std::isdigit(static_cast<unsigned char>(expression_[pos_])) != 0) {
+                hasDigits = true;
+                ++pos_;
+            }
+        }
+
+        if (!hasDigits) {
+            pos_ = start;
+            return std::nullopt;
+        }
+
+        if (pos_ < expression_.size() && (expression_[pos_] == 'e' || expression_[pos_] == 'E')) {
+            const std::size_t exponentPos = pos_++;
+            if (pos_ < expression_.size() && (expression_[pos_] == '+' || expression_[pos_] == '-')) {
+                ++pos_;
+            }
+
+            const std::size_t digitsStart = pos_;
+            while (pos_ < expression_.size() && std::isdigit(static_cast<unsigned char>(expression_[pos_])) != 0) {
+                ++pos_;
+            }
+            if (digitsStart == pos_) {
+                pos_ = exponentPos;
+            }
+        }
+
+        const std::string token(expression_.substr(start, pos_ - start));
+        char* endPtr = nullptr;
+        const double value = std::strtod(token.c_str(), &endPtr);
+        if (!endPtr || endPtr != token.c_str() + token.size()) {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+    void SkipWhitespace() {
+        while (pos_ < expression_.size() && std::isspace(static_cast<unsigned char>(expression_[pos_])) != 0) {
+            ++pos_;
+        }
+    }
+
+    bool Match(char expected) {
+        if (pos_ >= expression_.size() || expression_[pos_] != expected) {
+            return false;
+        }
+        ++pos_;
+        return true;
+    }
+
+    std::string_view expression_{};
+    std::size_t pos_ = 0;
+};
+
+std::string FormatMathResult(double value) {
+    if (!std::isfinite(value)) {
+        return {};
+    }
+
+    const double rounded = std::round(value);
+    if (std::fabs(value - rounded) < 1e-9
+        && rounded >= static_cast<double>(std::numeric_limits<long long>::min())
+        && rounded <= static_cast<double>(std::numeric_limits<long long>::max())) {
+        return std::to_string(static_cast<long long>(rounded));
+    }
+
+    std::ostringstream stream;
+    stream << std::setprecision(12) << std::defaultfloat << value;
+    std::string result = stream.str();
+    if (result.find_first_of("eE") == std::string::npos) {
+        if (const std::size_t dotPos = result.find('.'); dotPos != std::string::npos) {
+            while (!result.empty() && result.back() == '0') {
+                result.pop_back();
+            }
+            if (!result.empty() && result.back() == '.') {
+                result.pop_back();
+            }
+        }
+    }
+    return result;
 }
 
 } // namespace
@@ -279,6 +537,69 @@ void TagsModule::InitializeRegistry() {
             return module.ResolveBuiltinNickTag(context);
         });
 
+    tagRegistry_.RegisterSimple(
+        "thisbind",
+        "{thisbind}",
+        "{thisbind}",
+        UiText::TagsBuiltinThisbindDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinThisbindTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "bindstopall",
+        "{bindstopall}",
+        "{bindstopall}",
+        UiText::TagsBuiltinBindStopAllDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinBindStopAllTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "nickrp",
+        "{nickrp}",
+        "{nickrp}",
+        UiText::TagsBuiltinNickRpDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinNickRpTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "name",
+        "{name}",
+        "{name}",
+        UiText::TagsBuiltinNameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinNameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "surname",
+        "{surname}",
+        "{surname}",
+        UiText::TagsBuiltinSurnameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinSurnameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "time",
+        "{time}",
+        "{time}",
+        UiText::TagsBuiltinTimeDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTimeTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "timenosec",
+        "{timenosec}",
+        "{timenosec}",
+        UiText::TagsBuiltinTimeNoSecDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTimeNoSecTag(context);
+        });
+
     tagRegistry_.RegisterFunction(
         "nick",
         "[nick(...)]",
@@ -296,6 +617,132 @@ void TagsModule::InitializeRegistry() {
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
             return module.ResolveBuiltinParamcmdFunctionTag(param, context);
         });
+
+    tagRegistry_.RegisterFunction(
+        "keyemulate",
+        "[keyemulate(...)]",
+        "[keyemulate(87)]",
+        UiText::TagsBuiltinKeyEmulateDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinKeyEmulateFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "math",
+        "[math(...)]",
+        "[math(2+2)]",
+        UiText::TagsBuiltinMathDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinMathFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "wait",
+        "[wait(...)]",
+        "[wait(1000)]",
+        UiText::TagsBuiltinWaitDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinWaitFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "binddisable",
+        "[binddisable(...)]",
+        "[binddisable({thisbind})]",
+        UiText::TagsBuiltinBindDisableDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("disable", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindenable",
+        "[bindenable(...)]",
+        "[bindenable(\"10\" \"folder\")]",
+        UiText::TagsBuiltinBindEnableDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("enable", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindstart",
+        "[bindstart(...)]",
+        "[bindstart(\"10\" \"folder\")]",
+        UiText::TagsBuiltinBindStartDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("start", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindstop",
+        "[bindstop(...)]",
+        "[bindstop({thisbind})]",
+        UiText::TagsBuiltinBindStopDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("stop", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindpause",
+        "[bindpause(...)]",
+        "[bindpause({thisbind})]",
+        UiText::TagsBuiltinBindPauseDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("pause", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindunpause",
+        "[bindunpause(...)]",
+        "[bindunpause({thisbind})]",
+        UiText::TagsBuiltinBindUnpauseDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("unpause", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindfastmenu",
+        "[bindfastmenu(...)]",
+        "[bindfastmenu(\"10\" \"folder\")]",
+        UiText::TagsBuiltinBindFastMenuDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("fastmenu", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindunfastmenu",
+        "[bindunfastmenu(...)]",
+        "[bindunfastmenu(\"10\" \"folder\")]",
+        UiText::TagsBuiltinBindUnfastMenuDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("unfastmenu", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindrandom",
+        "[bindrandom(...)]",
+        "[bindrandom(\"folder\")]",
+        UiText::TagsBuiltinBindRandomDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("random", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindended",
+        "[bindended(...)]",
+        "[bindended({thisbind})]",
+        UiText::TagsBuiltinBindEndedDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("ended", param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "bindpopup",
+        "[bindpopup(...)]",
+        "[bindpopup(\"10\" \"folder\")]",
+        UiText::TagsBuiltinBindPopupDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBinderActionFunctionTag("popup", param, context);
+        });
 }
 
 void TagsModule::OnProcessAttach() {
@@ -308,6 +755,11 @@ void TagsModule::OnProcessAttach() {
 }
 
 void TagsModule::Shutdown() {
+    for (ActiveVirtualKeyHold& hold : activeVirtualKeyHolds_) {
+        ReleaseVirtualKeyHold(hold);
+    }
+    activeVirtualKeyHolds_.clear();
+    pendingBindDelayOverrides_.clear();
     searchQuery_.clear();
     currentPage_ = MiscPage::Home;
     g_activeContextStack.clear();
@@ -317,12 +769,18 @@ void TagsModule::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
 }
 
+void TagsModule::SetBinderModule(BinderModule* binderModule) {
+    binderModule_ = binderModule;
+}
+
 TagsModule::OwnedEvaluationContext TagsModule::MakeOwnedContext(const EvaluationContext& context, SampApi* fallbackSampApi) {
     OwnedEvaluationContext owned;
     owned.sampApi = context.sampApi ? context.sampApi : fallbackSampApi;
     owned.activationSource = std::string(context.activationSource);
     owned.activationText = std::string(context.activationText);
     owned.bindCommand = std::string(context.bindCommand);
+    owned.allowSideEffects = context.allowSideEffects;
+    owned.runningBindRuntimeId = context.runningBindRuntimeId;
     return owned;
 }
 
@@ -332,6 +790,8 @@ TagsModule::EvaluationContext TagsModule::MakeViewContext(const OwnedEvaluationC
         context.activationSource,
         context.activationText,
         context.bindCommand,
+        context.allowSideEffects,
+        context.runningBindRuntimeId,
     };
 }
 
@@ -342,6 +802,50 @@ void TagsModule::PushContext(const EvaluationContext& context) const {
 void TagsModule::PopContext() const {
     if (!g_activeContextStack.empty()) {
         g_activeContextStack.pop_back();
+    }
+}
+
+std::optional<int> TagsModule::ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return std::nullopt;
+    }
+
+    const auto it = std::find_if(
+        pendingBindDelayOverrides_.begin(),
+        pendingBindDelayOverrides_.end(),
+        [&](const PendingBindDelayOverride& entry) { return entry.runtimeId == runtimeId; });
+    if (it == pendingBindDelayOverrides_.end()) {
+        return std::nullopt;
+    }
+
+    const int delayMs = it->delayMs;
+    pendingBindDelayOverrides_.erase(it);
+    return delayMs;
+}
+
+void TagsModule::Tick() {
+    if (activeVirtualKeyHolds_.empty()) {
+        return;
+    }
+
+    const std::uint64_t now = GetTickCount64();
+    for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
+        ActiveVirtualKeyHold& hold = *it;
+        if (!hold.pressed && now >= hold.pressAtMs) {
+            hold.pressed = SendVirtualKeyEvent(hold.keyCode, false);
+            if (!hold.pressed) {
+                it = activeVirtualKeyHolds_.erase(it);
+                continue;
+            }
+        }
+
+        if (hold.pressed && now >= hold.releaseAtMs) {
+            ReleaseVirtualKeyHold(hold);
+            it = activeVirtualKeyHolds_.erase(it);
+            continue;
+        }
+
+        ++it;
     }
 }
 
@@ -466,6 +970,8 @@ TagsModule::EvaluationContext TagsModule::ResolveActiveContext(
         defaultSource,
         defaultText,
         {},
+        true,
+        0,
     };
 }
 
@@ -479,6 +985,105 @@ std::string TagsModule::ResolvePlayerNickById(int id, const EvaluationContext& c
     return nick.empty() || nick == "UNKNOWN" ? std::string() : nick;
 }
 
+std::string TagsModule::ResolveLocalNick(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return {};
+    }
+    return ResolvePlayerNickById(sampApi->Local_ID(), context);
+}
+
+void TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const {
+    if (keyCode == 0 || keyCode > 0xFF) {
+        return;
+    }
+
+    const std::uint64_t now = GetTickCount64();
+    const std::uint64_t pressAtMs = now + static_cast<std::uint64_t>(std::max(startDelayMs, 0));
+    const std::uint64_t releaseAtMs = pressAtMs + static_cast<std::uint64_t>(std::max(holdDurationMs, 1));
+
+    for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
+        if (it->keyCode == keyCode) {
+            ReleaseVirtualKeyHold(*it);
+            it = activeVirtualKeyHolds_.erase(it);
+            continue;
+        }
+        ++it;
+    }
+
+    activeVirtualKeyHolds_.push_back(ActiveVirtualKeyHold{
+        keyCode,
+        pressAtMs,
+        releaseAtMs,
+        false,
+    });
+}
+
+void TagsModule::QueuePendingBindDelayOverride(std::uint64_t runtimeId, int delayMs) const {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (auto it = std::find_if(
+            pendingBindDelayOverrides_.begin(),
+            pendingBindDelayOverrides_.end(),
+            [&](const PendingBindDelayOverride& entry) { return entry.runtimeId == runtimeId; });
+        it != pendingBindDelayOverrides_.end()) {
+        it->delayMs = delayMs;
+        return;
+    }
+
+    pendingBindDelayOverrides_.push_back(PendingBindDelayOverride{ runtimeId, delayMs });
+}
+
+void TagsModule::ReleaseVirtualKeyHold(ActiveVirtualKeyHold& hold) const {
+    if (!hold.pressed) {
+        return;
+    }
+    SendVirtualKeyEvent(hold.keyCode, true);
+    hold.pressed = false;
+}
+
+std::string TagsModule::FormatCurrentTime(const char* format) {
+    if (!format || *format == '\0') {
+        return {};
+    }
+
+    std::time_t now = std::time(nullptr);
+    std::tm localTime{};
+    if (localtime_s(&localTime, &now) != 0) {
+        return {};
+    }
+
+    char buffer[64]{};
+    if (std::strftime(buffer, sizeof(buffer), format, &localTime) == 0) {
+        return {};
+    }
+    return buffer;
+}
+
+std::string TagsModule::MakeRpNick(std::string_view nick) {
+    std::string result;
+    result.reserve(nick.size());
+    for (const char ch : nick) {
+        result.push_back(ch == '_' ? ' ' : ch);
+    }
+    return result;
+}
+
+std::string TagsModule::ExtractName(std::string_view nick) {
+    const std::size_t separator = nick.find('_');
+    return std::string(nick.substr(0, separator));
+}
+
+std::string TagsModule::ExtractSurname(std::string_view nick) {
+    const std::size_t separator = nick.find('_');
+    if (separator == std::string_view::npos || separator + 1 >= nick.size()) {
+        return {};
+    }
+    return std::string(nick.substr(separator + 1));
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinIdTag(const EvaluationContext& context) const {
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
@@ -488,11 +1093,42 @@ std::optional<std::string> TagsModule::ResolveBuiltinIdTag(const EvaluationConte
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinNickTag(const EvaluationContext& context) const {
-    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
-    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+    return ResolveLocalNick(context);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinThisbindTag(const EvaluationContext& context) const {
+    if (!binderModule_ || context.runningBindRuntimeId == 0) {
         return std::string();
     }
-    return ResolvePlayerNickById(sampApi->Local_ID(), context);
+    return binderModule_->GetThisbindTagValue(context.runningBindRuntimeId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects || !binderModule_) {
+        return std::string();
+    }
+    static_cast<void>(binderModule_->ExecuteTagAction("stopall", {}, context.runningBindRuntimeId));
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinNickRpTag(const EvaluationContext& context) const {
+    return MakeRpNick(ResolveLocalNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinNameTag(const EvaluationContext& context) const {
+    return ExtractName(ResolveLocalNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinSurnameTag(const EvaluationContext& context) const {
+    return ExtractSurname(ResolveLocalNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTimeTag(const EvaluationContext&) const {
+    return FormatCurrentTime("%H:%M:%S");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTimeNoSecTag(const EvaluationContext&) const {
+    return FormatCurrentTime("%H:%M");
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinNickFunctionTag(
@@ -618,6 +1254,72 @@ std::optional<std::string> TagsModule::ResolveBuiltinParamcmdFunctionTag(
     }
 
     return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinKeyEmulateFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::optional<int> keyCode = ParseInteger(param);
+    if (!keyCode.has_value() || *keyCode < 1 || *keyCode > 0xFF) {
+        return std::string();
+    }
+
+    if (context.allowSideEffects) {
+        QueueVirtualKeyHold(
+            static_cast<UINT>(*keyCode),
+            kKeyEmulateStartDelayMs,
+            kKeyEmulateTapMs);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinMathFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    const std::string expression = Trim(param);
+    if (expression.empty()) {
+        return std::string();
+    }
+
+    MathExpressionParser parser(expression);
+    const std::optional<double> result = parser.Evaluate();
+    if (!result.has_value()) {
+        return std::string();
+    }
+    return FormatMathResult(*result);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinWaitFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::optional<int> delayMs = ParseInteger(param);
+    if (!delayMs.has_value() || *delayMs < 0) {
+        return std::string();
+    }
+
+    if (context.allowSideEffects && context.runningBindRuntimeId != 0) {
+        QueuePendingBindDelayOverride(context.runningBindRuntimeId, *delayMs);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBinderActionFunctionTag(
+    std::string_view action,
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!binderModule_) {
+        return action == "ended" ? std::string("0") : std::string();
+    }
+    if (!context.allowSideEffects && action != "ended") {
+        return std::string();
+    }
+
+    const BinderModule::TagActionResult result =
+        binderModule_->ExecuteTagAction(action, param, context.runningBindRuntimeId);
+    if (action == "ended") {
+        return result.value.empty() ? std::string("0") : result.value;
+    }
+    return result.value;
 }
 
 std::optional<std::string> TagsModule::ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const {
@@ -797,6 +1499,67 @@ std::string TagsModule::ExpandOutgoingText(
     return ExpandText(text, ResolveActiveContext(activationSource, activationText));
 }
 
+void TagsModule::OpenKeyEmulatePicker() {
+    keyPickerSearchQuery_.clear();
+    keyPickerHoverTriggered_ = true;
+    ImGui::OpenPopup("##tags_keyemulate_picker");
+}
+
+void TagsModule::DrawKeyEmulatePickerPopup() {
+    UiSettings& ui = UiSettings::Instance();
+
+    ImGui::SetNextWindowSize(ScaleUi(560.0f, 520.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopup("##tags_keyemulate_picker")) {
+        if (!ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
+            keyPickerHoverTriggered_ = false;
+        }
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesKeyPickerTitle));
+    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesKeyPickerIntro));
+    ImGui::Separator();
+
+    InputTextWithHintString(
+        "##tags_keyemulate_search",
+        ui.Text(UiText::MiscVariablesKeyPickerSearchHint),
+        keyPickerSearchQuery_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        96);
+    ImGui::Spacing();
+
+    const std::string filter = ToLower(keyPickerSearchQuery_);
+    bool hasMatches = false;
+    if (ImGui::BeginChild("##tags_keyemulate_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+        for (const VirtualKeyPickerEntry& entry : GetVirtualKeyPickerEntries()) {
+            if (!filter.empty() && entry.search.find(filter) == std::string::npos) {
+                continue;
+            }
+
+            hasMatches = true;
+            if (ImGui::Selectable(entry.label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                const std::string token = MakeKeyEmulateToken(entry.code);
+                ImGui::SetClipboardText(token.c_str());
+                keyPickerSearchQuery_.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        if (!hasMatches) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerEmpty));
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerCopyHint));
+
+    if (!ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
+        keyPickerHoverTriggered_ = false;
+    }
+    ImGui::EndPopup();
+}
+
 void TagsModule::DrawMiscHomePage() {
     UiSettings& ui = UiSettings::Instance();
 
@@ -830,7 +1593,7 @@ void TagsModule::DrawVariablesPage() {
     ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesIntro));
     ImGui::Spacing();
 
-    if (ImGui::BeginChild("##tags_overview_card", ImVec2(0.0f, ScaleUi(132.0f)), ImGuiChildFlags_FrameStyle)) {
+    if (ImGui::BeginChild("##tags_overview_card", ImVec2(0.0f, ScaleUi(120.0f)), ImGuiChildFlags_FrameStyle)) {
         ImGui::TextColored(ImVec4(0.97f, 0.83f, 0.46f, 1.0f), "%s", ui.Text(UiText::MiscVariablesCardTitle));
         ImGui::Spacing();
         ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesCardDesc));
@@ -872,7 +1635,7 @@ void TagsModule::DrawVariablesPage() {
             "##tags_main_layout",
             2,
             ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0.0f, ScaleUi(308.0f)))) {
+            ImVec2(0.0f, 0.0f))) {
         ImGui::TableSetupColumn("catalog", ImGuiTableColumnFlags_WidthStretch, 0.48f);
         ImGui::TableSetupColumn("inspector", ImGuiTableColumnFlags_WidthStretch, 0.52f);
         ImGui::TableNextRow();
@@ -900,21 +1663,34 @@ void TagsModule::DrawVariablesPage() {
             }
 
             if (ImGui::BeginChild("##tags_catalog_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-                for (const int index : visibleIndices) {
-                    const TagEntry& tag = entries[static_cast<std::size_t>(index)];
-                    const bool selected = selectedTagIndex_ == index;
-                    if (ImGui::Selectable(tag.token.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
-                        selectedTagIndex_ = index;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("[%s]", TagKindLabel(tag.kind, ui));
-                    if (ImGui::IsItemHovered() || (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))) {
-                        ImGui::SetTooltip("%s", ui.Text(tag.descriptionText));
-                    }
-                }
-
                 if (visibleIndices.empty()) {
                     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesCatalogEmpty));
+                } else if (ImGui::BeginTable(
+                               "##tags_catalog_table",
+                               2,
+                               ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_NoSavedSettings,
+                               ImVec2(0.0f, 0.0f))) {
+                    ImGui::TableSetupColumn("kind", ImGuiTableColumnFlags_WidthFixed, ScaleUi(148.0f));
+                    ImGui::TableSetupColumn("token", ImGuiTableColumnFlags_WidthStretch);
+
+                    for (const int index : visibleIndices) {
+                        const TagEntry& tag = entries[static_cast<std::size_t>(index)];
+                        const bool selected = selectedTagIndex_ == index;
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextDisabled("%s", TagKindLabel(tag.kind, ui));
+
+                        ImGui::TableSetColumnIndex(1);
+                        if (ImGui::Selectable(tag.token.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
+                            selectedTagIndex_ = index;
+                        }
+                        if (ImGui::IsItemHovered() || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip("%s", ui.Text(tag.descriptionText));
+                        }
+                    }
+                    ImGui::EndTable();
                 }
             }
             ImGui::EndChild();
@@ -929,6 +1705,22 @@ void TagsModule::DrawVariablesPage() {
                 ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesInspectorEmpty));
             } else {
                 ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", selectedTag->token.c_str());
+                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "keyemulate") {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(" + ")) {
+                        OpenKeyEmulatePicker();
+                    }
+
+                    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
+                    if (hovered && !keyPickerHoverTriggered_ && !ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
+                        OpenKeyEmulatePicker();
+                    } else if (!hovered && !ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
+                        keyPickerHoverTriggered_ = false;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesKeyPickerOpenHint));
+                    }
+                }
                 ImGui::TextDisabled("%s", TagKindLabel(selectedTag->kind, ui));
                 ImGui::Separator();
 
@@ -952,73 +1744,17 @@ void TagsModule::DrawVariablesPage() {
                     ImGui::Spacing();
                     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesParamcmdNote));
                 }
+                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "keyemulate") {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyEmulateNote));
+                }
             }
+
+            DrawKeyEmulatePickerPopup();
         }
         ImGui::EndChild();
         ImGui::EndTable();
     }
-
-    ImGui::Spacing();
-    if (ImGui::BeginChild("##tags_preview_card", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-        ImGui::SeparatorText(ui.Text(UiText::MiscVariablesPreviewTitle));
-        ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewHint));
-        ImGui::Spacing();
-
-        if (ImGui::BeginTable("##tags_preview_layout", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
-            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.56f);
-            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.44f);
-            ImGui::TableNextRow();
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesTemplateLabel));
-            InputTextMultilineWithCounterString(
-                "##tags_preview_template",
-                previewTemplate_,
-                ImVec2(-FLT_MIN, ScaleUi(152.0f)),
-                ImGuiInputTextFlags_AllowTabInput,
-                1024);
-            ImGui::Spacing();
-
-            const char* launchLabels[] = {
-                ui.Text(UiText::MiscVariablesPreviewLaunchManual),
-                ui.Text(UiText::MiscVariablesPreviewLaunchCommand),
-            };
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewSourceLabel));
-            ImGui::SetNextItemWidth(ScaleUi(260.0f));
-            ImGui::Combo("##tags_preview_launch_source", &previewLaunchSource_, launchLabels, IM_ARRAYSIZE(launchLabels));
-
-            const bool commandMode = previewLaunchSource_ == kPreviewLaunchCommand;
-            ImGui::BeginDisabled(!commandMode);
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewBindCommandLabel));
-            InputTextString("##tags_preview_bind_command", previewBindCommand_, ImGuiInputTextFlags_AutoSelectAll, 128);
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewCommandTextLabel));
-            InputTextString("##tags_preview_command_text", previewCommandText_, ImGuiInputTextFlags_AutoSelectAll, 256);
-            ImGui::EndDisabled();
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewResultLabel));
-            EvaluationContext previewContext{};
-            previewContext.sampApi = sampApi_;
-            if (commandMode) {
-                previewContext.activationSource = "command";
-                previewContext.activationText = previewCommandText_;
-                previewContext.bindCommand = previewBindCommand_;
-            }
-
-            const std::string previewResult = ExpandText(previewTemplate_, previewContext);
-            if (ImGui::BeginChild("##tags_preview_result", ImVec2(0.0f, ScaleUi(232.0f)), ImGuiChildFlags_Borders)) {
-                if (previewResult.empty()) {
-                    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesPreviewEmpty));
-                } else {
-                    ImGui::TextWrapped("%s", previewResult.c_str());
-                }
-            }
-            ImGui::EndChild();
-
-            ImGui::EndTable();
-        }
-    }
-    ImGui::EndChild();
 }
 
 void TagsModule::DrawMiscTab() {

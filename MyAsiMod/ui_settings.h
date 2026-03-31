@@ -40,10 +40,31 @@
     X(TagsKindFunction, "Функциональная", "Function") \
     X(TagsBuiltinIdDescription, "Возвращает ваш локальный ID игрока через SampApi::Local_ID().", "Returns your local player ID via SampApi::Local_ID().") \
     X(TagsBuiltinNickDescription, "Возвращает ваш текущий ник через GetNameID(Local_ID()).", "Returns your current nickname via GetNameID(Local_ID()).") \
+    X(TagsBuiltinThisbindDescription, "Возвращает имя и папку текущего запущенного бинда в формате, пригодном для bind-тегов.", "Returns the name and folder of the currently running bind in a format suitable for bind tags.") \
+    X(TagsBuiltinBindStopAllDescription, "Останавливает все запущенные бинды и возвращает пустую строку.", "Stops every running bind and returns an empty string.") \
+    X(TagsBuiltinNickRpDescription, "Возвращает ваш ник в RP-виде: Walcher_Flett станет Walcher Flett.", "Returns your nickname in RP form: Walcher_Flett becomes Walcher Flett.") \
+    X(TagsBuiltinNameDescription, "Возвращает имя из ника до символа подчёркивания: Walcher_Flett станет Walcher.", "Returns the first name before the underscore: Walcher_Flett becomes Walcher.") \
+    X(TagsBuiltinSurnameDescription, "Возвращает фамилию из ника после символа подчёркивания: Walcher_Flett станет Flett.", "Returns the surname after the underscore: Walcher_Flett becomes Flett.") \
+    X(TagsBuiltinTimeDescription, "Возвращает текущее локальное время в формате %H:%M:%S.", "Returns the current local time formatted as %H:%M:%S.") \
+    X(TagsBuiltinTimeNoSecDescription, "Возвращает текущее локальное время без секунд в формате %H:%M.", "Returns the current local time without seconds in %H:%M format.") \
     X(TagsBuiltinNickFunctionDescription, "Возвращает ник игрока по указанному ID. Работает и в обычном чате, и в биндах.", "Returns a player's nickname for the specified ID. Works in regular chat and in binds.") \
     X(TagsBuiltinParamcmdDescription, "Достаёт параметры из команды, которой был запущен бинд. Поддерживает селекторы 1, 1+, 3-, 2-4.", "Extracts arguments from the command that launched the bind. Supports selectors like 1, 1+, 3-, and 2-4.") \
+    X(TagsBuiltinKeyEmulateDescription, "Эмулирует одно нажатие указанной виртуальной клавиши Windows и ничего не вставляет в текст. В sandbox-предпросмотре не срабатывает.", "Emulates a single press of the specified Windows virtual key and inserts no text. It stays inactive in sandbox previews.") \
+    X(TagsBuiltinMathDescription, "Вычисляет арифметическое выражение. Поддерживает +, -, *, /, %, скобки и унарные знаки.", "Evaluates an arithmetic expression. Supports +, -, *, /, %, parentheses, and unary signs.") \
+    X(TagsBuiltinWaitDescription, "Переопределяет паузу до следующей строки у уже запущенного бинда. Работает как обычная задержка между строками и ничего не вставляет в текст.", "Overrides the delay before the next line of an already running bind. Works like the regular delay between lines and inserts no text.") \
+    X(TagsBuiltinBindDisableDescription, "Выключает бинд и сразу сохраняет изменение в конфиг.", "Disables a bind and persists the change to the config immediately.") \
+    X(TagsBuiltinBindEnableDescription, "Включает ранее деактивированный бинд и сразу сохраняет изменение в конфиг.", "Enables a previously deactivated bind and persists the change to the config immediately.") \
+    X(TagsBuiltinBindStartDescription, "Запускает выбранный бинд, если он включён и сейчас не выполняется.", "Starts the selected bind if it is enabled and not currently running.") \
+    X(TagsBuiltinBindStopDescription, "Останавливает уже запущенный бинд.", "Stops a bind that is currently running.") \
+    X(TagsBuiltinBindPauseDescription, "Ставит запущенный бинд на паузу.", "Pauses a currently running bind.") \
+    X(TagsBuiltinBindUnpauseDescription, "Снимает паузу с запущенного бинда.", "Unpauses a paused bind.") \
+    X(TagsBuiltinBindFastMenuDescription, "Показывает выбранный бинд в быстром меню и сразу сохраняет изменение.", "Shows the selected bind in the quick menu and persists the change immediately.") \
+    X(TagsBuiltinBindUnfastMenuDescription, "Убирает выбранный бинд из быстрого меню и сразу сохраняет изменение.", "Removes the selected bind from the quick menu and persists the change immediately.") \
+    X(TagsBuiltinBindRandomDescription, "Запускает случайный включённый бинд из выбранной папки.", "Starts a random enabled bind from the selected folder.") \
+    X(TagsBuiltinBindEndedDescription, "Проверяет завершение бинда и возвращает 1 или 0.", "Checks whether the bind has ended and returns 1 or 0.") \
+    X(TagsBuiltinBindPopupDescription, "Открывает попап со списком строк бинда для быстрой отправки.", "Opens a popup with the bind's lines for quick sending.") \
     X(MiscVariablesTitle, "Переменные", "Variables") \
-    X(MiscVariablesIntro, "Отдельный модуль переменных живёт в общем HelperByOrc.json и даёт основу для будущего тегового движка. Сейчас доступны {id}, {nick}, [nick(...)] и binder-специфичная [paramcmd(...)].", "The variables module lives in the shared HelperByOrc.json and lays the groundwork for the future tag engine. Right now it exposes {id}, {nick}, [nick(...)], and the binder-specific [paramcmd(...)].") \
+    X(MiscVariablesIntro, "Отдельный модуль переменных живёт в общем HelperByOrc.json и даёт основу для будущего тегового движка. Здесь собраны простые данные игрока, время, lookup-теги и первые функциональные действия.", "The variables module lives in the shared HelperByOrc.json and lays the groundwork for the future tag engine. It already groups simple player data, time tags, lookup tags, and the first functional actions.") \
     X(MiscVariablesCardTitle, "Каталог переменных", "Variables Catalog") \
     X(MiscVariablesCardDesc, "Экран показывает встроенные и пользовательские переменные, их тип, описание и быстрый sandbox-предпросмотр без запуска бинда.", "This screen shows built-in and custom variables, their type, description, and a quick sandbox preview without launching a bind.") \
     X(MiscVariablesBuiltinsLabel, "Встроенных", "Built-ins") \
@@ -61,6 +82,13 @@
     X(MiscVariablesCopyToken, "Скопировать токен", "Copy token") \
     X(MiscVariablesCopyExample, "Скопировать пример", "Copy example") \
     X(MiscVariablesParamcmdNote, "[paramcmd(...)] работает только если бинд был запущен именно командой. Аргументы делятся по пробелам, как в Lua-версии.", "[paramcmd(...)] only works when the bind was launched by a command. Arguments are split by spaces, matching the Lua version.") \
+    X(MiscVariablesKeyEmulateNote, "[keyemulate(...)] выполняет одно нажатие клавиши и возвращает пустую строку. В sandbox и preview он только скрывается из результата без реального нажатия.", "[keyemulate(...)] performs a single key press and returns an empty string. In sandboxes and previews it only disappears from the result without pressing a real key.") \
+    X(MiscVariablesKeyPickerOpenHint, "Открыть список виртуальных клавиш и скопировать готовый [keyemulate(...)].", "Open the virtual-key list and copy a ready-made [keyemulate(...)].") \
+    X(MiscVariablesKeyPickerTitle, "Подбор клавиши для [keyemulate(...)]", "Pick a key for [keyemulate(...)]") \
+    X(MiscVariablesKeyPickerIntro, "Наведите или нажмите на плюсик, затем выберите виртуальную клавишу. Готовая переменная сразу скопируется в буфер обмена.", "Hover or click the plus button, then choose a virtual key. The ready-made variable is copied to the clipboard immediately.") \
+    X(MiscVariablesKeyPickerSearchHint, "Поиск по коду или названию клавиши", "Search by key code or key name") \
+    X(MiscVariablesKeyPickerEmpty, "По этому фильтру клавиши не найдены.", "No keys matched this filter.") \
+    X(MiscVariablesKeyPickerCopyHint, "Щелчок по строке копирует [keyemulate(code)] с уже подставленным кодом.", "Clicking a row copies [keyemulate(code)] with the selected code inserted.") \
     X(MiscVariablesPreviewTitle, "Sandbox", "Sandbox") \
     X(MiscVariablesPreviewHint, "Здесь можно быстро проверить, как строка раскроется через текущий движок переменных.", "Use this sandbox to quickly test how a string expands through the current variables engine.") \
     X(MiscVariablesTemplateLabel, "Шаблон", "Template") \
@@ -129,6 +157,17 @@
     X(ToastInsertDialogFailed, "Не удалось вставить текст в диалог.", "Failed to insert text into dialog.") \
     X(ToastClipboardFailed, "Не удалось записать текст в буфер обмена.", "Failed to copy text to the clipboard.") \
     X(ToastUnknownSendMethod, "Неизвестный способ отправки: %d", "Unknown send method: %d") \
+    X(ToastBindTagTargetRequired, "Для %s нужно указать бинд или вызвать тег внутри запущенного бинда.", "%s requires a bind target or must be called from a running bind.") \
+    X(ToastBindTagNoFolders, "Папки биндов ещё не созданы.", "No bind folders have been created yet.") \
+    X(ToastBindTagFolderNotFound, "Папка для %s не найдена.", "The folder for %s was not found.") \
+    X(ToastBindTagBindNotFound, "Бинд для %s не найден.", "The bind for %s was not found.") \
+    X(ToastBindTagNotStarted, "Не удалось запустить бинд для %s.", "Failed to start the bind for %s.") \
+    X(ToastBindTagNotRunning, "Бинд для %s не запущен.", "The bind for %s is not running.") \
+    X(ToastBindTagNotPaused, "Бинд для %s не стоит на паузе.", "The bind for %s is not paused.") \
+    X(ToastBindTagNoChanges, "%s не изменил состояние бинда.", "%s did not change the bind state.") \
+    X(ToastBindTagPopupUnavailable, "Не удалось открыть попап строк бинда для %s.", "Failed to open the bind lines popup for %s.") \
+    X(ToastBindTagStopAllEmpty, "Нет запущенных биндов для остановки.", "There are no running binds to stop.") \
+    X(ToastBindTagUnknownAction, "Неизвестное действие bind-тега: %s", "Unknown bind-tag action: %s") \
     X(ToastBindSaved, "Бинд сохранён.", "Bind saved.") \
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \

@@ -3,8 +3,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class SampApi;
@@ -14,6 +16,13 @@ class TagsModule;
 
 class BinderModule {
 public:
+    struct TagActionResult {
+        bool success = false;
+        std::string value{};
+        std::string error{};
+        int affected = 0;
+    };
+
     BinderModule();
     ~BinderModule();
 
@@ -30,6 +39,9 @@ public:
 
     void Tick();
     void Shutdown();
+
+    std::string GetThisbindTagValue(std::uint64_t runtimeId) const;
+    TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
 
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool WantsOverlayRender() const;

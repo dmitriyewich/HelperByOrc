@@ -30,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -587,6 +588,151 @@ struct RunningBind {
     double remainingDelayMs = 0.0;
 };
 
+enum class BindTagAction {
+    Disable,
+    Enable,
+    Start,
+    Stop,
+    Pause,
+    Unpause,
+    FastMenu,
+    UnfastMenu,
+    Random,
+    Ended,
+    StopAll,
+    Popup,
+    Unknown,
+};
+
+BindTagAction ParseBindTagActionName(std::string_view action) {
+    const std::string normalized = ToLower(Trim(action));
+    if (normalized == "disable") {
+        return BindTagAction::Disable;
+    }
+    if (normalized == "enable") {
+        return BindTagAction::Enable;
+    }
+    if (normalized == "start") {
+        return BindTagAction::Start;
+    }
+    if (normalized == "stop") {
+        return BindTagAction::Stop;
+    }
+    if (normalized == "pause") {
+        return BindTagAction::Pause;
+    }
+    if (normalized == "unpause") {
+        return BindTagAction::Unpause;
+    }
+    if (normalized == "fastmenu") {
+        return BindTagAction::FastMenu;
+    }
+    if (normalized == "unfastmenu") {
+        return BindTagAction::UnfastMenu;
+    }
+    if (normalized == "random") {
+        return BindTagAction::Random;
+    }
+    if (normalized == "ended") {
+        return BindTagAction::Ended;
+    }
+    if (normalized == "stopall") {
+        return BindTagAction::StopAll;
+    }
+    if (normalized == "popup") {
+        return BindTagAction::Popup;
+    }
+    return BindTagAction::Unknown;
+}
+
+struct BindTagToken {
+    std::string value{};
+    bool quoted = false;
+};
+
+std::vector<BindTagToken> TokenizeBindTagArgs(std::string_view raw) {
+    std::vector<BindTagToken> out;
+    std::size_t i = 0;
+    while (i < raw.size()) {
+        while (i < raw.size()) {
+            const char ch = raw[i];
+            if (ch == ',' || std::isspace(static_cast<unsigned char>(ch)) != 0) {
+                ++i;
+            } else {
+                break;
+            }
+        }
+        if (i >= raw.size()) {
+            break;
+        }
+
+        const char opener = raw[i];
+        if (opener == '"' || opener == '\'') {
+            const char quote = opener;
+            std::string token;
+            bool escaped = false;
+            ++i;
+            while (i < raw.size()) {
+                const char ch = raw[i];
+                if (escaped) {
+                    token.push_back(ch);
+                    escaped = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                } else if (ch == quote) {
+                    ++i;
+                    break;
+                } else {
+                    token.push_back(ch);
+                }
+                ++i;
+            }
+            out.push_back(BindTagToken{ std::move(token), true });
+            continue;
+        }
+
+        const std::size_t start = i;
+        while (i < raw.size()) {
+            const char ch = raw[i];
+            if (ch == ',' || std::isspace(static_cast<unsigned char>(ch)) != 0) {
+                break;
+            }
+            ++i;
+        }
+
+        if (i > start) {
+            out.push_back(BindTagToken{ std::string(raw.substr(start, i - start)), false });
+        }
+    }
+
+    return out;
+}
+
+struct BindTagContextDesc {
+    int hotkeyIndex = -1;
+    std::string name{};
+    std::string folder{};
+};
+
+struct BindTagSelector {
+    bool hasTokens = false;
+    int contextHotkeyIndex = -1;
+    std::string folderQuery{};
+    bool folderExact = false;
+    bool all = false;
+    bool byIndex = false;
+    int index = 0;
+    std::string name{};
+    bool nameExact = false;
+};
+
+struct PendingBindTagAction {
+    BindTagAction action = BindTagAction::Unknown;
+    std::uint64_t sourceRuntimeId = 0;
+    std::string actionName{};
+    std::vector<int> targetIndices{};
+};
+
 struct InputDialogField {
     HotkeyInput input;
     std::string textValue;
@@ -770,6 +916,30 @@ const char* SendMethodLabel(int method) {
 
 bool EqualNoCase(std::string_view lhs, std::string_view rhs) {
     return ToLower(lhs) == ToLower(rhs);
+}
+
+bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
+    const std::string loweredNeedle = ToLower(needle);
+    if (loweredNeedle.empty()) {
+        return true;
+    }
+    return ToLower(haystack).find(loweredNeedle) != std::string::npos;
+}
+
+std::string EscapeBindTagToken(std::string_view value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 4);
+    for (const char ch : value) {
+        if (ch == '\\' || ch == '"') {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(ch);
+    }
+    return escaped;
+}
+
+std::string QuoteBindTagToken(std::string_view value) {
+    return "\"" + EscapeBindTagToken(value) + "\"";
 }
 
 float ScaleUi(float value) {
@@ -1477,6 +1647,7 @@ struct BinderModule::Impl {
     std::vector<RunningBind> runningBinds{};
     std::deque<Toast> toasts{};
     std::vector<OutgoingGuard> outgoingGuards{};
+    std::vector<PendingBindTagAction> pendingBindTagActions{};
 
     void EnsureInitialized();
     void OnProcessAttach(HMODULE moduleHandle);
@@ -1522,6 +1693,9 @@ struct BinderModule::Impl {
     void ProcessHotkeys();
     void ProcessRunningBinds();
     int FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const;
+    BindTagContextDesc DescribeBindTagContext(std::uint64_t runtimeId) const;
+    std::string BuildThisbindTagValue(std::uint64_t runtimeId) const;
+    BinderModule::TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
     RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId);
     const RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId) const;
     RunningBind* FindRunningBindForHotkey(int index);
@@ -1531,7 +1705,9 @@ struct BinderModule::Impl {
     bool PauseHotkey(int index);
     bool ResumeHotkey(int index);
     bool StopHotkey(int index);
+    int StopAllHotkeys();
     void StopHotkeyByRuntimeId(std::uint64_t runtimeId);
+    void ExecutePendingBindTagActions(std::uint64_t sourceRuntimeId);
     void StartRunningBind(
         const HotkeyEntry& hotkey,
         std::map<std::string, std::string> inputValues,
@@ -1552,6 +1728,17 @@ struct BinderModule::Impl {
     bool MatchTextTrigger(const std::string& source, const HotkeyEntry& hotkey);
     bool OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind);
     std::string ApplyInputValues(std::string text, const std::map<std::string, std::string>& values) const;
+    std::vector<int> ResolveBindTagTargets(
+        BindTagAction action,
+        std::string_view rawParam,
+        std::uint64_t sourceRuntimeId,
+        std::string& error) const;
+    BinderModule::TagActionResult ExecuteBindTagActionNow(
+        BindTagAction action,
+        const std::vector<int>& targetIndices,
+        std::string_view actionName);
+    std::string DescribeBindTagError(std::string_view actionName, std::string_view error) const;
+    bool RequestBindLinesPopup(int index);
     std::string BuildInputValue(const InputDialogField& field) const;
     std::vector<int> FilterButtons(const InputDialogState& dialog, std::size_t fieldIndex) const;
     bool TryEnqueueHotkey(HotkeyEntry& hotkey, int startDelayMs, std::string_view source, const std::string& sourceText);
@@ -2224,11 +2411,17 @@ void BinderModule::Impl::Shutdown() {
     runningBinds.clear();
     toasts.clear();
     outgoingGuards.clear();
+    pendingBindTagActions.clear();
     ResetInputState();
 }
 
 bool BinderModule::Impl::WantsOverlayRender() const {
-    return quickMenuOpen || inputDialog.has_value() || capture.Active() || !toasts.empty();
+    return quickMenuOpen
+        || inputDialog.has_value()
+        || capture.Active()
+        || !toasts.empty()
+        || bindLinesPopupPending
+        || bindLinesTarget >= 0;
 }
 
 bool BinderModule::Impl::WantsInputCapture() const {
@@ -2560,8 +2753,9 @@ void BinderModule::Impl::ProcessHotkeys() {
 void BinderModule::Impl::ProcessRunningBinds() {
     const double now = static_cast<double>(GetTickCount64());
     for (std::size_t i = 0; i < runningBinds.size();) {
+        const std::uint64_t currentRuntimeId = runningBinds[i].hotkeyRuntimeId;
         RunningBind& running = runningBinds[i];
-        const int hotkeyIndex = FindHotkeyIndexByRuntimeId(running.hotkeyRuntimeId);
+        const int hotkeyIndex = FindHotkeyIndexByRuntimeId(currentRuntimeId);
         if (hotkeyIndex < 0) {
             runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
@@ -2592,6 +2786,8 @@ void BinderModule::Impl::ProcessRunningBinds() {
                     running.activationSource,
                     running.activationText,
                     running.bindCommand,
+                    true,
+                    running.hotkeyRuntimeId,
                 });
                 DoSend(finalText, message.method);
                 tagsModule->PopContext();
@@ -2601,13 +2797,29 @@ void BinderModule::Impl::ProcessRunningBinds() {
         }
 
         ++running.messageIndex;
-        if (running.messageIndex >= hotkey.messages.size()) {
-            runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
+        const bool hasNextMessage = running.messageIndex < hotkey.messages.size();
+        if (hasNextMessage) {
+            const std::optional<int> delayOverrideMs =
+                tagsModule ? tagsModule->ConsumePendingBindDelayOverride(currentRuntimeId) : std::nullopt;
+            running.remainingDelayMs = 0.0;
+            const int nextDelayMs = delayOverrideMs.has_value() ? *delayOverrideMs : message.intervalMs;
+            running.nextAtMs = now + std::max(nextDelayMs, kMinMessageIntervalMs);
+        }
+
+        ExecutePendingBindTagActions(currentRuntimeId);
+
+        const bool currentStillRunning = i < runningBinds.size() && runningBinds[i].hotkeyRuntimeId == currentRuntimeId;
+        if (!hasNextMessage) {
+            if (currentStillRunning) {
+                runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
+            }
             continue;
         }
 
-        running.remainingDelayMs = 0.0;
-        running.nextAtMs = now + std::max(message.intervalMs, kMinMessageIntervalMs);
+        if (!currentStillRunning) {
+            continue;
+        }
+
         ++i;
     }
 }
@@ -2623,6 +2835,506 @@ int BinderModule::Impl::FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) cons
         }
     }
     return -1;
+}
+
+BindTagContextDesc BinderModule::Impl::DescribeBindTagContext(std::uint64_t runtimeId) const {
+    BindTagContextDesc desc;
+    desc.hotkeyIndex = FindHotkeyIndexByRuntimeId(runtimeId);
+    if (desc.hotkeyIndex < 0 || desc.hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+        return desc;
+    }
+
+    const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(desc.hotkeyIndex)];
+    desc.name = Trim(hotkey.label);
+    if (desc.name.empty() && hotkey.number > 0) {
+        desc.name = std::to_string(hotkey.number);
+    }
+    desc.folder = JoinPath(hotkey.folderPath);
+    return desc;
+}
+
+std::string BinderModule::Impl::BuildThisbindTagValue(std::uint64_t runtimeId) const {
+    const BindTagContextDesc desc = DescribeBindTagContext(runtimeId);
+    if (desc.hotkeyIndex < 0 || desc.name.empty()) {
+        return {};
+    }
+
+    std::string value = QuoteBindTagToken(desc.name);
+    if (!desc.folder.empty()) {
+        value += ' ';
+        value += QuoteBindTagToken(desc.folder);
+    }
+    return value;
+}
+
+std::vector<int> BinderModule::Impl::ResolveBindTagTargets(
+    BindTagAction action,
+    std::string_view rawParam,
+    std::uint64_t sourceRuntimeId,
+    std::string& error) const {
+    error.clear();
+
+    const BindTagContextDesc context = DescribeBindTagContext(sourceRuntimeId);
+    const std::vector<BindTagToken> tokens = TokenizeBindTagArgs(rawParam);
+
+    BindTagSelector selector;
+    selector.hasTokens = !tokens.empty();
+    selector.contextHotkeyIndex = context.hotkeyIndex;
+
+    if (tokens.empty()) {
+        if (action == BindTagAction::Random) {
+            selector.all = true;
+        } else if (selector.contextHotkeyIndex < 0) {
+            error = "param_required";
+            return {};
+        }
+    } else {
+        const BindTagToken& first = tokens.front();
+        if (action == BindTagAction::Random && first.value != "*") {
+            selector.all = true;
+            selector.folderQuery = first.value;
+            selector.folderExact = first.quoted;
+        } else {
+            if (first.value == "*" && !first.quoted) {
+                selector.all = true;
+            } else {
+                int numericIndex = 0;
+                if (!first.quoted && ParseInt(first.value, numericIndex)) {
+                    selector.byIndex = true;
+                    selector.index = numericIndex;
+                } else {
+                    selector.name = first.value;
+                    selector.nameExact = first.quoted;
+                }
+            }
+
+            if (tokens.size() >= 2 && !tokens[1].value.empty()) {
+                selector.folderQuery = tokens[1].value;
+                selector.folderExact = tokens[1].quoted;
+            }
+        }
+    }
+
+    if (!selector.hasTokens && action != BindTagAction::Random && selector.contextHotkeyIndex >= 0) {
+        return { selector.contextHotkeyIndex };
+    }
+
+    std::vector<std::string> scopePath;
+    if (!selector.folderQuery.empty()) {
+        std::vector<std::vector<std::string>> folderPaths;
+        CollectFolderPaths(folders, folderPaths);
+        if (folderPaths.empty()) {
+            error = "no_folders";
+            return {};
+        }
+
+        for (const auto& path : folderPaths) {
+            const std::string fullPath = JoinPath(path);
+            const std::string folderName = path.empty() ? std::string() : path.back();
+            const bool matched = selector.folderExact
+                ? (EqualNoCase(folderName, selector.folderQuery) || EqualNoCase(fullPath, selector.folderQuery))
+                : (ContainsNoCase(folderName, selector.folderQuery) || ContainsNoCase(fullPath, selector.folderQuery));
+            if (matched) {
+                scopePath = path;
+                break;
+            }
+        }
+
+        if (scopePath.empty()) {
+            error = "folder_not_found";
+            return {};
+        }
+    } else if (action == BindTagAction::Random && !selector.hasTokens && selector.contextHotkeyIndex >= 0) {
+        scopePath = hotkeys[static_cast<std::size_t>(selector.contextHotkeyIndex)].folderPath;
+    } else {
+        if (folders.empty() || !folders.front()) {
+            error = "no_folders";
+            return {};
+        }
+        scopePath = BuildFolderPath(folders.front().get());
+    }
+
+    std::vector<int> candidates;
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        if (hotkeys[i].folderPath == scopePath) {
+            candidates.push_back(static_cast<int>(i));
+        }
+    }
+
+    if (selector.all) {
+        return candidates;
+    }
+
+    const auto hotkeyDisplayName = [this](int index) {
+        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+        std::string name = Trim(hotkey.label);
+        if (name.empty() && hotkey.number > 0) {
+            name = std::to_string(hotkey.number);
+        }
+        return name;
+    };
+
+    if (selector.byIndex) {
+        if (selector.index < 1) {
+            return {};
+        }
+        for (const int index : candidates) {
+            if (hotkeys[static_cast<std::size_t>(index)].number == selector.index) {
+                return { index };
+            }
+        }
+        return {};
+    }
+
+    if (!selector.name.empty()) {
+        const std::string query = ToLower(selector.name);
+        int partialMatch = -1;
+        for (const int index : candidates) {
+            const std::string displayName = ToLower(hotkeyDisplayName(index));
+            if (selector.nameExact) {
+                if (displayName == query) {
+                    return { index };
+                }
+            } else {
+                if (displayName == query) {
+                    return { index };
+                }
+                if (partialMatch < 0 && displayName.find(query) != std::string::npos) {
+                    partialMatch = index;
+                }
+            }
+        }
+        if (partialMatch >= 0) {
+            return { partialMatch };
+        }
+        return {};
+    }
+
+    if (selector.contextHotkeyIndex >= 0) {
+        for (const int index : candidates) {
+            if (index == selector.contextHotkeyIndex) {
+                return { index };
+            }
+        }
+    }
+
+    if (!candidates.empty()) {
+        return { candidates.front() };
+    }
+
+    return {};
+}
+
+std::string BinderModule::Impl::DescribeBindTagError(std::string_view actionName, std::string_view error) const {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string token = "[" + std::string(actionName) + "]";
+
+    if (error == "param_required") {
+        return ui.Format(UiText::ToastBindTagTargetRequired, token.c_str());
+    }
+    if (error == "no_folders") {
+        return ui.Text(UiText::ToastBindTagNoFolders);
+    }
+    if (error == "folder_not_found") {
+        return ui.Format(UiText::ToastBindTagFolderNotFound, token.c_str());
+    }
+    if (error == "bind_not_found") {
+        return ui.Format(UiText::ToastBindTagBindNotFound, token.c_str());
+    }
+    if (error == "bind_not_started") {
+        return ui.Format(UiText::ToastBindTagNotStarted, token.c_str());
+    }
+    if (error == "bind_not_running") {
+        return ui.Format(UiText::ToastBindTagNotRunning, token.c_str());
+    }
+    if (error == "bind_not_paused") {
+        return ui.Format(UiText::ToastBindTagNotPaused, token.c_str());
+    }
+    if (error == "bind_no_changes") {
+        return ui.Format(UiText::ToastBindTagNoChanges, token.c_str());
+    }
+    if (error == "bind_popup_unavailable") {
+        return ui.Format(UiText::ToastBindTagPopupUnavailable, token.c_str());
+    }
+    if (error == "stopall_empty") {
+        return ui.Text(UiText::ToastBindTagStopAllEmpty);
+    }
+    if (error == "unknown_action") {
+        return ui.Format(UiText::ToastBindTagUnknownAction, std::string(actionName).c_str());
+    }
+    return ui.Format(UiText::ToastBindTagBindNotFound, token.c_str());
+}
+
+bool BinderModule::Impl::RequestBindLinesPopup(int index) {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return false;
+    }
+
+    bindLinesTarget = index;
+    bindLinesPopupPending = true;
+    return true;
+}
+
+BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
+    BindTagAction action,
+    const std::vector<int>& targetIndices,
+    std::string_view actionName) {
+    (void)actionName;
+
+    BinderModule::TagActionResult result;
+    result.affected = 0;
+
+    switch (action) {
+    case BindTagAction::StopAll: {
+        const int stopped = StopAllHotkeys();
+        if (stopped > 0) {
+            result.success = true;
+            result.affected = stopped;
+        } else {
+            result.error = "stopall_empty";
+        }
+        return result;
+    }
+    case BindTagAction::Ended: {
+        bool ended = true;
+        for (const int index : targetIndices) {
+            if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                ended = false;
+                break;
+            }
+
+            const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+            if (hotkey.awaitingInput || hotkey.waitingTextConfirmation || FindRunningBindForHotkey(index) != nullptr) {
+                ended = false;
+                break;
+            }
+        }
+
+        result.success = true;
+        result.affected = static_cast<int>(targetIndices.size());
+        result.value = ended ? "1" : "0";
+        return result;
+    }
+    case BindTagAction::Random: {
+        std::vector<int> pool;
+        pool.reserve(targetIndices.size());
+        for (const int index : targetIndices) {
+            if (index >= 0 && index < static_cast<int>(hotkeys.size()) && hotkeys[static_cast<std::size_t>(index)].enabled) {
+                pool.push_back(index);
+            }
+        }
+
+        if (pool.empty()) {
+            result.error = "bind_not_started";
+            return result;
+        }
+
+        static std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<std::size_t> distribution(0, pool.size() - 1);
+        const int chosen = pool[distribution(rng)];
+        if (TryEnqueueHotkey(chosen, 0, "bind_tag", std::string(actionName))) {
+            result.success = true;
+            result.affected = 1;
+        } else {
+            result.error = "bind_not_started";
+        }
+        return result;
+    }
+    case BindTagAction::Popup: {
+        if (!targetIndices.empty() && RequestBindLinesPopup(targetIndices.front())) {
+            result.success = true;
+            result.affected = 1;
+        } else {
+            result.error = "bind_popup_unavailable";
+        }
+        return result;
+    }
+    case BindTagAction::Start: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (TryEnqueueHotkey(index, 0, "bind_tag", std::string(actionName))) {
+                ++changed;
+            }
+        }
+        result.success = changed > 0;
+        result.affected = changed;
+        if (!result.success) {
+            result.error = "bind_not_started";
+        }
+        return result;
+    }
+    case BindTagAction::Stop: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (StopHotkey(index)) {
+                ++changed;
+            }
+        }
+        result.success = changed > 0;
+        result.affected = changed;
+        if (!result.success) {
+            result.error = "bind_not_running";
+        }
+        return result;
+    }
+    case BindTagAction::Pause: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (PauseHotkey(index)) {
+                ++changed;
+            }
+        }
+        result.success = changed > 0;
+        result.affected = changed;
+        if (!result.success) {
+            result.error = "bind_not_running";
+        }
+        return result;
+    }
+    case BindTagAction::Unpause: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (ResumeHotkey(index)) {
+                ++changed;
+            }
+        }
+        result.success = changed > 0;
+        result.affected = changed;
+        if (!result.success) {
+            result.error = "bind_not_paused";
+        }
+        return result;
+    }
+    case BindTagAction::Disable: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (index >= 0 && index < static_cast<int>(hotkeys.size()) && hotkeys[static_cast<std::size_t>(index)].enabled) {
+                hotkeys[static_cast<std::size_t>(index)].enabled = false;
+                ++changed;
+            }
+        }
+        if (changed > 0) {
+            SaveConfig();
+            result.success = true;
+            result.affected = changed;
+        } else {
+            result.error = "bind_no_changes";
+        }
+        return result;
+    }
+    case BindTagAction::Enable: {
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (index >= 0 && index < static_cast<int>(hotkeys.size()) && !hotkeys[static_cast<std::size_t>(index)].enabled) {
+                hotkeys[static_cast<std::size_t>(index)].enabled = true;
+                ++changed;
+            }
+        }
+        if (changed > 0) {
+            SaveConfig();
+            result.success = true;
+            result.affected = changed;
+        } else {
+            result.error = "bind_no_changes";
+        }
+        return result;
+    }
+    case BindTagAction::FastMenu:
+    case BindTagAction::UnfastMenu: {
+        const bool desired = action == BindTagAction::FastMenu;
+        int changed = 0;
+        for (const int index : targetIndices) {
+            if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                continue;
+            }
+            HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+            if (hotkey.quickMenu != desired) {
+                hotkey.quickMenu = desired;
+                ++changed;
+            }
+        }
+        if (changed > 0) {
+            SaveConfig();
+            result.success = true;
+            result.affected = changed;
+        } else {
+            result.error = "bind_no_changes";
+        }
+        return result;
+    }
+    case BindTagAction::Unknown:
+    default:
+        result.error = "unknown_action";
+        return result;
+    }
+}
+
+BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
+    std::string_view actionName,
+    std::string_view param,
+    std::uint64_t sourceRuntimeId) {
+    BinderModule::TagActionResult result;
+    const BindTagAction action = ParseBindTagActionName(actionName);
+    if (action == BindTagAction::Unknown) {
+        result.error = "unknown_action";
+        PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        return result;
+    }
+
+    if (action == BindTagAction::StopAll) {
+        if (sourceRuntimeId != 0) {
+            pendingBindTagActions.push_back(PendingBindTagAction{
+                action,
+                sourceRuntimeId,
+                std::string(actionName),
+                {},
+            });
+            result.success = true;
+            result.affected = 1;
+            return result;
+        }
+
+        result = ExecuteBindTagActionNow(action, {}, actionName);
+        if (!result.success && !result.error.empty()) {
+            PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        }
+        return result;
+    }
+
+    std::string error;
+    std::vector<int> targetIndices = ResolveBindTagTargets(action, param, sourceRuntimeId, error);
+    if (error.empty() && targetIndices.empty()) {
+        error = "bind_not_found";
+    }
+
+    if (!error.empty()) {
+        result.error = error;
+        if (action == BindTagAction::Ended) {
+            result.value = "0";
+        }
+        PushToast(DescribeBindTagError(actionName, error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        return result;
+    }
+
+    if (action != BindTagAction::Ended && sourceRuntimeId != 0) {
+        pendingBindTagActions.push_back(PendingBindTagAction{
+            action,
+            sourceRuntimeId,
+            std::string(actionName),
+            std::move(targetIndices),
+        });
+        result.success = true;
+        return result;
+    }
+
+    result = ExecuteBindTagActionNow(action, targetIndices, actionName);
+    if (!result.success && !result.error.empty()) {
+        if (action == BindTagAction::Ended) {
+            result.value = "0";
+        }
+        PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+    }
+    return result;
 }
 
 RunningBind* BinderModule::Impl::FindRunningBind(std::uint64_t hotkeyRuntimeId) {
@@ -2697,6 +3409,24 @@ bool BinderModule::Impl::ResumeHotkey(int index) {
     return true;
 }
 
+int BinderModule::Impl::StopAllHotkeys() {
+    std::vector<std::uint64_t> runtimeIds;
+    runtimeIds.reserve(hotkeys.size());
+    for (const HotkeyEntry& hotkey : hotkeys) {
+        if (hotkey.awaitingInput || hotkey.waitingTextConfirmation || FindRunningBind(hotkey.runtimeId) != nullptr) {
+            runtimeIds.push_back(hotkey.runtimeId);
+        }
+    }
+
+    std::sort(runtimeIds.begin(), runtimeIds.end());
+    runtimeIds.erase(std::unique(runtimeIds.begin(), runtimeIds.end()), runtimeIds.end());
+    for (const std::uint64_t runtimeId : runtimeIds) {
+        StopHotkeyByRuntimeId(runtimeId);
+    }
+
+    return static_cast<int>(runtimeIds.size());
+}
+
 void BinderModule::Impl::StopHotkeyByRuntimeId(std::uint64_t runtimeId) {
     if (runtimeId == 0) {
         return;
@@ -2724,6 +3454,12 @@ void BinderModule::Impl::StopHotkeyByRuntimeId(std::uint64_t runtimeId) {
             return running.hotkeyRuntimeId == runtimeId;
         }),
         runningBinds.end());
+
+    pendingBindTagActions.erase(
+        std::remove_if(pendingBindTagActions.begin(), pendingBindTagActions.end(), [&](const PendingBindTagAction& pending) {
+            return pending.sourceRuntimeId == runtimeId;
+        }),
+        pendingBindTagActions.end());
 }
 
 bool BinderModule::Impl::StopHotkey(int index) {
@@ -2735,6 +3471,30 @@ bool BinderModule::Impl::StopHotkey(int index) {
     const bool hadWork = hotkey.awaitingInput || hotkey.waitingTextConfirmation || FindRunningBind(hotkey.runtimeId) != nullptr;
     StopHotkeyByRuntimeId(hotkey.runtimeId);
     return hadWork;
+}
+
+void BinderModule::Impl::ExecutePendingBindTagActions(std::uint64_t sourceRuntimeId) {
+    std::vector<PendingBindTagAction> localActions;
+    for (std::size_t i = 0; i < pendingBindTagActions.size();) {
+        if (pendingBindTagActions[i].sourceRuntimeId != sourceRuntimeId) {
+            ++i;
+            continue;
+        }
+
+        localActions.push_back(std::move(pendingBindTagActions[i]));
+        pendingBindTagActions.erase(pendingBindTagActions.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+
+    for (PendingBindTagAction& pending : localActions) {
+        BinderModule::TagActionResult result =
+            ExecuteBindTagActionNow(pending.action, pending.targetIndices, pending.actionName);
+        if (!result.success && !result.error.empty()) {
+            PushToast(
+                DescribeBindTagError(pending.actionName, result.error),
+                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+                2600.0);
+        }
+    }
 }
 
 void BinderModule::Impl::StartRunningBind(
@@ -3209,17 +3969,14 @@ bool BinderModule::Impl::TryEnqueueHotkey(
 }
 
 void BinderModule::Impl::DoSend(const std::string& text, int method) {
-    if (method == 3) {
-        return;
-    }
-
     const auto expandWithTags = [&](std::string_view source) {
         return tagsModule ? tagsModule->ExpandText(source) : std::string(source);
     };
 
     switch (method) {
     case 0: {
-        const auto [messageText, color] = ParseLeadingChatColor(text);
+        const std::string expandedText = expandWithTags(text);
+        const auto [messageText, color] = ParseLeadingChatColor(expandedText);
         if (!sampApi || !sampApi->memoryAddMessageSamp(messageText, color, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendLocalFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
@@ -3230,7 +3987,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         const std::string expandedText = expandWithTags(text);
         RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
-        if (!sampApi || !sampApi->process_chat_input(text, true)) {
+        if (!sampApi || !sampApi->process_chat_input(expandedText, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
         break;
@@ -3240,11 +3997,14 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         const std::string expandedText = expandWithTags(text);
         RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
-        if (!sampApi || !sampApi->send_chat(text, true)) {
+        if (!sampApi || !sampApi->send_chat(expandedText, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
         break;
     }
+    case 3:
+        static_cast<void>(expandWithTags(text));
+        break;
     case 4:
         if (!sampApi || !sampApi->Set_ChatInputText(text, true, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastInsertChatFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
@@ -5686,7 +6446,6 @@ void BinderModule::Impl::DrawBindPane() {
         ImGui::EndPopup();
     }
 
-    DrawBindLinesPopup();
 }
 
 void BinderModule::Impl::DrawMoveBindPopup() {
@@ -6327,6 +7086,7 @@ void BinderModule::Impl::DrawInputDialog() {
                                                                      inputDialog->activationSource,
                                                                      inputDialog->activationText,
                                                                      inputDialog->bindCommand,
+                                                                     false,
                                                                  });
             }
             std::replace(previewText.begin(), previewText.end(), '\r', ' ');
@@ -6607,6 +7367,7 @@ void BinderModule::Impl::DrawOverlay() {
     DrawQuickMenu();
     DrawInputDialog();
     DrawCapturePopup(false);
+    DrawBindLinesPopup();
     DrawToasts();
 }
 
@@ -6644,6 +7405,17 @@ void BinderModule::Tick() {
 
 void BinderModule::Shutdown() {
     impl_->Shutdown();
+}
+
+std::string BinderModule::GetThisbindTagValue(std::uint64_t runtimeId) const {
+    return impl_->BuildThisbindTagValue(runtimeId);
+}
+
+BinderModule::TagActionResult BinderModule::ExecuteTagAction(
+    std::string_view action,
+    std::string_view param,
+    std::uint64_t sourceRuntimeId) {
+    return impl_->ExecuteTagAction(action, param, sourceRuntimeId);
 }
 
 bool BinderModule::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {

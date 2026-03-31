@@ -214,6 +214,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     binder_.SetSampHooks(&sampHooks_);
     binder_.SetSampRakHooks(&sampRakHooks_);
     binder_.SetTagsModule(&tags_);
+    tags_.SetBinderModule(&binder_);
 
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
@@ -292,6 +293,7 @@ void ModApp::UpdateOverlayCursorMode() {
 void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
     binder_.Tick();
+    tags_.Tick();
 
     const std::uint64_t now = GetTickCount64();
     if (now >= nextSampRefreshAtMs_) {
