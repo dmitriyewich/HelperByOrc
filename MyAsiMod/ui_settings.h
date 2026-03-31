@@ -277,6 +277,9 @@
     X(AddBind, "+ Бинд", "+ Bind") \
     X(Edit, "Изменить", "Edit") \
     X(Run, "Запустить", "Run") \
+    X(Resume, "Продолжить", "Resume") \
+    X(Pause, "Пауза", "Pause") \
+    X(Stop, "Стоп", "Stop") \
     X(SearchBinds, "Поиск биндов", "Search binds") \
     X(ColumnLaunch, "Запуск", "Launch") \
     X(ColumnBind, "Бинд", "Bind") \

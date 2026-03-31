@@ -22,6 +22,7 @@
 #include <array>
 #include <cctype>
 #include <cfloat>
+#include <cstdint>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -58,6 +59,8 @@ constexpr char kIconMessageDots[] = "\xEF\x92\xA3";
 constexpr char kIconTerminal[] = "\xEF\x84\xA0";
 constexpr char kIconKeyboard[] = "\xEF\x84\x9C";
 constexpr char kIconPlay[] = "\xEF\x81\x8B";
+constexpr char kIconPause[] = "\xEF\x81\x8C";
+constexpr char kIconStop[] = "\xEF\x81\x8D";
 constexpr char kIconEdit[] = "\xEF\x81\x84";
 constexpr char kIconDelete[] = "\xEF\x8B\xAD";
 constexpr char kIconBars[] = "\xEF\x83\x89";
@@ -480,6 +483,7 @@ struct HotkeyEntry {
     std::string command;
     bool commandEnabled = false;
     std::vector<std::string> folderPath;
+    std::uint64_t runtimeId = 0;
 
     int number = 0;
     bool comboActive = false;
@@ -572,13 +576,15 @@ struct OutgoingGuard {
 };
 
 struct RunningBind {
-    int hotkeyIndex = -1;
+    std::uint64_t hotkeyRuntimeId = 0;
     std::map<std::string, std::string> inputValues;
     std::size_t messageIndex = 0;
     double nextAtMs = 0.0;
     std::string activationSource;
     std::string activationText;
     std::string bindCommand;
+    bool paused = false;
+    double remainingDelayMs = 0.0;
 };
 
 struct InputDialogField {
@@ -1380,6 +1386,7 @@ struct BinderModule::Impl {
     std::vector<HotkeyEntry> hotkeys{};
     FolderNode* selectedFolder = nullptr;
     int nextFolderId = 1;
+    std::uint64_t nextHotkeyRuntimeId = 1;
     bool configLoaded = false;
     bool chatHookBound = false;
     bool rakHooksBound = false;
@@ -1479,14 +1486,15 @@ struct BinderModule::Impl {
     void SetTagsModule(TagsModule* module);
     void ConnectHooks();
     FolderNode* EnsureRootFolder();
-    HotkeyEntry MakeDefaultHotkey() const;
+    std::uint64_t AllocateHotkeyRuntimeId();
+    HotkeyEntry MakeDefaultHotkey();
     void RefreshNumbers();
     void SaveConfig();
     void LoadConfig();
     JsonValue SerializeFolder(const FolderNode& folder) const;
     std::unique_ptr<FolderNode> DeserializeFolder(const JsonObject& object, FolderNode* parent);
     JsonValue SerializeHotkey(const HotkeyEntry& hotkey) const;
-    HotkeyEntry DeserializeHotkey(const JsonObject& object) const;
+    HotkeyEntry DeserializeHotkey(const JsonObject& object);
     void PushToast(std::string text, const ImVec4& color, double durationMs);
     void PruneToasts();
     void DrawToasts();
@@ -1513,6 +1521,24 @@ struct BinderModule::Impl {
     void ResetQuickMenuVisualState();
     void ProcessHotkeys();
     void ProcessRunningBinds();
+    int FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const;
+    RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId);
+    const RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId) const;
+    RunningBind* FindRunningBindForHotkey(int index);
+    const RunningBind* FindRunningBindForHotkey(int index) const;
+    bool IsHotkeyRunning(int index) const;
+    bool IsHotkeyPaused(int index) const;
+    bool PauseHotkey(int index);
+    bool ResumeHotkey(int index);
+    bool StopHotkey(int index);
+    void StopHotkeyByRuntimeId(std::uint64_t runtimeId);
+    void StartRunningBind(
+        const HotkeyEntry& hotkey,
+        std::map<std::string, std::string> inputValues,
+        int startDelayMs,
+        std::string activationSource,
+        std::string activationText,
+        std::string bindCommand);
     void PruneOutgoingGuards();
     void RegisterOutgoingGuard(std::string kind, std::string text);
     bool ConsumeOutgoingGuard(std::string_view kind, std::string_view text);
@@ -1673,6 +1699,10 @@ void BinderModule::Impl::SetTagsModule(TagsModule* module) {
     tagsModule = module;
 }
 
+std::uint64_t BinderModule::Impl::AllocateHotkeyRuntimeId() {
+    return nextHotkeyRuntimeId++;
+}
+
 void BinderModule::Impl::ConnectHooks() {
     if (!chatHookBound && sampHooks) {
         sampHooks->AddOnChatMessageHandler([this](
@@ -1745,7 +1775,7 @@ bool BinderModule::Impl::NormalizeProtectedRootFolderName() {
     return true;
 }
 
-HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() const {
+HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() {
     HotkeyEntry hotkey;
     hotkey.label = UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
     hotkey.hotkeyMode = HotkeyMode::ModifierTrigger;
@@ -1754,6 +1784,7 @@ HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() const {
     hotkey.quickConditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.repeatIntervalMs = kDefaultRepeatIntervalMs;
     hotkey.textConfirmation = TextConfirmation{};
+    hotkey.runtimeId = AllocateHotkeyRuntimeId();
     return hotkey;
 }
 
@@ -1792,6 +1823,7 @@ void BinderModule::Impl::LoadConfig() {
     hotkeys.clear();
     selectedFolder = nullptr;
     nextFolderId = 1;
+    nextHotkeyRuntimeId = 1;
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
@@ -1944,7 +1976,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     return JsonValue(std::move(object));
 }
 
-HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) const {
+HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
     HotkeyEntry hotkey = MakeDefaultHotkey();
     hotkey.label = jsonutil::JsonStringOr(&object, "label", hotkey.label);
     hotkey.hotkeyMode = NormalizeHotkeyMode(jsonutil::JsonStringOr(&object, "hotkey_mode", "modifier_trigger"));
@@ -2529,14 +2561,20 @@ void BinderModule::Impl::ProcessRunningBinds() {
     const double now = static_cast<double>(GetTickCount64());
     for (std::size_t i = 0; i < runningBinds.size();) {
         RunningBind& running = runningBinds[i];
-        if (running.hotkeyIndex < 0 || running.hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+        const int hotkeyIndex = FindHotkeyIndexByRuntimeId(running.hotkeyRuntimeId);
+        if (hotkeyIndex < 0) {
             runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
 
-        HotkeyEntry& hotkey = hotkeys[running.hotkeyIndex];
+        HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(hotkeyIndex)];
         if (running.messageIndex >= hotkey.messages.size()) {
             runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
+
+        if (running.paused) {
+            ++i;
             continue;
         }
 
@@ -2568,9 +2606,159 @@ void BinderModule::Impl::ProcessRunningBinds() {
             continue;
         }
 
+        running.remainingDelayMs = 0.0;
         running.nextAtMs = now + std::max(message.intervalMs, kMinMessageIntervalMs);
         ++i;
     }
+}
+
+int BinderModule::Impl::FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return -1;
+    }
+
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        if (hotkeys[i].runtimeId == runtimeId) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+RunningBind* BinderModule::Impl::FindRunningBind(std::uint64_t hotkeyRuntimeId) {
+    if (hotkeyRuntimeId == 0) {
+        return nullptr;
+    }
+
+    const auto it = std::find_if(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
+        return running.hotkeyRuntimeId == hotkeyRuntimeId;
+    });
+    return it == runningBinds.end() ? nullptr : &(*it);
+}
+
+const RunningBind* BinderModule::Impl::FindRunningBind(std::uint64_t hotkeyRuntimeId) const {
+    if (hotkeyRuntimeId == 0) {
+        return nullptr;
+    }
+
+    const auto it = std::find_if(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
+        return running.hotkeyRuntimeId == hotkeyRuntimeId;
+    });
+    return it == runningBinds.end() ? nullptr : &(*it);
+}
+
+RunningBind* BinderModule::Impl::FindRunningBindForHotkey(int index) {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return nullptr;
+    }
+    return FindRunningBind(hotkeys[static_cast<std::size_t>(index)].runtimeId);
+}
+
+const RunningBind* BinderModule::Impl::FindRunningBindForHotkey(int index) const {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return nullptr;
+    }
+    return FindRunningBind(hotkeys[static_cast<std::size_t>(index)].runtimeId);
+}
+
+bool BinderModule::Impl::IsHotkeyRunning(int index) const {
+    return FindRunningBindForHotkey(index) != nullptr;
+}
+
+bool BinderModule::Impl::IsHotkeyPaused(int index) const {
+    if (const RunningBind* running = FindRunningBindForHotkey(index)) {
+        return running->paused;
+    }
+    return false;
+}
+
+bool BinderModule::Impl::PauseHotkey(int index) {
+    RunningBind* running = FindRunningBindForHotkey(index);
+    if (!running || running->paused) {
+        return false;
+    }
+
+    const double now = static_cast<double>(GetTickCount64());
+    running->remainingDelayMs = std::max(0.0, running->nextAtMs - now);
+    running->paused = true;
+    return true;
+}
+
+bool BinderModule::Impl::ResumeHotkey(int index) {
+    RunningBind* running = FindRunningBindForHotkey(index);
+    if (!running || !running->paused) {
+        return false;
+    }
+
+    const double now = static_cast<double>(GetTickCount64());
+    running->paused = false;
+    running->nextAtMs = now + std::max(running->remainingDelayMs, 0.0);
+    running->remainingDelayMs = 0.0;
+    return true;
+}
+
+void BinderModule::Impl::StopHotkeyByRuntimeId(std::uint64_t runtimeId) {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (inputDialog
+        && inputDialog->hotkeyIndex >= 0
+        && inputDialog->hotkeyIndex < static_cast<int>(hotkeys.size())
+        && hotkeys[static_cast<std::size_t>(inputDialog->hotkeyIndex)].runtimeId == runtimeId) {
+        hotkeys[static_cast<std::size_t>(inputDialog->hotkeyIndex)].awaitingInput = false;
+        inputDialog.reset();
+    }
+
+    if (const int hotkeyIndex = FindHotkeyIndexByRuntimeId(runtimeId); hotkeyIndex >= 0) {
+        HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(hotkeyIndex)];
+        hotkey.awaitingInput = false;
+        hotkey.waitingTextConfirmation = false;
+        hotkey.textConfirmationDeadlineMs = 0.0;
+        hotkey.pendingTriggerText.clear();
+        hotkey.pendingTriggerSource.clear();
+    }
+
+    runningBinds.erase(
+        std::remove_if(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
+            return running.hotkeyRuntimeId == runtimeId;
+        }),
+        runningBinds.end());
+}
+
+bool BinderModule::Impl::StopHotkey(int index) {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return false;
+    }
+
+    HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+    const bool hadWork = hotkey.awaitingInput || hotkey.waitingTextConfirmation || FindRunningBind(hotkey.runtimeId) != nullptr;
+    StopHotkeyByRuntimeId(hotkey.runtimeId);
+    return hadWork;
+}
+
+void BinderModule::Impl::StartRunningBind(
+    const HotkeyEntry& hotkey,
+    std::map<std::string, std::string> inputValues,
+    int startDelayMs,
+    std::string activationSource,
+    std::string activationText,
+    std::string bindCommand) {
+    if (hotkey.runtimeId == 0 || FindRunningBind(hotkey.runtimeId) != nullptr) {
+        return;
+    }
+
+    runningBinds.push_back(RunningBind{
+        hotkey.runtimeId,
+        std::move(inputValues),
+        0,
+        static_cast<double>(GetTickCount64() + std::max(startDelayMs, 0)),
+        std::move(activationSource),
+        std::move(activationText),
+        std::move(bindCommand),
+        false,
+        0.0,
+    });
 }
 
 void BinderModule::Impl::PruneOutgoingGuards() {
@@ -2667,9 +2855,7 @@ bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
         if (!MatchesActivationCommand(normalized, hotkey.command)) {
             continue;
         }
-        if (std::any_of(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
-                return running.hotkeyIndex == static_cast<int>(i);
-            })) {
+        if (IsHotkeyRunning(static_cast<int>(i))) {
             continue;
         }
         if (now < hotkey.debounceUntilMs) {
@@ -2975,10 +3161,7 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-    hotkey.pendingTriggerSource = std::string(source);
-    hotkey.pendingTriggerText = sourceText;
-
-    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
+    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation || IsHotkeyRunning(index)) {
         return false;
     }
 
@@ -3020,15 +3203,7 @@ bool BinderModule::Impl::TryEnqueueHotkey(
         return false;
     }
 
-    runningBinds.push_back(RunningBind{
-        index,
-        {},
-        0,
-        static_cast<double>(GetTickCount64() + std::max(startDelayMs, 0)),
-        std::string(source),
-        sourceText,
-        hotkey.command,
-    });
+    StartRunningBind(hotkey, {}, startDelayMs, std::string(source), sourceText, hotkey.command);
     hotkey.awaitingInput = false;
     return true;
 }
@@ -3137,6 +3312,17 @@ int BinderModule::Impl::MoveHotkeysFromFolderPath(
 
 int BinderModule::Impl::DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath) {
     int removed = 0;
+    std::vector<std::uint64_t> runtimeIdsToStop;
+    runtimeIdsToStop.reserve(hotkeys.size());
+    for (const HotkeyEntry& hotkey : hotkeys) {
+        if (PathStartsWith(hotkey.folderPath, fromPath)) {
+            runtimeIdsToStop.push_back(hotkey.runtimeId);
+        }
+    }
+    for (const std::uint64_t runtimeId : runtimeIdsToStop) {
+        StopHotkeyByRuntimeId(runtimeId);
+    }
+
     hotkeys.erase(
         std::remove_if(hotkeys.begin(), hotkeys.end(), [&](const HotkeyEntry& hotkey) {
             if (!PathStartsWith(hotkey.folderPath, fromPath)) {
@@ -3511,6 +3697,9 @@ void BinderModule::Impl::SaveEditor() {
     saved.pendingTriggerSource.clear();
     saved.lastActivatedAtMs = 0.0;
     saved.debounceUntilMs = 0.0;
+    if (!editor.isNew && editor.hotkeyIndex >= 0 && editor.hotkeyIndex < static_cast<int>(hotkeys.size())) {
+        saved.runtimeId = hotkeys[static_cast<std::size_t>(editor.hotkeyIndex)].runtimeId;
+    }
 
     if (editor.isNew || editor.hotkeyIndex < 0 || editor.hotkeyIndex >= static_cast<int>(hotkeys.size())) {
         hotkeys.push_back(std::move(saved));
@@ -3540,6 +3729,7 @@ void BinderModule::Impl::DuplicateHotkeyAt(int index) {
     duplicated.lastActivatedAtMs = 0.0;
     duplicated.debounceUntilMs = 0.0;
     duplicated.textConfirmationDeadlineMs = 0.0;
+    duplicated.runtimeId = AllocateHotkeyRuntimeId();
 
     hotkeys.insert(hotkeys.begin() + static_cast<std::ptrdiff_t>(index + 1), std::move(duplicated));
     RefreshNumbers();
@@ -5234,6 +5424,12 @@ void BinderModule::Impl::DrawBindPane() {
     const float iconButtonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 iconButtonSize(iconButtonSide, iconButtonSide);
     const float actionButtonsWidth = iconButtonSide * 4.0f + style.ItemSpacing.x * 3.0f;
+    const float regularActionButtonGap = ScaleUi(4.0f);
+    const float compactActionButtonGap = ScaleUi(4.0f);
+    const float compactActionButtonSide = std::max(
+        ScaleUi(10.0f),
+        static_cast<float>(std::floor((actionButtonsWidth - compactActionButtonGap * 4.0f) / 5.0f)));
+    const ImVec2 compactActionButtonSize(compactActionButtonSide, compactActionButtonSide);
     const float toggleColumnWidth = std::ceil(iconButtonSide + style.CellPadding.x * 2.0f);
     const float quickColumnWidth = std::ceil(iconButtonSide + style.CellPadding.x * 2.0f);
     const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
@@ -5389,21 +5585,54 @@ void BinderModule::Impl::DrawBindPane() {
             }
 
             ImGui::TableSetColumnIndex(4);
-            CenterNextItemHorizontally(actionButtonsWidth);
-            if (SmallIconActionButton(kIconPlay, "##run", ui.Text(UiText::Run), iconButtonSize)) {
-                TryEnqueueHotkey(index, 0, "manual", "");
+            const bool isRunning = IsHotkeyRunning(index);
+            const bool isPaused = IsHotkeyPaused(index);
+            const ImVec2 currentActionButtonSize = isRunning ? compactActionButtonSize : iconButtonSize;
+            const float currentActionButtonGap = isRunning ? compactActionButtonGap : regularActionButtonGap;
+            const int actionButtonCount = isRunning ? 5 : 4;
+            const float actionGroupWidth =
+                currentActionButtonSize.x * static_cast<float>(actionButtonCount)
+                + currentActionButtonGap * static_cast<float>(std::max(actionButtonCount - 1, 0));
+            const ImVec2 actionCellPos = ImGui::GetCursorScreenPos();
+            const float actionCellWidth = ImGui::GetContentRegionAvail().x;
+            const float actionCellHeight = ImGui::GetFrameHeight();
+            ImGui::SetCursorScreenPos(ImVec2(
+                std::floor(actionCellPos.x + std::max(0.0f, (actionCellWidth - actionGroupWidth) * 0.5f)),
+                std::floor(actionCellPos.y + std::max(0.0f, (actionCellHeight - currentActionButtonSize.y) * 0.5f))));
+            if (!isRunning) {
+                ImGui::BeginDisabled(!hotkey.enabled);
+                if (SmallIconActionButton(kIconPlay, "##run", ui.Text(UiText::Run), currentActionButtonSize)) {
+                    TryEnqueueHotkey(index, 0, "manual", "");
+                }
+                ImGui::EndDisabled();
+            } else if (isPaused) {
+                if (SmallIconActionButton(kIconPlay, "##resume", ui.Text(UiText::Resume), currentActionButtonSize)) {
+                    ResumeHotkey(index);
+                }
+                ImGui::SameLine(0.0f, currentActionButtonGap);
+                if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), currentActionButtonSize)) {
+                    StopHotkey(index);
+                }
+            } else {
+                if (SmallIconActionButton(kIconPause, "##pause", ui.Text(UiText::Pause), currentActionButtonSize)) {
+                    PauseHotkey(index);
+                }
+                ImGui::SameLine(0.0f, currentActionButtonGap);
+                if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), currentActionButtonSize)) {
+                    StopHotkey(index);
+                }
             }
-            ImGui::SameLine(0.0f, ScaleUi(4.0f));
-            if (SmallIconActionButton(kIconEdit, "##edit", ui.Text(UiText::Edit), iconButtonSize)) {
+            ImGui::SameLine(0.0f, currentActionButtonGap);
+            if (SmallIconActionButton(kIconEdit, "##edit", ui.Text(UiText::Edit), currentActionButtonSize)) {
                 StartEditing(index, false);
             }
-            ImGui::SameLine(0.0f, ScaleUi(4.0f));
-            if (SmallIconActionButton(kIconDelete, "##delete", ui.Text(UiText::Delete), iconButtonSize)) {
+            ImGui::SameLine(0.0f, currentActionButtonGap);
+            if (SmallIconActionButton(kIconDelete, "##delete", ui.Text(UiText::Delete), currentActionButtonSize)) {
                 bindDeleteTarget = index;
                 bindDeletePopupPending = true;
             }
-            ImGui::SameLine(0.0f, ScaleUi(4.0f));
-            if (SmallIconActionButton(kIconBars, "##more", ui.Text(UiText::ColumnActions), iconButtonSize)) {
+            ImGui::SameLine(0.0f, currentActionButtonGap);
+            if (SmallIconActionButton(kIconBars, "##more", ui.Text(UiText::ColumnActions), currentActionButtonSize)) {
                 ImGui::OpenPopup("##binder_bind_actions");
             }
             if (ImGui::BeginPopup("##binder_bind_actions")) {
@@ -5438,6 +5667,7 @@ void BinderModule::Impl::DrawBindPane() {
         }
         if (ImGui::Button(UiSettings::Instance().Text(UiText::Delete))) {
             if (bindDeleteTarget >= 0 && bindDeleteTarget < static_cast<int>(hotkeys.size())) {
+                StopHotkey(bindDeleteTarget);
                 hotkeys.erase(hotkeys.begin() + bindDeleteTarget);
                 RefreshNumbers();
                 SaveConfig();
@@ -6244,15 +6474,13 @@ void BinderModule::Impl::DrawInputDialog() {
             values[std::to_string(i + 1)] = value;
         }
 
-        runningBinds.push_back(RunningBind{
-            inputDialog->hotkeyIndex,
+        StartRunningBind(
+            hotkey,
             std::move(values),
-            0,
-            static_cast<double>(GetTickCount64() + std::max(inputDialog->startDelayMs, 0)),
+            inputDialog->startDelayMs,
             inputDialog->activationSource,
             inputDialog->activationText,
-            inputDialog->bindCommand,
-        });
+            inputDialog->bindCommand);
         hotkey.awaitingInput = false;
         inputDialog.reset();
         ImGui::CloseCurrentPopup();
