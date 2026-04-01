@@ -197,7 +197,8 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   - это влияет на `Local_ID()` и код, который от него зависит
 - `main_offsets.SAMP_INFO_OFFSET_Pools_Veh`:
   - для `R5-2` сейчас `0`
-  - vehicle-pool dependent логика для `R5-2` покрыта не полностью
+  - это валидный `member-offset`, потому что в `R5-2` `CNetGame::Pools::m_pVehicle` лежит в начале структуры
+  - не считать это пропущенным адресом только из-за нулевого значения
 - `main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET`:
   - для `R1` и `R3-1` сейчас `0`
   - чтение remote-player data в этих версиях неполное
