@@ -115,6 +115,12 @@ private:
         int delayMs = 0;
     };
 
+    struct TargetTrackerState {
+        int currentId = -1;
+        int lastId = -1;
+        bool sessionActive = false;
+    };
+
     void InitializeRegistry();
     void LoadConfig();
     void SaveConfig() const;
@@ -134,6 +140,11 @@ private:
     std::optional<std::string> ResolveBuiltinNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinThisbindTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetNickTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetRpNickTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetNameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickRpTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSurnameTag(const EvaluationContext& context) const;
@@ -160,8 +171,11 @@ private:
     EvaluationContext ResolveActiveContext(std::string_view defaultSource = {}, std::string_view defaultText = {}) const;
     void OpenKeyEmulatePicker();
     void DrawKeyEmulatePickerPopup();
+    void UpdateTargetTracker();
+    void ResetTargetTracker();
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
+    std::string ResolveLastTargetNick(const EvaluationContext& context) const;
     static std::string FormatCurrentTime(const char* format);
     static std::string MakeRpNick(std::string_view nick);
     static std::string ExtractName(std::string_view nick);
@@ -187,6 +201,7 @@ private:
     std::vector<std::pair<std::string, std::string>> customVariables_{};
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
+    TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};
     bool keyPickerHoverTriggered_ = false;
 };

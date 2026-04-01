@@ -5,6 +5,9 @@
 #include "hotkey_utils.h"
 #include "json_utils.h"
 #include "samp_api.h"
+
+#include <game_sa/common.h>
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -556,6 +559,51 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "targetid",
+        "{targetid}",
+        "{targetid}",
+        UiText::TagsBuiltinTargetIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "targetnick",
+        "{targetnick}",
+        "{targetnick}",
+        UiText::TagsBuiltinTargetNickDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetNickTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "targetrpnick",
+        "{targetrpnick}",
+        "{targetrpnick}",
+        UiText::TagsBuiltinTargetRpNickDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetRpNickTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "targetname",
+        "{targetname}",
+        "{targetname}",
+        UiText::TagsBuiltinTargetNameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetNameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "targetsurname",
+        "{targetsurname}",
+        "{targetsurname}",
+        UiText::TagsBuiltinTargetSurnameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetSurnameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "nickrp",
         "{nickrp}",
         "{nickrp}",
@@ -748,6 +796,7 @@ void TagsModule::InitializeRegistry() {
 void TagsModule::OnProcessAttach() {
     InitializeRegistry();
     LoadConfig();
+    ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     if (selectedTagIndex_ < 0 || selectedTagIndex_ >= static_cast<int>(tagRegistry_.Entries().size())) {
         selectedTagIndex_ = 0;
@@ -761,6 +810,7 @@ void TagsModule::Shutdown() {
     activeVirtualKeyHolds_.clear();
     pendingBindDelayOverrides_.clear();
     searchQuery_.clear();
+    ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     g_activeContextStack.clear();
 }
@@ -824,6 +874,7 @@ std::optional<int> TagsModule::ConsumePendingBindDelayOverride(std::uint64_t run
 }
 
 void TagsModule::Tick() {
+    UpdateTargetTracker();
     if (activeVirtualKeyHolds_.empty()) {
         return;
     }
@@ -993,6 +1044,57 @@ std::string TagsModule::ResolveLocalNick(const EvaluationContext& context) const
     return ResolvePlayerNickById(sampApi->Local_ID(), context);
 }
 
+std::string TagsModule::ResolveLastTargetNick(const EvaluationContext& context) const {
+    if (targetTracker_.lastId < 0) {
+        return {};
+    }
+    return ResolvePlayerNickById(targetTracker_.lastId, context);
+}
+
+void TagsModule::ResetTargetTracker() {
+    targetTracker_ = TargetTrackerState{};
+}
+
+void TagsModule::UpdateTargetTracker() {
+    SampApi* sampApi = sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        if (targetTracker_.sessionActive) {
+            ResetTargetTracker();
+        }
+        return;
+    }
+
+    CPlayerPed* playerPed = FindPlayerPed();
+    const int localId = sampApi->Local_ID();
+    const bool sessionReady = playerPed != nullptr && localId >= 0;
+    if (!sessionReady) {
+        if (targetTracker_.sessionActive) {
+            ResetTargetTracker();
+        }
+        return;
+    }
+
+    if (!targetTracker_.sessionActive) {
+        ResetTargetTracker();
+        targetTracker_.sessionActive = true;
+    }
+
+    targetTracker_.currentId = -1;
+
+    CPed* targetedPed = playerPed->m_pPlayerTargettedPed;
+    if (!targetedPed) {
+        return;
+    }
+
+    const auto [resolved, targetId] = sampApi->getPedID(targetedPed);
+    if (!resolved || targetId < 0) {
+        return;
+    }
+
+    targetTracker_.currentId = targetId;
+    targetTracker_.lastId = targetId;
+}
+
 void TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const {
     if (keyCode == 0 || keyCode > 0xFF) {
         return;
@@ -1109,6 +1211,29 @@ std::optional<std::string> TagsModule::ResolveBuiltinBindStopAllTag(const Evalua
     }
     static_cast<void>(binderModule_->ExecuteTagAction("stopall", {}, context.runningBindRuntimeId));
     return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetIdTag(const EvaluationContext&) const {
+    if (targetTracker_.lastId < 0) {
+        return std::string();
+    }
+    return std::to_string(targetTracker_.lastId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetNickTag(const EvaluationContext& context) const {
+    return ResolveLastTargetNick(context);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetRpNickTag(const EvaluationContext& context) const {
+    return MakeRpNick(ResolveLastTargetNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetNameTag(const EvaluationContext& context) const {
+    return ExtractName(ResolveLastTargetNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const {
+    return ExtractSurname(ResolveLastTargetNick(context));
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinNickRpTag(const EvaluationContext& context) const {
