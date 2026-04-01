@@ -132,6 +132,18 @@ void __fastcall SampHooks::InputSendSayDetour(std::uintptr_t self, void* edx, co
     }
 }
 
+int __cdecl SampHooks::HotkeyDispatcherDetour(int key) {
+    if (SampHooks::self_ && SampHooks::self_->installed_ && SampHooks::self_->hotkeyBlockCallback_) {
+        if (SampHooks::self_->hotkeyBlockCallback_()) {
+            return 0;
+        }
+    }
+
+    return SampHooks::self_ && SampHooks::self_->hotkeyDispatcherOriginal_
+        ? SampHooks::self_->hotkeyDispatcherOriginal_(key)
+        : 0;
+}
+
 bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std::uintptr_t car, int component, float intensity, float arg3) {
     UNREFERENCED_PARAMETER(edx);
 
@@ -158,6 +170,10 @@ bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std
 void SampHooks::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     self_ = this;
+}
+
+void SampHooks::SetHotkeyBlockCallback(HotkeyBlockCallback callback) {
+    hotkeyBlockCallback_ = std::move(callback);
 }
 
 void SampHooks::Refresh() {
@@ -243,6 +259,7 @@ bool SampHooks::Install() {
     const std::uintptr_t dialogCloseTarget = sampBase + SampApi::main_offsets.CDialog_Close.Get(version);
     const std::uintptr_t inputSendTarget = sampBase + SampApi::main_offsets.CInput_Send.Get(version);
     const std::uintptr_t inputSendSayTarget = sampBase + SampApi::main_offsets.CInput_SendSay.Get(version);
+    const std::uintptr_t hotkeyDispatcherTarget = sampBase + SampApi::main_offsets.HotkeyDispatcher.Get(version);
     const std::uintptr_t damageTarget = kDamageManagerApplyDamageAddress;
 
     debuglog::Write("SampHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
@@ -251,10 +268,11 @@ bool SampHooks::Install() {
     debuglog::Write("SampHooks: dialogCloseTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogCloseTarget), static_cast<unsigned>(dialogCloseTarget - sampBase));
     debuglog::Write("SampHooks: inputSendTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendTarget), static_cast<unsigned>(inputSendTarget - sampBase));
     debuglog::Write("SampHooks: inputSendSayTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendSayTarget), static_cast<unsigned>(inputSendSayTarget - sampBase));
+    debuglog::Write("SampHooks: hotkeyDispatcherTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(hotkeyDispatcherTarget), static_cast<unsigned>(hotkeyDispatcherTarget - sampBase));
     debuglog::Write("SampHooks: damageTarget=0x%08X", static_cast<unsigned>(damageTarget));
 
     if (addEntryTarget == sampBase || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
-        || inputSendTarget == sampBase || inputSendSayTarget == sampBase) {
+        || inputSendTarget == sampBase || inputSendSayTarget == sampBase || hotkeyDispatcherTarget == sampBase) {
         statusText_ = "some hook offsets are missing for the detected SAMP version";
         return false;
     }
@@ -264,6 +282,7 @@ bool SampHooks::Install() {
     dialogCloseTarget_ = reinterpret_cast<void*>(dialogCloseTarget);
     inputSendTarget_ = reinterpret_cast<void*>(inputSendTarget);
     inputSendSayTarget_ = reinterpret_cast<void*>(inputSendSayTarget);
+    hotkeyDispatcherTarget_ = reinterpret_cast<void*>(hotkeyDispatcherTarget);
     applyDamageTarget_ = reinterpret_cast<void*>(damageTarget);
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
@@ -293,6 +312,10 @@ bool SampHooks::Install() {
         return failInstall("MinHook install failed for CInput_SendSay", "SampHooks: MinHook install failed for CInput_SendSay");
     }
 
+    if (!minhook::CreateAndEnableHook(hotkeyDispatcherTarget_, reinterpret_cast<void*>(&HotkeyDispatcherDetour), &hotkeyDispatcherOriginal_, "SampHooks::HotkeyDispatcher")) {
+        return failInstall("MinHook install failed for HotkeyDispatcher", "SampHooks: MinHook install failed for HotkeyDispatcher");
+    }
+
     if (!minhook::CreateAndEnableHook(applyDamageTarget_, reinterpret_cast<void*>(&ApplyDamageDetour), &applyDamageOriginal_, "SampHooks::CDamageManager_ApplyDamage")) {
         return failInstall("MinHook install failed for CDamageManager_ApplyDamage", "SampHooks: MinHook install failed for CDamageManager_ApplyDamage");
     }
@@ -310,6 +333,7 @@ void SampHooks::CleanupHooks() {
     minhook::DisableAndRemoveHook(dialogCloseTarget_, "SampHooks::CDialog_Close");
     minhook::DisableAndRemoveHook(inputSendTarget_, "SampHooks::CInput_Send");
     minhook::DisableAndRemoveHook(inputSendSayTarget_, "SampHooks::CInput_SendSay");
+    minhook::DisableAndRemoveHook(hotkeyDispatcherTarget_, "SampHooks::HotkeyDispatcher");
     minhook::DisableAndRemoveHook(applyDamageTarget_, "SampHooks::CDamageManager_ApplyDamage");
 
     chatAddEntryOriginal_ = nullptr;
@@ -317,6 +341,7 @@ void SampHooks::CleanupHooks() {
     dialogCloseOriginal_ = nullptr;
     inputSendOriginal_ = nullptr;
     inputSendSayOriginal_ = nullptr;
+    hotkeyDispatcherOriginal_ = nullptr;
     applyDamageOriginal_ = nullptr;
 }
 

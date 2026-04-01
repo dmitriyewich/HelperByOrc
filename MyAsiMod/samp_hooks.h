@@ -13,8 +13,10 @@ public:
     using ChatMessageHandler = std::function<void(int, const std::string&, const std::string&, std::uint32_t, std::uint32_t)>;
     using SendCommandHandler = std::function<bool(std::string&)>;
     using SendChatHandler = std::function<bool(std::string&)>;
+    using HotkeyBlockCallback = std::function<bool()>;
 
     void SetSampApi(SampApi* sampApi);
+    void SetHotkeyBlockCallback(HotkeyBlockCallback callback);
     void Refresh();
     void Shutdown();
 
@@ -37,6 +39,7 @@ private:
     using CDialogCloseFn = void(__thiscall*)(std::uintptr_t, char);
     using CInputSendFn = void(__thiscall*)(std::uintptr_t, const char*);
     using CInputSendSayFn = void(__thiscall*)(std::uintptr_t, const char*);
+    using HotkeyDispatcherFn = int(__cdecl*)(int);
     using ApplyDamageFn = bool(__thiscall*)(std::uintptr_t, std::uintptr_t, int, float, float);
 
     bool Install();
@@ -48,6 +51,7 @@ private:
     static void __fastcall DialogCloseDetour(std::uintptr_t self, void* edx, char button);
     static void __fastcall InputSendDetour(std::uintptr_t self, void* edx, const char* text);
     static void __fastcall InputSendSayDetour(std::uintptr_t self, void* edx, const char* text);
+    static int __cdecl HotkeyDispatcherDetour(int key);
     static bool __fastcall ApplyDamageDetour(std::uintptr_t self, void* edx, std::uintptr_t car, int component, float intensity, float arg3);
 
     static inline SampHooks* self_ = nullptr;
@@ -61,17 +65,20 @@ private:
     std::vector<ChatMessageHandler> onChatMessageHandlers_;
     std::vector<SendCommandHandler> onSendCommandHandlers_;
     std::vector<SendChatHandler> onSendChatHandlers_;
+    HotkeyBlockCallback hotkeyBlockCallback_;
 
     void* chatAddEntryTarget_ = nullptr;
     void* dialogShowTarget_ = nullptr;
     void* dialogCloseTarget_ = nullptr;
     void* inputSendTarget_ = nullptr;
     void* inputSendSayTarget_ = nullptr;
+    void* hotkeyDispatcherTarget_ = nullptr;
     void* applyDamageTarget_ = nullptr;
     ChatAddEntryFn chatAddEntryOriginal_ = nullptr;
     CDialogShowFn dialogShowOriginal_ = nullptr;
     CDialogCloseFn dialogCloseOriginal_ = nullptr;
     CInputSendFn inputSendOriginal_ = nullptr;
     CInputSendSayFn inputSendSayOriginal_ = nullptr;
+    HotkeyDispatcherFn hotkeyDispatcherOriginal_ = nullptr;
     ApplyDamageFn applyDamageOriginal_ = nullptr;
 };

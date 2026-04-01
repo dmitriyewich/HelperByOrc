@@ -188,6 +188,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
+    sampHooks_.SetHotkeyBlockCallback([this]() { return overlay_.IsMenuOpen(); });
     sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
         text = tags_.ExpandOutgoingText(text, "command", text);
         return true;

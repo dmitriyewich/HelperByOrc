@@ -95,6 +95,7 @@ public:
         VersionedOffset CInput_Send;
         VersionedOffset CInput_SendSay;
         VersionedOffset CInput_ProcessInput;
+        VersionedOffset HotkeyDispatcher;
         VersionedOffset GetName;
         VersionedOffset SAMP_SLOCALPLAYERID_OFFSET;
         VersionedOffset SAMP_INFO_OFFSET_Pools;
