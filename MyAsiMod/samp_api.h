@@ -255,6 +255,8 @@ public:
     bool is_chat_opened();
     int Local_ID();
     std::pair<bool, int> getPedID(const void* ped);
+    const void* GetPlayerPedPointer(int id);
+    bool GetPlayerPosition(int id, float& x, float& y, float& z);
     int getChatMode();
     bool SetPageSize(int pageSize);
     HealthAndArmour GetHealthAndArmour(int id);

@@ -121,6 +121,11 @@ private:
         bool sessionActive = false;
     };
 
+    struct ClosestPlayerQueryResult {
+        int nearestId = -1;
+        int nearestToCenterId = -1;
+    };
+
     void InitializeRegistry();
     void LoadConfig();
     void SaveConfig() const;
@@ -145,6 +150,10 @@ private:
     std::optional<std::string> ResolveBuiltinTargetRpNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestIdToCenterTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestNameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestSurnameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinArmourTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
@@ -182,6 +191,7 @@ private:
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
     void ResetTargetTracker();
+    ClosestPlayerQueryResult QueryClosestPlayers(const EvaluationContext& context) const;
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;

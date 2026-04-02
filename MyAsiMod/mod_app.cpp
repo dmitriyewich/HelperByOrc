@@ -79,6 +79,20 @@ ImVec2 ScaleVec(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
+void DrawItemTooltip(const char* text) {
+    if (!text || text[0] == '\0') {
+        return;
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
 bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD* size) {
     if (!module || !data || !size) {
         return false;
@@ -188,7 +202,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
-    sampHooks_.SetHotkeyBlockCallback([this]() { return overlay_.IsMenuOpen(); });
+    sampHooks_.SetHotkeyBlockCallback([this]() {
+        return overlay_.IsMenuOpen() && UiSettings::Instance().BlockSampHotkeysInMainWindow();
+    });
     sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
         text = tags_.ExpandOutgoingText(text, "command", text);
         return true;
@@ -613,6 +629,15 @@ void ModApp::DrawSettingsTab() {
     if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
         overlay_.BeginMenuToggleHotkeyCapture();
     }
+
+    bool blockSampHotkeys = ui.BlockSampHotkeysInMainWindow();
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsBlockSampHotkeys), &blockSampHotkeys)) {
+        ui.SetBlockSampHotkeysInMainWindow(blockSampHotkeys);
+    }
+    DrawItemTooltip(ui.Text(UiText::SettingsBlockSampHotkeysHint));
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    DrawItemTooltip(ui.Text(UiText::SettingsBlockSampHotkeysHint));
 
     bool autoScale = ui.AutoScaleEnabled();
     if (ImGui::Checkbox(ui.Text(UiText::SettingsAutoScale), &autoScale)) {

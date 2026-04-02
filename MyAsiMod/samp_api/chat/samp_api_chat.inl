@@ -45,6 +45,103 @@ std::pair<bool, int> SampApi::getPedID(const void* ped) {
     return id != 65535 ? std::make_pair(true, id) : std::make_pair(false, -1);
 }
 
+const void* SampApi::GetPlayerPedPointer(int id) {
+    if (id < 0 || id > 1003) {
+        return nullptr;
+    }
+
+    const int localId = Local_ID();
+    if (localId >= 0 && id == localId) {
+        return FindPlayerPed();
+    }
+
+    if (!IsConnected(id)) {
+        return nullptr;
+    }
+
+    std::uint32_t pool = 0;
+    if (!ResolvePedPool(pool) || pool == 0) {
+        return nullptr;
+    }
+
+    std::uint32_t remotePlayer = 0;
+    if (!SafeRead(pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (id * 4), remotePlayer)
+        || remotePlayer == 0) {
+        return nullptr;
+    }
+
+    const std::uint32_t remotePedOffset = GetRemotePlayerPedOffset(currentVersion_);
+    if (remotePedOffset == 0) {
+        return nullptr;
+    }
+
+    auto tryResolveGamePed = [&](std::uint32_t pedFieldOffset, bool requireIdMatch) -> const void* {
+        std::uint32_t sampPed = 0;
+        if (!SafeRead(remotePlayer + pedFieldOffset, sampPed) || sampPed == 0) {
+            return nullptr;
+        }
+
+        const std::uint32_t gtaPed = ReadGamePedFromSampPed(sampPed, currentVersion_);
+        if (gtaPed == 0) {
+            return nullptr;
+        }
+
+        if (requireIdMatch) {
+            const auto [matched, matchedId] = getPedID(reinterpret_cast<const void*>(gtaPed));
+            if (!matched || matchedId != id) {
+                return nullptr;
+            }
+        }
+
+        return reinterpret_cast<const void*>(gtaPed);
+    };
+
+    if (const void* ped = tryResolveGamePed(remotePedOffset, false)) {
+        return ped;
+    }
+
+    // R5-era CRemotePlayer layouts differ from the older headers we bundle.
+    // Fall back to a narrow packed-struct scan and accept only the candidate
+    // whose GTA ped resolves back to the expected SA:MP player id.
+    constexpr std::uint32_t kRemotePlayerScanLimit = 0x300;
+    for (std::uint32_t pedFieldOffset = 0; pedFieldOffset + sizeof(std::uint32_t) <= kRemotePlayerScanLimit; ++pedFieldOffset) {
+        if (pedFieldOffset == remotePedOffset) {
+            continue;
+        }
+
+        if (const void* ped = tryResolveGamePed(pedFieldOffset, true)) {
+            return ped;
+        }
+    }
+
+    return nullptr;
+}
+
+bool SampApi::GetPlayerPosition(int id, float& x, float& y, float& z) {
+    x = 0.0f;
+    y = 0.0f;
+    z = 0.0f;
+
+    if (id < 0 || id > 1003) {
+        return false;
+    }
+
+    const int localId = Local_ID();
+    if (localId >= 0 && id == localId) {
+        if (auto* localPed = FindPlayerPed()) {
+            return TryReadPedPosition(reinterpret_cast<std::uint32_t>(localPed), x, y, z);
+        }
+        return false;
+    }
+
+    const void* gtaPed = GetPlayerPedPointer(id);
+    if (!gtaPed) {
+        return false;
+    }
+
+    return TryReadPedPosition(reinterpret_cast<std::uint32_t>(gtaPed), x, y, z);
+}
+
 int SampApi::getChatMode() {
     std::uint32_t chat = 0;
     if (!ResolveChat(chat) || chat == 0) {

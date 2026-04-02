@@ -110,6 +110,7 @@ void UiSettings::Load() {
         jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f),
         kMinScaleMultiplier,
         kMaxScaleMultiplier);
+    blockSampHotkeysInMainWindow_ = jsonutil::JsonBoolOr(&section, "block_samp_hotkeys_in_main_window", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     currentScale_ = 1.0f;
 }
@@ -154,6 +155,19 @@ void UiSettings::SetScaleMultiplier(float multiplier) {
     QueueSave();
 }
 
+bool UiSettings::BlockSampHotkeysInMainWindow() const {
+    return blockSampHotkeysInMainWindow_;
+}
+
+void UiSettings::SetBlockSampHotkeysInMainWindow(bool enabled) {
+    if (blockSampHotkeysInMainWindow_ == enabled) {
+        return;
+    }
+
+    blockSampHotkeysInMainWindow_ = enabled;
+    QueueSave();
+}
+
 const std::vector<unsigned int>& UiSettings::MenuToggleHotkey() const {
     return menuToggleHotkey_;
 }
@@ -172,6 +186,7 @@ void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
+    blockSampHotkeysInMainWindow_ = true;
     menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();
 }
@@ -230,6 +245,7 @@ void UiSettings::QueueSave() const {
     section["language"] = LanguageId(language_);
     section["auto_scale"] = autoScaleEnabled_;
     section["scale_multiplier"] = static_cast<double>(scaleMultiplier_);
+    section["block_samp_hotkeys_in_main_window"] = blockSampHotkeysInMainWindow_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
 }

@@ -47,6 +47,10 @@
     X(TagsBuiltinTargetRpNickDescription, "Возвращает RP-ник последней цели: Walcher_Flett станет Walcher Flett.", "Returns the RP nickname of the last target: Walcher_Flett becomes Walcher Flett.") \
     X(TagsBuiltinTargetNameDescription, "Возвращает имя из ника последней цели до символа подчёркивания.", "Returns the first name from the last target nickname before the underscore.") \
     X(TagsBuiltinTargetSurnameDescription, "Возвращает фамилию из ника последней цели после символа подчёркивания.", "Returns the surname from the last target nickname after the underscore.") \
+    X(TagsBuiltinClosestIdDescription, "Возвращает ID ближайшего к вам стримнутого игрока. Считается прямо в момент раскрытия переменной.", "Returns the ID of the streamed player closest to you. It is evaluated on demand when the variable is expanded.") \
+    X(TagsBuiltinClosestIdToCenterDescription, "Возвращает ID стримнутого игрока, который находится ближе всего к центру экрана среди видимых на экране.", "Returns the ID of the streamed player closest to the screen center among those currently visible on screen.") \
+    X(TagsBuiltinClosestNameDescription, "Возвращает имя из ника ближайшего к вам стримнутого игрока.", "Returns the first name from the nickname of the streamed player closest to you.") \
+    X(TagsBuiltinClosestSurnameDescription, "Возвращает фамилию из ника ближайшего к вам стримнутого игрока.", "Returns the surname from the nickname of the streamed player closest to you.") \
     X(TagsBuiltinArmourDescription, "Возвращает вашу текущую броню. Если брони нет или значение недоступно, вернёт 0.", "Returns your current armour. If there is no armour or the value is unavailable, it returns 0.") \
     X(TagsBuiltinHealthDescription, "Возвращает ваше текущее здоровье локального игрока.", "Returns the current health of the local player.") \
     X(TagsBuiltinDateDescription, "Возвращает текущую локальную дату в формате ДД.ММ.ГГГГ.", "Returns the current local date formatted as DD.MM.YYYY.") \

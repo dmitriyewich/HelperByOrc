@@ -3,6 +3,15 @@
 #include "debug_log.h"
 #include "text_encoding.h"
 
+#include <sampapi/0.3.7-R1/CRemotePlayer.h>
+#include <sampapi/0.3.7-R1/CPed.h>
+#include <sampapi/0.3.7-R3-1/CRemotePlayer.h>
+#include <sampapi/0.3.7-R3-1/CPed.h>
+#include <sampapi/0.3.7-R5-1/CRemotePlayer.h>
+#include <sampapi/0.3.7-R5-1/CPed.h>
+#include <sampapi/0.3.DL-1/CRemotePlayer.h>
+#include <sampapi/0.3.DL-1/CPed.h>
+
 #include <memory>
 #include <memwrapper.h>
 
@@ -69,6 +78,10 @@ enum class ArizonaChatScanState : int {
     Ready = 2,
     Failed = 3,
 };
+
+constexpr std::uint32_t kPlaceablePositionOffset = 0x4;
+constexpr std::uint32_t kPlaceableMatrixOffset = 0x14;
+constexpr std::uint32_t kMatrixPositionOffset = 0x30;
 
 struct ModuleImageInfo {
     std::uintptr_t base = 0;
@@ -169,6 +182,103 @@ bool SafeReadBuffer(std::uintptr_t address, void* data, std::size_t size) {
         }
     }
     return true;
+}
+
+std::uint32_t GetRemotePlayerPedOffset(SampApi::Version version) {
+    switch (version) {
+    case SampApi::Version::R1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CRemotePlayer, m_pPed));
+    case SampApi::Version::R3_1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CRemotePlayer, m_pPed));
+    case SampApi::Version::R5_2:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CRemotePlayer, m_pPed));
+    case SampApi::Version::DL_R1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CRemotePlayer, m_pPed));
+    default:
+        return 0;
+    }
+}
+
+std::uint32_t GetSampPedGamePedOffset(SampApi::Version version) {
+    switch (version) {
+    case SampApi::Version::R1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CPed, m_pGamePed));
+    case SampApi::Version::R3_1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CPed, m_pGamePed));
+    case SampApi::Version::R5_2:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CPed, m_pGamePed));
+    case SampApi::Version::DL_R1:
+        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CPed, m_pGamePed));
+    default:
+        return 0;
+    }
+}
+
+bool LooksLikeReadablePedPointer(std::uint32_t gtaPed) {
+    if (gtaPed < 0x10000) {
+        return false;
+    }
+
+    std::uint32_t matrix = 0;
+    if (!SafeRead(gtaPed + kPlaceableMatrixOffset, matrix)) {
+        return false;
+    }
+
+    struct PositionProbe {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    } probe;
+
+    if (matrix != 0) {
+        return SafeRead(matrix + kMatrixPositionOffset, probe);
+    }
+
+    return SafeRead(gtaPed + kPlaceablePositionOffset, probe);
+}
+
+bool TryReadPedPosition(std::uint32_t gtaPed, float& x, float& y, float& z) {
+    if (gtaPed < 0x10000) {
+        return false;
+    }
+
+    struct PositionProbe {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    } probe;
+
+    std::uint32_t matrix = 0;
+    if (SafeRead(gtaPed + kPlaceableMatrixOffset, matrix) && matrix != 0
+        && SafeRead(matrix + kMatrixPositionOffset, probe)) {
+        x = probe.x;
+        y = probe.y;
+        z = probe.z;
+        return true;
+    }
+
+    if (!SafeRead(gtaPed + kPlaceablePositionOffset, probe)) {
+        return false;
+    }
+
+    x = probe.x;
+    y = probe.y;
+    z = probe.z;
+    return true;
+}
+
+std::uint32_t ReadGamePedFromSampPed(std::uint32_t sampPed, SampApi::Version version) {
+    const std::uint32_t gamePedOffset = GetSampPedGamePedOffset(version);
+    if (sampPed < 0x10000 || gamePedOffset == 0) {
+        return 0;
+    }
+
+    std::uint32_t gtaPed = 0;
+    if (!SafeRead(sampPed + gamePedOffset, gtaPed) || gtaPed == 0) {
+        return 0;
+    }
+
+    return LooksLikeReadablePedPointer(gtaPed) ? gtaPed : 0;
 }
 
 std::string SafeReadCString(std::uintptr_t address, std::size_t maxSize) {

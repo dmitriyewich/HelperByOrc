@@ -6,9 +6,12 @@
 #include "json_utils.h"
 #include "samp_api.h"
 
+#include <game_sa/CSprite.h>
 #include <extensions/ScriptCommands.h>
 #include <game_sa/eScriptCommands.h>
+#include <game_sa/CPools.h>
 #include <game_sa/common.h>
+#include <RenderWare.h>
 
 #include <imgui.h>
 
@@ -35,6 +38,7 @@ constexpr std::string_view kCustomVarsKey = "custom_vars";
 constexpr int kRecursionLimit = 10;
 constexpr int kKeyEmulateStartDelayMs = 20;
 constexpr int kKeyEmulateTapMs = 35;
+constexpr float kClosestScreenTargetZOffset = 0.9f;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
 constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
 constexpr wchar_t kHelperScreensRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\screens";
@@ -204,6 +208,20 @@ struct VirtualKeyPickerEntry {
 
 std::string MakeKeyEmulateToken(UINT keyCode) {
     return "[keyemulate(" + std::to_string(keyCode) + ")]";
+}
+
+bool IsBetterClosestCandidate(float candidateDistanceSq, int candidateId, float bestDistanceSq, int bestId) {
+    constexpr float kDistanceEpsilon = 0.0001f;
+    if (candidateId < 0) {
+        return false;
+    }
+    if (bestId < 0) {
+        return true;
+    }
+    if (candidateDistanceSq + kDistanceEpsilon < bestDistanceSq) {
+        return true;
+    }
+    return std::fabs(candidateDistanceSq - bestDistanceSq) <= kDistanceEpsilon && candidateId < bestId;
 }
 
 std::wstring Utf8ToWide(std::string_view text) {
@@ -863,6 +881,42 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "closestid",
+        "{closestid}",
+        "{closestid}",
+        UiText::TagsBuiltinClosestIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestidtocenter",
+        "{closestidtocenter}",
+        "{closestidtocenter}",
+        UiText::TagsBuiltinClosestIdToCenterDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestIdToCenterTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestname",
+        "{closestname}",
+        "{closestname}",
+        UiText::TagsBuiltinClosestNameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestNameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestsurname",
+        "{closestsurname}",
+        "{closestsurname}",
+        UiText::TagsBuiltinClosestSurnameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestSurnameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "armour",
         "{armour}",
         "{armour}",
@@ -1377,6 +1431,83 @@ void TagsModule::ResetTargetTracker() {
     targetTracker_ = TargetTrackerState{};
 }
 
+TagsModule::ClosestPlayerQueryResult TagsModule::QueryClosestPlayers(const EvaluationContext& context) const {
+    ClosestPlayerQueryResult result;
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return result;
+    }
+
+    const int localId = sampApi->Local_ID();
+    CPed* const localPed = FindPlayerPed();
+    auto* const pedPool = CPools::ms_pPedPool;
+    if (localId < 0 || !localPed || !pedPool || pedPool->m_nSize <= 0) {
+        return result;
+    }
+
+    const CVector localPosition = localPed->GetPosition();
+    const bool hasScreenMetrics = RsGlobal.maximumWidth > 0 && RsGlobal.maximumHeight > 0;
+    const float screenCenterX = static_cast<float>(RsGlobal.maximumWidth) * 0.5f;
+    const float screenCenterY = static_cast<float>(RsGlobal.maximumHeight) * 0.5f;
+
+    float bestDistanceSq = std::numeric_limits<float>::max();
+    float bestCenterDistanceSq = std::numeric_limits<float>::max();
+
+    for (int index = 0; index < pedPool->m_nSize; ++index) {
+        CPed* const candidatePed = pedPool->GetAt(index);
+        if (!candidatePed || candidatePed == localPed) {
+            continue;
+        }
+
+        const auto [matched, id] = sampApi->getPedID(candidatePed);
+        if (!matched || id < 0 || id == localId || !sampApi->IsConnected(id)) {
+            continue;
+        }
+
+        const CVector& position = candidatePed->GetPosition();
+        const float dx = position.x - localPosition.x;
+        const float dy = position.y - localPosition.y;
+        const float dz = position.z - localPosition.z;
+        const float distanceSq = dx * dx + dy * dy + dz * dz;
+
+        if (IsBetterClosestCandidate(distanceSq, id, bestDistanceSq, result.nearestId)) {
+            bestDistanceSq = distanceSq;
+            result.nearestId = id;
+        }
+
+        if (!hasScreenMetrics) {
+            continue;
+        }
+
+        RwV3d worldPosition = {
+            position.x,
+            position.y,
+            position.z + kClosestScreenTargetZOffset,
+        };
+        RwV3d screenPosition{};
+        float width = 0.0f;
+        float height = 0.0f;
+        if (!CSprite::CalcScreenCoors(worldPosition, &screenPosition, &width, &height, true, true)) {
+            continue;
+        }
+
+        const float screenDx = screenPosition.x - screenCenterX;
+        const float screenDy = screenPosition.y - screenCenterY;
+        const float centerDistanceSq = screenDx * screenDx + screenDy * screenDy;
+        if (IsBetterClosestCandidate(
+                centerDistanceSq,
+                id,
+                bestCenterDistanceSq,
+                result.nearestToCenterId)) {
+            bestCenterDistanceSq = centerDistanceSq;
+            result.nearestToCenterId = id;
+        }
+    }
+
+    return result;
+}
+
 void TagsModule::UpdateTargetTracker() {
     SampApi* sampApi = sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
@@ -1561,6 +1692,38 @@ std::optional<std::string> TagsModule::ResolveBuiltinTargetNameTag(const Evaluat
 
 std::optional<std::string> TagsModule::ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const {
     return ExtractSurname(ResolveLastTargetNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinClosestIdTag(const EvaluationContext& context) const {
+    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
+    if (result.nearestId < 0) {
+        return std::string();
+    }
+    return std::to_string(result.nearestId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinClosestIdToCenterTag(const EvaluationContext& context) const {
+    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
+    if (result.nearestToCenterId < 0) {
+        return std::string();
+    }
+    return std::to_string(result.nearestToCenterId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinClosestNameTag(const EvaluationContext& context) const {
+    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
+    if (result.nearestId < 0) {
+        return std::string();
+    }
+    return ExtractName(ResolvePlayerNickById(result.nearestId, context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinClosestSurnameTag(const EvaluationContext& context) const {
+    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
+    if (result.nearestId < 0) {
+        return std::string();
+    }
+    return ExtractSurname(ResolvePlayerNickById(result.nearestId, context));
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinArmourTag(const EvaluationContext& context) const {
