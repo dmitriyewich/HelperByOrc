@@ -42,6 +42,7 @@ public:
 
     std::string GetThisbindTagValue(std::uint64_t runtimeId) const;
     TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
+    void ShowToast(std::string_view text, bool error = false, double durationMs = 2500.0);
 
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool WantsOverlayRender() const;

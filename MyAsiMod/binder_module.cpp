@@ -7418,6 +7418,17 @@ BinderModule::TagActionResult BinderModule::ExecuteTagAction(
     return impl_->ExecuteTagAction(action, param, sourceRuntimeId);
 }
 
+void BinderModule::ShowToast(std::string_view text, bool error, double durationMs) {
+    if (!impl_ || text.empty()) {
+        return;
+    }
+
+    impl_->PushToast(
+        std::string(text),
+        error ? ImVec4(0.55f, 0.20f, 0.20f, 0.95f) : ImVec4(0.20f, 0.35f, 0.18f, 0.95f),
+        durationMs);
+}
+
 bool BinderModule::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     return impl_->OnWindowMessage(message, wparam, lparam);
 }

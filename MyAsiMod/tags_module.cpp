@@ -6,6 +6,8 @@
 #include "json_utils.h"
 #include "samp_api.h"
 
+#include <extensions/ScriptCommands.h>
+#include <game_sa/eScriptCommands.h>
 #include <game_sa/common.h>
 
 #include <imgui.h>
@@ -15,12 +17,16 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
+
+#include <ShlObj.h>
 
 namespace {
 
@@ -29,7 +35,27 @@ constexpr std::string_view kCustomVarsKey = "custom_vars";
 constexpr int kRecursionLimit = 10;
 constexpr int kKeyEmulateStartDelayMs = 20;
 constexpr int kKeyEmulateTapMs = 35;
+constexpr unsigned int kAnsiCodePage = CP_ACP;
+constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
+constexpr wchar_t kHelperScreensRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\screens";
 thread_local std::vector<TagsModule::OwnedEvaluationContext> g_activeContextStack;
+
+enum class ScreenCaptureError {
+    None,
+    DocumentsUnavailable,
+    InvalidFolder,
+    CaptureFailed,
+};
+
+struct ScreenCaptureResult {
+    ScreenCaptureError error = ScreenCaptureError::None;
+    std::string detail{};
+    std::filesystem::path savedPath{};
+
+    bool Ok() const {
+        return error == ScreenCaptureError::None;
+    }
+};
 
 struct ImGuiStringUserData {
     std::string* value = nullptr;
@@ -178,6 +204,239 @@ struct VirtualKeyPickerEntry {
 
 std::string MakeKeyEmulateToken(UINT keyCode) {
     return "[keyemulate(" + std::to_string(keyCode) + ")]";
+}
+
+std::wstring Utf8ToWide(std::string_view text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int wideLength = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0);
+    if (wideLength <= 0) {
+        return {};
+    }
+
+    std::wstring wide(static_cast<std::size_t>(wideLength), L'\0');
+    if (MultiByteToWideChar(
+            CP_UTF8,
+            MB_ERR_INVALID_CHARS,
+            text.data(),
+            static_cast<int>(text.size()),
+            wide.data(),
+            wideLength)
+        <= 0) {
+        return {};
+    }
+
+    return wide;
+}
+
+std::string WideToMultiByte(std::wstring_view text, unsigned int codePage) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int length = WideCharToMultiByte(
+        codePage,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (length <= 0) {
+        return {};
+    }
+
+    std::string encoded(static_cast<std::size_t>(length), '\0');
+    if (WideCharToMultiByte(
+            codePage,
+            0,
+            text.data(),
+            static_cast<int>(text.size()),
+            encoded.data(),
+            length,
+            nullptr,
+            nullptr)
+        <= 0) {
+        return {};
+    }
+
+    return encoded;
+}
+
+std::optional<std::filesystem::path> GetDocumentsFolder() {
+    PWSTR rawPath = nullptr;
+    const HRESULT hr = SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &rawPath);
+    if (FAILED(hr) || !rawPath) {
+        if (rawPath) {
+            CoTaskMemFree(rawPath);
+        }
+        return std::nullopt;
+    }
+
+    std::filesystem::path path(rawPath);
+    CoTaskMemFree(rawPath);
+    return path;
+}
+
+std::filesystem::path GetHelperScreensRoot(const std::filesystem::path& documentsPath) {
+    return documentsPath / kHelperScreensRelativePath;
+}
+
+std::string Unquote(std::string value) {
+    if (value.size() >= 2) {
+        const char first = value.front();
+        const char last = value.back();
+        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+            return value.substr(1, value.size() - 2);
+        }
+    }
+    return value;
+}
+
+bool IsValidRelativeScreenFolder(const std::filesystem::path& relativePath) {
+    if (relativePath.empty()) {
+        return true;
+    }
+    if (relativePath.is_absolute() || relativePath.has_root_name() || relativePath.has_root_directory()) {
+        return false;
+    }
+
+    constexpr std::wstring_view invalidChars = L"<>:\"|?*";
+    for (const auto& part : relativePath) {
+        const std::wstring component = part.native();
+        if (component.empty() || component == L"." || component == L"..") {
+            return false;
+        }
+
+        for (const wchar_t ch : component) {
+            if (invalidChars.find(ch) != std::wstring_view::npos) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+std::wstring TryGetShortPath(std::wstring_view path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    const DWORD required = GetShortPathNameW(path.data(), nullptr, 0);
+    if (required == 0) {
+        return {};
+    }
+
+    std::wstring shortPath(static_cast<std::size_t>(required), L'\0');
+    const DWORD written = GetShortPathNameW(path.data(), shortPath.data(), required);
+    if (written == 0) {
+        return {};
+    }
+
+    shortPath.resize(static_cast<std::size_t>(written));
+    return shortPath;
+}
+
+std::wstring MakeScreenshotBaseName() {
+    SYSTEMTIME localTime{};
+    GetLocalTime(&localTime);
+
+    wchar_t buffer[64]{};
+    swprintf_s(
+        buffer,
+        L"%02u.%02u.%04u %02u.%02u.%02u.%03u",
+        localTime.wDay,
+        localTime.wMonth,
+        localTime.wYear,
+        localTime.wHour,
+        localTime.wMinute,
+        localTime.wSecond,
+        localTime.wMilliseconds);
+    return buffer;
+}
+
+std::filesystem::path MakeUniqueScreenshotPath(const std::filesystem::path& directory) {
+    const std::wstring baseName = MakeScreenshotBaseName();
+
+    std::filesystem::path candidate = directory / (baseName + L".png");
+    int suffix = 1;
+    while (std::filesystem::exists(candidate)) {
+        candidate = directory / (baseName + L" (" + std::to_wstring(suffix++) + L").png");
+    }
+    return candidate;
+}
+
+ScreenCaptureResult CaptureGameScreenshot(std::string_view utf8Subfolder) {
+    const std::optional<std::filesystem::path> documentsPath = GetDocumentsFolder();
+    if (!documentsPath.has_value()) {
+        return ScreenCaptureResult{ ScreenCaptureError::DocumentsUnavailable };
+    }
+
+    std::filesystem::path targetDirectory = GetHelperScreensRoot(*documentsPath);
+    if (!utf8Subfolder.empty()) {
+        std::filesystem::path relativePath(Utf8ToWide(utf8Subfolder));
+        if (relativePath.empty() || !IsValidRelativeScreenFolder(relativePath)) {
+            return ScreenCaptureResult{ ScreenCaptureError::InvalidFolder, std::string(utf8Subfolder) };
+        }
+        targetDirectory /= relativePath;
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(targetDirectory, error);
+    if (error) {
+        return ScreenCaptureResult{ ScreenCaptureError::CaptureFailed };
+    }
+
+    const std::filesystem::path screenshotPath = MakeUniqueScreenshotPath(targetDirectory);
+    const std::wstring shortDirectory = TryGetShortPath(targetDirectory.wstring());
+    const std::wstring directoryForGame = shortDirectory.empty() ? targetDirectory.wstring() : shortDirectory;
+    const std::wstring filename = screenshotPath.filename().wstring();
+    const std::wstring gamePathWide = std::filesystem::path(directoryForGame).append(filename).wstring();
+    const std::string gamePathAnsi = WideToMultiByte(gamePathWide, kAnsiCodePage);
+    if (gamePathAnsi.empty()) {
+        return ScreenCaptureResult{ ScreenCaptureError::CaptureFailed };
+    }
+
+    auto takeScreenshot = reinterpret_cast<void(__cdecl*)(std::uintptr_t, const char*)>(kTakeScreenshotAddress);
+    if (!takeScreenshot) {
+        return ScreenCaptureResult{ ScreenCaptureError::CaptureFailed };
+    }
+
+    takeScreenshot(0, gamePathAnsi.c_str());
+    return ScreenCaptureResult{ ScreenCaptureError::None, {}, screenshotPath };
+}
+
+bool TakeGameCameraPhoto() {
+    // MoonLoader takePhoto() maps to opcode 0A1E / TAKE_PHOTO.
+    // The opcode itself performs a gallery-style photo capture and does not
+    // require the player to actually hold the camera weapon.
+    plugin::Command<plugin::Commands::TAKE_PHOTO>(true);
+    return true;
+}
+
+std::string DescribeScreenCaptureError(ScreenCaptureError error, std::string_view detail) {
+    UiSettings& ui = UiSettings::Instance();
+    switch (error) {
+    case ScreenCaptureError::DocumentsUnavailable:
+        return ui.Text(UiText::ToastScreenDocumentsUnavailable);
+    case ScreenCaptureError::InvalidFolder:
+        return ui.Format(UiText::ToastScreenInvalidFolder, std::string(detail).c_str());
+    case ScreenCaptureError::CaptureFailed:
+        return ui.Text(UiText::ToastScreenCaptureFailed);
+    case ScreenCaptureError::None:
+    default:
+        return {};
+    }
 }
 
 const std::vector<VirtualKeyPickerEntry>& GetVirtualKeyPickerEntries() {
@@ -604,6 +863,60 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "armour",
+        "{armour}",
+        "{armour}",
+        UiText::TagsBuiltinArmourDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArmourTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "health",
+        "{health}",
+        "{health}",
+        UiText::TagsBuiltinHealthDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinHealthTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "date",
+        "{date}",
+        "{date}",
+        UiText::TagsBuiltinDateDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDateTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myskin",
+        "{myskin}",
+        "{myskin}",
+        UiText::TagsBuiltinMySkinDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMySkinTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "screen",
+        "{screen}",
+        "{screen}",
+        UiText::TagsBuiltinScreenDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinScreenTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "tphoto",
+        "{tphoto}",
+        "{tphoto}",
+        UiText::TagsBuiltinTPhotoDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTPhotoTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "nickrp",
         "{nickrp}",
         "{nickrp}",
@@ -682,6 +995,15 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinMathDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
             return module.ResolveBuiltinMathFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "screen",
+        "[screen(...)]",
+        "[screen(Пример)]",
+        UiText::TagsBuiltinScreenFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinScreenFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -1164,6 +1486,11 @@ std::string TagsModule::FormatCurrentTime(const char* format) {
     return buffer;
 }
 
+std::string TagsModule::FormatWholeStatValue(float value) {
+    const long long rounded = std::llround(std::max(0.0f, value));
+    return std::to_string(rounded);
+}
+
 std::string TagsModule::MakeRpNick(std::string_view nick) {
     std::string result;
     result.reserve(nick.size());
@@ -1234,6 +1561,82 @@ std::optional<std::string> TagsModule::ResolveBuiltinTargetNameTag(const Evaluat
 
 std::optional<std::string> TagsModule::ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const {
     return ExtractSurname(ResolveLastTargetNick(context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArmourTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string("0");
+    }
+
+    const int localId = sampApi->Local_ID();
+    if (localId < 0) {
+        return std::string("0");
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(localId);
+    if (!stats.valid) {
+        return std::string("0");
+    }
+    return FormatWholeStatValue(stats.armour);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinHealthTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string("0");
+    }
+
+    const int localId = sampApi->Local_ID();
+    if (localId < 0) {
+        return std::string("0");
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(localId);
+    if (!stats.valid) {
+        return std::string("0");
+    }
+    return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDateTag(const EvaluationContext&) const {
+    return FormatCurrentTime("%d.%m.%Y");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinMySkinTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    CPed* playerPed = FindPlayerPed();
+    if (!playerPed) {
+        return std::string();
+    }
+    return std::to_string(playerPed->m_nModelIndex);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinScreenTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    const ScreenCaptureResult result = CaptureGameScreenshot({});
+    if (!result.Ok() && binderModule_) {
+        binderModule_->ShowToast(DescribeScreenCaptureError(result.error, result.detail), true, 2800.0);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTPhotoTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    if (!TakeGameCameraPhoto() && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastTPhotoFailed), true, 2800.0);
+    }
+    return std::string();
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinNickRpTag(const EvaluationContext& context) const {
@@ -1412,6 +1815,21 @@ std::optional<std::string> TagsModule::ResolveBuiltinMathFunctionTag(
         return std::string();
     }
     return FormatMathResult(*result);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinScreenFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    std::string folder = Unquote(Trim(param));
+    const ScreenCaptureResult result = CaptureGameScreenshot(folder);
+    if (!result.Ok() && binderModule_) {
+        binderModule_->ShowToast(DescribeScreenCaptureError(result.error, result.detail), true, 2800.0);
+    }
+    return std::string();
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinWaitFunctionTag(

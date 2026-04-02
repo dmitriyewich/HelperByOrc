@@ -47,6 +47,13 @@
     X(TagsBuiltinTargetRpNickDescription, "Возвращает RP-ник последней цели: Walcher_Flett станет Walcher Flett.", "Returns the RP nickname of the last target: Walcher_Flett becomes Walcher Flett.") \
     X(TagsBuiltinTargetNameDescription, "Возвращает имя из ника последней цели до символа подчёркивания.", "Returns the first name from the last target nickname before the underscore.") \
     X(TagsBuiltinTargetSurnameDescription, "Возвращает фамилию из ника последней цели после символа подчёркивания.", "Returns the surname from the last target nickname after the underscore.") \
+    X(TagsBuiltinArmourDescription, "Возвращает вашу текущую броню. Если брони нет или значение недоступно, вернёт 0.", "Returns your current armour. If there is no armour or the value is unavailable, it returns 0.") \
+    X(TagsBuiltinHealthDescription, "Возвращает ваше текущее здоровье локального игрока.", "Returns the current health of the local player.") \
+    X(TagsBuiltinDateDescription, "Возвращает текущую локальную дату в формате ДД.ММ.ГГГГ.", "Returns the current local date formatted as DD.MM.YYYY.") \
+    X(TagsBuiltinMySkinDescription, "Возвращает ID текущего скина локального игрока через model index педа.", "Returns the current local player skin ID via the ped model index.") \
+    X(TagsBuiltinScreenDescription, "Делает скриншот игры и сохраняет его в Documents\\\\GTA San Andreas User Files\\\\HelperByOrc\\\\screens.", "Takes a game screenshot and saves it to Documents\\\\GTA San Andreas User Files\\\\HelperByOrc\\\\screens.") \
+    X(TagsBuiltinScreenFunctionDescription, "Делает скриншот игры и сохраняет его в указанную подпапку внутри Documents\\\\GTA San Andreas User Files\\\\HelperByOrc\\\\screens.", "Takes a game screenshot and saves it to the specified subfolder inside Documents\\\\GTA San Andreas User Files\\\\HelperByOrc\\\\screens.") \
+    X(TagsBuiltinTPhotoDescription, "Делает игровое фото через механику фотоаппарата GTA SA и сохраняет его в галерею игры.", "Takes an in-game camera photo through GTA SA's photo mechanic and saves it to the game's gallery.") \
     X(TagsBuiltinNickRpDescription, "Возвращает ваш ник в RP-виде: Walcher_Flett станет Walcher Flett.", "Returns your nickname in RP form: Walcher_Flett becomes Walcher Flett.") \
     X(TagsBuiltinNameDescription, "Возвращает имя из ника до символа подчёркивания: Walcher_Flett станет Walcher.", "Returns the first name before the underscore: Walcher_Flett becomes Walcher.") \
     X(TagsBuiltinSurnameDescription, "Возвращает фамилию из ника после символа подчёркивания: Walcher_Flett станет Flett.", "Returns the surname after the underscore: Walcher_Flett becomes Flett.") \
@@ -112,6 +119,8 @@
     X(SettingsAutoScale, "Автомасштаб под разрешение", "Auto scale for resolution") \
     X(SettingsScaleMultiplier, "Пользовательский множитель", "Custom multiplier") \
     X(SettingsEffectiveScale, "Итоговый масштаб", "Effective scale") \
+    X(SettingsBlockSampHotkeys, "Блокировать горячие клавиши SA:MP в главном окне", "Block SA:MP hotkeys in the main window") \
+    X(SettingsBlockSampHotkeysHint, "Когда главное окно открыто, клавиши вроде T, F6, Tab и другие горячие клавиши SA:MP не срабатывают. Отключите это, если хотите оставить стандартные клавиши SA:MP активными поверх окна.", "When the main window is open, keys like T, F6, Tab, and other SA:MP hotkeys are suppressed. Turn this off if you want the standard SA:MP hotkeys to stay active while the window is open.") \
     X(SettingsResetDefaults, "Сбросить настройки UI", "Reset UI settings") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
@@ -173,6 +182,10 @@
     X(ToastBindTagPopupUnavailable, "Не удалось открыть попап строк бинда для %s.", "Failed to open the bind lines popup for %s.") \
     X(ToastBindTagStopAllEmpty, "Нет запущенных биндов для остановки.", "There are no running binds to stop.") \
     X(ToastBindTagUnknownAction, "Неизвестное действие bind-тега: %s", "Unknown bind-tag action: %s") \
+    X(ToastScreenDocumentsUnavailable, "Не удалось определить папку Documents для сохранения скриншота.", "Failed to resolve the Documents folder for saving the screenshot.") \
+    X(ToastScreenInvalidFolder, "Недопустимая подпапка для [screen(...)]: %s", "Invalid subfolder for [screen(...)]: %s") \
+    X(ToastScreenCaptureFailed, "Не удалось сделать скриншот игры.", "Failed to capture the game screenshot.") \
+    X(ToastTPhotoFailed, "Не удалось сделать фото через игровой фотоаппарат.", "Failed to take a photo through the in-game camera.") \
     X(ToastBindSaved, "Бинд сохранён.", "Bind saved.") \
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
@@ -379,6 +392,10 @@ public:
 
     float ScaleMultiplier() const;
     void SetScaleMultiplier(float multiplier);
+
+    bool BlockSampHotkeysInMainWindow() const;
+    void SetBlockSampHotkeysInMainWindow(bool enabled);
+
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
 
@@ -400,6 +417,7 @@ private:
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
+    bool blockSampHotkeysInMainWindow_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };

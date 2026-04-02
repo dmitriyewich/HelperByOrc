@@ -145,6 +145,12 @@ private:
     std::optional<std::string> ResolveBuiltinTargetRpNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArmourTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinScreenTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTPhotoTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickRpTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSurnameTag(const EvaluationContext& context) const;
@@ -158,6 +164,9 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMathFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinScreenFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinWaitFunctionTag(
@@ -177,6 +186,7 @@ private:
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;
     static std::string FormatCurrentTime(const char* format);
+    static std::string FormatWholeStatValue(float value);
     static std::string MakeRpNick(std::string_view nick);
     static std::string ExtractName(std::string_view nick);
     static std::string ExtractSurname(std::string_view nick);
