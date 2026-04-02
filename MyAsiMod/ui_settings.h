@@ -194,7 +194,7 @@
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
-    X(ValidationRepeatInterval, "Интервал повтора должен быть не меньше 50 мс.", "Repeat interval must be at least 50 ms.") \
+    X(ValidationRepeatInterval, "Интервал повтора не может быть отрицательным.", "Repeat interval cannot be negative.") \
     X(ValidationTriggerTextRequired, "Укажите текст триггера.", "Enter trigger text.") \
     X(ValidationCommandRequired, "Укажите команду.", "Enter a command.") \
     X(ValidationConfirmCancelKeysDifferent, "Клавиши подтверждения и отклонения должны отличаться.", "Confirm and cancel keys must be different.") \

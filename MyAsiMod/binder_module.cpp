@@ -45,7 +45,8 @@ constexpr UINT kDefaultConfirmKey = '1';
 constexpr UINT kDefaultCancelKey = '2';
 constexpr UINT kDefaultQuickMenuFallback = VK_XBUTTON1;
 constexpr int kMaxToasts = 8;
-constexpr int kMinMessageIntervalMs = 50;
+constexpr int kMinMessageIntervalMs = 0;
+constexpr double kHotkeyDebounceMs = 0.0;
 constexpr int kDefaultRepeatIntervalMs = 500;
 constexpr int kQuickMenuWidth = 320;
 constexpr int kQuickMenuHeight = 360;
@@ -2741,7 +2742,7 @@ void BinderModule::Impl::ProcessHotkeys() {
         if (comboNow && !hotkey.comboActive) {
             if (now >= hotkey.debounceUntilMs) {
                 TryEnqueueHotkey(static_cast<int>(i), 0, "hotkey", "");
-                hotkey.debounceUntilMs = now + 40.0;
+                hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
             }
             hotkey.comboActive = true;
         } else if (!comboNow) {
@@ -3621,7 +3622,7 @@ bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
         if (now < hotkey.debounceUntilMs) {
             continue;
         }
-        hotkey.debounceUntilMs = now + 40.0;
+        hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
         handled = true;
         TryEnqueueHotkey(static_cast<int>(i), 0, "command", normalized);
     }
@@ -3740,7 +3741,7 @@ bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
             continue;
         }
 
-        hotkey.debounceUntilMs = now + 40.0;
+        hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
         handled = true;
         if (hotkey.textConfirmation.enabled && !hotkey.waitingTextConfirmation && !hotkey.awaitingInput
             && !ConditionsBlock(hotkey.conditions, sampApi)) {
