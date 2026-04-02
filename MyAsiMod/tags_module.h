@@ -158,6 +158,7 @@ private:
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinGetVehTypeTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinScreenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTPhotoTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickRpTag(const EvaluationContext& context) const;
@@ -173,6 +174,12 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMathFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinNumberWithDotsFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinGetVehTypeFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinScreenFunctionTag(

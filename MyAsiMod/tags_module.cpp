@@ -6,7 +6,9 @@
 #include "json_utils.h"
 #include "samp_api.h"
 
+#include <game_sa/CModelInfo.h>
 #include <game_sa/CSprite.h>
+#include <game_sa/CVehicle.h>
 #include <extensions/ScriptCommands.h>
 #include <game_sa/eScriptCommands.h>
 #include <game_sa/CPools.h>
@@ -730,6 +732,148 @@ std::string FormatMathResult(double value) {
     return result;
 }
 
+std::string FormatNumberWithDots(std::string_view rawValue) {
+    const std::string value(rawValue);
+    if (value.empty()) {
+        return value;
+    }
+
+    std::size_t pos = 0;
+    std::string sign;
+    if (value[pos] == '+' || value[pos] == '-') {
+        sign.push_back(value[pos]);
+        ++pos;
+        if (pos >= value.size()) {
+            return value;
+        }
+    }
+
+    const std::size_t integerStart = pos;
+    while (pos < value.size() && std::isdigit(static_cast<unsigned char>(value[pos])) != 0) {
+        ++pos;
+    }
+
+    if (pos == integerStart) {
+        return value;
+    }
+
+    std::string fractionalPart;
+    if (pos < value.size()) {
+        if (value[pos] != '.') {
+            return value;
+        }
+
+        const std::size_t fractionStart = pos + 1;
+        std::size_t fractionPos = fractionStart;
+        while (fractionPos < value.size() && std::isdigit(static_cast<unsigned char>(value[fractionPos])) != 0) {
+            ++fractionPos;
+        }
+        if (fractionPos != value.size()) {
+            return value;
+        }
+
+        fractionalPart.assign(value.substr(pos));
+    }
+
+    const std::string integerPart = value.substr(integerStart, pos - integerStart);
+    std::string formattedInteger;
+    formattedInteger.reserve(integerPart.size() + (integerPart.size() / 3));
+
+    for (std::size_t i = 0; i < integerPart.size(); ++i) {
+        formattedInteger.push_back(integerPart[i]);
+        const std::size_t remaining = integerPart.size() - i - 1;
+        if (remaining != 0 && remaining % 3 == 0) {
+            formattedInteger.push_back('.');
+        }
+    }
+
+    return sign + formattedInteger + fractionalPart;
+}
+
+std::string GetVehicleTypeName(int modelId) {
+    if (CModelInfo::IsBoatModel(modelId)) {
+        return "Boat";
+    }
+    if (CModelInfo::IsCarModel(modelId)) {
+        return "Car";
+    }
+    if (CModelInfo::IsTrainModel(modelId)) {
+        return "Train";
+    }
+    if (CModelInfo::IsHeliModel(modelId)) {
+        return "Heli";
+    }
+    if (CModelInfo::IsPlaneModel(modelId)) {
+        return "Plane";
+    }
+    if (CModelInfo::IsBikeModel(modelId)) {
+        return "Bike";
+    }
+    if (CModelInfo::IsFakePlaneModel(modelId)) {
+        return "FakePlane";
+    }
+    if (CModelInfo::IsMonsterTruckModel(modelId)) {
+        return "MonsterTruck";
+    }
+    if (CModelInfo::IsQuadBikeModel(modelId)) {
+        return "QuadBike";
+    }
+    if (CModelInfo::IsBmxModel(modelId)) {
+        return "Bicycle";
+    }
+    if (CModelInfo::IsTrailerModel(modelId)) {
+        return "Trailer";
+    }
+    return "unknown";
+}
+
+const CPed* FindPlayerPedBySampId(SampApi& sampApi, int id) {
+    if (id < 0) {
+        return nullptr;
+    }
+
+    const int localId = sampApi.Local_ID();
+    if (localId >= 0 && id == localId) {
+        return FindPlayerPed();
+    }
+
+    auto* const pedPool = CPools::ms_pPedPool;
+    if (!pedPool || pedPool->m_nSize <= 0) {
+        return nullptr;
+    }
+
+    for (int index = 0; index < pedPool->m_nSize; ++index) {
+        CPed* const candidatePed = pedPool->GetAt(index);
+        if (!candidatePed) {
+            continue;
+        }
+
+        const auto [matched, matchedId] = sampApi.getPedID(candidatePed);
+        if (matched && matchedId == id) {
+            return candidatePed;
+        }
+    }
+
+    return nullptr;
+}
+
+bool IsVehiclePointerValid(const CVehicle* vehicle) {
+    if (!vehicle) {
+        return false;
+    }
+
+    auto* const vehiclePool = CPools::ms_pVehiclePool;
+    return vehiclePool != nullptr && vehiclePool->IsObjectValid(const_cast<CVehicle*>(vehicle));
+}
+
+std::optional<std::string> ResolveVehicleTypeForPed(const CPed* ped) {
+    if (!ped || !IsVehiclePointerValid(ped->m_pVehicle)) {
+        return std::string();
+    }
+
+    return GetVehicleTypeName(ped->m_pVehicle->m_nModelIndex);
+}
+
 } // namespace
 
 TagsModule::TagsModule() = default;
@@ -953,6 +1097,15 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "getvehtype",
+        "{getvehtype}",
+        "{getvehtype}",
+        UiText::TagsBuiltinGetVehTypeDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinGetVehTypeTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "screen",
         "{screen}",
         "{screen}",
@@ -1049,6 +1202,24 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinMathDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
             return module.ResolveBuiltinMathFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "numberwithdots",
+        "[numberwithdots(...)]",
+        "[numberwithdots([math(100*10)])]",
+        UiText::TagsBuiltinNumberWithDotsDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinNumberWithDotsFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "getvehtype",
+        "[getvehtype(...)]",
+        "[getvehtype(15)]",
+        UiText::TagsBuiltinGetVehTypeFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+            return module.ResolveBuiltinGetVehTypeFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -1779,6 +1950,14 @@ std::optional<std::string> TagsModule::ResolveBuiltinMySkinTag(const EvaluationC
     return std::to_string(playerPed->m_nModelIndex);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinGetVehTypeTag(const EvaluationContext&) const {
+    if (CVehicle* const vehicle = FindPlayerVehicle(-1, false); IsVehiclePointerValid(vehicle)) {
+        return GetVehicleTypeName(vehicle->m_nModelIndex);
+    }
+
+    return ResolveVehicleTypeForPed(FindPlayerPed());
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinScreenTag(const EvaluationContext& context) const {
     if (!context.allowSideEffects) {
         return std::string();
@@ -1978,6 +2157,28 @@ std::optional<std::string> TagsModule::ResolveBuiltinMathFunctionTag(
         return std::string();
     }
     return FormatMathResult(*result);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinNumberWithDotsFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    return FormatNumberWithDots(param);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinGetVehTypeFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    return ResolveVehicleTypeForPed(FindPlayerPedBySampId(*sampApi, *id));
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinScreenFunctionTag(
