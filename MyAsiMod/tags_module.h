@@ -62,7 +62,7 @@ private:
     struct TagEntry {
         using SimpleResolver = std::function<std::optional<std::string>(const TagsModule&, const EvaluationContext&)>;
         using FunctionResolver =
-            std::function<std::optional<std::string>(const TagsModule&, std::string_view, const EvaluationContext&)>;
+            std::function<std::optional<std::string>(const TagsModule&, std::string_view, const EvaluationContext&, int)>;
 
         TagKind kind = TagKind::Simple;
         std::string name{};
@@ -140,7 +140,8 @@ private:
     std::optional<std::string> ResolveFunctionTag(
         std::string_view name,
         std::string_view param,
-        const EvaluationContext& context) const;
+        const EvaluationContext& context,
+        int depth) const;
     std::optional<std::string> ResolveBuiltinIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinThisbindTag(const EvaluationContext& context) const;
@@ -179,6 +180,13 @@ private:
     std::optional<std::string> ResolveBuiltinNumberWithDotsFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinIfAndOrFunctionTag(
+        std::string_view rawParam,
+        const EvaluationContext& context,
+        int depth) const;
+    std::optional<std::string> ResolveBuiltinTimefFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinGetVehTypeFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
@@ -202,7 +210,7 @@ private:
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;
-    static std::string FormatCurrentTime(const char* format);
+    static std::string FormatCurrentTime(std::string_view format);
     static std::string FormatWholeStatValue(float value);
     static std::string MakeRpNick(std::string_view nick);
     static std::string ExtractName(std::string_view nick);

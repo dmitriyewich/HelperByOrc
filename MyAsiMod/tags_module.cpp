@@ -53,6 +53,14 @@ enum class ScreenCaptureError {
     CaptureFailed,
 };
 
+enum class TimeFormatError {
+    None,
+    MissingSemicolon,
+    EmptyFormat,
+    InvalidSpecifier,
+    FormatFailed,
+};
+
 struct ScreenCaptureResult {
     ScreenCaptureError error = ScreenCaptureError::None;
     std::string detail{};
@@ -60,6 +68,16 @@ struct ScreenCaptureResult {
 
     bool Ok() const {
         return error == ScreenCaptureError::None;
+    }
+};
+
+struct TimeFormatParseResult {
+    TimeFormatError error = TimeFormatError::None;
+    std::string format{};
+    std::string invalidToken{};
+
+    bool Ok() const {
+        return error == TimeFormatError::None;
     }
 };
 
@@ -457,6 +475,580 @@ std::string DescribeScreenCaptureError(ScreenCaptureError error, std::string_vie
     default:
         return {};
     }
+}
+
+std::string_view TrimAsciiWhitespace(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
+
+    std::size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+        --end;
+    }
+
+    return value.substr(begin, end - begin);
+}
+
+bool IsSupportedTimefSpecifier(char specifier) {
+    switch (specifier) {
+    case 'a':
+    case 'A':
+    case 'b':
+    case 'B':
+    case 'c':
+    case 'd':
+    case 'H':
+    case 'I':
+    case 'M':
+    case 'm':
+    case 'p':
+    case 'S':
+    case 'w':
+    case 'x':
+    case 'X':
+    case 'Y':
+    case 'y':
+    case '%':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool IsAsciiWordBoundary(char ch) {
+    return std::isspace(static_cast<unsigned char>(ch)) != 0
+        || ch == '(' || ch == ')' || ch == '[' || ch == ']'
+        || ch == '{' || ch == '}' || ch == '<' || ch == '>'
+        || ch == '=' || ch == '!' || ch == '?' || ch == ':';
+}
+
+
+
+TimeFormatParseResult ParseTimefFormat(std::string_view rawParam) {
+    const std::string_view trimmed = TrimAsciiWhitespace(rawParam);
+    if (trimmed.empty() || trimmed.back() != ';') {
+        return TimeFormatParseResult{ TimeFormatError::MissingSemicolon };
+    }
+
+    const std::string format(trimmed.substr(0, trimmed.size() - 1));
+    if (format.empty()) {
+        return TimeFormatParseResult{ TimeFormatError::EmptyFormat };
+    }
+
+    for (std::size_t i = 0; i < format.size(); ++i) {
+        if (format[i] != '%') {
+            continue;
+        }
+
+        if (i + 1 >= format.size()) {
+            return TimeFormatParseResult{ TimeFormatError::InvalidSpecifier, {}, "%" };
+        }
+
+        const char specifier = format[i + 1];
+        if (!IsSupportedTimefSpecifier(specifier)) {
+            return TimeFormatParseResult{
+                TimeFormatError::InvalidSpecifier,
+                {},
+                "%" + std::string(1, specifier),
+            };
+        }
+        ++i;
+    }
+
+    return TimeFormatParseResult{ TimeFormatError::None, format };
+}
+
+std::string DescribeTimeFormatError(TimeFormatError error, std::string_view detail) {
+    UiSettings& ui = UiSettings::Instance();
+    switch (error) {
+    case TimeFormatError::MissingSemicolon:
+        return ui.Text(UiText::ToastTimefMissingSemicolon);
+    case TimeFormatError::EmptyFormat:
+        return ui.Text(UiText::ToastTimefEmptyFormat);
+    case TimeFormatError::InvalidSpecifier:
+        return ui.Format(UiText::ToastTimefInvalidSpecifier, std::string(detail).c_str());
+    case TimeFormatError::FormatFailed:
+        return ui.Text(UiText::ToastTimefFormatFailed);
+    case TimeFormatError::None:
+    default:
+        return {};
+    }
+}
+
+struct IfAndOrSplitResult {
+    bool valid = false;
+    std::string_view condition{};
+    std::string_view whenTrue{};
+    std::string_view whenFalse{};
+};
+
+struct ConditionValue {
+    enum class Kind {
+        Number,
+        String,
+        Boolean,
+    };
+
+    Kind kind = Kind::String;
+    double number = 0.0;
+    bool boolean = false;
+    std::string text{};
+
+    static ConditionValue FromNumber(double value, std::string rawText) {
+        ConditionValue result;
+        result.kind = Kind::Number;
+        result.number = value;
+        result.text = std::move(rawText);
+        return result;
+    }
+
+    static ConditionValue FromString(std::string value) {
+        ConditionValue result;
+        result.kind = Kind::String;
+        result.text = std::move(value);
+        return result;
+    }
+
+    static ConditionValue FromBoolean(bool value) {
+        ConditionValue result;
+        result.kind = Kind::Boolean;
+        result.boolean = value;
+        result.text = value ? "true" : "false";
+        return result;
+    }
+};
+
+std::optional<double> ParseConditionNumber(std::string_view text) {
+    const std::string trimmed(TrimAsciiWhitespace(text));
+    if (trimmed.empty()) {
+        return std::nullopt;
+    }
+
+    char* end = nullptr;
+    const double value = std::strtod(trimmed.c_str(), &end);
+    if (!end || end != trimmed.c_str() + trimmed.size()) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+std::optional<double> TryCoerceConditionNumber(const ConditionValue& value) {
+    if (value.kind == ConditionValue::Kind::Number) {
+        return value.number;
+    }
+    if (value.kind == ConditionValue::Kind::String) {
+        return ParseConditionNumber(value.text);
+    }
+    return std::nullopt;
+}
+
+std::string_view TrimConditionView(std::string_view value) {
+    return TrimAsciiWhitespace(value);
+}
+
+bool IsConditionWrappedByOuterParentheses(std::string_view text) {
+    text = TrimConditionView(text);
+    if (text.size() < 2 || text.front() != '(' || text.back() != ')') {
+        return false;
+    }
+
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            ++roundDepth;
+        } else if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+            if (roundDepth == 0 && i + 1 != text.size()) {
+                return false;
+            }
+        } else if (ch == '[') {
+            ++squareDepth;
+        } else if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+        } else if (ch == '{') {
+            ++curlyDepth;
+        } else if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+        }
+    }
+
+    return roundDepth == 0 && squareDepth == 0 && curlyDepth == 0;
+}
+
+std::string_view StripConditionOuterParentheses(std::string_view text) {
+    text = TrimConditionView(text);
+    while (IsConditionWrappedByOuterParentheses(text)) {
+        text = TrimConditionView(text.substr(1, text.size() - 2));
+    }
+    return text;
+}
+
+std::optional<std::size_t> FindTopLevelConditionLogicalWord(std::string_view text, std::string_view word) {
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i + word.size() <= text.size(); ++i) {
+        const char ch = text[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            ++roundDepth;
+            continue;
+        }
+        if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+            continue;
+        }
+        if (ch == '[') {
+            ++squareDepth;
+            continue;
+        }
+        if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+            continue;
+        }
+        if (ch == '{') {
+            ++curlyDepth;
+            continue;
+        }
+        if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+            continue;
+        }
+        if (roundDepth != 0 || squareDepth != 0 || curlyDepth != 0) {
+            continue;
+        }
+
+        const std::string_view candidate = text.substr(i, word.size());
+        if (ToLowerAscii(candidate) != ToLowerAscii(word)) {
+            continue;
+        }
+
+        const bool leftBoundary = i == 0 || IsAsciiWordBoundary(text[i - 1]);
+        const bool rightBoundary = i + word.size() == text.size() || IsAsciiWordBoundary(text[i + word.size()]);
+        if (leftBoundary && rightBoundary) {
+            return i;
+        }
+    }
+
+    return std::nullopt;
+}
+
+struct ConditionComparisonOp {
+    std::size_t pos = 0;
+    std::string_view op{};
+};
+
+std::optional<ConditionComparisonOp> FindTopLevelConditionComparison(std::string_view text) {
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            ++roundDepth;
+            continue;
+        }
+        if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+            continue;
+        }
+        if (ch == '[') {
+            ++squareDepth;
+            continue;
+        }
+        if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+            continue;
+        }
+        if (ch == '{') {
+            ++curlyDepth;
+            continue;
+        }
+        if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+            continue;
+        }
+        if (roundDepth != 0 || squareDepth != 0 || curlyDepth != 0) {
+            continue;
+        }
+
+        if ((ch == '=' || ch == '!') && i + 1 < text.size() && text[i + 1] == '=') {
+            return ConditionComparisonOp{ i, text.substr(i, 2) };
+        }
+        if ((ch == '<' || ch == '>') && i + 1 < text.size() && text[i + 1] == '=') {
+            return ConditionComparisonOp{ i, text.substr(i, 2) };
+        }
+        if (ch == '<' || ch == '>') {
+            return ConditionComparisonOp{ i, text.substr(i, 1) };
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::string UnquoteConditionText(std::string_view text) {
+    const std::string_view trimmed = TrimConditionView(text);
+    if (trimmed.size() >= 2
+        && ((trimmed.front() == '"' && trimmed.back() == '"')
+            || (trimmed.front() == '\'' && trimmed.back() == '\''))) {
+        std::string result;
+        result.reserve(trimmed.size() - 2);
+        bool escaped = false;
+        for (std::size_t i = 1; i + 1 < trimmed.size(); ++i) {
+            const char ch = trimmed[i];
+            if (escaped) {
+                result.push_back(ch);
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else {
+                result.push_back(ch);
+            }
+        }
+        return result;
+    }
+    return std::string(trimmed);
+}
+
+ConditionValue ParseConditionOperandValue(std::string_view text) {
+    const std::string_view stripped = StripConditionOuterParentheses(text);
+    const std::string lowered = ToLowerAscii(stripped);
+    if (lowered == "true") {
+        return ConditionValue::FromBoolean(true);
+    }
+    if (lowered == "false") {
+        return ConditionValue::FromBoolean(false);
+    }
+
+    const std::string unquoted = UnquoteConditionText(stripped);
+    if (const std::optional<double> number = ParseConditionNumber(unquoted); number.has_value()) {
+        return ConditionValue::FromNumber(*number, unquoted);
+    }
+    return ConditionValue::FromString(unquoted);
+}
+
+bool CompareConditionOperandValues(const ConditionValue& lhs, const ConditionValue& rhs, std::string_view op) {
+    if (op == "==" || op == "!=") {
+        bool result = false;
+        if (lhs.kind == ConditionValue::Kind::Boolean && rhs.kind == ConditionValue::Kind::Boolean) {
+            result = lhs.boolean == rhs.boolean;
+        } else if (const std::optional<double> lhsNumber = TryCoerceConditionNumber(lhs),
+                   rhsNumber = TryCoerceConditionNumber(rhs);
+                   lhsNumber.has_value() && rhsNumber.has_value()) {
+            result = std::fabs(*lhsNumber - *rhsNumber) <= 1e-9;
+        } else {
+            result = lhs.text == rhs.text;
+        }
+        return op == "==" ? result : !result;
+    }
+
+    if (const std::optional<double> lhsNumber = TryCoerceConditionNumber(lhs),
+        rhsNumber = TryCoerceConditionNumber(rhs);
+        lhsNumber.has_value() && rhsNumber.has_value()) {
+        if (op == ">") {
+            return *lhsNumber > *rhsNumber;
+        }
+        if (op == ">=") {
+            return *lhsNumber >= *rhsNumber;
+        }
+        if (op == "<") {
+            return *lhsNumber < *rhsNumber;
+        }
+        if (op == "<=") {
+            return *lhsNumber <= *rhsNumber;
+        }
+        return false;
+    }
+
+    if (op == ">") {
+        return lhs.text > rhs.text;
+    }
+    if (op == ">=") {
+        return lhs.text >= rhs.text;
+    }
+    if (op == "<") {
+        return lhs.text < rhs.text;
+    }
+    if (op == "<=") {
+        return lhs.text <= rhs.text;
+    }
+    return false;
+}
+
+std::optional<bool> EvaluateConditionExpression(std::string_view text, std::string& error) {
+    text = StripConditionOuterParentheses(text);
+    if (text.empty()) {
+        error = "условие пустое";
+        return std::nullopt;
+    }
+
+    const std::string lowered = ToLowerAscii(text);
+    if (lowered == "true") {
+        return true;
+    }
+    if (lowered == "false") {
+        return false;
+    }
+
+    if (const std::optional<std::size_t> orPos = FindTopLevelConditionLogicalWord(text, "or"); orPos.has_value()) {
+        const std::optional<bool> lhs = EvaluateConditionExpression(text.substr(0, *orPos), error);
+        if (!lhs.has_value()) {
+            return std::nullopt;
+        }
+        const std::optional<bool> rhs = EvaluateConditionExpression(text.substr(*orPos + 2), error);
+        if (!rhs.has_value()) {
+            return std::nullopt;
+        }
+        return *lhs || *rhs;
+    }
+
+    if (const std::optional<std::size_t> andPos = FindTopLevelConditionLogicalWord(text, "and"); andPos.has_value()) {
+        const std::optional<bool> lhs = EvaluateConditionExpression(text.substr(0, *andPos), error);
+        if (!lhs.has_value()) {
+            return std::nullopt;
+        }
+        const std::optional<bool> rhs = EvaluateConditionExpression(text.substr(*andPos + 3), error);
+        if (!rhs.has_value()) {
+            return std::nullopt;
+        }
+        return *lhs && *rhs;
+    }
+
+    if (const std::optional<std::size_t> notPos = FindTopLevelConditionLogicalWord(text, "not");
+        notPos.has_value() && *notPos == 0) {
+        const std::optional<bool> value = EvaluateConditionExpression(text.substr(3), error);
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+        return !*value;
+    }
+
+    if (const std::optional<ConditionComparisonOp> comparison = FindTopLevelConditionComparison(text);
+        comparison.has_value()) {
+        const ConditionValue lhs = ParseConditionOperandValue(text.substr(0, comparison->pos));
+        const ConditionValue rhs =
+            ParseConditionOperandValue(text.substr(comparison->pos + comparison->op.size()));
+        return CompareConditionOperandValues(lhs, rhs, comparison->op);
+    }
+
+    error = "ожидался оператор сравнения";
+    return std::nullopt;
+}
+
+IfAndOrSplitResult SplitIfAndOrParam(std::string_view raw) {
+    std::size_t questionPos = std::string_view::npos;
+    std::size_t colonPos = std::string_view::npos;
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        const char ch = raw[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+        } else if (ch == '(') {
+            ++roundDepth;
+        } else if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+        } else if (ch == '[') {
+            ++squareDepth;
+        } else if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+        } else if (ch == '{') {
+            ++curlyDepth;
+        } else if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+        } else if (ch == '?' && questionPos == std::string_view::npos
+                   && roundDepth == 0 && squareDepth == 0 && curlyDepth == 0) {
+            questionPos = i;
+        } else if (ch == ':' && questionPos != std::string_view::npos && colonPos == std::string_view::npos
+                   && roundDepth == 0 && squareDepth == 0 && curlyDepth == 0) {
+            colonPos = i;
+            break;
+        }
+    }
+
+    if (questionPos == std::string_view::npos || colonPos == std::string_view::npos) {
+        return {};
+    }
+
+    return IfAndOrSplitResult{
+        true,
+        raw.substr(0, questionPos),
+        raw.substr(questionPos + 1, colonPos - questionPos - 1),
+        raw.substr(colonPos + 1),
+    };
 }
 
 const std::vector<VirtualKeyPickerEntry>& GetVirtualKeyPickerEntries() {
@@ -1173,7 +1765,7 @@ void TagsModule::InitializeRegistry() {
         "[nick(...)]",
         "[nick(15)]",
         UiText::TagsBuiltinNickFunctionDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinNickFunctionTag(param, context);
         });
 
@@ -1182,7 +1774,7 @@ void TagsModule::InitializeRegistry() {
         "[paramcmd(...)]",
         "[paramcmd(1+)]",
         UiText::TagsBuiltinParamcmdDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinParamcmdFunctionTag(param, context);
         });
 
@@ -1191,7 +1783,7 @@ void TagsModule::InitializeRegistry() {
         "[keyemulate(...)]",
         "[keyemulate(87)]",
         UiText::TagsBuiltinKeyEmulateDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinKeyEmulateFunctionTag(param, context);
         });
 
@@ -1200,7 +1792,7 @@ void TagsModule::InitializeRegistry() {
         "[math(...)]",
         "[math(2+2)]",
         UiText::TagsBuiltinMathDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinMathFunctionTag(param, context);
         });
 
@@ -1209,8 +1801,26 @@ void TagsModule::InitializeRegistry() {
         "[numberwithdots(...)]",
         "[numberwithdots([math(100*10)])]",
         UiText::TagsBuiltinNumberWithDotsDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinNumberWithDotsFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "ifandor",
+        "[ifandor(...)]",
+        "[ifandor({id}==74?[bindstart(\"10\" \"folder\")]:[bindstart(\"11\" \"folder\")])]",
+        UiText::TagsBuiltinIfAndOrDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int depth) {
+            return module.ResolveBuiltinIfAndOrFunctionTag(param, context, depth);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "timef",
+        "[timef(...)]",
+        "[timef(%c;)]",
+        UiText::TagsBuiltinTimefDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinTimefFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -1218,7 +1828,7 @@ void TagsModule::InitializeRegistry() {
         "[getvehtype(...)]",
         "[getvehtype(15)]",
         UiText::TagsBuiltinGetVehTypeFunctionDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinGetVehTypeFunctionTag(param, context);
         });
 
@@ -1227,7 +1837,7 @@ void TagsModule::InitializeRegistry() {
         "[screen(...)]",
         "[screen(Пример)]",
         UiText::TagsBuiltinScreenFunctionDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinScreenFunctionTag(param, context);
         });
 
@@ -1236,7 +1846,7 @@ void TagsModule::InitializeRegistry() {
         "[wait(...)]",
         "[wait(1000)]",
         UiText::TagsBuiltinWaitDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinWaitFunctionTag(param, context);
         });
 
@@ -1245,7 +1855,7 @@ void TagsModule::InitializeRegistry() {
         "[binddisable(...)]",
         "[binddisable({thisbind})]",
         UiText::TagsBuiltinBindDisableDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("disable", param, context);
         });
 
@@ -1254,7 +1864,7 @@ void TagsModule::InitializeRegistry() {
         "[bindenable(...)]",
         "[bindenable(\"10\" \"folder\")]",
         UiText::TagsBuiltinBindEnableDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("enable", param, context);
         });
 
@@ -1263,7 +1873,7 @@ void TagsModule::InitializeRegistry() {
         "[bindstart(...)]",
         "[bindstart(\"10\" \"folder\")]",
         UiText::TagsBuiltinBindStartDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("start", param, context);
         });
 
@@ -1272,7 +1882,7 @@ void TagsModule::InitializeRegistry() {
         "[bindstop(...)]",
         "[bindstop({thisbind})]",
         UiText::TagsBuiltinBindStopDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("stop", param, context);
         });
 
@@ -1281,7 +1891,7 @@ void TagsModule::InitializeRegistry() {
         "[bindpause(...)]",
         "[bindpause({thisbind})]",
         UiText::TagsBuiltinBindPauseDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("pause", param, context);
         });
 
@@ -1290,7 +1900,7 @@ void TagsModule::InitializeRegistry() {
         "[bindunpause(...)]",
         "[bindunpause({thisbind})]",
         UiText::TagsBuiltinBindUnpauseDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("unpause", param, context);
         });
 
@@ -1299,7 +1909,7 @@ void TagsModule::InitializeRegistry() {
         "[bindfastmenu(...)]",
         "[bindfastmenu(\"10\" \"folder\")]",
         UiText::TagsBuiltinBindFastMenuDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("fastmenu", param, context);
         });
 
@@ -1308,7 +1918,7 @@ void TagsModule::InitializeRegistry() {
         "[bindunfastmenu(...)]",
         "[bindunfastmenu(\"10\" \"folder\")]",
         UiText::TagsBuiltinBindUnfastMenuDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("unfastmenu", param, context);
         });
 
@@ -1317,7 +1927,7 @@ void TagsModule::InitializeRegistry() {
         "[bindrandom(...)]",
         "[bindrandom(\"folder\")]",
         UiText::TagsBuiltinBindRandomDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("random", param, context);
         });
 
@@ -1326,7 +1936,7 @@ void TagsModule::InitializeRegistry() {
         "[bindended(...)]",
         "[bindended({thisbind})]",
         UiText::TagsBuiltinBindEndedDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("ended", param, context);
         });
 
@@ -1335,7 +1945,7 @@ void TagsModule::InitializeRegistry() {
         "[bindpopup(...)]",
         "[bindpopup(\"10\" \"folder\")]",
         UiText::TagsBuiltinBindPopupDescription,
-        [](const TagsModule& module, std::string_view param, const EvaluationContext& context) {
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("popup", param, context);
         });
 }
@@ -1770,8 +2380,8 @@ void TagsModule::ReleaseVirtualKeyHold(ActiveVirtualKeyHold& hold) const {
     hold.pressed = false;
 }
 
-std::string TagsModule::FormatCurrentTime(const char* format) {
-    if (!format || *format == '\0') {
+std::string TagsModule::FormatCurrentTime(std::string_view format) {
+    if (format.empty()) {
         return {};
     }
 
@@ -1781,11 +2391,18 @@ std::string TagsModule::FormatCurrentTime(const char* format) {
         return {};
     }
 
-    char buffer[64]{};
-    if (std::strftime(buffer, sizeof(buffer), format, &localTime) == 0) {
-        return {};
+    const std::string formatString(format);
+    std::size_t bufferSize = std::max<std::size_t>(128, formatString.size() * 8 + 32);
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        std::string buffer(bufferSize, '\0');
+        const std::size_t written = std::strftime(buffer.data(), buffer.size(), formatString.c_str(), &localTime);
+        if (written != 0) {
+            buffer.resize(written);
+            return buffer;
+        }
+        bufferSize *= 2;
     }
-    return buffer;
+    return {};
 }
 
 std::string TagsModule::FormatWholeStatValue(float value) {
@@ -2165,6 +2782,66 @@ std::optional<std::string> TagsModule::ResolveBuiltinNumberWithDotsFunctionTag(
     return FormatNumberWithDots(param);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinIfAndOrFunctionTag(
+    std::string_view rawParam,
+    const EvaluationContext& context,
+    int depth) const {
+    const IfAndOrSplitResult split = SplitIfAndOrParam(rawParam);
+    if (!split.valid) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastIfAndOrInvalidSyntax), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string trimmedCondition(TrimAsciiWhitespace(split.condition));
+    if (trimmedCondition.empty()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastIfAndOrEmptyCondition), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    EvaluationContext conditionContext = context;
+    conditionContext.allowSideEffects = false;
+    const std::string expandedCondition = ExpandTextRecursive(trimmedCondition, conditionContext, depth + 1);
+    std::string conditionError;
+    const std::optional<bool> conditionResult = EvaluateConditionExpression(expandedCondition, conditionError);
+    if (!conditionResult.has_value()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(
+                UiSettings::Instance().Format(UiText::ToastIfAndOrConditionFailed, conditionError.c_str()),
+                true,
+                3200.0);
+        }
+        return std::string();
+    }
+
+    const std::string_view branch = *conditionResult ? split.whenTrue : split.whenFalse;
+    return ExpandTextRecursive(branch, context, depth + 1);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTimefFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const TimeFormatParseResult parsed = ParseTimefFormat(param);
+    if (!parsed.Ok()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(DescribeTimeFormatError(parsed.error, parsed.invalidToken), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string formatted = FormatCurrentTime(parsed.format);
+    if (formatted.empty()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(DescribeTimeFormatError(TimeFormatError::FormatFailed, {}), true, 2800.0);
+        }
+        return std::string();
+    }
+    return formatted;
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinGetVehTypeFunctionTag(
     std::string_view param,
     const EvaluationContext& context) const {
@@ -2249,11 +2926,15 @@ std::optional<std::string> TagsModule::ResolveSimpleTag(std::string_view name, c
 std::optional<std::string> TagsModule::ResolveFunctionTag(
     std::string_view name,
     std::string_view param,
-    const EvaluationContext& context) const {
+    const EvaluationContext& context,
+    int depth) const {
     const std::string normalized = ToLower(name);
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, normalized);
         entry && entry->functionResolver) {
-        return entry->functionResolver(*this, param, context);
+        if (normalized == "ifandor") {
+            return entry->functionResolver(*this, param, context, depth);
+        }
+        return entry->functionResolver(*this, ExpandTextRecursive(param, context, depth + 1), context, depth);
     }
 
     return std::nullopt;
@@ -2365,8 +3046,9 @@ std::string TagsModule::ExpandFunctionTags(std::string_view text, const Evaluati
         const std::string_view rawParam = text.substr(openParen + 1, cursor - openParen - 1);
         if (const std::optional<std::string> value = ResolveFunctionTag(
                 name,
-                ExpandTextRecursive(rawParam, context, depth + 1),
-                context);
+                rawParam,
+                context,
+                depth);
             value.has_value()) {
             output += *value;
         } else {
