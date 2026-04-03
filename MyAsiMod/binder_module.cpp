@@ -78,6 +78,8 @@ constexpr char kIconTags[] = "\xEF\x80\xAC";
 constexpr char kIconSaveDisk[] = "\xEF\x83\x87";
 constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
 constexpr char kIconChevronRight[] = "\xEF\x81\x94";
+constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
+constexpr char kDialogSelectionLocalChatColorTag[] = "{E2C063}";
 constexpr char kIconStar[] = "\xEF\x80\x86";
 
 std::string Trim(std::string_view value) {
@@ -1598,8 +1600,16 @@ struct BinderModule::Impl {
         bool conditionsPopupPending = false;
         bool quickConditionsPopupPending = false;
         bool variablesPopupPending = false;
+        bool variablesTabSelectionPending = false;
+        bool variablesKeyPickerPopupPending = false;
         bool previewPopupPending = false;
         bool discardPopupPending = false;
+        int variablesActiveTab = 0;
+        int selectedVariableInputIndex = -1;
+        int selectedSimpleTagIndex = -1;
+        int selectedFunctionTagIndex = -1;
+        std::string variablesSearch{};
+        std::string variablesKeyPickerSearch{};
         HotkeyEntry baseline{};
         HotkeyEntry draft{};
     } editor{};
@@ -1696,6 +1706,11 @@ struct BinderModule::Impl {
     int FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const;
     BindTagContextDesc DescribeBindTagContext(std::uint64_t runtimeId) const;
     std::string BuildThisbindTagValue(std::uint64_t runtimeId) const;
+    bool IsRuntimeActive(std::uint64_t runtimeId) const;
+    bool IsRuntimePaused(std::uint64_t runtimeId) const;
+    bool PauseRuntime(std::uint64_t runtimeId);
+    bool ResumeRuntime(std::uint64_t runtimeId);
+    bool StopRuntime(std::uint64_t runtimeId);
     BinderModule::TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
     RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId);
     const RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId) const;
@@ -1769,6 +1784,11 @@ struct BinderModule::Impl {
     void ExecuteEditorPendingAction();
     bool ValidateEditor(std::vector<std::string>& errors);
     void SaveEditor();
+    bool CopyTextToClipboard(std::string_view text, bool showSuccessToast = true);
+    int FirstCatalogIndexForKind(TagsModule::TagKind kind) const;
+    void DrawEditorVariableInputsTab();
+    void DrawEditorVariableCatalogTab(TagsModule::TagKind kind);
+    void DrawEditorVariableKeyPickerPopup();
     void DrawEditorConditionsPopup();
     void DrawEditorQuickConditionsPopup();
     void DrawEditorVariablesPopup();
@@ -1791,23 +1811,102 @@ struct BinderModule::Impl {
 
 namespace {
 
+bool TryParseSampColorTag(std::string_view text, std::size_t offset, std::size_t& consumed, std::uint32_t& color) {
+    consumed = 0;
+    color = 0;
+    if (offset >= text.size() || text[offset] != '{') {
+        return false;
+    }
+
+    const std::size_t close = text.find('}', offset + 1);
+    if (close == std::string_view::npos) {
+        return false;
+    }
+
+    const std::size_t hexLength = close - offset - 1;
+    if (hexLength != 6 && hexLength != 8) {
+        return false;
+    }
+
+    std::uint32_t parsed = 0;
+    for (std::size_t i = offset + 1; i < close; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (!std::isxdigit(ch)) {
+            return false;
+        }
+        parsed = static_cast<std::uint32_t>(parsed * 16 + static_cast<std::uint32_t>(
+            std::isdigit(ch) ? (ch - '0') : (std::tolower(ch) - 'a' + 10)));
+    }
+
+    consumed = close - offset + 1;
+    // SA:MP line colors use 0xRRGGBBAA. Embedded text colors are usually
+    // written as {RRGGBB}, so for local chat we normalize them to full-opacity
+    // RGBA before passing the value to AddChatMessage.
+    color = hexLength == 6 ? ((parsed << 8) | 0xFFu) : parsed;
+    return true;
+}
+
 std::pair<std::string, std::uint32_t> ParseLeadingChatColor(std::string_view text) {
-    static const std::regex kColor8("^\\{([0-9A-Fa-f]{8})\\}(.*)$");
-    static const std::regex kColor6("^\\{([0-9A-Fa-f]{6})\\}(.*)$");
-    std::cmatch match;
-    const std::string source(text);
-    if (std::regex_match(source.c_str(), match, kColor8) && match.size() == 3) {
-        return { match[2].str(), static_cast<std::uint32_t>(std::strtoul(match[1].str().c_str(), nullptr, 16)) };
+    std::size_t consumed = 0;
+    std::uint32_t color = 0;
+    if (TryParseSampColorTag(text, 0, consumed, color)) {
+        return { std::string(text.substr(consumed)), color };
     }
-    if (std::regex_match(source.c_str(), match, kColor6) && match.size() == 3) {
-        return { match[2].str(), static_cast<std::uint32_t>(std::strtoul(match[1].str().c_str(), nullptr, 16)) };
+    return { std::string(text), 0xFFFFFFFFu };
+}
+
+std::string StripSampColorTags(std::string_view text) {
+    std::string cleaned;
+    cleaned.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        std::size_t consumed = 0;
+        std::uint32_t color = 0;
+        if (TryParseSampColorTag(text, i, consumed, color)) {
+            i += consumed;
+            continue;
+        }
+        cleaned.push_back(text[i]);
+        ++i;
     }
-    return { source, 0xFFFFFFFFu };
+    return cleaned;
+}
+
+std::string NormalizeDialogVisibleText(std::string_view text) {
+    return Trim(StripSampColorTags(text));
+}
+
+std::string DecorateDialogLocalChatText(std::string_view text, SampApi* sampApi) {
+    if (!sampApi || !sampApi->isDialogActive()) {
+        return std::string(text);
+    }
+
+    std::size_t consumed = 0;
+    std::uint32_t color = 0;
+    if (TryParseSampColorTag(text, 0, consumed, color)) {
+        return std::string(text);
+    }
+
+    const std::string caption = NormalizeDialogVisibleText(sampApi->get_dialog_caption());
+    if (!caption.empty() && StartsWith(text, caption)) {
+        return std::string(kDialogCaptionLocalChatColorTag) + std::string(text);
+    }
+
+    const SampApi::DialogSelectionText selection = sampApi->getDialogSelectedItemText();
+    if (selection.found) {
+        const std::string selectedItem = NormalizeDialogVisibleText(selection.text);
+        if (!selectedItem.empty() && StartsWith(text, selectedItem)) {
+            return std::string(kDialogSelectionLocalChatColorTag) + std::string(text);
+        }
+    }
+
+    return std::string(text);
 }
 
 bool SetClipboardUtf8Text(std::string_view utf8Text) {
-    const int wideLength = MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(), static_cast<int>(utf8Text.size()), nullptr, 0);
-    if (wideLength <= 0) {
+    const int sourceLength = static_cast<int>(utf8Text.size());
+    const int wideLength =
+        sourceLength == 0 ? 0 : MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(), sourceLength, nullptr, 0);
+    if (sourceLength != 0 && wideLength <= 0) {
         return false;
     }
 
@@ -1822,7 +1921,9 @@ bool SetClipboardUtf8Text(std::string_view utf8Text) {
         return false;
     }
 
-    MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(), static_cast<int>(utf8Text.size()), wideText, wideLength);
+    if (wideLength > 0) {
+        MultiByteToWideChar(CP_UTF8, 0, utf8Text.data(), sourceLength, wideText, wideLength);
+    }
     wideText[wideLength] = L'\0';
     GlobalUnlock(handle);
 
@@ -1847,6 +1948,7 @@ bool SetClipboardUtf8Text(std::string_view utf8Text) {
 namespace {
 
 constexpr std::string_view kBinderConfigSectionName = "binder";
+constexpr char kEditorVariablesPopupId[] = "###binder_editor_variables";
 
 } // namespace
 
@@ -2866,6 +2968,47 @@ std::string BinderModule::Impl::BuildThisbindTagValue(std::uint64_t runtimeId) c
         value += QuoteBindTagToken(desc.folder);
     }
     return value;
+}
+
+bool BinderModule::Impl::IsRuntimeActive(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+
+    if (const int hotkeyIndex = FindHotkeyIndexByRuntimeId(runtimeId); hotkeyIndex >= 0) {
+        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(hotkeyIndex)];
+        if (hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
+            return true;
+        }
+    }
+
+    return FindRunningBind(runtimeId) != nullptr;
+}
+
+bool BinderModule::Impl::IsRuntimePaused(std::uint64_t runtimeId) const {
+    if (const RunningBind* running = FindRunningBind(runtimeId)) {
+        return running->paused;
+    }
+    return false;
+}
+
+bool BinderModule::Impl::PauseRuntime(std::uint64_t runtimeId) {
+    const int hotkeyIndex = FindHotkeyIndexByRuntimeId(runtimeId);
+    return hotkeyIndex >= 0 && PauseHotkey(hotkeyIndex);
+}
+
+bool BinderModule::Impl::ResumeRuntime(std::uint64_t runtimeId) {
+    const int hotkeyIndex = FindHotkeyIndexByRuntimeId(runtimeId);
+    return hotkeyIndex >= 0 && ResumeHotkey(hotkeyIndex);
+}
+
+bool BinderModule::Impl::StopRuntime(std::uint64_t runtimeId) {
+    if (!IsRuntimeActive(runtimeId)) {
+        return false;
+    }
+
+    StopHotkeyByRuntimeId(runtimeId);
+    return true;
 }
 
 std::vector<int> BinderModule::Impl::ResolveBindTagTargets(
@@ -3977,7 +4120,8 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
     switch (method) {
     case 0: {
         const std::string expandedText = expandWithTags(text);
-        const auto [messageText, color] = ParseLeadingChatColor(expandedText);
+        const std::string decoratedText = DecorateDialogLocalChatText(expandedText, sampApi);
+        const auto [messageText, color] = ParseLeadingChatColor(decoratedText);
         if (!sampApi || !sampApi->memoryAddMessageSamp(messageText, color, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastSendLocalFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         }
@@ -4473,6 +4617,306 @@ void BinderModule::Impl::SaveEditor() {
     RefreshNumbers();
     SaveConfig();
     editor = {};
+}
+
+bool BinderModule::Impl::CopyTextToClipboard(std::string_view text, bool showSuccessToast) {
+    if (!SetClipboardUtf8Text(text)) {
+        PushToast(UiSettings::Instance().Text(UiText::ToastClipboardFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+        return false;
+    }
+
+    if (showSuccessToast) {
+        PushToast(UiSettings::Instance().Text(UiText::ToastClipboardCopied), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 1400.0);
+    }
+    return true;
+}
+
+int BinderModule::Impl::FirstCatalogIndexForKind(TagsModule::TagKind kind) const {
+    if (!tagsModule) {
+        return -1;
+    }
+
+    const auto& entries = tagsModule->CatalogEntries();
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
+        if (entries[static_cast<std::size_t>(i)].kind == kind) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void BinderModule::Impl::DrawEditorVariableInputsTab() {
+    UiSettings& ui = UiSettings::Instance();
+    if (editor.draft.inputs.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesEmpty));
+        return;
+    }
+
+    if (editor.selectedVariableInputIndex < 0 || editor.selectedVariableInputIndex >= static_cast<int>(editor.draft.inputs.size())) {
+        editor.selectedVariableInputIndex = 0;
+    }
+
+    if (!ImGui::BeginTable(
+            "##binder_editor_variable_inputs_layout",
+            2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
+            ImVec2(0.0f, 0.0f))) {
+        return;
+    }
+
+    ImGui::TableSetupColumn("list", ImGuiTableColumnFlags_WidthFixed, ScaleUi(320.0f));
+    ImGui::TableSetupColumn("details", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginChild("##binder_editor_variable_inputs_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::InputFieldsListTitle));
+        ImGui::Spacing();
+
+        for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
+            const HotkeyInput& input = editor.draft.inputs[i];
+            const std::string normalizedKey = NormalizeInputKey(input.key);
+            const std::string indexToken = "{{" + std::to_string(i + 1) + "}}";
+            const std::string primaryToken = normalizedKey.empty() ? indexToken : "{{" + normalizedKey + "}}";
+            const std::string label = input.label.empty() ? std::string(ui.Text(UiText::UnnamedField)) : input.label;
+            const std::string rowLabel = primaryToken + "  " + label + "##binder_editor_variable_input_" + std::to_string(i);
+
+            if (ImGui::Selectable(rowLabel.c_str(), editor.selectedVariableInputIndex == static_cast<int>(i))) {
+                editor.selectedVariableInputIndex = static_cast<int>(i);
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::TableSetColumnIndex(1);
+    if (ImGui::BeginChild("##binder_editor_variable_inputs_details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        if (editor.selectedVariableInputIndex < 0
+            || editor.selectedVariableInputIndex >= static_cast<int>(editor.draft.inputs.size())) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
+        } else {
+            const std::size_t inputIndex = static_cast<std::size_t>(editor.selectedVariableInputIndex);
+            const HotkeyInput& input = editor.draft.inputs[inputIndex];
+            const std::string normalizedKey = NormalizeInputKey(input.key);
+            const std::string keyToken = normalizedKey.empty() ? std::string() : "{{" + normalizedKey + "}}";
+            const std::string indexToken = "{{" + std::to_string(inputIndex + 1) + "}}";
+            const std::string primaryToken = keyToken.empty() ? indexToken : keyToken;
+            const std::string label = input.label.empty() ? std::string(ui.Text(UiText::UnnamedField)) : input.label;
+            const bool hasAlternateToken = !keyToken.empty() && keyToken != indexToken;
+
+            ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", label.c_str());
+            if (!input.hint.empty()) {
+                ImGui::Spacing();
+                ImGui::TextWrapped("%s", input.hint.c_str());
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDescriptionLabel));
+            ImGui::TextWrapped("%s", primaryToken.c_str());
+            if (hasAlternateToken) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesExampleLabel));
+                ImGui::TextWrapped("%s", indexToken.c_str());
+            }
+
+            ImGui::Spacing();
+            if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyToken), ScaleUi(170.0f, 0.0f))) {
+                CopyTextToClipboard(primaryToken);
+            }
+            if (hasAlternateToken) {
+                ImGui::SameLine();
+                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyExample), ScaleUi(170.0f, 0.0f))) {
+                    CopyTextToClipboard(indexToken);
+                }
+            }
+
+            if (keyToken.empty()) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyRequired));
+            } else {
+                ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Format(UiText::InputFieldPlaceholderFormat, normalizedKey.c_str()).c_str());
+                ImGui::TextDisabled("%s", indexToken.c_str());
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::EndTable();
+}
+
+void BinderModule::Impl::DrawEditorVariableCatalogTab(TagsModule::TagKind kind) {
+    UiSettings& ui = UiSettings::Instance();
+    if (!tagsModule) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
+        return;
+    }
+
+    const auto& entries = tagsModule->CatalogEntries();
+    const std::string query = ToLower(Trim(editor.variablesSearch));
+    std::vector<int> visibleIndices;
+    visibleIndices.reserve(entries.size());
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
+        const auto& entry = entries[static_cast<std::size_t>(i)];
+        if (entry.kind != kind) {
+            continue;
+        }
+
+        const std::string haystack = ToLower(entry.token + " " + ui.Text(entry.descriptionText));
+        if (query.empty() || haystack.find(query) != std::string::npos) {
+            visibleIndices.push_back(i);
+        }
+    }
+
+    int& selectedIndex = kind == TagsModule::TagKind::Simple ? editor.selectedSimpleTagIndex : editor.selectedFunctionTagIndex;
+    if (visibleIndices.empty()) {
+        selectedIndex = -1;
+    } else if (std::find(visibleIndices.begin(), visibleIndices.end(), selectedIndex) == visibleIndices.end()) {
+        selectedIndex = visibleIndices.front();
+    }
+
+    if (!ImGui::BeginTable(
+            "##binder_editor_variable_catalog_layout",
+            2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
+            ImVec2(0.0f, 0.0f))) {
+        return;
+    }
+
+    ImGui::TableSetupColumn("list", ImGuiTableColumnFlags_WidthFixed, ScaleUi(320.0f));
+    ImGui::TableSetupColumn("details", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginChild("##binder_editor_variable_catalog_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        InputTextWithHintString(
+            "##binder_editor_variable_search",
+            ui.Text(UiText::MiscVariablesSearchHint),
+            editor.variablesSearch,
+            ImGuiInputTextFlags_AutoSelectAll,
+            128);
+        ImGui::Spacing();
+
+        if (ImGui::BeginChild("##binder_editor_variable_catalog_scroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+            if (visibleIndices.empty()) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesCatalogEmpty));
+            } else {
+                for (const int index : visibleIndices) {
+                    const auto& entry = entries[static_cast<std::size_t>(index)];
+                    const std::string rowLabel = entry.token + "##binder_editor_variable_catalog_" + std::to_string(index);
+                    if (ImGui::Selectable(rowLabel.c_str(), selectedIndex == index)) {
+                        selectedIndex = index;
+                    }
+                }
+            }
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+
+    ImGui::TableSetColumnIndex(1);
+    if (ImGui::BeginChild("##binder_editor_variable_catalog_details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        if (selectedIndex < 0 || selectedIndex >= static_cast<int>(entries.size())) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
+        } else {
+            const auto& entry = entries[static_cast<std::size_t>(selectedIndex)];
+
+            ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", entry.token.c_str());
+            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "keyemulate") {
+                ImGui::SameLine();
+                if (ImGui::SmallButton(" + ")) {
+                    editor.variablesKeyPickerPopupPending = true;
+                }
+            }
+
+            ImGui::Separator();
+
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDescriptionLabel));
+            ImGui::TextWrapped("%s", ui.Text(entry.descriptionText));
+            ImGui::Spacing();
+
+            if (entry.example != entry.token) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesExampleLabel));
+                ImGui::TextWrapped("%s", entry.example.c_str());
+                ImGui::Spacing();
+            }
+
+            if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyToken), ScaleUi(170.0f, 0.0f))) {
+                CopyTextToClipboard(entry.token);
+            }
+            if (entry.example != entry.token) {
+                ImGui::SameLine();
+                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyExample), ScaleUi(170.0f, 0.0f))) {
+                    CopyTextToClipboard(entry.example);
+                }
+            }
+
+            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "paramcmd") {
+                ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesParamcmdNote));
+            }
+            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "keyemulate") {
+                ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyEmulateNote));
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::EndTable();
+}
+
+void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
+    if (!tagsModule) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SetNextWindowSize(ScaleUi(560.0f, 520.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopup("##binder_editor_variable_keypicker")) {
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesKeyPickerTitle));
+    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesKeyPickerIntro));
+    ImGui::Separator();
+
+    InputTextWithHintString(
+        "##binder_editor_variable_keypicker_search",
+        ui.Text(UiText::MiscVariablesKeyPickerSearchHint),
+        editor.variablesKeyPickerSearch,
+        ImGuiInputTextFlags_AutoSelectAll,
+        96);
+    ImGui::Spacing();
+
+    const std::string filter = ToLower(editor.variablesKeyPickerSearch);
+    bool hasMatches = false;
+    if (ImGui::BeginChild("##binder_editor_variable_keypicker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+        for (const auto& entry : tagsModule->VirtualKeyPickerEntries()) {
+            if (!filter.empty() && entry.search.find(filter) == std::string::npos) {
+                continue;
+            }
+
+            hasMatches = true;
+            if (ImGui::Selectable(entry.label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                CopyTextToClipboard(TagsModule::MakeKeyEmulateToken(entry.code));
+                editor.variablesKeyPickerSearch.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        if (!hasMatches) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerEmpty));
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerCopyHint));
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Cancel))) {
+        editor.variablesKeyPickerSearch.clear();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 void BinderModule::Impl::DuplicateHotkeyAt(int index) {
@@ -5421,52 +5865,83 @@ void BinderModule::Impl::DrawEditorQuickConditionsPopup() {
 
 void BinderModule::Impl::DrawEditorVariablesPopup() {
     if (editor.variablesPopupPending) {
-        ImGui::OpenPopup("##binder_editor_variables");
+        editor.variablesSearch.clear();
+        editor.variablesKeyPickerSearch.clear();
+        editor.variablesKeyPickerPopupPending = false;
+        editor.variablesActiveTab = editor.draft.inputs.empty() ? 1 : 0;
+        editor.variablesTabSelectionPending = true;
+        editor.selectedVariableInputIndex = editor.draft.inputs.empty() ? -1 : 0;
+        if (editor.selectedSimpleTagIndex < 0) {
+            editor.selectedSimpleTagIndex = FirstCatalogIndexForKind(TagsModule::TagKind::Simple);
+        }
+        if (editor.selectedFunctionTagIndex < 0) {
+            editor.selectedFunctionTagIndex = FirstCatalogIndexForKind(TagsModule::TagKind::Function);
+        }
+        ImGui::OpenPopup(kEditorVariablesPopupId);
         editor.variablesPopupPending = false;
     }
 
-    if (!ImGui::BeginPopupModal("##binder_editor_variables", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string popupTitle = std::string(ui.Text(UiText::EditorVariablesTitle)) + kEditorVariablesPopupId;
+    bool popupOpen = true;
+    ImGui::SetNextWindowSize(ScaleUi(920.0f, 640.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(popupTitle.c_str(), &popupOpen, ImGuiWindowFlags_NoSavedSettings)) {
         return;
     }
 
-    UiSettings& ui = UiSettings::Instance();
-    ImGui::TextUnformatted(ui.Text(UiText::EditorVariablesTitle));
-    ImGui::Separator();
-    ImGui::TextWrapped("%s", ui.Text(UiText::EditorVariablesHint));
-    ImGui::Spacing();
+    const bool closeRequested = !popupOpen;
+    const bool hasInputs = !editor.draft.inputs.empty();
 
-    if (editor.draft.inputs.empty()) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesEmpty));
-    } else if (ImGui::BeginTable(
-                   "##binder_editor_variables_table",
-                   2,
-                   ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn(ui.Text(UiText::Key), ImGuiTableColumnFlags_WidthFixed, ScaleUi(140.0f));
-        ImGui::TableSetupColumn(ui.Text(UiText::Name), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableHeadersRow();
-
-        for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
-            const HotkeyInput& input = editor.draft.inputs[i];
-            const std::string key = NormalizeInputKey(input.key);
-            const std::string label = input.label.empty() ? ui.Text(UiText::UnnamedField) : input.label;
-
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("{{%s}}", key.empty() ? "?" : key.c_str());
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(label.c_str());
-
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("{{%d}}", static_cast<int>(i + 1));
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(label.c_str());
-        }
-        ImGui::EndTable();
+    if (!hasInputs && editor.variablesActiveTab == 0) {
+        editor.variablesActiveTab = 1;
+        editor.variablesTabSelectionPending = true;
     }
 
-    ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::Cancel))) {
+    if (editor.variablesKeyPickerPopupPending) {
+        ImGui::OpenPopup("##binder_editor_variable_keypicker");
+        editor.variablesKeyPickerPopupPending = false;
+    }
+
+    ImGui::Separator();
+    if (hasInputs) {
+        ImGui::TextWrapped("%s", ui.Text(UiText::EditorVariablesHint));
+        ImGui::Spacing();
+    }
+
+    if (ImGui::BeginTabBar("##binder_editor_variables_tabs")) {
+        if (hasInputs) {
+            const ImGuiTabItemFlags parametersFlags =
+                editor.variablesTabSelectionPending && editor.variablesActiveTab == 0 ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesParametersTab), nullptr, parametersFlags)) {
+                editor.variablesActiveTab = 0;
+                DrawEditorVariableInputsTab();
+                ImGui::EndTabItem();
+            }
+        }
+
+        const ImGuiTabItemFlags simpleFlags =
+            editor.variablesTabSelectionPending && editor.variablesActiveTab == 1 ? ImGuiTabItemFlags_SetSelected : 0;
+        if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesSimpleTab), nullptr, simpleFlags)) {
+            editor.variablesActiveTab = 1;
+            DrawEditorVariableCatalogTab(TagsModule::TagKind::Simple);
+            ImGui::EndTabItem();
+        }
+
+        const ImGuiTabItemFlags functionFlags =
+            editor.variablesTabSelectionPending && editor.variablesActiveTab == 2 ? ImGuiTabItemFlags_SetSelected : 0;
+        if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesFunctionTab), nullptr, functionFlags)) {
+            editor.variablesActiveTab = 2;
+            DrawEditorVariableCatalogTab(TagsModule::TagKind::Function);
+            ImGui::EndTabItem();
+        }
+
+        editor.variablesTabSelectionPending = false;
+        ImGui::EndTabBar();
+    }
+
+    DrawEditorVariableKeyPickerPopup();
+    if (closeRequested) {
+        editor.variablesKeyPickerSearch.clear();
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -5986,29 +6461,31 @@ void BinderModule::Impl::DrawEditorInline() {
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
 
-    const ImVec2 startPanelCursorRestore = ImGui::GetCursorScreenPos();
-    ImGui::SetCursorScreenPos(ImVec2(
-        std::floor(startPanelMin.x + (startPanelMax.x - startPanelMin.x - startToggleSize.x) * 0.5f),
-        std::floor(startPanelMin.y - startToggleSize.y + ScaleUi(4.0f))));
-    const char* startToggleIcon = editor.startSectionCollapsed ? kIconAngleDown : kIconAngleUp;
-    const bool startToggleClicked = ImGui::InvisibleButton("##binder_editor_toggle_start_section", startToggleSize);
-    const bool startToggleHovered = ImGui::IsItemHovered();
-    const bool startToggleHeld = ImGui::IsItemActive();
-    const ImVec2 startToggleMin = ImGui::GetItemRectMin();
-    const ImVec2 startToggleMax = ImGui::GetItemRectMax();
-    const ImVec2 startToggleIconSize = ImGui::CalcTextSize(startToggleIcon);
-    ImVec2 startToggleIconPos(
-        std::floor(startToggleMin.x + (startToggleSize.x - startToggleIconSize.x) * 0.5f),
-        std::floor(startToggleMax.y - startToggleIconSize.y - ScaleUi(2.0f)));
-    ImGuiCol startToggleColor = (startToggleHovered || startToggleHeld) ? ImGuiCol_Text : ImGuiCol_TextDisabled;
-    ImGui::GetForegroundDrawList()->AddText(startToggleIconPos, ImGui::GetColorU32(startToggleColor), startToggleIcon);
-    if (startToggleHovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        ImGui::SetTooltip("%s", ui.Text(editor.startSectionCollapsed ? UiText::EditorExpandStartSection : UiText::EditorCollapseStartSection));
+    if (!ImGui::IsPopupOpen(kEditorVariablesPopupId)) {
+        const ImVec2 startPanelCursorRestore = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(
+            std::floor(startPanelMin.x + (startPanelMax.x - startPanelMin.x - startToggleSize.x) * 0.5f),
+            std::floor(startPanelMin.y - startToggleSize.y + ScaleUi(4.0f))));
+        const char* startToggleIcon = editor.startSectionCollapsed ? kIconAngleDown : kIconAngleUp;
+        const bool startToggleClicked = ImGui::InvisibleButton("##binder_editor_toggle_start_section", startToggleSize);
+        const bool startToggleHovered = ImGui::IsItemHovered();
+        const bool startToggleHeld = ImGui::IsItemActive();
+        const ImVec2 startToggleMin = ImGui::GetItemRectMin();
+        const ImVec2 startToggleMax = ImGui::GetItemRectMax();
+        const ImVec2 startToggleIconSize = ImGui::CalcTextSize(startToggleIcon);
+        ImVec2 startToggleIconPos(
+            std::floor(startToggleMin.x + (startToggleSize.x - startToggleIconSize.x) * 0.5f),
+            std::floor(startToggleMax.y - startToggleIconSize.y - ScaleUi(2.0f)));
+        ImGuiCol startToggleColor = (startToggleHovered || startToggleHeld) ? ImGuiCol_Text : ImGuiCol_TextDisabled;
+        ImGui::GetForegroundDrawList()->AddText(startToggleIconPos, ImGui::GetColorU32(startToggleColor), startToggleIcon);
+        if (startToggleHovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%s", ui.Text(editor.startSectionCollapsed ? UiText::EditorExpandStartSection : UiText::EditorCollapseStartSection));
+        }
+        if (startToggleClicked) {
+            editor.startSectionCollapsed = !editor.startSectionCollapsed;
+        }
+        ImGui::SetCursorScreenPos(startPanelCursorRestore);
     }
-    if (startToggleClicked) {
-        editor.startSectionCollapsed = !editor.startSectionCollapsed;
-    }
-    ImGui::SetCursorScreenPos(startPanelCursorRestore);
 
     ImGui::Spacing();
 
@@ -7410,6 +7887,26 @@ void BinderModule::Shutdown() {
 
 std::string BinderModule::GetThisbindTagValue(std::uint64_t runtimeId) const {
     return impl_->BuildThisbindTagValue(runtimeId);
+}
+
+bool BinderModule::IsRuntimeActive(std::uint64_t runtimeId) const {
+    return impl_->IsRuntimeActive(runtimeId);
+}
+
+bool BinderModule::IsRuntimePaused(std::uint64_t runtimeId) const {
+    return impl_->IsRuntimePaused(runtimeId);
+}
+
+bool BinderModule::PauseRuntime(std::uint64_t runtimeId) {
+    return impl_->PauseRuntime(runtimeId);
+}
+
+bool BinderModule::ResumeRuntime(std::uint64_t runtimeId) {
+    return impl_->ResumeRuntime(runtimeId);
+}
+
+bool BinderModule::StopRuntime(std::uint64_t runtimeId) {
+    return impl_->StopRuntime(runtimeId);
 }
 
 BinderModule::TagActionResult BinderModule::ExecuteTagAction(

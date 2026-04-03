@@ -19,6 +19,20 @@ public:
         Function,
     };
 
+    struct CatalogEntry {
+        TagKind kind = TagKind::Simple;
+        std::string name{};
+        std::string token{};
+        std::string example{};
+        UiText descriptionText = UiText::Count;
+    };
+
+    struct VirtualKeyPickerEntry {
+        unsigned int code = 0;
+        std::string label{};
+        std::string search{};
+    };
+
     struct EvaluationContext {
         SampApi* sampApi = nullptr;
         std::string_view activationSource;
@@ -57,6 +71,9 @@ public:
         std::string_view text,
         std::string_view activationSource,
         std::string_view activationText) const;
+    const std::vector<CatalogEntry>& CatalogEntries() const;
+    const std::vector<VirtualKeyPickerEntry>& VirtualKeyPickerEntries() const;
+    static std::string MakeKeyEmulateToken(unsigned int keyCode);
 
 private:
     struct TagEntry {
@@ -121,6 +138,19 @@ private:
         bool sessionActive = false;
     };
 
+    enum class PendingDialogWaitKind {
+        Open,
+        Close,
+        SpecificId,
+    };
+
+    struct PendingDialogWait {
+        std::uint64_t runtimeId = 0;
+        PendingDialogWaitKind kind = PendingDialogWaitKind::Open;
+        std::uint64_t deadlineAtMs = 0;
+        int expectedDialogId = -1;
+    };
+
     struct ClosestPlayerQueryResult {
         int nearestId = -1;
         int nearestToCenterId = -1;
@@ -131,6 +161,18 @@ private:
     void SaveConfig() const;
     void DrawMiscHomePage();
     void DrawVariablesPage();
+    void RefreshCatalogEntries();
+    void OpenDialogItemPicker();
+    void OpenDialogTextPicker();
+    void DrawDialogItemPickerPopup();
+    void DrawDialogTextPickerPopup();
+    void ProcessPendingDialogWaits();
+    void QueuePendingDialogWait(
+        std::uint64_t runtimeId,
+        PendingDialogWaitKind kind,
+        std::uint64_t deadlineAtMs,
+        int expectedDialogId = -1);
+    void ClearPendingDialogWait(std::uint64_t runtimeId);
 
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const;
@@ -167,6 +209,14 @@ private:
     std::optional<std::string> ResolveBuiltinSurnameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTimeTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTimeNoSecTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogActiveTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogCaptionTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogGetSelectedItemTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogEditboxTextTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogSelectedIndexTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogWaitOpenTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogWaitCloseTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogGetIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickFunctionTag(std::string_view param, const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinParamcmdFunctionTag(
         std::string_view param,
@@ -194,6 +244,31 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinWaitFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogCloseFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogSetTextFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogItemFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogSelectFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogWaitIdFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDialogResponseFunctionTag(
+        std::string_view rawParam,
+        const EvaluationContext& context,
+        int depth) const;
+    std::optional<std::string> ResolveBuiltinDialogTextFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinSaveDialogFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBinderActionFunctionTag(
@@ -233,10 +308,16 @@ private:
     int selectedTagIndex_ = 0;
     MiscPage currentPage_ = MiscPage::Home;
     TagRegistry tagRegistry_{};
+    std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
+    std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};
+    std::string dialogItemPickerSearchQuery_{};
+    std::string dialogTextPickerSearchQuery_{};
     bool keyPickerHoverTriggered_ = false;
+    bool dialogItemPickerOpenPending_ = false;
+    bool dialogTextPickerOpenPending_ = false;
 };

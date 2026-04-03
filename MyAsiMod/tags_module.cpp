@@ -22,7 +22,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <cwctype>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -44,6 +46,8 @@ constexpr float kClosestScreenTargetZOffset = 0.9f;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
 constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
 constexpr wchar_t kHelperScreensRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\screens";
+constexpr wchar_t kHelperSavedDialogsRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\saved\\dialogs";
+constexpr std::uint64_t kDialogWaitOpenTimeoutMs = 3000;
 thread_local std::vector<TagsModule::OwnedEvaluationContext> g_activeContextStack;
 
 enum class ScreenCaptureError {
@@ -80,6 +84,70 @@ struct TimeFormatParseResult {
         return error == TimeFormatError::None;
     }
 };
+
+struct DialogTextToken {
+    int index = 0;
+    std::string text{};
+};
+
+struct DialogTextItems {
+    std::vector<DialogTextToken> flat{};
+    std::vector<std::vector<DialogTextToken>> rows{};
+};
+
+struct DialogListItemInfo {
+    int index0 = 0;
+    int index1 = 1;
+    std::string text{};
+    std::string rawText{};
+};
+
+struct DialogListItems {
+    std::vector<DialogListItemInfo> items{};
+    std::string headerText{};
+};
+
+struct DialogResponseParams {
+    bool valid = false;
+    bool hasItemPart = false;
+    bool hasTextPart = false;
+    std::string_view button{};
+    std::string_view item{};
+    std::string_view text{};
+};
+
+bool TryParseSampColorTag(std::string_view text, std::size_t offset, std::size_t& consumed, std::uint32_t* color = nullptr) {
+    consumed = 0;
+    if (offset >= text.size() || text[offset] != '{') {
+        return false;
+    }
+
+    const std::size_t close = text.find('}', offset + 1);
+    if (close == std::string_view::npos) {
+        return false;
+    }
+
+    const std::size_t hexLength = close - offset - 1;
+    if (hexLength != 6 && hexLength != 8) {
+        return false;
+    }
+
+    std::uint32_t value = 0;
+    for (std::size_t i = offset + 1; i < close; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (!std::isxdigit(ch)) {
+            return false;
+        }
+        value = static_cast<std::uint32_t>(value * 16 + static_cast<std::uint32_t>(
+            std::isdigit(ch) ? (ch - '0') : (std::tolower(ch) - 'a' + 10)));
+    }
+
+    consumed = close - offset + 1;
+    if (color) {
+        *color = value;
+    }
+    return true;
+}
 
 struct ImGuiStringUserData {
     std::string* value = nullptr;
@@ -220,13 +288,21 @@ std::string ToLowerAscii(std::string_view value) {
     return lowered;
 }
 
-struct VirtualKeyPickerEntry {
-    UINT code = 0;
-    std::string label{};
-    std::string search{};
-};
+std::string TrimAscii(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
 
-std::string MakeKeyEmulateToken(UINT keyCode) {
+    std::size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+        --end;
+    }
+
+    return std::string(value.substr(begin, end - begin));
+}
+
+std::string MakeKeyEmulateTokenImpl(UINT keyCode) {
     return "[keyemulate(" + std::to_string(keyCode) + ")]";
 }
 
@@ -329,6 +405,10 @@ std::filesystem::path GetHelperScreensRoot(const std::filesystem::path& document
     return documentsPath / kHelperScreensRelativePath;
 }
 
+std::filesystem::path GetHelperSavedDialogsRoot(const std::filesystem::path& documentsPath) {
+    return documentsPath / kHelperSavedDialogsRelativePath;
+}
+
 std::string Unquote(std::string value) {
     if (value.size() >= 2) {
         const char first = value.front();
@@ -338,6 +418,87 @@ std::string Unquote(std::string value) {
         }
     }
     return value;
+}
+
+std::vector<std::string_view> SplitTopLevelDelimitedParts(std::string_view text, char delimiter) {
+    std::vector<std::string_view> parts;
+    std::size_t partStart = 0;
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            ++roundDepth;
+            continue;
+        }
+        if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+            continue;
+        }
+        if (ch == '[') {
+            ++squareDepth;
+            continue;
+        }
+        if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+            continue;
+        }
+        if (ch == '{') {
+            ++curlyDepth;
+            continue;
+        }
+        if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+            continue;
+        }
+
+        if (ch == delimiter && roundDepth == 0 && squareDepth == 0 && curlyDepth == 0) {
+            parts.push_back(text.substr(partStart, i - partStart));
+            partStart = i + 1;
+        }
+    }
+
+    parts.push_back(text.substr(partStart));
+    return parts;
+}
+
+DialogResponseParams ParseDialogResponseParams(std::string_view rawParam) {
+    DialogResponseParams result;
+    const std::vector<std::string_view> parts = SplitTopLevelDelimitedParts(rawParam, ';');
+    if (parts.empty() || parts.size() > 3) {
+        return result;
+    }
+
+    result.valid = true;
+    result.button = parts[0];
+    if (parts.size() >= 2) {
+        result.hasItemPart = true;
+        result.item = parts[1];
+    }
+    if (parts.size() >= 3) {
+        result.hasTextPart = true;
+        result.text = parts[2];
+    }
+    return result;
 }
 
 bool IsValidRelativeScreenFolder(const std::filesystem::path& relativePath) {
@@ -1051,14 +1212,14 @@ IfAndOrSplitResult SplitIfAndOrParam(std::string_view raw) {
     };
 }
 
-const std::vector<VirtualKeyPickerEntry>& GetVirtualKeyPickerEntries() {
-    static const std::vector<VirtualKeyPickerEntry> entries = [] {
-        std::vector<VirtualKeyPickerEntry> built;
+const std::vector<TagsModule::VirtualKeyPickerEntry>& GetVirtualKeyPickerEntries() {
+    static const std::vector<TagsModule::VirtualKeyPickerEntry> entries = [] {
+        std::vector<TagsModule::VirtualKeyPickerEntry> built;
         built.reserve(255);
         for (UINT keyCode = 1; keyCode <= 0xFF; ++keyCode) {
             const std::string name = hotkeys::KeyName(keyCode);
             const std::string label = std::to_string(keyCode) + " - " + name;
-            built.push_back(VirtualKeyPickerEntry{
+            built.push_back(TagsModule::VirtualKeyPickerEntry{
                 keyCode,
                 label,
                 ToLowerAscii(label + " " + name),
@@ -1470,6 +1631,365 @@ std::optional<std::string> ResolveVehicleTypeForPed(const CPed* ped) {
 
 TagsModule::TagsModule() = default;
 
+const std::vector<TagsModule::CatalogEntry>& TagsModule::CatalogEntries() const {
+    return catalogEntries_;
+}
+
+std::string StripDialogColorCodes(std::string_view text) {
+    std::string cleaned;
+    cleaned.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        std::size_t consumed = 0;
+        if (TryParseSampColorTag(text, i, consumed)) {
+            i += consumed;
+            continue;
+        }
+        cleaned.push_back(text[i]);
+        ++i;
+    }
+    return cleaned;
+}
+
+std::string NormalizeDialogCaptionVisibleText(std::string_view text) {
+    return TrimAscii(StripDialogColorCodes(text));
+}
+
+std::string NormalizeDialogVisibleText(std::string_view text) {
+    return TrimAscii(StripDialogColorCodes(text));
+}
+
+std::string NormalizeDialogRawText(std::string_view rawText) {
+    std::string text = StripDialogColorCodes(rawText);
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == '\r') {
+            if (i + 1 < text.size() && text[i + 1] == '\n') {
+                ++i;
+            }
+            normalized.push_back('\n');
+        } else {
+            normalized.push_back(ch);
+        }
+    }
+    return normalized;
+}
+
+std::vector<std::string> SplitDialogLineTokens(std::string_view line) {
+    std::string text;
+    text.reserve(line.size() * 2);
+    for (const char ch : line) {
+        if (ch == '\t') {
+            text.push_back(' ');
+            continue;
+        }
+        if (ch == '[' || ch == ']' || ch == '(' || ch == ')' || ch == '{' || ch == '}') {
+            text.push_back(' ');
+            text.push_back(ch);
+            text.push_back(' ');
+            continue;
+        }
+        text.push_back(ch);
+    }
+
+    std::vector<std::string> out;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])) != 0) {
+            ++pos;
+        }
+        if (pos >= text.size()) {
+            break;
+        }
+
+        std::size_t end = pos;
+        while (end < text.size() && std::isspace(static_cast<unsigned char>(text[end])) == 0) {
+            ++end;
+        }
+        out.emplace_back(text.substr(pos, end - pos));
+        pos = end;
+    }
+
+    return out;
+}
+
+DialogTextItems CollectDialogTextItems(std::string_view rawText) {
+    DialogTextItems result;
+    const std::string normalized = NormalizeDialogRawText(rawText);
+    std::size_t lineStart = 0;
+    int nextIndex = 0;
+    while (lineStart <= normalized.size()) {
+        const std::size_t lineEnd = normalized.find('\n', lineStart);
+        const std::size_t count = lineEnd == std::string::npos ? normalized.size() - lineStart : lineEnd - lineStart;
+        const std::string_view line(normalized.data() + lineStart, count);
+        const std::vector<std::string> tokens = SplitDialogLineTokens(line);
+        if (!tokens.empty()) {
+            std::vector<DialogTextToken> row;
+            row.reserve(tokens.size());
+            for (const std::string& token : tokens) {
+                DialogTextToken item{ nextIndex++, token };
+                result.flat.push_back(item);
+                row.push_back(std::move(item));
+            }
+            result.rows.push_back(std::move(row));
+        }
+
+        if (lineEnd == std::string::npos) {
+            break;
+        }
+        lineStart = lineEnd + 1;
+    }
+    return result;
+}
+
+std::string NormalizeDialogListItemText(std::string_view rawText) {
+    const std::string stripped = StripDialogColorCodes(rawText);
+    std::string normalized;
+    normalized.reserve(stripped.size() + 8);
+    for (const char ch : stripped) {
+        if (ch == '\t') {
+            normalized += " | ";
+        } else if (ch != '\r' && ch != '\n') {
+            normalized.push_back(ch);
+        }
+    }
+    return TrimAscii(normalized);
+}
+
+std::string ToLowerUtf8(std::string_view value) {
+    if (value.empty()) {
+        return {};
+    }
+
+    std::wstring wide = Utf8ToWide(value);
+    if (wide.empty()) {
+        return ToLowerAscii(value);
+    }
+
+    for (wchar_t& ch : wide) {
+        ch = static_cast<wchar_t>(std::towlower(ch));
+    }
+
+    const std::string lowered = WideToMultiByte(wide, CP_UTF8);
+    return lowered.empty() ? ToLowerAscii(value) : lowered;
+}
+
+std::string NormalizeDialogItemSearchText(std::string_view rawText) {
+    std::string text = StripDialogColorCodes(rawText);
+    for (char& ch : text) {
+        if (ch == '\t' || ch == '\r' || ch == '\n') {
+            ch = ' ';
+        }
+    }
+
+    text = TrimAscii(text);
+    if (!text.empty() && text.front() == '[') {
+        const std::size_t closing = text.find(']');
+        if (closing != std::string::npos) {
+            text = TrimAscii(text.substr(closing + 1));
+        }
+    }
+    return text;
+}
+
+std::vector<std::string> BuildDialogItemSearchVariants(std::string_view rawText) {
+    std::vector<std::string> out;
+    auto pushUnique = [&out](std::string value) {
+        if (value.empty()) {
+            return;
+        }
+        if (std::find(out.begin(), out.end(), value) == out.end()) {
+            out.push_back(std::move(value));
+        }
+    };
+
+    const std::string raw(rawText);
+    const std::string normalized = NormalizeDialogItemSearchText(rawText);
+    pushUnique(raw);
+    pushUnique(ToLowerUtf8(raw));
+    pushUnique(normalized);
+    pushUnique(ToLowerUtf8(normalized));
+    return out;
+}
+
+int GetDialogItemHeaderLinesToSkip(SampApi* sampApi) {
+    if (!sampApi || !sampApi->isDialogActive()) {
+        return 0;
+    }
+    return sampApi->GetCurrentDialogStyle() == SampApi::DIALOG_STYLE_TABLIST_HEADERS ? 1 : 0;
+}
+
+DialogListItems CollectDialogListItems(std::string_view rawText, int headerLinesToSkip) {
+    DialogListItems result;
+    const std::string normalized = NormalizeDialogRawText(rawText);
+    const int skip = std::max(headerLinesToSkip, 0);
+    std::size_t lineStart = 0;
+    int rawLineIndex = 0;
+    std::vector<std::string> headerLines;
+    while (lineStart <= normalized.size()) {
+        const std::size_t lineEnd = normalized.find('\n', lineStart);
+        const std::size_t count = lineEnd == std::string::npos ? normalized.size() - lineStart : lineEnd - lineStart;
+        const std::string_view line(normalized.data() + lineStart, count);
+        if (rawLineIndex < skip) {
+            const std::string header = NormalizeDialogListItemText(line);
+            if (!header.empty()) {
+                headerLines.push_back(header);
+            }
+        } else {
+            result.items.push_back(DialogListItemInfo{
+                rawLineIndex - skip,
+                rawLineIndex - skip + 1,
+                NormalizeDialogListItemText(line),
+                std::string(line),
+            });
+        }
+
+        ++rawLineIndex;
+        if (lineEnd == std::string::npos) {
+            break;
+        }
+        lineStart = lineEnd + 1;
+    }
+
+    for (std::size_t i = 0; i < headerLines.size(); ++i) {
+        if (i != 0) {
+            result.headerText += " | ";
+        }
+        result.headerText += headerLines[i];
+    }
+
+    return result;
+}
+
+std::optional<DialogListItems> ReadActiveDialogListItems(SampApi* sampApi, std::string& error) {
+    error.clear();
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        error = "no_samp";
+        return std::nullopt;
+    }
+    if (!sampApi->isDialogActive()) {
+        error = "no_dialog";
+        return std::nullopt;
+    }
+    if (!sampApi->isDialogListStyle(sampApi->GetCurrentDialogStyle())) {
+        error = "not_list";
+        return std::nullopt;
+    }
+
+    const std::string dialogText = sampApi->sampGetDialogText();
+    if (dialogText.empty()) {
+        error = "read_fail";
+        return std::nullopt;
+    }
+
+    DialogListItems items = CollectDialogListItems(dialogText, GetDialogItemHeaderLinesToSkip(sampApi));
+    const int count = sampApi->GetCurrentDialogListboxItemsCount();
+    if (count >= 0 && count < static_cast<int>(items.items.size())) {
+        items.items.resize(static_cast<std::size_t>(count));
+    }
+    return items;
+}
+
+std::optional<DialogTextItems> ReadActiveDialogTextItems(SampApi* sampApi, std::string& error) {
+    error.clear();
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        error = "no_samp";
+        return std::nullopt;
+    }
+    if (!sampApi->isDialogActive()) {
+        error = "no_dialog";
+        return std::nullopt;
+    }
+
+    const std::string dialogText = sampApi->sampGetDialogText();
+    if (dialogText.empty()) {
+        error = "read_fail";
+        return std::nullopt;
+    }
+
+    return CollectDialogTextItems(dialogText);
+}
+
+std::optional<int> FindDialogItemIndexByText(const DialogListItems& items, std::string_view query) {
+    const std::vector<std::string> needles = BuildDialogItemSearchVariants(query);
+    if (needles.empty()) {
+        return std::nullopt;
+    }
+
+    for (const DialogListItemInfo& item : items.items) {
+        const std::vector<std::string> haystacks = BuildDialogItemSearchVariants(item.rawText);
+        for (const std::string& haystack : haystacks) {
+            for (const std::string& needle : needles) {
+                if (haystack.find(needle) != std::string::npos) {
+                    return item.index0;
+                }
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::wstring SanitizeFileStem(std::wstring stem) {
+    constexpr std::wstring_view invalidChars = L"<>:\"/\\|?*";
+    for (wchar_t& ch : stem) {
+        if (invalidChars.find(ch) != std::wstring_view::npos || ch < 32) {
+            ch = L'_';
+        }
+    }
+
+    while (!stem.empty() && (stem.back() == L' ' || stem.back() == L'.')) {
+        stem.pop_back();
+    }
+    while (!stem.empty() && (stem.front() == L' ' || stem.front() == L'.')) {
+        stem.erase(stem.begin());
+    }
+
+    return stem;
+}
+
+std::filesystem::path MakeUniqueTextFilePath(const std::filesystem::path& directory, std::wstring stem) {
+    stem = SanitizeFileStem(std::move(stem));
+    if (stem.empty()) {
+        stem = L"dialog";
+    }
+
+    std::filesystem::path candidate = directory / (stem + L".txt");
+    int suffix = 1;
+    while (std::filesystem::exists(candidate)) {
+        candidate = directory / (stem + L" (" + std::to_wstring(suffix++) + L").txt");
+    }
+    return candidate;
+}
+
+std::string DialogStyleName(int style) {
+    switch (style) {
+    case SampApi::DIALOG_STYLE_MSGBOX:
+        return "MSGBOX";
+    case SampApi::DIALOG_STYLE_INPUT:
+        return "INPUT";
+    case SampApi::DIALOG_STYLE_LIST:
+        return "LIST";
+    case SampApi::DIALOG_STYLE_PASSWORD:
+        return "PASSWORD";
+    case SampApi::DIALOG_STYLE_TABLIST:
+        return "TABLIST";
+    case SampApi::DIALOG_STYLE_TABLIST_HEADERS:
+        return "TABLIST_HEADERS";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const std::vector<TagsModule::VirtualKeyPickerEntry>& TagsModule::VirtualKeyPickerEntries() const {
+    return GetVirtualKeyPickerEntries();
+}
+
+std::string TagsModule::MakeKeyEmulateToken(unsigned int keyCode) {
+    return MakeKeyEmulateTokenImpl(static_cast<UINT>(keyCode));
+}
+
 void TagsModule::TagRegistry::Clear() {
     entries_.clear();
 }
@@ -1530,6 +2050,20 @@ std::size_t TagsModule::TagRegistry::Count(TagKind kind) const {
     return static_cast<std::size_t>(std::count_if(entries_.begin(), entries_.end(), [&](const TagEntry& entry) {
         return entry.kind == kind;
     }));
+}
+
+void TagsModule::RefreshCatalogEntries() {
+    catalogEntries_.clear();
+    catalogEntries_.reserve(tagRegistry_.Entries().size());
+    for (const TagEntry& entry : tagRegistry_.Entries()) {
+        catalogEntries_.push_back(CatalogEntry{
+            entry.kind,
+            entry.name,
+            entry.token,
+            entry.example,
+            entry.descriptionText,
+        });
+    }
 }
 
 void TagsModule::InitializeRegistry() {
@@ -1760,6 +2294,87 @@ void TagsModule::InitializeRegistry() {
             return module.ResolveBuiltinTimeNoSecTag(context);
         });
 
+    tagRegistry_.RegisterSimple(
+        "dialogactive",
+        "{dialogactive}",
+        "{dialogactive}",
+        UiText::TagsBuiltinDialogActiveDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogActiveTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialogcaption",
+        "{dialogcaption}",
+        "{dialogcaption}",
+        UiText::TagsBuiltinDialogCaptionDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogCaptionTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialoggetselecteditem",
+        "{dialoggetselecteditem}",
+        "{dialoggetselecteditem}",
+        UiText::TagsBuiltinDialogGetSelectedItemDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogGetSelectedItemTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialogeditboxtext",
+        "{dialogeditboxtext}",
+        "{dialogeditboxtext}",
+        UiText::TagsBuiltinDialogEditboxTextDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogEditboxTextTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialogselectedindex",
+        "{dialogselectedindex}",
+        "{dialogselectedindex}",
+        UiText::TagsBuiltinDialogSelectedIndexDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogSelectedIndexTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialogwaitopen",
+        "{dialogwaitopen}",
+        "{dialogwaitopen}",
+        UiText::TagsBuiltinDialogWaitOpenDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogWaitOpenTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialogwaitclose",
+        "{dialogwaitclose}",
+        "{dialogwaitclose}",
+        UiText::TagsBuiltinDialogWaitCloseDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogWaitCloseTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "dialoggetid",
+        "{dialoggetid}",
+        "{dialoggetid}",
+        UiText::TagsBuiltinDialogGetIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogGetIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "getdialogid",
+        "{getdialogid}",
+        "{getdialogid}",
+        UiText::TagsBuiltinDialogGetIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinDialogGetIdTag(context);
+        });
+
     tagRegistry_.RegisterFunction(
         "nick",
         "[nick(...)]",
@@ -1848,6 +2463,78 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinWaitDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinWaitFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogclose",
+        "[dialogclose(...)]",
+        "[dialogclose(1)]",
+        UiText::TagsBuiltinDialogCloseDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogCloseFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogsettext",
+        "[dialogsettext(...)]",
+        "[dialogsettext(Пример)]",
+        UiText::TagsBuiltinDialogSetTextDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogSetTextFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogitem",
+        "[dialogitem(...)]",
+        "[dialogitem(1)]",
+        UiText::TagsBuiltinDialogItemDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogItemFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogselect",
+        "[dialogselect(...)]",
+        "[dialogselect(1)]",
+        UiText::TagsBuiltinDialogSelectDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogSelectFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogwaitid",
+        "[dialogwaitid(...)]",
+        "[dialogwaitid(722)]",
+        UiText::TagsBuiltinDialogWaitIdDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogWaitIdFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogresponse",
+        "[dialogresponse(...)]",
+        "[dialogresponse(1;1;)]",
+        UiText::TagsBuiltinDialogResponseDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int depth) {
+            return module.ResolveBuiltinDialogResponseFunctionTag(param, context, depth);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "dialogtext",
+        "[dialogtext(...)]",
+        "[dialogtext(0)]",
+        UiText::TagsBuiltinDialogTextDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinDialogTextFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "save_dialog",
+        "[save_dialog(...)]",
+        "[save_dialog()]",
+        UiText::TagsBuiltinSaveDialogDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinSaveDialogFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -1948,6 +2635,8 @@ void TagsModule::InitializeRegistry() {
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("popup", param, context);
         });
+
+    RefreshCatalogEntries();
 }
 
 void TagsModule::OnProcessAttach() {
@@ -1966,7 +2655,10 @@ void TagsModule::Shutdown() {
     }
     activeVirtualKeyHolds_.clear();
     pendingBindDelayOverrides_.clear();
+    pendingDialogWaits_.clear();
     searchQuery_.clear();
+    dialogItemPickerSearchQuery_.clear();
+    dialogTextPickerSearchQuery_.clear();
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     g_activeContextStack.clear();
@@ -2032,6 +2724,7 @@ std::optional<int> TagsModule::ConsumePendingBindDelayOverride(std::uint64_t run
 
 void TagsModule::Tick() {
     UpdateTargetTracker();
+    ProcessPendingDialogWaits();
     if (activeVirtualKeyHolds_.empty()) {
         return;
     }
@@ -2053,6 +2746,122 @@ void TagsModule::Tick() {
             continue;
         }
 
+        ++it;
+    }
+}
+
+void TagsModule::QueuePendingDialogWait(
+    std::uint64_t runtimeId,
+    PendingDialogWaitKind kind,
+    std::uint64_t deadlineAtMs,
+    int expectedDialogId) {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (auto it = std::find_if(
+            pendingDialogWaits_.begin(),
+            pendingDialogWaits_.end(),
+            [&](const PendingDialogWait& wait) { return wait.runtimeId == runtimeId; });
+        it != pendingDialogWaits_.end()) {
+        it->kind = kind;
+        it->deadlineAtMs = deadlineAtMs;
+        it->expectedDialogId = expectedDialogId;
+        return;
+    }
+
+    pendingDialogWaits_.push_back(PendingDialogWait{ runtimeId, kind, deadlineAtMs, expectedDialogId });
+}
+
+void TagsModule::ClearPendingDialogWait(std::uint64_t runtimeId) {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    pendingDialogWaits_.erase(
+        std::remove_if(pendingDialogWaits_.begin(), pendingDialogWaits_.end(), [&](const PendingDialogWait& wait) {
+            return wait.runtimeId == runtimeId;
+        }),
+        pendingDialogWaits_.end());
+}
+
+void TagsModule::ProcessPendingDialogWaits() {
+    if (pendingDialogWaits_.empty() || !binderModule_) {
+        return;
+    }
+
+    const bool dialogActive = sampApi_ && sampApi_->sampModule() && sampApi_->isSupportedVersion() && sampApi_->isDialogActive();
+    const int activeDialogId = dialogActive ? sampApi_->SAMP_DIALOG_ID() : -1;
+    const std::uint64_t now = GetTickCount64();
+    for (auto it = pendingDialogWaits_.begin(); it != pendingDialogWaits_.end();) {
+        const std::uint64_t runtimeId = it->runtimeId;
+        if (runtimeId == 0 || !binderModule_->IsRuntimeActive(runtimeId)) {
+            it = pendingDialogWaits_.erase(it);
+            continue;
+        }
+
+        if (it->kind == PendingDialogWaitKind::Open) {
+            if (dialogActive) {
+                if (binderModule_->IsRuntimePaused(runtimeId)) {
+                    binderModule_->ResumeRuntime(runtimeId);
+                }
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (it->deadlineAtMs != 0 && now >= it->deadlineAtMs) {
+                binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogWaitOpenTimedOut), true, 3000.0);
+                binderModule_->StopRuntime(runtimeId);
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (!binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->PauseRuntime(runtimeId);
+            }
+            ++it;
+            continue;
+        }
+
+        if (it->kind == PendingDialogWaitKind::SpecificId) {
+            if (dialogActive && activeDialogId == it->expectedDialogId) {
+                if (binderModule_->IsRuntimePaused(runtimeId)) {
+                    binderModule_->ResumeRuntime(runtimeId);
+                }
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (it->deadlineAtMs != 0 && now >= it->deadlineAtMs) {
+                binderModule_->ShowToast(
+                    UiSettings::Instance().Format(
+                        UiText::ToastDialogWaitIdTimedOut,
+                        std::to_string(std::max(it->expectedDialogId, 0)).c_str()),
+                    true,
+                    3000.0);
+                binderModule_->StopRuntime(runtimeId);
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (!binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->PauseRuntime(runtimeId);
+            }
+            ++it;
+            continue;
+        }
+
+        if (!dialogActive) {
+            if (binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->ResumeRuntime(runtimeId);
+            }
+            it = pendingDialogWaits_.erase(it);
+            continue;
+        }
+
+        if (!binderModule_->IsRuntimePaused(runtimeId)) {
+            binderModule_->PauseRuntime(runtimeId);
+        }
         ++it;
     }
 }
@@ -2618,6 +3427,124 @@ std::optional<std::string> TagsModule::ResolveBuiltinTimeNoSecTag(const Evaluati
     return FormatCurrentTime("%H:%M");
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinDialogActiveTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string("false");
+    }
+
+    return sampApi->isDialogActive() ? std::string("true") : std::string("false");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogCaptionTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        return std::string();
+    }
+
+    return NormalizeDialogCaptionVisibleText(sampApi->get_dialog_caption());
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogGetSelectedItemTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        return std::string();
+    }
+
+    const SampApi::DialogSelectionText selection = sampApi->getDialogSelectedItemText();
+    if (!selection.found) {
+        return std::string();
+    }
+
+    return NormalizeDialogVisibleText(selection.text);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogEditboxTextTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        return std::string();
+    }
+
+    const int style = sampApi->GetCurrentDialogStyle();
+    if (style < 0 || !sampApi->isDialogInputStyle(style) || !sampApi->pDialogInput_pEditBox_active_func()) {
+        return std::string();
+    }
+
+    return sampApi->sampGetDialogEditboxText();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectedIndexTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        return std::string();
+    }
+
+    const int style = sampApi->GetCurrentDialogStyle();
+    if (style < 0 || !sampApi->isDialogListStyle(style)) {
+        return std::string();
+    }
+
+    const int selectedIndex = sampApi->GetCurrentDialogListItem();
+    if (selectedIndex < 0) {
+        return std::string();
+    }
+
+    return std::to_string(selectedIndex);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogWaitOpenTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects || context.runningBindRuntimeId == 0 || !binderModule_) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    const bool dialogActive = sampApi && sampApi->sampModule() && sampApi->isSupportedVersion() && sampApi->isDialogActive();
+    if (dialogActive) {
+        return std::string();
+    }
+
+    binderModule_->PauseRuntime(context.runningBindRuntimeId);
+    const std::uint64_t deadlineAtMs = GetTickCount64() + kDialogWaitOpenTimeoutMs;
+    const_cast<TagsModule*>(this)->QueuePendingDialogWait(
+        context.runningBindRuntimeId,
+        PendingDialogWaitKind::Open,
+        deadlineAtMs);
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogWaitCloseTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects || context.runningBindRuntimeId == 0 || !binderModule_) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    const bool dialogActive = sampApi && sampApi->sampModule() && sampApi->isSupportedVersion() && sampApi->isDialogActive();
+    if (!dialogActive) {
+        return std::string();
+    }
+
+    binderModule_->PauseRuntime(context.runningBindRuntimeId);
+    const_cast<TagsModule*>(this)->QueuePendingDialogWait(
+        context.runningBindRuntimeId,
+        PendingDialogWaitKind::Close,
+        0);
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogGetIdTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        return std::string();
+    }
+
+    const int dialogId = sampApi->SAMP_DIALOG_ID();
+    if (dialogId < 0) {
+        return std::string();
+    }
+
+    return std::to_string(dialogId);
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinNickFunctionTag(
     std::string_view param,
     const EvaluationContext& context) const {
@@ -2887,6 +3814,473 @@ std::optional<std::string> TagsModule::ResolveBuiltinWaitFunctionTag(
     return std::string();
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinDialogCloseFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    const std::optional<int> button = ParseInteger(rawValue);
+    if (!button.has_value() || (*button != 0 && *button != 1)) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseInvalidButton), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(*button);
+    if (!result.ok && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseFailed), true, 2800.0);
+    }
+
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogSetTextFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const int style = sampApi->GetCurrentDialogStyle();
+    if (style < 0 || !sampApi->isDialogInputStyle(style) || !sampApi->pDialogInput_pEditBox_active_func()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoEditbox), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string text = Unquote(std::string(param));
+    if (!sampApi->sampSetDialogEditboxText(text, false) && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextFailed), true, 2800.0);
+    }
+
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogWaitIdFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects || context.runningBindRuntimeId == 0 || !binderModule_) {
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    const std::optional<int> dialogId = ParseInteger(rawValue);
+    if (!dialogId.has_value() || *dialogId < 0) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogWaitIdInvalidId), true, 2800.0);
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    const bool dialogMatches = sampApi && sampApi->sampModule() && sampApi->isSupportedVersion() && sampApi->isDialogActive()
+        && sampApi->SAMP_DIALOG_ID() == *dialogId;
+    if (dialogMatches) {
+        return std::string();
+    }
+
+    binderModule_->PauseRuntime(context.runningBindRuntimeId);
+    const_cast<TagsModule*>(this)->QueuePendingDialogWait(
+        context.runningBindRuntimeId,
+        PendingDialogWaitKind::SpecificId,
+        GetTickCount64() + kDialogWaitOpenTimeoutMs,
+        *dialogId);
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemEmptyParam), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    std::string error;
+    const std::optional<DialogListItems> items = ReadActiveDialogListItems(sampApi, error);
+    if (!items.has_value()) {
+        if (binderModule_) {
+            const UiText textId = error == "not_list" ? UiText::ToastDialogItemNotList : UiText::ToastDialogItemReadFailed;
+            binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    int targetIndex = -1;
+    if (const std::optional<int> parsed = ParseInteger(rawValue); parsed.has_value()) {
+        targetIndex = *parsed >= 1 ? (*parsed - 1) : *parsed;
+    } else if (const std::optional<int> foundIndex = FindDialogItemIndexByText(*items, rawValue); foundIndex.has_value()) {
+        targetIndex = *foundIndex;
+    } else {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemNotFound), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
+        if (binderModule_) {
+            binderModule_->ShowToast(
+                UiSettings::Instance().Format(UiText::ToastDialogItemOutOfRange, std::to_string(targetIndex + 1).c_str()),
+                true,
+                2800.0);
+        }
+        return std::string();
+    }
+
+    const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(1, targetIndex);
+    if (!result.ok && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemFailed), true, 2800.0);
+    }
+
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectEmptyParam), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    std::string error;
+    const std::optional<DialogListItems> items = ReadActiveDialogListItems(sampApi, error);
+    if (!items.has_value()) {
+        if (binderModule_) {
+            const UiText textId = error == "not_list" ? UiText::ToastDialogSelectNotList : UiText::ToastDialogSelectReadFailed;
+            binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    int targetIndex = -1;
+    if (const std::optional<int> parsed = ParseInteger(rawValue); parsed.has_value()) {
+        targetIndex = *parsed >= 1 ? (*parsed - 1) : *parsed;
+    } else if (const std::optional<int> foundIndex = FindDialogItemIndexByText(*items, rawValue); foundIndex.has_value()) {
+        targetIndex = *foundIndex;
+    } else {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectNotFound), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
+        if (binderModule_) {
+            binderModule_->ShowToast(
+                UiSettings::Instance().Format(
+                    UiText::ToastDialogSelectOutOfRange,
+                    std::to_string(targetIndex + 1).c_str()),
+                true,
+                2800.0);
+        }
+        return std::string();
+    }
+
+    if (!sampApi->SetCurrentDialogListItem(targetIndex) && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectFailed), true, 2800.0);
+    }
+
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
+    std::string_view rawParam,
+    const EvaluationContext& context,
+    int depth) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const DialogResponseParams parsed = ParseDialogResponseParams(rawParam);
+    if (!parsed.valid) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidFormat), true, 3000.0);
+        }
+        return std::string();
+    }
+
+    EvaluationContext dataContext = context;
+    dataContext.allowSideEffects = false;
+
+    const std::string buttonValue = Unquote(TrimAscii(ExpandTextRecursive(parsed.button, dataContext, depth + 1)));
+    const std::optional<int> button = ParseInteger(buttonValue);
+    if (!button.has_value() || (*button != 0 && *button != 1)) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidButton), true, 3000.0);
+        }
+        return std::string();
+    }
+
+    const int style = sampApi->GetCurrentDialogStyle();
+    std::optional<int> listItem = std::nullopt;
+    std::optional<std::string> inputText = std::nullopt;
+
+    if (*button == 1 && parsed.hasItemPart && style >= 0 && sampApi->isDialogListStyle(style)) {
+        const std::string itemValue = Unquote(TrimAscii(ExpandTextRecursive(parsed.item, dataContext, depth + 1)));
+        if (!itemValue.empty()) {
+            std::string error;
+            const std::optional<DialogListItems> items = ReadActiveDialogListItems(sampApi, error);
+            if (!items.has_value()) {
+                if (binderModule_) {
+                    const UiText textId =
+                        error == "not_list" ? UiText::ToastDialogResponseItemNotList : UiText::ToastDialogResponseReadFailed;
+                    binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 3000.0);
+                }
+                return std::string();
+            }
+
+            int targetIndex = -1;
+            if (const std::optional<int> parsedIndex = ParseInteger(itemValue); parsedIndex.has_value()) {
+                targetIndex = *parsedIndex >= 1 ? (*parsedIndex - 1) : *parsedIndex;
+            } else if (const std::optional<int> foundIndex = FindDialogItemIndexByText(*items, itemValue); foundIndex.has_value()) {
+                targetIndex = *foundIndex;
+            } else {
+                if (binderModule_) {
+                    binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseItemNotFound), true, 3000.0);
+                }
+                return std::string();
+            }
+
+            if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
+                if (binderModule_) {
+                    binderModule_->ShowToast(
+                        UiSettings::Instance().Format(
+                            UiText::ToastDialogResponseItemOutOfRange,
+                            std::to_string(targetIndex + 1).c_str()),
+                        true,
+                        3000.0);
+                }
+                return std::string();
+            }
+
+            listItem = targetIndex;
+        }
+    }
+
+    if (*button == 1 && parsed.hasTextPart && style >= 0 && sampApi->isDialogInputStyle(style)) {
+        inputText = Unquote(TrimAscii(ExpandTextRecursive(parsed.text, dataContext, depth + 1)));
+    }
+
+    const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(*button, listItem, inputText, false);
+    if (!result.ok && binderModule_) {
+        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseFailed), true, 3000.0);
+    }
+
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinDialogTextFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextEmptyParam), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::optional<int> index = ParseInteger(rawValue);
+    if (!index.has_value() || *index < 0) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextInvalidIndex), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    std::string error;
+    const std::optional<DialogTextItems> items = ReadActiveDialogTextItems(sampApi, error);
+    if (!items.has_value()) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextReadFailed), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    if (*index >= static_cast<int>(items->flat.size())) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(
+                UiSettings::Instance().Format(
+                    UiText::ToastDialogTextOutOfRange,
+                    std::to_string(*index).c_str(),
+                    std::to_string(items->flat.empty() ? 0 : static_cast<int>(items->flat.size() - 1)).c_str()),
+                true,
+                2800.0);
+        }
+        return std::string();
+    }
+
+    return items->flat[static_cast<std::size_t>(*index)].text;
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogNoActive), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::optional<std::filesystem::path> documentsPath = GetDocumentsFolder();
+    if (!documentsPath.has_value()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogDocumentsUnavailable), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::filesystem::path targetDirectory = GetHelperSavedDialogsRoot(*documentsPath);
+    std::error_code directoryError;
+    std::filesystem::create_directories(targetDirectory, directoryError);
+    if (directoryError) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogCreateDirFailed), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string caption = NormalizeDialogCaptionVisibleText(sampApi->get_dialog_caption());
+    std::string desiredName = Unquote(Trim(param));
+    if (desiredName.empty()) {
+        desiredName = caption;
+    }
+    if (desiredName.empty()) {
+        const int dialogId = sampApi->SAMP_DIALOG_ID();
+        desiredName = dialogId >= 0 ? "dialog_" + std::to_string(dialogId) : std::string("dialog");
+    }
+
+    std::wstring stem = Utf8ToWide(desiredName);
+    if (stem.empty()) {
+        stem = L"dialog";
+    }
+
+    const std::filesystem::path targetPath = MakeUniqueTextFilePath(targetDirectory, std::move(stem));
+    std::ofstream stream(targetPath, std::ios::binary);
+    if (!stream.is_open()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const int dialogId = sampApi->SAMP_DIALOG_ID();
+    const int dialogStyle = sampApi->GetCurrentDialogStyle();
+    const int selectedIndex = sampApi->GetCurrentDialogListItem();
+    const SampApi::DialogSelectionText selection = sampApi->getDialogSelectedItemText();
+    const std::string editboxText = sampApi->sampGetDialogEditboxText();
+    const std::string dialogText = sampApi->sampGetDialogText();
+
+    stream << "Caption: " << caption << "\r\n";
+    stream << "Dialog ID: " << dialogId << "\r\n";
+    stream << "Style: " << DialogStyleName(dialogStyle) << " (" << dialogStyle << ")\r\n";
+    if (selectedIndex >= 0) {
+        stream << "Selected Item Index: " << selectedIndex << "\r\n";
+    }
+    if (selection.found) {
+        stream << "Selected Item Text: " << selection.text << "\r\n";
+    }
+    if (!editboxText.empty()) {
+        stream << "Editbox Text: " << editboxText << "\r\n";
+    }
+    stream << "\r\n----- Dialog Text -----\r\n";
+    stream << dialogText;
+    stream.flush();
+
+    if (!stream.good()) {
+        if (binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    if (binderModule_) {
+        std::string savedPath = WideToMultiByte(targetPath.native(), CP_UTF8);
+        if (savedPath.empty()) {
+            savedPath = WideToMultiByte(targetPath.filename().native(), CP_UTF8);
+        }
+        binderModule_->ShowToast(
+            UiSettings::Instance().Format(UiText::ToastSaveDialogSuccess, savedPath.c_str()),
+            false,
+            2800.0);
+    }
+
+    return std::string();
+}
+
 std::optional<std::string> TagsModule::ResolveBinderActionFunctionTag(
     std::string_view action,
     std::string_view param,
@@ -2931,7 +4325,7 @@ std::optional<std::string> TagsModule::ResolveFunctionTag(
     const std::string normalized = ToLower(name);
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, normalized);
         entry && entry->functionResolver) {
-        if (normalized == "ifandor") {
+        if (normalized == "ifandor" || normalized == "dialogresponse") {
             return entry->functionResolver(*this, param, context, depth);
         }
         return entry->functionResolver(*this, ExpandTextRecursive(param, context, depth + 1), context, depth);
@@ -3094,6 +4488,16 @@ void TagsModule::OpenKeyEmulatePicker() {
     ImGui::OpenPopup("##tags_keyemulate_picker");
 }
 
+void TagsModule::OpenDialogItemPicker() {
+    dialogItemPickerSearchQuery_.clear();
+    dialogItemPickerOpenPending_ = true;
+}
+
+void TagsModule::OpenDialogTextPicker() {
+    dialogTextPickerSearchQuery_.clear();
+    dialogTextPickerOpenPending_ = true;
+}
+
 void TagsModule::DrawKeyEmulatePickerPopup() {
     UiSettings& ui = UiSettings::Instance();
 
@@ -3120,14 +4524,14 @@ void TagsModule::DrawKeyEmulatePickerPopup() {
     const std::string filter = ToLower(keyPickerSearchQuery_);
     bool hasMatches = false;
     if (ImGui::BeginChild("##tags_keyemulate_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
-        for (const VirtualKeyPickerEntry& entry : GetVirtualKeyPickerEntries()) {
+        for (const TagsModule::VirtualKeyPickerEntry& entry : GetVirtualKeyPickerEntries()) {
             if (!filter.empty() && entry.search.find(filter) == std::string::npos) {
                 continue;
             }
 
             hasMatches = true;
             if (ImGui::Selectable(entry.label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                const std::string token = MakeKeyEmulateToken(entry.code);
+                const std::string token = MakeKeyEmulateTokenImpl(entry.code);
                 ImGui::SetClipboardText(token.c_str());
                 keyPickerSearchQuery_.clear();
                 ImGui::CloseCurrentPopup();
@@ -3146,6 +4550,150 @@ void TagsModule::DrawKeyEmulatePickerPopup() {
     if (!ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
         keyPickerHoverTriggered_ = false;
     }
+    ImGui::EndPopup();
+}
+
+void TagsModule::DrawDialogItemPickerPopup() {
+    if (dialogItemPickerOpenPending_) {
+        ImGui::OpenPopup("##tags_dialogitem_picker");
+        dialogItemPickerOpenPending_ = false;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SetNextWindowSize(ScaleUi(620.0f, 540.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopup("##tags_dialogitem_picker")) {
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesDialogItemPickerTitle));
+    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesDialogItemPickerIntro));
+    ImGui::Separator();
+
+    InputTextWithHintString(
+        "##tags_dialogitem_search",
+        ui.Text(UiText::MiscVariablesDialogItemPickerSearchHint),
+        dialogItemPickerSearchQuery_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+    ImGui::Spacing();
+
+    std::string error;
+    const std::optional<DialogListItems> items = ReadActiveDialogListItems(sampApi_, error);
+    if (!items.has_value()) {
+        const UiText errorText = error == "not_list" ? UiText::MiscVariablesDialogItemPickerNotList : UiText::MiscVariablesDialogItemPickerNoDialog;
+        ImGui::TextDisabled("%s", ui.Text(errorText));
+        ImGui::EndPopup();
+        return;
+    }
+
+    const std::string caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
+    if (!caption.empty()) {
+        ImGui::TextDisabled("%s", ui.Format(UiText::MiscVariablesDialogItemPickerCaptionLabel, caption.c_str()).c_str());
+    }
+    if (!items->headerText.empty()) {
+        ImGui::TextWrapped("%s", ui.Format(UiText::MiscVariablesDialogItemPickerHeaderLabel, items->headerText.c_str()).c_str());
+    }
+    ImGui::Spacing();
+
+    const std::string filter = ToLowerUtf8(dialogItemPickerSearchQuery_);
+    bool hasMatches = false;
+    if (ImGui::BeginChild("##tags_dialogitem_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+        for (const DialogListItemInfo& item : items->items) {
+            const std::string searchable = ToLowerUtf8(std::to_string(item.index1) + " " + item.text + " " + item.rawText);
+            if (!filter.empty() && searchable.find(filter) == std::string::npos) {
+                continue;
+            }
+
+            hasMatches = true;
+            const std::string visibleText = item.text.empty() ? item.rawText : item.text;
+            const std::string copyToken = "[dialogitem(" + std::to_string(item.index1) + ")]";
+            const std::string label = std::to_string(item.index1) + " - " + visibleText;
+            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                ImGui::SetClipboardText(copyToken.c_str());
+                dialogItemPickerSearchQuery_.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        if (!hasMatches) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogItemPickerEmpty));
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogItemPickerCopyHint));
+    ImGui::EndPopup();
+}
+
+void TagsModule::DrawDialogTextPickerPopup() {
+    if (dialogTextPickerOpenPending_) {
+        ImGui::OpenPopup("##tags_dialogtext_picker");
+        dialogTextPickerOpenPending_ = false;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SetNextWindowSize(ScaleUi(620.0f, 540.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopup("##tags_dialogtext_picker")) {
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesDialogTextPickerTitle));
+    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesDialogTextPickerIntro));
+    ImGui::Separator();
+
+    InputTextWithHintString(
+        "##tags_dialogtext_search",
+        ui.Text(UiText::MiscVariablesDialogTextPickerSearchHint),
+        dialogTextPickerSearchQuery_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+    ImGui::Spacing();
+
+    std::string error;
+    const std::optional<DialogTextItems> items = ReadActiveDialogTextItems(sampApi_, error);
+    if (!items.has_value()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerNoDialog));
+        ImGui::EndPopup();
+        return;
+    }
+
+    const std::string caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
+    if (!caption.empty()) {
+        ImGui::TextDisabled("%s", ui.Format(UiText::MiscVariablesDialogTextPickerCaptionLabel, caption.c_str()).c_str());
+    }
+    ImGui::TextDisabled(
+        "%s",
+        ui.Format(UiText::MiscVariablesDialogTextPickerCountLabel, std::to_string(items->flat.size()).c_str()).c_str());
+    ImGui::Spacing();
+
+    const std::string filter = ToLowerUtf8(dialogTextPickerSearchQuery_);
+    bool hasMatches = false;
+    if (ImGui::BeginChild("##tags_dialogtext_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+        for (const DialogTextToken& token : items->flat) {
+            const std::string searchable = ToLowerUtf8(std::to_string(token.index) + " " + token.text);
+            if (!filter.empty() && searchable.find(filter) == std::string::npos) {
+                continue;
+            }
+
+            hasMatches = true;
+            const std::string copyToken = "[dialogtext(" + std::to_string(token.index) + ")]";
+            const std::string label = std::to_string(token.index) + " - " + token.text;
+            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                ImGui::SetClipboardText(copyToken.c_str());
+                dialogTextPickerSearchQuery_.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        if (!hasMatches) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerEmpty));
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerCopyHint));
     ImGui::EndPopup();
 }
 
@@ -3310,6 +4858,24 @@ void TagsModule::DrawVariablesPage() {
                         ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesKeyPickerOpenHint));
                     }
                 }
+                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "dialogitem") {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(" +##dialogitem_picker")) {
+                        OpenDialogItemPicker();
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesDialogItemPickerOpenHint));
+                    }
+                }
+                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "dialogtext") {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(" +##dialogtext_picker")) {
+                        OpenDialogTextPicker();
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesDialogTextPickerOpenHint));
+                    }
+                }
                 ImGui::TextDisabled("%s", TagKindLabel(selectedTag->kind, ui));
                 ImGui::Separator();
 
@@ -3340,6 +4906,8 @@ void TagsModule::DrawVariablesPage() {
             }
 
             DrawKeyEmulatePickerPopup();
+            DrawDialogItemPickerPopup();
+            DrawDialogTextPickerPopup();
         }
         ImGui::EndChild();
         ImGui::EndTable();

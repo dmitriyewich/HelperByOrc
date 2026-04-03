@@ -41,6 +41,11 @@ public:
     void Shutdown();
 
     std::string GetThisbindTagValue(std::uint64_t runtimeId) const;
+    bool IsRuntimeActive(std::uint64_t runtimeId) const;
+    bool IsRuntimePaused(std::uint64_t runtimeId) const;
+    bool PauseRuntime(std::uint64_t runtimeId);
+    bool ResumeRuntime(std::uint64_t runtimeId);
+    bool StopRuntime(std::uint64_t runtimeId);
     TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
     void ShowToast(std::string_view text, bool error = false, double durationMs = 2500.0);
 
