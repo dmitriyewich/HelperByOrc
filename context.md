@@ -22,7 +22,7 @@
 - `Dear ImGui` в активной сборке vendored из official upstream:
   - локальный путь: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\external\imgui`
   - upstream: `https://github.com/ocornut/imgui`
-  - текущая синхронизированная версия: `1.92.7 WIP`
+  - текущая синхронизированная версия: `1.92.7`
 - `Font Awesome 7` иконки теперь доступны в активном `ImGui` UI:
   - vendored runtime-данные: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\font_awesome7_data.h`
   - merge в основной `ImGui`-шрифт выполняется в `imgui_overlay.*`
@@ -214,7 +214,7 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
   - без тяжёлой логики
 - `imgui_overlay.*`
   - D3D9 hooks (`EndScene`/`Reset`) через `MinHook`
-  - инициализация official vendored `ImGui 1.92.7 WIP`
+  - инициализация official vendored `ImGui 1.92.7`
   - `WndProc`, hotkey, render
   - централизованный ownership ввода для `ImGui`
   - при активном `ImGui`-вводе переключает SA:MP cursor mode через `SampApi::Set_CursorMode`
@@ -299,7 +299,7 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
 - Для изменений в документации сборка не обязательна.
 - Для изменений в `C++` обязательная проверка:
   - `Release|Win32`
-- На текущем состоянии после синхронизации `Dear ImGui` до official `1.92.7 WIP` и фикса ownership ввода:
+- На текущем состоянии после синхронизации `Dear ImGui` до official `1.92.7` и фикса ownership ввода:
   - `Release|Win32` собирается успешно
   - основной `ImGui`-overlay использует текущую архитектуру проекта, а не переносится из `SaFraps`
   - `SaFraps` полезен только как behavioural reference для cursor mode при открытом UI
