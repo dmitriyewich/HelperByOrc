@@ -49,6 +49,7 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x000057F0, 0x00005820, 0x00005A10, 0x00005860 }, // CInput_SendSay
     { 0x00065D30, 0x00069260, 0x000699D0, 0x00069410 }, // CInput_ProcessInput
     { 0x0005D850, 0x00060BF0, 0x00061360, 0x00060DE0 }, // HotkeyDispatcher (SA:MP hotkey switch)
+    { 0x0005DA80, 0x00060E20, 0x00061590, 0x00061010 }, // InputHotkeyHandler (secondary T/F5/Num0/Esc handler)
     { 0x00013CE0, 0x00016F00, 0x000175C0, 0x000170D0 }, // GetName
     { 0x00000004, 0x00002F1C, 0x00000004, 0x00000000 }, // SAMP_SLOCALPLAYERID_OFFSET
     { 0x000003CD, 0x000003DE, 0x000003DE, 0x000003DE }, // SAMP_INFO_OFFSET_Pools

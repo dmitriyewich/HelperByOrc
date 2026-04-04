@@ -79,20 +79,6 @@ ImVec2 ScaleVec(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
-void DrawItemTooltip(const char* text) {
-    if (!text || text[0] == '\0') {
-        return;
-    }
-
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
-        ImGui::TextUnformatted(text);
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-}
-
 bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD* size) {
     if (!module || !data || !size) {
         return false;
@@ -124,16 +110,6 @@ bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD
     *data = resourceData;
     *size = resourceSize;
     return true;
-}
-
-bool IsSystemCursorVisible() {
-    CURSORINFO cursorInfo{};
-    cursorInfo.cbSize = sizeof(cursorInfo);
-    if (!GetCursorInfo(&cursorInfo)) {
-        return true;
-    }
-
-    return (cursorInfo.flags & CURSOR_SHOWING) != 0;
 }
 
 void ClampWindowRect(const ImVec2& displaySize, ImVec2& position, ImVec2& size, float scale) {
@@ -203,7 +179,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
     sampHooks_.SetHotkeyBlockCallback([this]() {
-        return overlay_.IsMenuOpen() && UiSettings::Instance().BlockSampHotkeysInMainWindow();
+        return overlay_.IsTextInputActive();
     });
     sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
         text = tags_.ExpandOutgoingText(text, "command", text);
@@ -239,7 +215,6 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return binder_.OnWindowMessage(message, wparam, lparam);
     });
     overlay_.SetAuxiliaryUiVisibleCallback([this]() { return binder_.WantsOverlayRender(); });
-    overlay_.SetAuxiliaryInputCaptureCallback([this]() { return binder_.WantsInputCapture(); });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
     overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
@@ -276,16 +251,15 @@ void ModApp::UpdateOverlayCursorMode() {
     int desiredMode = kSampCursorModeNone;
     bool desiredEnabled = false;
 
-    if (overlay_.IsMenuOpen() || binder_.WantsInputCapture()) {
+    if (overlay_.IsTextInputActive()) {
         desiredMode = kSampCursorModeLockCamAndControl;
         desiredEnabled = true;
-    } else if (binder_.WantsQuickMenuCursor()) {
+    } else if (overlay_.IsMenuOpen() || binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture()) {
         desiredMode = kSampCursorModeLockCam;
         desiredEnabled = true;
     }
 
-    const bool needsCursorRecovery = desiredEnabled && !IsSystemCursorVisible();
-    if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled && !needsCursorRecovery) {
+    if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
         return;
     }
 
@@ -629,15 +603,6 @@ void ModApp::DrawSettingsTab() {
     if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
         overlay_.BeginMenuToggleHotkeyCapture();
     }
-
-    bool blockSampHotkeys = ui.BlockSampHotkeysInMainWindow();
-    if (ImGui::Checkbox(ui.Text(UiText::SettingsBlockSampHotkeys), &blockSampHotkeys)) {
-        ui.SetBlockSampHotkeysInMainWindow(blockSampHotkeys);
-    }
-    DrawItemTooltip(ui.Text(UiText::SettingsBlockSampHotkeysHint));
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    DrawItemTooltip(ui.Text(UiText::SettingsBlockSampHotkeysHint));
 
     bool autoScale = ui.AutoScaleEnabled();
     if (ImGui::Checkbox(ui.Text(UiText::SettingsAutoScale), &autoScale)) {

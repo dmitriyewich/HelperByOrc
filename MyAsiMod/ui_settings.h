@@ -163,8 +163,6 @@
     X(SettingsAutoScale, "Автомасштаб под разрешение", "Auto scale for resolution") \
     X(SettingsScaleMultiplier, "Пользовательский множитель", "Custom multiplier") \
     X(SettingsEffectiveScale, "Итоговый масштаб", "Effective scale") \
-    X(SettingsBlockSampHotkeys, "Блокировать горячие клавиши SA:MP в главном окне", "Block SA:MP hotkeys in the main window") \
-    X(SettingsBlockSampHotkeysHint, "Когда главное окно открыто, клавиши вроде T, F6, Tab и другие горячие клавиши SA:MP не срабатывают. Отключите это, если хотите оставить стандартные клавиши SA:MP активными поверх окна.", "When the main window is open, keys like T, F6, Tab, and other SA:MP hotkeys are suppressed. Turn this off if you want the standard SA:MP hotkeys to stay active while the window is open.") \
     X(SettingsResetDefaults, "Сбросить настройки UI", "Reset UI settings") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
@@ -493,9 +491,6 @@ public:
     float ScaleMultiplier() const;
     void SetScaleMultiplier(float multiplier);
 
-    bool BlockSampHotkeysInMainWindow() const;
-    void SetBlockSampHotkeysInMainWindow(bool enabled);
-
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
 
@@ -517,7 +512,6 @@ private:
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
-    bool blockSampHotkeysInMainWindow_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };

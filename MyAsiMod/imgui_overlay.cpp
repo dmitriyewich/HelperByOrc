@@ -85,7 +85,6 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
             if (self_->updateCallback_) {
                 self_->updateCallback_();
             }
-            self_->UpdateInputCaptureState();
             self_->RenderFrame(device);
         }
     }
@@ -147,6 +146,10 @@ void ImGuiOverlay::SetMenuOpen(bool open) {
 
 bool ImGuiOverlay::IsMenuOpen() const {
     return menuOpen_;
+}
+
+bool ImGuiOverlay::IsTextInputActive() const {
+    return inputCaptureActive_;
 }
 
 std::string ImGuiOverlay::MenuToggleHotkeyText() const {
@@ -551,8 +554,7 @@ bool ImGuiOverlay::WantsInputRouting() const {
 }
 
 bool ImGuiOverlay::WantsInputCapture() const {
-    const bool auxiliaryCapture = auxiliaryInputCaptureCallback_ ? auxiliaryInputCaptureCallback_() : false;
-    return menuOpen_ || auxiliaryCapture;
+    return inputCaptureActive_;
 }
 
 void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
@@ -569,12 +571,18 @@ void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
 }
 
 void ImGuiOverlay::UpdateInputCaptureState() {
-    ApplyInputCaptureState(WantsInputCapture());
+    bool captured = false;
+    if (imguiInitialized_ && ImGui::GetCurrentContext() != nullptr && WantsInputRouting()) {
+        captured = ImGui::GetIO().WantTextInput;
+    }
+
+    ApplyInputCaptureState(captured);
 }
 
 void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     const bool auxiliaryVisible = IsAuxiliaryUiVisible();
     if (!imguiInitialized_ || !device || (!menuOpen_ && !auxiliaryVisible)) {
+        ApplyInputCaptureState(false);
         return;
     }
 
@@ -598,6 +606,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     if (renderCallback_) {
         renderCallback_(device);
     }
+    UpdateInputCaptureState();
 
     ImGui::EndFrame();
     ImGui::Render();

@@ -29,6 +29,7 @@ public:
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
     void SetMenuOpen(bool open);
     bool IsMenuOpen() const;
+    bool IsTextInputActive() const;
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
