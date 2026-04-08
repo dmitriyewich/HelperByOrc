@@ -132,6 +132,12 @@ private:
         int delayMs = 0;
     };
 
+    struct PendingKeyHoldWait {
+        std::uint64_t runtimeId = 0;
+        unsigned int keyCode = 0;
+        std::uint64_t releaseAtMs = 0;
+    };
+
     struct TargetTrackerState {
         int currentId = -1;
         int lastId = -1;
@@ -166,6 +172,7 @@ private:
     void OpenDialogTextPicker();
     void DrawDialogItemPickerPopup();
     void DrawDialogTextPickerPopup();
+    void ProcessPendingKeyHoldWaits();
     void ProcessPendingDialogWaits();
     void QueuePendingDialogWait(
         std::uint64_t runtimeId,
@@ -173,6 +180,10 @@ private:
         std::uint64_t deadlineAtMs,
         int expectedDialogId = -1);
     void ClearPendingDialogWait(std::uint64_t runtimeId);
+    void QueuePendingKeyHoldWait(std::uint64_t runtimeId, unsigned int keyCode, std::uint64_t releaseAtMs) const;
+    void ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) const;
+    bool HasPendingDialogWait(std::uint64_t runtimeId) const;
+    bool HasPendingKeyHoldWait(std::uint64_t runtimeId) const;
 
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const;
@@ -201,6 +212,8 @@ private:
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyMoneyTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinFpsTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinGetVehTypeTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinScreenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTPhotoTag(const EvaluationContext& context) const;
@@ -228,6 +241,24 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNumberWithDotsFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArmourFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHealthFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinKeyDownFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinStrLowFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinAddTimeFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinRandomFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinIfAndOrFunctionTag(
@@ -298,7 +329,7 @@ private:
     static std::optional<int> ParseInteger(std::string_view value);
     static OwnedEvaluationContext MakeOwnedContext(const EvaluationContext& context, SampApi* fallbackSampApi);
     static EvaluationContext MakeViewContext(const OwnedEvaluationContext& context);
-    void QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const;
+    std::uint64_t QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const;
     void ReleaseVirtualKeyHold(ActiveVirtualKeyHold& hold) const;
     void QueuePendingBindDelayOverride(std::uint64_t runtimeId, int delayMs) const;
 
@@ -312,6 +343,7 @@ private:
     std::vector<std::pair<std::string, std::string>> customVariables_{};
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
+    mutable std::vector<PendingKeyHoldWait> pendingKeyHoldWaits_{};
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};

@@ -7,6 +7,7 @@
 #include "samp_api.h"
 
 #include <game_sa/CModelInfo.h>
+#include <game_sa/CPlayerInfo.h>
 #include <game_sa/CSprite.h>
 #include <game_sa/CVehicle.h>
 #include <extensions/ScriptCommands.h>
@@ -31,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <random>
 #include <vector>
 
 #include <ShlObj.h>
@@ -48,6 +50,8 @@ constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
 constexpr wchar_t kHelperScreensRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\screens";
 constexpr wchar_t kHelperSavedDialogsRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\saved\\dialogs";
 constexpr std::uint64_t kDialogWaitOpenTimeoutMs = 3000;
+constexpr int kRandomMinInt = -2147483647;
+constexpr int kRandomMaxInt = 2147483647;
 thread_local std::vector<TagsModule::OwnedEvaluationContext> g_activeContextStack;
 
 enum class ScreenCaptureError {
@@ -320,14 +324,14 @@ bool IsBetterClosestCandidate(float candidateDistanceSq, int candidateId, float 
     return std::fabs(candidateDistanceSq - bestDistanceSq) <= kDistanceEpsilon && candidateId < bestId;
 }
 
-std::wstring Utf8ToWide(std::string_view text) {
+std::wstring MultiByteToWide(std::string_view text, unsigned int codePage, DWORD flags = 0) {
     if (text.empty()) {
         return {};
     }
 
     const int wideLength = MultiByteToWideChar(
-        CP_UTF8,
-        MB_ERR_INVALID_CHARS,
+        codePage,
+        flags,
         text.data(),
         static_cast<int>(text.size()),
         nullptr,
@@ -338,8 +342,8 @@ std::wstring Utf8ToWide(std::string_view text) {
 
     std::wstring wide(static_cast<std::size_t>(wideLength), L'\0');
     if (MultiByteToWideChar(
-            CP_UTF8,
-            MB_ERR_INVALID_CHARS,
+            codePage,
+            flags,
             text.data(),
             static_cast<int>(text.size()),
             wide.data(),
@@ -349,6 +353,10 @@ std::wstring Utf8ToWide(std::string_view text) {
     }
 
     return wide;
+}
+
+std::wstring Utf8ToWide(std::string_view text) {
+    return MultiByteToWide(text, CP_UTF8, MB_ERR_INVALID_CHARS);
 }
 
 std::string WideToMultiByte(std::wstring_view text, unsigned int codePage) {
@@ -499,6 +507,111 @@ DialogResponseParams ParseDialogResponseParams(std::string_view rawParam) {
         result.text = parts[2];
     }
     return result;
+}
+
+std::mt19937& TagRandomEngine() {
+    static std::mt19937 rng(std::random_device{}());
+    return rng;
+}
+
+std::optional<std::int64_t> ParseTimeOffsetSeconds(std::string_view rawParam) {
+    const std::vector<std::string_view> parts = SplitTopLevelDelimitedParts(rawParam, ':');
+    if (parts.size() != 2 && parts.size() != 3) {
+        return std::nullopt;
+    }
+
+    std::int64_t values[3]{ 0, 0, 0 };
+    const std::size_t offset = parts.size() == 2 ? 1 : 0;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const std::string trimmed = TrimAscii(parts[i]);
+        if (trimmed.empty()) {
+            return std::nullopt;
+        }
+
+        std::int64_t parsed = 0;
+        for (const unsigned char ch : trimmed) {
+            if (std::isdigit(ch) == 0) {
+                return std::nullopt;
+            }
+            parsed = parsed * 10 + static_cast<std::int64_t>(ch - '0');
+        }
+
+        values[offset + i] = parsed;
+    }
+
+    return values[0] * 3600 + values[1] * 60 + values[2];
+}
+
+std::optional<std::pair<int, int>> ParseRandomIntegerRange(std::string_view rawValue) {
+    const std::string trimmed = TrimAscii(rawValue);
+    if (trimmed.empty()) {
+        return std::nullopt;
+    }
+
+    for (std::size_t i = 1; i < trimmed.size(); ++i) {
+        if (trimmed[i] != '-') {
+            continue;
+        }
+
+        const std::string left = TrimAscii(trimmed.substr(0, i));
+        const std::string right = TrimAscii(trimmed.substr(i + 1));
+        if (left.empty() || right.empty()) {
+            continue;
+        }
+
+        char* end = nullptr;
+        const long leftValue = std::strtol(left.c_str(), &end, 10);
+        if (!end || *end != '\0') {
+            continue;
+        }
+
+        end = nullptr;
+        const long rightValue = std::strtol(right.c_str(), &end, 10);
+        if (!end || *end != '\0') {
+            continue;
+        }
+
+        if (leftValue < std::numeric_limits<int>::min()
+            || leftValue > std::numeric_limits<int>::max()
+            || rightValue < std::numeric_limits<int>::min()
+            || rightValue > std::numeric_limits<int>::max()) {
+            continue;
+        }
+
+        int minValue = static_cast<int>(leftValue);
+        int maxValue = static_cast<int>(rightValue);
+        if (minValue > maxValue) {
+            std::swap(minValue, maxValue);
+        }
+        return std::pair<int, int>{ minValue, maxValue };
+    }
+
+    return std::nullopt;
+}
+
+std::string FormatCurrentTimeForTimestamp(std::time_t timestamp, std::string_view format) {
+    if (format.empty()) {
+        return {};
+    }
+
+    std::tm localTime{};
+    if (localtime_s(&localTime, &timestamp) != 0) {
+        return {};
+    }
+
+    const std::string formatString(format);
+    std::size_t bufferSize = std::max<std::size_t>(128, formatString.size() * 8 + 32);
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        std::string buffer(bufferSize, '\0');
+        const std::size_t written = std::strftime(buffer.data(), buffer.size(), formatString.c_str(), &localTime);
+        if (written != 0) {
+            buffer.resize(written);
+            return buffer;
+        }
+        bufferSize *= 2;
+    }
+
+    return {};
 }
 
 bool IsValidRelativeScreenFolder(const std::filesystem::path& relativePath) {
@@ -1762,7 +1875,13 @@ std::string ToLowerUtf8(std::string_view value) {
         return {};
     }
 
+    unsigned int outputCodePage = CP_UTF8;
     std::wstring wide = Utf8ToWide(value);
+    if (wide.empty()) {
+        wide = MultiByteToWide(value, CP_ACP);
+        outputCodePage = CP_ACP;
+    }
+
     if (wide.empty()) {
         return ToLowerAscii(value);
     }
@@ -1771,7 +1890,7 @@ std::string ToLowerUtf8(std::string_view value) {
         ch = static_cast<wchar_t>(std::towlower(ch));
     }
 
-    const std::string lowered = WideToMultiByte(wide, CP_UTF8);
+    const std::string lowered = WideToMultiByte(wide, outputCodePage);
     return lowered.empty() ? ToLowerAscii(value) : lowered;
 }
 
@@ -2223,6 +2342,24 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "mymoney",
+        "{mymoney}",
+        "{mymoney}",
+        UiText::TagsBuiltinMyMoneyDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyMoneyTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "fps",
+        "{fps}",
+        "{fps}",
+        UiText::TagsBuiltinFpsDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinFpsTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "getvehtype",
         "{getvehtype}",
         "{getvehtype}",
@@ -2418,6 +2555,60 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinNumberWithDotsDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinNumberWithDotsFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "armour",
+        "[armour(...)]",
+        "[armour(15)]",
+        UiText::TagsBuiltinArmourFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArmourFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "health",
+        "[health(...)]",
+        "[health(15)]",
+        UiText::TagsBuiltinHealthFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinHealthFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "keydown",
+        "[keydown(...)]",
+        "[keydown(87;1000)]",
+        UiText::TagsBuiltinKeyDownDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinKeyDownFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "strlow",
+        "[strlow(...)]",
+        "[strlow(TeSt)]",
+        UiText::TagsBuiltinStrLowDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinStrLowFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "addtime",
+        "[addtime(...)]",
+        "[addtime(10:10:10)]",
+        UiText::TagsBuiltinAddTimeDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinAddTimeFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "random",
+        "[random(...)]",
+        "[random(20-30)]",
+        UiText::TagsBuiltinRandomDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinRandomFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -2655,6 +2846,7 @@ void TagsModule::Shutdown() {
     }
     activeVirtualKeyHolds_.clear();
     pendingBindDelayOverrides_.clear();
+    pendingKeyHoldWaits_.clear();
     pendingDialogWaits_.clear();
     searchQuery_.clear();
     dialogItemPickerSearchQuery_.clear();
@@ -2725,29 +2917,30 @@ std::optional<int> TagsModule::ConsumePendingBindDelayOverride(std::uint64_t run
 void TagsModule::Tick() {
     UpdateTargetTracker();
     ProcessPendingDialogWaits();
-    if (activeVirtualKeyHolds_.empty()) {
-        return;
-    }
+    if (!activeVirtualKeyHolds_.empty()) {
+        const std::uint64_t now = GetTickCount64();
+        for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
+            ActiveVirtualKeyHold& hold = *it;
+            if (!hold.pressed && now >= hold.pressAtMs) {
+                hold.pressed = SendVirtualKeyEvent(hold.keyCode, false);
+                if (!hold.pressed) {
+                    ClearPendingKeyHoldWaitsByKeyCode(hold.keyCode);
+                    it = activeVirtualKeyHolds_.erase(it);
+                    continue;
+                }
+            }
 
-    const std::uint64_t now = GetTickCount64();
-    for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
-        ActiveVirtualKeyHold& hold = *it;
-        if (!hold.pressed && now >= hold.pressAtMs) {
-            hold.pressed = SendVirtualKeyEvent(hold.keyCode, false);
-            if (!hold.pressed) {
+            if (hold.pressed && now >= hold.releaseAtMs) {
+                ReleaseVirtualKeyHold(hold);
                 it = activeVirtualKeyHolds_.erase(it);
                 continue;
             }
-        }
 
-        if (hold.pressed && now >= hold.releaseAtMs) {
-            ReleaseVirtualKeyHold(hold);
-            it = activeVirtualKeyHolds_.erase(it);
-            continue;
+            ++it;
         }
-
-        ++it;
     }
+
+    ProcessPendingKeyHoldWaits();
 }
 
 void TagsModule::QueuePendingDialogWait(
@@ -2785,6 +2978,97 @@ void TagsModule::ClearPendingDialogWait(std::uint64_t runtimeId) {
         pendingDialogWaits_.end());
 }
 
+void TagsModule::QueuePendingKeyHoldWait(std::uint64_t runtimeId, unsigned int keyCode, std::uint64_t releaseAtMs) const {
+    if (runtimeId == 0 || keyCode == 0 || releaseAtMs == 0) {
+        return;
+    }
+
+    pendingKeyHoldWaits_.push_back(PendingKeyHoldWait{ runtimeId, keyCode, releaseAtMs });
+}
+
+void TagsModule::ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) const {
+    if (keyCode == 0 || pendingKeyHoldWaits_.empty()) {
+        return;
+    }
+
+    std::vector<std::uint64_t> runtimesToResume;
+    for (const PendingKeyHoldWait& wait : pendingKeyHoldWaits_) {
+        if (wait.keyCode == keyCode && wait.runtimeId != 0) {
+            runtimesToResume.push_back(wait.runtimeId);
+        }
+    }
+
+    pendingKeyHoldWaits_.erase(
+        std::remove_if(
+            pendingKeyHoldWaits_.begin(),
+            pendingKeyHoldWaits_.end(),
+            [&](const PendingKeyHoldWait& wait) { return wait.keyCode == keyCode; }),
+        pendingKeyHoldWaits_.end());
+
+    if (!binderModule_) {
+        return;
+    }
+
+    for (const std::uint64_t runtimeId : runtimesToResume) {
+        if (runtimeId == 0
+            || !binderModule_->IsRuntimeActive(runtimeId)
+            || !binderModule_->IsRuntimePaused(runtimeId)
+            || HasPendingKeyHoldWait(runtimeId)
+            || HasPendingDialogWait(runtimeId)) {
+            continue;
+        }
+
+        binderModule_->ResumeRuntime(runtimeId);
+    }
+}
+
+bool TagsModule::HasPendingDialogWait(std::uint64_t runtimeId) const {
+    return runtimeId != 0
+        && std::any_of(
+            pendingDialogWaits_.begin(),
+            pendingDialogWaits_.end(),
+            [&](const PendingDialogWait& wait) { return wait.runtimeId == runtimeId; });
+}
+
+bool TagsModule::HasPendingKeyHoldWait(std::uint64_t runtimeId) const {
+    return runtimeId != 0
+        && std::any_of(
+            pendingKeyHoldWaits_.begin(),
+            pendingKeyHoldWaits_.end(),
+            [&](const PendingKeyHoldWait& wait) { return wait.runtimeId == runtimeId; });
+}
+
+void TagsModule::ProcessPendingKeyHoldWaits() {
+    if (pendingKeyHoldWaits_.empty() || !binderModule_) {
+        return;
+    }
+
+    const std::uint64_t now = GetTickCount64();
+    for (auto it = pendingKeyHoldWaits_.begin(); it != pendingKeyHoldWaits_.end();) {
+        const std::uint64_t runtimeId = it->runtimeId;
+        if (runtimeId == 0 || !binderModule_->IsRuntimeActive(runtimeId)) {
+            it = pendingKeyHoldWaits_.erase(it);
+            continue;
+        }
+
+        if (now < it->releaseAtMs) {
+            if (!binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->PauseRuntime(runtimeId);
+            }
+            ++it;
+            continue;
+        }
+
+        it = pendingKeyHoldWaits_.erase(it);
+        if (binderModule_->IsRuntimeActive(runtimeId)
+            && binderModule_->IsRuntimePaused(runtimeId)
+            && !HasPendingKeyHoldWait(runtimeId)
+            && !HasPendingDialogWait(runtimeId)) {
+            binderModule_->ResumeRuntime(runtimeId);
+        }
+    }
+}
+
 void TagsModule::ProcessPendingDialogWaits() {
     if (pendingDialogWaits_.empty() || !binderModule_) {
         return;
@@ -2802,7 +3086,7 @@ void TagsModule::ProcessPendingDialogWaits() {
 
         if (it->kind == PendingDialogWaitKind::Open) {
             if (dialogActive) {
-                if (binderModule_->IsRuntimePaused(runtimeId)) {
+                if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
                     binderModule_->ResumeRuntime(runtimeId);
                 }
                 it = pendingDialogWaits_.erase(it);
@@ -2825,7 +3109,7 @@ void TagsModule::ProcessPendingDialogWaits() {
 
         if (it->kind == PendingDialogWaitKind::SpecificId) {
             if (dialogActive && activeDialogId == it->expectedDialogId) {
-                if (binderModule_->IsRuntimePaused(runtimeId)) {
+                if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
                     binderModule_->ResumeRuntime(runtimeId);
                 }
                 it = pendingDialogWaits_.erase(it);
@@ -2852,7 +3136,7 @@ void TagsModule::ProcessPendingDialogWaits() {
         }
 
         if (!dialogActive) {
-            if (binderModule_->IsRuntimePaused(runtimeId)) {
+            if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
                 binderModule_->ResumeRuntime(runtimeId);
             }
             it = pendingDialogWaits_.erase(it);
@@ -3138,9 +3422,9 @@ void TagsModule::UpdateTargetTracker() {
     targetTracker_.lastId = targetId;
 }
 
-void TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const {
+std::uint64_t TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int holdDurationMs) const {
     if (keyCode == 0 || keyCode > 0xFF) {
-        return;
+        return 0;
     }
 
     const std::uint64_t now = GetTickCount64();
@@ -3150,6 +3434,7 @@ void TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int
     for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
         if (it->keyCode == keyCode) {
             ReleaseVirtualKeyHold(*it);
+            ClearPendingKeyHoldWaitsByKeyCode(keyCode);
             it = activeVirtualKeyHolds_.erase(it);
             continue;
         }
@@ -3162,6 +3447,7 @@ void TagsModule::QueueVirtualKeyHold(unsigned int keyCode, int startDelayMs, int
         releaseAtMs,
         false,
     });
+    return releaseAtMs;
 }
 
 void TagsModule::QueuePendingBindDelayOverride(std::uint64_t runtimeId, int delayMs) const {
@@ -3374,6 +3660,29 @@ std::optional<std::string> TagsModule::ResolveBuiltinMySkinTag(const EvaluationC
         return std::string();
     }
     return std::to_string(playerPed->m_nModelIndex);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinMyMoneyTag(const EvaluationContext&) const {
+    CPlayerPed* const playerPed = FindPlayerPed();
+    if (!playerPed) {
+        return std::string();
+    }
+
+    CPlayerInfo* const playerInfo = playerPed->GetPlayerInfoForThisPlayerPed();
+    if (!playerInfo) {
+        return std::string();
+    }
+
+    return std::to_string(playerInfo->m_nMoney);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinFpsTag(const EvaluationContext&) const {
+    if (!ImGui::GetCurrentContext()) {
+        return std::string("0");
+    }
+
+    const float fps = std::max(0.0f, ImGui::GetIO().Framerate);
+    return std::to_string(std::lround(fps));
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinGetVehTypeTag(const EvaluationContext&) const {
@@ -3707,6 +4016,140 @@ std::optional<std::string> TagsModule::ResolveBuiltinNumberWithDotsFunctionTag(
     std::string_view param,
     const EvaluationContext&) const {
     return FormatNumberWithDots(param);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArmourFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(*id);
+    if (!stats.valid) {
+        return std::string();
+    }
+    return FormatWholeStatValue(stats.armour);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinHealthFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(*id);
+    if (!stats.valid) {
+        return std::string();
+    }
+    return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::vector<std::string_view> parts = SplitTopLevelDelimitedParts(param, ';');
+    if (parts.size() != 2) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidFormat), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::optional<int> keyCode = ParseInteger(parts[0]);
+    if (!keyCode.has_value() || *keyCode < 1 || *keyCode > 0xFF) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidKey), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::optional<int> durationMs = ParseInteger(parts[1]);
+    if (!durationMs.has_value() || *durationMs < 1) {
+        if (context.allowSideEffects && binderModule_) {
+            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidDuration), true, 2800.0);
+        }
+        return std::string();
+    }
+
+    if (context.allowSideEffects) {
+        const std::uint64_t releaseAtMs =
+            QueueVirtualKeyHold(static_cast<UINT>(*keyCode), 0, *durationMs);
+        if (releaseAtMs != 0 && context.runningBindRuntimeId != 0 && binderModule_) {
+            binderModule_->PauseRuntime(context.runningBindRuntimeId);
+            QueuePendingKeyHoldWait(context.runningBindRuntimeId, static_cast<unsigned int>(*keyCode), releaseAtMs);
+        }
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinStrLowFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    return ToLowerUtf8(param);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinAddTimeFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    const std::optional<std::int64_t> deltaSeconds = ParseTimeOffsetSeconds(param);
+    if (!deltaSeconds.has_value()) {
+        return std::string();
+    }
+
+    const std::time_t now = std::time(nullptr);
+    return FormatCurrentTimeForTimestamp(now + static_cast<std::time_t>(*deltaSeconds), "%H:%M:%S");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinRandomFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    const std::vector<std::string_view> rawOptions = SplitTopLevelDelimitedParts(param, ';');
+    if (rawOptions.size() > 1) {
+        std::uniform_int_distribution<std::size_t> distribution(0, rawOptions.size() - 1);
+        return Unquote(Trim(rawOptions[distribution(TagRandomEngine())]));
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        std::uniform_int_distribution<int> distribution(kRandomMinInt, kRandomMaxInt);
+        return std::to_string(distribution(TagRandomEngine()));
+    }
+
+    if (const std::optional<std::pair<int, int>> range = ParseRandomIntegerRange(rawValue); range.has_value()) {
+        std::uniform_int_distribution<int> distribution(range->first, range->second);
+        return std::to_string(distribution(TagRandomEngine()));
+    }
+
+    if (const std::optional<int> parsed = ParseInteger(rawValue); parsed.has_value()) {
+        if (*parsed == 0) {
+            return std::string("0");
+        }
+
+        int minValue = 1;
+        int maxValue = *parsed;
+        if (maxValue < minValue) {
+            std::swap(minValue, maxValue);
+        }
+
+        std::uniform_int_distribution<int> distribution(minValue, maxValue);
+        return std::to_string(distribution(TagRandomEngine()));
+    }
+
+    return rawValue;
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinIfAndOrFunctionTag(
