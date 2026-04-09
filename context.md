@@ -1,7 +1,8 @@
 ﻿# Context
 
 ## Назначение проекта
-- `MyAsiMod` это нативный `ASI`-порт проекта `HelperByOrc` с Lua/MoonLoader на `C++` для `GTA San Andreas`.
+- `HelperByOrc` это нативный `ASI`-порт проекта `HelperByOrc` с Lua/MoonLoader на `C++` для `GTA San Andreas`.
+- Старое имя `MyAsiMod` считать устаревшим; в активных путях, имени проекта и документации использовать только `HelperByOrc`.
 - Runtime-имя плагина и пользовательских артефактов:
   - `HelperByOrc.asi`
   - `HelperByOrc.json`
@@ -13,18 +14,18 @@
 ## Текущее состояние
 - Активный проект собирается как `Win32` `ASI`-плагин.
 - Активный backend для хуков: `MinHook`.
-- `kthook` удалён из активного проекта и больше не используется в `MyAsiMod.vcxproj`.
+- `kthook` удалён из активного проекта и больше не используется в `HelperByOrc.vcxproj`.
 - `BlastHackNet/SAMP-API` добавлен в рабочую область как vendored reference:
-  - локальный путь: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\external\SAMP-API`
+  - локальный путь: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\external\SAMP-API`
   - upstream: `https://github.com/BlastHackNet/SAMP-API`
   - ветка в локальной копии: `multiver`
   - сейчас это reference/dependency для выборочного использования, но не обязательная часть активной сборки
 - `Dear ImGui` в активной сборке vendored из official upstream:
-  - локальный путь: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\external\imgui`
+  - локальный путь: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\external\imgui`
   - upstream: `https://github.com/ocornut/imgui`
   - текущая синхронизированная версия: `1.92.7`
 - `Font Awesome 7` иконки теперь доступны в активном `ImGui` UI:
-  - vendored runtime-данные: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\font_awesome7_data.h`
+  - vendored runtime-данные: `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\font_awesome7_data.h`
   - merge в основной `ImGui`-шрифт выполняется в `imgui_overlay.*`
   - Lua-референс по именам и base85-данным: `C:\Games\CODEX\HelperByOrc\lib\fAwesome7.lua`
 - Основные рабочие модули:
@@ -38,8 +39,8 @@
 - `tags_module` для отдельного нативного движка переменных/тегов и его UI во вкладке `Прочее`.
 - `text_encoding` для конвертации строк между внутренним `UTF-8` и игровой кодировкой.
 - В активной сборке есть `MinHook`-обвязка:
-  - `MyAsiMod/minhook_utils.h`
-- Архивный `_thirdparty/RakLua` не является частью активной сборки `MyAsiMod.vcxproj` и может содержать старые ссылки на `kthook`.
+  - `HelperByOrc/minhook_utils.h`
+- Архивный `_thirdparty/RakLua` не является частью активной сборки `HelperByOrc.vcxproj` и может содержать старые ссылки на `kthook`.
 
 ## Целевая среда
 - Игра: `GTA San Andreas 1.0 US`
@@ -52,23 +53,25 @@
 - Корень:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie`
 - Основной проект:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\MyAsiMod.vcxproj`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxproj`
 - Контейнер solution:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiModReshenie.slnx`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc.slnx`
 
 ## Локальный Git
 - Корень рабочей области `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie` теперь инициализирован как локальный `git`-репозиторий.
 - Этот `git` используется локально для diff/history; наличие `remote` не обязательно.
+- Любое обновление репозитория, включая `git commit`, `git push`, создание `PR` или другую публикацию изменений, выполнять только после явной команды пользователя `Зафиксируй изменения`.
+- До команды `Зафиксируй изменения` допустимы только локальные правки, просмотр diff/status, сборка и другие непубликующие проверки.
 - Базовый сценарий для локальной работы:
   - `git status`
   - `git diff`
-  - `git diff -- MyAsiMod/binder_module.cpp`
+  - `git diff -- HelperByOrc/binder_module.cpp`
 - Для новых крупных точек синхронизации допустимо делать отдельные локальные baseline-коммиты.
 - Generated/runtime-мусор не должен попадать в индекс:
   - `.claude/`
   - временные `_tmp*`-директории
   - `.vs/`
-  - build output (`MyAsiMod/build/`, `MyAsiMod/Release/`, `MyAsiMod/Debug/`, `MyAsiMod/external/plugin-sdk/output/`)
+  - build output (`HelperByOrc/build/`, `HelperByOrc/Release/`, `HelperByOrc/Debug/`, `HelperByOrc/external/plugin-sdk/output/`)
   - runtime-файлы `HelperByOrc.json` и `HelperByOrc.log`
 - Внутри рабочей области уже есть вложенные upstream-репозитории (`external/imgui`, `external/SAMP-API`, `external/plugin-sdk`, `external/memwrapper`, `_thirdparty/RakLua`, временные референсы). Корневой локальный `git` не должен индексировать их как `gitlink/submodule`; для корневого baseline они исключаются через `.gitignore`.
 
@@ -77,25 +80,25 @@
   - `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe`
 - Не рассчитывать на `msbuild` из `PATH`.
 - Собирать из директории:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc`
 - Команда сборки:
 
 ```powershell
-cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
-& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'MyAsiMod.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
+cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
 ```
 
 - Ожидаемый выходной файл:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\Release\HelperByOrc.asi`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\Release\HelperByOrc.asi`
 - Промежуточные файлы активного проекта теперь ожидаемо живут в:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\build\Debug`
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\build\Release`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\build\Debug`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\build\Release`
 - Для локальной проверки `C++`-изменений обязательной считать `Release|Win32`.
 - На момент обновления этого файла `Release|Win32` собирается успешно.
 
 ## Единый конфиг
 - Единый runtime-конфиг проекта:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\HelperByOrc.json`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.json`
 - Прямую запись в `.json` из отдельных модулей не делать.
 - Любой модуль должен писать в единый конфиг только через очередь мутаций `AppConfig`, чтобы запись на диск шла последовательно и не было одновременной записи из разных источников.
 - Для типового сценария модуль должен иметь собственную top-level секцию и обновлять её через `QueueSectionReplace(sectionName, value)`.
@@ -256,7 +259,7 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod
 - Lua-референс по `Font Awesome 7`:
   - `C:\Games\CODEX\HelperByOrc\lib\fAwesome7.lua`
 - Дополнительный typed reference по SA:MP:
-  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\MyAsiMod\external\SAMP-API`
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\external\SAMP-API`
 - Upstream этого reference:
   - `https://github.com/BlastHackNet/SAMP-API`
 - Upstream текущего `Dear ImGui`:

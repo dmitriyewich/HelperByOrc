@@ -2,7 +2,7 @@
   <Configurations>
     <Platform Name="Win32" />
   </Configurations>
-  <Project Path="MyAsiMod/MyAsiMod.vcxproj">
+  <Project Path="HelperByOrc/HelperByOrc.vcxproj">
     <Platform Solution="Debug|Win32" Project="Win32" />
     <Platform Solution="Release|Win32" Project="Win32" />
   </Project>
