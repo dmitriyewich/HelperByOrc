@@ -204,6 +204,8 @@ private:
     std::optional<std::string> ResolveBuiltinTargetRpNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetHealthTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetArmourTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClosestIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClosestIdToCenterTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClosestNameTag(const EvaluationContext& context) const;
@@ -231,6 +233,15 @@ private:
     std::optional<std::string> ResolveBuiltinDialogWaitCloseTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDialogGetIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickFunctionTag(std::string_view param, const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinRpNickFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinNameFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinSurnameFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinParamcmdFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
@@ -247,6 +258,9 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinSkinFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinKeyDownFunctionTag(

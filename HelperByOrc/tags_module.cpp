@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "binder_module.h"
+#include "debug_log.h"
 #include "hotkey_utils.h"
 #include "json_utils.h"
 #include "samp_api.h"
@@ -1698,6 +1699,10 @@ const CPed* FindPlayerPedBySampId(SampApi& sampApi, int id) {
         return nullptr;
     }
 
+    if (const void* resolvedPed = sampApi.GetPlayerPedPointer(id)) {
+        return reinterpret_cast<const CPed*>(resolvedPed);
+    }
+
     const int localId = sampApi.Local_ID();
     if (localId >= 0 && id == localId) {
         return FindPlayerPed();
@@ -2270,6 +2275,24 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "targethealth",
+        "{targethealth}",
+        "{targethealth}",
+        UiText::TagsBuiltinTargetHealthDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetHealthTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "targetarmour",
+        "{targetarmour}",
+        "{targetarmour}",
+        UiText::TagsBuiltinTargetArmourDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinTargetArmourTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "closestid",
         "{closestid}",
         "{closestid}",
@@ -2513,6 +2536,33 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        "rpnick",
+        "[rpnick(...)]",
+        "[rpnick(15)]",
+        UiText::TagsBuiltinRpNickFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinRpNickFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "name",
+        "[name(...)]",
+        "[name(15)]",
+        UiText::TagsBuiltinNameFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinNameFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "surname",
+        "[surname(...)]",
+        "[surname(15)]",
+        UiText::TagsBuiltinSurnameFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinSurnameFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
         "paramcmd",
         "[paramcmd(...)]",
         "[paramcmd(1+)]",
@@ -2564,6 +2614,15 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinHealthFunctionDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinHealthFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "skin",
+        "[skin(...)]",
+        "[skin(15)]",
+        UiText::TagsBuiltinSkinFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinSkinFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -3568,6 +3627,42 @@ std::optional<std::string> TagsModule::ResolveBuiltinTargetSurnameTag(const Eval
     return ExtractSurname(ResolveLastTargetNick(context));
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinTargetHealthTag(const EvaluationContext& context) const {
+    if (targetTracker_.lastId < 0) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(targetTracker_.lastId);
+    if (!stats.valid) {
+        return std::string();
+    }
+
+    return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinTargetArmourTag(const EvaluationContext& context) const {
+    if (targetTracker_.lastId < 0) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const SampApi::HealthAndArmour stats = sampApi->GetHealthAndArmour(targetTracker_.lastId);
+    if (!stats.valid) {
+        return std::string();
+    }
+
+    return FormatWholeStatValue(stats.armour);
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinClosestIdTag(const EvaluationContext& context) const {
     const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
     if (result.nearestId < 0) {
@@ -3855,6 +3950,36 @@ std::optional<std::string> TagsModule::ResolveBuiltinNickFunctionTag(
     return ResolvePlayerNickById(*id, context);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinRpNickFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+    return MakeRpNick(ResolvePlayerNickById(*id, context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinNameFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+    return ExtractName(ResolvePlayerNickById(*id, context));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinSurnameFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+    return ExtractSurname(ResolvePlayerNickById(*id, context));
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinParamcmdFunctionTag(
     std::string_view param,
     const EvaluationContext& context) const {
@@ -4047,6 +4172,82 @@ std::optional<std::string> TagsModule::ResolveBuiltinHealthFunctionTag(
         return std::string();
     }
     return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinSkinFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    const std::string paramText(param);
+    debuglog::Write("[skin] ----- begin param='%s' -----", paramText.c_str());
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        debuglog::Write(
+            "[skin] sampApi unavailable api=%d module=%d supported=%d",
+            sampApi ? 1 : 0,
+            (sampApi && sampApi->sampModule()) ? 1 : 0,
+            (sampApi && sampApi->isSupportedVersion()) ? 1 : 0);
+        return std::string();
+    }
+    debuglog::Write("[skin] sampApi ready version=%s", sampApi->currentVersionName());
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        debuglog::Write("[skin] ParseInteger failed param='%s'", paramText.c_str());
+        return std::string();
+    }
+    debuglog::Write("[skin] parsed id=%d", *id);
+
+    const int localId = sampApi->Local_ID();
+    debuglog::Write("[skin] Local_ID=%d", localId);
+    debuglog::Write("[skin] IsConnected(%d)=%d", *id, sampApi->IsConnected(*id) ? 1 : 0);
+
+    const CPed* ped = reinterpret_cast<const CPed*>(sampApi->GetPlayerPedPointer(*id, true, "skin"));
+    debuglog::Write("[skin] GetPlayerPedPointer result=0x%08X", reinterpret_cast<std::uint32_t>(ped));
+
+    if (!ped && localId >= 0 && *id == localId) {
+        ped = FindPlayerPed();
+        debuglog::Write("[skin] local fallback ped=0x%08X", reinterpret_cast<std::uint32_t>(ped));
+    }
+
+    if (!ped) {
+        auto* const pedPool = CPools::ms_pPedPool;
+        if (!pedPool || pedPool->m_nSize <= 0) {
+            debuglog::Write("[skin] ped pool unavailable for fallback scan");
+        } else {
+            debuglog::Write("[skin] fallback ped pool scan start size=%d", pedPool->m_nSize);
+            for (int index = 0; index < pedPool->m_nSize; ++index) {
+                CPed* const candidatePed = pedPool->GetAt(index);
+                if (!candidatePed) {
+                    continue;
+                }
+
+                const auto [matched, matchedId] = sampApi->getPedID(candidatePed);
+                if (matched && matchedId == *id) {
+                    ped = candidatePed;
+                    debuglog::Write(
+                        "[skin] fallback scan matched index=%d ped=0x%08X matchedId=%d",
+                        index,
+                        reinterpret_cast<std::uint32_t>(ped),
+                        matchedId);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!ped) {
+        debuglog::Write("[skin] result ped is null; returning empty");
+        return std::string();
+    }
+
+    const int pedHandle = CPools::GetPedRef(const_cast<CPed*>(ped));
+    debuglog::Write("[skin] CPools::GetPedRef=0x%X", pedHandle);
+
+    const int modelIndex = ped->m_nModelIndex;
+    debuglog::Write("[skin] ped=0x%08X m_nModelIndex=%d", reinterpret_cast<std::uint32_t>(ped), modelIndex);
+    debuglog::Write("[skin] ----- end success -----");
+    return std::to_string(modelIndex);
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(

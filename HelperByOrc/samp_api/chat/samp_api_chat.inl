@@ -45,50 +45,208 @@ std::pair<bool, int> SampApi::getPedID(const void* ped) {
     return id != 65535 ? std::make_pair(true, id) : std::make_pair(false, -1);
 }
 
-const void* SampApi::GetPlayerPedPointer(int id) {
+bool SampApi::ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace, const char* traceLabel) {
+    remotePlayer = 0;
+    const char* const label = traceLabel ? traceLabel : "trace";
+
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer begin id=%d", label, id);
+    }
+
     if (id < 0 || id > 1003) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer invalid id=%d", label, id);
+        }
+        return false;
+    }
+
+    const int localId = Local_ID();
+    if (localId >= 0 && id == localId) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer requested local player id=%d", label, id);
+        }
+        return false;
+    }
+
+    if (!IsConnected(id)) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer IsConnected=false id=%d", label, id);
+        }
+        return false;
+    }
+
+    std::uint32_t pool = 0;
+    if (!ResolvePedPool(pool) || pool == 0) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer ResolvePedPool failed", label);
+        }
+        return false;
+    }
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer pedPool=0x%08X", label, pool);
+    }
+
+    std::uint32_t slotPointer = 0;
+    if (!SafeRead(pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (static_cast<std::uint32_t>(id) * 4), slotPointer)
+        || slotPointer == 0) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer slot read failed id=%d", label, id);
+        }
+        return false;
+    }
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer slotPointer=0x%08X", label, slotPointer);
+    }
+
+    if (LooksLikeRemotePlayerPointer(slotPointer, currentVersion_, id)) {
+        remotePlayer = slotPointer;
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer direct remotePlayer=0x%08X", label, remotePlayer);
+        }
+        return true;
+    }
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer slot is not direct CRemotePlayer", label);
+    }
+
+    const std::uint32_t remotePlayerOffset = GetPlayerInfoRemotePlayerOffset(currentVersion_);
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer trying indirect offset=0x%X", label, remotePlayerOffset);
+    }
+
+    std::uint32_t indirectRemotePlayer = 0;
+    if (!SafeRead(slotPointer + remotePlayerOffset, indirectRemotePlayer) || indirectRemotePlayer == 0) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer indirect read failed", label);
+        }
+        return false;
+    }
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer indirectRemotePlayer=0x%08X", label, indirectRemotePlayer);
+    }
+
+    if (!LooksLikeRemotePlayerPointer(indirectRemotePlayer, currentVersion_, id)) {
+        if (trace) {
+            debuglog::Write("[%s] ResolveRemotePlayer indirect pointer failed id validation", label);
+        }
+        return false;
+    }
+
+    remotePlayer = indirectRemotePlayer;
+    if (trace) {
+        debuglog::Write("[%s] ResolveRemotePlayer resolved indirect remotePlayer=0x%08X", label, remotePlayer);
+    }
+    return true;
+}
+
+const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLabel) {
+    const char* const label = traceLabel ? traceLabel : "trace";
+
+    if (trace) {
+        debuglog::Write("[%s] GetPlayerPedPointer begin id=%d", label, id);
+    }
+
+    if (id < 0 || id > 1003) {
+        if (trace) {
+            debuglog::Write("[%s] GetPlayerPedPointer invalid id=%d", label, id);
+        }
         return nullptr;
     }
 
     const int localId = Local_ID();
     if (localId >= 0 && id == localId) {
-        return FindPlayerPed();
+        CPed* const localPed = FindPlayerPed();
+        if (trace) {
+            debuglog::Write("[%s] GetPlayerPedPointer local ped=0x%08X", label, reinterpret_cast<std::uint32_t>(localPed));
+        }
+        return localPed;
     }
 
     if (!IsConnected(id)) {
+        if (trace) {
+            debuglog::Write("[%s] GetPlayerPedPointer IsConnected=false id=%d", label, id);
+        }
         return nullptr;
     }
 
-    std::uint32_t pool = 0;
-    if (!ResolvePedPool(pool) || pool == 0) {
-        return nullptr;
-    }
+    auto tryResolveViaRemoteData = [&](bool requireIdMatch, bool logAttempt) -> const void* {
+        std::uint32_t pool = 0;
+        if (!ResolvePedPool(pool) || pool == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write("[%s] GetPlayerPedPointer remoteData fallback ResolvePedPool failed", label);
+            }
+            return nullptr;
+        }
 
-    std::uint32_t remotePlayer = 0;
-    if (!SafeRead(pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (id * 4), remotePlayer)
-        || remotePlayer == 0) {
-        return nullptr;
-    }
+        std::uint32_t slotPointer = 0;
+        if (!SafeRead(
+                pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (static_cast<std::uint32_t>(id) * 4),
+                slotPointer)
+            || slotPointer == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write("[%s] GetPlayerPedPointer remoteData fallback slot read failed", label);
+            }
+            return nullptr;
+        }
 
-    const std::uint32_t remotePedOffset = GetRemotePlayerPedOffset(currentVersion_);
-    if (remotePedOffset == 0) {
-        return nullptr;
-    }
+        const std::uint32_t remoteDataOffset = main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET.Get(currentVersion_);
+        std::uint32_t remoteData = 0;
+        if (!SafeRead(slotPointer + remoteDataOffset, remoteData) || remoteData == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write(
+                    "[%s] GetPlayerPedPointer remoteData fallback remoteData read failed slot=0x%08X offset=0x%X",
+                    label,
+                    slotPointer,
+                    remoteDataOffset);
+            }
+            return nullptr;
+        }
 
-    auto tryResolveGamePed = [&](std::uint32_t pedFieldOffset, bool requireIdMatch) -> const void* {
+        const std::uint32_t actorOffset = main_offsets.pSAMP_Actor.Get(currentVersion_);
         std::uint32_t sampPed = 0;
-        if (!SafeRead(remotePlayer + pedFieldOffset, sampPed) || sampPed == 0) {
+        if (!SafeRead(remoteData + actorOffset, sampPed) || sampPed == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write(
+                    "[%s] GetPlayerPedPointer remoteData fallback sampPed read failed remoteData=0x%08X actorOffset=0x%X",
+                    label,
+                    remoteData,
+                    actorOffset);
+            }
             return nullptr;
         }
 
         const std::uint32_t gtaPed = ReadGamePedFromSampPed(sampPed, currentVersion_);
         if (gtaPed == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write(
+                    "[%s] GetPlayerPedPointer remoteData fallback ReadGamePedFromSampPed failed sampPed=0x%08X",
+                    label,
+                    sampPed);
+            }
             return nullptr;
+        }
+
+        if (trace && logAttempt) {
+            debuglog::Write(
+                "[%s] GetPlayerPedPointer remoteData fallback slot=0x%08X remoteData=0x%08X sampPed=0x%08X gtaPed=0x%08X",
+                label,
+                slotPointer,
+                remoteData,
+                sampPed,
+                gtaPed);
         }
 
         if (requireIdMatch) {
             const auto [matched, matchedId] = getPedID(reinterpret_cast<const void*>(gtaPed));
             if (!matched || matchedId != id) {
+                if (trace && logAttempt) {
+                    debuglog::Write(
+                        "[%s] GetPlayerPedPointer remoteData fallback id validation failed matched=%d matchedId=%d expected=%d",
+                        label,
+                        matched ? 1 : 0,
+                        matchedId,
+                        id);
+                }
                 return nullptr;
             }
         }
@@ -96,8 +254,104 @@ const void* SampApi::GetPlayerPedPointer(int id) {
         return reinterpret_cast<const void*>(gtaPed);
     };
 
-    if (const void* ped = tryResolveGamePed(remotePedOffset, false)) {
+    std::uint32_t remotePlayer = 0;
+    if (!ResolveRemotePlayer(id, remotePlayer, trace, traceLabel) || remotePlayer == 0) {
+        if (trace) {
+            debuglog::Write("[%s] GetPlayerPedPointer ResolveRemotePlayer failed", label);
+        }
+
+        if (currentVersion_ == Version::DL_R1) {
+            if (trace) {
+                debuglog::Write("[%s] GetPlayerPedPointer trying DL remoteData fallback", label);
+            }
+
+            if (const void* ped = tryResolveViaRemoteData(true, true)) {
+                if (trace) {
+                    debuglog::Write(
+                        "[%s] GetPlayerPedPointer DL remoteData fallback success ped=0x%08X",
+                        label,
+                        reinterpret_cast<std::uint32_t>(ped));
+                }
+                return ped;
+            }
+        }
+
+        return nullptr;
+    }
+    if (trace) {
+        debuglog::Write("[%s] GetPlayerPedPointer remotePlayer=0x%08X", label, remotePlayer);
+    }
+
+    const std::uint32_t remotePedOffset = GetRemotePlayerPedOffset(currentVersion_);
+    if (trace) {
+        debuglog::Write("[%s] GetPlayerPedPointer primary remotePedOffset=0x%X", label, remotePedOffset);
+    }
+
+    auto tryResolveGamePed = [&](std::uint32_t pedFieldOffset, bool requireIdMatch, bool logAttempt) -> const void* {
+        std::uint32_t sampPed = 0;
+        if (!SafeRead(remotePlayer + pedFieldOffset, sampPed) || sampPed == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X sampPed read failed", label, pedFieldOffset);
+            }
+            return nullptr;
+        }
+        if (trace && logAttempt) {
+            debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X sampPed=0x%08X", label, pedFieldOffset, sampPed);
+        }
+
+        const std::uint32_t gtaPed = ReadGamePedFromSampPed(sampPed, currentVersion_);
+        if (gtaPed == 0) {
+            if (trace && logAttempt) {
+                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X ReadGamePedFromSampPed failed", label, pedFieldOffset);
+            }
+            return nullptr;
+        }
+        if (trace && logAttempt) {
+            debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X gtaPed=0x%08X", label, pedFieldOffset, gtaPed);
+        }
+
+        if (requireIdMatch) {
+            const auto [matched, matchedId] = getPedID(reinterpret_cast<const void*>(gtaPed));
+            if (!matched || matchedId != id) {
+                if (trace && logAttempt) {
+                    debuglog::Write(
+                        "[%s] GetPlayerPedPointer offset=0x%X id validation failed matched=%d matchedId=%d expected=%d",
+                        label,
+                        pedFieldOffset,
+                        matched ? 1 : 0,
+                        matchedId,
+                        id);
+                }
+                return nullptr;
+            }
+            if (trace && logAttempt) {
+                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X id validation ok", label, pedFieldOffset);
+            }
+        }
+
+        return reinterpret_cast<const void*>(gtaPed);
+    };
+
+    if (const void* ped = tryResolveGamePed(remotePedOffset, false, true)) {
+        if (trace) {
+            debuglog::Write("[%s] GetPlayerPedPointer primary success ped=0x%08X", label, reinterpret_cast<std::uint32_t>(ped));
+        }
         return ped;
+    }
+    if (trace) {
+        debuglog::Write("[%s] GetPlayerPedPointer primary path failed; entering scan fallback", label);
+    }
+
+    if (currentVersion_ == Version::DL_R1) {
+        if (const void* ped = tryResolveViaRemoteData(true, true)) {
+            if (trace) {
+                debuglog::Write(
+                    "[%s] GetPlayerPedPointer DL remoteData fallback success after primary fail ped=0x%08X",
+                    label,
+                    reinterpret_cast<std::uint32_t>(ped));
+            }
+            return ped;
+        }
     }
 
     // R5-era CRemotePlayer layouts differ from the older headers we bundle.
@@ -109,11 +363,21 @@ const void* SampApi::GetPlayerPedPointer(int id) {
             continue;
         }
 
-        if (const void* ped = tryResolveGamePed(pedFieldOffset, true)) {
+        if (const void* ped = tryResolveGamePed(pedFieldOffset, true, false)) {
+            if (trace) {
+                debuglog::Write(
+                    "[%s] GetPlayerPedPointer scan success offset=0x%X ped=0x%08X",
+                    label,
+                    pedFieldOffset,
+                    reinterpret_cast<std::uint32_t>(ped));
+            }
             return ped;
         }
     }
 
+    if (trace) {
+        debuglog::Write("[%s] GetPlayerPedPointer scan fallback failed", label);
+    }
     return nullptr;
 }
 

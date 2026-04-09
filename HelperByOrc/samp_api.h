@@ -256,7 +256,7 @@ public:
     bool is_chat_opened();
     int Local_ID();
     std::pair<bool, int> getPedID(const void* ped);
-    const void* GetPlayerPedPointer(int id);
+    const void* GetPlayerPedPointer(int id, bool trace = false, const char* traceLabel = nullptr);
     bool GetPlayerPosition(int id, float& x, float& y, float& z);
     int getChatMode();
     bool SetPageSize(int pageSize);
@@ -296,6 +296,7 @@ private:
     int GetCurrentDialogSelectedIndex();
     bool ResolveSampInfo(std::uint32_t& sampInfo) const;
     bool ResolvePedPool(std::uint32_t& pedPool) const;
+    bool ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace = false, const char* traceLabel = nullptr);
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;

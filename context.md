@@ -197,7 +197,8 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
 - Ниже перечислен полный текущий список полей `SampApi::main_offsets`, где для обязательных версий есть `0`.
 - `main_offsets.SAMP_SLOCALPLAYERID_OFFSET`:
   - для `DL-R1` сейчас `0`
-  - это влияет на `Local_ID()` и код, который от него зависит
+  - для `DL-R1` это валидный `member-offset`, потому что `CPlayerPool::m_nLocalPlayerId` лежит в начале структуры
+  - не считать это пропущенным адресом только из-за нулевого значения
 - `main_offsets.SAMP_INFO_OFFSET_Pools_Veh`:
   - для `R5-2` сейчас `0`
   - это валидный `member-offset`, потому что в `R5-2` `CNetGame::Pools::m_pVehicle` лежит в начале структуры
