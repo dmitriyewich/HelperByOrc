@@ -2503,15 +2503,6 @@ void TagsModule::InitializeRegistry() {
             return module.ResolveBuiltinDialogGetIdTag(context);
         });
 
-    tagRegistry_.RegisterSimple(
-        "getdialogid",
-        "{getdialogid}",
-        "{getdialogid}",
-        UiText::TagsBuiltinDialogGetIdDescription,
-        [](const TagsModule& module, const EvaluationContext& context) {
-            return module.ResolveBuiltinDialogGetIdTag(context);
-        });
-
     tagRegistry_.RegisterFunction(
         "nick",
         "[nick(...)]",

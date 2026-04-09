@@ -259,7 +259,7 @@ void ModApp::UpdateOverlayCursorMode() {
         desiredEnabled = true;
     }
 
-    if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
+    if (!desiredEnabled && overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
         return;
     }
 
