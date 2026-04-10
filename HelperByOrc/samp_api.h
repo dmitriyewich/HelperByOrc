@@ -29,7 +29,7 @@ public:
         R3_1,
         R4,
         R4_2,
-        R5_2,
+        R5_1,
         DL_R1,
     };
 
@@ -51,8 +51,12 @@ public:
 
     struct VersionedOffset {
         std::uint32_t R1 = 0;
+        std::uint32_t R2 = 0;
+        std::uint32_t R3 = 0;
         std::uint32_t R3_1 = 0;
-        std::uint32_t R5_2 = 0;
+        std::uint32_t R4 = 0;
+        std::uint32_t R4_2 = 0;
+        std::uint32_t R5_1 = 0;
         std::uint32_t DL_R1 = 0;
 
         std::uint32_t Get(Version version) const;

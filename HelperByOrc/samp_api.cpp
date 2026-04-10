@@ -191,10 +191,14 @@ bool SafeReadBuffer(std::uintptr_t address, void* data, std::size_t size) {
 std::uint32_t GetRemotePlayerPedOffset(SampApi::Version version) {
     switch (version) {
     case SampApi::Version::R1:
+    case SampApi::Version::R2:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CRemotePlayer, m_pPed));
+    case SampApi::Version::R3:
     case SampApi::Version::R3_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CRemotePlayer, m_pPed));
-    case SampApi::Version::R5_2:
+    case SampApi::Version::R4:
+    case SampApi::Version::R4_2:
+    case SampApi::Version::R5_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CRemotePlayer, m_pPed));
     case SampApi::Version::DL_R1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CRemotePlayer, m_pPed));
@@ -206,10 +210,14 @@ std::uint32_t GetRemotePlayerPedOffset(SampApi::Version version) {
 std::uint32_t GetPlayerInfoRemotePlayerOffset(SampApi::Version version) {
     switch (version) {
     case SampApi::Version::R1:
+    case SampApi::Version::R2:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CPlayerInfo, m_pPlayer));
+    case SampApi::Version::R3:
     case SampApi::Version::R3_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CPlayerInfo, m_pPlayer));
-    case SampApi::Version::R5_2:
+    case SampApi::Version::R4:
+    case SampApi::Version::R4_2:
+    case SampApi::Version::R5_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CPlayerInfo, m_pPlayer));
     case SampApi::Version::DL_R1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CPlayerInfo, m_pPlayer));
@@ -221,10 +229,14 @@ std::uint32_t GetPlayerInfoRemotePlayerOffset(SampApi::Version version) {
 std::uint32_t GetRemotePlayerIdOffset(SampApi::Version version) {
     switch (version) {
     case SampApi::Version::R1:
+    case SampApi::Version::R2:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CRemotePlayer, m_nId));
+    case SampApi::Version::R3:
     case SampApi::Version::R3_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CRemotePlayer, m_nId));
-    case SampApi::Version::R5_2:
+    case SampApi::Version::R4:
+    case SampApi::Version::R4_2:
+    case SampApi::Version::R5_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CRemotePlayer, m_nId));
     case SampApi::Version::DL_R1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CRemotePlayer, m_nId));
@@ -248,12 +260,21 @@ bool LooksLikeRemotePlayerPointer(std::uint32_t candidate, SampApi::Version vers
 }
 
 std::uint32_t GetSampPedGamePedOffset(SampApi::Version version) {
+    const std::uint32_t manualOffset = SampApi::main_offsets.pGTA_Ped.Get(version);
+    if (manualOffset != 0) {
+        return manualOffset;
+    }
+
     switch (version) {
     case SampApi::Version::R1:
+    case SampApi::Version::R2:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CPed, m_pGamePed));
+    case SampApi::Version::R3:
     case SampApi::Version::R3_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CPed, m_pGamePed));
-    case SampApi::Version::R5_2:
+    case SampApi::Version::R4:
+    case SampApi::Version::R4_2:
+    case SampApi::Version::R5_1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CPed, m_pGamePed));
     case SampApi::Version::DL_R1:
         return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CPed, m_pGamePed));

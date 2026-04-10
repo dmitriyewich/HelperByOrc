@@ -69,23 +69,37 @@
 - Для новых крупных точек синхронизации допустимо делать отдельные локальные baseline-коммиты.
 - Generated/runtime-мусор не должен попадать в индекс:
   - `.claude/`
+  - `.codex/`
   - временные `_tmp*`-директории
   - `.vs/`
   - build output (`HelperByOrc/build/`, `HelperByOrc/Release/`, `HelperByOrc/Debug/`, `HelperByOrc/external/plugin-sdk/output/`)
   - runtime-файлы `HelperByOrc.json` и `HelperByOrc.log`
 - Внутри рабочей области уже есть вложенные upstream-репозитории (`external/imgui`, `external/SAMP-API`, `external/plugin-sdk`, `external/memwrapper`, `_thirdparty/RakLua`, временные референсы). Корневой локальный `git` не должен индексировать их как `gitlink/submodule`; для корневого baseline они исключаются через `.gitignore`.
 
+## Журнал действий Codex
+- Для служебной памяти по проекту использовать только локальную папку:
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\.codex`
+- В `.codex` сохранять краткий журнал действий, принятых допущений и следующих шагов, чтобы было видно, что уже делалось по задаче.
+- Базовый файл журнала действий:
+  - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\.codex\actions.md`
+- `context.md` и файлы внутри `.codex` хранить в нормальном `UTF-8`.
+
 ## Сборка
-- Использовать `MSBuild` только по этому пути:
+- Актуальный проверенный путь к `MSBuild.exe` на этой машине:
   - `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe`
 - Не рассчитывать на `msbuild` из `PATH`.
+- Рабочий сценарий сборки для задач по этому проекту:
+  - только `build -> release`
+- Под `release` в этом проекте считать именно:
+  - `Release|Win32`
+- Не предлагать и не использовать `Debug` как основной целевой артефакт без отдельной явной просьбы.
 - Собирать из директории:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc`
 - Команда сборки:
 
 ```powershell
 cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
-& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
 ```
 
 - Ожидаемый выходной файл:
@@ -147,18 +161,27 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
 
 ## Версии SA:MP и адреса памяти
 
+### Канонические имена версий
+- В документации использовать канонические имена:
+  - `R5-1`
+  - `DL-R1`
+- Для этого проекта считать подтверждённым, что:
+  - `0.3.7 R5-1 == 0.3.7 R5-2` по адресам
+  - `0.3.DL-R1 == 0.3.DL-R1-2` по адресам
+- Если в текущем коде ещё встречаются legacy-имена `R5_2` или подпись `R5-2`, трактовать их как внутренний alias для канонической версии `R5-1` до отдельного переименования кода.
+
 ### Обязательные версии
 - Все versioned memory addresses и offsets нужно поддерживать для:
   - `R1`
   - `R3-1`
-  - `R5-2`
+  - `R5-1`
   - `DL-R1`
 
 ### Детект и формальная поддержка
 - В `SampApi::entryPoint` как поддерживаемые сейчас отмечены:
   - `R1`
   - `R3-1`
-  - `R5-2`
+  - `R5-1`
   - `DL-R1`
 - Версии `E`, `R2`, `R3`, `R4`, `R4-2` сейчас не считать целевыми.
 
@@ -170,12 +193,11 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
   - `R5-1`
   - `DL-R1`
 - Для текущего проекта это означает:
-  - `R1`, `R3-1`, `DL-R1` можно безопасно сверять с ним как с дополнительным референсом
-  - `R5-2` в нём явно не представлен, поэтому нельзя автоматически считать `R5-1 == R5-2`
-  - любой перенос адресов, layout-ов или классов из `R5-1` в `R5-2` нужно отдельно верифицировать
+  - `R1`, `R3-1`, `R5-1`, `DL-R1` можно безопасно сверять с ним как с дополнительным референсом
+  - текущая внутренняя колонка/alias `R5_2` в коде соответствует канонической версии `R5-1`
 
 ### Правило по новым адресам
-- Если добавляется новый `VersionedOffset`, он должен сразу иметь значения для `R1`, `R3-1`, `R5-2`, `DL-R1`.
+- Если добавляется новый `VersionedOffset`, он должен сразу иметь значения для `R1`, `R3-1`, `R5-1`, `DL-R1`.
 - Если какое-то значение пока неизвестно, это нужно:
   - оставить как `0`
   - отдельно явно зафиксировать в документации и в результате задачи
@@ -185,13 +207,13 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
 - `SampApi::VersionedOffset` хранит именно четыре целевые колонки:
   - `R1`
   - `R3_1`
-  - `R5_2`
+  - `R5_2` (legacy internal alias для `R5-1`)
   - `DL_R1`
 - Основной набор `SampApi::main_offsets` в целом ориентирован именно на эти четыре версии.
 - В `samp_rak_hooks.cpp` version-specific RakNet offsets (`handleRpc`, `stringWriteEncoder`, `stringReadDecoder`, `compressorPtr`) заполнены для всех четырёх целевых версий.
-- `main_offsets.rakclient_interface` для `R5-2` со значением `0` не считать отсутствующим адресом:
+- `main_offsets.rakclient_interface` для `R5-1` со значением `0` не считать отсутствующим адресом:
   - это подтверждено сравнением с `C:\Games\CODEX\AsiPluginTemplate\RakHook\source\RakHook\offsets.cpp`
-  - для `R5-2` это валидный `member-offset`, то есть `RakClientInterface*` читается прямо из начала `CNetGame`
+  - для `R5-1` это валидный `member-offset`, то есть `RakClientInterface*` читается прямо из начала `CNetGame`
 
 ### Известные пробелы по адресам
 - Ниже перечислен полный текущий список полей `SampApi::main_offsets`, где для обязательных версий есть `0`.
@@ -200,8 +222,8 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
   - для `DL-R1` это валидный `member-offset`, потому что `CPlayerPool::m_nLocalPlayerId` лежит в начале структуры
   - не считать это пропущенным адресом только из-за нулевого значения
 - `main_offsets.SAMP_INFO_OFFSET_Pools_Veh`:
-  - для `R5-2` сейчас `0`
-  - это валидный `member-offset`, потому что в `R5-2` `CNetGame::Pools::m_pVehicle` лежит в начале структуры
+  - для `R5-1` сейчас `0`
+  - это валидный `member-offset`, потому что в `R5-1` `CNetGame::Pools::m_pVehicle` лежит в начале структуры
   - не считать это пропущенным адресом только из-за нулевого значения
 - `main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET`:
   - для `R1` и `R3-1` сейчас `0`

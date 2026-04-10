@@ -254,21 +254,23 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         return reinterpret_cast<const void*>(gtaPed);
     };
 
+    const bool supportsRemoteDataFallback = currentVersion_ != Version::Unknown && currentVersion_ != Version::E;
+
     std::uint32_t remotePlayer = 0;
     if (!ResolveRemotePlayer(id, remotePlayer, trace, traceLabel) || remotePlayer == 0) {
         if (trace) {
             debuglog::Write("[%s] GetPlayerPedPointer ResolveRemotePlayer failed", label);
         }
 
-        if (currentVersion_ == Version::DL_R1) {
+        if (supportsRemoteDataFallback) {
             if (trace) {
-                debuglog::Write("[%s] GetPlayerPedPointer trying DL remoteData fallback", label);
+                debuglog::Write("[%s] GetPlayerPedPointer trying remoteData fallback after ResolveRemotePlayer fail", label);
             }
 
             if (const void* ped = tryResolveViaRemoteData(true, true)) {
                 if (trace) {
                     debuglog::Write(
-                        "[%s] GetPlayerPedPointer DL remoteData fallback success ped=0x%08X",
+                        "[%s] GetPlayerPedPointer remoteData fallback success ped=0x%08X",
                         label,
                         reinterpret_cast<std::uint32_t>(ped));
                 }
@@ -342,11 +344,11 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         debuglog::Write("[%s] GetPlayerPedPointer primary path failed; entering scan fallback", label);
     }
 
-    if (currentVersion_ == Version::DL_R1) {
+    if (supportsRemoteDataFallback) {
         if (const void* ped = tryResolveViaRemoteData(true, true)) {
             if (trace) {
                 debuglog::Write(
-                    "[%s] GetPlayerPedPointer DL remoteData fallback success after primary fail ped=0x%08X",
+                    "[%s] GetPlayerPedPointer remoteData fallback success after primary fail ped=0x%08X",
                     label,
                     reinterpret_cast<std::uint32_t>(ped));
             }

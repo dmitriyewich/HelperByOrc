@@ -28,11 +28,17 @@
 
 ## Сборка
 
-Используется `MSBuild` из Visual Studio 2022. Из корня репозитория:
+Используется актуальный локальный `MSBuild.exe` по пути:
+
+```text
+C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe
+```
+
+Из корня репозитория:
 
 ```powershell
 cd HelperByOrc
-& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' 'C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
 ```
 
 После успешной сборки плагин будет лежать по пути:
