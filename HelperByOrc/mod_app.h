@@ -10,6 +10,7 @@
 
 #include "imgui_overlay.h"
 #include "binder_module.h"
+#include "incoming_message_router.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -77,6 +78,7 @@ private:
     SampApi sampApi_{};
     SampHooks sampHooks_{};
     SampRakHooks sampRakHooks_{};
+    IncomingMessageRouter incomingMessageRouter_{};
     BinderModule binder_{};
     TagsModule tags_{};
 };

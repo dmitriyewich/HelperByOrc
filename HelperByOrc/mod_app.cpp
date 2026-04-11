@@ -202,10 +202,13 @@ void ModApp::OnProcessAttach(HMODULE module) {
         }
         return true;
     });
+    incomingMessageRouter_.SetSampHooks(&sampHooks_);
+    incomingMessageRouter_.SetSampRakHooks(&sampRakHooks_);
     binder_.OnProcessAttach(module);
     binder_.SetSampApi(&sampApi_);
     binder_.SetSampHooks(&sampHooks_);
     binder_.SetSampRakHooks(&sampRakHooks_);
+    binder_.SetIncomingMessageRouter(&incomingMessageRouter_);
     binder_.SetTagsModule(&tags_);
     tags_.SetBinderModule(&binder_);
 
@@ -224,6 +227,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
 
 void ModApp::Shutdown() {
     overlay_.Shutdown();
+    incomingMessageRouter_.Shutdown();
     binder_.Shutdown();
     tags_.Shutdown();
     AppConfig::Instance().Shutdown();
@@ -283,6 +287,7 @@ void ModApp::UpdateOverlayCursorMode() {
 
 void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
+    incomingMessageRouter_.Tick();
     binder_.Tick();
     tags_.Tick();
 

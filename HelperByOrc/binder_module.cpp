@@ -3,6 +3,7 @@
 #include "app_config.h"
 #include "debug_log.h"
 #include "hotkey_utils.h"
+#include "incoming_message_router.h"
 #include "json_utils.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
@@ -53,6 +54,7 @@ constexpr int kQuickMenuHeight = 360;
 constexpr double kQuickMenuSubmenuCloseGraceSeconds = 0.5;
 constexpr int kTextConfirmTimeoutMs = 5000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
+constexpr int kIncomingChatEchoGuardTimeoutMs = 1000;
 constexpr char kIconToggleOff[] = "\xEF\x88\x84";
 constexpr char kIconToggleOn[] = "\xEF\x88\x85";
 constexpr char kIconBolt[] = "\xEF\x83\xA7";
@@ -470,6 +472,11 @@ struct TextConfirmation {
     bool waitForResolution = true;
 };
 
+struct CommandConfirmation {
+    bool enabled = false;
+    bool waitForResolution = true;
+};
+
 struct HotkeyEntry {
     std::string label = UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
     std::vector<UINT> keys;
@@ -478,6 +485,7 @@ struct HotkeyEntry {
     std::vector<HotkeyInput> inputs;
     TextTrigger textTrigger;
     TextConfirmation textConfirmation;
+    CommandConfirmation commandConfirmation;
     std::vector<bool> conditions;
     std::vector<bool> quickConditions;
     bool repeatMode = false;
@@ -576,6 +584,12 @@ struct Toast {
 struct OutgoingGuard {
     std::string kind;
     std::string text;
+    double expiresAtMs = 0.0;
+};
+
+struct IncomingChatEchoGuard {
+    std::string text;
+    std::string localPlayerName;
     double expiresAtMs = 0.0;
 };
 
@@ -927,6 +941,10 @@ bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
         return true;
     }
     return ToLower(haystack).find(loweredNeedle) != std::string::npos;
+}
+
+bool EndsWith(std::string_view value, std::string_view suffix) {
+    return value.size() >= suffix.size() && value.substr(value.size() - suffix.size()) == suffix;
 }
 
 std::string EscapeBindTagToken(std::string_view value) {
@@ -1553,6 +1571,7 @@ struct BinderModule::Impl {
     SampApi* sampApi = nullptr;
     SampHooks* sampHooks = nullptr;
     SampRakHooks* sampRakHooks = nullptr;
+    IncomingMessageRouter* incomingMessageRouter = nullptr;
     TagsModule* tagsModule = nullptr;
 
     std::vector<std::unique_ptr<FolderNode>> folders{};
@@ -1561,7 +1580,7 @@ struct BinderModule::Impl {
     int nextFolderId = 1;
     std::uint64_t nextHotkeyRuntimeId = 1;
     bool configLoaded = false;
-    bool chatHookBound = false;
+    bool incomingMessageRouterBound = false;
     bool rakHooksBound = false;
 
     std::string bindSearch{};
@@ -1658,6 +1677,7 @@ struct BinderModule::Impl {
     std::vector<RunningBind> runningBinds{};
     std::deque<Toast> toasts{};
     std::vector<OutgoingGuard> outgoingGuards{};
+    std::vector<IncomingChatEchoGuard> incomingChatEchoGuards{};
     std::vector<PendingBindTagAction> pendingBindTagActions{};
 
     void EnsureInitialized();
@@ -1665,6 +1685,7 @@ struct BinderModule::Impl {
     void SetSampApi(SampApi* api);
     void SetSampHooks(SampHooks* hooks);
     void SetSampRakHooks(SampRakHooks* hooks);
+    void SetIncomingMessageRouter(IncomingMessageRouter* router);
     void SetTagsModule(TagsModule* module);
     void ConnectHooks();
     FolderNode* EnsureRootFolder();
@@ -1734,14 +1755,29 @@ struct BinderModule::Impl {
     void PruneOutgoingGuards();
     void RegisterOutgoingGuard(std::string kind, std::string text);
     bool ConsumeOutgoingGuard(std::string_view kind, std::string_view text);
+    void PruneIncomingChatEchoGuards();
+    std::string CurrentLocalPlayerName() const;
+    void RegisterIncomingChatEchoGuard(std::string text);
+    bool ConsumeIncomingChatEchoGuard(std::string_view normalizedText, std::string_view normalizedPrefixedText);
     std::string NormalizeActivationText(std::string_view text) const;
     bool MatchesActivationCommand(std::string_view input, std::string_view command) const;
+    bool TryBeginPendingConfirmation(
+        HotkeyEntry& hotkey,
+        std::string_view sourceKind,
+        const std::string& sourceText,
+        bool waitForResolution);
     bool OnOutgoingCommand(const std::string& text);
     void OnOutgoingChat(const std::string& text);
-    void OnIncomingTextMessage(const std::string& text, std::string_view source);
+    void OnIncomingMessage(const IncomingMessageEvent& message);
     void ExpireTextConfirmations();
     bool ActivatePendingTextConfirmations(UINT keyCode);
     bool MatchTextTrigger(const std::string& source, const HotkeyEntry& hotkey);
+    bool TryDispatchTextTriggerMatch(
+        int index,
+        HotkeyEntry& hotkey,
+        const std::string& sourceText,
+        std::string_view sourceKind,
+        double now);
     bool OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind);
     std::string ApplyInputValues(std::string text, const std::map<std::string, std::string>& values) const;
     std::vector<int> ResolveBindTagTargets(
@@ -1985,6 +2021,11 @@ void BinderModule::Impl::SetSampRakHooks(SampRakHooks* hooks) {
     ConnectHooks();
 }
 
+void BinderModule::Impl::SetIncomingMessageRouter(IncomingMessageRouter* router) {
+    incomingMessageRouter = router;
+    ConnectHooks();
+}
+
 void BinderModule::Impl::SetTagsModule(TagsModule* module) {
     tagsModule = module;
 }
@@ -1994,22 +2035,11 @@ std::uint64_t BinderModule::Impl::AllocateHotkeyRuntimeId() {
 }
 
 void BinderModule::Impl::ConnectHooks() {
-    if (!chatHookBound && sampHooks) {
-        sampHooks->AddOnChatMessageHandler([this](
-                                              int type,
-                                              const std::string& text,
-                                              const std::string& prefix,
-                                              std::uint32_t textColor,
-                                              std::uint32_t prefixColor) {
-            (void)type;
-            (void)textColor;
-            (void)prefixColor;
-            if (!prefix.empty()) {
-                OnIncomingTextMessage(prefix + " " + text, "incoming_server");
-            }
-            OnIncomingTextMessage(text, "incoming_server");
+    if (!incomingMessageRouterBound && incomingMessageRouter) {
+        incomingMessageRouter->AddOnMessageHandler([this](const IncomingMessageEvent& message) {
+            OnIncomingMessage(message);
         });
-        chatHookBound = true;
+        incomingMessageRouterBound = true;
     }
 
     if (!rakHooksBound && sampRakHooks) {
@@ -2019,11 +2049,6 @@ void BinderModule::Impl::ConnectHooks() {
         });
         sampRakHooks->AddOnSendChatHandler([this](std::string& text) {
             OnOutgoingChat(ToUtf8ForDisplay(text));
-            return true;
-        });
-        sampRakHooks->AddOnServerMessageHandler([this](std::int32_t& color, std::string& text) {
-            (void)color;
-            OnIncomingTextMessage(ToUtf8ForDisplay(text), "incoming_server");
             return true;
         });
         rakHooksBound = true;
@@ -2229,6 +2254,11 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     confirmation["wait_for_resolution"] = hotkey.textConfirmation.waitForResolution;
     object["text_confirmation"] = JsonValue(std::move(confirmation));
 
+    JsonObject commandConfirmation;
+    commandConfirmation["enabled"] = hotkey.commandConfirmation.enabled;
+    commandConfirmation["wait_for_resolution"] = hotkey.commandConfirmation.waitForResolution;
+    object["command_confirmation"] = JsonValue(std::move(commandConfirmation));
+
     JsonArray messages;
     for (const HotkeyMessage& message : hotkey.messages) {
         JsonObject item;
@@ -2298,6 +2328,12 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
             static_cast<UINT>(jsonutil::JsonNumberOr<double>(confirmation, "cancel_key", kDefaultCancelKey));
         hotkey.textConfirmation.waitForResolution =
             jsonutil::JsonBoolOr(confirmation, "wait_for_resolution", true);
+    }
+
+    if (const JsonObject* commandConfirmation = jsonutil::JsonObjectOrNull(&object, "command_confirmation")) {
+        hotkey.commandConfirmation.enabled = jsonutil::JsonBoolOr(commandConfirmation, "enabled", false);
+        hotkey.commandConfirmation.waitForResolution =
+            jsonutil::JsonBoolOr(commandConfirmation, "wait_for_resolution", true);
     }
 
     hotkey.messages.clear();
@@ -2497,6 +2533,7 @@ void BinderModule::Impl::ResetInputState() {
 void BinderModule::Impl::Tick() {
     EnsureInitialized();
     PruneOutgoingGuards();
+    PruneIncomingChatEchoGuards();
     ExpireTextConfirmations();
     UpdateQuickMenuState();
     ProcessHotkeys();
@@ -2514,6 +2551,7 @@ void BinderModule::Impl::Shutdown() {
     runningBinds.clear();
     toasts.clear();
     outgoingGuards.clear();
+    incomingChatEchoGuards.clear();
     pendingBindTagActions.clear();
     ResetInputState();
 }
@@ -3648,7 +3686,8 @@ void BinderModule::Impl::StartRunningBind(
     std::string activationSource,
     std::string activationText,
     std::string bindCommand) {
-    if (hotkey.runtimeId == 0 || FindRunningBind(hotkey.runtimeId) != nullptr) {
+    const bool alreadyRunning = FindRunningBind(hotkey.runtimeId) != nullptr;
+    if (hotkey.runtimeId == 0 || alreadyRunning) {
         return;
     }
 
@@ -3711,6 +3750,70 @@ bool BinderModule::Impl::ConsumeOutgoingGuard(std::string_view kind, std::string
     return false;
 }
 
+void BinderModule::Impl::PruneIncomingChatEchoGuards() {
+    const double now = static_cast<double>(GetTickCount64());
+    incomingChatEchoGuards.erase(
+        std::remove_if(incomingChatEchoGuards.begin(), incomingChatEchoGuards.end(), [&](const IncomingChatEchoGuard& guard) {
+            return guard.expiresAtMs <= now;
+        }),
+        incomingChatEchoGuards.end());
+}
+
+std::string BinderModule::Impl::CurrentLocalPlayerName() const {
+    if (!sampApi) {
+        return {};
+    }
+
+    const int localId = sampApi->Local_ID();
+    if (localId < 0) {
+        return {};
+    }
+
+    const std::string localName = Trim(sampApi->GetNameID(localId));
+    return EqualNoCase(localName, "UNKNOWN") ? std::string() : localName;
+}
+
+void BinderModule::Impl::RegisterIncomingChatEchoGuard(std::string text) {
+    text = NormalizeTriggerText(text);
+    if (text.empty()) {
+        return;
+    }
+
+    incomingChatEchoGuards.push_back(IncomingChatEchoGuard{
+        std::move(text),
+        CurrentLocalPlayerName(),
+        static_cast<double>(GetTickCount64() + kIncomingChatEchoGuardTimeoutMs),
+    });
+    while (incomingChatEchoGuards.size() > 64) {
+        incomingChatEchoGuards.erase(incomingChatEchoGuards.begin());
+    }
+}
+
+bool BinderModule::Impl::ConsumeIncomingChatEchoGuard(
+    std::string_view normalizedText,
+    std::string_view normalizedPrefixedText) {
+    const auto matchesGuard = [](std::string_view candidate, const IncomingChatEchoGuard& guard) {
+        if (candidate.empty() || guard.text.empty()) {
+            return false;
+        }
+        if (candidate == guard.text) {
+            return true;
+        }
+        if (guard.localPlayerName.empty()) {
+            return false;
+        }
+        return ContainsNoCase(candidate, guard.localPlayerName) && EndsWith(candidate, guard.text);
+    };
+
+    for (auto it = incomingChatEchoGuards.begin(); it != incomingChatEchoGuards.end(); ++it) {
+        if (matchesGuard(normalizedText, *it) || matchesGuard(normalizedPrefixedText, *it)) {
+            incomingChatEchoGuards.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string BinderModule::Impl::NormalizeActivationText(std::string_view text) const {
     return Trim(NormalizeLineEndings(text));
 }
@@ -3733,6 +3836,30 @@ bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::s
     return StartsWith(normalizedInput, normalizedCommand)
         && (normalizedInput.size() == normalizedCommand.size()
             || std::isspace(static_cast<unsigned char>(normalizedInput[normalizedCommand.size()])) != 0);
+}
+
+bool BinderModule::Impl::TryBeginPendingConfirmation(
+    HotkeyEntry& hotkey,
+    std::string_view sourceKind,
+    const std::string& sourceText,
+    bool waitForResolution) {
+    if (hotkey.waitingTextConfirmation || hotkey.awaitingInput || ConditionsBlock(hotkey.conditions, sampApi)) {
+        return false;
+    }
+
+    const double now = static_cast<double>(GetTickCount64());
+    hotkey.waitingTextConfirmation = true;
+    hotkey.pendingTriggerText = sourceText;
+    hotkey.pendingTriggerSource = std::string(sourceKind);
+    hotkey.textConfirmationDeadlineMs = waitForResolution ? 0.0 : now + kTextConfirmTimeoutMs;
+
+    const std::string confirmText = UiSettings::Instance().Format(
+        UiText::ToastConfirmPrompt,
+        hotkey.label.c_str(),
+        ::hotkeys::KeyName(hotkey.textConfirmation.key).c_str(),
+        ::hotkeys::KeyName(hotkey.textConfirmation.cancelKey).c_str());
+    PushToast(confirmText, ImVec4(0.55f, 0.30f, 0.10f, 0.95f), waitForResolution ? 4000.0 : 2500.0);
+    return true;
 }
 
 bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
@@ -3767,6 +3894,10 @@ bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
         }
         hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
         handled = true;
+        if (hotkey.commandConfirmation.enabled
+            && TryBeginPendingConfirmation(hotkey, "command", normalized, hotkey.commandConfirmation.waitForResolution)) {
+            continue;
+        }
         TryEnqueueHotkey(static_cast<int>(i), 0, "command", normalized);
     }
     return handled;
@@ -3777,15 +3908,49 @@ void BinderModule::Impl::OnOutgoingChat(const std::string& text) {
     if (normalized.empty() || ConsumeOutgoingGuard("chat", normalized)) {
         return;
     }
-    OnTextTriggerEvent(normalized, "outgoing_chat");
-}
-
-void BinderModule::Impl::OnIncomingTextMessage(const std::string& text, std::string_view source) {
-    const std::string normalized = NormalizeTriggerText(text);
-    if (normalized.empty() || ConsumeOutgoingGuard("echo", normalized)) {
+    if (!normalized.empty() && normalized.front() == '/') {
         return;
     }
-    OnTextTriggerEvent(normalized, source);
+    const bool handled = OnTextTriggerEvent(normalized, "outgoing_chat");
+    if (handled) {
+        RegisterIncomingChatEchoGuard(normalized);
+    }
+}
+
+void BinderModule::Impl::OnIncomingMessage(const IncomingMessageEvent& message) {
+    const std::string normalizedText = NormalizeTriggerText(message.text);
+    std::string normalizedPrefixedText;
+    if (!Trim(message.prefix).empty()) {
+        normalizedPrefixedText = NormalizeTriggerText(message.prefix + " " + message.text);
+    }
+
+    if (normalizedText.empty() || ConsumeOutgoingGuard("echo", normalizedText)) {
+        return;
+    }
+    if (ConsumeIncomingChatEchoGuard(normalizedText, normalizedPrefixedText)) {
+        return;
+    }
+
+    const double now = static_cast<double>(GetTickCount64());
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        HotkeyEntry& hotkey = hotkeys[i];
+        if (!hotkey.enabled) {
+            continue;
+        }
+
+        const std::string* matchedSource = nullptr;
+        if (MatchTextTrigger(normalizedText, hotkey)) {
+            matchedSource = &normalizedText;
+        } else if (!normalizedPrefixedText.empty() && MatchTextTrigger(normalizedPrefixedText, hotkey)) {
+            matchedSource = &normalizedPrefixedText;
+        }
+
+        if (!matchedSource) {
+            continue;
+        }
+
+        TryDispatchTextTriggerMatch(static_cast<int>(i), hotkey, *matchedSource, "incoming_server", now);
+    }
 }
 
 void BinderModule::Impl::ExpireTextConfirmations() {
@@ -3872,6 +4037,26 @@ bool BinderModule::Impl::MatchTextTrigger(const std::string& source, const Hotke
     return normalizedSource == normalizedTarget;
 }
 
+bool BinderModule::Impl::TryDispatchTextTriggerMatch(
+    int index,
+    HotkeyEntry& hotkey,
+    const std::string& sourceText,
+    std::string_view sourceKind,
+    double now) {
+    if (now < hotkey.debounceUntilMs) {
+        return false;
+    }
+
+    hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
+    if (hotkey.textConfirmation.enabled
+        && TryBeginPendingConfirmation(hotkey, sourceKind, sourceText, hotkey.textConfirmation.waitForResolution)) {
+        return true;
+    }
+
+    TryEnqueueHotkey(index, 0, sourceKind, sourceText);
+    return true;
+}
+
 bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind) {
     const double now = static_cast<double>(GetTickCount64());
     bool handled = false;
@@ -3880,31 +4065,7 @@ bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
         if (!hotkey.enabled || !MatchTextTrigger(sourceText, hotkey)) {
             continue;
         }
-        if (now < hotkey.debounceUntilMs) {
-            continue;
-        }
-
-        hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
-        handled = true;
-        if (hotkey.textConfirmation.enabled && !hotkey.waitingTextConfirmation && !hotkey.awaitingInput
-            && !ConditionsBlock(hotkey.conditions, sampApi)) {
-            hotkey.waitingTextConfirmation = true;
-            hotkey.pendingTriggerText = sourceText;
-            hotkey.pendingTriggerSource = std::string(sourceKind);
-            hotkey.textConfirmationDeadlineMs =
-                hotkey.textConfirmation.waitForResolution ? 0.0 : now + kTextConfirmTimeoutMs;
-
-            const std::string confirmText = UiSettings::Instance().Format(
-                UiText::ToastConfirmPrompt,
-                hotkey.label.c_str(),
-                ::hotkeys::KeyName(hotkey.textConfirmation.key).c_str(),
-                ::hotkeys::KeyName(hotkey.textConfirmation.cancelKey).c_str());
-            PushToast(confirmText, ImVec4(0.55f, 0.30f, 0.10f, 0.95f),
-                hotkey.textConfirmation.waitForResolution ? 4000.0 : 2500.0);
-            continue;
-        }
-
-        TryEnqueueHotkey(static_cast<int>(i), 0, sourceKind, sourceText);
+        handled = TryDispatchTextTriggerMatch(static_cast<int>(i), hotkey, sourceText, sourceKind, now) || handled;
     }
     return handled;
 }
@@ -4065,7 +4226,8 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation || IsHotkeyRunning(index)) {
+    const bool isRunning = IsHotkeyRunning(index);
+    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation || isRunning) {
         return false;
     }
 
@@ -4539,7 +4701,8 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
         errors.push_back(ui.Text(UiText::ValidationCommandRequired));
     }
 
-    if (current.textConfirmation.enabled && current.textConfirmation.key == current.textConfirmation.cancelKey) {
+    if ((current.textConfirmation.enabled || current.commandConfirmation.enabled)
+        && current.textConfirmation.key == current.textConfirmation.cancelKey) {
         errors.push_back(ui.Text(UiText::ValidationConfirmCancelKeysDifferent));
     }
 
@@ -6420,11 +6583,17 @@ void BinderModule::Impl::DrawEditorInline() {
                 editor.draft.repeatIntervalMs = 0;
             }
             ImGui::EndDisabled();
-            ImGui::SameLine();
+            ImGui::Spacing();
             ImGui::Checkbox(ui.Text(UiText::TextConfirmation), &editor.draft.textConfirmation.enabled);
-            if (editor.draft.textConfirmation.enabled) {
+            ImGui::Checkbox(ui.Text(UiText::CommandConfirmation), &editor.draft.commandConfirmation.enabled);
+            if (editor.draft.textConfirmation.enabled || editor.draft.commandConfirmation.enabled) {
                 ImGui::Spacing();
-                ImGui::Checkbox(ui.Text(UiText::WaitWithoutTimeout), &editor.draft.textConfirmation.waitForResolution);
+                if (editor.draft.textConfirmation.enabled) {
+                    ImGui::Checkbox(ui.Text(UiText::TriggerWaitWithoutTimeout), &editor.draft.textConfirmation.waitForResolution);
+                }
+                if (editor.draft.commandConfirmation.enabled) {
+                    ImGui::Checkbox(ui.Text(UiText::CommandWaitWithoutTimeout), &editor.draft.commandConfirmation.waitForResolution);
+                }
 
                 if (ImGui::BeginTable("##binder_editor_confirmation_keys", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
                     ImGui::TableSetupColumn("confirm", ImGuiTableColumnFlags_WidthStretch, 0.5f);
@@ -7871,6 +8040,10 @@ void BinderModule::SetSampHooks(SampHooks* sampHooks) {
 
 void BinderModule::SetSampRakHooks(SampRakHooks* sampRakHooks) {
     impl_->SetSampRakHooks(sampRakHooks);
+}
+
+void BinderModule::SetIncomingMessageRouter(IncomingMessageRouter* incomingMessageRouter) {
+    impl_->SetIncomingMessageRouter(incomingMessageRouter);
 }
 
 void BinderModule::SetTagsModule(TagsModule* tagsModule) {

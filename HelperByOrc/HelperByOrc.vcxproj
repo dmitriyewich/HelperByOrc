@@ -120,6 +120,7 @@
     <ClCompile Include="binder_module.cpp" />
     <ClCompile Include="debug_log.cpp" />
     <ClCompile Include="hotkey_utils.cpp" />
+    <ClCompile Include="incoming_message_router.cpp" />
     <ClCompile Include="imgui_overlay.cpp" />
     <ClCompile Include="json_utils.cpp" />
     <ClCompile Include="main.cpp" />
@@ -160,6 +161,7 @@
     <ClInclude Include="external\raknet\BitStream.h" />
     <ClInclude Include="external\raknet\RakClient.h" />
     <ClInclude Include="hotkey_utils.h" />
+    <ClInclude Include="incoming_message_router.h" />
     <ClInclude Include="imgui_overlay.h" />
     <ClInclude Include="json_utils.h" />
     <ClInclude Include="minhook_utils.h" />

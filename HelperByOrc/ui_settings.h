@@ -413,7 +413,7 @@
     X(EditorColumnMessage, "Сообщение", "Message") \
     X(EditorColumnPauseMs, "Пауза (мс)", "Pause (ms)") \
     X(EditorColumnDestination, "Куда", "Destination") \
-    X(EditorConfirmationHint, "После триггера бинд ждёт отдельные клавиши подтверждения и отклонения.", "After a trigger, the bind waits for separate confirm and cancel keys.") \
+    X(EditorConfirmationHint, "После активации по триггеру или команде бинд ждёт отдельные клавиши подтверждения и отклонения.", "After trigger or command activation, the bind waits for separate confirm and cancel keys.") \
     X(EditorMultiInputHint, "Каждая непустая строка станет отдельным шагом. Пустые строки игнорируются.", "Each non-empty line becomes a separate step. Empty lines are ignored.") \
     X(Enabled, "Включён", "Enabled") \
     X(Folder, "Папка", "Folder") \
@@ -436,7 +436,10 @@
     X(TextTrigger, "Триггер по тексту в чате", "Text trigger") \
     X(Command, "Команда", "Command") \
     X(TextConfirmation, "Требовать подтверждение по триггеру", "Require confirmation on trigger") \
+    X(CommandConfirmation, "Требовать подтверждение по команде", "Require confirmation on command") \
     X(WaitWithoutTimeout, "Дожидаться подтверждения или отклонения", "Wait for confirmation or rejection") \
+    X(TriggerWaitWithoutTimeout, "Дожидаться подтверждения или отклонения по триггеру", "Wait for confirmation or rejection on trigger") \
+    X(CommandWaitWithoutTimeout, "Дожидаться подтверждения или отклонения по команде", "Wait for confirmation or rejection on command") \
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
     X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
     X(Change, "Изменить", "Change") \

@@ -13,6 +13,7 @@ class SampApi;
 class SampHooks;
 class SampRakHooks;
 class TagsModule;
+class IncomingMessageRouter;
 
 class BinderModule {
 public:
@@ -35,6 +36,7 @@ public:
     void SetSampApi(SampApi* sampApi);
     void SetSampHooks(SampHooks* sampHooks);
     void SetSampRakHooks(SampRakHooks* sampRakHooks);
+    void SetIncomingMessageRouter(IncomingMessageRouter* incomingMessageRouter);
     void SetTagsModule(TagsModule* tagsModule);
 
     void Tick();

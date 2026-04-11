@@ -104,6 +104,8 @@ cd C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc
 
 - Ожидаемый выходной файл:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\Release\HelperByOrc.asi`
+- Бинарники и другие артефакты из `HelperByOrc\Release\` не копировать, не раскладывать по игровым папкам и не деплоить куда-либо автоматически.
+- Любое копирование `.asi`, `.pdb`, `.lib` или других release-артефактов из `Release` выполнять только после отдельной явной команды пользователя.
 - Промежуточные файлы активного проекта теперь ожидаемо живут в:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\build\Debug`
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\build\Release`
