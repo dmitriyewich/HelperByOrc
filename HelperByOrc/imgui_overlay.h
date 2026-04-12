@@ -30,6 +30,7 @@ public:
     void SetMenuOpen(bool open);
     bool IsMenuOpen() const;
     bool IsTextInputActive() const;
+    bool WantsUiCursor() const;
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
@@ -40,11 +41,13 @@ public:
 
 private:
     using EndSceneFn = HRESULT(__stdcall*)(IDirect3DDevice9*);
+    using PresentFn = HRESULT(__stdcall*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
     using ResetFn = HRESULT(__stdcall*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 
     static DWORD WINAPI InitializeThread(LPVOID param);
     static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
     static HRESULT __stdcall EndSceneDetour(IDirect3DDevice9* device);
+    static HRESULT __stdcall PresentDetour(IDirect3DDevice9* device, const RECT* sourceRect, const RECT* destRect, HWND overrideWindow, const RGNDATA* dirtyRegion);
     static HRESULT __stdcall ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters);
 
     bool InstallGraphicsHooks();
@@ -59,7 +62,6 @@ private:
     void RenderFrame(IDirect3DDevice9* device);
     bool HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lparam) const;
     bool IsMouseMessage(UINT message) const;
-    bool ShouldBlockGameInput(UINT message) const;
     HWND ResolveGameWindow(IDirect3DDevice9* device) const;
     bool IsPrimaryRenderTarget(IDirect3DDevice9* device) const;
     bool IsAuxiliaryUiVisible() const;
@@ -67,7 +69,9 @@ private:
     bool CanApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys, std::string* description = nullptr) const;
     bool ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys);
     bool WantsInputRouting() const;
-    bool WantsInputCapture() const;
+    bool WantsAuxiliaryUiCursor() const;
+    bool WantsTextInputCapture() const;
+    bool IsKeyboardMessage(UINT message) const;
 
     static inline ImGuiOverlay* self_ = nullptr;
 
@@ -91,7 +95,9 @@ private:
     hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
 
     void* endSceneTarget_ = nullptr;
+    void* presentTarget_ = nullptr;
     void* resetTarget_ = nullptr;
     static inline EndSceneFn originalEndScene_ = nullptr;
+    static inline PresentFn originalPresent_ = nullptr;
     static inline ResetFn originalReset_ = nullptr;
 };

@@ -22,7 +22,6 @@ constexpr float kLogoExpandedSize = 128.0f;
 constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
 constexpr int kSampCursorModeNone = 0;
-constexpr int kSampCursorModeLockCamAndControl = 2;
 constexpr int kSampCursorModeLockCam = 3;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
@@ -218,6 +217,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return binder_.OnWindowMessage(message, wparam, lparam);
     });
     overlay_.SetAuxiliaryUiVisibleCallback([this]() { return binder_.WantsOverlayRender(); });
+    overlay_.SetAuxiliaryInputCaptureCallback([this]() {
+        return binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
+    });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
     overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
@@ -252,18 +254,11 @@ void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
 }
 
 void ModApp::UpdateOverlayCursorMode() {
-    int desiredMode = kSampCursorModeNone;
-    bool desiredEnabled = false;
+    const bool wantsUiCursor = overlay_.WantsUiCursor();
+    const int desiredMode = wantsUiCursor ? kSampCursorModeLockCam : kSampCursorModeNone;
+    const bool desiredEnabled = wantsUiCursor;
 
-    if (overlay_.IsTextInputActive()) {
-        desiredMode = kSampCursorModeLockCamAndControl;
-        desiredEnabled = true;
-    } else if (overlay_.IsMenuOpen() || binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture()) {
-        desiredMode = kSampCursorModeLockCam;
-        desiredEnabled = true;
-    }
-
-    if (!desiredEnabled && overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
+    if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
         return;
     }
 

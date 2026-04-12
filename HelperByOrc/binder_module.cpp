@@ -18,6 +18,7 @@
 #include <game_sa/eScriptCommands.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <array>
@@ -80,6 +81,7 @@ constexpr char kIconTags[] = "\xEF\x80\xAC";
 constexpr char kIconSaveDisk[] = "\xEF\x83\x87";
 constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
 constexpr char kIconChevronRight[] = "\xEF\x81\x94";
+constexpr char kIconCheck[] = "\xEF\x80\x8C";
 constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
 constexpr char kDialogSelectionLocalChatColorTag[] = "{E2C063}";
 constexpr char kIconStar[] = "\xEF\x80\x86";
@@ -1652,6 +1654,7 @@ struct BinderModule::Impl {
 
     hotkeys::KeyTracker keyTracker{};
     std::vector<UINT> pressedKeys{};
+    std::array<bool, 256> asyncKeysDown{};
     hotkeys::Capture capture{};
     hotkeys::CapturePopupState capturePopupState{};
     CaptureTarget captureTarget = CaptureTarget::None;
@@ -1713,6 +1716,7 @@ struct BinderModule::Impl {
     bool WantsQuickMenuCursor() const;
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool ApplyCapturedKeys(const std::vector<UINT>& keys);
+    void SyncPressedKeysWithAsyncState();
     bool DescribeMainWindowHotkeyConflict(const std::vector<UINT>& keys, std::string& description);
     bool DescribeConflictWithMenuToggleHotkey(const std::vector<UINT>& keys, HotkeyMode mode, std::string& description) const;
     bool DescribeQuickMenuConflictWithMenuToggleHotkey(const std::vector<UINT>& keys, std::string& description) const;
@@ -2512,6 +2516,7 @@ void BinderModule::Impl::ResetQuickMenuVisualState() {
 void BinderModule::Impl::ResetInputState() {
     keyTracker.Reset();
     pressedKeys.clear();
+    asyncKeysDown.fill(false);
     capture.Stop();
     hotkeys::ResetCapturePopupState(capturePopupState);
     captureTarget = CaptureTarget::None;
@@ -2530,11 +2535,52 @@ void BinderModule::Impl::ResetInputState() {
     }
 }
 
+void BinderModule::Impl::SyncPressedKeysWithAsyncState() {
+    auto isKeyDown = [](UINT key) {
+        switch (key) {
+        case VK_CONTROL:
+            return (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0 || (GetAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
+        case VK_SHIFT:
+            return (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 || (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
+        case VK_MENU:
+            return (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0 || (GetAsyncKeyState(VK_RMENU) & 0x8000) != 0;
+        default:
+            return (GetAsyncKeyState(static_cast<int>(key)) & 0x8000) != 0;
+        }
+    };
+
+    bool changed = false;
+    for (UINT key = 1; key <= 0xFF; ++key) {
+        if (::hotkeys::NormalizeKey(key) != key || !::hotkeys::IsHotkeyKey(key)) {
+            continue;
+        }
+
+        const bool down = isKeyDown(key);
+        bool& wasDown = asyncKeysDown[static_cast<std::size_t>(key)];
+        if (down == wasDown) {
+            continue;
+        }
+
+        wasDown = down;
+        if (down) {
+            keyTracker.KeyDown(key);
+        } else {
+            keyTracker.KeyUp(key);
+        }
+        changed = true;
+    }
+
+    if (changed) {
+        pressedKeys = keyTracker.Ordered();
+    }
+}
+
 void BinderModule::Impl::Tick() {
     EnsureInitialized();
     PruneOutgoingGuards();
     PruneIncomingChatEchoGuards();
     ExpireTextConfirmations();
+    SyncPressedKeysWithAsyncState();
     UpdateQuickMenuState();
     ProcessHotkeys();
     ProcessRunningBinds();
@@ -4302,10 +4348,38 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
     case 2:
     {
         const std::string expandedText = expandWithTags(text);
-        RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
+        const auto previewText = [](std::string_view value) {
+            constexpr std::size_t kMaxPreviewLength = 96;
+            if (value.size() <= kMaxPreviewLength) {
+                return std::string(value);
+            }
+            return std::string(value.substr(0, kMaxPreviewLength - 3)) + "...";
+        };
+        const char* const sendKind = !expandedText.empty() && expandedText.front() == '/' ? "command" : "chat";
+        const std::string preview = previewText(expandedText);
+        debuglog::Write(
+            "Binder DoSend via_samp begin kind=%s len=%llu text=%s",
+            sendKind,
+            static_cast<unsigned long long>(expandedText.size()),
+            preview.c_str());
+        RegisterOutgoingGuard(sendKind, expandedText);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
-        if (!sampApi || !sampApi->send_chat(expandedText, true)) {
+        const bool ok = sampApi && sampApi->send_chat(expandedText, true);
+        if (!ok) {
+            const std::string error = sampApi ? sampApi->lastError() : "SampApi is null";
+            debuglog::Write(
+                "Binder DoSend via_samp failed kind=%s len=%llu text=%s error=%s",
+                sendKind,
+                static_cast<unsigned long long>(expandedText.size()),
+                preview.c_str(),
+                error.c_str());
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+        } else {
+            debuglog::Write(
+                "Binder DoSend via_samp ok kind=%s len=%llu text=%s",
+                sendKind,
+                static_cast<unsigned long long>(expandedText.size()),
+                preview.c_str());
         }
         break;
     }
@@ -7418,6 +7492,7 @@ void BinderModule::Impl::DrawQuickMenu() {
 
     ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
+    ImGui::SetNextWindowFocus();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
@@ -7425,6 +7500,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             UiSettings::Instance().Text(UiText::QuickMenuWindowTitle),
             persistentOpen ? &windowOpen : nullptr,
             ImGuiWindowFlags_NoCollapse)) {
+        ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+        ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
         quickMenuPos = ImGui::GetWindowPos();
         quickMenuSize = ImGui::GetWindowSize();
 
@@ -7518,10 +7595,13 @@ void BinderModule::Impl::DrawQuickMenu() {
         }
 
         ImGui::SetNextWindowPos(*position, ImGuiCond_Always);
+        ImGui::SetNextWindowFocus();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
         if (ImGui::Begin(("##quick_menu_sub_" + path).c_str(), nullptr, submenuFlags)) {
+            ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+            ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
             drawNode(drawNode, *node);
             const ImGuiHoveredFlags hoveredFlags = ImGuiHoveredFlags_RootAndChildWindows
                 | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem;
@@ -7779,12 +7859,26 @@ void BinderModule::Impl::DrawInputDialog() {
             focusAssigned = true;
         }
         ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_F, ImGuiInputFlags_Tooltip);
+        ImGui::SetNextItemWidth(-1.0f);
         InputTextWithHintString(
             "##input_search",
             ui.Text(UiText::InputDialogSearchHint),
             field.searchValue,
             ImGuiInputTextFlags_AutoSelectAll,
             128);
+    };
+    const auto drawButtonChoice = [&](const std::string& label, bool selected) {
+        if (selected) {
+            const ImVec4 activeColor = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+            ImGui::PushStyleColor(ImGuiCol_Button, activeColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, activeColor);
+        }
+        const bool clicked = ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f));
+        if (selected) {
+            ImGui::PopStyleColor(3);
+        }
+        return clicked;
     };
     const auto drawRegularButtonList = [&](InputDialogField& field, const std::vector<int>& shownButtons) -> bool {
         bool picked = false;
@@ -7795,10 +7889,13 @@ void BinderModule::Impl::DrawInputDialog() {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
                     const int buttonIndex = shownButtons[static_cast<std::size_t>(row)];
                     const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
-                    const std::string label = dialogButtonLabel(button, buttonIndex);
+                    std::string label = dialogButtonLabel(button, buttonIndex);
                     const bool selected =
                         field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
-                    if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(-FLT_MIN, 0.0f))) {
+                    if (selected && field.input.multiSelect) {
+                        label = std::string(kIconCheck) + " " + label;
+                    }
+                    if (drawButtonChoice(label, selected)) {
                         applyButtonSelection(field, buttonIndex);
                         picked = true;
                     }
@@ -7816,32 +7913,26 @@ void BinderModule::Impl::DrawInputDialog() {
     };
     const auto drawCompactButtonList = [&](InputDialogField& field, const std::vector<int>& shownButtons) -> bool {
         bool picked = false;
-        const bool useTwoColumns = shownButtons.size() >= 4 && ImGui::GetContentRegionAvail().x >= ScaleUi(420.0f);
         if (ImGui::BeginChild("##input_buttons_compact", ImVec2(0.0f, ScaleUi(176.0f)), ImGuiChildFlags_FrameStyle)) {
-            const float spacingX = ImGui::GetStyle().ItemSpacing.x;
-            const float availableWidth = ImGui::GetContentRegionAvail().x;
-            const float buttonWidth = useTwoColumns ? std::max(ScaleUi(120.0f), (availableWidth - spacingX) * 0.5f) : -FLT_MIN;
-            for (std::size_t shownIndex = 0; shownIndex < shownButtons.size(); ++shownIndex) {
-                const int buttonIndex = shownButtons[shownIndex];
-                const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
-                const bool selected =
-                    field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
-                if (selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                }
-                if (ImGui::Button(dialogButtonLabel(button, buttonIndex).c_str(), ImVec2(buttonWidth, 0.0f))) {
-                    applyButtonSelection(field, buttonIndex);
-                    picked = true;
-                }
-                if (selected) {
-                    ImGui::PopStyleColor(2);
-                }
-                if (!button.hint.empty() && ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", button.hint.c_str());
-                }
-                if (useTwoColumns && (shownIndex % 2) == 0 && shownIndex + 1 < shownButtons.size()) {
-                    ImGui::SameLine();
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(shownButtons.size()));
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const int buttonIndex = shownButtons[static_cast<std::size_t>(row)];
+                    const InputButton& button = field.input.buttons[static_cast<std::size_t>(buttonIndex)];
+                    std::string label = dialogButtonLabel(button, buttonIndex);
+                    const bool selected =
+                        field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
+                    if (selected && field.input.multiSelect) {
+                        label = std::string(kIconCheck) + " " + label;
+                    }
+                    if (drawButtonChoice(label, selected)) {
+                        applyButtonSelection(field, buttonIndex);
+                        picked = true;
+                    }
+                    if (!button.hint.empty() && ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", button.hint.c_str());
+                    }
                 }
             }
             if (shownButtons.empty()) {

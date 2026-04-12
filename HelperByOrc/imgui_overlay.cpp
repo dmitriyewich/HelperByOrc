@@ -80,7 +80,7 @@ ImFont* LoadOverlayFont(ImGuiIO& io) {
 HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
     if (self_ && !self_->shuttingDown_) {
         self_->InitializeImGuiIfNeeded(device);
-        if (self_->IsPrimaryRenderTarget(device)) {
+        if (!originalPresent_ && self_->IsPrimaryRenderTarget(device)) {
             self_->UpdateHotkeyState();
             if (self_->updateCallback_) {
                 self_->updateCallback_();
@@ -90,6 +90,26 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
     }
 
     return originalEndScene_ ? originalEndScene_(device) : D3D_OK;
+}
+
+HRESULT __stdcall ImGuiOverlay::PresentDetour(
+    IDirect3DDevice9* device,
+    const RECT* sourceRect,
+    const RECT* destRect,
+    HWND overrideWindow,
+    const RGNDATA* dirtyRegion) {
+    if (self_ && !self_->shuttingDown_) {
+        self_->InitializeImGuiIfNeeded(device);
+        if (self_->IsPrimaryRenderTarget(device)) {
+            self_->UpdateHotkeyState();
+            if (self_->updateCallback_) {
+                self_->updateCallback_();
+            }
+            self_->RenderFrame(device);
+        }
+    }
+
+    return originalPresent_ ? originalPresent_(device, sourceRect, destRect, overrideWindow, dirtyRegion) : D3D_OK;
 }
 
 HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters) {
@@ -150,6 +170,10 @@ bool ImGuiOverlay::IsMenuOpen() const {
 
 bool ImGuiOverlay::IsTextInputActive() const {
     return inputCaptureActive_;
+}
+
+bool ImGuiOverlay::WantsUiCursor() const {
+    return menuOpen_ || WantsAuxiliaryUiCursor();
 }
 
 std::string ImGuiOverlay::MenuToggleHotkeyText() const {
@@ -307,8 +331,10 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
     }
 
     endSceneTarget_ = vtable[42];
+    presentTarget_ = vtable[17];
     resetTarget_ = vtable[16];
     originalEndScene_ = nullptr;
+    originalPresent_ = nullptr;
     originalReset_ = nullptr;
 
     if (!minhook::CreateAndEnableHook(
@@ -317,6 +343,22 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
             &originalEndScene_,
             "IDirect3DDevice9::EndScene")) {
         endSceneTarget_ = nullptr;
+        presentTarget_ = nullptr;
+        resetTarget_ = nullptr;
+        dummyDevice->Release();
+        DestroyWindow(dummyWindow);
+        return false;
+    }
+
+    if (!minhook::CreateAndEnableHook(
+            presentTarget_,
+            reinterpret_cast<void*>(&PresentDetour),
+            &originalPresent_,
+            "IDirect3DDevice9::Present")) {
+        minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+        endSceneTarget_ = nullptr;
+        originalEndScene_ = nullptr;
+        presentTarget_ = nullptr;
         resetTarget_ = nullptr;
         dummyDevice->Release();
         DestroyWindow(dummyWindow);
@@ -328,9 +370,13 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
             reinterpret_cast<void*>(&ResetDetour),
             &originalReset_,
             "IDirect3DDevice9::Reset")) {
+        minhook::DisableAndRemoveHook(presentTarget_, "IDirect3DDevice9::Present");
         minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+        endSceneTarget_ = nullptr;
         originalEndScene_ = nullptr;
+        originalPresent_ = nullptr;
         originalReset_ = nullptr;
+        presentTarget_ = nullptr;
         resetTarget_ = nullptr;
         dummyDevice->Release();
         DestroyWindow(dummyWindow);
@@ -338,7 +384,11 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
     }
 
     hooksInstalled_ = true;
-    debuglog::Write("D3D9 hooks installed via MinHook. EndScene=%p Reset=%p", endSceneTarget_, resetTarget_);
+    debuglog::Write(
+        "D3D9 hooks installed via MinHook. EndScene=%p Present=%p Reset=%p",
+        endSceneTarget_,
+        presentTarget_,
+        resetTarget_);
 
     dummyDevice->Release();
     DestroyWindow(dummyWindow);
@@ -553,7 +603,11 @@ bool ImGuiOverlay::WantsInputRouting() const {
     return menuOpen_ || IsAuxiliaryUiVisible();
 }
 
-bool ImGuiOverlay::WantsInputCapture() const {
+bool ImGuiOverlay::WantsAuxiliaryUiCursor() const {
+    return auxiliaryInputCaptureCallback_ ? auxiliaryInputCaptureCallback_() : false;
+}
+
+bool ImGuiOverlay::WantsTextInputCapture() const {
     return inputCaptureActive_;
 }
 
@@ -567,7 +621,7 @@ void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
         inputCaptureChangedCallback_(captured);
     }
 
-    debuglog::Write("ImGui input capture: %s", captured ? "enabled" : "disabled");
+    debuglog::Write("ImGui text input capture: %s", captured ? "enabled" : "disabled");
 }
 
 void ImGuiOverlay::UpdateInputCaptureState() {
@@ -629,7 +683,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 }
 
 bool ImGuiOverlay::HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lparam) const {
-    if (!imguiInitialized_ || !WantsInputCapture() || ImGui::GetCurrentContext() == nullptr) {
+    if (!imguiInitialized_ || !WantsTextInputCapture() || ImGui::GetCurrentContext() == nullptr) {
         return false;
     }
 
@@ -702,6 +756,7 @@ bool ImGuiOverlay::HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lp
 
 bool ImGuiOverlay::IsMouseMessage(UINT message) const {
     switch (message) {
+    case WM_SETCURSOR:
     case WM_MOUSEMOVE:
     case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL:
@@ -723,29 +778,16 @@ bool ImGuiOverlay::IsMouseMessage(UINT message) const {
     }
 }
 
-bool ImGuiOverlay::ShouldBlockGameInput(UINT message) const {
+bool ImGuiOverlay::IsKeyboardMessage(UINT message) const {
     switch (message) {
-    case WM_MOUSEMOVE:
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONUP:
-    case WM_LBUTTONDBLCLK:
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_RBUTTONDBLCLK:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
-    case WM_MBUTTONDBLCLK:
-    case WM_XBUTTONDOWN:
-    case WM_XBUTTONUP:
-    case WM_XBUTTONDBLCLK:
     case WM_KEYDOWN:
     case WM_KEYUP:
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
     case WM_CHAR:
     case WM_SYSCHAR:
+    case WM_IME_CHAR:
+    case WM_IME_COMPOSITION:
         return true;
     default:
         return false;
@@ -763,21 +805,23 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
         }
 
         if (self_->WantsInputRouting()) {
-            const bool wantsCapture = self_->WantsInputCapture();
-            if (wantsCapture && self_->HandleTextInputMessage(message, wparam, lparam)) {
+            const bool wantsUiCursor = self_->WantsUiCursor();
+            const bool wantsTextInput = self_->WantsTextInputCapture();
+            if (wantsTextInput && self_->HandleTextInputMessage(message, wparam, lparam)) {
                 return TRUE;
             }
 
-            const bool imguiHandled = ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam) != 0;
-            if (wantsCapture) {
-                if (imguiHandled || self_->ShouldBlockGameInput(message)) {
-                    return TRUE;
-                }
-            } else if (ImGui::GetCurrentContext() != nullptr) {
+            ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam);
+            if (ImGui::GetCurrentContext() != nullptr) {
                 const ImGuiIO& io = ImGui::GetIO();
-                if (io.WantCaptureMouse && self_->IsMouseMessage(message)) {
+                const bool wantsMouseCapture = wantsUiCursor || io.WantCaptureMouse;
+                const bool wantsKeyboardCapture = wantsTextInput || io.WantCaptureKeyboard;
+                if ((wantsMouseCapture && self_->IsMouseMessage(message))
+                    || (wantsKeyboardCapture && self_->IsKeyboardMessage(message))) {
                     return TRUE;
                 }
+            } else if (wantsUiCursor && self_->IsMouseMessage(message)) {
+                return TRUE;
             }
         }
     }
@@ -798,9 +842,14 @@ void ImGuiOverlay::Shutdown() {
     CleanupImGui();
 
     minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+    minhook::DisableAndRemoveHook(presentTarget_, "IDirect3DDevice9::Present");
     minhook::DisableAndRemoveHook(resetTarget_, "IDirect3DDevice9::Reset");
     originalEndScene_ = nullptr;
+    originalPresent_ = nullptr;
     originalReset_ = nullptr;
+    endSceneTarget_ = nullptr;
+    presentTarget_ = nullptr;
+    resetTarget_ = nullptr;
     hooksInstalled_ = false;
 
     if (initThread_) {
