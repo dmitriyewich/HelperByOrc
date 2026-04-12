@@ -123,7 +123,6 @@ void SampApi::Refresh() {
         DetectVersion();
     }
 
-    RefreshArizonaChatModule();
 }
 
 bool SampApi::isSampLoadedLua() {
@@ -274,13 +273,6 @@ SampApi::FunctionBackendStatus SampApi::getFunctionBackendStatus() const {
         status.globals.push_back({ name, "custom" });
     }
 
-    if (status.desired == BACKEND_ARIZONA) {
-        for (const char* name : kArizonaNativePriorityNames) {
-            status.requiredNativeGlobals.emplace_back(name);
-            status.missingRequiredNativeGlobals.emplace_back(name);
-        }
-    }
-
     return status;
 }
 
@@ -290,19 +282,6 @@ bool SampApi::installSampfuncsCompat(std::string_view mode) {
 
 void SampApi::onTerminate() {
     restoreOriginalFunctionGlobals();
-}
-
-bool SampApi::arizonaOpenPhoneApp(std::string_view appId) {
-    const std::string action = "launchedApp|" + std::string(appId);
-
-    BitStream bitStream;
-    bitStream.Write(static_cast<std::int8_t>(220));
-    bitStream.Write(static_cast<std::int8_t>(18));
-    bitStream.Write(static_cast<std::int32_t>(action.size()));
-    bitStream.Write(action.data(), static_cast<int>(action.size()));
-    bitStream.Write(static_cast<std::int32_t>(0));
-
-    return sendPacket(bitStream, HIGH_PRIORITY, UNRELIABLE_SEQUENCED, 1);
 }
 
 HMODULE SampApi::sampModule() const {

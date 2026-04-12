@@ -8,7 +8,6 @@
 
 #include "external/raknet/RakClient.h"
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -180,7 +179,6 @@ public:
     static constexpr std::size_t entryPointCount = 9;
     static constexpr const char* BACKEND_STANDARD = "standard";
     static constexpr const char* BACKEND_SAMPFUNCS = "sampfuncs";
-    static constexpr const char* BACKEND_ARIZONA = "arizona";
     static constexpr int DIALOG_STYLE_MSGBOX = static_cast<int>(DialogStyle::MsgBox);
     static constexpr int DIALOG_STYLE_INPUT = static_cast<int>(DialogStyle::Input);
     static constexpr int DIALOG_STYLE_LIST = static_cast<int>(DialogStyle::List);
@@ -279,7 +277,6 @@ public:
     FunctionBackendStatus getFunctionBackendStatus() const;
     bool installSampfuncsCompat(std::string_view mode);
     void onTerminate();
-    bool arizonaOpenPhoneApp(std::string_view appId);
 
     HMODULE sampModule() const;
     Version currentVersion() const;
@@ -304,12 +301,6 @@ private:
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
-    void RefreshArizonaChatModule();
-    void StartArizonaChatScan(std::uintptr_t moduleBase);
-    bool ReadArizonaChatInputText(std::string& outText) const;
-    bool WriteArizonaChatInputText(std::string_view gameText);
-    bool SetArizonaChatInputDirty(bool dirty);
-
     HMODULE sampModule_ = nullptr;
     bool versionResolved_ = false;
     Version currentVersion_ = Version::Unknown;
@@ -321,10 +312,4 @@ private:
     int dialogHookBypassDepth_ = 0;
     std::string functionBackendMode_ = BACKEND_STANDARD;
     std::string functionBackendActive_ = BACKEND_STANDARD;
-    std::atomic<std::uintptr_t> arizonaChatModuleBase_{ 0 };
-    std::atomic<std::uintptr_t> arizonaChatStringObject_{ 0 };
-    std::atomic<std::uintptr_t> arizonaChatDirtyFlag_{ 0 };
-    std::atomic<std::uintptr_t> arizonaChatProcessInput_{ 0 };
-    std::atomic<std::uint32_t> arizonaChatScanTicket_{ 0 };
-    std::atomic<int> arizonaChatScanState_{ 0 };
 };

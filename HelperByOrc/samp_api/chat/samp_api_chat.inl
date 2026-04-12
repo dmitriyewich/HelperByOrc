@@ -500,17 +500,35 @@ SampApi::HealthAndArmour SampApi::GetHealthAndArmour(int id) {
 }
 
 bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
+    const auto previewText = [](std::string_view value) {
+        constexpr std::size_t kMaxPreviewLength = 96;
+        if (value.size() <= kMaxPreviewLength) {
+            return std::string(value);
+        }
+        return std::string(value.substr(0, kMaxPreviewLength - 3)) + "...";
+    };
+    const std::string rawPreview = previewText(text);
+    debuglog::Write(
+        "SampApi::send_chat begin decoded=%d len=%llu text=%s",
+        alreadyDecoded ? 1 : 0,
+        static_cast<unsigned long long>(text.size()),
+        rawPreview.c_str());
+
     if (text.empty()) {
+        debuglog::Write("SampApi::send_chat failed: input text is empty");
         SetError("Chat text is empty");
         return false;
     }
 
     if (!isSAMPInitilizeLua()) {
+        debuglog::Write("SampApi::send_chat failed during init: %s", lastError().c_str());
         return false;
     }
 
     std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
+    const std::string gamePreview = previewText(gameText);
     if (gameText.empty()) {
+        debuglog::Write("SampApi::send_chat failed: prepared text is empty");
         SetError("Chat text is empty after conversion");
         return false;
     }
@@ -518,36 +536,65 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
     const auto sendCommandAddress = GetAddress(main_offsets.CInput_Send);
     const auto sendSayAddress = GetAddress(main_offsets.CInput_SendSay);
     if (sendCommandAddress == 0 || sendSayAddress == 0) {
+        debuglog::Write(
+            "SampApi::send_chat failed: send routines unavailable send=0x%08X sendSay=0x%08X",
+            static_cast<unsigned>(sendCommandAddress),
+            static_cast<unsigned>(sendSayAddress));
         SetError("SAMP chat send routines are not available");
         return false;
     }
 
     if (!gameText.empty() && gameText.front() == '/') {
+        debuglog::Write(
+            "SampApi::send_chat branch=command send=0x%08X len=%llu text=%s",
+            static_cast<unsigned>(sendCommandAddress),
+            static_cast<unsigned long long>(gameText.size()),
+            gamePreview.c_str());
         std::uint32_t input = 0;
         if (!ResolveChatInput(input) || input == 0) {
+            debuglog::Write("SampApi::send_chat failed: command input pointer is null");
             SetError("SAMP chat input pointer is null");
             return false;
         }
 
+        debuglog::Write("SampApi::send_chat command input=0x%08X", input);
         const auto sendCommand = reinterpret_cast<SendInputFn>(sendCommandAddress);
         if (!CallSendInput(sendCommand, reinterpret_cast<void*>(input), gameText.c_str())) {
+            debuglog::Write(
+                "SampApi::send_chat failed: CallSendInput(command) raised SEH input=0x%08X send=0x%08X text=%s",
+                input,
+                static_cast<unsigned>(sendCommandAddress),
+                gamePreview.c_str());
             SetError("Failed to send SAMP command");
             return false;
         }
     } else {
         auto* playerPed = FindPlayerPed();
+        debuglog::Write(
+            "SampApi::send_chat branch=chat sendSay=0x%08X ped=%p len=%llu text=%s",
+            static_cast<unsigned>(sendSayAddress),
+            playerPed,
+            static_cast<unsigned long long>(gameText.size()),
+            gamePreview.c_str());
         if (!playerPed) {
+            debuglog::Write("SampApi::send_chat failed: player ped was not found");
             SetError("Player ped was not found");
             return false;
         }
 
         const auto sendSay = reinterpret_cast<SendInputFn>(sendSayAddress);
         if (!CallSendInput(sendSay, playerPed, gameText.c_str())) {
+            debuglog::Write(
+                "SampApi::send_chat failed: CallSendInput(chat) raised SEH ped=%p sendSay=0x%08X text=%s",
+                playerPed,
+                static_cast<unsigned>(sendSayAddress),
+                gamePreview.c_str());
             SetError("Failed to send SAMP chat message");
             return false;
         }
     }
 
+    debuglog::Write("SampApi::send_chat ok");
     ClearError();
     return true;
 }
@@ -570,39 +617,6 @@ bool SampApi::process_chat_input(std::string_view text, bool alreadyDecoded) {
     if (gameText.empty()) {
         SetError("Chat text is empty after conversion");
         return false;
-    }
-
-    RefreshArizonaChatModule();
-    if (arizonaChatModuleBase_.load() != 0) {
-        const auto scanState = static_cast<ArizonaChatScanState>(arizonaChatScanState_.load());
-        if (scanState == ArizonaChatScanState::Idle || scanState == ArizonaChatScanState::Scanning) {
-            SetError("Arizona chat signature scan is still in progress");
-            return false;
-        }
-        if (scanState == ArizonaChatScanState::Failed) {
-            SetError("Arizona chat input buffer was not found");
-            return false;
-        }
-
-        if (!WriteArizonaChatInputText(gameText)) {
-            SetError("Failed to set Arizona chat input text");
-            return false;
-        }
-
-        const auto arizonaProcessInputAddr = arizonaChatProcessInput_.load();
-        if (arizonaProcessInputAddr == 0) {
-            SetError("Arizona chat process input routine is not available");
-            return false;
-        }
-
-        const auto arizonaProcessInput = reinterpret_cast<ArizonaProcessInputFn>(arizonaProcessInputAddr);
-        if (!CallArizonaProcessInput(arizonaProcessInput, 1)) {
-            SetError("Failed to call Arizona chat process input");
-            return false;
-        }
-
-        ClearError();
-        return true;
     }
 
     const auto processInputAddr = GetAddress(main_offsets.CInput_ProcessInput);
@@ -719,37 +733,22 @@ SampApi::ChatEntry SampApi::pGetChatString(int index) {
 }
 
 bool SampApi::Set_ChatInputText(std::string_view text, bool openInput, bool alreadyDecoded) {
-    RefreshArizonaChatModule();
     std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
 
-    // Arizona's custom chat keeps its own ImGui input state. Opening the chat first
-    // matches the Lua implementation and gives the standard SAMP setter a chance to
-    // propagate through Arizona's hook/sync path before we fall back to raw buffer writes.
     if (openInput && !pCInput_Open_Close(true)) {
         return false;
     }
 
-    bool sampEditboxUpdated = false;
     const auto address = GetAddress(main_offsets.CDXUTEditBox_SetText);
-    if (address != 0) {
-        const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
-        if (editBox != 0) {
-            const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
-            sampEditboxUpdated = CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data());
-        }
+    const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
+    if (address == 0 || editBox == 0) {
+        SetError("Failed to set chat input text");
+        return false;
     }
 
-    const bool hasArizonaChat = arizonaChatModuleBase_.load() != 0;
-    const bool arizonaChatUpdated = hasArizonaChat && WriteArizonaChatInputText(gameText);
-
-    if (!sampEditboxUpdated && !arizonaChatUpdated) {
-        if (hasArizonaChat && arizonaChatScanState_.load() == static_cast<int>(ArizonaChatScanState::Scanning)) {
-            SetError("Arizona chat signature scan is still in progress");
-        } else if (hasArizonaChat && arizonaChatScanState_.load() == static_cast<int>(ArizonaChatScanState::Failed)) {
-            SetError("Arizona chat input buffer was not found");
-        } else {
-            SetError("Failed to set chat input text");
-        }
+    const auto setText = reinterpret_cast<SetEditboxTextFn>(address);
+    if (!CallSetEditboxText(setText, reinterpret_cast<void*>(editBox), gameText.data())) {
+        SetError("Failed to set chat input text");
         return false;
     }
 
