@@ -228,14 +228,22 @@ void ModApp::OnProcessAttach(HMODULE module) {
 }
 
 void ModApp::Shutdown() {
+    ::ClipCursor(nullptr);
+    ::ReleaseCapture();
+    overlayLastUiHold_ = false;
+
+    sampApi_.Refresh();
+    if (sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
+        sampApi_.Set_CursorMode(kSampCursorModeNone, false);
+    }
+    overlayCursorMode_ = kSampCursorModeNone;
+    overlayCursorEnabled_ = false;
+
     overlay_.Shutdown();
     incomingMessageRouter_.Shutdown();
     binder_.Shutdown();
     tags_.Shutdown();
     AppConfig::Instance().Shutdown();
-    overlayCursorMode_ = -1;
-    overlayCursorEnabled_ = true;
-    UpdateOverlayCursorMode();
     sampRakHooks_.Shutdown();
     sampHooks_.Shutdown();
     sampApi_.onTerminate();
@@ -254,9 +262,43 @@ void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
 }
 
 void ModApp::UpdateOverlayCursorMode() {
-    const bool wantsUiCursor = overlay_.WantsUiCursor();
-    const int desiredMode = wantsUiCursor ? kSampCursorModeLockCam : kSampCursorModeNone;
-    const bool desiredEnabled = wantsUiCursor;
+    const bool wantsUi = overlay_.WantsUiCursor();
+    HWND gameHw = overlay_.GetGameWindow();
+    HWND fg = GetForegroundWindow();
+    const bool appHasFocus = gameHw && fg && IsWindow(gameHw)
+        && (fg == gameHw || IsChild(gameHw, fg) != FALSE);
+
+    const bool rmbHeld = (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    const bool shouldHoldUi = wantsUi && appHasFocus && !rmbHeld;
+
+    static bool s_traceWantsUi = false;
+    static bool s_traceFocus = false;
+    static bool s_traceRmb = false;
+    static bool s_traceHold = false;
+    if (wantsUi != s_traceWantsUi || appHasFocus != s_traceFocus || rmbHeld != s_traceRmb || shouldHoldUi != s_traceHold) {
+        s_traceWantsUi = wantsUi;
+        s_traceFocus = appHasFocus;
+        s_traceRmb = rmbHeld;
+        s_traceHold = shouldHoldUi;
+        debuglog::Write(
+            "[ui] cursor wantsUi=%d fg=%d rmb=%d shouldHold=%d gameHw=%p fgHw=%p sampMode=%d sampEn=%d",
+            wantsUi ? 1 : 0,
+            appHasFocus ? 1 : 0,
+            rmbHeld ? 1 : 0,
+            shouldHoldUi ? 1 : 0,
+            gameHw,
+            fg,
+            overlayCursorMode_,
+            overlayCursorEnabled_ ? 1 : 0);
+    }
+
+    if (overlayLastUiHold_ && !shouldHoldUi) {
+        ::ReleaseCapture();
+    }
+    overlayLastUiHold_ = shouldHoldUi;
+
+    const int desiredMode = shouldHoldUi ? kSampCursorModeLockCam : kSampCursorModeNone;
+    const bool desiredEnabled = shouldHoldUi;
 
     if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
         return;
@@ -269,12 +311,19 @@ void ModApp::UpdateOverlayCursorMode() {
 
     if (!sampApi_.Set_CursorMode(desiredMode, desiredEnabled)) {
         debuglog::Write(
-            "Failed to switch SAMP cursor mode for ImGui overlay (mode=%d enabled=%d): %s",
+            "[ui] Set_CursorMode FAILED want mode=%d en=%d: %s",
             desiredMode,
             desiredEnabled ? 1 : 0,
             sampApi_.lastError().c_str());
         return;
     }
+
+    debuglog::Write(
+        "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d)",
+        desiredMode,
+        desiredEnabled ? 1 : 0,
+        overlayCursorMode_,
+        overlayCursorEnabled_ ? 1 : 0);
 
     overlayCursorMode_ = desiredMode;
     overlayCursorEnabled_ = desiredEnabled;

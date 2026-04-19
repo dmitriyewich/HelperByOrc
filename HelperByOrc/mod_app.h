@@ -74,6 +74,7 @@ private:
     std::uint64_t nextSampRefreshAtMs_ = 0;
     int overlayCursorMode_ = -1;
     bool overlayCursorEnabled_ = false;
+    bool overlayLastUiHold_ = false;
     bool minHookInitialized_ = false;
     SampApi sampApi_{};
     SampHooks sampHooks_{};

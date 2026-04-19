@@ -28,6 +28,8 @@ public:
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
     void SetMenuOpen(bool open);
+    /// HWND, передаваемый в `ImGui_ImplWin32_Init` (окно GTA), либо `nullptr` до инициализации.
+    HWND GetGameWindow() const;
     bool IsMenuOpen() const;
     bool IsTextInputActive() const;
     bool WantsUiCursor() const;
@@ -59,6 +61,8 @@ private:
     bool HandleMenuToggleHotkeyCaptureMessage(UINT message, WPARAM wparam);
     void UpdateInputCaptureState();
     void ApplyInputCaptureState(bool captured);
+    void AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device);
+    void TraceUiRenderAndInputSnapshot(const char* frameTag);
     void RenderFrame(IDirect3DDevice9* device);
     bool HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lparam) const;
     bool IsMouseMessage(UINT message) const;
@@ -93,6 +97,11 @@ private:
     bool inputCaptureActive_ = false;
     hotkeys::Capture menuToggleHotkeyCapture_{};
     hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
+
+    bool traceLastMenuOpen_ = false;
+    bool traceLastAuxVisible_ = false;
+    bool traceLastIdleFrame_ = true;
+    uint64_t traceLastUiDiagTick_ = 0;
 
     void* endSceneTarget_ = nullptr;
     void* presentTarget_ = nullptr;

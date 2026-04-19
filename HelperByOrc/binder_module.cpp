@@ -2581,7 +2581,20 @@ void BinderModule::Impl::Tick() {
     PruneIncomingChatEchoGuards();
     ExpireTextConfirmations();
     SyncPressedKeysWithAsyncState();
+    const bool quickWasOpen = quickMenuOpen;
+    const bool quickWasBlocked = quickMenuReopenBlocked;
     UpdateQuickMenuState();
+    if (quickMenuOpen != quickWasOpen || quickMenuReopenBlocked != quickWasBlocked) {
+        debuglog::Write(
+            "[ui] quickmenu open %d->%d blocked %d->%d activation=%s comboHeld=%d overlayRender=%d",
+            quickWasOpen ? 1 : 0,
+            quickMenuOpen ? 1 : 0,
+            quickWasBlocked ? 1 : 0,
+            quickMenuReopenBlocked ? 1 : 0,
+            quickMenuActivationMode == QuickMenuActivationMode::Toggle ? "toggle" : "hold",
+            IsQuickMenuComboPressed() ? 1 : 0,
+            WantsOverlayRender() ? 1 : 0);
+    }
     ProcessHotkeys();
     ProcessRunningBinds();
     PruneToasts();
@@ -7401,6 +7414,21 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuPos = ImVec2((io.DisplaySize.x - quickMenuSize.x) * 0.5f, (io.DisplaySize.y - quickMenuSize.y) * 0.5f);
     }
 
+    if (!quickMenuSubmenuOpen.empty()) {
+        ImGuiIO& ioFix = ImGui::GetIO();
+        const ImVec2 mp = ioFix.MousePos;
+        if (!ImGui::IsMousePosValid(&mp)) {
+            ImGuiViewport* vp = ImGui::GetMainViewport();
+            if (vp != nullptr && vp->PlatformHandle != nullptr) {
+                const HWND hwnd = reinterpret_cast<HWND>(vp->PlatformHandle);
+                POINT pt{};
+                if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(hwnd, &pt) != 0) {
+                    ioFix.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
+                }
+            }
+        }
+    }
+
     const bool persistentOpen = quickMenuActivationMode == QuickMenuActivationMode::Toggle;
     bool windowOpen = true;
     int selectedHotkeyIndex = -1;
@@ -7424,11 +7452,24 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuSubmenuCloseDeadline.erase(path);
     };
 
-    const auto quickMenuItem = [&](const std::string& label, const char* shortcut, bool enabled) {
+    // Не использовать MenuItem вне меню BeginMenu/BeginPopup: в части режимов хит-бокс клика по горячей
+    // строке не совпадает с полосой наведения (папки ниже на Selectable нажимаются). Selectable совпадает с подпапками.
+    const auto quickMenuItem = [&](const std::string& label, const char* shortcut, bool enabled) -> bool {
         ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
-        const bool clicked = ImGui::MenuItem(label.c_str(), shortcut, false, enabled);
+        std::string row = label;
+        if (shortcut && shortcut[0] != '\0') {
+            row += '\t';
+            row += shortcut;
+        }
+        if (!enabled) {
+            ImGui::BeginDisabled();
+        }
+        const bool clicked = ImGui::Selectable(row.c_str(), false);
+        if (!enabled) {
+            ImGui::EndDisabled();
+        }
         ImGui::PopStyleVar();
-        return clicked;
+        return clicked && enabled;
     };
 
     const auto drawNode = [&](auto&& self, FolderNode& node) -> void {
@@ -7574,6 +7615,18 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuSubmenuPaths.push_back(path);
     }
 
+    const auto submenuDepth = [](const std::string& p) -> int {
+        return static_cast<int>(std::count(p.begin(), p.end(), '/'));
+    };
+    std::sort(quickMenuSubmenuPaths.begin(), quickMenuSubmenuPaths.end(), [&submenuDepth](const std::string& a, const std::string& b) {
+        const int da = submenuDepth(a);
+        const int db = submenuDepth(b);
+        if (da != db) {
+            return da < db;
+        }
+        return a < b;
+    });
+
     const ImGuiWindowFlags submenuFlags = ImGuiWindowFlags_NoDecoration
         | ImGuiWindowFlags_NoMove
         | ImGuiWindowFlags_AlwaysAutoResize
@@ -7653,6 +7706,20 @@ void BinderModule::Impl::DrawQuickMenu() {
                     closeIt->second = false;
                     break;
                 }
+            }
+        }
+    }
+
+    // Пока открыт каскад потомка, родительское окно может не получать IsWindowHovered (курсор только
+    // над дочерним справа) — иначе shouldClose остаётся true и ветка закрывается по таймеру,
+    // хотя пользователь «на подменю».
+    for (const auto& [ancestorPath, _] : quickMenuSubmenuOpen) {
+        const std::string prefix = ancestorPath + '/';
+        for (const auto& [descPath, _2] : quickMenuSubmenuOpen) {
+            if (descPath.size() > prefix.size() && descPath.compare(0, prefix.size(), prefix) == 0) {
+                shouldCloseSubmenu[ancestorPath] = false;
+                quickMenuSubmenuCloseDeadline.erase(ancestorPath);
+                break;
             }
         }
     }

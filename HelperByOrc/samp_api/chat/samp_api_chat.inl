@@ -139,6 +139,21 @@ bool SampApi::ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trac
     return true;
 }
 
+bool SampApi::ResolveRemotePlayerData(std::uint32_t remotePlayer, std::uint32_t& remoteData) const {
+    remoteData = 0;
+    if (remotePlayer == 0) {
+        return false;
+    }
+
+    const std::uint32_t offset = main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET.Get(currentVersion_);
+    if (offset == 0) {
+        remoteData = remotePlayer;
+        return true;
+    }
+
+    return SafeRead(remotePlayer + offset, remoteData) && remoteData != 0;
+}
+
 const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLabel) {
     const char* const label = traceLabel ? traceLabel : "trace";
 
@@ -189,15 +204,13 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
             return nullptr;
         }
 
-        const std::uint32_t remoteDataOffset = main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET.Get(currentVersion_);
         std::uint32_t remoteData = 0;
-        if (!SafeRead(slotPointer + remoteDataOffset, remoteData) || remoteData == 0) {
+        if (!ResolveRemotePlayerData(slotPointer, remoteData)) {
             if (trace && logAttempt) {
                 debuglog::Write(
-                    "[%s] GetPlayerPedPointer remoteData fallback remoteData read failed slot=0x%08X offset=0x%X",
+                    "[%s] GetPlayerPedPointer remoteData fallback ResolveRemotePlayerData failed slot=0x%08X",
                     label,
-                    slotPointer,
-                    remoteDataOffset);
+                    slotPointer);
             }
             return nullptr;
         }
@@ -469,20 +482,13 @@ SampApi::HealthAndArmour SampApi::GetHealthAndArmour(int id) {
         return result;
     }
 
-    std::uint32_t pool = 0;
-    if (!ResolvePedPool(pool) || pool == 0 || id < 0) {
-        return result;
-    }
-
     std::uint32_t remotePlayer = 0;
-    if (!SafeRead(pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (id * 4), remotePlayer)
-        || remotePlayer == 0) {
+    if (!ResolveRemotePlayer(id, remotePlayer, false, nullptr) || remotePlayer == 0) {
         return result;
     }
 
     std::uint32_t remoteData = 0;
-    if (!SafeRead(remotePlayer + main_offsets.SAMP_REMOTEPLAYERDATA_OFFSET.Get(currentVersion_), remoteData)
-        || remoteData == 0) {
+    if (!ResolveRemotePlayerData(remotePlayer, remoteData)) {
         return result;
     }
 

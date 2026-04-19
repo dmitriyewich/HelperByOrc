@@ -10,6 +10,8 @@
 #include <imgui_impl_win32.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <vector>
 
@@ -166,6 +168,10 @@ void ImGuiOverlay::SetMenuOpen(bool open) {
 
 bool ImGuiOverlay::IsMenuOpen() const {
     return menuOpen_;
+}
+
+HWND ImGuiOverlay::GetGameWindow() const {
+    return gameWindow_;
 }
 
 bool ImGuiOverlay::IsTextInputActive() const {
@@ -495,7 +501,14 @@ void ImGuiOverlay::UpdateHotkeyState() {
     const bool comboDown = IsMenuToggleComboDown();
     if (!menuToggleHotkeyCapture_.Active() && comboDown && !menuToggleWasDown_) {
         menuOpen_ = !menuOpen_;
-        debuglog::Write("Menu toggled: %s", menuOpen_ ? "open" : "closed");
+        const bool aux = IsAuxiliaryUiVisible();
+        debuglog::Write(
+            "[ui] Menu toggled: %s aux=%d wantRoute=%d wantUiCursor=%d wantAuxCursor=%d",
+            menuOpen_ ? "open" : "closed",
+            aux ? 1 : 0,
+            WantsInputRouting() ? 1 : 0,
+            WantsUiCursor() ? 1 : 0,
+            WantsAuxiliaryUiCursor() ? 1 : 0);
     }
 
     menuToggleWasDown_ = comboDown;
@@ -633,12 +646,84 @@ void ImGuiOverlay::UpdateInputCaptureState() {
     ApplyInputCaptureState(captured);
 }
 
-void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
-    const bool auxiliaryVisible = IsAuxiliaryUiVisible();
-    if (!imguiInitialized_ || !device || (!menuOpen_ && !auxiliaryVisible)) {
-        ApplyInputCaptureState(false);
+void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
+    const bool auxVisible = IsAuxiliaryUiVisible();
+    const bool idle = !menuOpen_ && !auxVisible;
+    const bool pathChanged = menuOpen_ != traceLastMenuOpen_
+        || auxVisible != traceLastAuxVisible_ || idle != traceLastIdleFrame_;
+    if (pathChanged) {
+        traceLastMenuOpen_ = menuOpen_;
+        traceLastAuxVisible_ = auxVisible;
+        traceLastIdleFrame_ = idle;
+        debuglog::Write(
+            "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
+            frameTag,
+            idle ? 1 : 0,
+            menuOpen_ ? 1 : 0,
+            auxVisible ? 1 : 0,
+            WantsInputRouting() ? 1 : 0,
+            WantsUiCursor() ? 1 : 0,
+            WantsAuxiliaryUiCursor() ? 1 : 0,
+            WantsTextInputCapture() ? 1 : 0);
+    }
+
+    if (std::strcmp(frameTag, "after_present_ui") != 0) {
         return;
     }
+    if (!menuOpen_ || ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+    const uint64_t now = GetTickCount64();
+    if (now - traceLastUiDiagTick_ < 1200) {
+        return;
+    }
+    traceLastUiDiagTick_ = now;
+    const ImGuiIO& io = ImGui::GetIO();
+    debuglog::Write(
+        "[ui] diag post-render WantCaptureMouse=%d WantCaptureKB=%d MouseDown0=%d AnyItemActive=%d AnyItemHovered=%d WantText=%d",
+        io.WantCaptureMouse ? 1 : 0,
+        io.WantCaptureKeyboard ? 1 : 0,
+        io.MouseDown[0] ? 1 : 0,
+        ImGui::IsAnyItemActive() ? 1 : 0,
+        ImGui::IsAnyItemHovered() ? 1 : 0,
+        io.WantTextInput ? 1 : 0);
+}
+
+void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
+    if (!device || ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+
+    TraceUiRenderAndInputSnapshot("idle_tick");
+
+    ImGui::GetIO().MouseDrawCursor = false;
+    ApplyInputCaptureState(false);
+
+    ImGui_ImplDX9_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    ImGui::EndFrame();
+    ImGui::Render();
+    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+}
+
+void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
+    const bool auxiliaryVisible = IsAuxiliaryUiVisible();
+    if (!imguiInitialized_ || !device) {
+        return;
+    }
+
+    static bool s_hadNoOverlayUi = true;
+    const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
+    const bool enteredOverlayFromNone = s_hadNoOverlayUi && hasOverlayUi;
+    s_hadNoOverlayUi = !hasOverlayUi;
+
+    if (!hasOverlayUi) {
+        AdvanceImGuiFrameWithoutUi(device);
+        return;
+    }
+
+    TraceUiRenderAndInputSnapshot("full_ui");
 
     IDirect3DStateBlock9* stateBlock = nullptr;
     IDirect3DVertexDeclaration9* vertexDeclaration = nullptr;
@@ -655,6 +740,20 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
+
+    // После кадров только с idle_tick Win32 может оставить MousePos «невалидным»
+    // (WM_MOUSELEAVE → -FLT_MAX), а fallback в ImGui_ImplWin32_UpdateMouseData не срабатывает,
+    // пока MouseTrackedArea != 0 — тогда хит-тест UI ломается до лишнего WM_MOUSEMOVE
+    // (отсюда обход через повторное быстрое меню).
+    if (enteredOverlayFromNone && gameWindow_ != nullptr) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.ClearInputMouse();
+        POINT pt{};
+        if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
+            io.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
+        }
+    }
+
     ImGui::NewFrame();
 
     if (renderCallback_) {
@@ -662,9 +761,19 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
     UpdateInputCaptureState();
 
+    // Как в WeaponsOutFit: программный курсор ImGui (MouseDrawCursor); при зажатой ПКМ отдаём обзор игре.
+    // Штатная стрелка — через SA:MP Set_CursorMode в ModApp (не трогаем WM_SETCURSOR здесь).
+    {
+        ImGuiIO& ioFrame = ImGui::GetIO();
+        const bool rmbHeld = (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+        ioFrame.MouseDrawCursor = WantsUiCursor() && !rmbHeld;
+    }
+
     ImGui::EndFrame();
     ImGui::Render();
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+    TraceUiRenderAndInputSnapshot("after_present_ui");
 
     if (vertexShader) {
         device->SetVertexShader(vertexShader);
@@ -756,7 +865,6 @@ bool ImGuiOverlay::HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lp
 
 bool ImGuiOverlay::IsMouseMessage(UINT message) const {
     switch (message) {
-    case WM_SETCURSOR:
     case WM_MOUSEMOVE:
     case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL:
@@ -801,6 +909,12 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
         }
 
         if (self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
+            if (message != WM_MOUSEMOVE) {
+                debuglog::Write(
+                    "[ui] binder swallowed msg=%u wParam=%p",
+                    static_cast<unsigned>(message),
+                    reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)));
+            }
             return TRUE;
         }
 
@@ -816,8 +930,21 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 const ImGuiIO& io = ImGui::GetIO();
                 const bool wantsMouseCapture = wantsUiCursor || io.WantCaptureMouse;
                 const bool wantsKeyboardCapture = wantsTextInput || io.WantCaptureKeyboard;
-                if ((wantsMouseCapture && self_->IsMouseMessage(message))
-                    || (wantsKeyboardCapture && self_->IsKeyboardMessage(message))) {
+                if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN
+                    || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP) {
+                    const bool eatMouse = wantsMouseCapture && self_->IsMouseMessage(message);
+                    debuglog::Write(
+                        "[ui] wnd btn msg=%u eatMouse=%d wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
+                        static_cast<unsigned>(message),
+                        eatMouse ? 1 : 0,
+                        wantsUiCursor ? 1 : 0,
+                        io.WantCaptureMouse ? 1 : 0,
+                        wantsTextInput ? 1 : 0);
+                }
+                if (wantsMouseCapture && self_->IsMouseMessage(message)) {
+                    return TRUE;
+                }
+                if (wantsKeyboardCapture && self_->IsKeyboardMessage(message)) {
                     return TRUE;
                 }
             } else if (wantsUiCursor && self_->IsMouseMessage(message)) {

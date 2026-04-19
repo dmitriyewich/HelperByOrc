@@ -298,6 +298,10 @@ private:
     bool ResolveSampInfo(std::uint32_t& sampInfo) const;
     bool ResolvePedPool(std::uint32_t& pedPool) const;
     bool ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace = false, const char* traceLabel = nullptr);
+    /// Resolves the `CRemotePlayerData*` (or equivalent) pointer used for health/armour and actor fields.
+    /// When `SAMP_REMOTEPLAYERDATA_OFFSET` is 0 (legacy 0.3.7 R1 / R3 / R3-1 layouts), those fields live inside
+    /// `CRemotePlayer` itself; offset 0 must not be dereferenced as a pointer (that would read `m_pPed`).
+    bool ResolveRemotePlayerData(std::uint32_t remotePlayer, std::uint32_t& remoteData) const;
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
