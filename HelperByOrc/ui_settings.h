@@ -483,8 +483,7 @@
     X(QuickMenuMode, "Режим быстрого меню", "Quick menu mode") \
     X(QuickMenuStyle, "Стиль быстрого меню", "Quick menu style") \
     X(QuickMenuStyleTree, "Стиль 1: дерево", "Style 1: tree") \
-    X(QuickMenuStyle2, "Стиль 2: двухпанельный", "Style 2: two-pane") \
-    X(QuickMenuStyle3, "Стиль 3: menu (BeginMenu)", "Style 3: menu (BeginMenu)") \
+    X(QuickMenuStyleCascade, "Стиль 2: каскадное меню", "Style 2: cascaded menu") \
     X(ColumnFolders, "Папки", "Folders") \
     X(ColumnBinds, "Бинды", "Binds")
 

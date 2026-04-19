@@ -2,7 +2,7 @@
 
 [b]Исходники на GitHub:[/b] [url=https://github.com/dmitriyewich/HelperByOrc]https://github.com/dmitriyewich/HelperByOrc[/url]
 
-[b]Что на GitHub[/b]: исходный код, профиль сборки (vcxproj, slnx и связанные файлы проекта) и рабочее дерево [b]HelperByOrc\external[/b] (vendored-зависимости для воспроизводимой сборки). Готовые .asi/.pdb и каталоги сборки в репозиторий не выкладываются.
+[b]Что на GitHub:[/b] исходный код плагина, профиль сборки (vcxproj, slnx и связанные файлы) и vendored [b]HelperByOrc\external[/b] (обычные файлы без вложенных .git). Готовые .asi/.pdb и каталоги сборки в репозиторий не выкладываются. Служебное вроде корневого .gitignore, context.md, .cursor/ — только локально.
 
 [b]Платформа:[/b] Win32 / x86, формат ASI.
 
@@ -18,8 +18,8 @@ MSBuild.exe HelperByOrc.vcxproj /t:Build /p:Configuration=Release;Platform=Win32
 [b]Модули:[/b] imgui_overlay, mod_app, binder_module, samp_api, samp_hooks, samp_rak_hooks, tags_module, hotkey_utils, text_encoding, app_config.
 
 [b]Быстрое меню (binder):[/b]
-- Стиль 1: дерево
-- Стиль 2: двухпанельный
-- Стиль 3: каскадный BeginMenu ([b]по умолчанию[/b])
+- Стиль 1: дерево ([b]Tree[/b])
+- Стиль 2: каскад ([b]cascade[/b], [b]по умолчанию[/b])
+- Хост меню через popup-стек ImGui, правки фокуса/z-order и sync мыши при открытии — стабильнее клики в SA:MP overlay
 
 [b]Имя проекта:[/b] актуально HelperByOrc; старое имя MyAsiMod не используется.

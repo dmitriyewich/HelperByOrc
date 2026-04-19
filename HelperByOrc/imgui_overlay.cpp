@@ -8,6 +8,9 @@
 #include <imgui.h>
 #include <imgui_impl_dx9.h>
 #include <imgui_impl_win32.h>
+#include <imgui_internal.h>
+
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -21,6 +24,55 @@ namespace {
 
 constexpr char kDummyWindowClassName[] = "HelperByOrcDummyWindow";
 constexpr float kOverlayFontSize = 18.0f;
+
+constexpr uint64_t kDeepUiTraceIntervalMs = 400;
+constexpr uint64_t kAnomalyClickTraceIntervalMs = 150;
+
+const char* DbgImGuiWindowName(const ImGuiWindow* w) {
+    if (w == nullptr || w->Name == nullptr) {
+        return "(null)";
+    }
+    return w->Name;
+}
+
+void DbgTraceImGuiInternalState(const char* reason) {
+    if (GImGui == nullptr) {
+        debuglog::Write("[ui][dbg] %s: GImGui=null", reason);
+        return;
+    }
+    ImGuiContext& g = *GImGui;
+    const ImGuiIO& io = g.IO;
+    const bool mouseValid = ImGui::IsMousePosValid(&io.MousePos);
+    const bool popupAny =
+        ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    const ImGuiWindow* wheel = g.WheelingWindow;
+
+    debuglog::Write(
+        "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScale=%.3f WantCapM=%d WantCapK=%d "
+        "NavWin=\"%s\" HovWin=\"%s\" HovUnderMove=\"%s\" MoveWin=\"%s\" WheelWin=\"%s\" "
+        "popAny=%d OpenPop=%d BeginPop=%d ActId=0x%08X HovId=0x%08X NavId=0x%08X NavHighlightUnderNav=%d",
+        reason,
+        io.MousePos.x,
+        io.MousePos.y,
+        mouseValid ? 1 : 0,
+        io.DisplaySize.x,
+        io.DisplaySize.y,
+        io.FontGlobalScale,
+        io.WantCaptureMouse ? 1 : 0,
+        io.WantCaptureKeyboard ? 1 : 0,
+        DbgImGuiWindowName(g.NavWindow),
+        DbgImGuiWindowName(g.HoveredWindow),
+        DbgImGuiWindowName(g.HoveredWindowUnderMovingWindow),
+        DbgImGuiWindowName(g.MovingWindow),
+        DbgImGuiWindowName(wheel),
+        popupAny ? 1 : 0,
+        g.OpenPopupStack.Size,
+        g.BeginPopupStack.Size,
+        static_cast<unsigned>(g.ActiveId),
+        static_cast<unsigned>(g.HoveredId),
+        static_cast<unsigned>(g.NavId),
+        g.NavHighlightItemUnderNav ? 1 : 0);
+}
 
 bool MergeFontAwesomeIcons(ImGuiIO& io) {
     static constexpr ImWchar kIconRanges[] = {
@@ -133,6 +185,10 @@ HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT
 
 void ImGuiOverlay::SetRenderCallback(RenderCallback callback) {
     renderCallback_ = std::move(callback);
+}
+
+void ImGuiOverlay::SetPrepareFrameCallback(PrepareFrameCallback callback) {
+    prepareFrameCallback_ = std::move(callback);
 }
 
 void ImGuiOverlay::SetUpdateCallback(UpdateCallback callback) {
@@ -435,7 +491,9 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     ImGui::CreateContext();
 
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // SA:MP overlay: клавиатурная навигация ImGui давала WantCaptureKB + пустой HovWin у BeginMenu.
+    // Для теста отключено; при необходимости вернуть NavEnableKeyboard и ConfigNavCaptureKeyboard = true.
+    io.ConfigNavCaptureKeyboard = false;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
@@ -670,7 +728,7 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
     if (std::strcmp(frameTag, "after_present_ui") != 0) {
         return;
     }
-    if (!menuOpen_ || ImGui::GetCurrentContext() == nullptr) {
+    if (!WantsInputRouting() || ImGui::GetCurrentContext() == nullptr) {
         return;
     }
     const uint64_t now = GetTickCount64();
@@ -687,6 +745,12 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
         ImGui::IsAnyItemActive() ? 1 : 0,
         ImGui::IsAnyItemHovered() ? 1 : 0,
         io.WantTextInput ? 1 : 0);
+
+    static uint64_t s_lastDeepTraceMs = 0;
+    if (now - s_lastDeepTraceMs >= kDeepUiTraceIntervalMs) {
+        s_lastDeepTraceMs = now;
+        DbgTraceImGuiInternalState("after_present");
+    }
 }
 
 void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
@@ -701,6 +765,9 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
 
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    if (prepareFrameCallback_) {
+        prepareFrameCallback_(device);
+    }
     ImGui::NewFrame();
     ImGui::EndFrame();
     ImGui::Render();
@@ -741,17 +808,23 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
 
-    // После кадров только с idle_tick Win32 может оставить MousePos «невалидным»
-    // (WM_MOUSELEAVE → -FLT_MAX), а fallback в ImGui_ImplWin32_UpdateMouseData не срабатывает,
-    // пока MouseTrackedArea != 0 — тогда хит-тест UI ломается до лишнего WM_MOUSEMOVE
-    // (отсюда обход через повторное быстрое меню).
-    if (enteredOverlayFromNone && gameWindow_ != nullptr) {
+    // До NewFrame(): выровнять MousePos с реальным курсором в клиентских координатах окна игры.
+    // ImGui Win32 иногда оставляет координаты без OS-fallback (фокус на дочернем HWND, MouseTrackedArea),
+    // при этом WndProc по-прежнему перехватывает клики пока открыт overlay — без этого ImGui остаётся
+    // без hover (WantCaptureMouse=0), а клики «съедаются».
+    if (gameWindow_ != nullptr) {
         ImGuiIO& io = ImGui::GetIO();
-        io.ClearInputMouse();
+        if (enteredOverlayFromNone) {
+            io.ClearInputMouse();
+        }
         POINT pt{};
         if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
             io.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
         }
+    }
+
+    if (prepareFrameCallback_) {
+        prepareFrameCallback_(device);
     }
 
     ImGui::NewFrame();
@@ -928,18 +1001,33 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam);
             if (ImGui::GetCurrentContext() != nullptr) {
                 const ImGuiIO& io = ImGui::GetIO();
+                // Блокируем мышь для игры, пока открыт UI с курсором SA:MP, или пока ImGui явно
+                // просит захват. `FontGlobalScale`/стиль теперь выставляются до `NewFrame`, иначе
+                // WantCaptureMouse расходился с реальной геометрией (ложный WantCapMouse=0).
                 const bool wantsMouseCapture = wantsUiCursor || io.WantCaptureMouse;
                 const bool wantsKeyboardCapture = wantsTextInput || io.WantCaptureKeyboard;
                 if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN
                     || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP) {
                     const bool eatMouse = wantsMouseCapture && self_->IsMouseMessage(message);
+                    const int clientX = GET_X_LPARAM(lparam);
+                    const int clientY = GET_Y_LPARAM(lparam);
                     debuglog::Write(
-                        "[ui] wnd btn msg=%u eatMouse=%d wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
+                        "[ui] wnd btn msg=%u client=(%d,%d) eatMouse=%d wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
                         static_cast<unsigned>(message),
+                        clientX,
+                        clientY,
                         eatMouse ? 1 : 0,
                         wantsUiCursor ? 1 : 0,
                         io.WantCaptureMouse ? 1 : 0,
                         wantsTextInput ? 1 : 0);
+                    // UI курсор есть, а ImGui не просит мышь — типичный «тусклый» кадр; снимок внутреннего состояния.
+                    static uint64_t s_lastAnomalyMs = 0;
+                    const uint64_t nowBtn = GetTickCount64();
+                    if (wantsUiCursor && !io.WantCaptureMouse && self_->IsMouseMessage(message)
+                        && nowBtn - s_lastAnomalyMs >= kAnomalyClickTraceIntervalMs) {
+                        s_lastAnomalyMs = nowBtn;
+                        DbgTraceImGuiInternalState("wnd_btn_anomaly");
+                    }
                 }
                 if (wantsMouseCapture && self_->IsMouseMessage(message)) {
                     return TRUE;

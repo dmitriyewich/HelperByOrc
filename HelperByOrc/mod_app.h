@@ -42,6 +42,7 @@ private:
     void HandleOverlayInputCaptureChanged(bool captured);
     void UpdateOverlayCursorMode();
     void Tick();
+    void PrepareUiForImGuiNewFrame(IDirect3DDevice9* device);
     void RenderUi(IDirect3DDevice9* device);
     void ApplyMainStyle(float scale) const;
     void LoadShellState();

@@ -211,6 +211,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     binder_.SetTagsModule(&tags_);
     tags_.SetBinderModule(&binder_);
 
+    overlay_.SetPrepareFrameCallback([this](IDirect3DDevice9* device) { PrepareUiForImGuiNewFrame(device); });
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
@@ -679,12 +680,17 @@ void ModApp::DrawSettingsTab() {
     ImGui::Text("%s", ui.Format(UiText::GtaVersionFormat, plugin::GetGameVersionName()).c_str());
 }
 
-void ModApp::RenderUi(IDirect3DDevice9* device) {
+void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = UiSettings::Instance().UpdateScale(io.DisplaySize);
     io.FontGlobalScale = uiScale;
     ApplyMainStyle(uiScale);
     EnsureLogoTexture(device);
+}
+
+void ModApp::RenderUi(IDirect3DDevice9* device) {
+    ImGuiIO& io = ImGui::GetIO();
+    const float uiScale = io.FontGlobalScale;
 
     const bool showMainWindow = overlay_.IsMenuOpen();
     if (!showMainWindow) {

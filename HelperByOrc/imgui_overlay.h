@@ -14,6 +14,8 @@
 class ImGuiOverlay {
 public:
     using RenderCallback = std::function<void(IDirect3DDevice9*)>;
+    /// Вызывается после `ImGui_ImplWin32_NewFrame`, до `ImGui::NewFrame` (масштаб IO, стили и т.п.).
+    using PrepareFrameCallback = std::function<void(IDirect3DDevice9*)>;
     using UpdateCallback = std::function<void()>;
     using WindowMessageCallback = std::function<bool(UINT, WPARAM, LPARAM)>;
     using VisibilityCallback = std::function<bool()>;
@@ -21,6 +23,7 @@ public:
     using HotkeyConflictCallback = std::function<bool(const std::vector<unsigned int>& keys, std::string& description)>;
 
     void SetRenderCallback(RenderCallback callback);
+    void SetPrepareFrameCallback(PrepareFrameCallback callback);
     void SetUpdateCallback(UpdateCallback callback);
     void SetWindowMessageCallback(WindowMessageCallback callback);
     void SetAuxiliaryUiVisibleCallback(VisibilityCallback callback);
@@ -88,6 +91,7 @@ private:
     HWND gameWindow_ = nullptr;
     WNDPROC originalWndProc_ = nullptr;
     RenderCallback renderCallback_;
+    PrepareFrameCallback prepareFrameCallback_;
     UpdateCallback updateCallback_;
     WindowMessageCallback windowMessageCallback_;
     VisibilityCallback auxiliaryUiVisibleCallback_;
