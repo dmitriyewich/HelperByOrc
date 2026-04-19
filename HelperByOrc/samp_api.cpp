@@ -46,6 +46,26 @@ using SendInputFn = void(__thiscall*)(void*, const char*);
 using ProcessInputFn = void(__thiscall*)(void*);
 using AddChatMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
+using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
+using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
+
+struct ModuleSectionRange {
+    std::uintptr_t begin = 0;
+    std::uintptr_t end = 0;
+    DWORD characteristics = 0;
+
+    bool executable() const {
+        return (characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+    }
+
+    bool writable() const {
+        return (characteristics & IMAGE_SCN_MEM_WRITE) != 0;
+    }
+
+    bool contains(std::uintptr_t address) const {
+        return address >= begin && address < end;
+    }
+};
 
 constexpr std::uintptr_t kChatEntryBaseOffset = 0x132;
 constexpr std::size_t kChatEntrySize = 0xFC;
@@ -286,6 +306,458 @@ bool TryReadPedPosition(std::uint32_t gtaPed, float& x, float& y, float& z) {
     return true;
 }
 
+bool TryGetModuleSections(
+    HMODULE module,
+    std::uintptr_t& imageBase,
+    std::uintptr_t& imageEnd,
+    std::vector<ModuleSectionRange>& sections) {
+    imageBase = 0;
+    imageEnd = 0;
+    sections.clear();
+
+    if (!module) {
+        return false;
+    }
+
+    const auto base = reinterpret_cast<std::uintptr_t>(module);
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+        return false;
+    }
+
+    const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(base + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+        return false;
+    }
+
+    imageBase = base;
+    imageEnd = base + ntHeaders->OptionalHeader.SizeOfImage;
+
+    const IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
+    for (unsigned short index = 0; index < ntHeaders->FileHeader.NumberOfSections; ++index, ++sectionHeader) {
+        const std::uintptr_t sectionBase = base + sectionHeader->VirtualAddress;
+        const std::size_t sectionSize =
+            std::max<std::size_t>(sectionHeader->Misc.VirtualSize, sectionHeader->SizeOfRawData);
+        if (sectionSize == 0) {
+            continue;
+        }
+
+        sections.push_back({ sectionBase, sectionBase + sectionSize, sectionHeader->Characteristics });
+    }
+
+    return !sections.empty();
+}
+
+const ModuleSectionRange* FindSectionForAddress(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t address,
+    bool executableOnly = false) {
+    for (const auto& section : sections) {
+        if (executableOnly && !section.executable()) {
+            continue;
+        }
+        if (section.contains(address)) {
+            return &section;
+        }
+    }
+
+    return nullptr;
+}
+
+bool IsAddressInModule(std::uintptr_t address, std::uintptr_t imageBase, std::uintptr_t imageEnd) {
+    return address >= imageBase && address < imageEnd;
+}
+
+bool IsAddressInWritableSection(const std::vector<ModuleSectionRange>& sections, std::uintptr_t address) {
+    for (const auto& section : sections) {
+        if (section.writable() && section.contains(address)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::uintptr_t FindAsciiStringLiteral(
+    const std::vector<ModuleSectionRange>& sections,
+    std::string_view value) {
+    if (value.empty()) {
+        return 0;
+    }
+
+    for (const auto& section : sections) {
+        if (section.executable()) {
+            continue;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+        const std::size_t sectionSize = section.end - section.begin;
+        if (sectionSize <= value.size()) {
+            continue;
+        }
+
+        for (std::size_t offset = 0; offset + value.size() < sectionSize; ++offset) {
+            if (std::memcmp(bytes + offset, value.data(), value.size()) != 0) {
+                continue;
+            }
+            if (bytes[offset + value.size()] != 0) {
+                continue;
+            }
+
+            return section.begin + offset;
+        }
+    }
+
+    return 0;
+}
+
+std::vector<std::uintptr_t> FindPushImmediateRefs(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t target) {
+    std::vector<std::uintptr_t> refs;
+
+    for (const auto& section : sections) {
+        if (!section.executable()) {
+            continue;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+        const std::size_t sectionSize = section.end - section.begin;
+        for (std::size_t offset = 0; offset + 5 <= sectionSize; ++offset) {
+            if (bytes[offset] != 0x68) {
+                continue;
+            }
+
+            std::uint32_t immediate = 0;
+            std::memcpy(&immediate, bytes + offset + 1, sizeof(immediate));
+            if (immediate == target) {
+                refs.push_back(section.begin + offset);
+            }
+        }
+    }
+
+    return refs;
+}
+
+std::uintptr_t ResolveRelativeTarget(std::uintptr_t instructionAddress) {
+    std::int32_t displacement = 0;
+    std::memcpy(&displacement, reinterpret_cast<const void*>(instructionAddress + 1), sizeof(displacement));
+    return instructionAddress + 5 + displacement;
+}
+
+std::uintptr_t FindNearbyWrapperCall(
+    std::uintptr_t stringRef,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd) {
+    constexpr std::size_t kMaxForwardScan = 16;
+
+    for (std::size_t offset = 5; offset <= kMaxForwardScan; ++offset) {
+        const auto address = stringRef + offset;
+        std::uint8_t opcode = 0;
+        if (!SafeRead(address, opcode)) {
+            break;
+        }
+
+        if (opcode != 0xE8) {
+            continue;
+        }
+
+        const std::uintptr_t target = ResolveRelativeTarget(address);
+        if (IsAddressInModule(target, imageBase, imageEnd)) {
+            return target;
+        }
+    }
+
+    return 0;
+}
+
+std::uintptr_t FindWritablePushBefore(
+    std::uintptr_t stringRef,
+    const std::vector<ModuleSectionRange>& sections) {
+    constexpr std::size_t kMaxBacktrack = 32;
+
+    for (std::size_t distance = 1; distance <= kMaxBacktrack; ++distance) {
+        const auto address = stringRef - distance;
+        std::uint8_t opcode = 0;
+        if (!SafeRead(address, opcode)) {
+            continue;
+        }
+
+        if (opcode != 0x68) {
+            continue;
+        }
+
+        std::uint32_t immediate = 0;
+        if (!SafeRead(address + 1, immediate)) {
+            continue;
+        }
+
+        if (IsAddressInWritableSection(sections, immediate)) {
+            return immediate;
+        }
+    }
+
+    return 0;
+}
+
+std::uintptr_t RecoverFunctionStart(
+    const ModuleSectionRange& section,
+    std::uintptr_t address,
+    std::size_t maxBacktrack) {
+    if (!section.contains(address)) {
+        return 0;
+    }
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+    const std::ptrdiff_t offset = static_cast<std::ptrdiff_t>(address - section.begin);
+    const std::ptrdiff_t minOffset =
+        std::max<std::ptrdiff_t>(0, offset - static_cast<std::ptrdiff_t>(maxBacktrack));
+
+    for (std::ptrdiff_t start = offset - 2; start >= minOffset; --start) {
+        if (bytes[start] == 0x55 && bytes[start + 1] == 0x8B && bytes[start + 2] == 0xEC) {
+            return section.begin + static_cast<std::uintptr_t>(start);
+        }
+    }
+
+    return 0;
+}
+
+bool FindChatAsiWriterForBuffer(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t inputBuffer,
+    std::uintptr_t& writer,
+    std::uintptr_t& dirtyFlag) {
+    writer = 0;
+    dirtyFlag = 0;
+
+    for (const auto& section : sections) {
+        if (!section.executable()) {
+            continue;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+        const std::size_t sectionSize = section.end - section.begin;
+
+        for (std::size_t offset = 0; offset + 5 <= sectionSize; ++offset) {
+            if (bytes[offset] != 0xB9) {
+                continue;
+            }
+
+            std::uint32_t immediate = 0;
+            std::memcpy(&immediate, bytes + offset + 1, sizeof(immediate));
+            if (immediate != inputBuffer) {
+                continue;
+            }
+
+            const std::uintptr_t candidate = RecoverFunctionStart(section, section.begin + offset, 0x80);
+            if (candidate == 0) {
+                continue;
+            }
+
+            const std::size_t candidateOffset = static_cast<std::size_t>(candidate - section.begin);
+            const std::size_t window = std::min<std::size_t>(0x80, sectionSize - candidateOffset);
+            bool sawBufferLoad = false;
+            bool sawCall = false;
+            bool sawDirtyStore = false;
+            bool sawReturn = false;
+            std::uintptr_t candidateDirtyFlag = 0;
+
+            for (std::size_t index = 0; index < window; ++index) {
+                const std::uintptr_t address = section.begin + candidateOffset + index;
+                const std::uint8_t opcode = bytes[candidateOffset + index];
+
+                if (index + 5 <= window && opcode == 0xB9) {
+                    std::uint32_t value = 0;
+                    std::memcpy(&value, bytes + candidateOffset + index + 1, sizeof(value));
+                    if (value == inputBuffer) {
+                        sawBufferLoad = true;
+                    }
+                }
+
+                if (index + 7 <= window && opcode == 0xC6 && bytes[candidateOffset + index + 1] == 0x05
+                    && bytes[candidateOffset + index + 6] == 0x01) {
+                    std::uint32_t value = 0;
+                    std::memcpy(&value, bytes + candidateOffset + index + 2, sizeof(value));
+                    if (IsAddressInWritableSection(sections, value)) {
+                        sawDirtyStore = true;
+                        candidateDirtyFlag = value;
+                    }
+                }
+
+                if (index + 5 <= window && opcode == 0xE8) {
+                    const auto target = ResolveRelativeTarget(address);
+                    if (IsAddressInModule(target, imageBase, imageEnd)) {
+                        sawCall = true;
+                    }
+                }
+
+                if (opcode == 0xC3 || opcode == 0xC2) {
+                    sawReturn = true;
+                    break;
+                }
+            }
+
+            if (sawBufferLoad && sawCall && sawDirtyStore && sawReturn) {
+                writer = candidate;
+                dirtyFlag = candidateDirtyFlag;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool FindChatAsiSubmitForBuffer(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t inputBuffer,
+    std::uintptr_t& submit,
+    std::uintptr_t& dirtyFlag) {
+    submit = 0;
+    dirtyFlag = 0;
+
+    const std::uint32_t inputBuffer32 = static_cast<std::uint32_t>(inputBuffer);
+    const std::uint32_t inputLength32 = static_cast<std::uint32_t>(inputBuffer + 0x10);
+    const std::uint32_t inputCapacity32 = static_cast<std::uint32_t>(inputBuffer + 0x14);
+
+    for (const std::uint32_t expectedArg : { 1u, 0u }) {
+        for (const auto& section : sections) {
+            if (!section.executable()) {
+                continue;
+            }
+
+            const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+            const std::size_t sectionSize = section.end - section.begin;
+
+            for (std::size_t offset = 0; offset + 7 <= sectionSize; ++offset) {
+                std::uintptr_t callAddress = 0;
+                if (bytes[offset] == 0x6A && bytes[offset + 1] == expectedArg && bytes[offset + 2] == 0xE8) {
+                    callAddress = section.begin + offset + 2;
+                } else if (offset + 10 <= sectionSize && bytes[offset] == 0x68 && bytes[offset + 5] == 0xE8) {
+                    std::uint32_t immediate = 0;
+                    std::memcpy(&immediate, bytes + offset + 1, sizeof(immediate));
+                    if (immediate != expectedArg) {
+                        continue;
+                    }
+                    callAddress = section.begin + offset + 5;
+                } else {
+                    continue;
+                }
+
+                const std::uintptr_t candidate = ResolveRelativeTarget(callAddress);
+                if (!IsAddressInModule(candidate, imageBase, imageEnd)) {
+                    continue;
+                }
+
+                const auto* candidateSection = FindSectionForAddress(sections, candidate, true);
+                if (!candidateSection) {
+                    continue;
+                }
+
+                const std::size_t candidateOffset = static_cast<std::size_t>(candidate - candidateSection->begin);
+                const auto* candidateBytes = reinterpret_cast<const std::uint8_t*>(candidateSection->begin);
+                const std::size_t window = std::min<std::size_t>(0x100, candidateSection->end - candidate);
+                bool sawBufferLoad = false;
+                bool sawLengthCmp = false;
+                bool sawLengthPush = false;
+                bool sawCapacityCmp = false;
+                bool sawLengthClear = false;
+                bool sawZeroTerminator = false;
+                bool sawDirtyStore = false;
+                bool sawReturn = false;
+                int internalCallCount = 0;
+                std::uintptr_t candidateDirtyFlag = 0;
+
+                for (std::size_t index = 0; index < window; ++index) {
+                    const std::uintptr_t address = candidate + index;
+                    const std::uint8_t opcode = candidateBytes[candidateOffset + index];
+
+                    if (index + 5 <= window
+                        && ((opcode >= 0xB8 && opcode <= 0xBF) || opcode == 0x68 || opcode == 0xA1)) {
+                        std::uint32_t immediate = 0;
+                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 1, sizeof(immediate));
+                        if (immediate == inputBuffer32) {
+                            sawBufferLoad = true;
+                        }
+                    }
+
+                    if (index + 6 <= window && opcode == 0xFF && candidateBytes[candidateOffset + index + 1] == 0x35) {
+                        std::uint32_t immediate = 0;
+                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 2, sizeof(immediate));
+                        if (immediate == inputLength32) {
+                            sawLengthPush = true;
+                        }
+                    }
+
+                    if (index + 7 <= window && opcode == 0x83 && candidateBytes[candidateOffset + index + 1] == 0x3D) {
+                        std::uint32_t absolute = 0;
+                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+                        const std::uint8_t immediate = candidateBytes[candidateOffset + index + 6];
+                        if (absolute == inputLength32 && immediate == 0x00) {
+                            sawLengthCmp = true;
+                        }
+                        if (absolute == inputCapacity32 && immediate == 0x0F) {
+                            sawCapacityCmp = true;
+                        }
+                    }
+
+                    if (index + 10 <= window && opcode == 0xC7 && candidateBytes[candidateOffset + index + 1] == 0x05) {
+                        std::uint32_t absolute = 0;
+                        std::uint32_t immediate = 0;
+                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 6, sizeof(immediate));
+                        if (absolute == inputLength32 && immediate == 0) {
+                            sawLengthClear = true;
+                        }
+                    }
+
+                    if (index + 3 <= window && opcode == 0xC6
+                        && (candidateBytes[candidateOffset + index + 1] == 0x06
+                            || candidateBytes[candidateOffset + index + 1] == 0x00)
+                        && candidateBytes[candidateOffset + index + 2] == 0x00) {
+                        sawZeroTerminator = true;
+                    }
+
+                    if (index + 7 <= window && opcode == 0xC6 && candidateBytes[candidateOffset + index + 1] == 0x05
+                        && candidateBytes[candidateOffset + index + 6] == 0x01) {
+                        std::uint32_t absolute = 0;
+                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+                        if (IsAddressInWritableSection(sections, absolute)) {
+                            sawDirtyStore = true;
+                            candidateDirtyFlag = absolute;
+                        }
+                    }
+
+                    if (index + 5 <= window && opcode == 0xE8) {
+                        const auto target = ResolveRelativeTarget(address);
+                        if (IsAddressInModule(target, imageBase, imageEnd)) {
+                            ++internalCallCount;
+                        }
+                    }
+
+                    if (opcode == 0xC3 || opcode == 0xC2) {
+                        sawReturn = true;
+                        break;
+                    }
+                }
+
+                if (sawBufferLoad && sawLengthCmp && sawLengthClear && sawReturn && internalCallCount >= 3
+                    && (sawLengthPush || sawCapacityCmp) && (sawZeroTerminator || sawDirtyStore)) {
+                    submit = candidate;
+                    dirtyFlag = candidateDirtyFlag;
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 std::uint32_t ReadGamePedFromSampPed(std::uint32_t sampPed, SampApi::Version version) {
     const std::uint32_t gamePedOffset = GetSampPedGamePedOffset(version);
     if (sampPed < 0x10000 || gamePedOffset == 0) {
@@ -523,6 +995,26 @@ bool CallAddChatMessage(AddChatMessageFn fn, void* chat, unsigned long color, co
 bool CallProcessInput(ProcessInputFn fn, void* input) {
     __try {
         fn(input);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool CallChatAsiInputWriter(ChatAsiInputWriterFn fn, const char* text, std::size_t length, unsigned char mode) {
+    __try {
+        fn(text, length, mode);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool CallChatAsiInputSubmit(ChatAsiInputSubmitFn fn, unsigned int mode) {
+    __try {
+        fn(mode);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

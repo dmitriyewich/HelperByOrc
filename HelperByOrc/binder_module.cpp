@@ -52,8 +52,8 @@ constexpr int kMaxToasts = 8;
 constexpr int kMinMessageIntervalMs = 0;
 constexpr double kHotkeyDebounceMs = 0.0;
 constexpr int kDefaultRepeatIntervalMs = 500;
-constexpr int kQuickMenuWidth = 320;
-constexpr int kQuickMenuHeight = 360;
+constexpr int kQuickMenuWidth = 214;
+constexpr int kQuickMenuHeight = 277;
 // Строка id для OpenPopup/BeginPopup: только ## — без заголовка в строке окна, заголовок рисуем внутри.
 constexpr char kQuickMenuHostPopupId[] = "##helperbyorc_qm_host";
 constexpr int kTextConfirmTimeoutMs = 5000;
@@ -4433,10 +4433,8 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         static_cast<void>(expandWithTags(text));
         break;
     case 4:
-        if (!sampApi || !sampApi->Set_ChatInputText(text, true, true)) {
+        if (!sampApi || !sampApi->Set_ChatInputText(text, false, true)) {
             PushToast(UiSettings::Instance().Text(UiText::ToastInsertChatFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
-        } else {
-            sampApi->pCInput_Open_Close(false);
         }
         break;
     case 5:
@@ -6960,6 +6958,10 @@ void BinderModule::Impl::DrawBindPane() {
     const float toggleColumnWidth = std::ceil(iconButtonSide + style.CellPadding.x * 2.0f);
     const float quickColumnWidth = std::ceil(iconButtonSide + style.CellPadding.x * 2.0f);
     const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
+    ImVec4 selectedRowBg = style.Colors[ImGuiCol_HeaderActive];
+    selectedRowBg.w = 0.26f;
+    ImVec4 hoveredRowBg = style.Colors[ImGuiCol_HeaderHovered];
+    hoveredRowBg.w = 0.14f;
     if (ImGui::BeginTable(
             "##binder_binds_table",
             5,
@@ -6992,9 +6994,9 @@ void BinderModule::Impl::DrawBindPane() {
             const bool selected = selectedBindIndex == index;
             ImGui::TableNextRow();
             if (selected) {
-                ImVec4 selectedColor = ImGui::GetStyle().Colors[ImGuiCol_Header];
-                selectedColor.w *= 0.35f;
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(selectedColor));
+                const ImU32 rowColor = ImGui::GetColorU32(selectedRowBg);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowColor);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, rowColor);
             }
             ImGui::PushID(index);
 
@@ -7038,11 +7040,17 @@ void BinderModule::Impl::DrawBindPane() {
             const std::string launchLabel =
                 EllipsizeText(launchContent.primary, std::max(0.0f, launchCellWidth - launchPadX * 2.0f));
             const ImVec2 launchLabelSize = ImGui::CalcTextSize(launchLabel.c_str());
+            ImVec4 launchTextColor = style.Colors[ImGuiCol_TextDisabled];
+            launchTextColor.w = hotkey.enabled ? 0.78f : 0.54f;
+            if (selected) {
+                launchTextColor = style.Colors[ImGuiCol_Text];
+                launchTextColor.w = 0.88f;
+            }
             ImGui::GetWindowDrawList()->AddText(
                 ImVec2(
                     std::floor(launchCellPos.x + (launchCellWidth - launchLabelSize.x) * 0.5f),
                     std::floor(launchCellPos.y + (launchCellHeight - launchLabelSize.y) * 0.5f)),
-                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                ImGui::GetColorU32(launchTextColor),
                 launchLabel.c_str());
             ImGui::InvisibleButton("##launch_summary", ImVec2(launchCellWidth, launchCellHeight));
             std::vector<std::string> launchTooltipLines;
@@ -7070,33 +7078,38 @@ void BinderModule::Impl::DrawBindPane() {
             const float bindTextMinX = bindCellPos.x + bindPadX + bindNumberSize.x + bindGap;
             const float bindTextMaxWidth = std::max(0.0f, bindCellWidth - bindPadX * 2.0f - bindNumberSize.x - bindGap);
             const std::string bindName = EllipsizeText(hotkey.label, bindTextMaxWidth);
-            const ImVec2 bindNameSize = ImGui::CalcTextSize(bindName.c_str());
-            float bindNameX = bindCellPos.x + (bindCellWidth - bindNameSize.x) * 0.5f;
-            const float bindNameMinX = bindTextMinX;
-            const float bindNameMaxX =
-                std::max(bindNameMinX, bindCellPos.x + bindCellWidth - bindPadX - bindNameSize.x);
-            if (bindNameX < bindNameMinX) {
-                bindNameX = bindNameMinX;
-            }
-            if (bindNameX > bindNameMaxX) {
-                bindNameX = bindNameMaxX;
-            }
-
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            drawList->AddText(
-                ImVec2(bindCellPos.x + bindPadX, bindTextY),
-                ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                bindNumber.c_str());
-            drawList->AddText(
-                ImVec2(bindNameX, bindTextY),
-                ImGui::GetColorU32(ImGuiCol_Text),
-                bindName.c_str());
-
             const bool bindClicked = ImGui::InvisibleButton("##bind_select", ImVec2(bindCellWidth, bindCellHeight));
             const bool bindHovered = ImGui::IsItemHovered();
             if (bindClicked) {
                 selectedBindIndex = index;
             }
+            if (!selected && bindHovered) {
+                const ImU32 rowColor = ImGui::GetColorU32(hoveredRowBg);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowColor);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, rowColor);
+            }
+            ImVec4 bindNumberColor = style.Colors[ImGuiCol_TextDisabled];
+            bindNumberColor.w = hotkey.enabled ? 0.72f : 0.50f;
+            ImVec4 bindNameColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
+            bindNameColor.w = hotkey.enabled ? 0.96f : 0.82f;
+            if (selected) {
+                bindNumberColor = style.Colors[ImGuiCol_Text];
+                bindNumberColor.w = 0.82f;
+                bindNameColor = style.Colors[ImGuiCol_Text];
+            } else if (bindHovered && hotkey.enabled) {
+                bindNumberColor.w = 0.84f;
+                bindNameColor.w = 1.00f;
+            }
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddText(
+                ImVec2(bindCellPos.x + bindPadX, bindTextY),
+                ImGui::GetColorU32(bindNumberColor),
+                bindNumber.c_str());
+            drawList->AddText(
+                ImVec2(bindTextMinX, bindTextY),
+                ImGui::GetColorU32(bindNameColor),
+                bindName.c_str());
             if (bindHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 selectedBindIndex = index;
                 StartEditing(index, false);

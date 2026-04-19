@@ -111,6 +111,7 @@ void SampApi::Refresh() {
         currentEntryPoint_ = nullptr;
         entryPointAddress_ = 0;
         supportedVersion_ = false;
+        ResetChatAsiInputDiscovery();
 
         if (sampModule_) {
             debuglog::Write("samp.dll detected at %p", sampModule_);

@@ -285,6 +285,16 @@ public:
     const std::string& lastError() const;
 
 private:
+    struct ChatAsiInputDiscovery {
+        HMODULE module = nullptr;
+        bool attempted = false;
+        std::uintptr_t inputLabel = 0;
+        std::uintptr_t inputWrapper = 0;
+        std::uintptr_t inputBuffer = 0;
+        std::uintptr_t inputWriter = 0;
+        std::uintptr_t inputSubmit = 0;
+    };
+
     bool DetectVersion();
     void SetError(std::string message);
     void ClearError();
@@ -305,6 +315,10 @@ private:
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
+    void ResetChatAsiInputDiscovery(HMODULE module = nullptr);
+    bool EnsureChatAsiInputDiscovery();
+    bool TrySetChatInputTextViaChatAsi(std::string_view utf8Text);
+    bool TryProcessChatInputViaChatAsi(std::string_view utf8Text);
     HMODULE sampModule_ = nullptr;
     bool versionResolved_ = false;
     Version currentVersion_ = Version::Unknown;
@@ -316,4 +330,5 @@ private:
     int dialogHookBypassDepth_ = 0;
     std::string functionBackendMode_ = BACKEND_STANDARD;
     std::string functionBackendActive_ = BACKEND_STANDARD;
+    ChatAsiInputDiscovery chatAsiInputDiscovery_{};
 };

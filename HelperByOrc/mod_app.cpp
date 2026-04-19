@@ -402,9 +402,9 @@ void ModApp::ApplyMainStyle(float scale) const {
     colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.26f, 0.29f, 0.38f, 0.75f);
     colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.34f, 0.39f, 0.48f, 0.90f);
     colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.18f, 0.20f, 0.24f, 1.00f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.38f, 0.45f, 0.62f, 1.00f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.22f, 0.26f, 0.34f, 0.78f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.34f, 0.41f, 0.58f, 0.90f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.47f, 0.60f, 0.80f, 0.96f);
     colors[ImGuiCol_Separator] = ImVec4(0.27f, 0.33f, 0.44f, 1.00f);
     colors[ImGuiCol_SeparatorHovered] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
     colors[ImGuiCol_SeparatorActive] = ImVec4(0.62f, 0.72f, 0.92f, 1.00f);
@@ -416,6 +416,11 @@ void ModApp::ApplyMainStyle(float scale) const {
     colors[ImGuiCol_TabActive] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
     colors[ImGuiCol_TabUnfocused] = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
     colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.16f, 0.20f, 0.29f, 1.00f);
+    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.14f, 0.17f, 0.22f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.24f, 0.29f, 0.38f, 1.00f);
+    colors[ImGuiCol_TableBorderLight] = ImVec4(0.17f, 0.20f, 0.25f, 1.00f);
+    colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.035f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.47f, 0.60f, 0.80f, 0.35f);
     colors[ImGuiCol_NavHighlight] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
     colors[ImGuiCol_NavWindowingHighlight] = ImVec4(0.47f, 0.60f, 0.80f, 0.70f);
@@ -576,7 +581,7 @@ MainTab ModApp::DrawAnimatedMenu(float width) {
 }
 
 void ModApp::DrawSectionCard(const char* id, const char* title, const char* description, const ImVec4& accent) const {
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.16f, 0.20f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::GetStyle().Colors[ImGuiCol_ChildBg]);
     if (ImGui::BeginChild(id, ImVec2(0.0f, Scale(86.0f)), ImGuiChildFlags_FrameStyle)) {
         ImGui::TextColored(accent, "%s", title);
         ImGui::Spacing();

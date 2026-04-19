@@ -6,16 +6,20 @@
 
 [b]Платформа:[/b] Win32 / x86, формат ASI.
 
-[b]Сборка:[/b] Visual Studio + MSBuild, конфигурация Release | Win32. Пример:
+[b]Сборка:[/b] Visual Studio + MSBuild, конфигурация Release | Win32. Пример (в PowerShell параметр [b]Platform[/b] лучше в кавычках):
 [code]
 cd HelperByOrc
-MSBuild.exe HelperByOrc.vcxproj /t:Build /p:Configuration=Release;Platform=Win32
+MSBuild.exe HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win32"
 [/code]
 Подставьте полный путь к MSBuild.exe из вашей установки VS (например Program Files\Microsoft Visual Studio\2022\Community\...\MSBuild.exe или ветка 18).
 
 [b]Результат:[/b] HelperByOrc\Release\HelperByOrc.asi
 
 [b]Модули:[/b] imgui_overlay, mod_app, binder_module, samp_api, samp_hooks, samp_rak_hooks, tags_module, hotkey_utils, text_encoding, app_config.
+
+[b]Чат (биндер / samp_api):[/b] при загруженном Arizona [b]_chat.asi[/b] — поиск writer/submit в модуле, [b]UTF-8[/b] в поле; без него — [b]CP1251[/b] и [b]CDXUTEditBox[/b]. «Вставить в чат» — только текст в поле; «Открыть чат» — открыть чат и вставить. Фоновая подстановка может использовать тот же путь.
+
+[b]UI:[/b] быстрое меню по умолчанию компактнее; таблица биндов и селекты читаемее; тема — тёмно-синий акцент.
 
 [b]Быстрое меню (binder):[/b]
 - Стиль 1: дерево ([b]Tree[/b])

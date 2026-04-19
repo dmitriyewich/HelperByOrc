@@ -619,10 +619,16 @@ bool SampApi::process_chat_input(std::string_view text, bool alreadyDecoded) {
         return false;
     }
 
-    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
+    std::string utf8Text = alreadyDecoded ? textencoding::GameToUtf8(text) : std::string(text);
+    std::string gameText = textencoding::Utf8ToGame(utf8Text);
     if (gameText.empty()) {
         SetError("Chat text is empty after conversion");
         return false;
+    }
+
+    if (TryProcessChatInputViaChatAsi(utf8Text)) {
+        ClearError();
+        return true;
     }
 
     const auto processInputAddr = GetAddress(main_offsets.CInput_ProcessInput);
@@ -738,11 +744,176 @@ SampApi::ChatEntry SampApi::pGetChatString(int index) {
     return result;
 }
 
+void SampApi::ResetChatAsiInputDiscovery(HMODULE module) {
+    chatAsiInputDiscovery_ = {};
+    chatAsiInputDiscovery_.module = module;
+}
+
+bool SampApi::EnsureChatAsiInputDiscovery() {
+    const HMODULE module = GetModuleHandleA("_chat.asi");
+    if (!module) {
+        ResetChatAsiInputDiscovery();
+        return false;
+    }
+
+    if (chatAsiInputDiscovery_.module != module) {
+        ResetChatAsiInputDiscovery(module);
+    }
+
+    if (chatAsiInputDiscovery_.attempted) {
+        return chatAsiInputDiscovery_.inputWriter != 0 && chatAsiInputDiscovery_.inputBuffer != 0;
+    }
+
+    chatAsiInputDiscovery_.attempted = true;
+
+    std::uintptr_t imageBase = 0;
+    std::uintptr_t imageEnd = 0;
+    std::vector<ModuleSectionRange> sections;
+    if (!TryGetModuleSections(module, imageBase, imageEnd, sections)) {
+        debuglog::Write("SampApi::_chat.asi input discovery failed: invalid module layout module=%p", module);
+        return false;
+    }
+
+    const std::uintptr_t inputLabel = FindAsciiStringLiteral(sections, "###input");
+    if (inputLabel == 0) {
+        debuglog::Write("SampApi::_chat.asi input discovery failed: ###input was not found");
+        return false;
+    }
+
+    const auto refs = FindPushImmediateRefs(sections, inputLabel);
+    std::uintptr_t fallbackRef = 0;
+    std::uintptr_t fallbackWrapper = 0;
+    std::uintptr_t fallbackBuffer = 0;
+    std::uintptr_t fallbackWriter = 0;
+    std::uintptr_t fallbackWriterDirty = 0;
+    for (const auto ref : refs) {
+        const std::uintptr_t inputWrapper = FindNearbyWrapperCall(ref, imageBase, imageEnd);
+        const std::uintptr_t inputBuffer = FindWritablePushBefore(ref, sections);
+        if (inputWrapper == 0 || inputBuffer == 0) {
+            continue;
+        }
+
+        std::uintptr_t inputWriter = 0;
+        std::uintptr_t writerDirtyFlag = 0;
+        if (!FindChatAsiWriterForBuffer(sections, imageBase, imageEnd, inputBuffer, inputWriter, writerDirtyFlag)) {
+            continue;
+        }
+
+        if (fallbackWriter == 0) {
+            fallbackRef = ref;
+            fallbackWrapper = inputWrapper;
+            fallbackBuffer = inputBuffer;
+            fallbackWriter = inputWriter;
+            fallbackWriterDirty = writerDirtyFlag;
+        }
+
+        std::uintptr_t inputSubmit = 0;
+        std::uintptr_t submitDirtyFlag = 0;
+        if (!FindChatAsiSubmitForBuffer(sections, imageBase, imageEnd, inputBuffer, inputSubmit, submitDirtyFlag)) {
+            continue;
+        }
+
+        chatAsiInputDiscovery_.inputLabel = inputLabel;
+        chatAsiInputDiscovery_.inputWrapper = inputWrapper;
+        chatAsiInputDiscovery_.inputBuffer = inputBuffer;
+        chatAsiInputDiscovery_.inputWriter = inputWriter;
+        chatAsiInputDiscovery_.inputSubmit = inputSubmit;
+
+        debuglog::Write(
+            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
+            module,
+            static_cast<unsigned>(inputLabel),
+            static_cast<unsigned>(ref),
+            static_cast<unsigned>(inputWrapper),
+            static_cast<unsigned>(inputBuffer),
+            static_cast<unsigned>(inputWriter),
+            static_cast<unsigned>(inputSubmit),
+            static_cast<unsigned>(writerDirtyFlag),
+            static_cast<unsigned>(submitDirtyFlag));
+        return true;
+    }
+
+    if (fallbackWriter != 0) {
+        chatAsiInputDiscovery_.inputLabel = inputLabel;
+        chatAsiInputDiscovery_.inputWrapper = fallbackWrapper;
+        chatAsiInputDiscovery_.inputBuffer = fallbackBuffer;
+        chatAsiInputDiscovery_.inputWriter = fallbackWriter;
+
+        debuglog::Write(
+            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
+            module,
+            static_cast<unsigned>(inputLabel),
+            static_cast<unsigned>(fallbackRef),
+            static_cast<unsigned>(fallbackWrapper),
+            static_cast<unsigned>(fallbackBuffer),
+            static_cast<unsigned>(fallbackWriter),
+            static_cast<unsigned>(fallbackWriterDirty));
+        return true;
+    }
+
+    debuglog::Write(
+        "SampApi::_chat.asi input discovery failed: no valid ###input -> wrapper -> buffer -> writer chain was found");
+    return false;
+}
+
+bool SampApi::TrySetChatInputTextViaChatAsi(std::string_view utf8Text) {
+    if (!EnsureChatAsiInputDiscovery()) {
+        return false;
+    }
+
+    if (chatAsiInputDiscovery_.inputWriter == 0) {
+        return false;
+    }
+
+    const auto writer = reinterpret_cast<ChatAsiInputWriterFn>(chatAsiInputDiscovery_.inputWriter);
+    if (!CallChatAsiInputWriter(writer, utf8Text.data(), utf8Text.size(), 0)) {
+        debuglog::Write(
+            "SampApi::_chat.asi input writer SEH fail writer=0x%08X len=%llu",
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputWriter),
+            static_cast<unsigned long long>(utf8Text.size()));
+        return false;
+    }
+
+    return true;
+}
+
+bool SampApi::TryProcessChatInputViaChatAsi(std::string_view utf8Text) {
+    if (!EnsureChatAsiInputDiscovery()) {
+        return false;
+    }
+
+    if (chatAsiInputDiscovery_.inputSubmit == 0) {
+        return false;
+    }
+
+    if (!TrySetChatInputTextViaChatAsi(utf8Text)) {
+        return false;
+    }
+
+    const auto submit = reinterpret_cast<ChatAsiInputSubmitFn>(chatAsiInputDiscovery_.inputSubmit);
+    if (!CallChatAsiInputSubmit(submit, 1)) {
+        debuglog::Write(
+            "SampApi::_chat.asi input submit SEH fail submit=0x%08X len=%llu",
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputSubmit),
+            static_cast<unsigned long long>(utf8Text.size()));
+        return false;
+    }
+
+    return true;
+}
+
 bool SampApi::Set_ChatInputText(std::string_view text, bool openInput, bool alreadyDecoded) {
-    std::string gameText = PrepareOutgoingText(text, alreadyDecoded, true);
+    std::string utf8Text = alreadyDecoded ? textencoding::GameToUtf8(text) : std::string(text);
+    utf8Text = ApplyTextTransform(utf8Text);
+    std::string gameText = textencoding::Utf8ToGame(utf8Text);
 
     if (openInput && !pCInput_Open_Close(true)) {
         return false;
+    }
+
+    if (TrySetChatInputTextViaChatAsi(utf8Text)) {
+        ClearError();
+        return true;
     }
 
     const auto address = GetAddress(main_offsets.CDXUTEditBox_SetText);
