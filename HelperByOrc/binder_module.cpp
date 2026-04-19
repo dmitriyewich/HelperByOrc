@@ -52,7 +52,6 @@ constexpr double kHotkeyDebounceMs = 0.0;
 constexpr int kDefaultRepeatIntervalMs = 500;
 constexpr int kQuickMenuWidth = 320;
 constexpr int kQuickMenuHeight = 360;
-constexpr double kQuickMenuSubmenuCloseGraceSeconds = 0.5;
 constexpr int kTextConfirmTimeoutMs = 5000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr int kIncomingChatEchoGuardTimeoutMs = 1000;
@@ -71,7 +70,6 @@ constexpr char kIconDelete[] = "\xEF\x8B\xAD";
 constexpr char kIconBars[] = "\xEF\x83\x89";
 constexpr char kIconAngleDown[] = "\xEF\x84\x87";
 constexpr char kIconAngleUp[] = "\xEF\x84\x86";
-constexpr char kIconAngleRight[] = "\xEF\x84\x85";
 constexpr char kIconBracketsCurly[] = "\xEF\x9F\xAA";
 constexpr char kIconFolder[] = "\xEF\x84\x94";
 constexpr char kIconClone[] = "\xEF\x89\x8D";
@@ -429,6 +427,12 @@ using JsonValue = jsonutil::JsonValue;
 enum class QuickMenuActivationMode {
     Hold,
     Toggle,
+};
+
+enum class QuickMenuStyle {
+    Tree = 0,
+    Style2 = 1,
+    Style3 = 2,
 };
 
 enum class InputMode {
@@ -1094,6 +1098,29 @@ std::string QuickMenuActivationModeId(QuickMenuActivationMode mode) {
     return mode == QuickMenuActivationMode::Toggle ? "toggle" : "hold";
 }
 
+QuickMenuStyle NormalizeQuickMenuStyle(std::string_view value) {
+    const std::string normalized = ToLower(value);
+    if (normalized == "style3" || normalized == "3") {
+        return QuickMenuStyle::Style3;
+    }
+    if (normalized == "style2" || normalized == "2") {
+        return QuickMenuStyle::Style2;
+    }
+    return QuickMenuStyle::Style3;
+}
+
+std::string QuickMenuStyleId(QuickMenuStyle style) {
+    switch (style) {
+    case QuickMenuStyle::Tree:
+        return "tree";
+    case QuickMenuStyle::Style2:
+        return "style2";
+    case QuickMenuStyle::Style3:
+        return "style3";
+    }
+    return "tree";
+}
+
 std::string NormalizeInputKey(std::string_view value) {
     std::string key;
     key.reserve(value.size());
@@ -1663,18 +1690,16 @@ struct BinderModule::Impl {
 
     std::vector<UINT> quickMenuHotkey{};
     QuickMenuActivationMode quickMenuActivationMode = QuickMenuActivationMode::Hold;
+    QuickMenuStyle quickMenuStyle = QuickMenuStyle::Style3;
     bool quickMenuOpen = false;
     bool quickMenuReopenBlocked = false;
     bool quickMenuToggleLatch = false;
+    bool quickMenuFocusPending = false;
     int quickMenuTabIndex = 0;
     int quickMenuTabSelectRequest = -1;
+    std::string quickMenuStyle2SelectedPath{};
     ImVec2 quickMenuPos{ 0.0f, 0.0f };
     ImVec2 quickMenuSize{ static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight) };
-    std::map<std::string, bool> quickMenuSubmenuOpen{};
-    std::map<std::string, ImVec2> quickMenuSubmenuPos{};
-    std::map<std::string, FolderNode*> quickMenuSubmenuNode{};
-    std::map<std::string, double> quickMenuSubmenuCloseDeadline{};
-    std::vector<std::string> quickMenuSubmenuPaths{};
 
     std::optional<InputDialogState> inputDialog{};
     std::vector<RunningBind> runningBinds{};
@@ -2119,6 +2144,7 @@ void BinderModule::Impl::SaveConfig() {
     JsonObject root;
     root["quick_menu_hotkey"] = SerializeUintArray(quickMenuHotkey);
     root["quick_menu_activation_mode"] = QuickMenuActivationModeId(quickMenuActivationMode);
+    root["quick_menu_style"] = QuickMenuStyleId(quickMenuStyle);
 
     JsonArray folderArray;
     for (const auto& folder : folders) {
@@ -2145,6 +2171,7 @@ void BinderModule::Impl::LoadConfig() {
     nextHotkeyRuntimeId = 1;
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
+    quickMenuStyle = QuickMenuStyle::Style3;
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
     const JsonObject* root = sharedSection.TryObject();
     if (!root) {
@@ -2156,6 +2183,8 @@ void BinderModule::Impl::LoadConfig() {
         DeserializeUintArray(jsonutil::JsonArrayOrNull(root, "quick_menu_hotkey")), HotkeyMode::ModifierTrigger);
     quickMenuActivationMode =
         NormalizeQuickMenuActivationMode(jsonutil::JsonStringOr(root, "quick_menu_activation_mode", "hold"));
+    quickMenuStyle =
+        NormalizeQuickMenuStyle(jsonutil::JsonStringOr(root, "quick_menu_style", "style3"));
 
     if (const JsonArray* folderArray = jsonutil::JsonArrayOrNull(root, "folders")) {
         for (const JsonValue& item : *folderArray) {
@@ -2504,13 +2533,9 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
 }
 
 void BinderModule::Impl::ResetQuickMenuVisualState() {
-    quickMenuSubmenuOpen.clear();
-    quickMenuSubmenuPos.clear();
-    quickMenuSubmenuNode.clear();
-    quickMenuSubmenuCloseDeadline.clear();
-    quickMenuSubmenuPaths.clear();
     quickMenuTabIndex = 0;
     quickMenuTabSelectRequest = -1;
+    quickMenuStyle2SelectedPath.clear();
 }
 
 void BinderModule::Impl::ResetInputState() {
@@ -2594,6 +2619,11 @@ void BinderModule::Impl::Tick() {
             quickMenuActivationMode == QuickMenuActivationMode::Toggle ? "toggle" : "hold",
             IsQuickMenuComboPressed() ? 1 : 0,
             WantsOverlayRender() ? 1 : 0);
+    }
+    if (!quickWasOpen && quickMenuOpen) {
+        quickMenuFocusPending = true;
+    } else if (!quickMenuOpen) {
+        quickMenuFocusPending = false;
     }
     ProcessHotkeys();
     ProcessRunningBinds();
@@ -7389,6 +7419,25 @@ void BinderModule::Impl::DrawSettingsSection() {
         quickMenuActivationMode = quickModes[quickMode];
         SaveConfig();
     }
+
+    const QuickMenuStyle quickStyles[] = { QuickMenuStyle::Tree, QuickMenuStyle::Style2, QuickMenuStyle::Style3 };
+    const char* quickStyleLabels[] = {
+        ui.Text(UiText::QuickMenuStyleTree),
+        ui.Text(UiText::QuickMenuStyle2),
+        ui.Text(UiText::QuickMenuStyle3),
+    };
+    int quickStyle = 0;
+    if (quickMenuStyle == QuickMenuStyle::Style2) {
+        quickStyle = 1;
+    } else if (quickMenuStyle == QuickMenuStyle::Style3) {
+        quickStyle = 2;
+    }
+    ImGui::SetNextItemWidth(ScaleUi(180.0f));
+    if (ImGui::Combo(ui.Text(UiText::QuickMenuStyle), &quickStyle, quickStyleLabels, IM_ARRAYSIZE(quickStyleLabels))) {
+        quickMenuStyle = quickStyles[quickStyle];
+        ResetQuickMenuVisualState();
+        SaveConfig();
+    }
 }
 
 void BinderModule::Impl::DrawQuickMenu() {
@@ -7408,22 +7457,22 @@ void BinderModule::Impl::DrawQuickMenu() {
         return;
     }
 
-    const ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO& ioMut = ImGui::GetIO();
+    const ImGuiIO& io = ioMut;
     if (quickMenuPos.x == 0.0f && quickMenuPos.y == 0.0f) {
         quickMenuSize = ScaleUi(static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight));
         quickMenuPos = ImVec2((io.DisplaySize.x - quickMenuSize.x) * 0.5f, (io.DisplaySize.y - quickMenuSize.y) * 0.5f);
     }
 
-    if (!quickMenuSubmenuOpen.empty()) {
-        ImGuiIO& ioFix = ImGui::GetIO();
-        const ImVec2 mp = ioFix.MousePos;
+    {
+        const ImVec2 mp = ioMut.MousePos;
         if (!ImGui::IsMousePosValid(&mp)) {
             ImGuiViewport* vp = ImGui::GetMainViewport();
             if (vp != nullptr && vp->PlatformHandle != nullptr) {
                 const HWND hwnd = reinterpret_cast<HWND>(vp->PlatformHandle);
                 POINT pt{};
                 if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(hwnd, &pt) != 0) {
-                    ioFix.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
+                    ioMut.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
                 }
             }
         }
@@ -7432,12 +7481,6 @@ void BinderModule::Impl::DrawQuickMenu() {
     const bool persistentOpen = quickMenuActivationMode == QuickMenuActivationMode::Toggle;
     bool windowOpen = true;
     int selectedHotkeyIndex = -1;
-    bool hoveredAnyMenuWindow = false;
-    bool submenuTriggerHovered = false;
-    std::map<std::string, bool> shouldCloseSubmenu{};
-    for (const auto& [path, _] : quickMenuSubmenuOpen) {
-        shouldCloseSubmenu[path] = true;
-    }
 
     const auto closeQuickMenuForSelection = [&]() {
         quickMenuOpen = false;
@@ -7445,15 +7488,305 @@ void BinderModule::Impl::DrawQuickMenu() {
         ResetQuickMenuVisualState();
     };
 
-    const auto removeSubmenuState = [&](const std::string& path) {
-        quickMenuSubmenuOpen.erase(path);
-        quickMenuSubmenuPos.erase(path);
-        quickMenuSubmenuNode.erase(path);
-        quickMenuSubmenuCloseDeadline.erase(path);
-    };
+    if (quickMenuStyle == QuickMenuStyle::Style3) {
+        ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
+        if (quickMenuFocusPending) {
+            ImGui::SetNextWindowFocus();
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
 
-    // Не использовать MenuItem вне меню BeginMenu/BeginPopup: в части режимов хит-бокс клика по горячей
-    // строке не совпадает с полосой наведения (папки ниже на Selectable нажимаются). Selectable совпадает с подпапками.
+        bool style3WindowOpen = true;
+        int style3SelectedHotkeyIndex = -1;
+        const std::uint64_t nowMs = GetTickCount64();
+        static std::uint64_t s_style3TraceNextAtMs = 0;
+        const bool traceStyle3 = nowMs >= s_style3TraceNextAtMs;
+        if (traceStyle3) {
+            s_style3TraceNextAtMs = nowMs + 500;
+            debuglog::Write("[ui][style3] frame open=%d visibleRoots=%d", quickMenuOpen ? 1 : 0, static_cast<int>(visibleFolders.size()));
+        }
+
+        auto drawStyle3MenuFolder = [&](auto&& self, FolderNode& node, int depth) -> void {
+            if (style3SelectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
+                return;
+            }
+
+            std::vector<FolderNode*> childFolders;
+            for (auto& child : node.children) {
+                if (child && FolderHasVisibleQuickEntries(*child)) {
+                    childFolders.push_back(child.get());
+                }
+            }
+
+            for (std::size_t childIdx = 0; childIdx < childFolders.size(); ++childIdx) {
+                FolderNode* child = childFolders[childIdx];
+                if (!child) {
+                    continue;
+                }
+                const std::string childPath = JoinPath(BuildFolderPath(child));
+                const std::string childLabel =
+                    std::string(kIconFolder) + " " + child->name
+                    + "##qm_style3_folder_" + std::to_string(depth) + "_" + childPath;
+                if (ImGui::BeginMenu(childLabel.c_str())) {
+                    if (traceStyle3) {
+                        debuglog::Write("[ui][style3] child menu open path=%s", childPath.c_str());
+                    }
+                    self(self, *child, depth + 1);
+                    ImGui::EndMenu();
+                }
+                if (style3SelectedHotkeyIndex >= 0) {
+                    return;
+                }
+            }
+
+            const std::vector<int> entries = QuickEntriesForFolder(node);
+            if (!childFolders.empty() && !entries.empty()) {
+                ImGui::Separator();
+            }
+
+            for (const int index : entries) {
+                if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                    continue;
+                }
+                const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+                const std::string visibleLabel = std::string(kIconKeyboard) + " "
+                    + (hotkey.label.empty() ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey) : hotkey.label);
+                const std::string itemLabel =
+                    visibleLabel + "##qm_style3_bind_" + std::to_string(index);
+                const std::string shortcut = hotkey.keys.empty()
+                    ? std::string()
+                    : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
+                if (ImGui::MenuItem(itemLabel.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), false, hotkey.enabled)) {
+                    style3SelectedHotkeyIndex = index;
+                    return;
+                }
+            }
+        };
+
+        if (ImGui::Begin(
+                UiSettings::Instance().Text(UiText::QuickMenuWindowTitle),
+                (quickMenuActivationMode == QuickMenuActivationMode::Toggle) ? &style3WindowOpen : nullptr,
+                ImGuiWindowFlags_NoCollapse)) {
+            ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+            ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
+            quickMenuPos = ImGui::GetWindowPos();
+            quickMenuSize = ImGui::GetWindowSize();
+
+            if (traceStyle3) {
+                debuglog::Write("[ui][style3] menu-body roots=%d", static_cast<int>(visibleFolders.size()));
+            }
+            for (std::size_t rootIdx = 0; rootIdx < visibleFolders.size(); ++rootIdx) {
+                auto* folder = visibleFolders[rootIdx];
+                if (!folder) {
+                    continue;
+                }
+                const std::string rootPath = JoinPath(BuildFolderPath(folder));
+                const std::string rootLabel =
+                    std::string(kIconFolder) + " " + folder->name + "##qm_style3_root_" + rootPath;
+                if (ImGui::BeginMenu(rootLabel.c_str())) {
+                    if (traceStyle3) {
+                        debuglog::Write("[ui][style3] root menu open path=%s", rootPath.c_str());
+                    }
+                    drawStyle3MenuFolder(drawStyle3MenuFolder, *folder, 0);
+                    ImGui::EndMenu();
+                }
+                if (style3SelectedHotkeyIndex >= 0) {
+                    break;
+                }
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+        if (quickMenuFocusPending) {
+            quickMenuFocusPending = false;
+        }
+
+        if (quickMenuActivationMode == QuickMenuActivationMode::Toggle && !style3WindowOpen) {
+            closeQuickMenuForSelection();
+            return;
+        }
+        if (style3SelectedHotkeyIndex >= 0) {
+            closeQuickMenuForSelection();
+            TryEnqueueHotkey(style3SelectedHotkeyIndex, 0, "quick_menu", "");
+        }
+        return;
+    }
+
+    if (quickMenuStyle == QuickMenuStyle::Style2) {
+        struct FolderViewRow {
+            FolderNode* folder = nullptr;
+            std::string path{};
+            int depth = 0;
+        };
+
+        std::vector<FolderViewRow> folderRows;
+        folderRows.reserve(64);
+        auto collectRows = [&](auto&& self, FolderNode& folder, int depth) -> void {
+            if (!FolderHasVisibleQuickEntries(folder)) {
+                return;
+            }
+            folderRows.push_back(FolderViewRow{ &folder, JoinPath(BuildFolderPath(&folder)), depth });
+            for (auto& child : folder.children) {
+                if (child) {
+                    self(self, *child, depth + 1);
+                }
+            }
+        };
+        for (auto* root : visibleFolders) {
+            if (root) {
+                collectRows(collectRows, *root, 0);
+            }
+        }
+
+        if (folderRows.empty()) {
+            quickMenuOpen = false;
+            ResetQuickMenuVisualState();
+            return;
+        }
+
+        FolderNode* selectedFolder = nullptr;
+        if (!quickMenuStyle2SelectedPath.empty()) {
+            for (const auto& row : folderRows) {
+                if (row.path == quickMenuStyle2SelectedPath) {
+                    selectedFolder = row.folder;
+                    break;
+                }
+            }
+        }
+        if (!selectedFolder) {
+            selectedFolder = folderRows.front().folder;
+            quickMenuStyle2SelectedPath = folderRows.front().path;
+        }
+
+        ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
+        if (quickMenuFocusPending) {
+            ImGui::SetNextWindowFocus();
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
+
+        bool style2WindowOpen = true;
+        int style2SelectedHotkeyIndex = -1;
+        if (ImGui::Begin(
+                UiSettings::Instance().Text(UiText::QuickMenuWindowTitle),
+                (quickMenuActivationMode == QuickMenuActivationMode::Toggle) ? &style2WindowOpen : nullptr,
+                ImGuiWindowFlags_NoCollapse)) {
+            ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+            ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
+            quickMenuPos = ImGui::GetWindowPos();
+            quickMenuSize = ImGui::GetWindowSize();
+
+            const float leftPaneWidth = std::max(ScaleUi(170.0f), quickMenuSize.x * 0.42f);
+            if (ImGui::BeginChild("##style2_folders", ImVec2(leftPaneWidth, 0.0f), ImGuiChildFlags_Borders)) {
+                for (const auto& row : folderRows) {
+                    if (!row.folder) {
+                        continue;
+                    }
+                    ImGui::PushID(row.path.c_str());
+                    ImGui::Indent(ScaleUi(static_cast<float>(row.depth) * 14.0f));
+                    const bool isSelected = (row.folder == selectedFolder);
+                    const std::string name = row.folder->name.empty()
+                        ? UiSettings::Instance().Text(UiText::BinderDefaultFolder)
+                        : row.folder->name;
+                    const std::string folderLabel = std::string(kIconFolder) + " " + name + "##style2_folder";
+                    if (ImGui::Selectable(folderLabel.c_str(), isSelected)) {
+                        selectedFolder = row.folder;
+                        quickMenuStyle2SelectedPath = row.path;
+                    }
+                    ImGui::Unindent(ScaleUi(static_cast<float>(row.depth) * 14.0f));
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+
+            if (ImGui::BeginChild("##style2_content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                if (selectedFolder) {
+                    std::vector<FolderNode*> childFolders;
+                    for (auto& child : selectedFolder->children) {
+                        if (child && FolderHasVisibleQuickEntries(*child)) {
+                            childFolders.push_back(child.get());
+                        }
+                    }
+
+                    for (FolderNode* child : childFolders) {
+                        if (!child) {
+                            continue;
+                        }
+                        const std::string childPath = JoinPath(BuildFolderPath(child));
+                        const std::string childName = child->name.empty()
+                            ? UiSettings::Instance().Text(UiText::BinderDefaultFolder)
+                            : child->name;
+                        const std::string childLabel = std::string(kIconFolder) + " " + childName + "##style2_child_" + childPath;
+                        if (ImGui::Selectable(childLabel.c_str(), false)) {
+                            selectedFolder = child;
+                            quickMenuStyle2SelectedPath = childPath;
+                        }
+                    }
+
+                    const std::vector<int> entries = QuickEntriesForFolder(*selectedFolder);
+                    if (!childFolders.empty() && !entries.empty()) {
+                        ImGui::Separator();
+                    }
+
+                    for (const int index : entries) {
+                        if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                            continue;
+                        }
+                        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+                        const std::string hotkeyLabel = hotkey.label.empty()
+                            ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey)
+                            : hotkey.label;
+                        const std::string rowLabel =
+                            std::string(kIconKeyboard) + " " + hotkeyLabel + "##style2_bind_" + std::to_string(index);
+                        const std::string shortcut = hotkey.keys.empty()
+                            ? std::string()
+                            : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
+                        std::string fullRow = rowLabel;
+                        if (!shortcut.empty()) {
+                            fullRow += '\t';
+                            fullRow += shortcut;
+                        }
+
+                        if (!hotkey.enabled) {
+                            ImGui::BeginDisabled();
+                        }
+                        const bool clicked = ImGui::Selectable(fullRow.c_str(), false);
+                        if (!hotkey.enabled) {
+                            ImGui::EndDisabled();
+                        }
+                        if (clicked && hotkey.enabled) {
+                            style2SelectedHotkeyIndex = index;
+                            break;
+                        }
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+        if (quickMenuFocusPending) {
+            quickMenuFocusPending = false;
+        }
+
+        if (quickMenuActivationMode == QuickMenuActivationMode::Toggle && !style2WindowOpen) {
+            closeQuickMenuForSelection();
+            return;
+        }
+
+        if (style2SelectedHotkeyIndex >= 0) {
+            closeQuickMenuForSelection();
+            TryEnqueueHotkey(style2SelectedHotkeyIndex, 0, "quick_menu", "");
+        }
+        return;
+    }
+
     const auto quickMenuItem = [&](const std::string& label, const char* shortcut, bool enabled) -> bool {
         ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
         std::string row = label;
@@ -7472,7 +7805,8 @@ void BinderModule::Impl::DrawQuickMenu() {
         return clicked && enabled;
     };
 
-    const auto drawNode = [&](auto&& self, FolderNode& node) -> void {
+    // Одно окно: папки — через TreeNodeEx (встроенный hit-test и навигация), без каскада отдельных окон.
+    const auto drawQuickFolderTree = [&](auto&& self, FolderNode& node, int depth) -> void {
         if (selectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
             return;
         }
@@ -7506,34 +7840,26 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             const std::string path = JoinPath(BuildFolderPath(child.get()));
-            const bool isOpen = quickMenuSubmenuOpen.contains(path);
-            const std::string label = std::string(kIconFolder) + " " + child->name + " " + kIconAngleRight
-                + "##quick_folder_" + path;
+            const std::string display = std::string(kIconFolder) + " " + child->name;
+            const std::string treeLabel = display + "###qm_tree_" + path;
 
-            ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
-            ImGui::Selectable(label.c_str(), isOpen);
-            ImGui::PopStyleVar();
+            ImGuiTreeNodeFlags tflags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;
+            if (depth == 0) {
+                tflags |= ImGuiTreeNodeFlags_DefaultOpen;
+            }
 
-            const ImVec2 itemMin = ImGui::GetItemRectMin();
-            const ImVec2 itemMax = ImGui::GetItemRectMax();
-            const float windowRight = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x;
-            quickMenuSubmenuPos[path] = ImVec2(windowRight, itemMin.y - ScaleUi(10.0f));
-
-            const bool pointerInRow = io.MousePos.x >= itemMin.x && io.MousePos.x <= windowRight
-                && io.MousePos.y >= itemMin.y && io.MousePos.y <= itemMax.y;
-            if (ImGui::IsItemHovered() || pointerInRow) {
-                submenuTriggerHovered = true;
-                quickMenuSubmenuOpen[path] = true;
-                quickMenuSubmenuNode[path] = child.get();
-                shouldCloseSubmenu[path] = false;
-                quickMenuSubmenuCloseDeadline.erase(path);
+            if (ImGui::TreeNodeEx(treeLabel.c_str(), tflags)) {
+                self(self, *child, depth + 1);
+                ImGui::TreePop();
             }
         }
     };
 
     ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
-    ImGui::SetNextWindowFocus();
+    if (quickMenuFocusPending) {
+        ImGui::SetNextWindowFocus();
+    }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
@@ -7546,7 +7872,7 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuPos = ImGui::GetWindowPos();
         quickMenuSize = ImGui::GetWindowSize();
 
-        hoveredAnyMenuWindow = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        const bool hoveredQuick = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
         const int visibleCount = static_cast<int>(visibleFolders.size());
         if (visibleCount > 0) {
             const int clampedIndex = std::clamp(quickMenuTabIndex, 0, visibleCount - 1);
@@ -7555,7 +7881,10 @@ void BinderModule::Impl::DrawQuickMenu() {
                 quickMenuTabSelectRequest = clampedIndex;
             }
 
-            if (hoveredAnyMenuWindow) {
+            // Колесо мыши нужно для прокрутки содержимого при удержании быстрого меню.
+            // Переключение вкладок колесом оставляем только с Ctrl, чтобы не мешать скроллу.
+            if (hoveredQuick && ((::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 || (::GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0
+                || (::GetAsyncKeyState(VK_RCONTROL) & 0x8000) != 0)) {
                 const int scrollSteps = static_cast<int>(io.MouseWheel);
                 if (scrollSteps != 0) {
                     quickMenuTabIndex += scrollSteps;
@@ -7583,7 +7912,13 @@ void BinderModule::Impl::DrawQuickMenu() {
                     if (quickMenuTabSelectRequest == static_cast<int>(i)) {
                         quickMenuTabSelectRequest = -1;
                     }
-                    drawNode(drawNode, folder);
+
+                    const float treeHeight = std::max(ScaleUi(200.0f), ImGui::GetContentRegionAvail().y);
+                    if (ImGui::BeginChild("##quick_menu_tree", ImVec2(0.0f, treeHeight), ImGuiChildFlags_Borders)) {
+                        drawQuickFolderTree(drawQuickFolderTree, folder, 0);
+                    }
+                    ImGui::EndChild();
+
                     ImGui::EndTabItem();
                 }
                 if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -7598,6 +7933,9 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
     ImGui::End();
     ImGui::PopStyleVar(3);
+    if (quickMenuFocusPending) {
+        quickMenuFocusPending = false;
+    }
 
     if (persistentOpen && !windowOpen) {
         closeQuickMenuForSelection();
@@ -7606,155 +7944,6 @@ void BinderModule::Impl::DrawQuickMenu() {
 
     if (selectedHotkeyIndex >= 0) {
         TryEnqueueHotkey(selectedHotkeyIndex, 0, "quick_menu", "");
-        return;
-    }
-
-    quickMenuSubmenuPaths.clear();
-    quickMenuSubmenuPaths.reserve(quickMenuSubmenuOpen.size());
-    for (const auto& [path, _] : quickMenuSubmenuOpen) {
-        quickMenuSubmenuPaths.push_back(path);
-    }
-
-    const auto submenuDepth = [](const std::string& p) -> int {
-        return static_cast<int>(std::count(p.begin(), p.end(), '/'));
-    };
-    std::sort(quickMenuSubmenuPaths.begin(), quickMenuSubmenuPaths.end(), [&submenuDepth](const std::string& a, const std::string& b) {
-        const int da = submenuDepth(a);
-        const int db = submenuDepth(b);
-        if (da != db) {
-            return da < db;
-        }
-        return a < b;
-    });
-
-    const ImGuiWindowFlags submenuFlags = ImGuiWindowFlags_NoDecoration
-        | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_AlwaysAutoResize
-        | ImGuiWindowFlags_NoSavedSettings
-        | ImGuiWindowFlags_NoNav;
-
-    for (const std::string& path : quickMenuSubmenuPaths) {
-        FolderNode* node = nullptr;
-        ImVec2* position = nullptr;
-
-        if (const auto nodeIt = quickMenuSubmenuNode.find(path); nodeIt != quickMenuSubmenuNode.end()) {
-            node = nodeIt->second;
-        }
-        if (const auto posIt = quickMenuSubmenuPos.find(path); posIt != quickMenuSubmenuPos.end()) {
-            position = &posIt->second;
-        }
-        if (!node || !position) {
-            continue;
-        }
-
-        ImGui::SetNextWindowPos(*position, ImGuiCond_Always);
-        ImGui::SetNextWindowFocus();
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
-        if (ImGui::Begin(("##quick_menu_sub_" + path).c_str(), nullptr, submenuFlags)) {
-            ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-            ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
-            drawNode(drawNode, *node);
-            const ImGuiHoveredFlags hoveredFlags = ImGuiHoveredFlags_RootAndChildWindows
-                | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem;
-            if (ImGui::IsWindowHovered(hoveredFlags)) {
-                shouldCloseSubmenu[path] = false;
-                hoveredAnyMenuWindow = true;
-                quickMenuSubmenuCloseDeadline.erase(path);
-            }
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(3);
-
-        if (selectedHotkeyIndex >= 0) {
-            break;
-        }
-    }
-
-    if (selectedHotkeyIndex >= 0) {
-        TryEnqueueHotkey(selectedHotkeyIndex, 0, "quick_menu", "");
-        return;
-    }
-
-    for (int pass = 0; pass < 3; ++pass) {
-        for (const std::string& path : quickMenuSubmenuPaths) {
-            auto closeIt = shouldCloseSubmenu.find(path);
-            if (closeIt == shouldCloseSubmenu.end() || !closeIt->second) {
-                continue;
-            }
-
-            FolderNode* node = nullptr;
-            if (const auto nodeIt = quickMenuSubmenuNode.find(path); nodeIt != quickMenuSubmenuNode.end()) {
-                node = nodeIt->second;
-            }
-            if (!node) {
-                continue;
-            }
-
-            for (const auto& child : node->children) {
-                if (!child) {
-                    continue;
-                }
-                const std::string childPath = JoinPath(BuildFolderPath(child.get()));
-                if (!quickMenuSubmenuOpen.contains(childPath)) {
-                    continue;
-                }
-
-                const auto childCloseIt = shouldCloseSubmenu.find(childPath);
-                if (childCloseIt != shouldCloseSubmenu.end() && !childCloseIt->second) {
-                    closeIt->second = false;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Пока открыт каскад потомка, родительское окно может не получать IsWindowHovered (курсор только
-    // над дочерним справа) — иначе shouldClose остаётся true и ветка закрывается по таймеру,
-    // хотя пользователь «на подменю».
-    for (const auto& [ancestorPath, _] : quickMenuSubmenuOpen) {
-        const std::string prefix = ancestorPath + '/';
-        for (const auto& [descPath, _2] : quickMenuSubmenuOpen) {
-            if (descPath.size() > prefix.size() && descPath.compare(0, prefix.size(), prefix) == 0) {
-                shouldCloseSubmenu[ancestorPath] = false;
-                quickMenuSubmenuCloseDeadline.erase(ancestorPath);
-                break;
-            }
-        }
-    }
-
-    const double now = ImGui::GetTime();
-    for (const auto& [path, shouldClose] : shouldCloseSubmenu) {
-        if (!shouldClose) {
-            quickMenuSubmenuCloseDeadline.erase(path);
-            continue;
-        }
-
-        if (submenuTriggerHovered) {
-            removeSubmenuState(path);
-            continue;
-        }
-
-        if (hoveredAnyMenuWindow) {
-            quickMenuSubmenuCloseDeadline[path] = now + kQuickMenuSubmenuCloseGraceSeconds;
-            continue;
-        }
-
-        const auto deadlineIt = quickMenuSubmenuCloseDeadline.find(path);
-        if (deadlineIt == quickMenuSubmenuCloseDeadline.end()) {
-            quickMenuSubmenuCloseDeadline[path] = now + kQuickMenuSubmenuCloseGraceSeconds;
-            continue;
-        }
-        if (now >= deadlineIt->second) {
-            removeSubmenuState(path);
-        }
-    }
-
-    if (!windowOpen) {
-        quickMenuOpen = false;
-        quickMenuReopenBlocked = true;
-        ResetQuickMenuVisualState();
     }
 }
 
