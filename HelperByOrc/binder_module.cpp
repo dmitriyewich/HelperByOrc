@@ -486,6 +486,11 @@ struct CommandConfirmation {
     bool waitForResolution = true;
 };
 
+enum class ConditionCombineMode {
+    RequireAll,
+    RequireAny,
+};
+
 struct HotkeyEntry {
     std::string label = UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
     std::vector<UINT> keys;
@@ -497,6 +502,8 @@ struct HotkeyEntry {
     CommandConfirmation commandConfirmation;
     std::vector<bool> conditions;
     std::vector<bool> quickConditions;
+    ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAll;
+    ConditionCombineMode quickConditionsCombine = ConditionCombineMode::RequireAll;
     bool repeatMode = false;
     int repeatIntervalMs = 0;
     bool enabled = true;
@@ -580,6 +587,7 @@ struct FolderNode {
     FolderNode* parent = nullptr;
     std::vector<std::unique_ptr<FolderNode>> children;
     std::vector<bool> quickConditions;
+    ConditionCombineMode quickConditionsCombine = ConditionCombineMode::RequireAll;
     bool quickMenu = true;
     bool open = true;
 };
@@ -823,7 +831,13 @@ constexpr std::array<UiText, static_cast<std::size_t>(ConditionId::Count)> kCond
 };
 
 bool CheckCondition(ConditionId condition, SampApi* sampApi);
-bool ConditionsBlock(const std::vector<bool>& flags, SampApi* sampApi, std::string* message = nullptr);
+bool ConditionsUnsatisfied(
+    const std::vector<bool>& flags,
+    ConditionCombineMode mode,
+    SampApi* sampApi,
+    std::string* message = nullptr);
+ConditionCombineMode NormalizeConditionCombineMode(std::string_view value);
+std::string ConditionCombineModeId(ConditionCombineMode mode);
 bool InputModeUsesButtons(InputMode mode);
 InputMode NormalizeInputMode(std::string_view value);
 std::string InputModeId(InputMode mode);
@@ -868,7 +882,84 @@ const char* ConditionLabel(ConditionId condition) {
     return UiSettings::Instance().Text(kConditionLabelIds[static_cast<std::size_t>(condition)]);
 }
 
+ConditionCombineMode NormalizeConditionCombineMode(std::string_view value) {
+    const std::string normalized = ToLower(Trim(value));
+    if (normalized == "require_any" || normalized == "any" || normalized == "or") {
+        return ConditionCombineMode::RequireAny;
+    }
+    return ConditionCombineMode::RequireAll;
+}
+
+std::string ConditionCombineModeId(ConditionCombineMode mode) {
+    return mode == ConditionCombineMode::RequireAny ? "require_any" : "require_all";
+}
+
 namespace {
+
+void DrawConditionFlagsPopup(
+    const char* popupId,
+    bool& popupPending,
+    UiText titleText,
+    std::vector<bool>& flags,
+    ConditionCombineMode* combineMode) {
+    if (popupPending) {
+        ImGui::OpenPopup(popupId);
+        popupPending = false;
+    }
+
+    if (!ImGui::BeginPopup(popupId)) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::TextUnformatted(ui.Text(titleText));
+    ImGui::Separator();
+    if (combineMode) {
+        ImGui::TextUnformatted(ui.Text(UiText::ConditionCombineModeLabel));
+        int modeIdx = (*combineMode == ConditionCombineMode::RequireAll) ? 0 : 1;
+        const char* labels[2] = { ui.Text(UiText::ConditionCombineRequireAll), ui.Text(UiText::ConditionCombineRequireAny) };
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::Combo("##condition_combine_mode", &modeIdx, labels, 2)) {
+            *combineMode = modeIdx == 0 ? ConditionCombineMode::RequireAll : ConditionCombineMode::RequireAny;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::ConditionCombineHint));
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+    }
+    for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+        bool value = flags[i];
+        if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
+            flags[i] = value;
+        }
+    }
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::Save))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+template <typename Container>
+auto FindRunningBindByRuntimeId(Container& runningBinds, std::uint64_t hotkeyRuntimeId)
+    -> decltype(runningBinds.empty() ? nullptr : std::addressof(runningBinds.front())) {
+    if (hotkeyRuntimeId == 0) {
+        return nullptr;
+    }
+
+    const auto it = std::find_if(runningBinds.begin(), runningBinds.end(), [&](const auto& running) {
+        return running.hotkeyRuntimeId == hotkeyRuntimeId;
+    });
+    return it == runningBinds.end() ? nullptr : std::addressof(*it);
+}
+
+std::uint64_t HotkeyRuntimeIdAt(const std::vector<HotkeyEntry>& hotkeys, int index) {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return 0;
+    }
+    return hotkeys[static_cast<std::size_t>(index)].runtimeId;
+}
 
 std::string StripColorTags(std::string_view text) {
     static const std::regex kColorTagRegex("\\{[0-9a-fA-F]{6,8}\\}");
@@ -1043,19 +1134,49 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi) {
     return false;
 }
 
-bool ConditionsBlock(const std::vector<bool>& flags, SampApi* sampApi, std::string* message) {
+bool ConditionsUnsatisfied(
+    const std::vector<bool>& flags,
+    ConditionCombineMode mode,
+    SampApi* sampApi,
+    std::string* message) {
+    bool anySelected = false;
+    for (std::size_t i = 0; i < flags.size() && i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+        if (flags[i]) {
+            anySelected = true;
+            break;
+        }
+    }
+    if (!anySelected) {
+        return false;
+    }
+
+    if (mode == ConditionCombineMode::RequireAll) {
+        for (std::size_t i = 0; i < flags.size() && i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+            if (!flags[i]) {
+                continue;
+            }
+            if (!CheckCondition(static_cast<ConditionId>(i), sampApi)) {
+                if (message) {
+                    *message = ConditionLabel(static_cast<ConditionId>(i));
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     for (std::size_t i = 0; i < flags.size() && i < static_cast<std::size_t>(ConditionId::Count); ++i) {
         if (!flags[i]) {
             continue;
         }
         if (CheckCondition(static_cast<ConditionId>(i), sampApi)) {
-            if (message) {
-                *message = ConditionLabel(static_cast<ConditionId>(i));
-            }
-            return true;
+            return false;
         }
     }
-    return false;
+    if (message) {
+        *message = UiSettings::Instance().Text(UiText::ToastConditionRequireAnyNotMet);
+    }
+    return true;
 }
 
 bool InputModeUsesButtons(InputMode mode) {
@@ -2222,6 +2343,7 @@ JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     object["name"] = folder.name;
     object["quick_menu"] = folder.quickMenu;
     object["quick_conditions"] = SerializeBoolArray(folder.quickConditions);
+    object["quick_conditions_combine"] = ConditionCombineModeId(folder.quickConditionsCombine);
 
     JsonArray childrenArray;
     for (const auto& child : folder.children) {
@@ -2247,6 +2369,8 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
     if (folder->quickConditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
         folder->quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     }
+    folder->quickConditionsCombine =
+        NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
 
     if (const JsonArray* children = jsonutil::JsonArrayOrNull(&object, "children")) {
         for (const JsonValue& childValue : *children) {
@@ -2268,6 +2392,8 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     object["hotkey_mode"] = HotkeyModeId(hotkey.hotkeyMode);
     object["conditions"] = SerializeBoolArray(hotkey.conditions);
     object["quick_conditions"] = SerializeBoolArray(hotkey.quickConditions);
+    object["conditions_combine"] = ConditionCombineModeId(hotkey.conditionsCombine);
+    object["quick_conditions_combine"] = ConditionCombineModeId(hotkey.quickConditionsCombine);
     object["repeat_mode"] = hotkey.repeatMode;
     object["repeat_interval_ms"] = hotkey.repeatIntervalMs;
     object["enabled"] = hotkey.enabled;
@@ -2341,6 +2467,10 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
     hotkey.quickConditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
     hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    hotkey.conditionsCombine =
+        NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "conditions_combine", "require_all"));
+    hotkey.quickConditionsCombine =
+        NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
     hotkey.repeatMode = jsonutil::JsonBoolOr(&object, "repeat_mode", false);
     hotkey.repeatIntervalMs = jsonutil::JsonNumberOr<int>(&object, "repeat_interval_ms", kDefaultRepeatIntervalMs);
     hotkey.enabled = jsonutil::JsonBoolOr(&object, "enabled", true);
@@ -2496,7 +2626,7 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
 }
 
 bool BinderModule::Impl::FolderVisibleInQuickMenu(const FolderNode& folder) const {
-    if (!folder.quickMenu || ConditionsBlock(folder.quickConditions, sampApi)) {
+    if (!folder.quickMenu || ConditionsUnsatisfied(folder.quickConditions, folder.quickConditionsCombine, sampApi)) {
         return false;
     }
     return !folder.parent || FolderVisibleInQuickMenu(*folder.parent);
@@ -2528,7 +2658,7 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
         if (hotkey.folderPath != path) {
             continue;
         }
-        if (ConditionsBlock(hotkey.quickConditions, sampApi)) {
+        if (ConditionsUnsatisfied(hotkey.quickConditions, hotkey.quickConditionsCombine, sampApi)) {
             continue;
         }
         result.push_back(static_cast<int>(i));
@@ -2613,7 +2743,7 @@ void BinderModule::Impl::Tick() {
     const bool quickWasBlocked = quickMenuReopenBlocked;
     UpdateQuickMenuState();
     if (quickMenuOpen != quickWasOpen || quickMenuReopenBlocked != quickWasBlocked) {
-        debuglog::Write(
+        debuglog::WriteInfo(
             "[ui] quickmenu open %d->%d blocked %d->%d activation=%s comboHeld=%d overlayRender=%d",
             quickWasOpen ? 1 : 0,
             quickMenuOpen ? 1 : 0,
@@ -3612,39 +3742,19 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
 }
 
 RunningBind* BinderModule::Impl::FindRunningBind(std::uint64_t hotkeyRuntimeId) {
-    if (hotkeyRuntimeId == 0) {
-        return nullptr;
-    }
-
-    const auto it = std::find_if(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
-        return running.hotkeyRuntimeId == hotkeyRuntimeId;
-    });
-    return it == runningBinds.end() ? nullptr : &(*it);
+    return FindRunningBindByRuntimeId(runningBinds, hotkeyRuntimeId);
 }
 
 const RunningBind* BinderModule::Impl::FindRunningBind(std::uint64_t hotkeyRuntimeId) const {
-    if (hotkeyRuntimeId == 0) {
-        return nullptr;
-    }
-
-    const auto it = std::find_if(runningBinds.begin(), runningBinds.end(), [&](const RunningBind& running) {
-        return running.hotkeyRuntimeId == hotkeyRuntimeId;
-    });
-    return it == runningBinds.end() ? nullptr : &(*it);
+    return FindRunningBindByRuntimeId(runningBinds, hotkeyRuntimeId);
 }
 
 RunningBind* BinderModule::Impl::FindRunningBindForHotkey(int index) {
-    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
-        return nullptr;
-    }
-    return FindRunningBind(hotkeys[static_cast<std::size_t>(index)].runtimeId);
+    return FindRunningBind(HotkeyRuntimeIdAt(hotkeys, index));
 }
 
 const RunningBind* BinderModule::Impl::FindRunningBindForHotkey(int index) const {
-    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
-        return nullptr;
-    }
-    return FindRunningBind(hotkeys[static_cast<std::size_t>(index)].runtimeId);
+    return FindRunningBind(HotkeyRuntimeIdAt(hotkeys, index));
 }
 
 bool BinderModule::Impl::IsHotkeyRunning(int index) const {
@@ -3935,7 +4045,8 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     std::string_view sourceKind,
     const std::string& sourceText,
     bool waitForResolution) {
-    if (hotkey.waitingTextConfirmation || hotkey.awaitingInput || ConditionsBlock(hotkey.conditions, sampApi)) {
+    if (hotkey.waitingTextConfirmation || hotkey.awaitingInput
+        || ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi)) {
         return false;
     }
 
@@ -4324,7 +4435,7 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     std::string conditionMessage;
-    if (ConditionsBlock(hotkey.conditions, sampApi, &conditionMessage)) {
+    if (ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi, &conditionMessage)) {
         if (!conditionMessage.empty() && source != "incoming_server" && source != "outgoing_chat" && source != "outgoing_command") {
             PushToast(
                 UiSettings::Instance().Format(UiText::ToastConditionBlocked, conditionMessage.c_str()),
@@ -4403,7 +4514,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         };
         const char* const sendKind = !expandedText.empty() && expandedText.front() == '/' ? "command" : "chat";
         const std::string preview = previewText(expandedText);
-        debuglog::Write(
+        debuglog::WriteInfo(
             "Binder DoSend via_samp begin kind=%s len=%llu text=%s",
             sendKind,
             static_cast<unsigned long long>(expandedText.size()),
@@ -4413,7 +4524,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         const bool ok = sampApi && sampApi->send_chat(expandedText, true);
         if (!ok) {
             const std::string error = sampApi ? sampApi->lastError() : "SampApi is null";
-            debuglog::Write(
+            debuglog::WriteError(
                 "Binder DoSend via_samp failed kind=%s len=%llu text=%s error=%s",
                 sendKind,
                 static_cast<unsigned long long>(expandedText.size()),
@@ -4421,7 +4532,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
                 error.c_str());
             PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
         } else {
-            debuglog::Write(
+            debuglog::WriteInfo(
                 "Binder DoSend via_samp ok kind=%s len=%llu text=%s",
                 sendKind,
                 static_cast<unsigned long long>(expandedText.size()),
@@ -4453,7 +4564,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         }
         break;
     case 8:
-        debuglog::Write("Binder log: %s", expandWithTags(text).c_str());
+        debuglog::WriteInfo("Binder log: %s", expandWithTags(text).c_str());
         break;
     case 9:
         PushToast(expandWithTags(text), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2200.0);
@@ -6093,55 +6204,21 @@ void BinderModule::Impl::DrawInputEditor() {
 }
 
 void BinderModule::Impl::DrawEditorConditionsPopup() {
-    if (editor.conditionsPopupPending) {
-        ImGui::OpenPopup("##binder_editor_conditions");
-        editor.conditionsPopupPending = false;
-    }
-
-    if (!ImGui::BeginPopup("##binder_editor_conditions")) {
-        return;
-    }
-
-    UiSettings& ui = UiSettings::Instance();
-    ImGui::TextUnformatted(ui.Text(UiText::BlockingConditions));
-    ImGui::Separator();
-    for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
-        bool value = editor.draft.conditions[i];
-        if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
-            editor.draft.conditions[i] = value;
-        }
-    }
-    ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::Save))) {
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
+    DrawConditionFlagsPopup(
+        "##binder_editor_conditions",
+        editor.conditionsPopupPending,
+        UiText::BlockingConditions,
+        editor.draft.conditions,
+        &editor.draft.conditionsCombine);
 }
 
 void BinderModule::Impl::DrawEditorQuickConditionsPopup() {
-    if (editor.quickConditionsPopupPending) {
-        ImGui::OpenPopup("##binder_editor_quick_conditions");
-        editor.quickConditionsPopupPending = false;
-    }
-
-    if (!ImGui::BeginPopup("##binder_editor_quick_conditions")) {
-        return;
-    }
-
-    UiSettings& ui = UiSettings::Instance();
-    ImGui::TextUnformatted(ui.Text(UiText::QuickMenuConditions));
-    ImGui::Separator();
-    for (std::size_t i = 0; i < static_cast<std::size_t>(ConditionId::Count); ++i) {
-        bool value = editor.draft.quickConditions[i];
-        if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
-            editor.draft.quickConditions[i] = value;
-        }
-    }
-    ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::Save))) {
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
+    DrawConditionFlagsPopup(
+        "##binder_editor_quick_conditions",
+        editor.quickConditionsPopupPending,
+        UiText::QuickMenuConditions,
+        editor.draft.quickConditions,
+        &editor.draft.quickConditionsCombine);
 }
 
 void BinderModule::Impl::DrawEditorVariablesPopup() {
@@ -7114,7 +7191,7 @@ void BinderModule::Impl::DrawBindPane() {
                 selectedBindIndex = index;
                 StartEditing(index, false);
             }
-            if (ImGui::BeginDragDropSource()) {
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
                 const int hotkeyIndex = index;
                 ImGui::SetDragDropPayload("BINDER_HOTKEY_INDEX", &hotkeyIndex, sizeof(hotkeyIndex));
                 ImGui::TextUnformatted(bindName.c_str());
@@ -7512,7 +7589,7 @@ void BinderModule::Impl::DrawQuickMenu() {
         const bool traceCascade = nowMs >= s_cascadeTraceNextAtMs;
         if (traceCascade) {
             s_cascadeTraceNextAtMs = nowMs + 500;
-            debuglog::Write("[ui][qm_cascade] frame open=%d visibleRoots=%d", quickMenuOpen ? 1 : 0, static_cast<int>(visibleFolders.size()));
+            debuglog::WriteInfo("[ui][qm_cascade] frame open=%d visibleRoots=%d", quickMenuOpen ? 1 : 0, static_cast<int>(visibleFolders.size()));
         }
 
         auto drawCascadeMenuFolder = [&](auto&& self, FolderNode& node, int depth) -> void {
@@ -7538,7 +7615,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                     + "##qm_cascade_folder_" + std::to_string(depth) + "_" + childPath;
                 if (ImGui::BeginMenu(childLabel.c_str())) {
                     if (traceCascade) {
-                        debuglog::Write("[ui][qm_cascade] child menu open path=%s", childPath.c_str());
+                        debuglog::WriteInfo("[ui][qm_cascade] child menu open path=%s", childPath.c_str());
                     }
                     self(self, *child, depth + 1);
                     ImGui::EndMenu();
@@ -7601,7 +7678,7 @@ void BinderModule::Impl::DrawQuickMenu() {
         ImGui::SeparatorText(UiSettings::Instance().Text(UiText::QuickMenuWindowTitle));
 
         if (traceCascade) {
-            debuglog::Write("[ui][qm_cascade] menu-body roots=%d", static_cast<int>(visibleFolders.size()));
+            debuglog::WriteInfo("[ui][qm_cascade] menu-body roots=%d", static_cast<int>(visibleFolders.size()));
         }
         for (std::size_t rootIdx = 0; rootIdx < visibleFolders.size(); ++rootIdx) {
             auto* folder = visibleFolders[rootIdx];
@@ -7613,7 +7690,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                 std::string(kIconFolder) + " " + folder->name + "##qm_cascade_root_" + rootPath;
             if (ImGui::BeginMenu(rootLabel.c_str())) {
                 if (traceCascade) {
-                    debuglog::Write("[ui][qm_cascade] root menu open path=%s", rootPath.c_str());
+                    debuglog::WriteInfo("[ui][qm_cascade] root menu open path=%s", rootPath.c_str());
                 }
                 drawCascadeMenuFolder(drawCascadeMenuFolder, *folder, 0);
                 ImGui::EndMenu();

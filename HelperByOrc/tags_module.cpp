@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "binder_module.h"
+#include "debug_log.h"
 #include "hotkey_utils.h"
 #include "json_utils.h"
 #include "samp_api.h"
@@ -281,6 +282,47 @@ bool DrawNavigationCardButton(
     ImGui::PopStyleColor();
 
     return ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+}
+
+bool SelectableCopyToken(const std::string& label, const std::string& token, std::string& searchQuery) {
+    if (!ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+        return false;
+    }
+
+    ImGui::SetClipboardText(token.c_str());
+    searchQuery.clear();
+    ImGui::CloseCurrentPopup();
+    return true;
+}
+
+template <typename Items, typename SearchFn, typename LabelFn, typename TokenFn>
+void DrawSearchableTokenList(
+    const char* childId,
+    const Items& items,
+    std::string_view filter,
+    UiText emptyText,
+    std::string& searchQuery,
+    SearchFn searchFn,
+    LabelFn labelFn,
+    TokenFn tokenFn) {
+    bool hasMatches = false;
+    if (ImGui::BeginChild(childId, ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+        for (const auto& item : items) {
+            if (!filter.empty() && searchFn(item).find(filter) == std::string::npos) {
+                continue;
+            }
+
+            hasMatches = true;
+            if (SelectableCopyToken(labelFn(item), tokenFn(item), searchQuery)) {
+                break;
+            }
+        }
+
+        if (!hasMatches) {
+            ImGui::TextDisabled("%s", UiSettings::Instance().Text(emptyText));
+        }
+    }
+    ImGui::EndChild();
 }
 
 std::string ToLowerAscii(std::string_view value) {
@@ -2880,6 +2922,7 @@ void TagsModule::InitializeRegistry() {
 }
 
 void TagsModule::OnProcessAttach() {
+    debuglog::WriteInfo("TagsModule::OnProcessAttach begin");
     InitializeRegistry();
     LoadConfig();
     ResetTargetTracker();
@@ -2887,9 +2930,14 @@ void TagsModule::OnProcessAttach() {
     if (selectedTagIndex_ < 0 || selectedTagIndex_ >= static_cast<int>(tagRegistry_.Entries().size())) {
         selectedTagIndex_ = 0;
     }
+    debuglog::WriteInfo(
+        "TagsModule::OnProcessAttach done tags=%llu customVars=%llu",
+        static_cast<unsigned long long>(tagRegistry_.Entries().size()),
+        static_cast<unsigned long long>(customVariables_.size()));
 }
 
 void TagsModule::Shutdown() {
+    debuglog::WriteInfo("TagsModule::Shutdown begin");
     for (ActiveVirtualKeyHold& hold : activeVirtualKeyHolds_) {
         ReleaseVirtualKeyHold(hold);
     }
@@ -2903,14 +2951,17 @@ void TagsModule::Shutdown() {
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     g_activeContextStack.clear();
+    debuglog::WriteInfo("TagsModule::Shutdown done");
 }
 
 void TagsModule::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
+    debuglog::WriteInfo("TagsModule::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
 }
 
 void TagsModule::SetBinderModule(BinderModule* binderModule) {
     binderModule_ = binderModule;
+    debuglog::WriteInfo("TagsModule::SetBinderModule assigned=%d", binderModule_ ? 1 : 0);
 }
 
 TagsModule::OwnedEvaluationContext TagsModule::MakeOwnedContext(const EvaluationContext& context, SampApi* fallbackSampApi) {
@@ -3200,6 +3251,7 @@ void TagsModule::ProcessPendingDialogWaits() {
 }
 
 void TagsModule::LoadConfig() {
+    debuglog::WriteInfo("TagsModule::LoadConfig begin");
     customVariables_.clear();
 
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kTagsSectionName);
@@ -3217,9 +3269,11 @@ void TagsModule::LoadConfig() {
     std::sort(customVariables_.begin(), customVariables_.end(), [](const auto& left, const auto& right) {
         return left.first < right.first;
     });
+    debuglog::WriteInfo("TagsModule::LoadConfig done customVars=%llu", static_cast<unsigned long long>(customVariables_.size()));
 }
 
 void TagsModule::SaveConfig() const {
+    debuglog::WriteInfo("TagsModule::SaveConfig queued customVars=%llu", static_cast<unsigned long long>(customVariables_.size()));
     jsonutil::JsonObject section;
     jsonutil::JsonObject customVars;
     for (const auto& [name, value] : customVariables_) {
@@ -5101,27 +5155,15 @@ void TagsModule::DrawKeyEmulatePickerPopup() {
     ImGui::Spacing();
 
     const std::string filter = ToLower(keyPickerSearchQuery_);
-    bool hasMatches = false;
-    if (ImGui::BeginChild("##tags_keyemulate_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
-        for (const TagsModule::VirtualKeyPickerEntry& entry : GetVirtualKeyPickerEntries()) {
-            if (!filter.empty() && entry.search.find(filter) == std::string::npos) {
-                continue;
-            }
-
-            hasMatches = true;
-            if (ImGui::Selectable(entry.label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                const std::string token = MakeKeyEmulateTokenImpl(entry.code);
-                ImGui::SetClipboardText(token.c_str());
-                keyPickerSearchQuery_.clear();
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
-        if (!hasMatches) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerEmpty));
-        }
-    }
-    ImGui::EndChild();
+    DrawSearchableTokenList(
+        "##tags_keyemulate_picker_list",
+        GetVirtualKeyPickerEntries(),
+        filter,
+        UiText::MiscVariablesKeyPickerEmpty,
+        keyPickerSearchQuery_,
+        [](const TagsModule::VirtualKeyPickerEntry& entry) -> const std::string& { return entry.search; },
+        [](const TagsModule::VirtualKeyPickerEntry& entry) -> const std::string& { return entry.label; },
+        [](const TagsModule::VirtualKeyPickerEntry& entry) { return MakeKeyEmulateTokenImpl(entry.code); });
 
     ImGui::Spacing();
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerCopyHint));
@@ -5175,30 +5217,22 @@ void TagsModule::DrawDialogItemPickerPopup() {
     ImGui::Spacing();
 
     const std::string filter = ToLowerUtf8(dialogItemPickerSearchQuery_);
-    bool hasMatches = false;
-    if (ImGui::BeginChild("##tags_dialogitem_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
-        for (const DialogListItemInfo& item : items->items) {
-            const std::string searchable = ToLowerUtf8(std::to_string(item.index1) + " " + item.text + " " + item.rawText);
-            if (!filter.empty() && searchable.find(filter) == std::string::npos) {
-                continue;
-            }
-
-            hasMatches = true;
+    DrawSearchableTokenList(
+        "##tags_dialogitem_picker_list",
+        items->items,
+        filter,
+        UiText::MiscVariablesDialogItemPickerEmpty,
+        dialogItemPickerSearchQuery_,
+        [](const DialogListItemInfo& item) {
+            return ToLowerUtf8(std::to_string(item.index1) + " " + item.text + " " + item.rawText);
+        },
+        [](const DialogListItemInfo& item) {
             const std::string visibleText = item.text.empty() ? item.rawText : item.text;
-            const std::string copyToken = "[dialogitem(" + std::to_string(item.index1) + ")]";
-            const std::string label = std::to_string(item.index1) + " - " + visibleText;
-            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                ImGui::SetClipboardText(copyToken.c_str());
-                dialogItemPickerSearchQuery_.clear();
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
-        if (!hasMatches) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogItemPickerEmpty));
-        }
-    }
-    ImGui::EndChild();
+            return std::to_string(item.index1) + " - " + visibleText;
+        },
+        [](const DialogListItemInfo& item) {
+            return "[dialogitem(" + std::to_string(item.index1) + ")]";
+        });
 
     ImGui::Spacing();
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogItemPickerCopyHint));
@@ -5247,29 +5281,21 @@ void TagsModule::DrawDialogTextPickerPopup() {
     ImGui::Spacing();
 
     const std::string filter = ToLowerUtf8(dialogTextPickerSearchQuery_);
-    bool hasMatches = false;
-    if (ImGui::BeginChild("##tags_dialogtext_picker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
-        for (const DialogTextToken& token : items->flat) {
-            const std::string searchable = ToLowerUtf8(std::to_string(token.index) + " " + token.text);
-            if (!filter.empty() && searchable.find(filter) == std::string::npos) {
-                continue;
-            }
-
-            hasMatches = true;
-            const std::string copyToken = "[dialogtext(" + std::to_string(token.index) + ")]";
-            const std::string label = std::to_string(token.index) + " - " + token.text;
-            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                ImGui::SetClipboardText(copyToken.c_str());
-                dialogTextPickerSearchQuery_.clear();
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
-        if (!hasMatches) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerEmpty));
-        }
-    }
-    ImGui::EndChild();
+    DrawSearchableTokenList(
+        "##tags_dialogtext_picker_list",
+        items->flat,
+        filter,
+        UiText::MiscVariablesDialogTextPickerEmpty,
+        dialogTextPickerSearchQuery_,
+        [](const DialogTextToken& token) {
+            return ToLowerUtf8(std::to_string(token.index) + " " + token.text);
+        },
+        [](const DialogTextToken& token) {
+            return std::to_string(token.index) + " - " + token.text;
+        },
+        [](const DialogTextToken& token) {
+            return "[dialogtext(" + std::to_string(token.index) + ")]";
+        });
 
     ImGui::Spacing();
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerCopyHint));

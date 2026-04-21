@@ -1,4 +1,5 @@
 RakClientInterface* SampApi::getRakClientInterface() {
+    debuglog::WriteInfo("SampApi::getRakClientInterface begin");
     if (!isSAMPInitilizeLua()) {
         return nullptr;
     }
@@ -15,11 +16,13 @@ RakClientInterface* SampApi::getRakClientInterface() {
         return nullptr;
     }
 
+    debuglog::WriteInfo("SampApi::getRakClientInterface ok rakClient=0x%08X", rakClient);
     ClearError();
     return reinterpret_cast<RakClientInterface*>(rakClient);
 }
 
 bool SampApi::sendRpc(int id, BitStream& bitStream) {
+    debuglog::WriteInfo("SampApi::sendRpc begin id=%d", id);
     auto* rakClient = getRakClientInterface();
     if (!rakClient) {
         return false;
@@ -32,11 +35,17 @@ bool SampApi::sendRpc(int id, BitStream& bitStream) {
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::sendRpc ok id=%d", id);
     ClearError();
     return true;
 }
 
 bool SampApi::sendPacket(BitStream& bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel) {
+    debuglog::WriteInfo(
+        "SampApi::sendPacket begin priority=%d reliability=%d channel=%d",
+        static_cast<int>(priority),
+        static_cast<int>(reliability),
+        static_cast<int>(orderingChannel));
     auto* rakClient = getRakClientInterface();
     if (!rakClient) {
         return false;
@@ -48,6 +57,7 @@ bool SampApi::sendPacket(BitStream& bitStream, PacketPriority priority, PacketRe
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::sendPacket ok");
     ClearError();
     return true;
 }
@@ -58,6 +68,13 @@ bool SampApi::sendDialogResponse(
     int listItem,
     std::string_view inputText,
     bool alreadyDecoded) {
+    debuglog::WriteInfo(
+        "SampApi::sendDialogResponse begin dialogId=%d button=%d listItem=%d inputLen=%llu decoded=%d",
+        dialogId,
+        button,
+        listItem,
+        static_cast<unsigned long long>(inputText.size()),
+        alreadyDecoded ? 1 : 0);
     std::string gameText = PrepareOutgoingText(inputText, alreadyDecoded, false);
     if (gameText.size() > 255) {
         SetError("Dialog input text is too long");
@@ -73,6 +90,12 @@ bool SampApi::sendDialogResponse(
         bitStream.Write(gameText.data(), static_cast<int>(gameText.size()));
     }
 
-    return sendRpc(62, bitStream);
+    const bool ok = sendRpc(62, bitStream);
+    if (!ok) {
+        debuglog::WriteError("SampApi::sendDialogResponse failed dialogId=%d button=%d", dialogId, button);
+    } else {
+        debuglog::WriteInfo("SampApi::sendDialogResponse ok dialogId=%d button=%d", dialogId, button);
+    }
+    return ok;
 }
 

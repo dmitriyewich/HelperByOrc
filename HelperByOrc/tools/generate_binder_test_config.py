@@ -8,7 +8,9 @@ OUT = r"C:\Games\SAMP\GTA SAMP\scripts\HelperByOrc.json"
 FALSE9 = [False] * 9
 
 def T(*, label, folder, keys=None, hotkey_mode="modifier_trigger", messages=None, command="",
-      command_enabled=False, conditions=FALSE9, quick_conditions=FALSE9, quick_menu=False,
+      command_enabled=False, conditions=FALSE9, quick_conditions=FALSE9,
+      conditions_combine="require_all", quick_conditions_combine="require_all",
+      quick_menu=False,
       enabled=True, repeat_mode=False, repeat_interval_ms=500,
       text_trigger=None, text_confirmation=None, command_confirmation=None, inputs=None):
     if keys is None:
@@ -33,6 +35,8 @@ def T(*, label, folder, keys=None, hotkey_mode="modifier_trigger", messages=None
         "messages": messages,
         "conditions": list(conditions),
         "quick_conditions": list(quick_conditions),
+        "conditions_combine": conditions_combine,
+        "quick_conditions_combine": quick_conditions_combine,
         "quick_menu": quick_menu,
         "enabled": enabled,
         "repeat_mode": repeat_mode,
@@ -46,24 +50,14 @@ def T(*, label, folder, keys=None, hotkey_mode="modifier_trigger", messages=None
     }
 
 
-def qc_hide_chat():
-    c = [False] * 9
-    c[7] = True
-    return c
-
-
-def qc_hide_dialog():
-    c = [False] * 9
-    c[8] = True
-    return c
-
-
-def folder_node(name, children, quick_menu=True, quick_conditions=FALSE9):
+def folder_node(name, children, quick_menu=True, quick_conditions=FALSE9,
+                quick_conditions_combine="require_all"):
     return {
         "name": name,
         "children": children,
         "quick_menu": quick_menu,
         "quick_conditions": list(quick_conditions),
+        "quick_conditions_combine": quick_conditions_combine,
     }
 
 
@@ -99,8 +93,10 @@ def main():
                 folder_node("08_Условия_игры", []),
                 folder_node("09_Quick_меню", [
                     folder_node("Видны_всегда", []),
-                    folder_node("Скрыть_если_чат", [], quick_conditions=qc_hide_chat()),
-                    folder_node("Скрыть_если_диалог", [], quick_conditions=qc_hide_dialog()),
+                    # Семантика «скрыть пока чат/диалог открыт» без инверсии условий в JSON не выразить;
+                    # папки оставлены для ручной настройки или будущих отрицаний.
+                    folder_node("Скрыть_если_чат", []),
+                    folder_node("Скрыть_если_диалог", []),
                 ]),
                 folder_node("10_Стресс_и_объём", []),
                 folder_node("11_Граничные_случаи", []),
@@ -335,10 +331,10 @@ def main():
     hotkeys += [
         T(label="Быстрое меню: всегда виден пункт", folder=p09a, keys=[], quick_menu=True,
             messages=[{"interval_ms": 0, "method": 9, "text": "[ТЕСТ] Quick-меню, папка «видны всегда»."}]),
-        T(label="Быстрое меню: скрыть пока открыт чат (папка)", folder=p09b, keys=[], quick_menu=True,
-            messages=[{"interval_ms": 0, "method": 9, "text": "[ТЕСТ] Видно только когда чат закрыт."}]),
-        T(label="Быстрое меню: скрыть пока открыт диалог (папка)", folder=p09c, keys=[], quick_menu=True,
-            messages=[{"interval_ms": 0, "method": 9, "text": "[ТЕСТ] Видно только без диалога SA:MP."}]),
+        T(label="Быстрое меню: папка «чат» (условия папки вручную)", folder=p09b, keys=[], quick_menu=True,
+            messages=[{"interval_ms": 0, "method": 9, "text": "[ТЕСТ] Настройте quick_conditions папки под новую схему «требовать»."}]),
+        T(label="Быстрое меню: папка «диалог» (условия папки вручную)", folder=p09c, keys=[], quick_menu=True,
+            messages=[{"interval_ms": 0, "method": 9, "text": "[ТЕСТ] Настройте quick_conditions папки под новую схему «требовать»."}]),
     ]
 
     # —— 10 Стресс: много шагов, длинные строки, интервалы

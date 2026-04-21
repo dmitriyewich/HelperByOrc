@@ -182,15 +182,18 @@ bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std
 void SampHooks::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     self_ = this;
+    debuglog::WriteInfo("SampHooks::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
 }
 
 void SampHooks::SetHotkeyBlockCallback(HotkeyBlockCallback callback) {
     hotkeyBlockCallback_ = std::move(callback);
+    debuglog::WriteInfo("SampHooks::SetHotkeyBlockCallback assigned=%d", hotkeyBlockCallback_ ? 1 : 0);
 }
 
 void SampHooks::Refresh() {
     if (!sampApi_) {
         statusText_ = "SampApi is not assigned";
+        debuglog::WriteError("SampHooks::Refresh skipped: SampApi is not assigned");
         return;
     }
 
@@ -202,21 +205,26 @@ void SampHooks::Refresh() {
 
     if (!sampApi_->isSampLoadedLua()) {
         statusText_ = sampApi_->lastError();
+        debuglog::WriteInfo("SampHooks::Refresh waiting for SA:MP: %s", statusText_.c_str());
         return;
     }
 
     if (!sampApi_->isSupportedVersion()) {
         statusText_ = "SAMP version is loaded but not supported by hook offsets";
+        debuglog::WriteError("SampHooks::Refresh unsupported SAMP version: %s", sampApi_->currentVersionName());
         return;
     }
 
+    debuglog::WriteInfo("SampHooks::Refresh install requested for SAMP %s", sampApi_->currentVersionName());
     Install();
 }
 
 void SampHooks::Shutdown() {
+    debuglog::WriteInfo("SampHooks::Shutdown begin");
     CleanupHooks();
     installed_ = false;
     statusText_ = "hooks disabled";
+    debuglog::WriteInfo("SampHooks::Shutdown done");
 }
 
 void SampHooks::AddOnChatMessageHandler(ChatMessageHandler handler) {
@@ -275,20 +283,21 @@ bool SampHooks::Install() {
     const std::uintptr_t inputHotkeyHandlerTarget = sampBase + SampApi::main_offsets.InputHotkeyHandler.Get(version);
     const std::uintptr_t damageTarget = kDamageManagerApplyDamageAddress;
 
-    debuglog::Write("SampHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
-    debuglog::Write("SampHooks: addEntryTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addEntryTarget), static_cast<unsigned>(addEntryTarget - sampBase));
-    debuglog::Write("SampHooks: dialogShowTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogShowTarget), static_cast<unsigned>(dialogShowTarget - sampBase));
-    debuglog::Write("SampHooks: dialogCloseTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogCloseTarget), static_cast<unsigned>(dialogCloseTarget - sampBase));
-    debuglog::Write("SampHooks: inputSendTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendTarget), static_cast<unsigned>(inputSendTarget - sampBase));
-    debuglog::Write("SampHooks: inputSendSayTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendSayTarget), static_cast<unsigned>(inputSendSayTarget - sampBase));
-    debuglog::Write("SampHooks: hotkeyDispatcherTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(hotkeyDispatcherTarget), static_cast<unsigned>(hotkeyDispatcherTarget - sampBase));
-    debuglog::Write("SampHooks: inputHotkeyHandlerTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputHotkeyHandlerTarget), static_cast<unsigned>(inputHotkeyHandlerTarget - sampBase));
-    debuglog::Write("SampHooks: damageTarget=0x%08X", static_cast<unsigned>(damageTarget));
+    debuglog::WriteInfo("SampHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
+    debuglog::WriteInfo("SampHooks: addEntryTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addEntryTarget), static_cast<unsigned>(addEntryTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: dialogShowTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogShowTarget), static_cast<unsigned>(dialogShowTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: dialogCloseTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogCloseTarget), static_cast<unsigned>(dialogCloseTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: inputSendTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendTarget), static_cast<unsigned>(inputSendTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: inputSendSayTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendSayTarget), static_cast<unsigned>(inputSendSayTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: hotkeyDispatcherTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(hotkeyDispatcherTarget), static_cast<unsigned>(hotkeyDispatcherTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: inputHotkeyHandlerTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputHotkeyHandlerTarget), static_cast<unsigned>(inputHotkeyHandlerTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: damageTarget=0x%08X", static_cast<unsigned>(damageTarget));
 
     if (addEntryTarget == sampBase || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
         || inputSendTarget == sampBase || inputSendSayTarget == sampBase
         || hotkeyDispatcherTarget == sampBase || inputHotkeyHandlerTarget == sampBase) {
         statusText_ = "some hook offsets are missing for the detected SAMP version";
+        debuglog::WriteError("SampHooks install failed: some hook offsets are missing");
         return false;
     }
 
@@ -303,7 +312,7 @@ bool SampHooks::Install() {
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
         statusText_ = statusText;
-        debuglog::Write("%s", logMessage);
+        debuglog::WriteError("%s", logMessage);
         CleanupHooks();
         return false;
     };
@@ -342,12 +351,13 @@ bool SampHooks::Install() {
 
     installed_ = true;
     statusText_ = "hooks installed";
-    debuglog::Write("SampHooks: installed for SAMP version %s", sampApi_->currentVersionName());
+    debuglog::WriteInfo("SampHooks: installed for SAMP version %s", sampApi_->currentVersionName());
     AppendLog("hooks installed for SAMP %s", sampApi_->currentVersionName());
     return true;
 }
 
 void SampHooks::CleanupHooks() {
+    debuglog::WriteInfo("SampHooks::CleanupHooks begin");
     minhook::DisableAndRemoveHook(chatAddEntryTarget_, "SampHooks::AddEntry");
     minhook::DisableAndRemoveHook(dialogShowTarget_, "SampHooks::CDialog_Show");
     minhook::DisableAndRemoveHook(dialogCloseTarget_, "SampHooks::CDialog_Close");
@@ -365,6 +375,7 @@ void SampHooks::CleanupHooks() {
     hotkeyDispatcherOriginal_ = nullptr;
     inputHotkeyHandlerOriginal_ = nullptr;
     applyDamageOriginal_ = nullptr;
+    debuglog::WriteInfo("SampHooks::CleanupHooks done");
 }
 
 void SampHooks::AppendLog(const char* format, ...) {

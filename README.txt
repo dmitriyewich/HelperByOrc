@@ -21,6 +21,13 @@ MSBuild.exe HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win3
 
 [b]UI:[/b] быстрое меню по умолчанию компактнее; таблица биндов и селекты читаемее; тема — тёмно-синий акцент.
 
+[b]Курсор и ввод (актуально):[/b]
+- единый ownership курсора через `mod_app` для трёх источников: ImGui UI, SA:MP чат, SA:MP диалог
+- удержание cursor mode работает по объединённому условию: [b](UI OR chat OR dialog) + focus[/b]
+- при активном hold есть периодическая reassert-установка `Set_CursorMode`, чтобы не было рассинхрона/центрирования после переходов (например close chat)
+- ImGui software cursor отключён ([b]MouseDrawCursor=false[/b]), видимый курсор один — игровой/SA:MP
+- в логах есть короткая диагностика источников удержания: [b]wantsUi/chatOpen/dialogOpen/chatOrDialog/shouldHold[/b]
+
 [b]Быстрое меню (binder):[/b]
 - Стиль 1: дерево ([b]Tree[/b])
 - Стиль 2: каскад ([b]cascade[/b], [b]по умолчанию[/b])

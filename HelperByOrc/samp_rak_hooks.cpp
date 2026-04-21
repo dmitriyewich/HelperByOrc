@@ -135,11 +135,13 @@ bool __fastcall SampRakHooks::SendRpcDetour(void* self, void* edx, int* id, BitS
 void SampRakHooks::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     self_ = this;
+    debuglog::WriteInfo("SampRakHooks::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
 }
 
 void SampRakHooks::Refresh() {
     if (!sampApi_) {
         statusText_ = "SampApi is not assigned";
+        debuglog::WriteError("SampRakHooks::Refresh skipped: SampApi is not assigned");
         return;
     }
 
@@ -150,23 +152,28 @@ void SampRakHooks::Refresh() {
 
     if (!sampApi_->isSAMPInitilizeLua()) {
         statusText_ = sampApi_->lastError();
+        debuglog::WriteInfo("SampRakHooks::Refresh waiting for SA:MP: %s", statusText_.c_str());
         return;
     }
 
     if (!sampApi_->isSupportedVersion()) {
         statusText_ = "SAMP version is not supported by current RakNet offsets";
+        debuglog::WriteError("SampRakHooks::Refresh unsupported SAMP version: %s", sampApi_->currentVersionName());
         return;
     }
 
+    debuglog::WriteInfo("SampRakHooks::Refresh install requested for SAMP %s", sampApi_->currentVersionName());
     Install();
 }
 
 void SampRakHooks::Shutdown() {
+    debuglog::WriteInfo("SampRakHooks::Shutdown begin");
     CleanupHooks();
     installed_ = false;
     rakClientInterface_ = 0;
     deallocatePacket_ = nullptr;
     statusText_ = "RakNet hooks disabled";
+    debuglog::WriteInfo("SampRakHooks::Shutdown done");
 }
 
 void SampRakHooks::AddOnSendRpcHandler(RawRpcHandler handler) {
@@ -245,11 +252,13 @@ bool SampRakHooks::Install() {
     std::uintptr_t rakClientInterface = 0;
     if (!TryGetRakClientInterface(rakClientInterface)) {
         statusText_ = "RakClientInterface is not available yet";
+        debuglog::WriteInfo("SampRakHooks install delayed: RakClientInterface is not available yet");
         return false;
     }
 
     if (!sampApi_ || !sampApi_->sampModule()) {
         statusText_ = "samp.dll is not available";
+        debuglog::WriteError("SampRakHooks install failed: samp.dll is not available");
         return false;
     }
 
@@ -257,12 +266,14 @@ bool SampRakHooks::Install() {
     const std::uintptr_t incomingRpcTarget = GetVersionedAddress(sampApi_->sampModule(), kRakOffsets.handleRpc, version);
     if (incomingRpcTarget == 0) {
         statusText_ = "Incoming RPC handler offset is missing";
+        debuglog::WriteError("SampRakHooks install failed: incoming RPC handler offset is missing");
         return false;
     }
 
     auto** vtable = *reinterpret_cast<void***>(rakClientInterface);
     if (!vtable) {
         statusText_ = "RakClientInterface vtable is null";
+        debuglog::WriteError("SampRakHooks install failed: RakClientInterface vtable is null");
         return false;
     }
 
@@ -272,11 +283,11 @@ bool SampRakHooks::Install() {
     deallocatePacket_ = reinterpret_cast<DeallocatePacketFn>(vtable[9]);
 
     const std::uintptr_t sampBase = reinterpret_cast<std::uintptr_t>(sampApi_->sampModule());
-    debuglog::Write("SampRakHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
-    debuglog::Write("SampRakHooks: incomingRpcTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(incomingRpcTarget), static_cast<unsigned>(incomingRpcTarget - sampBase));
-    debuglog::Write("SampRakHooks: sendPacketTarget=0x%08X", static_cast<unsigned>(sendPacketTarget));
-    debuglog::Write("SampRakHooks: receivePacketTarget=0x%08X", static_cast<unsigned>(receivePacketTarget));
-    debuglog::Write("SampRakHooks: sendRpcTarget=0x%08X", static_cast<unsigned>(sendRpcTarget));
+    debuglog::WriteInfo("SampRakHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
+    debuglog::WriteInfo("SampRakHooks: incomingRpcTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(incomingRpcTarget), static_cast<unsigned>(incomingRpcTarget - sampBase));
+    debuglog::WriteInfo("SampRakHooks: sendPacketTarget=0x%08X", static_cast<unsigned>(sendPacketTarget));
+    debuglog::WriteInfo("SampRakHooks: receivePacketTarget=0x%08X", static_cast<unsigned>(receivePacketTarget));
+    debuglog::WriteInfo("SampRakHooks: sendRpcTarget=0x%08X", static_cast<unsigned>(sendRpcTarget));
 
     incomingRpcTarget_ = reinterpret_cast<void*>(incomingRpcTarget);
     sendPacketTarget_ = reinterpret_cast<void*>(sendPacketTarget);
@@ -285,7 +296,7 @@ bool SampRakHooks::Install() {
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
         statusText_ = statusText;
-        debuglog::Write("%s", logMessage);
+        debuglog::WriteError("%s", logMessage);
         CleanupHooks();
         return false;
     };
@@ -310,12 +321,13 @@ bool SampRakHooks::Install() {
     installed_ = true;
     statusText_ = "RakNet hooks installed";
 
-    debuglog::Write("SampRakHooks: installed for SAMP version %s", sampApi_->currentVersionName());
+    debuglog::WriteInfo("SampRakHooks: installed for SAMP version %s", sampApi_->currentVersionName());
     AppendLog("RakNet hooks installed for SAMP %s", sampApi_->currentVersionName());
     return true;
 }
 
 void SampRakHooks::CleanupHooks() {
+    debuglog::WriteInfo("SampRakHooks::CleanupHooks begin");
     minhook::DisableAndRemoveHook(incomingRpcTarget_, "SampRakHooks::IncomingRpcHandler");
     minhook::DisableAndRemoveHook(sendPacketTarget_, "SampRakHooks::SendPacket");
     minhook::DisableAndRemoveHook(receivePacketTarget_, "SampRakHooks::ReceivePacket");
@@ -325,6 +337,7 @@ void SampRakHooks::CleanupHooks() {
     sendPacketOriginal_ = nullptr;
     receivePacketOriginal_ = nullptr;
     sendRpcOriginal_ = nullptr;
+    debuglog::WriteInfo("SampRakHooks::CleanupHooks done");
 }
 
 bool SampRakHooks::TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const {

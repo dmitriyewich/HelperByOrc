@@ -33,10 +33,13 @@ void AppConfig::OnProcessAttach(HMODULE module) {
     loaded_ = false;
     root_.clear();
     pendingMutations_.clear();
+    debuglog::WriteInfo("AppConfig::OnProcessAttach path=%ls", configPath_.c_str());
 }
 
 void AppConfig::Shutdown() {
+    debuglog::WriteInfo("AppConfig::Shutdown begin");
     ProcessPendingWrites();
+    debuglog::WriteInfo("AppConfig::Shutdown done");
 }
 
 void AppConfig::QueueMutation(Mutation mutation) {
@@ -95,7 +98,7 @@ void AppConfig::EnsureLoadedLocked() {
 
     std::ifstream file(configPath_, std::ios::binary);
     if (!file) {
-        debuglog::Write("AppConfig: failed to open config for read: %ls", configPath_.c_str());
+        debuglog::WriteError("AppConfig: failed to open config for read: %ls", configPath_.c_str());
         return;
     }
 
@@ -104,12 +107,13 @@ void AppConfig::EnsureLoadedLocked() {
     const auto rootValue = jsonutil::ParseJson(content, error);
     const jsonutil::JsonObject* object = rootValue ? rootValue->TryObject() : nullptr;
     if (!object) {
-        debuglog::Write("AppConfig: invalid config, using defaults: %s", error.c_str());
+        debuglog::WriteError("AppConfig: invalid config, using defaults: %s", error.c_str());
         return;
     }
 
     root_ = *object;
     root_["schema_version"] = kConfigSchemaVersion;
+    debuglog::WriteInfo("AppConfig loaded from disk");
 }
 
 bool AppConfig::ProcessPendingWritesOnce() {
@@ -140,6 +144,7 @@ bool AppConfig::ProcessPendingWritesOnce() {
 
 bool AppConfig::WriteSnapshot(const jsonutil::JsonObject& snapshot) const {
     if (configPath_.empty()) {
+        debuglog::WriteError("AppConfig: write skipped, config path is empty");
         return false;
     }
 
@@ -149,25 +154,26 @@ bool AppConfig::WriteSnapshot(const jsonutil::JsonObject& snapshot) const {
     const std::filesystem::path tempPath = configPath_.wstring() + L".tmp";
     std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
     if (!file) {
-        debuglog::Write("AppConfig: failed to open config for write: %ls", tempPath.c_str());
+        debuglog::WriteError("AppConfig: failed to open config for write: %ls", tempPath.c_str());
         return false;
     }
 
     file.write(output.data(), static_cast<std::streamsize>(output.size()));
     file.close();
     if (!file) {
-        debuglog::Write("AppConfig: failed to write config: %ls", tempPath.c_str());
+        debuglog::WriteError("AppConfig: failed to write config: %ls", tempPath.c_str());
         std::error_code removeError;
         std::filesystem::remove(tempPath, removeError);
         return false;
     }
 
     if (!MoveFileExW(tempPath.c_str(), configPath_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
-        debuglog::Write("AppConfig: failed to replace config file: %lu", GetLastError());
+        debuglog::WriteError("AppConfig: failed to replace config file: %lu", GetLastError());
         std::error_code removeError;
         std::filesystem::remove(tempPath, removeError);
         return false;
     }
 
+    debuglog::WriteInfo("AppConfig snapshot saved");
     return true;
 }

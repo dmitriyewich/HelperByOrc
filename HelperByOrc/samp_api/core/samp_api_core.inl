@@ -96,6 +96,7 @@ std::uint32_t SampApi::VersionedOffset::Get(Version version) const {
 
 void SampApi::attachModules(TextTransformCallback changeTagsCallback) {
     textTransformCallback_ = std::move(changeTagsCallback);
+    debuglog::WriteInfo("SampApi::attachModules callback configured");
 }
 
 bool SampApi::hasSampfuncs() const {
@@ -105,6 +106,7 @@ bool SampApi::hasSampfuncs() const {
 void SampApi::Refresh() {
     const HMODULE currentModule = GetModuleHandleA("samp.dll");
     if (currentModule != sampModule_) {
+        debuglog::WriteInfo("SampApi::Refresh samp.dll handle changed old=%p new=%p", sampModule_, currentModule);
         sampModule_ = currentModule;
         versionResolved_ = false;
         currentVersion_ = Version::Unknown;
@@ -114,8 +116,9 @@ void SampApi::Refresh() {
         ResetChatAsiInputDiscovery();
 
         if (sampModule_) {
-            debuglog::Write("samp.dll detected at %p", sampModule_);
+            debuglog::WriteInfo("samp.dll detected at %p", sampModule_);
         } else {
+            debuglog::WriteInfo("samp.dll is not loaded");
             lastError_.clear();
         }
     }
@@ -243,6 +246,7 @@ bool SampApi::IsConnected(int id) {
 
 bool SampApi::restoreOriginalFunctionGlobals() {
     functionBackendActive_ = BACKEND_STANDARD;
+    debuglog::WriteInfo("SampApi backend restored to standard");
     return true;
 }
 
@@ -253,10 +257,15 @@ bool SampApi::applyFunctionBackend(std::string_view mode) {
     // there is no Lua global environment, so the backend state is preserved as
     // compatibility metadata while calls stay on the native C++ implementation.
     functionBackendActive_ = BACKEND_STANDARD;
+    debuglog::WriteInfo(
+        "SampApi backend apply desired=%s active=%s",
+        functionBackendMode_.c_str(),
+        functionBackendActive_.c_str());
     return true;
 }
 
 bool SampApi::setFunctionBackendMode(std::string_view mode) {
+    debuglog::WriteInfo("SampApi::setFunctionBackendMode requested=%.*s", static_cast<int>(mode.size()), mode.data());
     return applyFunctionBackend(mode);
 }
 
@@ -335,7 +344,7 @@ bool SampApi::DetectVersion() {
             supportedVersion_ = info.supported;
             ClearError();
 
-            debuglog::Write(
+            debuglog::WriteInfo(
                 "Detected SAMP version: %s (entry point 0x%X, supported=%s)",
                 info.name,
                 info.address,
@@ -349,16 +358,22 @@ bool SampApi::DetectVersion() {
     currentEntryPoint_ = nullptr;
     supportedVersion_ = false;
 
-    debuglog::Write("Unknown SAMP entry point: 0x%X", entryPointAddress_);
+    debuglog::WriteError("Unknown SAMP entry point: 0x%X", entryPointAddress_);
     SetError("Unknown SAMP version entry point");
     return false;
 }
 
 void SampApi::SetError(std::string message) {
+    if (lastError_ != message) {
+        debuglog::WriteError("SampApi error: %s", message.c_str());
+    }
     lastError_ = std::move(message);
 }
 
 void SampApi::ClearError() {
+    if (!lastError_.empty()) {
+        debuglog::WriteInfo("SampApi error cleared: %s", lastError_.c_str());
+    }
     lastError_.clear();
 }
 

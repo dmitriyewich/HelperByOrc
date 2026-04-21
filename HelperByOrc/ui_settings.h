@@ -179,6 +179,10 @@
     X(SettingsEffectiveScale, "Итоговый масштаб", "Effective scale") \
     X(SettingsResetDefaults, "Сбросить настройки UI", "Reset UI settings") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
+    X(SettingsLogLevel, "Уровень логирования", "Log level") \
+    X(SettingsLogLevelOff, "Off", "Off") \
+    X(SettingsLogLevelError, "Error", "Error") \
+    X(SettingsLogLevelInfo, "Info", "Info") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
     X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
     X(HotkeyConflictFormat, "Комбинация конфликтует с %s.", "This combination conflicts with %s.") \
@@ -218,7 +222,8 @@
     X(SendUnknown, "Неизвестно", "Unknown") \
     X(ToastBindConfirmExpired, "Подтверждение бинда истекло: %s", "Bind confirmation expired: %s") \
     X(ToastBindCanceled, "Бинд отменён: %s", "Bind canceled: %s") \
-    X(ToastConditionBlocked, "Блокировка по условию: %s", "Blocked by condition: %s") \
+    X(ToastConditionBlocked, "Условия не выполнены: %s", "Conditions not met: %s") \
+    X(ToastConditionRequireAnyNotMet, "Ни одно из отмеченных условий не выполнено.", "None of the selected conditions are met.") \
     X(ToastFinishActiveInput, "Сначала завершите активный ввод.", "Finish the active input first.") \
     X(ToastSendLocalFailed, "Не удалось добавить сообщение в чат SA:MP.", "Failed to add a message to the SA:MP chat.") \
     X(ToastSendSampFailed, "Не удалось отправить текст в SA:MP.", "Failed to send text to SA:MP.") \
@@ -443,8 +448,12 @@
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
     X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
     X(Change, "Изменить", "Change") \
-    X(BlockingConditions, "Условия блокировки", "Blocking Conditions") \
-    X(QuickMenuConditions, "Условия быстрого меню", "Quick Menu Conditions") \
+    X(BlockingConditions, "Условия запуска бинда", "Bind run conditions") \
+    X(QuickMenuConditions, "Условия показа в быстром меню", "Quick menu visibility conditions") \
+    X(ConditionCombineModeLabel, "Связка условий", "Condition combination") \
+    X(ConditionCombineRequireAll, "Все отмеченные (И)", "All selected (AND)") \
+    X(ConditionCombineRequireAny, "Любое отмеченное (ИЛИ)", "Any selected (OR)") \
+    X(ConditionCombineHint, "И — нужны все отмеченные состояния.\nИЛИ — достаточно любого одного.", "AND requires every checked state.\nOR needs at least one checked state.") \
     X(InputDialogSearchHint, "Поиск по названию, тексту или подсказке", "Search by label, text, or hint") \
     X(InputDialogNoOptions, "Нет доступных вариантов.", "No available options.") \
     X(InputDialogPreviewTitle, "Предпросмотр отправки", "Send preview") \
@@ -492,6 +501,12 @@ enum class UiLanguage {
     English,
 };
 
+enum class UiLogLevel : int {
+    Off = 0,
+    Error = 1,
+    Info = 2,
+};
+
 enum class UiText {
 #define APP_UI_TEXT_ENUM(id, ru, en) id,
     APP_UI_TEXTS(APP_UI_TEXT_ENUM)
@@ -514,6 +529,9 @@ public:
     float ScaleMultiplier() const;
     void SetScaleMultiplier(float multiplier);
 
+    UiLogLevel LogLevel() const;
+    void SetLogLevel(UiLogLevel level);
+
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
 
@@ -535,6 +553,7 @@ private:
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
+    UiLogLevel logLevel_ = UiLogLevel::Info;
     std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };

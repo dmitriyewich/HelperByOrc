@@ -23,6 +23,10 @@ constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
 constexpr int kSampCursorModeNone = 0;
 constexpr int kSampCursorModeLockCam = 3;
+constexpr uint64_t kCursorReassertIntervalMs = 200;
+constexpr uint64_t kCursorTraceIntervalMs = 700;
+constexpr uint64_t kCursorUnavailableTraceIntervalMs = 1500;
+constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
@@ -68,6 +72,30 @@ const char* GetTabIcon(MainTab tab) {
 
 std::string FormatTabLabelWithIcon(MainTab tab) {
     return std::string(GetTabIcon(tab)) + " " + GetTabLabel(tab);
+}
+
+debuglog::Level ToDebugLogLevel(UiLogLevel level) {
+    switch (level) {
+    case UiLogLevel::Off:
+        return debuglog::Level::Off;
+    case UiLogLevel::Error:
+        return debuglog::Level::Error;
+    case UiLogLevel::Info:
+    default:
+        return debuglog::Level::Info;
+    }
+}
+
+const char* ToUiLogLevelName(UiLogLevel level) {
+    switch (level) {
+    case UiLogLevel::Off:
+        return "off";
+    case UiLogLevel::Error:
+        return "error";
+    case UiLogLevel::Info:
+    default:
+        return "info";
+    }
 }
 
 float Scale(float value) {
@@ -167,10 +195,18 @@ ModApp& ModApp::Instance() {
 void ModApp::OnProcessAttach(HMODULE module) {
     module_ = module;
     debuglog::Initialize(module);
-    debuglog::Write("ModApp attached");
+    debuglog::WriteInfo("ModApp attached");
     minHookInitialized_ = minhook::Initialize();
+    if (!minHookInitialized_) {
+        debuglog::WriteError("MinHook initialization failed");
+    } else {
+        debuglog::WriteInfo("MinHook initialized");
+    }
     AppConfig::Instance().OnProcessAttach(module);
+    debuglog::WriteInfo("AppConfig attached");
     UiSettings::Instance().Load();
+    debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
+    debuglog::WriteInfo("UI settings loaded (log_level=%s)", ToUiLogLevelName(UiSettings::Instance().LogLevel()));
     LoadShellState();
 
     tags_.SetSampApi(&sampApi_);
@@ -225,10 +261,13 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
     });
+    debuglog::WriteInfo("Overlay callbacks configured");
     overlay_.OnProcessAttach();
+    debuglog::WriteInfo("Overlay attach requested");
 }
 
 void ModApp::Shutdown() {
+    debuglog::WriteInfo("ModApp shutdown begin");
     ::ClipCursor(nullptr);
     ::ReleaseCapture();
     overlayLastUiHold_ = false;
@@ -241,19 +280,27 @@ void ModApp::Shutdown() {
     overlayCursorEnabled_ = false;
 
     overlay_.Shutdown();
+    debuglog::WriteInfo("Overlay shutdown done");
     incomingMessageRouter_.Shutdown();
+    debuglog::WriteInfo("Incoming router shutdown done");
     binder_.Shutdown();
+    debuglog::WriteInfo("Binder shutdown done");
     tags_.Shutdown();
+    debuglog::WriteInfo("Tags shutdown done");
     AppConfig::Instance().Shutdown();
+    debuglog::WriteInfo("AppConfig shutdown done");
     sampRakHooks_.Shutdown();
     sampHooks_.Shutdown();
+    debuglog::WriteInfo("SAMP hooks shutdown done");
     sampApi_.onTerminate();
+    debuglog::WriteInfo("SampApi terminated");
     ReleaseUiResources();
     if (minHookInitialized_) {
         minhook::Uninitialize();
         minHookInitialized_ = false;
+        debuglog::WriteInfo("MinHook uninitialized");
     }
-    debuglog::Write("ModApp shutdown");
+    debuglog::WriteInfo("ModApp shutdown");
     debuglog::Shutdown();
 }
 
@@ -268,22 +315,40 @@ void ModApp::UpdateOverlayCursorMode() {
     HWND fg = GetForegroundWindow();
     const bool appHasFocus = gameHw && fg && IsWindow(gameHw)
         && (fg == gameHw || IsChild(gameHw, fg) != FALSE);
+    const uint64_t now = GetTickCount64();
+
+    bool chatOrDialogActive = false;
+    sampApi_.Refresh();
+    if (sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
+        chatOrDialogActive = sampApi_.is_chat_opened() || sampApi_.isDialogActive();
+    }
 
     const bool rmbHeld = (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-    const bool shouldHoldUi = wantsUi && appHasFocus && !rmbHeld;
+    const bool shouldHoldUi = appHasFocus && (wantsUi || chatOrDialogActive);
 
     static bool s_traceWantsUi = false;
     static bool s_traceFocus = false;
     static bool s_traceRmb = false;
+    static bool s_traceChatDialog = false;
     static bool s_traceHold = false;
-    if (wantsUi != s_traceWantsUi || appHasFocus != s_traceFocus || rmbHeld != s_traceRmb || shouldHoldUi != s_traceHold) {
+    static uint64_t s_lastCursorTraceMs = 0;
+    const bool changedCore = wantsUi != s_traceWantsUi || appHasFocus != s_traceFocus
+        || chatOrDialogActive != s_traceChatDialog || shouldHoldUi != s_traceHold;
+    const bool changedRmbOnly = !changedCore && (rmbHeld != s_traceRmb);
+    const bool allowRmbSpamSafeTrace = changedRmbOnly && (now - s_lastCursorTraceMs >= kCursorTraceIntervalMs);
+    if (changedCore || allowRmbSpamSafeTrace) {
         s_traceWantsUi = wantsUi;
         s_traceFocus = appHasFocus;
         s_traceRmb = rmbHeld;
+        s_traceChatDialog = chatOrDialogActive;
         s_traceHold = shouldHoldUi;
-        debuglog::Write(
-            "[ui] cursor wantsUi=%d fg=%d rmb=%d shouldHold=%d gameHw=%p fgHw=%p sampMode=%d sampEn=%d",
+        s_lastCursorTraceMs = now;
+        debuglog::WriteInfo(
+            "[ui] cursor wantsUi=%d chatOpen=%d dialogOpen=%d chatOrDialog=%d fg=%d rmb=%d shouldHold=%d gameHw=%p fgHw=%p sampMode=%d sampEn=%d",
             wantsUi ? 1 : 0,
+            (chatOrDialogActive && sampApi_.is_chat_opened()) ? 1 : 0,
+            (chatOrDialogActive && sampApi_.isDialogActive()) ? 1 : 0,
+            chatOrDialogActive ? 1 : 0,
             appHasFocus ? 1 : 0,
             rmbHeld ? 1 : 0,
             shouldHoldUi ? 1 : 0,
@@ -295,23 +360,33 @@ void ModApp::UpdateOverlayCursorMode() {
 
     if (overlayLastUiHold_ && !shouldHoldUi) {
         ::ReleaseCapture();
+        debuglog::WriteInfo("[ui] ReleaseCapture due to UI-hold end");
     }
     overlayLastUiHold_ = shouldHoldUi;
 
     const int desiredMode = shouldHoldUi ? kSampCursorModeLockCam : kSampCursorModeNone;
     const bool desiredEnabled = shouldHoldUi;
+    const bool desiredSameAsCache = overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled;
+    const bool shouldReassert = desiredEnabled && (now - overlayCursorLastApplyMs_ >= kCursorReassertIntervalMs);
 
-    if (overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled) {
+    if (desiredSameAsCache && !shouldReassert) {
         return;
     }
 
-    sampApi_.Refresh();
     if (!sampApi_.sampModule() || !sampApi_.isSupportedVersion()) {
+        static uint64_t s_lastCursorUnavailableTraceMs = 0;
+        if (wantsUi && now - s_lastCursorUnavailableTraceMs >= kCursorUnavailableTraceIntervalMs) {
+            s_lastCursorUnavailableTraceMs = now;
+            debuglog::WriteInfo(
+                "[ui] cursor apply skipped: sampModule=%d supported=%d",
+                sampApi_.sampModule() ? 1 : 0,
+                sampApi_.isSupportedVersion() ? 1 : 0);
+        }
         return;
     }
 
     if (!sampApi_.Set_CursorMode(desiredMode, desiredEnabled)) {
-        debuglog::Write(
+        debuglog::WriteError(
             "[ui] Set_CursorMode FAILED want mode=%d en=%d: %s",
             desiredMode,
             desiredEnabled ? 1 : 0,
@@ -319,15 +394,17 @@ void ModApp::UpdateOverlayCursorMode() {
         return;
     }
 
-    debuglog::Write(
-        "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d)",
+    debuglog::WriteInfo(
+        "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d reassert=%d)",
         desiredMode,
         desiredEnabled ? 1 : 0,
         overlayCursorMode_,
-        overlayCursorEnabled_ ? 1 : 0);
+        overlayCursorEnabled_ ? 1 : 0,
+        shouldReassert ? 1 : 0);
 
     overlayCursorMode_ = desiredMode;
     overlayCursorEnabled_ = desiredEnabled;
+    overlayCursorLastApplyMs_ = now;
 }
 
 void ModApp::Tick() {
@@ -431,10 +508,12 @@ void ModApp::ApplyMainStyle(float scale) const {
 void ModApp::LoadShellState() {
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kShellSectionName);
     sidebarCollapsed_ = jsonutil::JsonBoolOr(&section, "sidebar_collapsed", false);
+    debuglog::WriteInfo("Shell state loaded (sidebar_collapsed=%d)", sidebarCollapsed_ ? 1 : 0);
 }
 
 void ModApp::QueueShellStateSave() const {
     const bool sidebarCollapsed = sidebarCollapsed_;
+    debuglog::WriteInfo("Queue shell state save (sidebar_collapsed=%d)", sidebarCollapsed ? 1 : 0);
     AppConfig::Instance().QueueMutation([sidebarCollapsed](jsonutil::JsonObject& root) {
         jsonutil::JsonObject section;
         const auto existing = root.find(std::string(kShellSectionName));
@@ -454,6 +533,7 @@ void ModApp::SetSidebarCollapsed(bool collapsed) {
         return;
     }
 
+    debuglog::WriteInfo("Sidebar collapsed changed %d -> %d", sidebarCollapsed_ ? 1 : 0, collapsed ? 1 : 0);
     sidebarCollapsed_ = collapsed;
     QueueShellStateSave();
 }
@@ -468,27 +548,28 @@ void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
     const void* resourceData = nullptr;
     DWORD resourceSize = 0;
     if (!LoadBinaryResource(module_, IDR_MAIN_LOGO, &resourceData, &resourceSize)) {
-        debuglog::Write("Failed to locate embedded logo resource");
+        debuglog::WriteError("Failed to locate embedded logo resource");
         return;
     }
 
     D3DXIMAGE_INFO imageInfo{};
     const HRESULT infoResult = D3DXGetImageInfoFromFileInMemory(resourceData, resourceSize, &imageInfo);
     if (FAILED(infoResult)) {
-        debuglog::Write("D3DXGetImageInfoFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(infoResult));
+        debuglog::WriteError("D3DXGetImageInfoFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(infoResult));
         return;
     }
 
     IDirect3DTexture9* texture = nullptr;
     const HRESULT textureResult = D3DXCreateTextureFromFileInMemory(device, resourceData, resourceSize, &texture);
     if (FAILED(textureResult) || !texture) {
-        debuglog::Write("D3DXCreateTextureFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(textureResult));
+        debuglog::WriteError("D3DXCreateTextureFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(textureResult));
         return;
     }
 
     logoTexture_ = texture;
     logoWidth_ = imageInfo.Width;
     logoHeight_ = imageInfo.Height;
+    debuglog::WriteInfo("Logo texture loaded (%ux%u)", logoWidth_, logoHeight_);
 }
 
 void ModApp::ReleaseUiResources() {
@@ -650,6 +731,21 @@ void ModApp::DrawSettingsTab() {
     int languageIndex = ui.Language() == UiLanguage::English ? 1 : 0;
     if (ImGui::Combo(ui.Text(UiText::SettingsLanguage), &languageIndex, languageLabels, IM_ARRAYSIZE(languageLabels))) {
         ui.SetLanguage(languages[languageIndex]);
+        debuglog::WriteInfo("Settings changed: language=%s", languageIndex == 1 ? "en" : "ru");
+    }
+
+    const UiLogLevel logLevels[] = { UiLogLevel::Off, UiLogLevel::Error, UiLogLevel::Info };
+    const char* logLevelLabels[] = {
+        ui.Text(UiText::SettingsLogLevelOff),
+        ui.Text(UiText::SettingsLogLevelError),
+        ui.Text(UiText::SettingsLogLevelInfo),
+    };
+    int logLevelIndex = static_cast<int>(ui.LogLevel());
+    if (ImGui::Combo(ui.Text(UiText::SettingsLogLevel), &logLevelIndex, logLevelLabels, IM_ARRAYSIZE(logLevelLabels))) {
+        const UiLogLevel selected = logLevels[std::clamp(logLevelIndex, 0, 2)];
+        ui.SetLogLevel(selected);
+        debuglog::SetLevel(ToDebugLogLevel(selected));
+        debuglog::WriteInfo("Settings changed: log_level=%s", ToUiLogLevelName(selected));
     }
 
     ImGui::Spacing();
@@ -662,11 +758,13 @@ void ModApp::DrawSettingsTab() {
     bool autoScale = ui.AutoScaleEnabled();
     if (ImGui::Checkbox(ui.Text(UiText::SettingsAutoScale), &autoScale)) {
         ui.SetAutoScaleEnabled(autoScale);
+        debuglog::WriteInfo("Settings changed: auto_scale=%d", autoScale ? 1 : 0);
     }
 
     float scaleMultiplier = ui.ScaleMultiplier();
     if (ImGui::SliderFloat(ui.Text(UiText::SettingsScaleMultiplier), &scaleMultiplier, 0.75f, 2.0f, "%.2fx")) {
         ui.SetScaleMultiplier(scaleMultiplier);
+        debuglog::WriteInfo("Settings changed: scale_multiplier=%.2f", scaleMultiplier);
     }
 
     ImGui::Text("%s: %.2fx", ui.Text(UiText::SettingsEffectiveScale), ui.CurrentScale());
@@ -674,6 +772,8 @@ void ModApp::DrawSettingsTab() {
 
     if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
         ui.ResetToDefaults();
+        debuglog::SetLevel(ToDebugLogLevel(ui.LogLevel()));
+        debuglog::WriteInfo("Settings reset to defaults");
         overlay_.CancelMenuToggleHotkeyCapture();
     }
 
@@ -688,6 +788,18 @@ void ModApp::DrawSettingsTab() {
 void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = UiSettings::Instance().UpdateScale(io.DisplaySize);
+    static float s_lastLoggedScale = 0.0f;
+    static uint64_t s_lastScaleTraceMs = 0;
+    const uint64_t now = GetTickCount64();
+    if (std::abs(uiScale - s_lastLoggedScale) > 0.001f || now - s_lastScaleTraceMs >= kUiScaleTraceIntervalMs) {
+        s_lastLoggedScale = uiScale;
+        s_lastScaleTraceMs = now;
+        debuglog::WriteInfo(
+            "[ui] frame prep scale=%.3f display=(%.1f,%.1f)",
+            uiScale,
+            io.DisplaySize.x,
+            io.DisplaySize.y);
+    }
     io.FontGlobalScale = uiScale;
     ApplyMainStyle(uiScale);
     EnsureLogoTexture(device);
@@ -698,6 +810,11 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     const float uiScale = io.FontGlobalScale;
 
     const bool showMainWindow = overlay_.IsMenuOpen();
+    static bool s_lastShowMainWindow = false;
+    if (showMainWindow != s_lastShowMainWindow) {
+        s_lastShowMainWindow = showMainWindow;
+        debuglog::WriteInfo("[ui] main window visibility -> %d", showMainWindow ? 1 : 0);
+    }
     if (!showMainWindow) {
         binder_.DrawOverlay();
         AppConfig::Instance().ProcessPendingWrites();

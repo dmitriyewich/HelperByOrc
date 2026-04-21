@@ -12,7 +12,7 @@ inline bool Initialize() {
         return true;
     }
 
-    debuglog::Write("MH_Initialize failed: %s (%d)", MH_StatusToString(status), static_cast<int>(status));
+    debuglog::WriteError("MH_Initialize failed: %s (%d)", MH_StatusToString(status), static_cast<int>(status));
     return false;
 }
 
@@ -22,12 +22,12 @@ inline void Uninitialize() {
         return;
     }
 
-    debuglog::Write("MH_Uninitialize failed: %s (%d)", MH_StatusToString(status), static_cast<int>(status));
+    debuglog::WriteError("MH_Uninitialize failed: %s (%d)", MH_StatusToString(status), static_cast<int>(status));
 }
 
 inline bool CreateHook(void* target, void* detour, void** original, const char* hookName) {
     if (!target || !detour || !original) {
-        debuglog::Write("MH_CreateHook skipped for %s: invalid arguments", hookName ? hookName : "<unnamed>");
+        debuglog::WriteError("MH_CreateHook skipped for %s: invalid arguments", hookName ? hookName : "<unnamed>");
         return false;
     }
 
@@ -36,7 +36,7 @@ inline bool CreateHook(void* target, void* detour, void** original, const char* 
         return true;
     }
 
-    debuglog::Write(
+    debuglog::WriteError(
         "MH_CreateHook failed for %s: %s (%d)",
         hookName ? hookName : "<unnamed>",
         MH_StatusToString(status),
@@ -46,7 +46,7 @@ inline bool CreateHook(void* target, void* detour, void** original, const char* 
 
 inline bool EnableHook(void* target, const char* hookName) {
     if (!target) {
-        debuglog::Write("MH_EnableHook skipped for %s: target is null", hookName ? hookName : "<unnamed>");
+        debuglog::WriteError("MH_EnableHook skipped for %s: target is null", hookName ? hookName : "<unnamed>");
         return false;
     }
 
@@ -55,7 +55,7 @@ inline bool EnableHook(void* target, const char* hookName) {
         return true;
     }
 
-    debuglog::Write(
+    debuglog::WriteError(
         "MH_EnableHook failed for %s: %s (%d)",
         hookName ? hookName : "<unnamed>",
         MH_StatusToString(status),
@@ -75,7 +75,7 @@ inline bool CreateAndEnableHook(void* target, void* detour, TOriginal* original,
 
     const MH_STATUS removeStatus = MH_RemoveHook(target);
     if (removeStatus != MH_OK && removeStatus != MH_ERROR_NOT_CREATED) {
-        debuglog::Write(
+        debuglog::WriteError(
             "MH_RemoveHook rollback failed for %s: %s (%d)",
             hookName ? hookName : "<unnamed>",
             MH_StatusToString(removeStatus),
@@ -93,7 +93,7 @@ inline void DisableAndRemoveHook(void*& target, const char* hookName) {
     if (disableStatus != MH_OK
         && disableStatus != MH_ERROR_DISABLED
         && disableStatus != MH_ERROR_NOT_CREATED) {
-        debuglog::Write(
+        debuglog::WriteError(
             "MH_DisableHook failed for %s: %s (%d)",
             hookName ? hookName : "<unnamed>",
             MH_StatusToString(disableStatus),
@@ -102,7 +102,7 @@ inline void DisableAndRemoveHook(void*& target, const char* hookName) {
 
     const MH_STATUS removeStatus = MH_RemoveHook(target);
     if (removeStatus != MH_OK && removeStatus != MH_ERROR_NOT_CREATED) {
-        debuglog::Write(
+        debuglog::WriteError(
             "MH_RemoveHook failed for %s: %s (%d)",
             hookName ? hookName : "<unnamed>",
             MH_StatusToString(removeStatus),

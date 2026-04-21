@@ -25,8 +25,97 @@ namespace {
 constexpr char kDummyWindowClassName[] = "HelperByOrcDummyWindow";
 constexpr float kOverlayFontSize = 18.0f;
 
+enum class UiDebugProfile {
+    ProductionDebug,
+    VerboseAudit,
+};
+
+constexpr UiDebugProfile kUiDebugProfile = UiDebugProfile::ProductionDebug;
 constexpr uint64_t kDeepUiTraceIntervalMs = 400;
 constexpr uint64_t kAnomalyClickTraceIntervalMs = 150;
+constexpr uint64_t kPostRenderHealthTraceIntervalMs =
+    (kUiDebugProfile == UiDebugProfile::ProductionDebug) ? 5000 : 3500;
+constexpr uint64_t kResetTraceIntervalMs = 1000;
+constexpr uint64_t kStateBlockFailTraceIntervalMs = 1000;
+constexpr uint64_t kSetCursorTraceIntervalMs = 1500;
+constexpr uint64_t kRenderStatsTraceIntervalMs =
+    (kUiDebugProfile == UiDebugProfile::ProductionDebug) ? 5000 : 1000;
+constexpr uint64_t kNonPrimarySkipTraceIntervalMs = 1500;
+constexpr uint64_t kSlowFrameTraceThresholdMs =
+    (kUiDebugProfile == UiDebugProfile::ProductionDebug) ? 40 : 8;
+
+void TraceRenderPathCounters(const char* sourceTag, bool rendered) {
+    static uint64_t s_windowStartMs = 0;
+    static unsigned s_presentCalls = 0;
+    static unsigned s_endSceneCalls = 0;
+    static unsigned s_renderFromPresent = 0;
+    static unsigned s_renderFromEndScene = 0;
+    static unsigned s_skippedByNonPrimary = 0;
+
+    const uint64_t now = GetTickCount64();
+    if (s_windowStartMs == 0) {
+        s_windowStartMs = now;
+    }
+
+    const bool fromPresent = std::strcmp(sourceTag, "present") == 0;
+    if (fromPresent) {
+        ++s_presentCalls;
+        if (rendered) {
+            ++s_renderFromPresent;
+        }
+    } else {
+        ++s_endSceneCalls;
+        if (rendered) {
+            ++s_renderFromEndScene;
+        }
+    }
+    if (!rendered) {
+        ++s_skippedByNonPrimary;
+    }
+
+    if (now - s_windowStartMs >= kRenderStatsTraceIntervalMs) {
+        debuglog::WriteInfo(
+            "[ui] render-stats 1s presentCalls=%u endSceneCalls=%u renderedPresent=%u renderedEndScene=%u skippedNonPrimary=%u",
+            s_presentCalls,
+            s_endSceneCalls,
+            s_renderFromPresent,
+            s_renderFromEndScene,
+            s_skippedByNonPrimary);
+        s_presentCalls = 0;
+        s_endSceneCalls = 0;
+        s_renderFromPresent = 0;
+        s_renderFromEndScene = 0;
+        s_skippedByNonPrimary = 0;
+        s_windowStartMs = now;
+    }
+}
+
+bool IsPopupTransitionNoCaptureExpected(const ImGuiIO& io) {
+    if (GImGui == nullptr) {
+        return false;
+    }
+    const ImGuiContext& g = *GImGui;
+    // Классический переходный кадр popup: popup уже открыт, BeginPopup ещё не зашёл в окно.
+    // В этот момент WantCaptureMouse может быть 0 при активном UI-курсоре.
+    return g.OpenPopupStack.Size > 0
+        && g.BeginPopupStack.Size == 0
+        && !io.MouseDown[0]
+        && !ImGui::IsAnyItemHovered()
+        && !ImGui::IsAnyItemActive();
+}
+
+void TraceWindowAndDpi(HWND hwnd) {
+    UINT dpi = 96;
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    if (user32 != nullptr) {
+        using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+        auto getDpiForWindow = reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow"));
+        if (getDpiForWindow != nullptr && hwnd != nullptr) {
+            dpi = getDpiForWindow(hwnd);
+        }
+    }
+    debuglog::WriteInfo("[ui] game window resolved hwnd=%p dpi=%u", hwnd, dpi);
+}
 
 const char* DbgImGuiWindowName(const ImGuiWindow* w) {
     if (w == nullptr || w->Name == nullptr) {
@@ -37,7 +126,7 @@ const char* DbgImGuiWindowName(const ImGuiWindow* w) {
 
 void DbgTraceImGuiInternalState(const char* reason) {
     if (GImGui == nullptr) {
-        debuglog::Write("[ui][dbg] %s: GImGui=null", reason);
+        debuglog::WriteError("[ui][dbg] %s: GImGui=null", reason);
         return;
     }
     ImGuiContext& g = *GImGui;
@@ -47,7 +136,7 @@ void DbgTraceImGuiInternalState(const char* reason) {
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
     const ImGuiWindow* wheel = g.WheelingWindow;
 
-    debuglog::Write(
+    debuglog::WriteInfo(
         "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScale=%.3f WantCapM=%d WantCapK=%d "
         "NavWin=\"%s\" HovWin=\"%s\" HovUnderMove=\"%s\" MoveWin=\"%s\" WheelWin=\"%s\" "
         "popAny=%d OpenPop=%d BeginPop=%d ActId=0x%08X HovId=0x%08X NavId=0x%08X NavHighlightUnderNav=%d",
@@ -92,11 +181,11 @@ bool MergeFontAwesomeIcons(ImGuiIO& io) {
         &iconConfig,
         kIconRanges);
     if (!icons) {
-        debuglog::Write("Failed to merge Font Awesome 7 icon font");
+        debuglog::WriteError("Failed to merge Font Awesome 7 icon font");
         return false;
     }
 
-    debuglog::Write("Merged Font Awesome 7 icon font");
+    debuglog::WriteInfo("Merged Font Awesome 7 icon font");
     return true;
 }
 
@@ -115,13 +204,13 @@ ImFont* LoadOverlayFont(ImGuiIO& io) {
 
         ImFont* font = io.Fonts->AddFontFromFileTTF(path, kOverlayFontSize, nullptr, glyphRanges);
         if (font) {
-            debuglog::Write("Loaded ImGui font: %s", path);
+            debuglog::WriteInfo("Loaded ImGui font: %s", path);
             MergeFontAwesomeIcons(io);
             return font;
         }
     }
 
-    debuglog::Write("Failed to load a Cyrillic-capable ImGui font, using default font");
+    debuglog::WriteError("Failed to load a Cyrillic-capable ImGui font, using default font");
     ImFontConfig fallbackConfig{};
     fallbackConfig.SizePixels = kOverlayFontSize;
     ImFont* fallbackFont = io.Fonts->AddFontDefault(&fallbackConfig);
@@ -134,12 +223,34 @@ ImFont* LoadOverlayFont(ImGuiIO& io) {
 HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
     if (self_ && !self_->shuttingDown_) {
         self_->InitializeImGuiIfNeeded(device);
-        if (!originalPresent_ && self_->IsPrimaryRenderTarget(device)) {
+        // Fallback path only: when Present detour is unavailable, render from EndScene.
+        const bool isPrimary = self_->IsPrimaryRenderTarget(device);
+        const bool rendered = !originalPresent_ && isPrimary;
+        if (rendered) {
             self_->UpdateHotkeyState();
             if (self_->updateCallback_) {
                 self_->updateCallback_();
             }
             self_->RenderFrame(device);
+        }
+        TraceRenderPathCounters("endscene", rendered);
+        if (!rendered) {
+            static uint64_t s_lastSkipTraceMs = 0;
+            const uint64_t now = GetTickCount64();
+            const bool shouldLogSkip = (kUiDebugProfile == UiDebugProfile::VerboseAudit) || !isPrimary;
+            if (shouldLogSkip && now - s_lastSkipTraceMs >= kNonPrimarySkipTraceIntervalMs) {
+                s_lastSkipTraceMs = now;
+                debuglog::WriteInfo(
+                    "[ui] EndScene render skipped presentHook=%d primary=%d",
+                    originalPresent_ ? 1 : 0,
+                    isPrimary ? 1 : 0);
+            }
+        }
+    } else if (self_ && self_->shuttingDown_) {
+        static bool s_reportedEndSceneDuringShutdown = false;
+        if (!s_reportedEndSceneDuringShutdown) {
+            s_reportedEndSceneDuringShutdown = true;
+            debuglog::WriteInfo("[ui] EndSceneDetour observed after shutdown flag");
         }
     }
 
@@ -154,12 +265,30 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
     const RGNDATA* dirtyRegion) {
     if (self_ && !self_->shuttingDown_) {
         self_->InitializeImGuiIfNeeded(device);
-        if (self_->IsPrimaryRenderTarget(device)) {
+        // Primary and stable render path for overlay.
+        const bool isPrimary = self_->IsPrimaryRenderTarget(device);
+        const bool rendered = isPrimary;
+        if (rendered) {
             self_->UpdateHotkeyState();
             if (self_->updateCallback_) {
                 self_->updateCallback_();
             }
             self_->RenderFrame(device);
+        }
+        TraceRenderPathCounters("present", rendered);
+        if (!rendered) {
+            static uint64_t s_lastSkipTraceMs = 0;
+            const uint64_t now = GetTickCount64();
+            if (now - s_lastSkipTraceMs >= kNonPrimarySkipTraceIntervalMs) {
+                s_lastSkipTraceMs = now;
+                debuglog::WriteInfo("[ui] Present render skipped due to non-primary target");
+            }
+        }
+    } else if (self_ && self_->shuttingDown_) {
+        static bool s_reportedPresentDuringShutdown = false;
+        if (!s_reportedPresentDuringShutdown) {
+            s_reportedPresentDuringShutdown = true;
+            debuglog::WriteInfo("[ui] PresentDetour observed after shutdown flag");
         }
     }
 
@@ -168,6 +297,12 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
 
 HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters) {
     if (self_ && self_->imguiInitialized_) {
+        static uint64_t s_lastResetBeginTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastResetBeginTraceMs >= kResetTraceIntervalMs) {
+            s_lastResetBeginTraceMs = now;
+            debuglog::WriteInfo("[ui] ResetDetour begin (imgui initialized)");
+        }
         ImGui_ImplDX9_InvalidateDeviceObjects();
     }
 
@@ -178,6 +313,19 @@ HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT
     const HRESULT result = originalReset_(device, presentationParameters);
     if (SUCCEEDED(result) && self_ && self_->imguiInitialized_) {
         ImGui_ImplDX9_CreateDeviceObjects();
+        static uint64_t s_lastResetOkTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastResetOkTraceMs >= kResetTraceIntervalMs) {
+            s_lastResetOkTraceMs = now;
+            debuglog::WriteInfo("[ui] ResetDetour ok: device objects recreated");
+        }
+    } else if (FAILED(result)) {
+        static uint64_t s_lastResetFailTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastResetFailTraceMs >= kResetTraceIntervalMs) {
+            s_lastResetFailTraceMs = now;
+            debuglog::WriteError("[ui] ResetDetour failed: hr=0x%08lX", static_cast<unsigned long>(result));
+        }
     }
 
     return result;
@@ -285,11 +433,11 @@ void ImGuiOverlay::OnProcessAttach() {
     self_ = this;
     shuttingDown_ = false;
 
-    debuglog::Write("ImGuiOverlay attached");
+    debuglog::WriteInfo("ImGuiOverlay attached (tid=%lu)", GetCurrentThreadId());
 
     initThread_ = CreateThread(nullptr, 0, &InitializeThread, this, 0, nullptr);
     if (!initThread_) {
-        debuglog::Write("CreateThread failed: %lu", GetLastError());
+        debuglog::WriteError("CreateThread failed: %lu", GetLastError());
     }
 }
 
@@ -305,12 +453,12 @@ DWORD WINAPI ImGuiOverlay::InitializeThread(LPVOID param) {
         }
 
         if (attempt == 1 || attempt % 5 == 0) {
-            debuglog::Write("D3D9 hook attempt %d failed, retrying", attempt);
+            debuglog::WriteError("D3D9 hook attempt %d failed, retrying", attempt);
         }
         Sleep(1000);
     }
 
-    debuglog::Write("D3D9 hooks were not installed");
+    debuglog::WriteError("D3D9 hooks were not installed");
     return 0;
 }
 
@@ -329,20 +477,20 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
     windowClass.lpszClassName = kDummyWindowClassName;
 
     if (!RegisterClassExA(&windowClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        debuglog::Write("RegisterClassExA failed: %lu", GetLastError());
+        debuglog::WriteError("RegisterClassExA failed: %lu", GetLastError());
         return false;
     }
 
     HWND window = CreateWindowExA(0, kDummyWindowClassName, kDummyWindowClassName,
         WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, nullptr, nullptr, windowClass.hInstance, nullptr);
     if (!window) {
-        debuglog::Write("CreateWindowExA failed: %lu", GetLastError());
+        debuglog::WriteError("CreateWindowExA failed: %lu", GetLastError());
         return false;
     }
 
     IDirect3D9* d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
     if (!d3d9) {
-        debuglog::Write("Direct3DCreate9 failed");
+        debuglog::WriteError("Direct3DCreate9 failed");
         DestroyWindow(window);
         return false;
     }
@@ -364,7 +512,7 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
     d3d9->Release();
 
     if (FAILED(result) || !*outDevice) {
-        debuglog::Write("IDirect3D9::CreateDevice failed: 0x%08lX", static_cast<unsigned long>(result));
+        debuglog::WriteError("IDirect3D9::CreateDevice failed: 0x%08lX", static_cast<unsigned long>(result));
         DestroyWindow(window);
         return false;
     }
@@ -386,7 +534,7 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
 
     void** vtable = *reinterpret_cast<void***>(dummyDevice);
     if (!vtable) {
-        debuglog::Write("IDirect3DDevice9 vtable is null");
+        debuglog::WriteError("IDirect3DDevice9 vtable is null");
         dummyDevice->Release();
         DestroyWindow(dummyWindow);
         return false;
@@ -446,7 +594,7 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
     }
 
     hooksInstalled_ = true;
-    debuglog::Write(
+    debuglog::WriteInfo(
         "D3D9 hooks installed via MinHook. EndScene=%p Present=%p Reset=%p",
         endSceneTarget_,
         presentTarget_,
@@ -484,8 +632,15 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
 
     gameWindow_ = ResolveGameWindow(device);
     if (!gameWindow_) {
+        static uint64_t s_lastNoWindowTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastNoWindowTraceMs >= 1000) {
+            s_lastNoWindowTraceMs = now;
+            debuglog::WriteInfo("[ui] InitializeImGuiIfNeeded waiting for game window");
+        }
         return;
     }
+    TraceWindowAndDpi(gameWindow_);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -503,7 +658,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     ImGui::StyleColorsDark();
 
     if (!ImGui_ImplWin32_Init(gameWindow_)) {
-        debuglog::Write("ImGui_ImplWin32_Init failed");
+        debuglog::WriteError("ImGui_ImplWin32_Init failed");
         ImGui::DestroyContext();
         return;
     }
@@ -511,7 +666,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     if (!ImGui_ImplDX9_Init(device)) {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-        debuglog::Write("ImGui_ImplDX9_Init failed");
+        debuglog::WriteError("ImGui_ImplDX9_Init failed");
         return;
     }
 
@@ -519,7 +674,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     const LONG_PTR previousWndProc = SetWindowLongPtrA(
         gameWindow_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&OverlayWndProc));
     if (previousWndProc == 0 && GetLastError() != 0) {
-        debuglog::Write("SetWindowLongPtrA failed: %lu", GetLastError());
+        debuglog::WriteError("SetWindowLongPtrA failed: %lu", GetLastError());
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
@@ -529,7 +684,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     originalWndProc_ = reinterpret_cast<WNDPROC>(previousWndProc);
     imguiInitialized_ = true;
 
-    debuglog::Write("ImGui initialized. Game window=%p", gameWindow_);
+    debuglog::WriteInfo("ImGui initialized. Game window=%p", gameWindow_);
 }
 
 void ImGuiOverlay::RestoreWindowProc() {
@@ -537,7 +692,13 @@ void ImGuiOverlay::RestoreWindowProc() {
         return;
     }
 
-    SetWindowLongPtrA(gameWindow_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(originalWndProc_));
+    SetLastError(0);
+    const LONG_PTR result = SetWindowLongPtrA(gameWindow_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(originalWndProc_));
+    if (result == 0 && GetLastError() != 0) {
+        debuglog::WriteError("[ui] RestoreWindowProc failed: %lu", GetLastError());
+    } else {
+        debuglog::WriteInfo("[ui] RestoreWindowProc ok hwnd=%p", gameWindow_);
+    }
     originalWndProc_ = nullptr;
 }
 
@@ -546,6 +707,8 @@ void ImGuiOverlay::CleanupImGui() {
         return;
     }
 
+    debuglog::WriteInfo("[ui] CleanupImGui begin");
+
     RestoreWindowProc();
     ImGui_ImplDX9_Shutdown();
     ImGui_ImplWin32_Shutdown();
@@ -553,6 +716,7 @@ void ImGuiOverlay::CleanupImGui() {
 
     imguiInitialized_ = false;
     gameWindow_ = nullptr;
+    debuglog::WriteInfo("[ui] CleanupImGui done");
 }
 
 void ImGuiOverlay::UpdateHotkeyState() {
@@ -560,7 +724,7 @@ void ImGuiOverlay::UpdateHotkeyState() {
     if (!menuToggleHotkeyCapture_.Active() && comboDown && !menuToggleWasDown_) {
         menuOpen_ = !menuOpen_;
         const bool aux = IsAuxiliaryUiVisible();
-        debuglog::Write(
+        debuglog::WriteInfo(
             "[ui] Menu toggled: %s aux=%d wantRoute=%d wantUiCursor=%d wantAuxCursor=%d",
             menuOpen_ ? "open" : "closed",
             aux ? 1 : 0,
@@ -692,7 +856,7 @@ void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
         inputCaptureChangedCallback_(captured);
     }
 
-    debuglog::Write("ImGui text input capture: %s", captured ? "enabled" : "disabled");
+    debuglog::WriteInfo("ImGui text input capture: %s", captured ? "enabled" : "disabled");
 }
 
 void ImGuiOverlay::UpdateInputCaptureState() {
@@ -713,7 +877,7 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
         traceLastMenuOpen_ = menuOpen_;
         traceLastAuxVisible_ = auxVisible;
         traceLastIdleFrame_ = idle;
-        debuglog::Write(
+        debuglog::WriteInfo(
             "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
             frameTag,
             idle ? 1 : 0,
@@ -731,14 +895,25 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
     if (!WantsInputRouting() || ImGui::GetCurrentContext() == nullptr) {
         return;
     }
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool wantsUiCursor = WantsUiCursor();
+    const bool hasActiveInputOrHover = io.WantCaptureMouse || io.WantCaptureKeyboard || io.WantTextInput
+        || ImGui::IsAnyItemActive() || ImGui::IsAnyItemHovered();
+    const bool popupTransitionExpected = wantsUiCursor && !io.WantCaptureMouse && IsPopupTransitionNoCaptureExpected(io);
+    const bool anomaly = wantsUiCursor && !io.WantCaptureMouse && !popupTransitionExpected;
+    if (!hasActiveInputOrHover && !anomaly && !popupTransitionExpected) {
+        return;
+    }
     const uint64_t now = GetTickCount64();
-    if (now - traceLastUiDiagTick_ < 1200) {
+    if (now - traceLastUiDiagTick_ < kPostRenderHealthTraceIntervalMs) {
         return;
     }
     traceLastUiDiagTick_ = now;
-    const ImGuiIO& io = ImGui::GetIO();
-    debuglog::Write(
-        "[ui] diag post-render WantCaptureMouse=%d WantCaptureKB=%d MouseDown0=%d AnyItemActive=%d AnyItemHovered=%d WantText=%d",
+    debuglog::WriteInfo(
+        "[ui] diag post-render uiCur=%d anomaly=%d popupTransitionExpected=%d WantCaptureMouse=%d WantCaptureKB=%d MouseDown0=%d AnyItemActive=%d AnyItemHovered=%d WantText=%d",
+        wantsUiCursor ? 1 : 0,
+        anomaly ? 1 : 0,
+        popupTransitionExpected ? 1 : 0,
         io.WantCaptureMouse ? 1 : 0,
         io.WantCaptureKeyboard ? 1 : 0,
         io.MouseDown[0] ? 1 : 0,
@@ -747,8 +922,11 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
         io.WantTextInput ? 1 : 0);
 
     static uint64_t s_lastDeepTraceMs = 0;
-    if (now - s_lastDeepTraceMs >= kDeepUiTraceIntervalMs) {
+    if ((anomaly || popupTransitionExpected) && now - s_lastDeepTraceMs >= kDeepUiTraceIntervalMs) {
         s_lastDeepTraceMs = now;
+        if (popupTransitionExpected) {
+            debuglog::WriteInfo("[ui] popup transition explains WantCaptureMouse=0 on this frame");
+        }
         DbgTraceImGuiInternalState("after_present");
     }
 }
@@ -763,6 +941,7 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
     ImGui::GetIO().MouseDrawCursor = false;
     ApplyInputCaptureState(false);
 
+    const uint64_t beginMs = GetTickCount64();
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
     if (prepareFrameCallback_) {
@@ -772,6 +951,10 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
     ImGui::EndFrame();
     ImGui::Render();
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    const uint64_t elapsedMs = GetTickCount64() - beginMs;
+    if (elapsedMs >= kSlowFrameTraceThresholdMs) {
+        debuglog::WriteInfo("[ui] idle frame slow: %llums", static_cast<unsigned long long>(elapsedMs));
+    }
 }
 
 void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
@@ -790,6 +973,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         return;
     }
 
+    const uint64_t beginMs = GetTickCount64();
     TraceUiRenderAndInputSnapshot("full_ui");
 
     IDirect3DStateBlock9* stateBlock = nullptr;
@@ -798,6 +982,12 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &stateBlock))) {
         stateBlock = nullptr;
+        static uint64_t s_lastStateBlockFailTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastStateBlockFailTraceMs >= kStateBlockFailTraceIntervalMs) {
+            s_lastStateBlockFailTraceMs = now;
+            debuglog::WriteError("[ui] CreateStateBlock(D3DSBT_ALL) failed");
+        }
     } else {
         stateBlock->Capture();
     }
@@ -828,18 +1018,22 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     ImGui::NewFrame();
+    if (WantsUiCursor()) {
+        // При активном overlay-курcоре хотим стабильный mouse-capture и на следующем кадре тоже,
+        // чтобы исключить кратковременные провалы WantCaptureMouse=0 между WndProc/NewFrame.
+        ImGui::SetNextFrameWantCaptureMouse(true);
+    }
 
     if (renderCallback_) {
         renderCallback_(device);
     }
     UpdateInputCaptureState();
 
-    // Как в WeaponsOutFit: программный курсор ImGui (MouseDrawCursor); при зажатой ПКМ отдаём обзор игре.
-    // Штатная стрелка — через SA:MP Set_CursorMode в ModApp (не трогаем WM_SETCURSOR здесь).
+    // Единый видимый курсор: всегда используем игровой SA:MP cursor mode.
+    // ImGui по-прежнему получает mouse input, но не рисует второй курсор поверх игрового.
     {
         ImGuiIO& ioFrame = ImGui::GetIO();
-        const bool rmbHeld = (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-        ioFrame.MouseDrawCursor = WantsUiCursor() && !rmbHeld;
+        ioFrame.MouseDrawCursor = false;
     }
 
     ImGui::EndFrame();
@@ -861,6 +1055,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     if (stateBlock) {
         stateBlock->Apply();
         stateBlock->Release();
+    }
+    const uint64_t elapsedMs = GetTickCount64() - beginMs;
+    if (elapsedMs >= kSlowFrameTraceThresholdMs) {
+        debuglog::WriteInfo("[ui] full_ui frame slow: %llums", static_cast<unsigned long long>(elapsedMs));
     }
 }
 
@@ -983,7 +1181,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
 
         if (self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
             if (message != WM_MOUSEMOVE) {
-                debuglog::Write(
+                debuglog::WriteInfo(
                     "[ui] binder swallowed msg=%u wParam=%p",
                     static_cast<unsigned>(message),
                     reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)));
@@ -1011,7 +1209,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                     const bool eatMouse = wantsMouseCapture && self_->IsMouseMessage(message);
                     const int clientX = GET_X_LPARAM(lparam);
                     const int clientY = GET_Y_LPARAM(lparam);
-                    debuglog::Write(
+                    debuglog::WriteInfo(
                         "[ui] wnd btn msg=%u client=(%d,%d) eatMouse=%d wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
                         static_cast<unsigned>(message),
                         clientX,
@@ -1023,7 +1221,9 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                     // UI курсор есть, а ImGui не просит мышь — типичный «тусклый» кадр; снимок внутреннего состояния.
                     static uint64_t s_lastAnomalyMs = 0;
                     const uint64_t nowBtn = GetTickCount64();
-                    if (wantsUiCursor && !io.WantCaptureMouse && self_->IsMouseMessage(message)
+                    const bool popupTransitionExpected =
+                        wantsUiCursor && !io.WantCaptureMouse && IsPopupTransitionNoCaptureExpected(io);
+                    if (wantsUiCursor && !io.WantCaptureMouse && !popupTransitionExpected && self_->IsMouseMessage(message)
                         && nowBtn - s_lastAnomalyMs >= kAnomalyClickTraceIntervalMs) {
                         s_lastAnomalyMs = nowBtn;
                         DbgTraceImGuiInternalState("wnd_btn_anomaly");
@@ -1031,6 +1231,17 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 }
                 if (wantsMouseCapture && self_->IsMouseMessage(message)) {
                     return TRUE;
+                }
+                if (message == WM_SETCURSOR && wantsUiCursor) {
+                    static uint64_t s_lastSetCursorTraceMs = 0;
+                    const uint64_t now = GetTickCount64();
+                    if (now - s_lastSetCursorTraceMs >= kSetCursorTraceIntervalMs) {
+                        s_lastSetCursorTraceMs = now;
+                        debuglog::WriteInfo(
+                            "[ui] WM_SETCURSOR pass-through with UI cursor (WantCapMouse=%d, wantText=%d)",
+                            io.WantCaptureMouse ? 1 : 0,
+                            wantsTextInput ? 1 : 0);
+                    }
                 }
                 if (wantsKeyboardCapture && self_->IsKeyboardMessage(message)) {
                     return TRUE;
@@ -1049,6 +1260,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
 }
 
 void ImGuiOverlay::Shutdown() {
+    debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown begin");
     shuttingDown_ = true;
     menuOpen_ = false;
     CancelMenuToggleHotkeyCapture();
@@ -1075,4 +1287,5 @@ void ImGuiOverlay::Shutdown() {
     menuToggleWasDown_ = false;
     inputCaptureChangedCallback_ = nullptr;
     self_ = nullptr;
+    debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown done");
 }

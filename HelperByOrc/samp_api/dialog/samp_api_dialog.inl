@@ -67,6 +67,7 @@ SampApi::DialogPosition SampApi::getCurrentDialogPosition() {
 }
 
 bool SampApi::Set_CursorMode(int mode, bool enabled) {
+    debuglog::WriteInfo("SampApi::Set_CursorMode request mode=%d enabled=%d", mode, enabled ? 1 : 0);
     std::uint32_t game = 0;
     const auto address = GetAddress(main_offsets.SetCursorMode);
     if (address == 0 || !SafeRead(ModuleBase() + main_offsets.RefGame.Get(currentVersion_), game) || game == 0) {
@@ -80,6 +81,7 @@ bool SampApi::Set_CursorMode(int mode, bool enabled) {
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::Set_CursorMode ok mode=%d enabled=%d", mode, enabled ? 1 : 0);
     ClearError();
     return true;
 }
@@ -100,6 +102,7 @@ bool SampApi::hideDialog() {
 }
 
 bool SampApi::CDialog_Close_func(int button) {
+    debuglog::WriteInfo("SampApi::CDialog_Close request button=%d", button);
     if (!isDialogActive()) {
         return false;
     }
@@ -122,6 +125,7 @@ bool SampApi::CDialog_Close_func(int button) {
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::CDialog_Close ok button=%d", button);
     ClearError();
     return true;
 }
@@ -238,6 +242,7 @@ std::string SampApi::sampGetChatEditboxText() {
 }
 
 bool SampApi::pCInput_Open_Close(bool open) {
+    debuglog::WriteInfo("SampApi::CInput_%s request", open ? "Open" : "Close");
     const std::uintptr_t input = SAMP_CHAT_INPUT_INFO_OFFSET_func();
     const auto address = GetAddress(open ? main_offsets.CInput_Open : main_offsets.CInput_Close);
     if (input == 0 || address == 0) {
@@ -251,6 +256,7 @@ bool SampApi::pCInput_Open_Close(bool open) {
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::CInput_%s ok", open ? "Open" : "Close");
     ClearError();
     return true;
 }
@@ -342,6 +348,10 @@ std::string SampApi::sampGetDialogEditboxText() {
 }
 
 bool SampApi::sampSetDialogEditboxText(std::string_view text, bool alreadyDecoded) {
+    debuglog::WriteInfo(
+        "SampApi::sampSetDialogEditboxText begin len=%llu decoded=%d",
+        static_cast<unsigned long long>(text.size()),
+        alreadyDecoded ? 1 : 0);
     const int style = GetCurrentDialogStyle();
     if (!isDialogActive() || !isDialogInputStyle(style) || !pDialogInput_pEditBox_active_func()) {
         SetError("Dialog input edit box is not active");
@@ -363,11 +373,13 @@ bool SampApi::sampSetDialogEditboxText(std::string_view text, bool alreadyDecode
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::sampSetDialogEditboxText ok len=%llu", static_cast<unsigned long long>(text.size()));
     ClearError();
     return true;
 }
 
 bool SampApi::SetCurrentDialogListItem(int index) {
+    debuglog::WriteInfo("SampApi::SetCurrentDialogListItem request index=%d", index);
     const std::uintptr_t listBox = GetCurrentDialogListBoxPointer();
     const auto address = GetAddress(main_offsets.SAMP_SET_DIALOG_LIST_ITEM_OFFSET);
     if (listBox == 0 || address == 0) {
@@ -381,6 +393,7 @@ bool SampApi::SetCurrentDialogListItem(int index) {
         return false;
     }
 
+    debuglog::WriteInfo("SampApi::SetCurrentDialogListItem ok index=%d", index);
     ClearError();
     return true;
 }
@@ -436,6 +449,12 @@ SampApi::DialogSubmitResult SampApi::submitCurrentDialog(
     std::optional<int> listItem,
     std::optional<std::string> inputText,
     bool alreadyDecoded) {
+    debuglog::WriteInfo(
+        "SampApi::submitCurrentDialog begin button=%d listItem=%d inputLen=%llu decoded=%d",
+        button,
+        listItem.has_value() ? *listItem : -1,
+        static_cast<unsigned long long>(inputText.has_value() ? inputText->size() : 0),
+        alreadyDecoded ? 1 : 0);
     DialogSubmitResult result;
 
     if (!isDialogActive()) {
@@ -474,6 +493,7 @@ SampApi::DialogSubmitResult SampApi::submitCurrentDialog(
     }
 
     result.ok = true;
+    debuglog::WriteInfo("SampApi::submitCurrentDialog ok style=%d button=%d", result.style, button);
     return result;
 }
 

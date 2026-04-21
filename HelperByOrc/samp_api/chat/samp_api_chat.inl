@@ -50,12 +50,12 @@ bool SampApi::ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trac
     const char* const label = traceLabel ? traceLabel : "trace";
 
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer begin id=%d", label, id);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer begin id=%d", label, id);
     }
 
     if (id < 0 || id > 1003) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer invalid id=%d", label, id);
+            debuglog::WriteError("[%s] ResolveRemotePlayer invalid id=%d", label, id);
         }
         return false;
     }
@@ -63,14 +63,14 @@ bool SampApi::ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trac
     const int localId = Local_ID();
     if (localId >= 0 && id == localId) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer requested local player id=%d", label, id);
+            debuglog::WriteInfo("[%s] ResolveRemotePlayer requested local player id=%d", label, id);
         }
         return false;
     }
 
     if (!IsConnected(id)) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer IsConnected=false id=%d", label, id);
+            debuglog::WriteInfo("[%s] ResolveRemotePlayer IsConnected=false id=%d", label, id);
         }
         return false;
     }
@@ -78,63 +78,63 @@ bool SampApi::ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trac
     std::uint32_t pool = 0;
     if (!ResolvePedPool(pool) || pool == 0) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer ResolvePedPool failed", label);
+            debuglog::WriteError("[%s] ResolveRemotePlayer ResolvePedPool failed", label);
         }
         return false;
     }
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer pedPool=0x%08X", label, pool);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer pedPool=0x%08X", label, pool);
     }
 
     std::uint32_t slotPointer = 0;
     if (!SafeRead(pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (static_cast<std::uint32_t>(id) * 4), slotPointer)
         || slotPointer == 0) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer slot read failed id=%d", label, id);
+            debuglog::WriteError("[%s] ResolveRemotePlayer slot read failed id=%d", label, id);
         }
         return false;
     }
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer slotPointer=0x%08X", label, slotPointer);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer slotPointer=0x%08X", label, slotPointer);
     }
 
     if (LooksLikeRemotePlayerPointer(slotPointer, currentVersion_, id)) {
         remotePlayer = slotPointer;
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer direct remotePlayer=0x%08X", label, remotePlayer);
+            debuglog::WriteInfo("[%s] ResolveRemotePlayer direct remotePlayer=0x%08X", label, remotePlayer);
         }
         return true;
     }
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer slot is not direct CRemotePlayer", label);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer slot is not direct CRemotePlayer", label);
     }
 
     const std::uint32_t remotePlayerOffset = GetPlayerInfoRemotePlayerOffset(currentVersion_);
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer trying indirect offset=0x%X", label, remotePlayerOffset);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer trying indirect offset=0x%X", label, remotePlayerOffset);
     }
 
     std::uint32_t indirectRemotePlayer = 0;
     if (!SafeRead(slotPointer + remotePlayerOffset, indirectRemotePlayer) || indirectRemotePlayer == 0) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer indirect read failed", label);
+            debuglog::WriteError("[%s] ResolveRemotePlayer indirect read failed", label);
         }
         return false;
     }
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer indirectRemotePlayer=0x%08X", label, indirectRemotePlayer);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer indirectRemotePlayer=0x%08X", label, indirectRemotePlayer);
     }
 
     if (!LooksLikeRemotePlayerPointer(indirectRemotePlayer, currentVersion_, id)) {
         if (trace) {
-            debuglog::Write("[%s] ResolveRemotePlayer indirect pointer failed id validation", label);
+            debuglog::WriteError("[%s] ResolveRemotePlayer indirect pointer failed id validation", label);
         }
         return false;
     }
 
     remotePlayer = indirectRemotePlayer;
     if (trace) {
-        debuglog::Write("[%s] ResolveRemotePlayer resolved indirect remotePlayer=0x%08X", label, remotePlayer);
+        debuglog::WriteInfo("[%s] ResolveRemotePlayer resolved indirect remotePlayer=0x%08X", label, remotePlayer);
     }
     return true;
 }
@@ -158,12 +158,12 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
     const char* const label = traceLabel ? traceLabel : "trace";
 
     if (trace) {
-        debuglog::Write("[%s] GetPlayerPedPointer begin id=%d", label, id);
+        debuglog::WriteInfo("[%s] GetPlayerPedPointer begin id=%d", label, id);
     }
 
     if (id < 0 || id > 1003) {
         if (trace) {
-            debuglog::Write("[%s] GetPlayerPedPointer invalid id=%d", label, id);
+            debuglog::WriteError("[%s] GetPlayerPedPointer invalid id=%d", label, id);
         }
         return nullptr;
     }
@@ -172,14 +172,14 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
     if (localId >= 0 && id == localId) {
         CPed* const localPed = FindPlayerPed();
         if (trace) {
-            debuglog::Write("[%s] GetPlayerPedPointer local ped=0x%08X", label, reinterpret_cast<std::uint32_t>(localPed));
+            debuglog::WriteInfo("[%s] GetPlayerPedPointer local ped=0x%08X", label, reinterpret_cast<std::uint32_t>(localPed));
         }
         return localPed;
     }
 
     if (!IsConnected(id)) {
         if (trace) {
-            debuglog::Write("[%s] GetPlayerPedPointer IsConnected=false id=%d", label, id);
+            debuglog::WriteInfo("[%s] GetPlayerPedPointer IsConnected=false id=%d", label, id);
         }
         return nullptr;
     }
@@ -188,7 +188,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         std::uint32_t pool = 0;
         if (!ResolvePedPool(pool) || pool == 0) {
             if (trace && logAttempt) {
-                debuglog::Write("[%s] GetPlayerPedPointer remoteData fallback ResolvePedPool failed", label);
+                debuglog::WriteError("[%s] GetPlayerPedPointer remoteData fallback ResolvePedPool failed", label);
             }
             return nullptr;
         }
@@ -199,7 +199,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
                 slotPointer)
             || slotPointer == 0) {
             if (trace && logAttempt) {
-                debuglog::Write("[%s] GetPlayerPedPointer remoteData fallback slot read failed", label);
+                debuglog::WriteError("[%s] GetPlayerPedPointer remoteData fallback slot read failed", label);
             }
             return nullptr;
         }
@@ -207,7 +207,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         std::uint32_t remoteData = 0;
         if (!ResolveRemotePlayerData(slotPointer, remoteData)) {
             if (trace && logAttempt) {
-                debuglog::Write(
+                debuglog::WriteError(
                     "[%s] GetPlayerPedPointer remoteData fallback ResolveRemotePlayerData failed slot=0x%08X",
                     label,
                     slotPointer);
@@ -219,7 +219,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         std::uint32_t sampPed = 0;
         if (!SafeRead(remoteData + actorOffset, sampPed) || sampPed == 0) {
             if (trace && logAttempt) {
-                debuglog::Write(
+                debuglog::WriteError(
                     "[%s] GetPlayerPedPointer remoteData fallback sampPed read failed remoteData=0x%08X actorOffset=0x%X",
                     label,
                     remoteData,
@@ -231,7 +231,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         const std::uint32_t gtaPed = ReadGamePedFromSampPed(sampPed, currentVersion_);
         if (gtaPed == 0) {
             if (trace && logAttempt) {
-                debuglog::Write(
+                debuglog::WriteError(
                     "[%s] GetPlayerPedPointer remoteData fallback ReadGamePedFromSampPed failed sampPed=0x%08X",
                     label,
                     sampPed);
@@ -240,7 +240,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         }
 
         if (trace && logAttempt) {
-            debuglog::Write(
+            debuglog::WriteInfo(
                 "[%s] GetPlayerPedPointer remoteData fallback slot=0x%08X remoteData=0x%08X sampPed=0x%08X gtaPed=0x%08X",
                 label,
                 slotPointer,
@@ -253,7 +253,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
             const auto [matched, matchedId] = getPedID(reinterpret_cast<const void*>(gtaPed));
             if (!matched || matchedId != id) {
                 if (trace && logAttempt) {
-                    debuglog::Write(
+                    debuglog::WriteError(
                         "[%s] GetPlayerPedPointer remoteData fallback id validation failed matched=%d matchedId=%d expected=%d",
                         label,
                         matched ? 1 : 0,
@@ -272,17 +272,17 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
     std::uint32_t remotePlayer = 0;
     if (!ResolveRemotePlayer(id, remotePlayer, trace, traceLabel) || remotePlayer == 0) {
         if (trace) {
-            debuglog::Write("[%s] GetPlayerPedPointer ResolveRemotePlayer failed", label);
+            debuglog::WriteError("[%s] GetPlayerPedPointer ResolveRemotePlayer failed", label);
         }
 
         if (supportsRemoteDataFallback) {
             if (trace) {
-                debuglog::Write("[%s] GetPlayerPedPointer trying remoteData fallback after ResolveRemotePlayer fail", label);
+                debuglog::WriteInfo("[%s] GetPlayerPedPointer trying remoteData fallback after ResolveRemotePlayer fail", label);
             }
 
             if (const void* ped = tryResolveViaRemoteData(true, true)) {
                 if (trace) {
-                    debuglog::Write(
+                    debuglog::WriteInfo(
                         "[%s] GetPlayerPedPointer remoteData fallback success ped=0x%08X",
                         label,
                         reinterpret_cast<std::uint32_t>(ped));
@@ -294,42 +294,42 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
         return nullptr;
     }
     if (trace) {
-        debuglog::Write("[%s] GetPlayerPedPointer remotePlayer=0x%08X", label, remotePlayer);
+        debuglog::WriteInfo("[%s] GetPlayerPedPointer remotePlayer=0x%08X", label, remotePlayer);
     }
 
     const std::uint32_t remotePedOffset = GetRemotePlayerPedOffset(currentVersion_);
     if (trace) {
-        debuglog::Write("[%s] GetPlayerPedPointer primary remotePedOffset=0x%X", label, remotePedOffset);
+        debuglog::WriteInfo("[%s] GetPlayerPedPointer primary remotePedOffset=0x%X", label, remotePedOffset);
     }
 
     auto tryResolveGamePed = [&](std::uint32_t pedFieldOffset, bool requireIdMatch, bool logAttempt) -> const void* {
         std::uint32_t sampPed = 0;
         if (!SafeRead(remotePlayer + pedFieldOffset, sampPed) || sampPed == 0) {
             if (trace && logAttempt) {
-                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X sampPed read failed", label, pedFieldOffset);
+                debuglog::WriteError("[%s] GetPlayerPedPointer offset=0x%X sampPed read failed", label, pedFieldOffset);
             }
             return nullptr;
         }
         if (trace && logAttempt) {
-            debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X sampPed=0x%08X", label, pedFieldOffset, sampPed);
+            debuglog::WriteInfo("[%s] GetPlayerPedPointer offset=0x%X sampPed=0x%08X", label, pedFieldOffset, sampPed);
         }
 
         const std::uint32_t gtaPed = ReadGamePedFromSampPed(sampPed, currentVersion_);
         if (gtaPed == 0) {
             if (trace && logAttempt) {
-                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X ReadGamePedFromSampPed failed", label, pedFieldOffset);
+                debuglog::WriteError("[%s] GetPlayerPedPointer offset=0x%X ReadGamePedFromSampPed failed", label, pedFieldOffset);
             }
             return nullptr;
         }
         if (trace && logAttempt) {
-            debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X gtaPed=0x%08X", label, pedFieldOffset, gtaPed);
+            debuglog::WriteInfo("[%s] GetPlayerPedPointer offset=0x%X gtaPed=0x%08X", label, pedFieldOffset, gtaPed);
         }
 
         if (requireIdMatch) {
             const auto [matched, matchedId] = getPedID(reinterpret_cast<const void*>(gtaPed));
             if (!matched || matchedId != id) {
                 if (trace && logAttempt) {
-                    debuglog::Write(
+                    debuglog::WriteError(
                         "[%s] GetPlayerPedPointer offset=0x%X id validation failed matched=%d matchedId=%d expected=%d",
                         label,
                         pedFieldOffset,
@@ -340,7 +340,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
                 return nullptr;
             }
             if (trace && logAttempt) {
-                debuglog::Write("[%s] GetPlayerPedPointer offset=0x%X id validation ok", label, pedFieldOffset);
+                debuglog::WriteInfo("[%s] GetPlayerPedPointer offset=0x%X id validation ok", label, pedFieldOffset);
             }
         }
 
@@ -349,18 +349,18 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
 
     if (const void* ped = tryResolveGamePed(remotePedOffset, false, true)) {
         if (trace) {
-            debuglog::Write("[%s] GetPlayerPedPointer primary success ped=0x%08X", label, reinterpret_cast<std::uint32_t>(ped));
+            debuglog::WriteInfo("[%s] GetPlayerPedPointer primary success ped=0x%08X", label, reinterpret_cast<std::uint32_t>(ped));
         }
         return ped;
     }
     if (trace) {
-        debuglog::Write("[%s] GetPlayerPedPointer primary path failed; entering scan fallback", label);
+        debuglog::WriteInfo("[%s] GetPlayerPedPointer primary path failed; entering scan fallback", label);
     }
 
     if (supportsRemoteDataFallback) {
         if (const void* ped = tryResolveViaRemoteData(true, true)) {
             if (trace) {
-                debuglog::Write(
+                debuglog::WriteInfo(
                     "[%s] GetPlayerPedPointer remoteData fallback success after primary fail ped=0x%08X",
                     label,
                     reinterpret_cast<std::uint32_t>(ped));
@@ -380,7 +380,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
 
         if (const void* ped = tryResolveGamePed(pedFieldOffset, true, false)) {
             if (trace) {
-                debuglog::Write(
+                debuglog::WriteInfo(
                     "[%s] GetPlayerPedPointer scan success offset=0x%X ped=0x%08X",
                     label,
                     pedFieldOffset,
@@ -391,7 +391,7 @@ const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLa
     }
 
     if (trace) {
-        debuglog::Write("[%s] GetPlayerPedPointer scan fallback failed", label);
+        debuglog::WriteError("[%s] GetPlayerPedPointer scan fallback failed", label);
     }
     return nullptr;
 }
@@ -514,27 +514,27 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
         return std::string(value.substr(0, kMaxPreviewLength - 3)) + "...";
     };
     const std::string rawPreview = previewText(text);
-    debuglog::Write(
+    debuglog::WriteInfo(
         "SampApi::send_chat begin decoded=%d len=%llu text=%s",
         alreadyDecoded ? 1 : 0,
         static_cast<unsigned long long>(text.size()),
         rawPreview.c_str());
 
     if (text.empty()) {
-        debuglog::Write("SampApi::send_chat failed: input text is empty");
+        debuglog::WriteError("SampApi::send_chat failed: input text is empty");
         SetError("Chat text is empty");
         return false;
     }
 
     if (!isSAMPInitilizeLua()) {
-        debuglog::Write("SampApi::send_chat failed during init: %s", lastError().c_str());
+        debuglog::WriteError("SampApi::send_chat failed during init: %s", lastError().c_str());
         return false;
     }
 
     std::string gameText = PrepareOutgoingText(text, alreadyDecoded, false);
     const std::string gamePreview = previewText(gameText);
     if (gameText.empty()) {
-        debuglog::Write("SampApi::send_chat failed: prepared text is empty");
+        debuglog::WriteError("SampApi::send_chat failed: prepared text is empty");
         SetError("Chat text is empty after conversion");
         return false;
     }
@@ -542,7 +542,7 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
     const auto sendCommandAddress = GetAddress(main_offsets.CInput_Send);
     const auto sendSayAddress = GetAddress(main_offsets.CInput_SendSay);
     if (sendCommandAddress == 0 || sendSayAddress == 0) {
-        debuglog::Write(
+        debuglog::WriteError(
             "SampApi::send_chat failed: send routines unavailable send=0x%08X sendSay=0x%08X",
             static_cast<unsigned>(sendCommandAddress),
             static_cast<unsigned>(sendSayAddress));
@@ -551,22 +551,22 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
     }
 
     if (!gameText.empty() && gameText.front() == '/') {
-        debuglog::Write(
+        debuglog::WriteInfo(
             "SampApi::send_chat branch=command send=0x%08X len=%llu text=%s",
             static_cast<unsigned>(sendCommandAddress),
             static_cast<unsigned long long>(gameText.size()),
             gamePreview.c_str());
         std::uint32_t input = 0;
         if (!ResolveChatInput(input) || input == 0) {
-            debuglog::Write("SampApi::send_chat failed: command input pointer is null");
+            debuglog::WriteError("SampApi::send_chat failed: command input pointer is null");
             SetError("SAMP chat input pointer is null");
             return false;
         }
 
-        debuglog::Write("SampApi::send_chat command input=0x%08X", input);
+        debuglog::WriteInfo("SampApi::send_chat command input=0x%08X", input);
         const auto sendCommand = reinterpret_cast<SendInputFn>(sendCommandAddress);
         if (!CallSendInput(sendCommand, reinterpret_cast<void*>(input), gameText.c_str())) {
-            debuglog::Write(
+            debuglog::WriteError(
                 "SampApi::send_chat failed: CallSendInput(command) raised SEH input=0x%08X send=0x%08X text=%s",
                 input,
                 static_cast<unsigned>(sendCommandAddress),
@@ -576,21 +576,21 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
         }
     } else {
         auto* playerPed = FindPlayerPed();
-        debuglog::Write(
+        debuglog::WriteInfo(
             "SampApi::send_chat branch=chat sendSay=0x%08X ped=%p len=%llu text=%s",
             static_cast<unsigned>(sendSayAddress),
             playerPed,
             static_cast<unsigned long long>(gameText.size()),
             gamePreview.c_str());
         if (!playerPed) {
-            debuglog::Write("SampApi::send_chat failed: player ped was not found");
+            debuglog::WriteError("SampApi::send_chat failed: player ped was not found");
             SetError("Player ped was not found");
             return false;
         }
 
         const auto sendSay = reinterpret_cast<SendInputFn>(sendSayAddress);
         if (!CallSendInput(sendSay, playerPed, gameText.c_str())) {
-            debuglog::Write(
+            debuglog::WriteError(
                 "SampApi::send_chat failed: CallSendInput(chat) raised SEH ped=%p sendSay=0x%08X text=%s",
                 playerPed,
                 static_cast<unsigned>(sendSayAddress),
@@ -600,7 +600,7 @@ bool SampApi::send_chat_internal(std::string_view text, bool alreadyDecoded) {
         }
     }
 
-    debuglog::Write("SampApi::send_chat ok");
+    debuglog::WriteInfo("SampApi::send_chat ok");
     ClearError();
     return true;
 }
@@ -770,13 +770,13 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     std::uintptr_t imageEnd = 0;
     std::vector<ModuleSectionRange> sections;
     if (!TryGetModuleSections(module, imageBase, imageEnd, sections)) {
-        debuglog::Write("SampApi::_chat.asi input discovery failed: invalid module layout module=%p", module);
+        debuglog::WriteError("SampApi::_chat.asi input discovery failed: invalid module layout module=%p", module);
         return false;
     }
 
     const std::uintptr_t inputLabel = FindAsciiStringLiteral(sections, "###input");
     if (inputLabel == 0) {
-        debuglog::Write("SampApi::_chat.asi input discovery failed: ###input was not found");
+        debuglog::WriteError("SampApi::_chat.asi input discovery failed: ###input was not found");
         return false;
     }
 
@@ -819,7 +819,7 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputWriter = inputWriter;
         chatAsiInputDiscovery_.inputSubmit = inputSubmit;
 
-        debuglog::Write(
+        debuglog::WriteInfo(
             "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
             module,
             static_cast<unsigned>(inputLabel),
@@ -839,7 +839,7 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputBuffer = fallbackBuffer;
         chatAsiInputDiscovery_.inputWriter = fallbackWriter;
 
-        debuglog::Write(
+        debuglog::WriteInfo(
             "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
             module,
             static_cast<unsigned>(inputLabel),
@@ -851,7 +851,7 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         return true;
     }
 
-    debuglog::Write(
+    debuglog::WriteError(
         "SampApi::_chat.asi input discovery failed: no valid ###input -> wrapper -> buffer -> writer chain was found");
     return false;
 }
@@ -867,7 +867,7 @@ bool SampApi::TrySetChatInputTextViaChatAsi(std::string_view utf8Text) {
 
     const auto writer = reinterpret_cast<ChatAsiInputWriterFn>(chatAsiInputDiscovery_.inputWriter);
     if (!CallChatAsiInputWriter(writer, utf8Text.data(), utf8Text.size(), 0)) {
-        debuglog::Write(
+        debuglog::WriteError(
             "SampApi::_chat.asi input writer SEH fail writer=0x%08X len=%llu",
             static_cast<unsigned>(chatAsiInputDiscovery_.inputWriter),
             static_cast<unsigned long long>(utf8Text.size()));
@@ -892,7 +892,7 @@ bool SampApi::TryProcessChatInputViaChatAsi(std::string_view utf8Text) {
 
     const auto submit = reinterpret_cast<ChatAsiInputSubmitFn>(chatAsiInputDiscovery_.inputSubmit);
     if (!CallChatAsiInputSubmit(submit, 1)) {
-        debuglog::Write(
+        debuglog::WriteError(
             "SampApi::_chat.asi input submit SEH fail submit=0x%08X len=%llu",
             static_cast<unsigned>(chatAsiInputDiscovery_.inputSubmit),
             static_cast<unsigned long long>(utf8Text.size()));

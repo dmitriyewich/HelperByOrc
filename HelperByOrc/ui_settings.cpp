@@ -50,6 +50,29 @@ UiLanguage ParseLanguage(std::string_view value) {
     return normalized == "en" || normalized == "english" ? UiLanguage::English : UiLanguage::Russian;
 }
 
+UiLogLevel ParseLogLevel(std::string_view value) {
+    const std::string normalized = ToLower(value);
+    if (normalized == "off") {
+        return UiLogLevel::Off;
+    }
+    if (normalized == "error") {
+        return UiLogLevel::Error;
+    }
+    return UiLogLevel::Info;
+}
+
+const char* LogLevelId(UiLogLevel level) {
+    switch (level) {
+    case UiLogLevel::Off:
+        return "off";
+    case UiLogLevel::Error:
+        return "error";
+    case UiLogLevel::Info:
+    default:
+        return "info";
+    }
+}
+
 const char* LanguageId(UiLanguage language) {
     return language == UiLanguage::English ? "en" : "ru";
 }
@@ -110,6 +133,7 @@ void UiSettings::Load() {
         jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f),
         kMinScaleMultiplier,
         kMaxScaleMultiplier);
+    logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     currentScale_ = 1.0f;
 }
@@ -154,6 +178,18 @@ void UiSettings::SetScaleMultiplier(float multiplier) {
     QueueSave();
 }
 
+UiLogLevel UiSettings::LogLevel() const {
+    return logLevel_;
+}
+
+void UiSettings::SetLogLevel(UiLogLevel level) {
+    if (logLevel_ == level) {
+        return;
+    }
+    logLevel_ = level;
+    QueueSave();
+}
+
 const std::vector<unsigned int>& UiSettings::MenuToggleHotkey() const {
     return menuToggleHotkey_;
 }
@@ -172,6 +208,7 @@ void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
+    logLevel_ = UiLogLevel::Info;
     menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();
 }
@@ -230,6 +267,7 @@ void UiSettings::QueueSave() const {
     section["language"] = LanguageId(language_);
     section["auto_scale"] = autoScaleEnabled_;
     section["scale_multiplier"] = static_cast<double>(scaleMultiplier_);
+    section["log_level"] = LogLevelId(logLevel_);
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
 }
