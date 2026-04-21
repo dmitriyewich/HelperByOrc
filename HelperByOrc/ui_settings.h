@@ -183,6 +183,7 @@
     X(SettingsLogLevelOff, "Off", "Off") \
     X(SettingsLogLevelError, "Error", "Error") \
     X(SettingsLogLevelInfo, "Info", "Info") \
+    X(SettingsApplyDamageProtection, "Защита компонентов транспорта от отваливания", "Vehicle components fall-off protection") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
     X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
     X(HotkeyConflictFormat, "Комбинация конфликтует с %s.", "This combination conflicts with %s.") \
@@ -531,6 +532,8 @@ public:
 
     UiLogLevel LogLevel() const;
     void SetLogLevel(UiLogLevel level);
+    bool ApplyDamageProtectionEnabled() const;
+    void SetApplyDamageProtectionEnabled(bool enabled);
 
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
@@ -554,6 +557,7 @@ private:
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
     UiLogLevel logLevel_ = UiLogLevel::Off;
+    bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };

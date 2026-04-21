@@ -214,6 +214,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
+    sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     sampHooks_.SetHotkeyBlockCallback([this]() {
         return overlay_.IsTextInputActive();
     });
@@ -759,6 +760,15 @@ void ModApp::DrawSettingsTab() {
         debuglog::WriteInfo("Settings changed: log_level=%s", ToUiLogLevelName(selected));
     }
 
+    bool applyDamageProtectionEnabled = ui.ApplyDamageProtectionEnabled();
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsApplyDamageProtection), &applyDamageProtectionEnabled)) {
+        ui.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
+        sampHooks_.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
+        debuglog::WriteInfo(
+            "Settings changed: apply_damage_protection=%d",
+            applyDamageProtectionEnabled ? 1 : 0);
+    }
+
     ImGui::Spacing();
     ImGui::TextUnformatted(ui.Text(UiText::SettingsMainWindowHotkey));
     ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, overlay_.MenuToggleHotkeyText().c_str()).c_str());
@@ -784,6 +794,7 @@ void ModApp::DrawSettingsTab() {
     if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
         ui.ResetToDefaults();
         debuglog::SetLevel(ToDebugLogLevel(ui.LogLevel()));
+        sampHooks_.SetApplyDamageProtectionEnabled(ui.ApplyDamageProtectionEnabled());
         debuglog::WriteInfo("Settings reset to defaults");
         overlay_.CancelMenuToggleHotkeyCapture();
     }

@@ -167,7 +167,9 @@ bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std
             arg3);
     }
 
-    if (component < 1 || component > 4) {
+    if (SampHooks::self_ && SampHooks::self_->installed_
+        && SampHooks::self_->applyDamageProtectionEnabled_
+        && (component < 1 || component > 4)) {
         if (SampHooks::self_ && SampHooks::self_->installed_) {
             SampHooks::self_->AppendLog("CDamageManager_ApplyDamage blocked for component=%d", component);
         }
@@ -188,6 +190,17 @@ void SampHooks::SetSampApi(SampApi* sampApi) {
 void SampHooks::SetHotkeyBlockCallback(HotkeyBlockCallback callback) {
     hotkeyBlockCallback_ = std::move(callback);
     debuglog::WriteInfo("SampHooks::SetHotkeyBlockCallback assigned=%d", hotkeyBlockCallback_ ? 1 : 0);
+}
+
+void SampHooks::SetApplyDamageProtectionEnabled(bool enabled) {
+    if (applyDamageProtectionEnabled_ == enabled) {
+        return;
+    }
+
+    applyDamageProtectionEnabled_ = enabled;
+    debuglog::WriteInfo(
+        "SampHooks::SetApplyDamageProtectionEnabled enabled=%d",
+        applyDamageProtectionEnabled_ ? 1 : 0);
 }
 
 void SampHooks::Refresh() {

@@ -29,6 +29,7 @@ public:
     void AddOnChatMessageHandler(ChatMessageHandler handler);
     void AddOnSendCommandHandler(SendCommandHandler handler);
     void AddOnSendChatHandler(SendChatHandler handler);
+    void SetApplyDamageProtectionEnabled(bool enabled);
     void onChatMessage(ChatMessageHandler handler) { AddOnChatMessageHandler(std::move(handler)); }
     void onSendCommand(SendCommandHandler handler) { AddOnSendCommandHandler(std::move(handler)); }
     void onSendChat(SendChatHandler handler) { AddOnSendChatHandler(std::move(handler)); }
@@ -68,6 +69,7 @@ private:
     std::vector<SendCommandHandler> onSendCommandHandlers_;
     std::vector<SendChatHandler> onSendChatHandlers_;
     HotkeyBlockCallback hotkeyBlockCallback_;
+    bool applyDamageProtectionEnabled_ = true;
 
     void* chatAddEntryTarget_ = nullptr;
     void* dialogShowTarget_ = nullptr;

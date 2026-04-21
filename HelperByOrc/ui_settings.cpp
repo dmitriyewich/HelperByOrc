@@ -134,6 +134,7 @@ void UiSettings::Load() {
         kMinScaleMultiplier,
         kMaxScaleMultiplier);
     logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "off"));
+    applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     currentScale_ = 1.0f;
 }
@@ -190,6 +191,19 @@ void UiSettings::SetLogLevel(UiLogLevel level) {
     QueueSave();
 }
 
+bool UiSettings::ApplyDamageProtectionEnabled() const {
+    return applyDamageProtectionEnabled_;
+}
+
+void UiSettings::SetApplyDamageProtectionEnabled(bool enabled) {
+    if (applyDamageProtectionEnabled_ == enabled) {
+        return;
+    }
+
+    applyDamageProtectionEnabled_ = enabled;
+    QueueSave();
+}
+
 const std::vector<unsigned int>& UiSettings::MenuToggleHotkey() const {
     return menuToggleHotkey_;
 }
@@ -209,6 +223,7 @@ void UiSettings::ResetToDefaults() {
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
     logLevel_ = UiLogLevel::Off;
+    applyDamageProtectionEnabled_ = true;
     menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();
 }
@@ -268,6 +283,7 @@ void UiSettings::QueueSave() const {
     section["auto_scale"] = autoScaleEnabled_;
     section["scale_multiplier"] = static_cast<double>(scaleMultiplier_);
     section["log_level"] = LogLevelId(logLevel_);
+    section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
 }
