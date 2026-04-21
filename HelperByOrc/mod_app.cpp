@@ -24,6 +24,7 @@ constexpr float kWindowMargin = 12.0f;
 constexpr int kSampCursorModeNone = 0;
 constexpr int kSampCursorModeLockCam = 3;
 constexpr uint64_t kCursorReassertIntervalMs = 200;
+constexpr uint64_t kCursorReassertTraceIntervalMs = 2500;
 constexpr uint64_t kCursorTraceIntervalMs = 700;
 constexpr uint64_t kCursorUnavailableTraceIntervalMs = 1500;
 constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
@@ -394,13 +395,23 @@ void ModApp::UpdateOverlayCursorMode() {
         return;
     }
 
-    debuglog::WriteInfo(
-        "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d reassert=%d)",
-        desiredMode,
-        desiredEnabled ? 1 : 0,
-        overlayCursorMode_,
-        overlayCursorEnabled_ ? 1 : 0,
-        shouldReassert ? 1 : 0);
+    bool shouldLogApply = true;
+    if (shouldReassert && desiredSameAsCache) {
+        static uint64_t s_lastReassertTraceMs = 0;
+        shouldLogApply = (now - s_lastReassertTraceMs) >= kCursorReassertTraceIntervalMs;
+        if (shouldLogApply) {
+            s_lastReassertTraceMs = now;
+        }
+    }
+    if (shouldLogApply) {
+        debuglog::WriteInfo(
+            "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d reassert=%d)",
+            desiredMode,
+            desiredEnabled ? 1 : 0,
+            overlayCursorMode_,
+            overlayCursorEnabled_ ? 1 : 0,
+            shouldReassert ? 1 : 0);
+    }
 
     overlayCursorMode_ = desiredMode;
     overlayCursorEnabled_ = desiredEnabled;

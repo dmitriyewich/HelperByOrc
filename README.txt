@@ -1,36 +1,57 @@
-[b]HelperByOrc[/b] — нативный ASI-плагин на C++ для GTA San Andreas / SA:MP. Перенос логики HelperByOrc с Lua/MoonLoader на Win32-модуль.
+[center][size=18][b]HelperByOrc[/b][/size][/center]
+[center]Простой биндер команд для SA:MP :good:[/center]
 
-[b]Исходники на GitHub:[/b] [url=https://github.com/dmitriyewich/HelperByOrc]https://github.com/dmitriyewich/HelperByOrc[/url]
+[b]Что это?[/b]
+HelperByOrc — это ASI-плагин, который помогает запускать команды и отправлять готовые фразы в чат по нажатию клавиши.
 
-[b]Что на GitHub:[/b] исходный код плагина, профиль сборки (vcxproj, slnx и связанные файлы) и vendored [b]HelperByOrc\external[/b] (обычные файлы без вложенных .git). Готовые .asi/.pdb и каталоги сборки в репозиторий не выкладываются. Служебное вроде корневого .gitignore, context.md, .cursor/ — только локально.
+[b]Коротко:[/b]
+настроили один раз -> пользуетесь каждый день без лишнего ручного ввода.
 
-[b]Платформа:[/b] Win32 / x86, формат ASI.
+[b]Кому подойдёт[/b]
+[LIST]
+[*]Игрокам, которые часто вводят одни и те же команды.
+[*]Тем, кто хочет быстро открывать нужные действия через меню.
+[*]Тем, кто хочет меньше рутины и больше удобства в игре.
+[/LIST]
 
-[b]Сборка:[/b] Visual Studio + MSBuild, конфигурация Release | Win32. Пример (в PowerShell параметр [b]Platform[/b] лучше в кавычках):
-[code]
-cd HelperByOrc
-MSBuild.exe HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win32"
-[/code]
-Подставьте полный путь к MSBuild.exe из вашей установки VS (например Program Files\Microsoft Visual Studio\2022\Community\...\MSBuild.exe или ветка 18).
+[b]Что умеет[/b]
+[LIST]
+[*]Бинды на клавиши и комбинации.
+[*]Быстрое меню биндов.
+[*]Удобная работа с чатом и командами.
+[*]Группировка биндов по папкам.
+[*]Настройка интерфейса прямо в игре.
+[*]Поддержка русской и английской локализации.
+[/LIST]
 
-[b]Результат:[/b] HelperByOrc\Release\HelperByOrc.asi
+[b]Стабильность интерфейса[/b]
+[LIST]
+[*]Курсор и ввод работают без конфликтов.
+[*]При открытом UI всё управляется корректно.
+[*]Подходит для повседневного использования, без «дерганий» курсора.
+[/LIST]
 
-[b]Модули:[/b] imgui_overlay, mod_app, binder_module, samp_api, samp_hooks, samp_rak_hooks, tags_module, hotkey_utils, text_encoding, app_config.
+[b]Установка[/b]
+[LIST=1]
+[*]Скопируйте HelperByOrc.asi в папку ASI/modloader вашего клиента.
+[*]Запустите игру.
+[*]Откройте меню плагина (по умолчанию Ctrl + Z).
+[/LIST]
 
-[b]Чат (биндер / samp_api):[/b] при загруженном Arizona [b]_chat.asi[/b] — поиск writer/submit в модуле, [b]UTF-8[/b] в поле; без него — [b]CP1251[/b] и [b]CDXUTEditBox[/b]. «Вставить в чат» — только текст в поле; «Открыть чат» — открыть чат и вставить. Фоновая подстановка может использовать тот же путь.
+[b]Файлы плагина[/b]
+[LIST]
+[*]HelperByOrc.asi — плагин.
+[*]HelperByOrc.json — ваши настройки и бинды.
+[*]HelperByOrc.log — лог для диагностики (если нужен).
+[/LIST]
 
-[b]UI:[/b] быстрое меню по умолчанию компактнее; таблица биндов и селекты читаемее; тема — тёмно-синий акцент.
+[b]Важно[/b]
+[LIST]
+[*]По умолчанию логирование выключено (можно включить в настройках при необходимости).
+[*]Все основные действия настраиваются через UI внутри игры.
+[/LIST]
 
-[b]Курсор и ввод (актуально):[/b]
-- единый ownership курсора через `mod_app` для трёх источников: ImGui UI, SA:MP чат, SA:MP диалог
-- удержание cursor mode работает по объединённому условию: [b](UI OR chat OR dialog) + focus[/b]
-- при активном hold есть периодическая reassert-установка `Set_CursorMode`, чтобы не было рассинхрона/центрирования после переходов (например close chat)
-- ImGui software cursor отключён ([b]MouseDrawCursor=false[/b]), видимый курсор один — игровой/SA:MP
-- в логах есть короткая диагностика источников удержания: [b]wantsUi/chatOpen/dialogOpen/chatOrDialog/shouldHold[/b]
+[b]Исходники проекта[/b]
+[url=https://github.com/dmitriyewich/HelperByOrc]github.com/dmitriyewich/HelperByOrc[/url]
 
-[b]Быстрое меню (binder):[/b]
-- Стиль 1: дерево ([b]Tree[/b])
-- Стиль 2: каскад ([b]cascade[/b], [b]по умолчанию[/b])
-- Хост меню через popup-стек ImGui, правки фокуса/z-order и sync мыши при открытии — стабильнее клики в SA:MP overlay
-
-[b]Имя проекта:[/b] актуально HelperByOrc; старое имя MyAsiMod не используется.
+[right]:cool:[/right]

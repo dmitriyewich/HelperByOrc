@@ -553,7 +553,7 @@ private:
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
-    UiLogLevel logLevel_ = UiLogLevel::Info;
+    UiLogLevel logLevel_ = UiLogLevel::Off;
     std::vector<unsigned int> menuToggleHotkey_{};
     float currentScale_ = 1.0f;
 };
