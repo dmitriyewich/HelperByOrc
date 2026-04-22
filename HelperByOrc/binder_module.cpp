@@ -1735,6 +1735,8 @@ struct BinderModule::Impl {
     bool configLoaded = false;
     bool incomingMessageRouterBound = false;
     bool rakHooksBound = false;
+    bool gameInputForeground_ = true;
+    bool prevFrameGameInputForeground_ = true;
 
     std::string bindSearch{};
     std::string folderSearch{};
@@ -2738,6 +2740,17 @@ void BinderModule::Impl::Tick() {
     PruneOutgoingGuards();
     PruneIncomingChatEchoGuards();
     ExpireTextConfirmations();
+
+    if (prevFrameGameInputForeground_ && !gameInputForeground_) {
+        ResetInputState();
+    }
+    if (!gameInputForeground_) {
+        ProcessRunningBinds();
+        PruneToasts();
+        prevFrameGameInputForeground_ = gameInputForeground_;
+        return;
+    }
+
     SyncPressedKeysWithAsyncState();
     const bool quickWasOpen = quickMenuOpen;
     const bool quickWasBlocked = quickMenuReopenBlocked;
@@ -2761,6 +2774,7 @@ void BinderModule::Impl::Tick() {
     ProcessHotkeys();
     ProcessRunningBinds();
     PruneToasts();
+    prevFrameGameInputForeground_ = gameInputForeground_;
 }
 
 void BinderModule::Impl::Shutdown() {
@@ -8353,6 +8367,10 @@ void BinderModule::SetTagsModule(TagsModule* tagsModule) {
 
 void BinderModule::Tick() {
     impl_->Tick();
+}
+
+void BinderModule::SetGameInputForeground(bool gameWindowForeground) {
+    impl_->gameInputForeground_ = gameWindowForeground;
 }
 
 void BinderModule::Shutdown() {

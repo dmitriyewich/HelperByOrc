@@ -378,6 +378,17 @@ HWND ImGuiOverlay::GetGameWindow() const {
     return gameWindow_;
 }
 
+bool ImGuiOverlay::IsGameWindowForeground() const {
+    if (!gameWindow_ || !IsWindow(gameWindow_)) {
+        return true;
+    }
+    const HWND fg = GetForegroundWindow();
+    if (!fg) {
+        return false;
+    }
+    return fg == gameWindow_ || IsChild(gameWindow_, fg) != FALSE;
+}
+
 bool ImGuiOverlay::IsTextInputActive() const {
     return inputCaptureActive_;
 }
@@ -720,6 +731,18 @@ void ImGuiOverlay::CleanupImGui() {
 }
 
 void ImGuiOverlay::UpdateHotkeyState() {
+    static bool hadForeground = true;
+    const bool appFg = IsGameWindowForeground();
+    if (!appFg) {
+        hadForeground = false;
+        return;
+    }
+    if (!hadForeground) {
+        hadForeground = true;
+        menuToggleWasDown_ = IsMenuToggleComboDown();
+        return;
+    }
+
     const bool comboDown = IsMenuToggleComboDown();
     if (!menuToggleHotkeyCapture_.Active() && comboDown && !menuToggleWasDown_) {
         menuOpen_ = !menuOpen_;
@@ -1175,11 +1198,12 @@ bool ImGuiOverlay::IsKeyboardMessage(UINT message) const {
 
 LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     if (self_ && self_->imguiInitialized_) {
-        if (self_->HandleMenuToggleHotkeyCaptureMessage(message, wparam)) {
+        const bool appFg = self_->IsGameWindowForeground();
+        if (appFg && self_->HandleMenuToggleHotkeyCaptureMessage(message, wparam)) {
             return TRUE;
         }
 
-        if (self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
+        if (appFg && self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
             if (message != WM_MOUSEMOVE) {
                 debuglog::WriteInfo(
                     "[ui] binder swallowed msg=%u wParam=%p",
@@ -1189,7 +1213,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             return TRUE;
         }
 
-        if (self_->WantsInputRouting()) {
+        if (appFg && self_->WantsInputRouting()) {
             const bool wantsUiCursor = self_->WantsUiCursor();
             const bool wantsTextInput = self_->WantsTextInputCapture();
             if (wantsTextInput && self_->HandleTextInputMessage(message, wparam, lparam)) {

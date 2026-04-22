@@ -33,6 +33,8 @@ public:
     void SetMenuOpen(bool open);
     /// HWND, передаваемый в `ImGui_ImplWin32_Init` (окно GTA), либо `nullptr` до инициализации.
     HWND GetGameWindow() const;
+    /// Окно GTA на переднем плане (или дочернее с фокусом), как для `Set_CursorMode`. До появления `gameWindow_` — `true`.
+    bool IsGameWindowForeground() const;
     bool IsMenuOpen() const;
     bool IsTextInputActive() const;
     bool WantsUiCursor() const;

@@ -40,6 +40,8 @@ public:
     void SetTagsModule(TagsModule* tagsModule);
 
     void Tick();
+    /// Вызывать каждый кадр до `Tick`: `false`, если фокус не на окне GTA/его дочерних (иначе `GetAsyncKeyState` тянет клавиши из чужих окон).
+    void SetGameInputForeground(bool gameWindowForeground);
     void Shutdown();
 
     std::string GetThisbindTagValue(std::uint64_t runtimeId) const;

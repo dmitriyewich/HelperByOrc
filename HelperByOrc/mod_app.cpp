@@ -422,6 +422,7 @@ void ModApp::UpdateOverlayCursorMode() {
 void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
     incomingMessageRouter_.Tick();
+    binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.Tick();
     tags_.Tick();
 
