@@ -26,7 +26,7 @@ jobs:
       - name: Build Release Win32
         working-directory: HelperByOrc
         shell: pwsh
-        run: msbuild HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win32"
+        run: msbuild HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win32;PlatformToolset=v143"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
