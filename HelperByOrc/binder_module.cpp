@@ -1720,6 +1720,117 @@ bool FolderMatchesSearch(const FolderNode& folder, std::string_view query) {
 
 } // namespace
 
+namespace {
+
+struct FolderListPos {
+    std::vector<std::unique_ptr<FolderNode>>* list = nullptr;
+    int index = 0;
+    FolderNode* listParent = nullptr;
+};
+
+struct FolderMoveUndo {
+    int nodeId = 0;
+    int oldListParentId = -1; // -1 = root `folders` list, >0 = id of parent folder
+    int oldIndex = 0;
+};
+
+const char* kFolderDragPayload = "BINDER_FOLDER_ID";
+
+FolderNode* FindFolderByIdR(std::vector<std::unique_ptr<FolderNode>>& from, int id) {
+    for (auto& u : from) {
+        if (!u) {
+            continue;
+        }
+        if (u->id == id) {
+            return u.get();
+        }
+        if (FolderNode* child = FindFolderByIdR(u->children, id)) {
+            return child;
+        }
+    }
+    return nullptr;
+}
+
+bool FindFolderListPos(
+    std::vector<std::unique_ptr<FolderNode>>& from,
+    FolderNode* listParent,
+    int id,
+    FolderListPos& out) {
+    for (int i = 0; i < static_cast<int>(from.size()); ++i) {
+        if (!from[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+        if (from[static_cast<std::size_t>(i)]->id == id) {
+            out.list = &from;
+            out.index = i;
+            out.listParent = listParent;
+            return true;
+        }
+        if (FindFolderListPos(
+                from[static_cast<std::size_t>(i)]->children, from[static_cast<std::size_t>(i)].get(), id, out)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<std::unique_ptr<FolderNode>>* GetChildrenListByParentId(
+    std::vector<std::unique_ptr<FolderNode>>& roots, int listParentId, FolderNode** outParent) {
+    *outParent = nullptr;
+    if (listParentId < 0) {
+        return &roots;
+    }
+    FolderNode* p = FindFolderByIdR(roots, listParentId);
+    if (!p) {
+        return nullptr;
+    }
+    *outParent = p;
+    return &p->children;
+}
+
+FolderNode* FindListOwnerRecurse(FolderNode* node, const std::vector<std::unique_ptr<FolderNode>>* list) {
+    if (!node) {
+        return nullptr;
+    }
+    if (list == &node->children) {
+        return node;
+    }
+    for (auto& c : node->children) {
+        if (c) {
+            if (FolderNode* f = FindListOwnerRecurse(c.get(), list)) {
+                return f;
+            }
+        }
+    }
+    return nullptr;
+}
+
+FolderNode* FindListOwner(
+    const std::vector<std::unique_ptr<FolderNode>>& roots, const std::vector<std::unique_ptr<FolderNode>>* list) {
+    if (list == &roots) {
+        return nullptr;
+    }
+    for (const auto& u : roots) {
+        if (u) {
+            if (FolderNode* f = FindListOwnerRecurse(u.get(), list)) {
+                return f;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool IsUnderOrEqual(const FolderNode* ancestor, const FolderNode* node) {
+    for (const FolderNode* c = node; c; c = c->parent) {
+        if (c == ancestor) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 struct BinderModule::Impl {
     SampApi* sampApi = nullptr;
     SampHooks* sampHooks = nullptr;
@@ -1740,6 +1851,7 @@ struct BinderModule::Impl {
 
     std::string bindSearch{};
     std::string folderSearch{};
+    std::optional<FolderMoveUndo> folderMoveUndo_{};
 
     struct EditorState {
         enum class Tab {
@@ -1986,7 +2098,13 @@ struct BinderModule::Impl {
     void DrawEditorDiscardPopup();
     void DrawEditorInline();
     void DrawEditorScenarioTab();
-    void DrawFolderTreeNode(FolderNode& folder);
+    void DrawFolderRowInsert(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
+    void DrawFolderTreeNode(FolderNode& folder, bool dndEnabled);
+    bool RelocateFolderNode(int moveId, FolderListPos dest, bool recordUndo);
+    void TryFolderMoveInto(int moveId, int intoFolderId);
+    void ClearFolderMoveUndo() { folderMoveUndo_.reset(); }
+    void ApplyFolderMoveUndo();
+
     void DrawFolderPane();
     void DrawFolderPopups();
     void DrawBindPane();
@@ -5348,7 +5466,171 @@ void BinderModule::Impl::DuplicateHotkeyAt(int index) {
     SaveConfig();
 }
 
-void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
+bool BinderModule::Impl::RelocateFolderNode(int moveId, FolderListPos dest, bool recordUndo) {
+    FolderListPos from;
+    if (!FindFolderListPos(folders, nullptr, moveId, from)) {
+        return false;
+    }
+    if (!dest.list) {
+        return false;
+    }
+    FolderNode* node = (*from.list)[static_cast<std::size_t>(from.index)].get();
+    if (IsProtectedRootFolder(node) && dest.list != &folders) {
+        return false;
+    }
+    if (dest.list == &node->children) {
+        return false;
+    }
+    if (from.list != dest.list) {
+        if (!FolderNameUnique(*dest.list, node->name, nullptr)) {
+            return false;
+        }
+    }
+    {
+        FolderNode* const destListOwner = FindListOwner(folders, dest.list);
+        if (destListOwner) {
+            if (node != destListOwner && IsUnderOrEqual(node, destListOwner)) {
+                return false;
+            }
+        }
+    }
+    if (from.list == dest.list && from.index == dest.index) {
+        return false;
+    }
+
+    const std::vector<std::string> oldPath = BuildFolderPath(node);
+    const int savedListParentId =
+        from.list == &folders ? -1 : (from.listParent != nullptr ? from.listParent->id : -1);
+    const int savedListIndex = from.index;
+
+    int dix = dest.index;
+    if (from.list == dest.list && from.index < dix) {
+        dix -= 1;
+    }
+
+    std::unique_ptr<FolderNode> extracted = std::move((*from.list)[static_cast<std::size_t>(from.index)]);
+    from.list->erase(from.list->begin() + from.index);
+    {
+        const int destSz = static_cast<int>(dest.list->size());
+        if (dix < 0) {
+            dix = 0;
+        }
+        if (dix > destSz) {
+            dix = destSz;
+        }
+    }
+
+    FolderNode* newParent = FindListOwner(folders, dest.list);
+    if (dest.list == &folders) {
+        newParent = nullptr;
+    }
+    node->parent = newParent;
+    dest.list->insert(dest.list->begin() + dix, std::move(extracted));
+
+    const std::vector<std::string> newPath = BuildFolderPath(node);
+    if (oldPath != newPath) {
+        RemapHotkeysFolderPrefix(oldPath, newPath);
+    }
+    if (recordUndo) {
+        folderMoveUndo_ = FolderMoveUndo{node->id, savedListParentId, savedListIndex};
+    } else {
+        folderMoveUndo_.reset();
+    }
+    ExpandFolderBranch(node);
+    SaveConfig();
+    return true;
+}
+
+void BinderModule::Impl::TryFolderMoveInto(int moveId, int intoFolderId) {
+    UiSettings& ui = UiSettings::Instance();
+    FolderNode* const ref = FindFolderByIdR(folders, intoFolderId);
+    if (!ref) {
+        return;
+    }
+    FolderListPos d{};
+    d.list = &ref->children;
+    d.index = 0;
+    d.listParent = ref;
+    if (!RelocateFolderNode(moveId, d, true)) {
+        PushToast(ui.Text(UiText::ToastFolderMoveInvalid), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2400.0);
+    } else {
+        PushToast(ui.Text(UiText::ToastFolderMoved), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2000.0);
+    }
+}
+
+void BinderModule::Impl::ApplyFolderMoveUndo() {
+    if (!folderMoveUndo_) {
+        return;
+    }
+    const int moveId = folderMoveUndo_->nodeId;
+    const int oldP = folderMoveUndo_->oldListParentId;
+    const int oldIdx = folderMoveUndo_->oldIndex;
+    folderMoveUndo_.reset();
+    FolderListPos d{};
+    if (oldP < 0) {
+        d.list = &folders;
+        d.index = oldIdx;
+        d.listParent = nullptr;
+    } else {
+        FolderNode* p = FindFolderByIdR(folders, oldP);
+        if (!p) {
+            return;
+        }
+        d.list = &p->children;
+        d.index = oldIdx;
+        d.listParent = p;
+    }
+    if (!RelocateFolderNode(moveId, d, false)) {
+        PushToast(
+            UiSettings::Instance().Text(UiText::ToastFolderMoveInvalid),
+            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+            2000.0);
+    }
+}
+
+void BinderModule::Impl::DrawFolderRowInsert(
+    const FolderListPos& pos, const bool dndEnabled, const char* idSuffix) {
+    if (!dndEnabled) {
+        return;
+    }
+    ImGui::PushID(idSuffix);
+    const float w = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    // 1px hit area; list uses ItemSpacing.y=0 to avoid extra gaps between folders.
+    const float h = 1.0f;
+    ImGui::InvisibleButton("##di", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered();
+    if (const ImGuiPayload* pl = ImGui::GetDragDropPayload();
+        pl != nullptr && pl->IsDataType(kFolderDragPayload) && pl->Data != nullptr) {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImU32 cLine = ImGui::GetColorU32(hovered ? ImGuiCol_DragDropTarget : ImGuiCol_Separator);
+        const float y = ImGui::GetItemRectMin().y;
+        const ImVec2 p0(ImGui::GetItemRectMin().x, y);
+        const ImVec2 p1(p0.x + w, y);
+        drawList->AddLine(p0, p1, cLine, hovered ? 2.0f : 1.0f);
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload)) {
+            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()) {
+                const int moveId = *static_cast<const int*>(payload->Data);
+                if (!RelocateFolderNode(moveId, pos, true)) {
+                    PushToast(
+                        UiSettings::Instance().Text(UiText::ToastFolderMoveInvalid),
+                        ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+                        2000.0);
+                } else {
+                    PushToast(
+                        UiSettings::Instance().Text(UiText::ToastFolderMoved),
+                        ImVec4(0.20f, 0.35f, 0.18f, 0.95f),
+                        2000.0);
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    ImGui::PopID();
+}
+
+void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder, const bool dndEnabled) {
     if (!FolderMatchesSearch(folder, folderSearch)) {
         return;
     }
@@ -5364,6 +5646,10 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
 
+    // Must call TreePop() only when TreeNodeEx actually did TreePushOverrideID; wrong pairing causes
+    // Missing TreePop() / PopID() too many times. Leaf+NoTreePushOnOpen: open state can be true without push.
+    const bool needTreePop = (flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0;
+
     ImGui::SetNextItemOpen(folder.open, ImGuiCond_Always);
     const std::string folderLabel = FormatFolderLabel(folder.name);
     const bool opened = ImGui::TreeNodeEx("##folder_node", flags, "%s", folderLabel.c_str());
@@ -5372,9 +5658,18 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
         selectedFolder = &folder;
     }
 
+    if (dndEnabled && ImGui::GetIO().KeyShift) {
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+            int fid = folder.id;
+            ImGui::SetDragDropPayload(kFolderDragPayload, &fid, sizeof(fid));
+            ImGui::TextUnformatted(folderLabel.c_str());
+            ImGui::EndDragDropSource();
+        }
+    }
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_HOTKEY_INDEX")) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()) {
+            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()
+                && !ImGui::GetIO().KeyShift) {
                 const int hotkeyIndex = *static_cast<const int*>(payload->Data);
                 if (hotkeyIndex >= 0 && hotkeyIndex < static_cast<int>(hotkeys.size())) {
                     hotkeys[static_cast<std::size_t>(hotkeyIndex)].folderPath = BuildFolderPath(&folder);
@@ -5384,21 +5679,29 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
                 }
             }
         }
+        if (dndEnabled) {
+            if (const ImGuiPayload* fpl = ImGui::AcceptDragDropPayload(kFolderDragPayload)) {
+                if (fpl->Data != nullptr && fpl->DataSize == sizeof(int) && fpl->IsDelivery()) {
+                    const int moveId = *static_cast<const int*>(fpl->Data);
+                    TryFolderMoveInto(moveId, folder.id);
+                }
+            }
+        }
         ImGui::EndDragDropTarget();
     }
 
     if (ImGui::BeginPopupContextItem("##folder_context")) {
-        UiSettings& ui = UiSettings::Instance();
-        if (ImGui::MenuItem(ui.Text(UiText::FolderAdd))) {
+        UiSettings& uiC = UiSettings::Instance();
+        if (ImGui::MenuItem(uiC.Text(UiText::FolderAdd))) {
             folderPopup = {};
             folderPopup.parent = &folder;
-            folderPopup.name = ui.Text(UiText::BinderNewFolder);
+            folderPopup.name = uiC.Text(UiText::BinderNewFolder);
             ExpandFolderBranch(&folder);
             folderEditPopupPending = true;
             ImGui::CloseCurrentPopup();
         }
 
-        if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+        if (ImGui::MenuItem(uiC.Text(UiText::FolderRename))) {
             folderPopup = {};
             folderPopup.target = &folder;
             folderPopup.name = folder.name;
@@ -5410,7 +5713,7 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
         if (!canDelete) {
             ImGui::BeginDisabled();
         }
-        if (ImGui::MenuItem(ui.Text(UiText::Delete)) && canDelete) {
+        if (ImGui::MenuItem(uiC.Text(UiText::Delete)) && canDelete) {
             folderDeleteTarget = &folder;
             folderDeletePopupPending = true;
             ImGui::CloseCurrentPopup();
@@ -5423,11 +5726,32 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder) {
     }
 
     if (opened && !folder.children.empty()) {
-        for (auto& child : folder.children) {
-            if (child) {
-                DrawFolderTreeNode(*child);
+        const int cn = static_cast<int>(folder.children.size());
+        for (int i = 0; i < cn; ++i) {
+            if (dndEnabled) {
+                FolderListPos before{};
+                before.list = &folder.children;
+                before.index = i;
+                before.listParent = &folder;
+                DrawFolderRowInsert(
+                    before,
+                    dndEnabled,
+                    (std::string("c") + std::to_string(folder.id) + "i" + std::to_string(i)).c_str());
+            }
+            if (folder.children[static_cast<std::size_t>(i)]) {
+                DrawFolderTreeNode(*folder.children[static_cast<std::size_t>(i)], dndEnabled);
             }
         }
+        if (dndEnabled) {
+            FolderListPos afterPos{};
+            afterPos.list = &folder.children;
+            afterPos.index = cn;
+            afterPos.listParent = &folder;
+            DrawFolderRowInsert(
+                afterPos, dndEnabled, (std::string("c") + std::to_string(folder.id) + "e").c_str());
+        }
+    }
+    if (opened && needTreePop) {
         ImGui::TreePop();
     }
 
@@ -5463,15 +5787,50 @@ void BinderModule::Impl::DrawFolderPane() {
         ImGui::EndDisabled();
     }
 
-    InputTextString(UiSettings::Instance().Text(UiText::SearchFolders), folderSearch, ImGuiInputTextFlags_AutoSelectAll, 128);
+    UiSettings& folderPaneUi = UiSettings::Instance();
+    InputTextString(folderPaneUi.Text(UiText::SearchFolders), folderSearch, ImGuiInputTextFlags_AutoSelectAll, 128);
+    const bool folderDndEnabled = Trim(folderSearch).empty();
+    if (folderDndEnabled) {
+        ImGui::TextDisabled("%s", folderPaneUi.Text(UiText::BinderFolderDragHint));
+    } else {
+        ImGui::TextDisabled("%s", folderPaneUi.Text(UiText::FolderDragDisabledWithSearch));
+    }
+    if (folderMoveUndo_) {
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
+        if (ImGui::SmallButton(
+                (std::string(folderPaneUi.Text(UiText::UndoFolderMove)) + "##folder_move_undo").c_str())) {
+            ApplyFolderMoveUndo();
+        }
+    }
     ImGui::Separator();
 
     if (ImGui::BeginChild("##binder_folders_tree", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-        for (auto& folder : folders) {
-            if (folder) {
-                DrawFolderTreeNode(*folder);
+        // Do not add widgets (e.g. DnD line) *before* TreeNodeEx: breaks ImGui tree/ID stack. Draw inserts
+        // only from this parent loop, between siblings.
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+        const int n = static_cast<int>(folders.size());
+        for (int i = 0; i < n; ++i) {
+            if (folderDndEnabled) {
+                FolderListPos p{};
+                p.list = &folders;
+                p.index = i;
+                p.listParent = nullptr;
+                DrawFolderRowInsert(
+                    p, folderDndEnabled, (std::string("rins") + std::to_string(i)).c_str());
+            }
+            if (auto& f = folders[static_cast<std::size_t>(i)]) {
+                DrawFolderTreeNode(*f, folderDndEnabled);
             }
         }
+        if (folderDndEnabled) {
+            FolderListPos pEnd{};
+            pEnd.list = &folders;
+            pEnd.index = n;
+            pEnd.listParent = nullptr;
+            DrawFolderRowInsert(
+                pEnd, folderDndEnabled, (std::string("rins_end") + std::to_string(n)).c_str());
+        }
+        ImGui::PopStyleVar();
     }
     ImGui::EndChild();
 }
@@ -7205,7 +7564,7 @@ void BinderModule::Impl::DrawBindPane() {
                 selectedBindIndex = index;
                 StartEditing(index, false);
             }
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+            if (!ImGui::GetIO().KeyShift && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
                 const int hotkeyIndex = index;
                 ImGui::SetDragDropPayload("BINDER_HOTKEY_INDEX", &hotkeyIndex, sizeof(hotkeyIndex));
                 ImGui::TextUnformatted(bindName.c_str());

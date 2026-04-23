@@ -317,6 +317,12 @@
     X(FolderRename, "Переименовать", "Rename") \
     X(Delete, "Удалить", "Delete") \
     X(SearchFolders, "Поиск папок", "Search folders") \
+    X(BinderFolderDragHint, "Папки: Shift + перетаскивание. Бинды: без Shift.", "Folders: Shift+drag. Binds: no Shift.") \
+    X(ToastFolderMoved, "Папка перемещена.", "Folder moved.") \
+    X(UndoFolderMove, "Отменить перемещение", "Undo move") \
+    X(ToastFolderMoveInvalid, "Нельзя перенести папку сюда.", "Cannot move the folder here.") \
+    X(FolderDragDisabledWithSearch, "Перемещение папок отключено, пока включён поиск папок.", "Folder drag-and-drop is disabled while the folder search field is in use.") \
+    X(FolderDropInto, "Сделать подпапкой", "Nest into folder") \
     X(Name, "Название", "Name") \
     X(Save, "Сохранить", "Save") \
     X(Cancel, "Отмена", "Cancel") \
