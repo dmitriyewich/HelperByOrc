@@ -259,6 +259,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
         return binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
     });
+    overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
     overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
@@ -269,6 +270,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
 }
 
 void ModApp::Shutdown() {
+    debuglog::WriteInfo("[probe] shutdown begin ts=%llums", static_cast<unsigned long long>(GetTickCount64()));
     debuglog::WriteInfo("ModApp shutdown begin");
     ::ClipCursor(nullptr);
     ::ReleaseCapture();
@@ -303,6 +305,7 @@ void ModApp::Shutdown() {
         debuglog::WriteInfo("MinHook uninitialized");
     }
     debuglog::WriteInfo("ModApp shutdown");
+    debuglog::WriteInfo("[probe] shutdown end ts=%llums", static_cast<unsigned long long>(GetTickCount64()));
     debuglog::Shutdown();
 }
 
@@ -313,11 +316,30 @@ void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
 
 void ModApp::UpdateOverlayCursorMode() {
     const bool wantsUi = overlay_.WantsUiCursor();
+    const uint64_t now = GetTickCount64();
+    if (!sampUiPipelineReady_) {
+        if (overlayLastUiHold_) {
+            ::ReleaseCapture();
+            overlayLastUiHold_ = false;
+            debuglog::WriteInfo("[ui] cursor pipeline gated: released capture while SA:MP is not fully initialized");
+        }
+        if (overlayCursorMode_ != kSampCursorModeNone || overlayCursorEnabled_) {
+            overlayCursorMode_ = kSampCursorModeNone;
+            overlayCursorEnabled_ = false;
+            overlayCursorLastApplyMs_ = now;
+        }
+        static uint64_t s_lastGateTraceMs = 0;
+        if (now - s_lastGateTraceMs >= kCursorUnavailableTraceIntervalMs) {
+            s_lastGateTraceMs = now;
+            debuglog::WriteInfo("[ui] cursor pipeline gated: waiting for full SA:MP initialization");
+        }
+        return;
+    }
+
     HWND gameHw = overlay_.GetGameWindow();
     HWND fg = GetForegroundWindow();
     const bool appHasFocus = gameHw && fg && IsWindow(gameHw)
         && (fg == gameHw || IsChild(gameHw, fg) != FALSE);
-    const uint64_t now = GetTickCount64();
 
     bool chatOrDialogActive = false;
     sampApi_.Refresh();
@@ -428,9 +450,27 @@ void ModApp::Tick() {
 
     const std::uint64_t now = GetTickCount64();
     if (now >= nextSampRefreshAtMs_) {
+        debuglog::WriteInfo("[probe] Refresh begin ts=%llums", static_cast<unsigned long long>(now));
         sampApi_.Refresh();
+        const bool readyBeforeHooks = sampApi_.isSAMPInitilizeLua();
         sampHooks_.Refresh();
         sampRakHooks_.Refresh();
+        const bool readyAfterHooks = sampApi_.isSAMPInitilizeLua();
+        if (sampUiPipelineReady_ != readyAfterHooks) {
+            debuglog::WriteInfo(
+                "[probe] SA:MP input gate changed %d -> %d ts=%llums",
+                sampUiPipelineReady_ ? 1 : 0,
+                readyAfterHooks ? 1 : 0,
+                static_cast<unsigned long long>(GetTickCount64()));
+        }
+        sampUiPipelineReady_ = readyAfterHooks;
+        debuglog::WriteInfo(
+            "[probe] Refresh end ts=%llums sampReady(beforeHooks=%d afterHooks=%d) module=%d supported=%d",
+            static_cast<unsigned long long>(GetTickCount64()),
+            readyBeforeHooks ? 1 : 0,
+            readyAfterHooks ? 1 : 0,
+            sampApi_.sampModule() ? 1 : 0,
+            sampApi_.isSupportedVersion() ? 1 : 0);
         nextSampRefreshAtMs_ = now + 1000;
     }
 

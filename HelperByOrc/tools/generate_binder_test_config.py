@@ -420,6 +420,8 @@ def main():
             "language": "ru",
             "auto_scale": True,
             "scale_multiplier": 1.0,
+            "log_level": "info",
+            "apply_damage_protection": True,
             "open_menu_hotkey": [17, 90],
         },
         "tags": {
@@ -432,6 +434,7 @@ def main():
         "binder": {
             "quick_menu_hotkey": [18, 88],  # Alt+X — удобно для теста; смените при конфликте
             "quick_menu_activation_mode": "toggle",
+            "quick_menu_style": "cascade",
             "folders": folders,
             "hotkeys": hotkeys,
         },

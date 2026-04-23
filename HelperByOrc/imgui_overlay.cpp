@@ -222,6 +222,16 @@ ImFont* LoadOverlayFont(ImGuiIO& io) {
 
 HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
     if (self_ && !self_->shuttingDown_) {
+        static uint64_t s_lastEndSceneProbeMs = 0;
+        const uint64_t probeNow = GetTickCount64();
+        if (probeNow - s_lastEndSceneProbeMs >= 2000) {
+            s_lastEndSceneProbeMs = probeNow;
+            debuglog::WriteInfo(
+                "[ui][probe] EndScene ts=%llums init=%d gate=%d",
+                static_cast<unsigned long long>(probeNow),
+                self_->imguiInitialized_ ? 1 : 0,
+                self_->IsInputPipelineEnabled() ? 1 : 0);
+        }
         self_->InitializeImGuiIfNeeded(device);
         // Fallback path only: when Present detour is unavailable, render from EndScene.
         const bool isPrimary = self_->IsPrimaryRenderTarget(device);
@@ -264,6 +274,16 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
     HWND overrideWindow,
     const RGNDATA* dirtyRegion) {
     if (self_ && !self_->shuttingDown_) {
+        static uint64_t s_lastPresentProbeMs = 0;
+        const uint64_t probeNow = GetTickCount64();
+        if (probeNow - s_lastPresentProbeMs >= 2000) {
+            s_lastPresentProbeMs = probeNow;
+            debuglog::WriteInfo(
+                "[ui][probe] Present ts=%llums init=%d gate=%d",
+                static_cast<unsigned long long>(probeNow),
+                self_->imguiInitialized_ ? 1 : 0,
+                self_->IsInputPipelineEnabled() ? 1 : 0);
+        }
         self_->InitializeImGuiIfNeeded(device);
         // Primary and stable render path for overlay.
         const bool isPrimary = self_->IsPrimaryRenderTarget(device);
@@ -353,6 +373,10 @@ void ImGuiOverlay::SetAuxiliaryUiVisibleCallback(VisibilityCallback callback) {
 
 void ImGuiOverlay::SetAuxiliaryInputCaptureCallback(VisibilityCallback callback) {
     auxiliaryInputCaptureCallback_ = std::move(callback);
+}
+
+void ImGuiOverlay::SetInputPipelineGateCallback(GateCallback callback) {
+    inputPipelineGateCallback_ = std::move(callback);
 }
 
 void ImGuiOverlay::SetInputCaptureChangedCallback(InputCaptureChangedCallback callback) {
@@ -681,18 +705,16 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
         return;
     }
 
-    SetLastError(0);
-    const LONG_PTR previousWndProc = SetWindowLongPtrA(
-        gameWindow_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&OverlayWndProc));
-    if (previousWndProc == 0 && GetLastError() != 0) {
-        debuglog::WriteError("SetWindowLongPtrA failed: %lu", GetLastError());
-        ImGui_ImplDX9_Shutdown();
-        ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext();
-        return;
+    if (IsInputPipelineEnabled()) {
+        if (!EnsureWndProcHookInstalled()) {
+            ImGui_ImplDX9_Shutdown();
+            ImGui_ImplWin32_Shutdown();
+            ImGui::DestroyContext();
+            return;
+        }
+    } else {
+        debuglog::WriteInfo("[ui] WndProc hook deferred until SA:MP init gate");
     }
-
-    originalWndProc_ = reinterpret_cast<WNDPROC>(previousWndProc);
     imguiInitialized_ = true;
 
     debuglog::WriteInfo("ImGui initialized. Game window=%p", gameWindow_);
@@ -869,6 +891,28 @@ bool ImGuiOverlay::WantsTextInputCapture() const {
     return inputCaptureActive_;
 }
 
+bool ImGuiOverlay::IsInputPipelineEnabled() const {
+    return inputPipelineGateCallback_ ? inputPipelineGateCallback_() : true;
+}
+
+bool ImGuiOverlay::EnsureWndProcHookInstalled() {
+    if (originalWndProc_ || !gameWindow_) {
+        return originalWndProc_ != nullptr;
+    }
+
+    SetLastError(0);
+    const LONG_PTR previousWndProc = SetWindowLongPtrA(
+        gameWindow_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&OverlayWndProc));
+    if (previousWndProc == 0 && GetLastError() != 0) {
+        debuglog::WriteError("SetWindowLongPtrA failed: %lu", GetLastError());
+        return false;
+    }
+
+    originalWndProc_ = reinterpret_cast<WNDPROC>(previousWndProc);
+    debuglog::WriteInfo("[ui] WndProc hook installed hwnd=%p", gameWindow_);
+    return true;
+}
+
 void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
     if (captured == inputCaptureActive_) {
         return;
@@ -984,6 +1028,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     const bool auxiliaryVisible = IsAuxiliaryUiVisible();
     if (!imguiInitialized_ || !device) {
         return;
+    }
+
+    if (IsInputPipelineEnabled()) {
+        EnsureWndProcHookInstalled();
     }
 
     static bool s_hadNoOverlayUi = true;
@@ -1198,6 +1246,12 @@ bool ImGuiOverlay::IsKeyboardMessage(UINT message) const {
 
 LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     if (self_ && self_->imguiInitialized_) {
+        if (!self_->IsInputPipelineEnabled()) {
+            if (self_->originalWndProc_) {
+                return CallWindowProc(self_->originalWndProc_, hwnd, message, wparam, lparam);
+            }
+            return DefWindowProc(hwnd, message, wparam, lparam);
+        }
         const bool appFg = self_->IsGameWindowForeground();
         if (appFg && self_->HandleMenuToggleHotkeyCaptureMessage(message, wparam)) {
             return TRUE;

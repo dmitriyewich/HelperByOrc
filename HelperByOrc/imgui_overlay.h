@@ -19,6 +19,7 @@ public:
     using UpdateCallback = std::function<void()>;
     using WindowMessageCallback = std::function<bool(UINT, WPARAM, LPARAM)>;
     using VisibilityCallback = std::function<bool()>;
+    using GateCallback = std::function<bool()>;
     using InputCaptureChangedCallback = std::function<void(bool)>;
     using HotkeyConflictCallback = std::function<bool(const std::vector<unsigned int>& keys, std::string& description)>;
 
@@ -28,6 +29,7 @@ public:
     void SetWindowMessageCallback(WindowMessageCallback callback);
     void SetAuxiliaryUiVisibleCallback(VisibilityCallback callback);
     void SetAuxiliaryInputCaptureCallback(VisibilityCallback callback);
+    void SetInputPipelineGateCallback(GateCallback callback);
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
     void SetMenuOpen(bool open);
@@ -80,7 +82,9 @@ private:
     bool WantsInputRouting() const;
     bool WantsAuxiliaryUiCursor() const;
     bool WantsTextInputCapture() const;
+    bool IsInputPipelineEnabled() const;
     bool IsKeyboardMessage(UINT message) const;
+    bool EnsureWndProcHookInstalled();
 
     static inline ImGuiOverlay* self_ = nullptr;
 
@@ -98,6 +102,7 @@ private:
     WindowMessageCallback windowMessageCallback_;
     VisibilityCallback auxiliaryUiVisibleCallback_;
     VisibilityCallback auxiliaryInputCaptureCallback_;
+    GateCallback inputPipelineGateCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
     bool inputCaptureActive_ = false;

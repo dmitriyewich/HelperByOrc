@@ -77,6 +77,8 @@ private:
     bool overlayCursorEnabled_ = false;
     bool overlayLastUiHold_ = false;
     std::uint64_t overlayCursorLastApplyMs_ = 0;
+    bool sampUiPipelineReady_ = false;
+    std::uint64_t sampUiPipelineLastProbeMs_ = 0;
     bool minHookInitialized_ = false;
     SampApi sampApi_{};
     SampHooks sampHooks_{};

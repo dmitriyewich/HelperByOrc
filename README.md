@@ -35,6 +35,8 @@
 - Спам reassert-логов в `HelperByOrc.log` ограничен по частоте (throttle), чтобы при долгих UI-сессиях журнал оставался читаемым.
 - Уровень логирования UI по умолчанию: `Info` (подробный лог включён сразу; при необходимости можно снизить в `Настройки -> Уровень логирования`).
 - Для ранней диагностики старта/остановки добавлены bootstrap-маркеры: `OutputDebugStringA` + строки `[bootstrap] ...` в `HelperByOrc.log`.
+- Диагностика загрузочных зависаний усилена probe-маркерами: `[ui][probe]` для `Present/EndScene`, `[probe] Refresh begin/end` с `sampReady(beforeHooks/afterHooks)`, отдельный маркер смены input-gate `0 -> 1`, и `[probe] shutdown begin/end`.
+- До полной инициализации SA:MP overlay откладывает установку `WndProc`, а cursor/input pipeline остаётся gated — это снижает риск зависания/залипания курсора на раннем loading screen.
 - В `Настройки` добавлен runtime-переключатель `apply_damage_protection`: включает/выключает действие detour `CDamageManager_ApplyDamage`, которое блокирует отваливание компонентов транспорта при уроне (сам хук остаётся установленным).
 - Быстрое меню биндера (дерево и каскад): хост через `OpenPopup` / `BeginPopup` со стабильным id, без агрессивного `BringWindowToDisplayFront` каждый кадр; при открытии — доводка фокуса и одноразовый sync координат мыши, чтобы не было «клик съели, а ImGui не в hover».
 - В overlay для тестов отключена клавиатурная навигация ImGui (`NavEnableKeyboard` / захват клавиатуры), чтобы меньше конфликтовать с SA:MP.
