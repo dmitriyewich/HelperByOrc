@@ -133,7 +133,7 @@ void UiSettings::Load() {
         jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f),
         kMinScaleMultiplier,
         kMaxScaleMultiplier);
-    logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "off"));
+    logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     currentScale_ = 1.0f;
@@ -222,7 +222,7 @@ void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
-    logLevel_ = UiLogLevel::Off;
+    logLevel_ = UiLogLevel::Info;
     applyDamageProtectionEnabled_ = true;
     menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();

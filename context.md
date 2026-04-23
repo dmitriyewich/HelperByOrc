@@ -14,6 +14,7 @@
 ## Текущее состояние
 - Активный проект собирается как `Win32` `ASI`-плагин.
 - Активный backend для хуков: `MinHook`.
+- Жизненный цикл вынесен из loader-lock пути: `DllMain` оставляет только лёгкий bootstrap (event + worker thread), а тяжёлая инициализация `ModApp::OnProcessAttach(...)` и штатный `ModApp::Shutdown()` выполняются в worker-потоке вне `DllMain`. Для ранней диагностики добавлены bootstrap-маркеры через `OutputDebugStringA` и `HelperByOrc.log` (`[bootstrap] ...`).
 - **Фокус окна (ввод не уходит в плагин из чужих приложений):** хоткеи биндера, переключение главного меню по комбинации и перехват `WndProc` для ImGui / захвата хоткея выполняются только если окно GTA (или дочернее с фокусом ввода) на переднем плане — `ImGuiOverlay::IsGameWindowForeground()` (тот же критерий, что для `UpdateOverlayCursorMode`: `GetForegroundWindow` == `gameWindow` или `IsChild(gameWindow, …)`). Перед `BinderModule::Tick` выставляется `SetGameInputForeground(...)`; при потере фокуса — `ResetInputState`, без `SyncPressedKeysWithAsyncState` на `GetAsyncKeyState` (иначе клавиши, набранные в другом окне, ломали бинды). Для `UpdateHotkeyState` при возврате фокуса — ресинхрон `menuToggleWasDown_` без ложного переключения меню.
 - **Папки в биндере (реализовано):** ручная сортировка папок и вложенности через DnD. **Shift + перетаскивание** — перенос **папки** (payload строки `BINDER_FOLDER_ID`, int id); **без Shift** — по-прежнему перенос **бинда** на папку (`BINDER_HOTKEY_INDEX`). DnD-лини (вставка между соседями, «в конец» списка, цель «внутрь папки» на `TreeNode`) рисуются **только** из **цикла родителя** (корневой список в `DrawFolderPane`, дочерний — в `DrawFolderTreeNode` при открытой ветке с детьми), **не** отдельным виджетом **до** `ImGui::TreeNodeEx` того же узла — иначе ломается стек ImGui (`TreePop` / `PopID`). Для `TreePop`: на ветвях вызывать, только если `TreeNodeEx` реально сделал `TreePush` (в коде: `needTreePop` = в `flags` **нет** `ImGuiTreeNodeFlags_NoTreePushOnOpen`; тогда `if (opened && needTreePop) ImGui::TreePop()`; у листьев `Leaf+NoTreePushOnOpen` при открытом состоянии `TreePop` **не** нужен). Пока **поиск папок** не пуст (после `Trim`) — DnD **папок** отключён; DnD биндов в папки остаётся. Строки UI/undo: `ui_settings` (например `ToastFolderMoved`, `UndoFolderMove`, `FolderDragDisabledWithSearch`). В `##binder_folders_tree` для плотного списка может использоваться `ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, …)`.
 - Overlay / UI: поведение курсора и SA:MP cursor mode унифицированы через `mod_app` (`UpdateOverlayCursorMode`) и `imgui_overlay`; при скрытом UI каждый кадр вызывается лёгкий проход ImGui без отрисовки (`AdvanceImGuiFrameWithoutUi`), чтобы не залипали фокус/hover после быстрого меню; при показе overlay, если после `ImGui_ImplWin32_NewFrame` позиция мыши невалидна (или первый кадр после простоя), перед `ImGui::NewFrame` подставляется `GetCursorPos` + `ScreenToClient` — иначе Win32-backend даёт кадры без hover при по-прежнему перехваченных в `WndProc` кликах.
@@ -143,7 +144,7 @@ msbuild 'C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxpro
   - `language`: `ru` или `en`.
   - `auto_scale`: `true/false`.
   - `scale_multiplier`: пользовательский множитель масштаба.
-  - `log_level`: `off`, `error` или `info` (по умолчанию `off`).
+  - `log_level`: `off`, `error` или `info` (по умолчанию `info`).
   - `apply_damage_protection`: `true/false` (по умолчанию `true`); включает/выключает только действие `CDamageManager_ApplyDamage` detour по блокировке отваливания компонентов транспорта, сам хук остаётся активным.
   - `open_menu_hotkey`: массив virtual-key кодов для открытия главного окна, по умолчанию `Ctrl + Z`.
 - Секция `binder` хранит состояние биндов, папок, хоткеев, quick menu и других binder-данных.
@@ -158,7 +159,7 @@ msbuild 'C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxpro
     "language": "ru",
     "auto_scale": true,
     "scale_multiplier": 1.0,
-    "log_level": "off",
+    "log_level": "info",
     "apply_damage_protection": true,
     "open_menu_hotkey": [17, 90]
   },
@@ -235,8 +236,8 @@ msbuild 'C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\HelperByOrc\HelperByOrc.vcxpro
 
 ## Архитектура проекта
 - `main.cpp`
-  - только минимальный `DllMain`
-  - без тяжёлой логики
+  - минимальный `DllMain` с bootstrap (`event` + worker thread)
+  - тяжёлый lifecycle (`OnProcessAttach`/`Shutdown`) выполняется в worker вне `DllMain`
 - `imgui_overlay.*`
   - D3D9 hooks (`EndScene`/`Reset`) через `MinHook`
   - инициализация official vendored `ImGui 1.92.7`
