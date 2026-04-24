@@ -155,19 +155,72 @@ bool SampApi::isSAMPInitilizeLua() {
         return false;
     }
 
-    std::uint32_t sampInfo = 0;
-    if (!ResolveSampInfo(sampInfo)) {
-        SetError("Failed to read SAMP info pointer");
-        return false;
-    }
-
-    if (sampInfo == 0) {
-        SetError("SAMP is not initialized yet");
+    std::string readinessReason;
+    if (!IsSampReadyByFallback(readinessReason)) {
+        SetError(std::move(readinessReason));
         return false;
     }
 
     ClearError();
     return true;
+}
+
+bool SampApi::IsSampReadyByFallback(std::string& reason) const {
+    reason = "SAMP is not initialized yet";
+
+    if (!sampModule_ || !versionResolved_) {
+        reason = "SAMP readiness probe failed: module/version is not ready";
+        return false;
+    }
+
+    const std::uintptr_t base = ModuleBase();
+    const auto version = currentVersion_;
+
+    bool hasSampInfo = false;
+    bool hasChatInput = false;
+    bool hasRefGame = false;
+    bool hasDialog = false;
+
+    std::uint32_t sampInfo = 0;
+    if (ResolveSampInfo(sampInfo) && sampInfo != 0 && IsReadableMemory(sampInfo, sizeof(std::uint32_t))) {
+        hasSampInfo = true;
+    }
+
+    std::uint32_t chatInput = 0;
+    if (ResolveChatInput(chatInput) && chatInput != 0) {
+        const std::uintptr_t openedAddress = static_cast<std::uintptr_t>(chatInput) + main_offsets.CInput_Opened.Get(version);
+        if (IsReadableMemory(static_cast<std::uintptr_t>(chatInput), sizeof(std::uint32_t))
+            && IsReadableMemory(openedAddress, sizeof(std::uint8_t))) {
+            std::uint8_t openedFlag = 0;
+            hasChatInput = SafeRead(openedAddress, openedFlag);
+        }
+    }
+
+    const std::uintptr_t refGameAddress = base + main_offsets.RefGame.Get(version);
+    if (main_offsets.RefGame.Get(version) != 0 && IsReadableMemory(refGameAddress, sizeof(std::uint32_t))) {
+        std::uint32_t refGame = 0;
+        hasRefGame = SafeRead(refGameAddress, refGame) && refGame != 0 && IsReadableMemory(refGame, sizeof(std::uint32_t));
+    }
+
+    std::uint32_t dialog = 0;
+    if (ResolveDialog(dialog) && dialog != 0) {
+        const std::uintptr_t activeAddress = static_cast<std::uintptr_t>(dialog) + main_offsets.SAMP_DIALOG_ACTIVE_OFFSET.Get(version);
+        if (IsReadableMemory(static_cast<std::uintptr_t>(dialog), sizeof(std::uint32_t))
+            && IsReadableMemory(activeAddress, sizeof(std::uint8_t))) {
+            std::uint8_t activeValue = 0;
+            hasDialog = SafeRead(activeAddress, activeValue);
+        }
+    }
+
+    if (hasSampInfo || (hasChatInput && hasRefGame) || (hasChatInput && hasDialog)) {
+        return true;
+    }
+
+    reason = "SAMP is not initialized yet (probe: sampInfo=" + std::to_string(hasSampInfo ? 1 : 0)
+        + " chatInput=" + std::to_string(hasChatInput ? 1 : 0)
+        + " refGame=" + std::to_string(hasRefGame ? 1 : 0)
+        + " dialog=" + std::to_string(hasDialog ? 1 : 0) + ")";
+    return false;
 }
 
 std::uintptr_t SampApi::PedPool() {

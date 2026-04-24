@@ -315,6 +315,7 @@ private:
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
+    bool IsSampReadyByFallback(std::string& reason) const;
     void ResetChatAsiInputDiscovery(HMODULE module = nullptr);
     bool EnsureChatAsiInputDiscovery();
     bool TrySetChatInputTextViaChatAsi(std::string_view utf8Text);

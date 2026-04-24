@@ -216,7 +216,7 @@ void SampHooks::Refresh() {
         return;
     }
 
-    if (!sampApi_->isSampLoadedLua()) {
+    if (!sampApi_->isSAMPInitilizeLua()) {
         statusText_ = sampApi_->lastError();
         debuglog::WriteInfo("SampHooks::Refresh waiting for SA:MP: %s", statusText_.c_str());
         return;
