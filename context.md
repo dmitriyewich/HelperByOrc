@@ -19,6 +19,10 @@
 - Установка `SampHooks` и `SampRakHooks` переведена на full-ready gate (`isSAMPInitilizeLua`): обычные и RakNet-хуки не ставятся на раннем loading screen.
 - `SampApi::isSAMPInitilizeLua()` использует безопасный fallback-детектор готовности по нескольким признакам (не только `SAMP_INFO`): учитываются `SAMP_INFO`, `chat input`, `RefGame`, `dialog`; готовность считается при валидной комбинации сигналов, а в `lastError` выводится probe-маска (`sampInfo/chatInput/refGame/dialog`) для диагностики проблемных окружений.
 - В runtime-лог добавлены probe-маркеры с таймштампами: `Present/EndScene` (`[ui][probe] ... ts=... init=... gate=...`), цикл refresh (`[probe] Refresh begin/end ... sampReady(beforeHooks/afterHooks)`), событие переключения gate (`[probe] SA:MP input gate changed ...`) и shutdown (`[probe] shutdown begin/end ...`).
+- Для максимальной диагностики ранней загрузки `ModApp::OnProcessAttach` пишет в `HelperByOrc.log` fingerprint/mtime/FNV64 и PE-метаданные `gta_sa.exe`, `samp.dll`, `HelperByOrc.asi`, известных proxy-кандидатов, root/CLEO/MoonLoader/modloader/SAMPFUNCS inventory, а также snapshot уже загруженных модулей с тегами риска (`sampfuncs`, `moonloader`, `d3d9-proxy`, `input-proxy`, `chat-hook`, `overlay`, `crashfix` и т.п.). Пока SA:MP не готов, runtime дополнительно пишет snapshot новых модулей, чтобы поймать ранний конфликт загрузки.
+- `SampApi::LogReadinessDiagnostics(...)` фиксирует PE-сведения текущего `samp.dll`, глобальные указатели (`sampInfo`, `chat`, `chatInput`, `dialog`, `refGame`) с `VirtualQuery`-описанием регионов памяти, ключевые поля `CNetGame`/pools/RakClient/chat/dialog и первые байты критичных SA:MP-функций. Состояние `sampInfo=0` при `refGame=1` трактуется как ранний этап: SA:MP уже дошёл до GUI/game init, но `CNetGame` ещё не сконструирован; это не ошибка само по себе, если позже появляется ненулевой `sampInfo`.
+- D3D/overlay диагностика расширена: окно игры сначала ищется через глобальный GTA HWND `0x00C8CF88`, затем через `IDirect3DDevice9::GetCreationParameters`, и только потом через foreground-окно текущего процесса. Логируются тайминги `Direct3DCreate9` и dummy `CreateDevice`, resolved HWND/class/title/pid/tid, а также module/RVA для vtable-целей `Reset`/`Present`/`EndScene`.
+- RakNet прямые вызовы через `RakClientInterface` закреплены на явных индексах vtable для SA:MP/RakNet: `Send(BitStream)` = `6`, `RPC(BitStream)` = `25`, чтобы не зависеть от компиляторской раскладки C++-интерфейса в нашем коде.
 - **Фокус окна (ввод не уходит в плагин из чужих приложений):** хоткеи биндера, переключение главного меню по комбинации и перехват `WndProc` для ImGui / захвата хоткея выполняются только если окно GTA (или дочернее с фокусом ввода) на переднем плане — `ImGuiOverlay::IsGameWindowForeground()` (тот же критерий, что для `UpdateOverlayCursorMode`: `GetForegroundWindow` == `gameWindow` или `IsChild(gameWindow, …)`). Перед `BinderModule::Tick` выставляется `SetGameInputForeground(...)`; при потере фокуса — `ResetInputState`, без `SyncPressedKeysWithAsyncState` на `GetAsyncKeyState` (иначе клавиши, набранные в другом окне, ломали бинды). Для `UpdateHotkeyState` при возврате фокуса — ресинхрон `menuToggleWasDown_` без ложного переключения меню.
 - **Папки в биндере (реализовано):** ручная сортировка папок и вложенности через DnD. **Shift + перетаскивание** — перенос **папки** (payload строки `BINDER_FOLDER_ID`, int id); **без Shift** — по-прежнему перенос **бинда** на папку (`BINDER_HOTKEY_INDEX`). DnD-лини (вставка между соседями, «в конец» списка, цель «внутрь папки» на `TreeNode`) рисуются **только** из **цикла родителя** (корневой список в `DrawFolderPane`, дочерний — в `DrawFolderTreeNode` при открытой ветке с детьми), **не** отдельным виджетом **до** `ImGui::TreeNodeEx` того же узла — иначе ломается стек ImGui (`TreePop` / `PopID`). Для `TreePop`: на ветвях вызывать, только если `TreeNodeEx` реально сделал `TreePush` (в коде: `needTreePop` = в `flags` **нет** `ImGuiTreeNodeFlags_NoTreePushOnOpen`; тогда `if (opened && needTreePop) ImGui::TreePop()`; у листьев `Leaf+NoTreePushOnOpen` при открытом состоянии `TreePop` **не** нужен). Пока **поиск папок** не пуст (после `Trim`) — DnD **папок** отключён; DnD биндов в папки остаётся. Строки UI/undo: `ui_settings` (например `ToastFolderMoved`, `UndoFolderMove`, `FolderDragDisabledWithSearch`). В `##binder_folders_tree` для плотного списка может использоваться `ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, …)`.
 - Overlay / UI: поведение курсора и SA:MP cursor mode унифицированы через `mod_app` (`UpdateOverlayCursorMode`) и `imgui_overlay`; при скрытом UI каждый кадр вызывается лёгкий проход ImGui без отрисовки (`AdvanceImGuiFrameWithoutUi`), чтобы не залипали фокус/hover после быстрого меню; при показе overlay, если после `ImGui_ImplWin32_NewFrame` позиция мыши невалидна (или первый кадр после простоя), перед `ImGui::NewFrame` подставляется `GetCursorPos` + `ScreenToClient` — иначе Win32-backend даёт кадры без hover при по-прежнему перехваченных в `WndProc` кликах.
@@ -74,8 +78,8 @@
 
 ## Публикация на GitHub
 - Удалённый репозиторий: `https://github.com/dmitriyewich/HelperByOrc` (`origin`).
-- На GitHub выкладываются **только** исходный код проекта, **профиль сборки** (`*.vcxproj`, `*.slnx`, связанные файлы проекта) и **vendored** `HelperByOrc/external` (полное дерево файлов зависимостей для воспроизводимой сборки; в индексе корневого репозитория — без вложенных `.git` в подпапках `external`). В корне допускаются `README.md`, `README.txt`, `context.md` (документация) и корневой `.gitignore`.
-- **Не** публиковать на GitHub: артефакты сборки (`*.asi`, `*.pdb`, каталоги `Release/`, `Debug/`, промежуточный `build/`), каталог `.cursor/`, служебные `.codex/`, и прочий мусор по корневому `.gitignore`.
+- На GitHub выкладываются **только** исходный код проекта, **профиль сборки** (`*.vcxproj`, `*.slnx`, связанные файлы проекта) и **vendored** `HelperByOrc/external` (полное дерево файлов зависимостей для воспроизводимой сборки; в индексе корневого репозитория — без вложенных `.git` в подпапках `external`). В корне допускаются `README.md`, `README.txt`, `context.md` (документация), корневой `.gitignore` и `.codex/actions.md` как краткий журнал действий.
+- **Не** публиковать на GitHub: артефакты сборки (`*.asi`, `*.pdb`, каталоги `Release/`, `Debug/`, промежуточный `build/`), каталог `.cursor/`, прочие служебные файлы `.codex/` кроме `.codex/actions.md`, и прочий мусор по корневому `.gitignore`.
 
 ## Локальный Git
 - Корень рабочей области `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie` инициализирован как локальный `git`-репозиторий с привязкой к `origin` (`https://github.com/dmitriyewich/HelperByOrc`).
@@ -88,7 +92,7 @@
 - Для новых крупных точек синхронизации допустимо делать отдельные локальные baseline-коммиты.
 - Generated/runtime-мусор не должен попадать в индекс:
   - `.claude/`
-  - `.codex/`
+  - `.codex/*`, кроме отслеживаемого `.codex/actions.md`
   - временные `_tmp*`-директории
   - `.vs/`
   - build output (`HelperByOrc/build/`, `HelperByOrc/Release/`, `HelperByOrc/Debug/`, `HelperByOrc/external/plugin-sdk/output/`)
@@ -96,9 +100,9 @@
 - Каталоги `HelperByOrc/external/imgui`, `.../SAMP-API`, `.../plugin-sdk`, `.../memwrapper` на машине разработчика могли изначально быть отдельными `git`-клонами; для **публикации на `origin`** они хранятся как **обычный vendored-снимок без вложенного `.git`**, чтобы не было `gitlink/submodule` в корневом репозитории. Обновить версию vendored-библиотеки: снова клонировать нужный upstream в `external/<имя>` (или `git pull` до удаления `.git`) и после синхронизации снова удалить вложенный `.git` перед коммитом в корень, если политика репозитория — plain tree. Архивный `_thirdparty/RakLua` по-прежнему не часть активной сборки.
 
 ## Журнал действий Codex
-- Для служебной памяти по проекту использовать только локальную папку:
+- Для служебной памяти по проекту использовать папку:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\.codex`
-- В `.codex` сохранять краткий журнал действий, принятых допущений и следующих шагов, чтобы было видно, что уже делалось по задаче.
+- В `.codex` сохранять краткий журнал действий, принятых допущений и следующих шагов, чтобы было видно, что уже делалось по задаче. По текущей политике репозитория на GitHub публикуется только `.codex/actions.md`; остальные файлы `.codex` остаются локальными.
 - Базовый файл журнала действий:
   - `C:\Games\CODEX\MyAsiMod\MyAsiModReshenie\.codex\actions.md`
 - `context.md` и файлы внутри `.codex` хранить в нормальном `UTF-8`.

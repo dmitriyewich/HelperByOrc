@@ -165,6 +165,183 @@ bool SampApi::isSAMPInitilizeLua() {
     return true;
 }
 
+void SampApi::LogReadinessDiagnostics(const char* context) const {
+    const char* tag = context ? context : "readiness";
+    const std::uintptr_t base = ModuleBase();
+
+    debuglog::WriteInfo(
+        "[samp][diag] %s ts=%llums module=%p version=%s supported=%d resolved=%d entry=0x%X path=\"%s\"",
+        tag,
+        static_cast<unsigned long long>(GetTickCount64()),
+        sampModule_,
+        currentVersionName(),
+        supportedVersion_ ? 1 : 0,
+        versionResolved_ ? 1 : 0,
+        entryPointAddress_,
+        ModulePath(sampModule_).c_str());
+
+    if (!sampModule_) {
+        debuglog::WriteInfo("[samp][diag] %s samp.dll is not loaded", tag);
+        return;
+    }
+
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(sampModule_);
+    if (dosHeader->e_magic == IMAGE_DOS_SIGNATURE) {
+        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(
+            reinterpret_cast<const std::uint8_t*>(sampModule_) + dosHeader->e_lfanew);
+        if (ntHeaders->Signature == IMAGE_NT_SIGNATURE) {
+            debuglog::WriteInfo(
+                "[samp][diag] %s pe imageBase=0x%08X sizeOfImage=0x%X sizeOfHeaders=0x%X timestamp=0x%08X checksum=0x%08X sections=%u",
+                tag,
+                static_cast<unsigned>(ntHeaders->OptionalHeader.ImageBase),
+                static_cast<unsigned>(ntHeaders->OptionalHeader.SizeOfImage),
+                static_cast<unsigned>(ntHeaders->OptionalHeader.SizeOfHeaders),
+                static_cast<unsigned>(ntHeaders->FileHeader.TimeDateStamp),
+                static_cast<unsigned>(ntHeaders->OptionalHeader.CheckSum),
+                static_cast<unsigned>(ntHeaders->FileHeader.NumberOfSections));
+        } else {
+            debuglog::WriteError("[samp][diag] %s invalid NT signature", tag);
+        }
+    } else {
+        debuglog::WriteError("[samp][diag] %s invalid DOS signature", tag);
+    }
+
+    if (!versionResolved_ || currentVersion_ == Version::Unknown) {
+        return;
+    }
+
+    auto readGlobal = [&](const char* name, const VersionedOffset& offset) -> std::uint32_t {
+        const std::uint32_t relative = offset.Get(currentVersion_);
+        const std::uintptr_t address = relative == 0 ? 0 : base + relative;
+        std::uint32_t value = 0;
+        const bool readableGlobal = address != 0 && IsReadableMemory(address, sizeof(value));
+        const bool readOk = readableGlobal && SafeRead(address, value);
+        const bool readableValue = value != 0 && IsReadableMemory(value, sizeof(std::uint32_t));
+
+        debuglog::WriteInfo(
+            "[samp][diag] %s global %-10s off=0x%X addr=0x%08X read=%d value=0x%08X valueReadable=%d addrRegion=\"%s\" valueRegion=\"%s\"",
+            tag,
+            name,
+            static_cast<unsigned>(relative),
+            static_cast<unsigned>(address),
+            readOk ? 1 : 0,
+            static_cast<unsigned>(value),
+            readableValue ? 1 : 0,
+            MemoryRegionSummary(address).c_str(),
+            MemoryRegionSummary(value).c_str());
+        return readOk ? value : 0;
+    };
+
+    const std::uint32_t sampInfo = readGlobal("sampInfo", main_offsets.SAMP_INFO_OFFSET);
+    const std::uint32_t chat = readGlobal("chat", main_offsets.pChat);
+    const std::uint32_t chatInput = readGlobal("chatInput", main_offsets.SAMP_CHAT_INPUT_INFO_OFFSET);
+    const std::uint32_t dialog = readGlobal("dialog", main_offsets.SAMP_DIALOG_INFO_OFFSET);
+    const std::uint32_t refGame = readGlobal("refGame", main_offsets.RefGame);
+
+    if (sampInfo != 0) {
+        std::uint32_t pools = 0;
+        std::uint32_t pedPool = 0;
+        std::uint32_t vehiclePool = 0;
+        std::uint32_t rakClient = 0;
+        const bool poolsOk = SafeRead(sampInfo + main_offsets.SAMP_INFO_OFFSET_Pools.Get(currentVersion_), pools);
+        const bool pedOk = poolsOk && pools != 0
+            && SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Player.Get(currentVersion_), pedPool);
+        const bool vehOk = poolsOk && pools != 0
+            && SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Veh.Get(currentVersion_), vehiclePool);
+        const bool rakOk = SafeRead(sampInfo + main_offsets.rakclient_interface.Get(currentVersion_), rakClient);
+        debuglog::WriteInfo(
+            "[samp][diag] %s sampInfo fields pools(+0x%X) ok=%d value=0x%08X pedPool(+0x%X) ok=%d value=0x%08X vehPool(+0x%X) ok=%d value=0x%08X rak(+0x%X) ok=%d value=0x%08X",
+            tag,
+            static_cast<unsigned>(main_offsets.SAMP_INFO_OFFSET_Pools.Get(currentVersion_)),
+            poolsOk ? 1 : 0,
+            static_cast<unsigned>(pools),
+            static_cast<unsigned>(main_offsets.SAMP_INFO_OFFSET_Pools_Player.Get(currentVersion_)),
+            pedOk ? 1 : 0,
+            static_cast<unsigned>(pedPool),
+            static_cast<unsigned>(main_offsets.SAMP_INFO_OFFSET_Pools_Veh.Get(currentVersion_)),
+            vehOk ? 1 : 0,
+            static_cast<unsigned>(vehiclePool),
+            static_cast<unsigned>(main_offsets.rakclient_interface.Get(currentVersion_)),
+            rakOk ? 1 : 0,
+            static_cast<unsigned>(rakClient));
+    } else if (refGame != 0) {
+        debuglog::WriteInfo(
+            "[samp][diag] %s refGame is initialized while sampInfo is still null; SA:MP reached GUI/game init but CNetGame is not constructed yet",
+            tag);
+    }
+
+    if (chatInput != 0) {
+        std::uint8_t opened = 0;
+        std::uint32_t editBox = 0;
+        const bool openedOk = SafeRead(chatInput + main_offsets.CInput_Opened.Get(currentVersion_), opened);
+        const bool editOk = SafeRead(chatInput + main_offsets.pChatInput_pEditBox.Get(currentVersion_), editBox);
+        debuglog::WriteInfo(
+            "[samp][diag] %s chatInput fields opened(+0x%X) ok=%d value=%u editBox(+0x%X) ok=%d value=0x%08X",
+            tag,
+            static_cast<unsigned>(main_offsets.CInput_Opened.Get(currentVersion_)),
+            openedOk ? 1 : 0,
+            static_cast<unsigned>(opened),
+            static_cast<unsigned>(main_offsets.pChatInput_pEditBox.Get(currentVersion_)),
+            editOk ? 1 : 0,
+            static_cast<unsigned>(editBox));
+    }
+
+    if (dialog != 0) {
+        std::uint32_t dxutDialog = 0;
+        std::uint32_t editBox = 0;
+        std::uint32_t textPtr = 0;
+        std::uint32_t id = 0;
+        std::uint8_t active = 0;
+        const bool dxutOk = SafeRead(dialog + main_offsets.CDXUTDialog.Get(currentVersion_), dxutDialog);
+        const bool editOk = SafeRead(dialog + main_offsets.pDialogInput_pEditBox.Get(currentVersion_), editBox);
+        const bool textOk = SafeRead(dialog + main_offsets.SAMP_DIALOG_TEXT_OFFSET.Get(currentVersion_), textPtr);
+        const bool idOk = SafeRead(dialog + main_offsets.SAMP_DIALOG_ID_OFFSET.Get(currentVersion_), id);
+        const bool activeOk = SafeRead(dialog + main_offsets.SAMP_DIALOG_ACTIVE_OFFSET.Get(currentVersion_), active);
+        debuglog::WriteInfo(
+            "[samp][diag] %s dialog fields active(+0x%X) ok=%d value=%u id(+0x%X) ok=%d value=%u dxut(+0x%X) ok=%d value=0x%08X edit(+0x%X) ok=%d value=0x%08X text(+0x%X) ok=%d value=0x%08X",
+            tag,
+            static_cast<unsigned>(main_offsets.SAMP_DIALOG_ACTIVE_OFFSET.Get(currentVersion_)),
+            activeOk ? 1 : 0,
+            static_cast<unsigned>(active),
+            static_cast<unsigned>(main_offsets.SAMP_DIALOG_ID_OFFSET.Get(currentVersion_)),
+            idOk ? 1 : 0,
+            static_cast<unsigned>(id),
+            static_cast<unsigned>(main_offsets.CDXUTDialog.Get(currentVersion_)),
+            dxutOk ? 1 : 0,
+            static_cast<unsigned>(dxutDialog),
+            static_cast<unsigned>(main_offsets.pDialogInput_pEditBox.Get(currentVersion_)),
+            editOk ? 1 : 0,
+            static_cast<unsigned>(editBox),
+            static_cast<unsigned>(main_offsets.SAMP_DIALOG_TEXT_OFFSET.Get(currentVersion_)),
+            textOk ? 1 : 0,
+            static_cast<unsigned>(textPtr));
+    }
+
+    auto logCodeBytes = [&](const char* name, const VersionedOffset& offset) {
+        const std::uint32_t relative = offset.Get(currentVersion_);
+        const std::uintptr_t address = relative == 0 ? 0 : base + relative;
+        debuglog::WriteInfo(
+            "[samp][diag] %s code %-18s off=0x%X addr=0x%08X bytes=%s region=\"%s\"",
+            tag,
+            name,
+            static_cast<unsigned>(relative),
+            static_cast<unsigned>(address),
+            HexBytes(address, 8).c_str(),
+            MemoryRegionSummary(address).c_str());
+    };
+
+    logCodeBytes("CDialog_Show", main_offsets.CDialog_Show);
+    logCodeBytes("CDialog_Close", main_offsets.CDialog_Close);
+    logCodeBytes("SetCursorMode", main_offsets.SetCursorMode);
+    logCodeBytes("CInput_Open", main_offsets.CInput_Open);
+    logCodeBytes("CInput_Close", main_offsets.CInput_Close);
+    logCodeBytes("CInput_Send", main_offsets.CInput_Send);
+    logCodeBytes("HotkeyDispatcher", main_offsets.HotkeyDispatcher);
+    logCodeBytes("InputHotkeyHandler", main_offsets.InputHotkeyHandler);
+    logCodeBytes("AddEntry", main_offsets.AddEntry);
+    logCodeBytes("AddChatMessage", main_offsets.AddChatMessage);
+}
+
 bool SampApi::IsSampReadyByFallback(std::string& reason) const {
     reason = "SAMP is not initialized yet";
 

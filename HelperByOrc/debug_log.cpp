@@ -29,7 +29,7 @@ void WriteInternal(Level level, const char* format, va_list args) {
         return;
     }
 
-    char message[1024]{};
+    char message[4096]{};
     std::vsnprintf(message, sizeof(message), format, args);
 
     if (!ShouldWrite(level)) {

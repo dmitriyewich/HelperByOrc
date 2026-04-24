@@ -25,6 +25,8 @@
 #include <array>
 #include <cctype>
 #include <cstring>
+#include <cstdio>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -89,6 +91,8 @@ constexpr const char* kSampGlobalNames[] = {
 constexpr std::uint32_t kPlaceablePositionOffset = 0x4;
 constexpr std::uint32_t kPlaceableMatrixOffset = 0x14;
 constexpr std::uint32_t kMatrixPositionOffset = 0x30;
+constexpr std::size_t kRakClientVtblSendBitStream = 6;
+constexpr std::size_t kRakClientVtblRpcBitStream = 25;
 
 bool IsReadableMemory(std::uintptr_t address, std::size_t size) {
     if (address == 0 || size == 0) {
@@ -156,6 +160,114 @@ bool SafeWrite(std::uintptr_t address, const T& value) {
     __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
+}
+
+const char* MemoryStateName(DWORD state) {
+    switch (state) {
+    case MEM_COMMIT:
+        return "commit";
+    case MEM_RESERVE:
+        return "reserve";
+    case MEM_FREE:
+        return "free";
+    default:
+        return "unknown";
+    }
+}
+
+const char* MemoryTypeName(DWORD type) {
+    switch (type) {
+    case MEM_IMAGE:
+        return "image";
+    case MEM_MAPPED:
+        return "mapped";
+    case MEM_PRIVATE:
+        return "private";
+    default:
+        return "unknown";
+    }
+}
+
+std::string MemoryProtectName(DWORD protect) {
+    if ((protect & PAGE_GUARD) != 0) {
+        return "guard";
+    }
+    if ((protect & PAGE_NOACCESS) != 0) {
+        return "noaccess";
+    }
+
+    switch (protect & 0xFF) {
+    case PAGE_READONLY:
+        return "r";
+    case PAGE_READWRITE:
+        return "rw";
+    case PAGE_WRITECOPY:
+        return "wc";
+    case PAGE_EXECUTE:
+        return "x";
+    case PAGE_EXECUTE_READ:
+        return "xr";
+    case PAGE_EXECUTE_READWRITE:
+        return "xrw";
+    case PAGE_EXECUTE_WRITECOPY:
+        return "xwc";
+    default:
+        return "unknown";
+    }
+}
+
+std::string MemoryRegionSummary(std::uintptr_t address) {
+    if (address == 0) {
+        return "null";
+    }
+
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (VirtualQuery(reinterpret_cast<const void*>(address), &mbi, sizeof(mbi)) == 0) {
+        return "VirtualQuery=0";
+    }
+
+    char buffer[256]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "base=0x%08X size=0x%X state=%s protect=%s type=%s",
+        static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(mbi.BaseAddress)),
+        static_cast<unsigned>(mbi.RegionSize),
+        MemoryStateName(mbi.State),
+        MemoryProtectName(mbi.Protect).c_str(),
+        MemoryTypeName(mbi.Type));
+    return buffer;
+}
+
+std::string ModulePath(HMODULE module) {
+    char path[MAX_PATH]{};
+    if (!module || !GetModuleFileNameA(module, path, MAX_PATH)) {
+        return {};
+    }
+    return path;
+}
+
+std::string HexBytes(std::uintptr_t address, std::size_t count) {
+    if (address == 0 || count == 0 || count > 16 || !IsReadableMemory(address, count)) {
+        return "unreadable";
+    }
+
+    std::ostringstream out;
+    out.setf(std::ios::hex, std::ios::basefield);
+    out.fill('0');
+    for (std::size_t i = 0; i < count; ++i) {
+        std::uint8_t value = 0;
+        if (!SafeRead(address + i, value)) {
+            return "read-failed";
+        }
+        char byteText[4]{};
+        std::snprintf(byteText, sizeof(byteText), "%02X", static_cast<unsigned>(value));
+        if (i != 0) {
+            out << ' ';
+        }
+        out << byteText;
+    }
+    return out.str();
 }
 
 std::uint32_t GetRemotePlayerPedOffset(SampApi::Version version) {
@@ -925,7 +1037,15 @@ bool CallListBoxGetItem(ListBoxGetItemFn fn, void* listBox, int index, const cha
 
 bool CallRakRpc(RakClientInterface* client, int* rpcId, BitStream* bitStream, bool& out) {
     __try {
-        out = client->RPC(rpcId, bitStream, HIGH_PRIORITY, RELIABLE_ORDERED, 0, false);
+        out = SampApi::callVirtualMethod<bool>(
+            reinterpret_cast<std::uintptr_t>(client),
+            kRakClientVtblRpcBitStream,
+            rpcId,
+            bitStream,
+            HIGH_PRIORITY,
+            RELIABLE_ORDERED,
+            0,
+            false);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -942,7 +1062,13 @@ bool CallRakSend(
     char orderingChannel,
     bool& out) {
     __try {
-        out = client->Send(bitStream, priority, reliability, orderingChannel);
+        out = SampApi::callVirtualMethod<bool>(
+            reinterpret_cast<std::uintptr_t>(client),
+            kRakClientVtblSendBitStream,
+            bitStream,
+            priority,
+            reliability,
+            orderingChannel);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

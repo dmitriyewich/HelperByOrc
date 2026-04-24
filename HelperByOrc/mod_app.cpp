@@ -12,7 +12,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cstdio>
+#include <filesystem>
 #include <string>
+#include <system_error>
+#include <tlhelp32.h>
+#include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -38,6 +45,8 @@ constexpr char kIconBook[] = "\xEF\x80\xAD";
 constexpr char kIconCubes[] = "\xEF\x86\xB3";
 constexpr char kIconGear[] = "\xEF\x80\x93";
 
+namespace fs = std::filesystem;
+
 struct TabDefinition {
     MainTab tab;
     UiText label;
@@ -53,6 +62,421 @@ const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, kIconBook },
     { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, kIconGear },
 }};
+
+std::string WideToUtf8(const std::wstring& text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int required = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (required <= 1) {
+        return {};
+    }
+
+    std::string result(static_cast<std::size_t>(required - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, result.data(), required, nullptr, nullptr);
+    return result;
+}
+
+std::string PathToUtf8(const fs::path& path) {
+    return WideToUtf8(path.wstring());
+}
+
+std::string LowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool StartsWithNoCase(const std::string& value, const std::string& prefix) {
+    const std::string lowerValue = LowerAscii(value);
+    const std::string lowerPrefix = LowerAscii(prefix);
+    return lowerValue.size() >= lowerPrefix.size() && lowerValue.compare(0, lowerPrefix.size(), lowerPrefix) == 0;
+}
+
+std::string JoinTags(const std::vector<const char*>& tags) {
+    if (tags.empty()) {
+        return "-";
+    }
+
+    std::string result;
+    for (const char* tag : tags) {
+        if (!result.empty()) {
+            result += ",";
+        }
+        result += tag;
+    }
+    return result;
+}
+
+std::vector<const char*> ConflictTagsForPath(const std::string& path) {
+    const std::string lower = LowerAscii(path);
+    std::vector<const char*> tags;
+
+    const auto addIf = [&](const char* token, const char* tag) {
+        if (lower.find(token) != std::string::npos) {
+            tags.push_back(tag);
+        }
+    };
+
+    addIf("sampfuncs", "sampfuncs");
+    addIf("moonloader", "moonloader");
+    addIf("cleo", "cleo");
+    addIf("modloader", "modloader");
+    addIf("silentpatch", "silentpatch");
+    addIf("ginput", "input-hook");
+    addIf("widescreen", "widescreen");
+    addIf("skygfx", "graphics-hook");
+    addIf("reshade", "graphics-hook");
+    addIf("enb", "graphics-hook");
+    addIf("dxvk", "graphics-hook");
+    addIf("d3d9.dll", "d3d9-proxy");
+    addIf("dinput8.dll", "input-proxy");
+    addIf("ddraw.dll", "graphics-proxy");
+    addIf("dxgi.dll", "graphics-proxy");
+    addIf("winmm.dll", "loader-proxy");
+    addIf("vorbishooked", "loader-proxy");
+    addIf("crash", "crashfix");
+    addIf("anticrash", "crashfix");
+    addIf("samp addon", "samp-addon");
+    addIf("sampaddon", "samp-addon");
+    addIf("_chat.asi", "chat-hook");
+    addIf("chat.asi", "chat-hook");
+    addIf("rivatuner", "overlay");
+    addIf("rtss", "overlay");
+    addIf("discord", "overlay");
+    addIf("gameoverlayrenderer", "overlay");
+    addIf("steam", "overlay");
+    addIf("overwolf", "overlay");
+    addIf("fraps", "overlay");
+    addIf("msiafterburner", "overlay");
+    addIf("obs", "overlay");
+
+    return tags;
+}
+
+std::string GetModulePathUtf8(HMODULE module) {
+    wchar_t path[MAX_PATH]{};
+    if (!GetModuleFileNameW(module, path, MAX_PATH)) {
+        return {};
+    }
+    return WideToUtf8(path);
+}
+
+fs::path GetModuleDirectory(HMODULE module) {
+    wchar_t path[MAX_PATH]{};
+    if (!GetModuleFileNameW(module, path, MAX_PATH)) {
+        return {};
+    }
+    fs::path modulePath(path);
+    return modulePath.parent_path();
+}
+
+std::string FileTimeToText(const FILETIME& fileTime) {
+    SYSTEMTIME utc{};
+    SYSTEMTIME local{};
+    if (!FileTimeToSystemTime(&fileTime, &utc) || !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local)) {
+        return "unknown";
+    }
+
+    char buffer[64]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%04u-%02u-%02u %02u:%02u:%02u",
+        local.wYear,
+        local.wMonth,
+        local.wDay,
+        local.wHour,
+        local.wMinute,
+        local.wSecond);
+    return buffer;
+}
+
+std::uint64_t Fnva64File(const fs::path& path, bool& ok) {
+    ok = false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    std::uint64_t hash = 14695981039346656037ull;
+    std::array<std::uint8_t, 64 * 1024> buffer{};
+    DWORD bytesRead = 0;
+    while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) && bytesRead > 0) {
+        for (DWORD i = 0; i < bytesRead; ++i) {
+            hash ^= buffer[i];
+            hash *= 1099511628211ull;
+        }
+    }
+
+    ok = GetLastError() == ERROR_HANDLE_EOF || bytesRead == 0;
+    CloseHandle(file);
+    return hash;
+}
+
+void LogPeFileDetails(const fs::path& path, const char* label) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        debuglog::WriteError("[diag][file] %s PE open failed gle=%lu path=\"%s\"",
+            label,
+            static_cast<unsigned long>(GetLastError()),
+            PathToUtf8(path).c_str());
+        return;
+    }
+
+    IMAGE_DOS_HEADER dos{};
+    DWORD bytesRead = 0;
+    bool ok = ReadFile(file, &dos, sizeof(dos), &bytesRead, nullptr) && bytesRead == sizeof(dos)
+        && dos.e_magic == IMAGE_DOS_SIGNATURE;
+    IMAGE_NT_HEADERS32 nt{};
+    if (ok) {
+        SetFilePointer(file, dos.e_lfanew, nullptr, FILE_BEGIN);
+        ok = ReadFile(file, &nt, sizeof(nt), &bytesRead, nullptr) && bytesRead == sizeof(nt)
+            && nt.Signature == IMAGE_NT_SIGNATURE;
+    }
+
+    if (ok) {
+        debuglog::WriteInfo(
+            "[diag][file] %s PE entry=0x%08X imageBase=0x%08X sizeOfImage=0x%X timestamp=0x%08X checksum=0x%08X sections=%u path=\"%s\"",
+            label,
+            static_cast<unsigned>(nt.OptionalHeader.AddressOfEntryPoint),
+            static_cast<unsigned>(nt.OptionalHeader.ImageBase),
+            static_cast<unsigned>(nt.OptionalHeader.SizeOfImage),
+            static_cast<unsigned>(nt.FileHeader.TimeDateStamp),
+            static_cast<unsigned>(nt.OptionalHeader.CheckSum),
+            static_cast<unsigned>(nt.FileHeader.NumberOfSections),
+            PathToUtf8(path).c_str());
+    } else {
+        debuglog::WriteError("[diag][file] %s PE parse failed path=\"%s\"", label, PathToUtf8(path).c_str());
+    }
+
+    CloseHandle(file);
+}
+
+void LogFileFingerprint(const fs::path& path, const char* label) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        debuglog::WriteInfo(
+            "[diag][file] %s missing gle=%lu path=\"%s\"",
+            label,
+            static_cast<unsigned long>(GetLastError()),
+            PathToUtf8(path).c_str());
+        return;
+    }
+
+    const std::uint64_t size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32u) | data.nFileSizeLow;
+    bool hashOk = false;
+    const std::uint64_t hash = Fnva64File(path, hashOk);
+    const std::string pathText = PathToUtf8(path);
+    const std::string tags = JoinTags(ConflictTagsForPath(pathText));
+    debuglog::WriteInfo(
+        "[diag][file] %s size=%llu mtime=\"%s\" fnv64=%016llX hashOk=%d tags=%s path=\"%s\"",
+        label,
+        static_cast<unsigned long long>(size),
+        FileTimeToText(data.ftLastWriteTime).c_str(),
+        static_cast<unsigned long long>(hash),
+        hashOk ? 1 : 0,
+        tags.c_str(),
+        pathText.c_str());
+}
+
+bool ShouldInventoryFile(const fs::path& path) {
+    const std::string lowerName = LowerAscii(PathToUtf8(path.filename()));
+    const std::string lowerExt = LowerAscii(PathToUtf8(path.extension()));
+    static constexpr const char* kExtensions[] = {
+        ".asi", ".dll", ".exe", ".cs", ".cleo", ".lua", ".luac", ".sf", ".asi.disabled", ".dll.disabled",
+    };
+    for (const char* ext : kExtensions) {
+        if (lowerExt == ext || lowerName.ends_with(ext)) {
+            return true;
+        }
+    }
+    return !ConflictTagsForPath(lowerName).empty();
+}
+
+void LogDirectoryInventory(const fs::path& directory, const char* label, bool recursive, std::size_t limit) {
+    std::error_code ec;
+    if (!fs::exists(directory, ec)) {
+        debuglog::WriteInfo("[diag][inventory] %s missing path=\"%s\"", label, PathToUtf8(directory).c_str());
+        return;
+    }
+
+    std::size_t matched = 0;
+    std::size_t logged = 0;
+    const auto logPath = [&](const fs::path& path) {
+        if (!ShouldInventoryFile(path)) {
+            return;
+        }
+
+        ++matched;
+        if (logged >= limit) {
+            return;
+        }
+
+        ++logged;
+        LogFileFingerprint(path, label);
+    };
+
+    if (recursive) {
+        for (const auto& entry : fs::recursive_directory_iterator(directory, fs::directory_options::skip_permission_denied, ec)) {
+            if (ec) {
+                break;
+            }
+            if (entry.is_regular_file(ec)) {
+                logPath(entry.path());
+            }
+        }
+    } else {
+        for (const auto& entry : fs::directory_iterator(directory, fs::directory_options::skip_permission_denied, ec)) {
+            if (ec) {
+                break;
+            }
+            if (entry.is_regular_file(ec)) {
+                logPath(entry.path());
+            }
+        }
+    }
+
+    debuglog::WriteInfo(
+        "[diag][inventory] %s done matched=%llu logged=%llu limit=%llu recursive=%d path=\"%s\"",
+        label,
+        static_cast<unsigned long long>(matched),
+        static_cast<unsigned long long>(logged),
+        static_cast<unsigned long long>(limit),
+        recursive ? 1 : 0,
+        PathToUtf8(directory).c_str());
+}
+
+std::string ModuleOrigin(const std::string& path, const std::string& gameDir) {
+    wchar_t windowsDir[MAX_PATH]{};
+    GetWindowsDirectoryW(windowsDir, MAX_PATH);
+    const std::string winDir = WideToUtf8(windowsDir);
+    if (!gameDir.empty() && StartsWithNoCase(path, gameDir)) {
+        return "game";
+    }
+    if (!winDir.empty() && StartsWithNoCase(path, winDir)) {
+        return "system";
+    }
+    return "other";
+}
+
+void LogLoadedModuleSnapshot(const char* label, bool onlyNew, const fs::path& gameDir) {
+    static std::unordered_set<std::string> s_seenModules;
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        debuglog::WriteError("[diag][modules] %s snapshot failed gle=%lu", label, static_cast<unsigned long>(GetLastError()));
+        return;
+    }
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    std::size_t total = 0;
+    std::size_t logged = 0;
+    std::size_t suspects = 0;
+    const std::string gameDirText = PathToUtf8(gameDir);
+
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            ++total;
+            const std::string path = WideToUtf8(module.szExePath);
+            const std::string key = LowerAscii(path);
+            const bool inserted = s_seenModules.insert(key).second;
+            if (onlyNew && !inserted) {
+                continue;
+            }
+
+            const std::vector<const char*> tags = ConflictTagsForPath(path);
+            const std::string origin = ModuleOrigin(path, gameDirText);
+            const std::string lowerName = LowerAscii(WideToUtf8(module.szModule));
+            const bool coreInteresting = lowerName == "samp.dll" || lowerName == "gta_sa.exe"
+                || lowerName == "helperbyorc.asi" || lowerName == "d3d9.dll" || lowerName == "dinput8.dll";
+            const bool interesting = coreInteresting || !tags.empty() || origin != "system" || !onlyNew;
+            if (!interesting) {
+                continue;
+            }
+
+            if (!tags.empty()) {
+                ++suspects;
+            }
+            ++logged;
+            debuglog::WriteInfo(
+                "[diag][module] %s new=%d origin=%s base=0x%08X size=0x%X tags=%s name=\"%s\" path=\"%s\"",
+                label,
+                inserted ? 1 : 0,
+                origin.c_str(),
+                static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(module.modBaseAddr)),
+                static_cast<unsigned>(module.modBaseSize),
+                JoinTags(tags).c_str(),
+                WideToUtf8(module.szModule).c_str(),
+                path.c_str());
+        } while (Module32NextW(snapshot, &module));
+    }
+
+    CloseHandle(snapshot);
+    debuglog::WriteInfo(
+        "[diag][modules] %s done total=%llu logged=%llu suspects=%llu onlyNew=%d",
+        label,
+        static_cast<unsigned long long>(total),
+        static_cast<unsigned long long>(logged),
+        static_cast<unsigned long long>(suspects),
+        onlyNew ? 1 : 0);
+}
+
+void LogKnownProxyFiles(const fs::path& gameDir) {
+    static constexpr const wchar_t* kProxyNames[] = {
+        L"d3d9.dll",
+        L"dinput8.dll",
+        L"ddraw.dll",
+        L"dxgi.dll",
+        L"winmm.dll",
+        L"vorbisHooked.dll",
+        L"vorbisFile.dll",
+        L"bass.dll",
+    };
+
+    for (const wchar_t* name : kProxyNames) {
+        const fs::path path = gameDir / name;
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            LogFileFingerprint(path, "proxy-candidate");
+        }
+    }
+}
+
+void LogStartupDiagnostics(HMODULE module) {
+    const fs::path gameDir = GetModuleDirectory(nullptr);
+    wchar_t currentDir[MAX_PATH]{};
+    GetCurrentDirectoryW(MAX_PATH, currentDir);
+
+    debuglog::WriteInfo(
+        "[diag][startup] pid=%lu tick=%llums exe=\"%s\" module=\"%s\" cwd=\"%s\" cmd=\"%s\"",
+        static_cast<unsigned long>(GetCurrentProcessId()),
+        static_cast<unsigned long long>(GetTickCount64()),
+        GetModulePathUtf8(nullptr).c_str(),
+        GetModulePathUtf8(module).c_str(),
+        WideToUtf8(currentDir).c_str(),
+        GetCommandLineA());
+
+    LogFileFingerprint(gameDir / L"gta_sa.exe", "gta_sa.exe");
+    LogPeFileDetails(gameDir / L"gta_sa.exe", "gta_sa.exe");
+    LogFileFingerprint(gameDir / L"samp.dll", "samp.dll");
+    LogPeFileDetails(gameDir / L"samp.dll", "samp.dll");
+    LogFileFingerprint(gameDir / L"samp.exe", "samp.exe");
+    LogFileFingerprint(GetModulePathUtf8(module), "HelperByOrc");
+
+    LogKnownProxyFiles(gameDir);
+    LogDirectoryInventory(gameDir, "root-plugin", false, 200);
+    LogDirectoryInventory(gameDir / L"scripts", "scripts", true, 300);
+    LogDirectoryInventory(gameDir / L"cleo", "cleo", true, 300);
+    LogDirectoryInventory(gameDir / L"moonloader", "moonloader", true, 300);
+    LogDirectoryInventory(gameDir / L"modloader", "modloader", true, 500);
+    LogDirectoryInventory(gameDir / L"SAMPFUNCS", "SAMPFUNCS", true, 300);
+    LogLoadedModuleSnapshot("startup", false, gameDir);
+}
 
 std::size_t ToTabIndex(MainTab tab) {
     return static_cast<std::size_t>(tab);
@@ -197,6 +621,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     module_ = module;
     debuglog::Initialize(module);
     debuglog::WriteInfo("ModApp attached");
+    LogStartupDiagnostics(module);
     minHookInitialized_ = minhook::Initialize();
     if (!minHookInitialized_) {
         debuglog::WriteError("MinHook initialization failed");
@@ -456,6 +881,13 @@ void ModApp::Tick() {
         sampHooks_.Refresh();
         sampRakHooks_.Refresh();
         const bool readyAfterHooks = sampApi_.isSAMPInitilizeLua();
+        if (!readyAfterHooks || readyBeforeHooks != readyAfterHooks || sampUiPipelineReady_ != readyAfterHooks) {
+            sampApi_.LogReadinessDiagnostics("tick");
+        }
+        if (!readyAfterHooks && now >= nextRuntimeModuleSnapshotAtMs_) {
+            LogLoadedModuleSnapshot("runtime-new", true, GetModuleDirectory(nullptr));
+            nextRuntimeModuleSnapshotAtMs_ = now + 2000;
+        }
         if (sampUiPipelineReady_ != readyAfterHooks) {
             debuglog::WriteInfo(
                 "[probe] SA:MP input gate changed %d -> %d ts=%llums",

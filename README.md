@@ -10,7 +10,7 @@
 
 В удалённый репозиторий попадают **исходный код проекта**, **профиль сборки** (`HelperByOrc.vcxproj`, `HelperByOrc.slnx`, связанные файлы проекта) и **vendored-дерево** `HelperByOrc/external` (зависимости для воспроизводимой сборки на чистой машине). Снимки в `external/` хранятся как обычные файлы (без вложенных репозиториев).
 
-Служебные вещи (**`.cursor/`**, локальные копии `.codex/`, артефакты сборки) в удалённый репозиторий **не выкладываются** (см. `.gitignore`). `README*`, `context.md` и корневой `.gitignore` в репозитории присутствуют в норме.
+Служебные вещи (**`.cursor/`**, локальные файлы `.codex/` кроме `.codex/actions.md`, артефакты сборки) в удалённый репозиторий **не выкладываются** (см. `.gitignore`). `README*`, `context.md`, `.codex/actions.md` и корневой `.gitignore` в репозитории присутствуют в норме.
 
 ## Текущее состояние
 
@@ -36,9 +36,13 @@
 - Уровень логирования UI по умолчанию: `Info` (подробный лог включён сразу; при необходимости можно снизить в `Настройки -> Уровень логирования`).
 - Для ранней диагностики старта/остановки добавлены bootstrap-маркеры: `OutputDebugStringA` + строки `[bootstrap] ...` в `HelperByOrc.log`.
 - Диагностика загрузочных зависаний усилена probe-маркерами: `[ui][probe]` для `Present/EndScene`, `[probe] Refresh begin/end` с `sampReady(beforeHooks/afterHooks)`, отдельный маркер смены input-gate `0 -> 1`, и `[probe] shutdown begin/end`.
+- Стартовый лог теперь собирает инвентаризацию окружения: fingerprint/mtime/FNV64 и PE-метаданные `gta_sa.exe`, `samp.dll`, `HelperByOrc.asi`, proxy-кандидатов, root/CLEO/MoonLoader/modloader/SAMPFUNCS файлов и загруженных модулей с тегами потенциальных конфликтов.
+- SA:MP readiness-диагностика пишет `sampInfo`, `chat`, `chatInput`, `dialog`, `refGame`, регионы памяти, поля pools/RakClient/chat/dialog и первые байты критичных SA:MP-функций. `sampInfo=0` при `refGame=1` считается ранним этапом до создания `CNetGame`, если затем `sampInfo` становится ненулевым.
+- D3D/overlay-слой логирует поиск окна игры через GTA HWND `0x00C8CF88`, timing `Direct3DCreate9`/dummy `CreateDevice`, сведения HWND/class/title/pid/tid и module/RVA целей `Reset`/`Present`/`EndScene`.
 - До полной инициализации SA:MP overlay откладывает установку `WndProc`, а cursor/input pipeline остаётся gated — это снижает риск зависания/залипания курсора на раннем loading screen.
 - `SampHooks` и `SampRakHooks` ставятся только после full-ready состояния SA:MP (`isSAMPInitilizeLua`), чтобы исключить раннюю установку хуков на загрузочном экране.
 - Проверка готовности SA:MP использует fallback-детектор по нескольким признакам (`SAMP_INFO`, `chat input`, `RefGame`, `dialog`), а в логе при ожидании выводится probe-маска для точной диагностики проблемных окружений.
+- Прямые RakNet-вызовы закреплены на явных vtable-индексах: `Send(BitStream)` = `6`, `RPC(BitStream)` = `25`.
 - В `Настройки` добавлен runtime-переключатель `apply_damage_protection`: включает/выключает действие detour `CDamageManager_ApplyDamage`, которое блокирует отваливание компонентов транспорта при уроне (сам хук остаётся установленным).
 - Быстрое меню биндера (дерево и каскад): хост через `OpenPopup` / `BeginPopup` со стабильным id, без агрессивного `BringWindowToDisplayFront` каждый кадр; при открытии — доводка фокуса и одноразовый sync координат мыши, чтобы не было «клик съели, а ImGui не в hover».
 - В overlay для тестов отключена клавиатурная навигация ImGui (`NavEnableKeyboard` / захват клавиатуры), чтобы меньше конфликтовать с SA:MP.
@@ -102,6 +106,7 @@ HelperByOrc/Release/HelperByOrc.asi
 - `README.md` — описание для GitHub.
 - `README.txt` — тот же смысл в формате, удобном для вставки на форум (BBCode).
 - `context.md` — подробный контекст для разработки (архитектура, сборка, соглашения).
+- `.codex/actions.md` — краткий журнал действий Codex по проекту.
 
 ## Вспомогательные скрипты
 

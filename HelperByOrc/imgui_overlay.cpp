@@ -43,6 +43,58 @@ constexpr uint64_t kRenderStatsTraceIntervalMs =
 constexpr uint64_t kNonPrimarySkipTraceIntervalMs = 1500;
 constexpr uint64_t kSlowFrameTraceThresholdMs =
     (kUiDebugProfile == UiDebugProfile::ProductionDebug) ? 40 : 8;
+constexpr uintptr_t kGtaWindowHandleAddress = 0x00C8CF88u;
+
+void TraceModuleForAddress(const char* label, const void* address) {
+    HMODULE module = nullptr;
+    WCHAR path[MAX_PATH]{};
+    if (address
+        && GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(address),
+            &module)) {
+        GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path)));
+        const auto rva = static_cast<unsigned long long>(
+            reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(module));
+        debuglog::WriteInfo("[ui][d3d] target %s=%p module=%ls rva=0x%llX", label, address, path, rva);
+        return;
+    }
+
+    debuglog::WriteInfo("[ui][d3d] target %s=%p module=<unknown>", label, address);
+}
+
+HWND ReadGtaWindowHandle() {
+    HWND hwnd = nullptr;
+    SIZE_T bytesRead = 0;
+    if (!ReadProcessMemory(
+            GetCurrentProcess(),
+            reinterpret_cast<LPCVOID>(kGtaWindowHandleAddress),
+            &hwnd,
+            sizeof(hwnd),
+            &bytesRead)
+        || bytesRead != sizeof(hwnd)) {
+        return nullptr;
+    }
+    return IsWindow(hwnd) ? hwnd : nullptr;
+}
+
+void TraceWindowDetails(const char* source, HWND hwnd) {
+    WCHAR title[256]{};
+    WCHAR className[128]{};
+    DWORD processId = 0;
+    const DWORD threadId = GetWindowThreadProcessId(hwnd, &processId);
+    GetWindowTextW(hwnd, title, static_cast<int>(std::size(title)));
+    GetClassNameW(hwnd, className, static_cast<int>(std::size(className)));
+    debuglog::WriteInfo(
+        "[ui] window source=%s hwnd=%p class=%ls title=%ls pid=%lu tid=%lu valid=%d",
+        source ? source : "<null>",
+        hwnd,
+        className,
+        title,
+        processId,
+        threadId,
+        IsWindow(hwnd) ? 1 : 0);
+}
 
 void TraceRenderPathCounters(const char* sourceTag, bool rendered) {
     static uint64_t s_windowStartMs = 0;
@@ -115,6 +167,7 @@ void TraceWindowAndDpi(HWND hwnd) {
         }
     }
     debuglog::WriteInfo("[ui] game window resolved hwnd=%p dpi=%u", hwnd, dpi);
+    TraceWindowDetails("resolved", hwnd);
 }
 
 const char* DbgImGuiWindowName(const ImGuiWindow* w) {
@@ -523,12 +576,20 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
         return false;
     }
 
+    const uint64_t d3dCreateBeginMs = GetTickCount64();
+    debuglog::WriteInfo("[ui][d3d] Direct3DCreate9 begin");
     IDirect3D9* d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
     if (!d3d9) {
-        debuglog::WriteError("Direct3DCreate9 failed");
+        debuglog::WriteError(
+            "Direct3DCreate9 failed elapsed=%llums",
+            static_cast<unsigned long long>(GetTickCount64() - d3dCreateBeginMs));
         DestroyWindow(window);
         return false;
     }
+    debuglog::WriteInfo(
+        "[ui][d3d] Direct3DCreate9 ok d3d9=%p elapsed=%llums",
+        d3d9,
+        static_cast<unsigned long long>(GetTickCount64() - d3dCreateBeginMs));
 
     D3DPRESENT_PARAMETERS parameters{};
     parameters.Windowed = TRUE;
@@ -536,6 +597,8 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
     parameters.hDeviceWindow = window;
     parameters.BackBufferFormat = D3DFMT_UNKNOWN;
 
+    const uint64_t createDeviceBeginMs = GetTickCount64();
+    debuglog::WriteInfo("[ui][d3d] dummy CreateDevice begin hwnd=%p", window);
     HRESULT result = d3d9->CreateDevice(
         D3DADAPTER_DEFAULT,
         D3DDEVTYPE_HAL,
@@ -543,6 +606,11 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
         D3DCREATE_SOFTWARE_VERTEXPROCESSING,
         &parameters,
         outDevice);
+    debuglog::WriteInfo(
+        "[ui][d3d] dummy CreateDevice end hr=0x%08lX device=%p elapsed=%llums",
+        static_cast<unsigned long>(result),
+        outDevice ? *outDevice : nullptr,
+        static_cast<unsigned long long>(GetTickCount64() - createDeviceBeginMs));
 
     d3d9->Release();
 
@@ -578,6 +646,9 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
     endSceneTarget_ = vtable[42];
     presentTarget_ = vtable[17];
     resetTarget_ = vtable[16];
+    TraceModuleForAddress("IDirect3DDevice9::Reset", resetTarget_);
+    TraceModuleForAddress("IDirect3DDevice9::Present", presentTarget_);
+    TraceModuleForAddress("IDirect3DDevice9::EndScene", endSceneTarget_);
     originalEndScene_ = nullptr;
     originalPresent_ = nullptr;
     originalReset_ = nullptr;
@@ -645,16 +716,33 @@ HWND ImGuiOverlay::ResolveGameWindow(IDirect3DDevice9* device) const {
         return gameWindow_;
     }
 
+    if (HWND gtaWindow = ReadGtaWindowHandle()) {
+        TraceWindowDetails("gta_global_0x00C8CF88", gtaWindow);
+        return gtaWindow;
+    }
+
     if (device) {
         D3DDEVICE_CREATION_PARAMETERS parameters{};
         if (SUCCEEDED(device->GetCreationParameters(&parameters)) && IsWindow(parameters.hFocusWindow)) {
+            TraceWindowDetails("d3d_creation_params", parameters.hFocusWindow);
             return parameters.hFocusWindow;
         }
     }
 
     HWND foreground = GetForegroundWindow();
     if (foreground && IsWindow(foreground)) {
-        return foreground;
+        DWORD processId = 0;
+        GetWindowThreadProcessId(foreground, &processId);
+        if (processId == GetCurrentProcessId()) {
+            TraceWindowDetails("foreground_same_process", foreground);
+            return foreground;
+        }
+        static uint64_t s_lastForegroundSkipTraceMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - s_lastForegroundSkipTraceMs >= 1000) {
+            s_lastForegroundSkipTraceMs = now;
+            TraceWindowDetails("foreground_skipped_other_process", foreground);
+        }
     }
 
     return nullptr;

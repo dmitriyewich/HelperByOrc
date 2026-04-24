@@ -1,5 +1,6 @@
 .claude/
-.codex/
+.codex/*
+!.codex/actions.md
 .vs/
 _tmp/
 _tmp_*/

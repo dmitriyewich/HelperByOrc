@@ -195,6 +195,7 @@ public:
     void Refresh();
     bool isSampLoadedLua();
     bool isSAMPInitilizeLua();
+    void LogReadinessDiagnostics(const char* context) const;
 
     std::uintptr_t PedPool();
     std::string GetNameID(int id);

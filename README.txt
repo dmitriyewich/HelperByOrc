@@ -54,6 +54,9 @@ HelperByOrc — это ASI-плагин, который помогает зап�
 [*]По умолчанию включено полное логирование ([b]Info[/b]). При необходимости можно переключить уровень в настройках.
 [*]Для ранней диагностики запуска/выгрузки есть bootstrap-маркеры в логе: [i][bootstrap] ...[/i].
 [*]Для диагностики загрузочных зависаний добавлены probe-маркеры: [i][ui][probe][/i] (Present/EndScene), [i][probe] Refresh begin/end[/i], маркер переключения gate, и [i][probe] shutdown begin/end[/i].
+[*]Стартовый лог показывает окружение клиента: samp.dll, gta_sa.exe, HelperByOrc.asi, ASI/CLEO/MoonLoader/modloader/SAMPFUNCS файлы и загруженные модули с тегами возможных конфликтов.
+[*]Если в логе есть [i]sampInfo=0[/i], но позже появляется ненулевой [i]sampInfo[/i], это обычный ранний этап до создания CNetGame, а не отдельная ошибка.
+[*]D3D/overlay диагностика показывает, через какое окно и какой d3d9.dll работает рендер, включая Present/EndScene/Reset.
 [*]Все основные действия настраиваются через UI внутри игры.
 [/LIST]
 
@@ -66,7 +69,7 @@ HelperByOrc — это ASI-плагин, который помогает зап�
 [b]Исходники и документация[/b]
 [LIST]
 [*]Репозиторий: [url=https://github.com/dmitriyewich/HelperByOrc]github.com/dmitriyewich/HelperByOrc[/url]
-[*]В репозитории также есть [i]context.md[/i] (для разработки) и [i]README.md[/i] (кратко, для GitHub).
+[*]В репозитории также есть [i]context.md[/i] (для разработки), [i]README.md[/i] (кратко, для GitHub) и [i].codex/actions.md[/i] (журнал действий).
 [/LIST]
 
 [right]:cool:[/right]
