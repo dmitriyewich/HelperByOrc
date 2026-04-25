@@ -447,6 +447,85 @@ void LogKnownProxyFiles(const fs::path& gameDir) {
     }
 }
 
+void LogAppCompatLayersForRoot(HKEY root, const char* rootName, const fs::path& gameDir) {
+    static constexpr const wchar_t* kLayersKey =
+        L"Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers";
+
+    HKEY key = nullptr;
+    const LONG openResult = RegOpenKeyExW(root, kLayersKey, 0, KEY_READ, &key);
+    if (openResult != ERROR_SUCCESS) {
+        debuglog::WriteInfo(
+            "[diag][appcompat] root=%s open=0x%08lX matches=0 key=\"%ls\"",
+            rootName,
+            static_cast<unsigned long>(openResult),
+            kLayersKey);
+        return;
+    }
+
+    const std::string gameDirText = LowerAscii(PathToUtf8(gameDir));
+    std::size_t matches = 0;
+    for (DWORD index = 0;; ++index) {
+        wchar_t valueName[1024]{};
+        wchar_t valueData[2048]{};
+        DWORD valueNameChars = static_cast<DWORD>(std::size(valueName));
+        DWORD valueDataBytes = sizeof(valueData);
+        DWORD valueType = 0;
+
+        const LONG enumResult = RegEnumValueW(
+            key,
+            index,
+            valueName,
+            &valueNameChars,
+            nullptr,
+            &valueType,
+            reinterpret_cast<LPBYTE>(valueData),
+            &valueDataBytes);
+        if (enumResult == ERROR_NO_MORE_ITEMS) {
+            break;
+        }
+        if (enumResult != ERROR_SUCCESS) {
+            debuglog::WriteError(
+                "[diag][appcompat] root=%s enum failed index=%lu result=0x%08lX",
+                rootName,
+                static_cast<unsigned long>(index),
+                static_cast<unsigned long>(enumResult));
+            break;
+        }
+
+        const std::string valueNameText = WideToUtf8(valueName);
+        const std::string valueDataText = valueType == REG_SZ || valueType == REG_EXPAND_SZ ? WideToUtf8(valueData) : "<non-string>";
+        const std::string lowerName = LowerAscii(valueNameText);
+        const bool interesting = (!gameDirText.empty() && StartsWithNoCase(lowerName, gameDirText))
+            || lowerName.find("gta_sa.exe") != std::string::npos
+            || lowerName.find("samp.exe") != std::string::npos
+            || lowerName.find("main.exe") != std::string::npos
+            || lowerName.find("arizona") != std::string::npos;
+        if (!interesting) {
+            continue;
+        }
+
+        ++matches;
+        debuglog::WriteInfo(
+            "[diag][appcompat] root=%s value=\"%s\" type=%lu data=\"%s\"",
+            rootName,
+            valueNameText.c_str(),
+            static_cast<unsigned long>(valueType),
+            valueDataText.c_str());
+    }
+
+    RegCloseKey(key);
+    debuglog::WriteInfo(
+        "[diag][appcompat] root=%s matches=%llu gameDir=\"%s\"",
+        rootName,
+        static_cast<unsigned long long>(matches),
+        PathToUtf8(gameDir).c_str());
+}
+
+void LogAppCompatLayers(const fs::path& gameDir) {
+    LogAppCompatLayersForRoot(HKEY_CURRENT_USER, "HKCU", gameDir);
+    LogAppCompatLayersForRoot(HKEY_LOCAL_MACHINE, "HKLM", gameDir);
+}
+
 void LogStartupDiagnostics(HMODULE module) {
     const fs::path gameDir = GetModuleDirectory(nullptr);
     wchar_t currentDir[MAX_PATH]{};
@@ -469,6 +548,7 @@ void LogStartupDiagnostics(HMODULE module) {
     LogFileFingerprint(GetModulePathUtf8(module), "HelperByOrc");
 
     LogKnownProxyFiles(gameDir);
+    LogAppCompatLayers(gameDir);
     LogDirectoryInventory(gameDir, "root-plugin", false, 200);
     LogDirectoryInventory(gameDir / L"scripts", "scripts", true, 300);
     LogDirectoryInventory(gameDir / L"cleo", "cleo", true, 300);
@@ -887,6 +967,24 @@ void ModApp::Tick() {
         if (!readyAfterHooks && now >= nextRuntimeModuleSnapshotAtMs_) {
             LogLoadedModuleSnapshot("runtime-new", true, GetModuleDirectory(nullptr));
             nextRuntimeModuleSnapshotAtMs_ = now + 2000;
+        }
+        if (!readyAfterHooks && sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
+            if (sampNotReadySinceMs_ == 0) {
+                sampNotReadySinceMs_ = now;
+                nextSampStuckTraceAtMs_ = now + 8000;
+            } else if (now >= nextSampStuckTraceAtMs_) {
+                debuglog::WriteError(
+                    "[probe][stuck] SA:MP stayed before full-ready gate for %llums; "
+                    "check [samp][diag] transfer owners, [diag][appcompat], apphelp/skygfx/d3d9-proxy/MoonLoader modules. lastError=\"%s\"",
+                    static_cast<unsigned long long>(now - sampNotReadySinceMs_),
+                    sampApi_.lastError().c_str());
+                sampApi_.LogReadinessDiagnostics("stuck");
+                LogLoadedModuleSnapshot("runtime-stuck", true, GetModuleDirectory(nullptr));
+                nextSampStuckTraceAtMs_ = now + 8000;
+            }
+        } else {
+            sampNotReadySinceMs_ = 0;
+            nextSampStuckTraceAtMs_ = 0;
         }
         if (sampUiPipelineReady_ != readyAfterHooks) {
             debuglog::WriteInfo(

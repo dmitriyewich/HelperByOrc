@@ -74,6 +74,8 @@ private:
     std::uint32_t logoHeight_ = 0;
     std::uint64_t nextSampRefreshAtMs_ = 0;
     std::uint64_t nextRuntimeModuleSnapshotAtMs_ = 0;
+    std::uint64_t sampNotReadySinceMs_ = 0;
+    std::uint64_t nextSampStuckTraceAtMs_ = 0;
     int overlayCursorMode_ = -1;
     bool overlayCursorEnabled_ = false;
     bool overlayLastUiHold_ = false;

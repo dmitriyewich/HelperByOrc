@@ -321,13 +321,14 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
         const std::uint32_t relative = offset.Get(currentVersion_);
         const std::uintptr_t address = relative == 0 ? 0 : base + relative;
         debuglog::WriteInfo(
-            "[samp][diag] %s code %-18s off=0x%X addr=0x%08X bytes=%s region=\"%s\"",
+            "[samp][diag] %s code %-18s off=0x%X addr=0x%08X bytes=%s region=\"%s\" transfer=\"%s\"",
             tag,
             name,
             static_cast<unsigned>(relative),
             static_cast<unsigned>(address),
             HexBytes(address, 8).c_str(),
-            MemoryRegionSummary(address).c_str());
+            MemoryRegionSummary(address).c_str(),
+            DecodeControlTransfer(address).c_str());
     };
 
     logCodeBytes("CDialog_Show", main_offsets.CDialog_Show);

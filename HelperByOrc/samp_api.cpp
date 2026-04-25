@@ -247,6 +247,112 @@ std::string ModulePath(HMODULE module) {
     return path;
 }
 
+std::string ModuleOwnerSummary(std::uintptr_t address) {
+    if (address == 0) {
+        return "target=null";
+    }
+
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(address),
+            &module)
+        || !module) {
+        char buffer[256]{};
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "target=0x%08X module=<unknown> region=\"%s\"",
+            static_cast<unsigned>(address),
+            MemoryRegionSummary(address).c_str());
+        return buffer;
+    }
+
+    const std::uintptr_t moduleBase = reinterpret_cast<std::uintptr_t>(module);
+    char buffer[512]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "target=0x%08X module='%s' rva=0x%X region='%s'",
+        static_cast<unsigned>(address),
+        ModulePath(module).c_str(),
+        static_cast<unsigned>(address - moduleBase),
+        MemoryRegionSummary(address).c_str());
+    return buffer;
+}
+
+std::string DecodeControlTransfer(std::uintptr_t address) {
+    if (address == 0 || !IsReadableMemory(address, 8)) {
+        return "unreadable";
+    }
+
+    std::uint8_t op0 = 0;
+    if (!SafeRead(address, op0)) {
+        return "read-failed";
+    }
+
+    if (op0 == 0xE9 || op0 == 0xE8) {
+        std::int32_t rel = 0;
+        if (!SafeRead(address + 1, rel)) {
+            return "rel32-read-failed";
+        }
+
+        const std::uintptr_t target = address + 5 + rel;
+        return std::string(op0 == 0xE9 ? "rel32-jmp " : "rel32-call ") + ModuleOwnerSummary(target);
+    }
+
+    if (op0 == 0xEB) {
+        std::int8_t rel = 0;
+        if (!SafeRead(address + 1, rel)) {
+            return "rel8-read-failed";
+        }
+
+        const std::uintptr_t target = address + 2 + rel;
+        return "rel8-jmp " + ModuleOwnerSummary(target);
+    }
+
+    std::uint8_t op1 = 0;
+    SafeRead(address + 1, op1);
+    if (op0 == 0xFF && (op1 == 0x25 || op1 == 0x15)) {
+        std::uint32_t pointerAddress = 0;
+        if (!SafeRead(address + 2, pointerAddress)) {
+            return "abs-indirect-read-failed";
+        }
+
+        std::uint32_t target = 0;
+        const bool targetOk = IsReadableMemory(pointerAddress, sizeof(target)) && SafeRead(pointerAddress, target);
+        char buffer[128]{};
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "%s ptr=0x%08X read=%d ",
+            op1 == 0x25 ? "abs-indirect-jmp" : "abs-indirect-call",
+            static_cast<unsigned>(pointerAddress),
+            targetOk ? 1 : 0);
+        return std::string(buffer) + ModuleOwnerSummary(target);
+    }
+
+    if (op0 == 0x68) {
+        std::uint32_t target = 0;
+        std::uint8_t retOp = 0;
+        if (SafeRead(address + 1, target) && SafeRead(address + 5, retOp) && (retOp == 0xC3 || retOp == 0xCB)) {
+            return "push-ret " + ModuleOwnerSummary(target);
+        }
+    }
+
+    if (op0 == 0xB8) {
+        std::uint32_t target = 0;
+        std::uint8_t op5 = 0;
+        std::uint8_t op6 = 0;
+        if (SafeRead(address + 1, target) && SafeRead(address + 5, op5) && SafeRead(address + 6, op6)
+            && op5 == 0xFF && (op6 == 0xE0 || op6 == 0xD0)) {
+            return std::string(op6 == 0xE0 ? "mov-eax-jmp " : "mov-eax-call ") + ModuleOwnerSummary(target);
+        }
+    }
+
+    return "none";
+}
+
 std::string HexBytes(std::uintptr_t address, std::size_t count) {
     if (address == 0 || count == 0 || count > 16 || !IsReadableMemory(address, count)) {
         return "unreadable";

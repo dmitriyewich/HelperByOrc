@@ -56,7 +56,9 @@ HelperByOrc — это ASI-плагин, который помогает зап�
 [*]Для диагностики загрузочных зависаний добавлены probe-маркеры: [i][ui][probe][/i] (Present/EndScene), [i][probe] Refresh begin/end[/i], маркер переключения gate, и [i][probe] shutdown begin/end[/i].
 [*]Стартовый лог показывает окружение клиента: samp.dll, gta_sa.exe, HelperByOrc.asi, ASI/CLEO/MoonLoader/modloader/SAMPFUNCS файлы и загруженные модули с тегами возможных конфликтов.
 [*]Если в логе есть [i]sampInfo=0[/i], но позже появляется ненулевой [i]sampInfo[/i], это обычный ранний этап до создания CNetGame, а не отдельная ошибка.
-[*]D3D/overlay диагностика показывает, через какое окно и какой d3d9.dll работает рендер, включая Present/EndScene/Reset.
+[*]Если SA:MP долго не доходит до готовности, лог пишет [i][probe][stuck][/i] и показывает, какая ASI/DLL уже поставила ранние JMP/CALL-патчи в критичные функции SA:MP.
+[*]Стартовый лог также проверяет AppCompat Layers в реестре, чтобы быстрее находить Compatibility Mode / apphelp.dll-сценарии.
+[*]D3D/overlay диагностика показывает, через какое окно и какой d3d9.dll работает рендер, включая Present/EndScene/Reset. Если Reset ведёт в apphelp.dll Windows Compatibility, Reset-hook пропускается, а overlay остаётся активным через Present/EndScene.
 [*]Все основные действия настраиваются через UI внутри игры.
 [/LIST]
 
@@ -69,7 +71,7 @@ HelperByOrc — это ASI-плагин, который помогает зап�
 [b]Исходники и документация[/b]
 [LIST]
 [*]Репозиторий: [url=https://github.com/dmitriyewich/HelperByOrc]github.com/dmitriyewich/HelperByOrc[/url]
-[*]В репозитории также есть [i]context.md[/i] (для разработки), [i]README.md[/i] (кратко, для GitHub) и [i].codex/actions.md[/i] (журнал действий).
+[*]В репозитории также есть [i]context.md[/i] (для разработки) и [i]README.md[/i] (кратко, для GitHub). Локальные служебные файлы [i].codex[/i] в репозиторий не публикуются.
 [/LIST]
 
 [right]:cool:[/right]

@@ -45,15 +45,62 @@ constexpr uint64_t kSlowFrameTraceThresholdMs =
     (kUiDebugProfile == UiDebugProfile::ProductionDebug) ? 40 : 8;
 constexpr uintptr_t kGtaWindowHandleAddress = 0x00C8CF88u;
 
-void TraceModuleForAddress(const char* label, const void* address) {
+bool TryGetModuleForAddress(const void* address, HMODULE* outModule, WCHAR* outPath, DWORD outPathCapacity) {
+    if (outModule) {
+        *outModule = nullptr;
+    }
+    if (outPath && outPathCapacity > 0) {
+        outPath[0] = L'\0';
+    }
+
+    if (!address) {
+        return false;
+    }
+
     HMODULE module = nullptr;
-    WCHAR path[MAX_PATH]{};
-    if (address
-        && GetModuleHandleExW(
+    if (!GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             reinterpret_cast<LPCWSTR>(address),
             &module)) {
-        GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path)));
+        return false;
+    }
+
+    if (outModule) {
+        *outModule = module;
+    }
+    if (outPath && outPathCapacity > 0) {
+        GetModuleFileNameW(module, outPath, outPathCapacity);
+    }
+    return true;
+}
+
+const WCHAR* BaseNameFromPath(const WCHAR* path) {
+    if (!path) {
+        return L"";
+    }
+
+    const WCHAR* baseName = path;
+    for (const WCHAR* cursor = path; *cursor; ++cursor) {
+        if (*cursor == L'\\' || *cursor == L'/') {
+            baseName = cursor + 1;
+        }
+    }
+    return baseName;
+}
+
+bool IsAddressInModuleNamed(const void* address, const WCHAR* expectedBaseName, WCHAR* outPath, DWORD outPathCapacity) {
+    HMODULE module = nullptr;
+    if (!TryGetModuleForAddress(address, &module, outPath, outPathCapacity)) {
+        return false;
+    }
+
+    return lstrcmpiW(BaseNameFromPath(outPath), expectedBaseName) == 0;
+}
+
+void TraceModuleForAddress(const char* label, const void* address) {
+    HMODULE module = nullptr;
+    WCHAR path[MAX_PATH]{};
+    if (TryGetModuleForAddress(address, &module, path, static_cast<DWORD>(std::size(path)))) {
         const auto rva = static_cast<unsigned long long>(
             reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(module));
         debuglog::WriteInfo("[ui][d3d] target %s=%p module=%ls rva=0x%llX", label, address, path, rva);
@@ -652,6 +699,12 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
     originalEndScene_ = nullptr;
     originalPresent_ = nullptr;
     originalReset_ = nullptr;
+    WCHAR resetModulePath[MAX_PATH]{};
+    const bool skipResetHook = IsAddressInModuleNamed(
+        resetTarget_,
+        L"apphelp.dll",
+        resetModulePath,
+        static_cast<DWORD>(std::size(resetModulePath)));
 
     if (!minhook::CreateAndEnableHook(
             endSceneTarget_,
@@ -681,30 +734,32 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         return false;
     }
 
-    if (!minhook::CreateAndEnableHook(
-            resetTarget_,
-            reinterpret_cast<void*>(&ResetDetour),
-            &originalReset_,
-            "IDirect3DDevice9::Reset")) {
-        minhook::DisableAndRemoveHook(presentTarget_, "IDirect3DDevice9::Present");
-        minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
-        endSceneTarget_ = nullptr;
-        originalEndScene_ = nullptr;
-        originalPresent_ = nullptr;
+    if (skipResetHook) {
+        debuglog::WriteError(
+            "[ui][d3d] IDirect3DDevice9::Reset hook skipped: target is Windows appcompat shim module=%ls target=%p; "
+            "overlay remains active via Present/EndScene",
+            resetModulePath,
+            resetTarget_);
         originalReset_ = nullptr;
-        presentTarget_ = nullptr;
         resetTarget_ = nullptr;
-        dummyDevice->Release();
-        DestroyWindow(dummyWindow);
-        return false;
+    } else if (!minhook::CreateAndEnableHook(
+                   resetTarget_,
+                   reinterpret_cast<void*>(&ResetDetour),
+                   &originalReset_,
+                   "IDirect3DDevice9::Reset")) {
+        debuglog::WriteError(
+            "[ui][d3d] IDirect3DDevice9::Reset hook unavailable; overlay remains active via Present/EndScene");
+        originalReset_ = nullptr;
+        resetTarget_ = nullptr;
     }
 
     hooksInstalled_ = true;
     debuglog::WriteInfo(
-        "D3D9 hooks installed via MinHook. EndScene=%p Present=%p Reset=%p",
+        "D3D9 hooks installed via MinHook. EndScene=%p Present=%p Reset=%p ResetHooked=%d",
         endSceneTarget_,
         presentTarget_,
-        resetTarget_);
+        resetTarget_,
+        (resetTarget_ && originalReset_) ? 1 : 0);
 
     dummyDevice->Release();
     DestroyWindow(dummyWindow);
