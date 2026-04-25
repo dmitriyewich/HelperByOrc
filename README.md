@@ -1,126 +1,89 @@
 # HelperByOrc
 
-Нативный `ASI`-плагин на `C++` для `GTA San Andreas` / `SA:MP`.
+Native `ASI` plugin for `GTA San Andreas` / `SA:MP`.
 
-Проект является переносом логики `HelperByOrc` с `Lua` / `MoonLoader` на нативный `Win32`-модуль. Текущее активное имя проекта, solution и выходного плагина в репозитории: `HelperByOrc`.
+The project ports the original HelperByOrc Lua/MoonLoader logic to a native Win32 C++ module. The active repository, solution, project and runtime artifact name is `HelperByOrc`.
 
-## GitHub
+## Repository
 
-Публичный репозиторий: [github.com/dmitriyewich/HelperByOrc](https://github.com/dmitriyewich/HelperByOrc).
+GitHub: [github.com/dmitriyewich/HelperByOrc](https://github.com/dmitriyewich/HelperByOrc)
 
-В удалённый репозиторий попадают **исходный код проекта**, **профиль сборки** (`HelperByOrc.vcxproj`, `HelperByOrc.slnx`, связанные файлы проекта) и **vendored-дерево** `HelperByOrc/external` (зависимости для воспроизводимой сборки на чистой машине). Снимки в `external/` хранятся как обычные файлы (без вложенных репозиториев).
+The repository intentionally contains:
 
-Служебные вещи (**`.cursor/`**, локальные файлы `.codex/`, артефакты сборки) в удалённый репозиторий **не выкладываются** (см. `.gitignore`). `README*`, `context.md` и корневой `.gitignore` в репозитории присутствуют в норме.
+- project source code;
+- build files: `HelperByOrc.slnx`, `HelperByOrc/HelperByOrc.vcxproj`, workflow files;
+- vendored dependencies in `HelperByOrc/external`;
+- documentation: `README.md`, `README.txt`, `context.md`.
 
-## Текущее состояние
+The repository intentionally does not contain local runtime/build artifacts:
 
-- Целевая платформа: `Win32` / `x86`
-- Формат: `ASI`
-- Основной проект: `HelperByOrc/HelperByOrc.vcxproj`
-- Solution-контейнер: `HelperByOrc.slnx`
-- Выходной файл после сборки: `HelperByOrc/Release/HelperByOrc.asi` (каталог `Release/` в git не коммитится; см. `.gitignore`)
-- Проверка: конфигурация `Release|Win32` собирается успешно (локально)
-- Жизненный цикл: тяжёлая инициализация/остановка вынесена из `DllMain` в bootstrap worker-поток; в `DllMain` остаётся только лёгкий старт/сигнал остановки.
-- **Фокус окна игры:** бинды, переключение меню плагина по хоткею и связанный с UI ввод обрабатываются только пока окно GTA (или вложенное с фокусом) на переднем плане, чтобы ввод в других программах не влиял на плагин в фоне.
-- **Текущая диагностическая сборка:** Arizona-специфичная интеграция временно отключена на этапе компиляции через `HelperByOrc/feature_flags.h` (`HELPERBYORC_ENABLE_ARIZONA_INTEGRATION=0`). Прямой `_chat.asi` writer/submit не используется; чат работает через стандартный SA:MP fallback (`CDXUTEditBox` / `CInput::ProcessInput`).
+- `HelperByOrc/Release`, `HelperByOrc/build`, `HelperByOrc/Debug`;
+- `HelperByOrc.asi`, `.pdb`, `.lib` outputs;
+- local IDE/service folders like `.cursor`, `.codex` runtime files;
+- reference dumps, temporary unpacked DLLs and local archives.
 
-### Недавние направления разработки
+Vendored libraries are stored as normal files, not as nested Git repositories/submodules. Current external tree includes `plugin-sdk`, `imgui`, `MinHook`, `raknet`, `SAMP-API` and `memwrapper`.
 
-- Чат / биндер: в текущей диагностической сборке Arizona `_chat.asi`-путь отключён; используется стандартный SA:MP fallback с CP1251 через `CDXUTEditBox` / `CInput::ProcessInput`. «**Вставить в чат**» только подставляет текст; «**Открыть чат**» открывает чат и вставляет.
-- UI: компактнее окно быстрого меню по умолчанию; читаемее таблица биндов и контраст селектов (тёмно-синий акцент темы после отката эксперимента slate-blue).
-- Overlay / ImGui: устойчивый ввод и курсор; лёгкий кадр без отрисовки при скрытом UI; при необходимости синхронизация позиции мыши OS -> ImGui до `NewFrame`.
-- Курсорная логика: введён единый ownership для UI/чата/диалогов в `mod_app` (`UpdateOverlayCursorMode`) с общим условием удержания курсора `(ImGui UI) OR (SA:MP chat open) OR (SA:MP dialog active)` при фокусе окна игры.
-- Для защиты от внешнего сброса режима (например после закрытия чата) добавлена периодическая reassert-установка `Set_CursorMode` при активном hold, чтобы не было провалов курсора и центрирования в переходах.
-- Визуальный дубль убран: ImGui software cursor отключён (`io.MouseDrawCursor=false`), видимый курсор теперь один — игровой/SA:MP.
-- В логах добавлены компактные диагностические флаги источников cursor-hold: `wantsUi`, `chatOpen`, `dialogOpen`, `chatOrDialog`, `shouldHold`.
-- Спам reassert-логов в `HelperByOrc.log` ограничен по частоте (throttle), чтобы при долгих UI-сессиях журнал оставался читаемым.
-- Уровень логирования UI по умолчанию: `Info` (подробный лог включён сразу; при необходимости можно снизить в `Настройки -> Уровень логирования`).
-- Для ранней диагностики старта/остановки добавлены bootstrap-маркеры: `OutputDebugStringA` + строки `[bootstrap] ...` в `HelperByOrc.log`.
-- Диагностика загрузочных зависаний усилена probe-маркерами: `[ui][probe]` для `Present/EndScene`, `[probe] Refresh begin/end` с `sampReady(beforeHooks/afterHooks)`, отдельный маркер смены input-gate `0 -> 1`, и `[probe] shutdown begin/end`.
-- Стартовый лог теперь собирает инвентаризацию окружения: fingerprint/mtime/FNV64 и PE-метаданные `gta_sa.exe`, `samp.dll`, `HelperByOrc.asi`, proxy-кандидатов, root/CLEO/MoonLoader/modloader/SAMPFUNCS файлов и загруженных модулей с тегами потенциальных конфликтов.
-- SA:MP readiness-диагностика пишет `sampInfo`, `chat`, `chatInput`, `dialog`, `refGame`, регионы памяти, поля pools/RakClient/chat/dialog и первые байты критичных SA:MP-функций. `sampInfo=0` при `refGame=1` считается ранним этапом до создания `CNetGame`, если затем `sampInfo` становится ненулевым.
-- Для ранних зависаний SA:MP лог теперь показывает owner-модуль уже установленных `JMP/CALL`-патчей в критичных SA:MP-функциях и пишет `[probe][stuck]`, если full-ready gate долго не открывается.
-- Startup-лог проверяет AppCompat Layers в реестре для путей игры, чтобы быстрее находить Compatibility Mode / `apphelp.dll`-сценарии.
-- D3D/overlay-слой логирует поиск окна игры через GTA HWND `0x00C8CF88`, timing `Direct3DCreate9`/dummy `CreateDevice`, сведения HWND/class/title/pid/tid и module/RVA целей `Reset`/`Present`/`EndScene`. Если `Reset` ведёт в `apphelp.dll` Windows Compatibility, Reset-hook пропускается, а overlay остаётся активным через `Present`/`EndScene`.
-- До полной инициализации SA:MP overlay откладывает установку `WndProc`, а cursor/input pipeline остаётся gated — это снижает риск зависания/залипания курсора на раннем loading screen.
-- `SampHooks` и `SampRakHooks` ставятся только после full-ready состояния SA:MP (`isSAMPInitilizeLua`), чтобы исключить раннюю установку хуков на загрузочном экране.
-- Проверка готовности SA:MP использует fallback-детектор по нескольким признакам (`SAMP_INFO`, `chat input`, `RefGame`, `dialog`), а в логе при ожидании выводится probe-маска для точной диагностики проблемных окружений.
-- Прямые RakNet-вызовы закреплены на явных vtable-индексах: `Send(BitStream)` = `6`, `RPC(BitStream)` = `25`.
-- В `Настройки` добавлен runtime-переключатель `apply_damage_protection`: включает/выключает действие detour `CDamageManager_ApplyDamage`, которое блокирует отваливание компонентов транспорта при уроне (сам хук остаётся установленным).
-- Быстрое меню биндера (дерево и каскад): хост через `OpenPopup` / `BeginPopup` со стабильным id, без агрессивного `BringWindowToDisplayFront` каждый кадр; при открытии — доводка фокуса и одноразовый sync координат мыши, чтобы не было «клик съели, а ImGui не в hover».
-- В overlay для тестов отключена клавиатурная навигация ImGui (`NavEnableKeyboard` / захват клавиатуры), чтобы меньше конфликтовать с SA:MP.
-- Единая фильтрация по quick-menu флагам и условиям для обоих стилей; по умолчанию каскад.
-- `samp_api`: корректная работа с `SAMP_REMOTEPLAYERDATA` на старых layout (`R1`, `R3`, `R3-1`).
-- **Папки биндера:** ручной порядок и вложенность через DnD — **Shift+drag** по строке папки для **переноса папки**; **без Shift** — **перенос бинда** в папку. При **активном поиске папок** (поле «Поиск папок» не пусто после `Trim`) DnD **папок** отключается. После удачного переноса папки доступен **шаг «Отменить»** (одна отмена в панели папок; состояние хранится в рантайме, конфиг пишется через `SaveConfig` как и раньше). Технически: DnD-вставки между соседями не рисуются **перед** `ImGui::TreeNodeEx` того же узла; `TreePop` вызывается только если узел **не** с флагом `NoTreePushOnOpen` (ветвь) и **открыт**.
+## Current State
 
-## Основные модули
+- Target: `Win32` / `x86`.
+- Format: `ASI`.
+- Main project: `HelperByOrc/HelperByOrc.vcxproj`.
+- Solution: `HelperByOrc.slnx`.
+- Output: `HelperByOrc/Release/HelperByOrc.asi`.
+- Active hook backend: `MinHook`.
+- Release build profile is normal/debuggable: no LTCG, no `/GS-`, no omitted frame pointers, symbols enabled, SDL/GS enabled.
+- Arizona-specific `_chat.asi` direct integration is temporarily disabled at compile time through `HelperByOrc/feature_flags.h`; chat input uses the standard SA:MP fallback path.
 
-- `imgui_overlay` — D3D9 / ImGui overlay
-- `mod_app` — жизненный цикл и оболочка UI
-- `binder_module` — биндер и связанный UI
-- `samp_api` — доступ к памяти и структурам SA:MP
-- `samp_hooks` — обычные SA:MP hooks
-- `samp_rak_hooks` — RakNet hooks и перехват RPC / packet
-- `tags_module` — движок переменных и тегов
-- `feature_flags` — compile-time переключатели диагностических интеграций; сейчас Arizona / `_chat.asi` отключены
-- `hotkey_utils` — общая логика hotkey и popup-захвата
-- `text_encoding` — конвертация строк между `UTF-8` и игровой кодировкой
-- `app_config` — единый runtime-конфиг `HelperByOrc.json`
+## Stability Changes
 
-## Сборка
+- Heavy initialization and shutdown are moved out of `DllMain` into a bootstrap worker thread.
+- SA:MP hooks and RakNet hooks are installed only after SA:MP reaches full-ready state.
+- D3D overlay attach is deferred until SA:MP full-ready. This avoids early loading-screen cursor/input conflicts.
+- AppCompat diagnostics now log exact current-exe Layer checks, `__COMPAT_LAYER`, known compatibility tags and loaded Windows shim modules such as `apphelp.dll`, `AcLayers.dll` and `AcGenral.dll`.
+- D3D9 diagnostics log dummy device creation, vtable targets, target module/RVA for `Reset`, `Present`, `EndScene`, and the final hook policy.
+- If `IDirect3DDevice9::Reset` points into `apphelp.dll`, the Reset hook is skipped intentionally. Overlay remains active through `Present` / `EndScene`.
+- Runtime logs include SA:MP readiness probes, pointer regions, transfer owner modules for already patched SA:MP functions, and `[probe][stuck]` diagnostics when full-ready is not reached for too long.
 
-Используйте актуальный `MSBuild` из Visual Studio, например:
+## Main Modules
 
-```text
-C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe
-```
+- `mod_app` - lifecycle, top-level UI, SA:MP readiness gate and cursor ownership.
+- `imgui_overlay` - D3D9 hooks, ImGui initialization, WndProc routing.
+- `samp_api` - safe SA:MP memory access and readiness diagnostics.
+- `samp_hooks` - regular SA:MP hooks.
+- `samp_rak_hooks` - RakNet hooks and RPC/packet interception.
+- `binder_module` - command binder and related UI.
+- `tags_module` - variables/tags engine.
+- `hotkey_utils` - shared hotkey capture and matching.
+- `text_encoding` - UTF-8/game encoding conversion.
 
-или для VS **18**:
+## Build
 
-```text
-C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe
-```
+Use MSBuild from Visual Studio.
 
-Из каталога репозитория:
+Local build:
 
 ```powershell
-cd HelperByOrc
-& '<путь-к-msbuild>\MSBuild.exe' 'HelperByOrc.vcxproj' '/t:Build' '/p:Configuration=Release;Platform=Win32'
+msbuild HelperByOrc.slnx /p:Configuration=Release /p:Platform=Win32 /m
 ```
 
-После успешной сборки плагин:
+GitHub Actions build:
 
-```text
-HelperByOrc/Release/HelperByOrc.asi
-```
+- workflow: `.github/workflows/build-release-win32.yml`;
+- builds `Release|Win32`;
+- verifies vendored dependencies before build;
+- uploads `HelperByOrc.asi` and `HelperByOrc.pdb` as workflow/release artifacts.
 
-## Внешние зависимости
+The project file currently targets local Visual Studio 18 toolset `v145`. The GitHub workflow overrides `PlatformToolset=v143` for hosted Windows runners.
 
-Проект использует vendored-зависимости внутри `HelperByOrc/external/`, включая:
+## Runtime Files
 
-- `plugin-sdk`
-- `imgui`
-- `SAMP-API`
-- `memwrapper`
+- `HelperByOrc.asi` - plugin.
+- `HelperByOrc.json` - user settings and bind config.
+- `HelperByOrc.log` - diagnostic log.
 
-`external/` поддерживается как часть репозитория для упрощения воспроизводимой сборки на чистой машине.
+## Troubleshooting Notes
 
-## Документация в репозитории
-
-- `README.md` — описание для GitHub.
-- `README.txt` — тот же смысл в формате, удобном для вставки на форум (BBCode).
-- `context.md` — подробный контекст для разработки (архитектура, сборка, соглашения).
-
-## Вспомогательные скрипты
-
-- `HelperByOrc/tools/generate_binder_test_config.py` — генерация объёмного тестового `HelperByOrc.json` для проверки биндера (локально; путь `OUT` внутри скрипта можно перенаправить под ваш modloader).
-
-## Runtime-файлы
-
-- `HelperByOrc.json` — единый конфиг
-- `HelperByOrc.log` — лог
-- `HelperByOrc.asi` — итоговый плагин
-
-## Примечание по имени проекта
-
-Старое локальное имя `MyAsiMod` считается устаревшим. В актуальном состоянии репозитория активные имена проекта и solution: `HelperByOrc`.
+- `sampInfo=0` with `refGame=1` is an early SA:MP state: SA:MP reached GUI/game initialization, but `CNetGame` is not constructed yet. It is not a standalone error if `sampInfo` later becomes non-null.
+- Compatibility mode can route D3D9 `Reset` through `apphelp.dll`. The plugin detects this and skips only the unsafe Reset hook.
+- If SA:MP never reaches full-ready, inspect `[samp][diag]`, `[diag][appcompat]`, `[ui][d3d]`, loaded modules and transfer-owner lines in `HelperByOrc.log`.

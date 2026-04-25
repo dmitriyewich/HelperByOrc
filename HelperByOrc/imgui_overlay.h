@@ -60,7 +60,7 @@ private:
     static HRESULT __stdcall ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters);
 
     bool InstallGraphicsHooks();
-    bool CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWindow) const;
+    bool CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWindow, bool* outRegisteredWindowClass) const;
     void InitializeImGuiIfNeeded(IDirect3DDevice9* device);
     void CleanupImGui();
     void RestoreWindowProc();

@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 
 #include <imgui.h>
@@ -41,6 +42,11 @@ private:
 
     void HandleOverlayInputCaptureChanged(bool captured);
     void UpdateOverlayCursorMode();
+    static DWORD WINAPI DeferredOverlayThreadProc(LPVOID param);
+    void StartDeferredOverlayThread();
+    void StopDeferredOverlayThread();
+    void RequestOverlayAttachOnce(const char* reason);
+    bool RefreshSampGate();
     void Tick();
     void PrepareUiForImGuiNewFrame(IDirect3DDevice9* device);
     void RenderUi(IDirect3DDevice9* device);
@@ -82,6 +88,9 @@ private:
     std::uint64_t overlayCursorLastApplyMs_ = 0;
     bool sampUiPipelineReady_ = false;
     std::uint64_t sampUiPipelineLastProbeMs_ = 0;
+    HANDLE deferredOverlayThread_ = nullptr;
+    std::atomic_bool deferredOverlayThreadStop_{ false };
+    std::atomic_bool overlayAttachRequested_{ false };
     bool minHookInitialized_ = false;
     SampApi sampApi_{};
     SampHooks sampHooks_{};

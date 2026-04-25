@@ -148,7 +148,6 @@ function pluginSdkStaticLibProject(projectName, sdkdir, outName, isPluginProject
     if msbuild then
         cppdialect "C++latest"
         defines { "_CRT_NON_CONFORMING_SWPRINTFS", "_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING" }
-        buildoptions { "/sdl-" }
         flags "MultiProcessorCompile"
         disablewarnings "4073" -- "initializers put in library initialization area"
         fatalwarnings "4996" -- "This function or variable may be unsafe. Consider using *_s"
@@ -188,9 +187,9 @@ function pluginSdkStaticLibProject(projectName, sdkdir, outName, isPluginProject
     end
 
     filter "Release"
-        optimize "On"
-        linktimeoptimization "On"
-        symbols "Off"
+        optimize "Speed"
+        linktimeoptimization "Off"
+        symbols "On"
     filter "zDebug"
         symbols "On"
         defines "DEBUG"
@@ -743,7 +742,6 @@ function pluginSdkExampleProject(projectDir, projectName, projectType, game2, ga
     cppdialect "C++latest"
 
     if msbuild then
-        buildoptions { "/sdl-" }
         flags "MultiProcessorCompile"
     end
     if mingw then
@@ -760,9 +758,9 @@ function pluginSdkExampleProject(projectDir, projectName, projectType, game2, ga
     targetextension (ext)
 
     filter "Release"
-        optimize "On"
-        symbols "Off"
-        linktimeoptimization "On"
+        optimize "Speed"
+        symbols "On"
+        linktimeoptimization "Off"
     filter "Debug"
         symbols "On"
         defines "DEBUG"

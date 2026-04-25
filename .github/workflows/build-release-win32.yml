@@ -1,6 +1,16 @@
 name: Build HelperByOrc Win32
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-release-win32.yml'
+      - 'HelperByOrc.slnx'
+      - 'HelperByOrc/**'
+      - '!HelperByOrc/Release/**'
+      - '!HelperByOrc/build/**'
+      - '!HelperByOrc/Debug/**'
   workflow_dispatch:
   release:
     types:
@@ -8,6 +18,9 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  BUILD_CONFIGURATION: Release
+  BUILD_PLATFORM: Win32
+  BUILD_TOOLSET: v143
 
 permissions:
   contents: write
@@ -23,16 +36,44 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build Release Win32
-        working-directory: HelperByOrc
+      - name: Verify vendored dependencies
         shell: pwsh
-        run: msbuild HelperByOrc.vcxproj /t:Build "/p:Configuration=Release;Platform=Win32;PlatformToolset=v143"
+        run: |
+          $required = @(
+            'HelperByOrc/external/plugin-sdk/plugin_sa',
+            'HelperByOrc/external/plugin-sdk/shared/dxsdk/d3d9.lib',
+            'HelperByOrc/external/plugin-sdk/shared/dxsdk/d3dx9.lib',
+            'HelperByOrc/external/imgui/imgui.cpp',
+            'HelperByOrc/external/imgui/backends/imgui_impl_dx9.cpp',
+            'HelperByOrc/external/imgui/backends/imgui_impl_win32.cpp',
+            'HelperByOrc/external/MinHook/include/MinHook.h',
+            'HelperByOrc/external/MinHook/src/hook.c',
+            'HelperByOrc/external/raknet/BitStream.cpp',
+            'HelperByOrc/external/SAMP-API/include',
+            'HelperByOrc/external/memwrapper/memwrapper'
+          )
+          $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_) })
+          if ($missing.Count -gt 0) {
+            $missing | ForEach-Object { Write-Error "Missing vendored dependency: $_" }
+            exit 1
+          }
+          $nestedGit = @(Get-ChildItem -LiteralPath HelperByOrc/external -Force -Recurse -Directory -Filter .git -ErrorAction SilentlyContinue)
+          if ($nestedGit.Count -gt 0) {
+            $nestedGit | ForEach-Object { Write-Error "Nested .git is not allowed in vendored dependencies: $($_.FullName)" }
+            exit 1
+          }
+
+      - name: Build Release Win32
+        shell: pwsh
+        run: msbuild HelperByOrc.slnx /t:Build "/p:Configuration=$env:BUILD_CONFIGURATION;Platform=$env:BUILD_PLATFORM;PlatformToolset=$env:BUILD_TOOLSET" /m
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: HelperByOrc-Release-Win32
-          path: HelperByOrc/Release/HelperByOrc.asi
+          path: |
+            HelperByOrc/Release/HelperByOrc.asi
+            HelperByOrc/Release/HelperByOrc.pdb
           if-no-files-found: error
           retention-days: 30
 
@@ -40,4 +81,6 @@ jobs:
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: HelperByOrc/Release/HelperByOrc.asi
+          files: |
+            HelperByOrc/Release/HelperByOrc.asi
+            HelperByOrc/Release/HelperByOrc.pdb

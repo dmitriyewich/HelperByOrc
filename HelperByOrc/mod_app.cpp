@@ -90,6 +90,11 @@ std::string LowerAscii(std::string value) {
     return value;
 }
 
+std::string NormalizePathForCompare(std::string value) {
+    std::replace(value.begin(), value.end(), '/', '\\');
+    return LowerAscii(std::move(value));
+}
+
 bool StartsWithNoCase(const std::string& value, const std::string& prefix) {
     const std::string lowerValue = LowerAscii(value);
     const std::string lowerPrefix = LowerAscii(prefix);
@@ -159,12 +164,72 @@ std::vector<const char*> ConflictTagsForPath(const std::string& path) {
     return tags;
 }
 
+std::vector<const char*> AppCompatTagsForData(const std::string& data) {
+    const std::string lower = LowerAscii(data);
+    std::vector<const char*> tags;
+
+    const auto addIf = [&](const char* token, const char* tag) {
+        if (lower.find(token) != std::string::npos) {
+            tags.push_back(tag);
+        }
+    };
+
+    addIf("disabledxmaximizedwindowedmode", "disable-fullscreen-optimizations");
+    addIf("dwm8and16bitmitigation", "dwm8-16bit-mitigation");
+    addIf("runasadmin", "run-as-admin");
+    addIf("win7rtm", "win7-compat");
+    addIf("win8rtm", "win8-compat");
+    addIf("winxpsp", "xp-compat");
+    addIf("vista", "vista-compat");
+    addIf("highdpiaware", "high-dpi-aware");
+    addIf("dpiunaware", "dpi-unaware");
+    addIf("disablethemes", "disable-themes");
+    addIf("disabledwm", "disable-dwm");
+    addIf("ignorefreelibrary", "ignore-free-library");
+    addIf("256color", "256-color");
+    addIf("640x480", "640x480");
+    if (lower.find('$') != std::string::npos) {
+        tags.push_back("shim-db");
+    }
+
+    return tags;
+}
+
+const char* RegistryTypeName(DWORD type) {
+    switch (type) {
+    case REG_NONE:
+        return "REG_NONE";
+    case REG_SZ:
+        return "REG_SZ";
+    case REG_EXPAND_SZ:
+        return "REG_EXPAND_SZ";
+    case REG_BINARY:
+        return "REG_BINARY";
+    case REG_DWORD:
+        return "REG_DWORD";
+    case REG_MULTI_SZ:
+        return "REG_MULTI_SZ";
+    case REG_QWORD:
+        return "REG_QWORD";
+    default:
+        return "REG_OTHER";
+    }
+}
+
 std::string GetModulePathUtf8(HMODULE module) {
     wchar_t path[MAX_PATH]{};
     if (!GetModuleFileNameW(module, path, MAX_PATH)) {
         return {};
     }
     return WideToUtf8(path);
+}
+
+fs::path GetModulePathFs(HMODULE module) {
+    wchar_t path[MAX_PATH]{};
+    if (!GetModuleFileNameW(module, path, MAX_PATH)) {
+        return {};
+    }
+    return fs::path(path);
 }
 
 fs::path GetModuleDirectory(HMODULE module) {
@@ -450,22 +515,78 @@ void LogKnownProxyFiles(const fs::path& gameDir) {
     }
 }
 
-void LogAppCompatLayersForRoot(HKEY root, const char* rootName, const fs::path& gameDir) {
-    static constexpr const wchar_t* kLayersKey =
-        L"Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers";
+constexpr const wchar_t* kAppCompatLayersKey =
+    L"Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers";
 
+void LogAppCompatExactLayer(HKEY root, const char* rootName, const fs::path& currentExe) {
     HKEY key = nullptr;
-    const LONG openResult = RegOpenKeyExW(root, kLayersKey, 0, KEY_READ, &key);
+    const LONG openResult = RegOpenKeyExW(root, kAppCompatLayersKey, 0, KEY_READ, &key);
     if (openResult != ERROR_SUCCESS) {
         debuglog::WriteInfo(
-            "[diag][appcompat] root=%s open=0x%08lX matches=0 key=\"%ls\"",
+            "[diag][appcompat] root=%s exact-current-exe open=0x%08lX found=0 key='%ls' exe='%s'",
             rootName,
             static_cast<unsigned long>(openResult),
-            kLayersKey);
+            kAppCompatLayersKey,
+            PathToUtf8(currentExe).c_str());
         return;
     }
 
-    const std::string gameDirText = LowerAscii(PathToUtf8(gameDir));
+    DWORD valueType = 0;
+    DWORD valueBytes = 0;
+    LONG queryResult = RegQueryValueExW(
+        key,
+        currentExe.c_str(),
+        nullptr,
+        &valueType,
+        nullptr,
+        &valueBytes);
+
+    std::string valueText;
+    if (queryResult == ERROR_SUCCESS && valueBytes > 0) {
+        std::vector<BYTE> buffer(valueBytes + sizeof(wchar_t), 0);
+        queryResult = RegQueryValueExW(
+            key,
+            currentExe.c_str(),
+            nullptr,
+            &valueType,
+            buffer.data(),
+            &valueBytes);
+        if (queryResult == ERROR_SUCCESS && (valueType == REG_SZ || valueType == REG_EXPAND_SZ)) {
+            valueText = WideToUtf8(reinterpret_cast<const wchar_t*>(buffer.data()));
+        } else if (queryResult == ERROR_SUCCESS) {
+            valueText = "<non-string>";
+        }
+    }
+
+    RegCloseKey(key);
+    debuglog::WriteInfo(
+        "[diag][appcompat] root=%s exact-current-exe result=0x%08lX found=%d type=%s(%lu) tags=%s exe='%s' data='%s'",
+        rootName,
+        static_cast<unsigned long>(queryResult),
+        queryResult == ERROR_SUCCESS ? 1 : 0,
+        RegistryTypeName(valueType),
+        static_cast<unsigned long>(valueType),
+        JoinTags(AppCompatTagsForData(valueText)).c_str(),
+        PathToUtf8(currentExe).c_str(),
+        valueText.c_str());
+}
+
+void LogAppCompatLayersForRoot(HKEY root, const char* rootName, const fs::path& gameDir, const fs::path& currentExe) {
+    LogAppCompatExactLayer(root, rootName, currentExe);
+
+    HKEY key = nullptr;
+    const LONG openResult = RegOpenKeyExW(root, kAppCompatLayersKey, 0, KEY_READ, &key);
+    if (openResult != ERROR_SUCCESS) {
+        debuglog::WriteInfo(
+            "[diag][appcompat] root=%s open=0x%08lX matches=0 key='%ls'",
+            rootName,
+            static_cast<unsigned long>(openResult),
+            kAppCompatLayersKey);
+        return;
+    }
+
+    const std::string gameDirText = NormalizePathForCompare(PathToUtf8(gameDir));
+    const std::string currentExeText = NormalizePathForCompare(PathToUtf8(currentExe));
     std::size_t matches = 0;
     for (DWORD index = 0;; ++index) {
         wchar_t valueName[1024]{};
@@ -497,40 +618,114 @@ void LogAppCompatLayersForRoot(HKEY root, const char* rootName, const fs::path& 
 
         const std::string valueNameText = WideToUtf8(valueName);
         const std::string valueDataText = valueType == REG_SZ || valueType == REG_EXPAND_SZ ? WideToUtf8(valueData) : "<non-string>";
-        const std::string lowerName = LowerAscii(valueNameText);
-        const bool interesting = (!gameDirText.empty() && StartsWithNoCase(lowerName, gameDirText))
-            || lowerName.find("gta_sa.exe") != std::string::npos
-            || lowerName.find("samp.exe") != std::string::npos
-            || lowerName.find("main.exe") != std::string::npos
-            || (feature_flags::kEnableArizonaIntegration && lowerName.find("arizona") != std::string::npos);
+        const std::string lowerName = NormalizePathForCompare(valueNameText);
+        std::vector<const char*> matchReasons;
+        if (!currentExeText.empty() && lowerName == currentExeText) {
+            matchReasons.push_back("exact-current-exe");
+        }
+        if (!gameDirText.empty() && StartsWithNoCase(lowerName, gameDirText)) {
+            matchReasons.push_back("same-game-dir");
+        }
+        if (lowerName.find("gta_sa.exe") != std::string::npos) {
+            matchReasons.push_back("gta-sa");
+        }
+        if (lowerName.find("samp.exe") != std::string::npos) {
+            matchReasons.push_back("samp");
+        }
+        if (lowerName.find("main.exe") != std::string::npos) {
+            matchReasons.push_back("main-exe");
+        }
+        if constexpr (feature_flags::kEnableArizonaIntegration) {
+            if (lowerName.find("arizona") != std::string::npos) {
+                matchReasons.push_back("arizona");
+            }
+        }
+        const bool interesting = !matchReasons.empty();
         if (!interesting) {
             continue;
         }
 
         ++matches;
         debuglog::WriteInfo(
-            "[diag][appcompat] root=%s value=\"%s\" type=%lu data=\"%s\"",
+            "[diag][appcompat] root=%s value='%s' type=%s(%lu) match=%s tags=%s data='%s'",
             rootName,
             valueNameText.c_str(),
+            RegistryTypeName(valueType),
             static_cast<unsigned long>(valueType),
+            JoinTags(matchReasons).c_str(),
+            JoinTags(AppCompatTagsForData(valueDataText)).c_str(),
             valueDataText.c_str());
     }
 
     RegCloseKey(key);
     debuglog::WriteInfo(
-        "[diag][appcompat] root=%s matches=%llu gameDir=\"%s\"",
+        "[diag][appcompat] root=%s matches=%llu gameDir='%s' currentExe='%s'",
         rootName,
         static_cast<unsigned long long>(matches),
-        PathToUtf8(gameDir).c_str());
+        PathToUtf8(gameDir).c_str(),
+        PathToUtf8(currentExe).c_str());
 }
 
-void LogAppCompatLayers(const fs::path& gameDir) {
-    LogAppCompatLayersForRoot(HKEY_CURRENT_USER, "HKCU", gameDir);
-    LogAppCompatLayersForRoot(HKEY_LOCAL_MACHINE, "HKLM", gameDir);
+void LogAppCompatEnvironment() {
+    wchar_t compatLayer[4096]{};
+    const DWORD compatLayerChars = GetEnvironmentVariableW(
+        L"__COMPAT_LAYER",
+        compatLayer,
+        static_cast<DWORD>(std::size(compatLayer)));
+    if (compatLayerChars == 0) {
+        debuglog::WriteInfo(
+            "[diag][appcompat] env __COMPAT_LAYER present=0 gle=%lu",
+            static_cast<unsigned long>(GetLastError()));
+        return;
+    }
+
+    const bool truncated = compatLayerChars >= std::size(compatLayer);
+    const std::string value = WideToUtf8(compatLayer);
+    debuglog::WriteInfo(
+        "[diag][appcompat] env __COMPAT_LAYER present=1 truncated=%d tags=%s data='%s'",
+        truncated ? 1 : 0,
+        JoinTags(AppCompatTagsForData(value)).c_str(),
+        value.c_str());
+}
+
+void LogAppCompatShimModules() {
+    static constexpr const wchar_t* kShimModules[] = {
+        L"apphelp.dll",
+        L"AcLayers.dll",
+        L"AcGenral.dll",
+        L"AcSpecfc.dll",
+        L"AcXtrnal.dll",
+        L"AcDwm.dll",
+        L"AcRes.dll",
+    };
+
+    for (const wchar_t* moduleName : kShimModules) {
+        HMODULE module = GetModuleHandleW(moduleName);
+        if (!module) {
+            debuglog::WriteInfo("[diag][appcompat] shim module=%ls loaded=0", moduleName);
+            continue;
+        }
+
+        wchar_t path[MAX_PATH]{};
+        GetModuleFileNameW(module, path, MAX_PATH);
+        debuglog::WriteInfo(
+            "[diag][appcompat] shim module=%ls loaded=1 base=0x%08X path='%s'",
+            moduleName,
+            static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(module)),
+            WideToUtf8(path).c_str());
+    }
+}
+
+void LogAppCompatLayers(const fs::path& gameDir, const fs::path& currentExe) {
+    LogAppCompatEnvironment();
+    LogAppCompatLayersForRoot(HKEY_CURRENT_USER, "HKCU", gameDir, currentExe);
+    LogAppCompatLayersForRoot(HKEY_LOCAL_MACHINE, "HKLM", gameDir, currentExe);
+    LogAppCompatShimModules();
 }
 
 void LogStartupDiagnostics(HMODULE module) {
     const fs::path gameDir = GetModuleDirectory(nullptr);
+    const fs::path currentExe = GetModulePathFs(nullptr);
     wchar_t currentDir[MAX_PATH]{};
     GetCurrentDirectoryW(MAX_PATH, currentDir);
 
@@ -551,7 +746,7 @@ void LogStartupDiagnostics(HMODULE module) {
     LogFileFingerprint(GetModulePathUtf8(module), "HelperByOrc");
 
     LogKnownProxyFiles(gameDir);
-    LogAppCompatLayers(gameDir);
+    LogAppCompatLayers(gameDir, currentExe);
     LogDirectoryInventory(gameDir, "root-plugin", false, 200);
     LogDirectoryInventory(gameDir / L"scripts", "scripts", true, 300);
     LogDirectoryInventory(gameDir / L"cleo", "cleo", true, 300);
@@ -773,13 +968,14 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
     });
     debuglog::WriteInfo("Overlay callbacks configured");
-    overlay_.OnProcessAttach();
-    debuglog::WriteInfo("Overlay attach requested");
+    StartDeferredOverlayThread();
+    debuglog::WriteInfo("[ui][d3d] overlay attach deferred until SA:MP full-ready gate");
 }
 
 void ModApp::Shutdown() {
     debuglog::WriteInfo("[probe] shutdown begin ts=%llums", static_cast<unsigned long long>(GetTickCount64()));
     debuglog::WriteInfo("ModApp shutdown begin");
+    StopDeferredOverlayThread();
     ::ClipCursor(nullptr);
     ::ReleaseCapture();
     overlayLastUiHold_ = false;
@@ -949,6 +1145,116 @@ void ModApp::UpdateOverlayCursorMode() {
     overlayCursorLastApplyMs_ = now;
 }
 
+DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
+    auto* self = static_cast<ModApp*>(param);
+    if (!self) {
+        return 0;
+    }
+
+    debuglog::WriteInfo("[ui][d3d] deferred overlay thread started");
+    while (!self->deferredOverlayThreadStop_.load()) {
+        if (self->RefreshSampGate()) {
+            self->RequestOverlayAttachOnce("SA:MP full-ready gate");
+            break;
+        }
+        Sleep(50);
+    }
+    debuglog::WriteInfo("[ui][d3d] deferred overlay thread finished");
+    return 0;
+}
+
+void ModApp::StartDeferredOverlayThread() {
+    if (overlayAttachRequested_.load() || deferredOverlayThread_) {
+        return;
+    }
+
+    deferredOverlayThreadStop_.store(false);
+    deferredOverlayThread_ = CreateThread(nullptr, 0, &DeferredOverlayThreadProc, this, 0, nullptr);
+    if (!deferredOverlayThread_) {
+        debuglog::WriteError("[ui][d3d] deferred overlay thread creation failed: %lu", GetLastError());
+    }
+}
+
+void ModApp::StopDeferredOverlayThread() {
+    deferredOverlayThreadStop_.store(true);
+    if (!deferredOverlayThread_) {
+        return;
+    }
+
+    if (GetCurrentThreadId() != GetThreadId(deferredOverlayThread_)) {
+        WaitForSingleObject(deferredOverlayThread_, 5000);
+    }
+    CloseHandle(deferredOverlayThread_);
+    deferredOverlayThread_ = nullptr;
+}
+
+void ModApp::RequestOverlayAttachOnce(const char* reason) {
+    if (overlayAttachRequested_.exchange(true)) {
+        return;
+    }
+
+    debuglog::WriteInfo(
+        "[ui][d3d] overlay attach requested after %s; installing D3D hooks now",
+        reason ? reason : "gate");
+    overlay_.OnProcessAttach();
+}
+
+bool ModApp::RefreshSampGate() {
+    const std::uint64_t now = GetTickCount64();
+    if (now < nextSampRefreshAtMs_) {
+        return sampUiPipelineReady_;
+    }
+
+    debuglog::WriteInfo("[probe] Refresh begin ts=%llums", static_cast<unsigned long long>(now));
+    sampApi_.Refresh();
+    const bool readyBeforeHooks = sampApi_.isSAMPInitilizeLua();
+    sampHooks_.Refresh();
+    sampRakHooks_.Refresh();
+    const bool readyAfterHooks = sampApi_.isSAMPInitilizeLua();
+    if (!readyAfterHooks || readyBeforeHooks != readyAfterHooks || sampUiPipelineReady_ != readyAfterHooks) {
+        sampApi_.LogReadinessDiagnostics("tick");
+    }
+    if (!readyAfterHooks && now >= nextRuntimeModuleSnapshotAtMs_) {
+        LogLoadedModuleSnapshot("runtime-new", true, GetModuleDirectory(nullptr));
+        nextRuntimeModuleSnapshotAtMs_ = now + 2000;
+    }
+    if (!readyAfterHooks && sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
+        if (sampNotReadySinceMs_ == 0) {
+            sampNotReadySinceMs_ = now;
+            nextSampStuckTraceAtMs_ = now + 8000;
+        } else if (now >= nextSampStuckTraceAtMs_) {
+            debuglog::WriteError(
+                "[probe][stuck] SA:MP stayed before full-ready gate for %llums; "
+                "check [samp][diag] transfer owners, [diag][appcompat], apphelp/skygfx/d3d9-proxy/MoonLoader modules. lastError=\"%s\"",
+                static_cast<unsigned long long>(now - sampNotReadySinceMs_),
+                sampApi_.lastError().c_str());
+            sampApi_.LogReadinessDiagnostics("stuck");
+            LogLoadedModuleSnapshot("runtime-stuck", true, GetModuleDirectory(nullptr));
+            nextSampStuckTraceAtMs_ = now + 8000;
+        }
+    } else {
+        sampNotReadySinceMs_ = 0;
+        nextSampStuckTraceAtMs_ = 0;
+    }
+    if (sampUiPipelineReady_ != readyAfterHooks) {
+        debuglog::WriteInfo(
+            "[probe] SA:MP input gate changed %d -> %d ts=%llums",
+            sampUiPipelineReady_ ? 1 : 0,
+            readyAfterHooks ? 1 : 0,
+            static_cast<unsigned long long>(GetTickCount64()));
+    }
+    sampUiPipelineReady_ = readyAfterHooks;
+    debuglog::WriteInfo(
+        "[probe] Refresh end ts=%llums sampReady(beforeHooks=%d afterHooks=%d) module=%d supported=%d",
+        static_cast<unsigned long long>(GetTickCount64()),
+        readyBeforeHooks ? 1 : 0,
+        readyAfterHooks ? 1 : 0,
+        sampApi_.sampModule() ? 1 : 0,
+        sampApi_.isSupportedVersion() ? 1 : 0);
+    nextSampRefreshAtMs_ = now + 1000;
+    return readyAfterHooks;
+}
+
 void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
     incomingMessageRouter_.Tick();
@@ -956,56 +1262,7 @@ void ModApp::Tick() {
     binder_.Tick();
     tags_.Tick();
 
-    const std::uint64_t now = GetTickCount64();
-    if (now >= nextSampRefreshAtMs_) {
-        debuglog::WriteInfo("[probe] Refresh begin ts=%llums", static_cast<unsigned long long>(now));
-        sampApi_.Refresh();
-        const bool readyBeforeHooks = sampApi_.isSAMPInitilizeLua();
-        sampHooks_.Refresh();
-        sampRakHooks_.Refresh();
-        const bool readyAfterHooks = sampApi_.isSAMPInitilizeLua();
-        if (!readyAfterHooks || readyBeforeHooks != readyAfterHooks || sampUiPipelineReady_ != readyAfterHooks) {
-            sampApi_.LogReadinessDiagnostics("tick");
-        }
-        if (!readyAfterHooks && now >= nextRuntimeModuleSnapshotAtMs_) {
-            LogLoadedModuleSnapshot("runtime-new", true, GetModuleDirectory(nullptr));
-            nextRuntimeModuleSnapshotAtMs_ = now + 2000;
-        }
-        if (!readyAfterHooks && sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
-            if (sampNotReadySinceMs_ == 0) {
-                sampNotReadySinceMs_ = now;
-                nextSampStuckTraceAtMs_ = now + 8000;
-            } else if (now >= nextSampStuckTraceAtMs_) {
-                debuglog::WriteError(
-                    "[probe][stuck] SA:MP stayed before full-ready gate for %llums; "
-                    "check [samp][diag] transfer owners, [diag][appcompat], apphelp/skygfx/d3d9-proxy/MoonLoader modules. lastError=\"%s\"",
-                    static_cast<unsigned long long>(now - sampNotReadySinceMs_),
-                    sampApi_.lastError().c_str());
-                sampApi_.LogReadinessDiagnostics("stuck");
-                LogLoadedModuleSnapshot("runtime-stuck", true, GetModuleDirectory(nullptr));
-                nextSampStuckTraceAtMs_ = now + 8000;
-            }
-        } else {
-            sampNotReadySinceMs_ = 0;
-            nextSampStuckTraceAtMs_ = 0;
-        }
-        if (sampUiPipelineReady_ != readyAfterHooks) {
-            debuglog::WriteInfo(
-                "[probe] SA:MP input gate changed %d -> %d ts=%llums",
-                sampUiPipelineReady_ ? 1 : 0,
-                readyAfterHooks ? 1 : 0,
-                static_cast<unsigned long long>(GetTickCount64()));
-        }
-        sampUiPipelineReady_ = readyAfterHooks;
-        debuglog::WriteInfo(
-            "[probe] Refresh end ts=%llums sampReady(beforeHooks=%d afterHooks=%d) module=%d supported=%d",
-            static_cast<unsigned long long>(GetTickCount64()),
-            readyBeforeHooks ? 1 : 0,
-            readyAfterHooks ? 1 : 0,
-            sampApi_.sampModule() ? 1 : 0,
-            sampApi_.isSupportedVersion() ? 1 : 0);
-        nextSampRefreshAtMs_ = now + 1000;
-    }
+    RefreshSampGate();
 
     UpdateOverlayCursorMode();
 }

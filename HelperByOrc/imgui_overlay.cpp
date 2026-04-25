@@ -224,6 +224,19 @@ const char* DbgImGuiWindowName(const ImGuiWindow* w) {
     return w->Name;
 }
 
+void DestroyDummyWindow(HWND window, bool registeredWindowClass) {
+    if (window) {
+        DestroyWindow(window);
+    }
+
+    if (registeredWindowClass) {
+        SetLastError(0);
+        if (!UnregisterClassA(kDummyWindowClassName, GetModuleHandleA(nullptr)) && GetLastError() != ERROR_CLASS_DOES_NOT_EXIST) {
+            debuglog::WriteError("[ui][d3d] UnregisterClassA(%s) failed: %lu", kDummyWindowClassName, GetLastError());
+        }
+    }
+}
+
 void DbgTraceImGuiInternalState(const char* reason) {
     if (GImGui == nullptr) {
         debuglog::WriteError("[ui][dbg] %s: GImGui=null", reason);
@@ -597,13 +610,14 @@ DWORD WINAPI ImGuiOverlay::InitializeThread(LPVOID param) {
     return 0;
 }
 
-bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWindow) const {
-    if (!outDevice || !outWindow) {
+bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWindow, bool* outRegisteredWindowClass) const {
+    if (!outDevice || !outWindow || !outRegisteredWindowClass) {
         return false;
     }
 
     *outDevice = nullptr;
     *outWindow = nullptr;
+    *outRegisteredWindowClass = false;
 
     WNDCLASSEXA windowClass{};
     windowClass.cbSize = sizeof(windowClass);
@@ -611,17 +625,30 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
     windowClass.hInstance = GetModuleHandleA(nullptr);
     windowClass.lpszClassName = kDummyWindowClassName;
 
-    if (!RegisterClassExA(&windowClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        debuglog::WriteError("RegisterClassExA failed: %lu", GetLastError());
+    SetLastError(0);
+    const ATOM classAtom = RegisterClassExA(&windowClass);
+    const DWORD registerError = GetLastError();
+    if (!classAtom && registerError != ERROR_CLASS_ALREADY_EXISTS) {
+        debuglog::WriteError("RegisterClassExA failed: %lu", registerError);
         return false;
     }
+    *outRegisteredWindowClass = classAtom != 0;
+    debuglog::WriteInfo(
+        "[ui][d3d] dummy window class atom=%u registered=%d existing=%d gle=%lu",
+        static_cast<unsigned>(classAtom),
+        *outRegisteredWindowClass ? 1 : 0,
+        registerError == ERROR_CLASS_ALREADY_EXISTS ? 1 : 0,
+        static_cast<unsigned long>(registerError));
 
     HWND window = CreateWindowExA(0, kDummyWindowClassName, kDummyWindowClassName,
         WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, nullptr, nullptr, windowClass.hInstance, nullptr);
     if (!window) {
         debuglog::WriteError("CreateWindowExA failed: %lu", GetLastError());
+        DestroyDummyWindow(nullptr, *outRegisteredWindowClass);
+        *outRegisteredWindowClass = false;
         return false;
     }
+    TraceWindowDetails("d3d_dummy", window);
 
     const uint64_t d3dCreateBeginMs = GetTickCount64();
     debuglog::WriteInfo("[ui][d3d] Direct3DCreate9 begin");
@@ -630,7 +657,8 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
         debuglog::WriteError(
             "Direct3DCreate9 failed elapsed=%llums",
             static_cast<unsigned long long>(GetTickCount64() - d3dCreateBeginMs));
-        DestroyWindow(window);
+        DestroyDummyWindow(window, *outRegisteredWindowClass);
+        *outRegisteredWindowClass = false;
         return false;
     }
     debuglog::WriteInfo(
@@ -644,29 +672,61 @@ bool ImGuiOverlay::CreateDummyDevice(IDirect3DDevice9** outDevice, HWND* outWind
     parameters.hDeviceWindow = window;
     parameters.BackBufferFormat = D3DFMT_UNKNOWN;
 
-    const uint64_t createDeviceBeginMs = GetTickCount64();
-    debuglog::WriteInfo("[ui][d3d] dummy CreateDevice begin hwnd=%p", window);
-    HRESULT result = d3d9->CreateDevice(
-        D3DADAPTER_DEFAULT,
-        D3DDEVTYPE_HAL,
-        window,
-        D3DCREATE_SOFTWARE_VERTEXPROCESSING,
-        &parameters,
-        outDevice);
-    debuglog::WriteInfo(
-        "[ui][d3d] dummy CreateDevice end hr=0x%08lX device=%p elapsed=%llums",
-        static_cast<unsigned long>(result),
-        outDevice ? *outDevice : nullptr,
-        static_cast<unsigned long long>(GetTickCount64() - createDeviceBeginMs));
+    struct DummyDeviceAttempt {
+        D3DDEVTYPE deviceType;
+        DWORD behaviorFlags;
+        const char* label;
+    };
+
+    static constexpr DummyDeviceAttempt kAttempts[] = {
+        { D3DDEVTYPE_NULLREF, D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_DISABLE_DRIVER_MANAGEMENT, "nullref-disable-driver-management" },
+        { D3DDEVTYPE_HAL, D3DCREATE_SOFTWARE_VERTEXPROCESSING, "hal-software-vp-fallback" },
+    };
+
+    HRESULT result = D3DERR_INVALIDCALL;
+    const char* selectedAttempt = nullptr;
+    for (const auto& attempt : kAttempts) {
+        const uint64_t createDeviceBeginMs = GetTickCount64();
+        debuglog::WriteInfo(
+            "[ui][d3d] dummy CreateDevice begin mode=%s hwnd=%p flags=0x%08lX",
+            attempt.label,
+            window,
+            static_cast<unsigned long>(attempt.behaviorFlags));
+        result = d3d9->CreateDevice(
+            D3DADAPTER_DEFAULT,
+            attempt.deviceType,
+            window,
+            attempt.behaviorFlags,
+            &parameters,
+            outDevice);
+        debuglog::WriteInfo(
+            "[ui][d3d] dummy CreateDevice end mode=%s hr=0x%08lX device=%p elapsed=%llums",
+            attempt.label,
+            static_cast<unsigned long>(result),
+            *outDevice,
+            static_cast<unsigned long long>(GetTickCount64() - createDeviceBeginMs));
+
+        if (SUCCEEDED(result) && *outDevice) {
+            selectedAttempt = attempt.label;
+            break;
+        }
+
+        if (*outDevice) {
+            (*outDevice)->Release();
+            *outDevice = nullptr;
+        }
+    }
 
     d3d9->Release();
 
     if (FAILED(result) || !*outDevice) {
         debuglog::WriteError("IDirect3D9::CreateDevice failed: 0x%08lX", static_cast<unsigned long>(result));
-        DestroyWindow(window);
+        DestroyDummyWindow(window, *outRegisteredWindowClass);
+        *outRegisteredWindowClass = false;
         return false;
     }
 
+    debuglog::WriteInfo("[ui][d3d] dummy device selected mode=%s", selectedAttempt ? selectedAttempt : "<unknown>");
     *outWindow = window;
     return true;
 }
@@ -678,21 +738,38 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
 
     IDirect3DDevice9* dummyDevice = nullptr;
     HWND dummyWindow = nullptr;
-    if (!CreateDummyDevice(&dummyDevice, &dummyWindow)) {
+    bool dummyWindowClassRegistered = false;
+    if (!CreateDummyDevice(&dummyDevice, &dummyWindow, &dummyWindowClassRegistered)) {
         return false;
     }
+
+    const auto cleanupDummyDevice = [&]() {
+        if (dummyDevice) {
+            dummyDevice->Release();
+            dummyDevice = nullptr;
+        }
+        DestroyDummyWindow(dummyWindow, dummyWindowClassRegistered);
+        dummyWindow = nullptr;
+        dummyWindowClassRegistered = false;
+    };
 
     void** vtable = *reinterpret_cast<void***>(dummyDevice);
     if (!vtable) {
         debuglog::WriteError("IDirect3DDevice9 vtable is null");
-        dummyDevice->Release();
-        DestroyWindow(dummyWindow);
+        cleanupDummyDevice();
         return false;
     }
 
     endSceneTarget_ = vtable[42];
     presentTarget_ = vtable[17];
     resetTarget_ = vtable[16];
+    debuglog::WriteInfo(
+        "[ui][d3d] vtable snapshot device=%p vtable=%p Reset[16]=%p Present[17]=%p EndScene[42]=%p",
+        dummyDevice,
+        vtable,
+        resetTarget_,
+        presentTarget_,
+        endSceneTarget_);
     TraceModuleForAddress("IDirect3DDevice9::Reset", resetTarget_);
     TraceModuleForAddress("IDirect3DDevice9::Present", presentTarget_);
     TraceModuleForAddress("IDirect3DDevice9::EndScene", endSceneTarget_);
@@ -705,6 +782,10 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         L"apphelp.dll",
         resetModulePath,
         static_cast<DWORD>(std::size(resetModulePath)));
+    debuglog::WriteInfo(
+        "[ui][d3d] hook policy EndScene=install Present=install Reset=%s resetAppCompatShim=%d",
+        skipResetHook ? "skip-appcompat-shim" : "install",
+        skipResetHook ? 1 : 0);
 
     if (!minhook::CreateAndEnableHook(
             endSceneTarget_,
@@ -714,8 +795,7 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         endSceneTarget_ = nullptr;
         presentTarget_ = nullptr;
         resetTarget_ = nullptr;
-        dummyDevice->Release();
-        DestroyWindow(dummyWindow);
+        cleanupDummyDevice();
         return false;
     }
 
@@ -729,8 +809,7 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         originalEndScene_ = nullptr;
         presentTarget_ = nullptr;
         resetTarget_ = nullptr;
-        dummyDevice->Release();
-        DestroyWindow(dummyWindow);
+        cleanupDummyDevice();
         return false;
     }
 
@@ -761,8 +840,7 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         resetTarget_,
         (resetTarget_ && originalReset_) ? 1 : 0);
 
-    dummyDevice->Release();
-    DestroyWindow(dummyWindow);
+    cleanupDummyDevice();
     return true;
 }
 
