@@ -1,6 +1,7 @@
 #include "samp_api.h"
 
 #include "debug_log.h"
+#include "feature_flags.h"
 #include "text_encoding.h"
 
 #include <sampapi/0.3.7-R1/CRemotePlayer.h>

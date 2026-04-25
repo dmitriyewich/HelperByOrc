@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "debug_log.h"
+#include "feature_flags.h"
 #include "minhook_utils.h"
 #include "resource.h"
 #include "ui_settings.h"
@@ -141,8 +142,10 @@ std::vector<const char*> ConflictTagsForPath(const std::string& path) {
     addIf("anticrash", "crashfix");
     addIf("samp addon", "samp-addon");
     addIf("sampaddon", "samp-addon");
-    addIf("_chat.asi", "chat-hook");
-    addIf("chat.asi", "chat-hook");
+    if constexpr (feature_flags::kEnableArizonaIntegration) {
+        addIf("_chat.asi", "chat-hook");
+        addIf("chat.asi", "chat-hook");
+    }
     addIf("rivatuner", "overlay");
     addIf("rtss", "overlay");
     addIf("discord", "overlay");
@@ -499,7 +502,7 @@ void LogAppCompatLayersForRoot(HKEY root, const char* rootName, const fs::path& 
             || lowerName.find("gta_sa.exe") != std::string::npos
             || lowerName.find("samp.exe") != std::string::npos
             || lowerName.find("main.exe") != std::string::npos
-            || lowerName.find("arizona") != std::string::npos;
+            || (feature_flags::kEnableArizonaIntegration && lowerName.find("arizona") != std::string::npos);
         if (!interesting) {
             continue;
         }

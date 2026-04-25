@@ -750,6 +750,15 @@ void SampApi::ResetChatAsiInputDiscovery(HMODULE module) {
 }
 
 bool SampApi::EnsureChatAsiInputDiscovery() {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    if (!chatAsiInputDiscovery_.attempted) {
+        debuglog::WriteInfo("SampApi::_chat.asi input discovery skipped: Arizona integration disabled in this build");
+    }
+    chatAsiInputDiscovery_ = {};
+    chatAsiInputDiscovery_.attempted = true;
+    return false;
+#else
+
     const HMODULE module = GetModuleHandleA("_chat.asi");
     if (!module) {
         ResetChatAsiInputDiscovery();
@@ -854,9 +863,14 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     debuglog::WriteError(
         "SampApi::_chat.asi input discovery failed: no valid ###input -> wrapper -> buffer -> writer chain was found");
     return false;
+#endif
 }
 
 bool SampApi::TrySetChatInputTextViaChatAsi(std::string_view utf8Text) {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    (void)utf8Text;
+    return false;
+#else
     if (!EnsureChatAsiInputDiscovery()) {
         return false;
     }
@@ -875,9 +889,14 @@ bool SampApi::TrySetChatInputTextViaChatAsi(std::string_view utf8Text) {
     }
 
     return true;
+#endif
 }
 
 bool SampApi::TryProcessChatInputViaChatAsi(std::string_view utf8Text) {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    (void)utf8Text;
+    return false;
+#else
     if (!EnsureChatAsiInputDiscovery()) {
         return false;
     }
@@ -900,6 +919,7 @@ bool SampApi::TryProcessChatInputViaChatAsi(std::string_view utf8Text) {
     }
 
     return true;
+#endif
 }
 
 bool SampApi::Set_ChatInputText(std::string_view text, bool openInput, bool alreadyDecoded) {
@@ -932,4 +952,3 @@ bool SampApi::Set_ChatInputText(std::string_view text, bool openInput, bool alre
     ClearError();
     return true;
 }
-

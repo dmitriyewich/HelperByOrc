@@ -162,6 +162,7 @@
     <ClInclude Include="app_config.h" />
     <ClInclude Include="binder_module.h" />
     <ClInclude Include="debug_log.h" />
+    <ClInclude Include="feature_flags.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imgui_internal.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_dx9.h" />
