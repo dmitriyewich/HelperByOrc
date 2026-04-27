@@ -86,6 +86,35 @@ bool SampApi::Set_CursorMode(int mode, bool enabled) {
     return true;
 }
 
+std::optional<int> SampApi::GetCursorMode() const {
+    if (!sampModule_ || !versionResolved_ || !supportedVersion_) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t refGameOffset = main_offsets.RefGame.Get(currentVersion_);
+    const std::uint32_t cursorModeOffset = main_offsets.CGameCursorMode.Get(currentVersion_);
+    if (refGameOffset == 0 || cursorModeOffset == 0) {
+        return std::nullopt;
+    }
+
+    std::uint32_t game = 0;
+    if (!SafeRead(ModuleBase() + refGameOffset, game) || game == 0) {
+        return std::nullopt;
+    }
+
+    int mode = 0;
+    if (!SafeRead(static_cast<std::uintptr_t>(game) + cursorModeOffset, mode)) {
+        return std::nullopt;
+    }
+
+    return mode;
+}
+
+bool SampApi::IsSampCursorActive() const {
+    const std::optional<int> mode = GetCursorMode();
+    return mode.has_value() && *mode != 0;
+}
+
 bool SampApi::hideDialog() {
     const std::uintptr_t dialog = pDialog_func();
     if (dialog == 0) {

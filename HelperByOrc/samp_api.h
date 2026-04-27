@@ -78,6 +78,7 @@ public:
         VersionedOffset CDXUTDialog;
         VersionedOffset SetCursorMode;
         VersionedOffset RefGame;
+        VersionedOffset CGameCursorMode;
         VersionedOffset AddEntry;
         VersionedOffset RenderEntry;
         VersionedOffset pChat;
@@ -207,6 +208,8 @@ public:
     bool isDialogActive();
     DialogPosition getCurrentDialogPosition();
     bool Set_CursorMode(int mode, bool enabled);
+    std::optional<int> GetCursorMode() const;
+    bool IsSampCursorActive() const;
     bool hideDialog();
     bool CDialog_Close_func(int button);
     bool isDialogHookBypassActive() const;

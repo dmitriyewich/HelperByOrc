@@ -501,9 +501,7 @@ struct HotkeyEntry {
     TextConfirmation textConfirmation;
     CommandConfirmation commandConfirmation;
     std::vector<bool> conditions;
-    std::vector<bool> quickConditions;
     ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAll;
-    ConditionCombineMode quickConditionsCombine = ConditionCombineMode::RequireAll;
     bool repeatMode = false;
     int repeatIntervalMs = 0;
     bool enabled = true;
@@ -586,8 +584,8 @@ struct FolderNode {
     std::string name;
     FolderNode* parent = nullptr;
     std::vector<std::unique_ptr<FolderNode>> children;
-    std::vector<bool> quickConditions;
-    ConditionCombineMode quickConditionsCombine = ConditionCombineMode::RequireAll;
+    std::vector<bool> conditions;
+    ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAll;
     bool quickMenu = true;
     bool open = true;
 };
@@ -815,6 +813,8 @@ enum class ConditionId : std::size_t {
     OnFoot,
     ChatOpened,
     DialogOpened,
+    SampCursorActive,
+    WindowsCursorActive,
     Count,
 };
 
@@ -828,13 +828,23 @@ constexpr std::array<UiText, static_cast<std::size_t>(ConditionId::Count)> kCond
     UiText::ConditionOnFoot,
     UiText::ConditionChatOpened,
     UiText::ConditionDialogOpened,
+    UiText::ConditionSampCursorActive,
+    UiText::ConditionWindowsCursorActive,
 };
 
-bool CheckCondition(ConditionId condition, SampApi* sampApi);
+struct ConditionRuntimeContext {
+    bool helperUiCursorActive = false;
+    bool gameWindowForeground = true;
+    std::optional<bool> sampCursorActiveOverride{};
+    std::optional<bool> windowsCursorActiveOverride{};
+};
+
+bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRuntimeContext* context = nullptr);
 bool ConditionsUnsatisfied(
     const std::vector<bool>& flags,
     ConditionCombineMode mode,
     SampApi* sampApi,
+    const ConditionRuntimeContext* context = nullptr,
     std::string* message = nullptr);
 ConditionCombineMode NormalizeConditionCombineMode(std::string_view value);
 std::string ConditionCombineModeId(ConditionCombineMode mode);
@@ -896,7 +906,7 @@ std::string ConditionCombineModeId(ConditionCombineMode mode) {
 
 namespace {
 
-void DrawConditionFlagsPopup(
+bool DrawConditionFlagsPopup(
     const char* popupId,
     bool& popupPending,
     UiText titleText,
@@ -908,9 +918,10 @@ void DrawConditionFlagsPopup(
     }
 
     if (!ImGui::BeginPopup(popupId)) {
-        return;
+        return false;
     }
 
+    bool changed = false;
     UiSettings& ui = UiSettings::Instance();
     ImGui::TextUnformatted(ui.Text(titleText));
     ImGui::Separator();
@@ -921,6 +932,7 @@ void DrawConditionFlagsPopup(
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::Combo("##condition_combine_mode", &modeIdx, labels, 2)) {
             *combineMode = modeIdx == 0 ? ConditionCombineMode::RequireAll : ConditionCombineMode::RequireAny;
+            changed = true;
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
             ImGui::SetTooltip("%s", ui.Text(UiText::ConditionCombineHint));
@@ -932,6 +944,7 @@ void DrawConditionFlagsPopup(
         bool value = flags[i];
         if (ImGui::Checkbox(ConditionLabel(static_cast<ConditionId>(i)), &value)) {
             flags[i] = value;
+            changed = true;
         }
     }
     ImGui::Spacing();
@@ -939,6 +952,7 @@ void DrawConditionFlagsPopup(
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
+    return changed;
 }
 
 template <typename Container>
@@ -1096,9 +1110,29 @@ const char* QuickMenuModeLabel(QuickMenuActivationMode mode) {
 
 } // namespace
 
-bool CheckCondition(ConditionId condition, SampApi* sampApi) {
+bool IsWindowsCursorActiveForConditions(const ConditionRuntimeContext* context) {
+    if (context && !context->gameWindowForeground) {
+        return false;
+    }
+    if (context && context->helperUiCursorActive) {
+        return false;
+    }
+
+    CURSORINFO info{};
+    info.cbSize = sizeof(info);
+    if (::GetCursorInfo(&info) == FALSE) {
+        return false;
+    }
+    return (info.flags & CURSOR_SHOWING) != 0;
+}
+
+bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRuntimeContext* context) {
     auto* player = FindPlayerPed();
-    if (!player) {
+    const bool needsPlayer = condition != ConditionId::ChatOpened
+        && condition != ConditionId::DialogOpened
+        && condition != ConditionId::SampCursorActive
+        && condition != ConditionId::WindowsCursorActive;
+    if (needsPlayer && !player) {
         return false;
     }
 
@@ -1127,6 +1161,25 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi) {
         return sampApi ? sampApi->is_chat_opened() : false;
     case ConditionId::DialogOpened:
         return sampApi ? sampApi->isDialogActive() : false;
+    case ConditionId::SampCursorActive:
+        if (context && context->sampCursorActiveOverride.has_value()) {
+            return *context->sampCursorActiveOverride;
+        }
+        if (!sampApi) {
+            return false;
+        }
+        if (sampApi->is_chat_opened() || sampApi->isDialogActive()) {
+            return true;
+        }
+        if (context && context->helperUiCursorActive) {
+            return false;
+        }
+        return sampApi->IsSampCursorActive();
+    case ConditionId::WindowsCursorActive:
+        if (context && context->windowsCursorActiveOverride.has_value()) {
+            return *context->windowsCursorActiveOverride;
+        }
+        return IsWindowsCursorActiveForConditions(context);
     case ConditionId::Count:
         break;
     }
@@ -1134,19 +1187,22 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi) {
     return false;
 }
 
+bool HasSelectedCondition(const std::vector<bool>& flags) {
+    for (std::size_t i = 0; i < flags.size() && i < static_cast<std::size_t>(ConditionId::Count); ++i) {
+        if (flags[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ConditionsUnsatisfied(
     const std::vector<bool>& flags,
     ConditionCombineMode mode,
     SampApi* sampApi,
+    const ConditionRuntimeContext* context,
     std::string* message) {
-    bool anySelected = false;
-    for (std::size_t i = 0; i < flags.size() && i < static_cast<std::size_t>(ConditionId::Count); ++i) {
-        if (flags[i]) {
-            anySelected = true;
-            break;
-        }
-    }
-    if (!anySelected) {
+    if (!HasSelectedCondition(flags)) {
         return false;
     }
 
@@ -1155,7 +1211,7 @@ bool ConditionsUnsatisfied(
             if (!flags[i]) {
                 continue;
             }
-            if (!CheckCondition(static_cast<ConditionId>(i), sampApi)) {
+            if (!CheckCondition(static_cast<ConditionId>(i), sampApi, context)) {
                 if (message) {
                     *message = ConditionLabel(static_cast<ConditionId>(i));
                 }
@@ -1169,7 +1225,7 @@ bool ConditionsUnsatisfied(
         if (!flags[i]) {
             continue;
         }
-        if (CheckCondition(static_cast<ConditionId>(i), sampApi)) {
+        if (CheckCondition(static_cast<ConditionId>(i), sampApi, context)) {
             return false;
         }
     }
@@ -1728,13 +1784,77 @@ struct FolderListPos {
     FolderNode* listParent = nullptr;
 };
 
+enum class FolderDropZone {
+    Before,
+    Into,
+    After,
+};
+
 struct FolderMoveUndo {
     int nodeId = 0;
     int oldListParentId = -1; // -1 = root `folders` list, >0 = id of parent folder
     int oldIndex = 0;
 };
 
+struct FolderDropTarget {
+    FolderListPos pos{};
+};
+
 const char* kFolderDragPayload = "BINDER_FOLDER_ID";
+
+FolderDropZone ResolveFolderDropZone(const ImRect& rect) {
+    const float height = std::max(1.0f, rect.GetHeight());
+    const float edge = std::min(height * 0.40f, std::max(ScaleUi(4.0f), height * 0.28f));
+    const float mouseY = ImGui::GetIO().MousePos.y;
+    if (mouseY < rect.Min.y + edge) {
+        return FolderDropZone::Before;
+    }
+    if (mouseY > rect.Max.y - edge) {
+        return FolderDropZone::After;
+    }
+    return FolderDropZone::Into;
+}
+
+void DrawFolderDropPreview(const ImRect& rect, FolderDropZone zone) {
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImU32 color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
+    if (zone == FolderDropZone::Into) {
+        ImVec4 fill = ImGui::ColorConvertU32ToFloat4(color);
+        fill.w *= 0.18f;
+        drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(fill), ScaleUi(2.0f));
+        drawList->AddRect(rect.Min, rect.Max, color, 0.0f, 0, ScaleUi(2.0f));
+        return;
+    }
+
+    const float y = zone == FolderDropZone::Before ? rect.Min.y : rect.Max.y;
+    drawList->AddRectFilled(
+        ImVec2(rect.Min.x, y - ScaleUi(1.5f)),
+        ImVec2(rect.Max.x, y + ScaleUi(1.5f)),
+        color,
+        ScaleUi(1.0f));
+    drawList->AddCircleFilled(ImVec2(rect.Min.x + ScaleUi(3.0f), y), ScaleUi(3.0f), color);
+}
+
+float FolderDragGapHeight() {
+    return std::max(ScaleUi(6.0f), ImGui::GetFrameHeight() * 0.25f);
+}
+
+void DrawFolderGapPreview(const ImRect& rect, bool hovered) {
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const float y = std::floor((rect.Min.y + rect.Max.y) * 0.5f);
+    const ImU32 lineColor = hovered
+        ? ImGui::GetColorU32(ImGuiCol_DragDropTarget)
+        : ImGui::GetColorU32(ImGuiCol_Separator);
+    if (hovered) {
+        const ImU32 fillColor = ImGui::GetColorU32(ImGuiCol_DragDropTarget, 0.16f);
+        drawList->AddRectFilled(rect.Min, rect.Max, fillColor, ScaleUi(1.0f));
+    }
+    drawList->AddLine(
+        ImVec2(rect.Min.x, y),
+        ImVec2(rect.Max.x, y),
+        lineColor,
+        hovered ? ScaleUi(2.0f) : 1.0f);
+}
 
 FolderNode* FindFolderByIdR(std::vector<std::unique_ptr<FolderNode>>& from, int id) {
     for (auto& u : from) {
@@ -1852,6 +1972,11 @@ struct BinderModule::Impl {
     std::string bindSearch{};
     std::string folderSearch{};
     std::optional<FolderMoveUndo> folderMoveUndo_{};
+    int folderDragCandidateId_ = 0;
+    bool folderDragCandidateShiftSeen_ = false;
+    bool folderDragActive_ = false;
+    std::optional<FolderDropTarget> folderDropTarget_{};
+    bool folderTreeMutatedThisFrame_ = false;
 
     struct EditorState {
         enum class Tab {
@@ -1884,11 +2009,9 @@ struct BinderModule::Impl {
         bool focusNamePending = false;
         bool startSectionCollapsed = false;
         bool conditionsPopupPending = false;
-        bool quickConditionsPopupPending = false;
         bool variablesPopupPending = false;
         bool variablesTabSelectionPending = false;
         bool variablesKeyPickerPopupPending = false;
-        bool previewPopupPending = false;
         bool discardPopupPending = false;
         int variablesActiveTab = 0;
         int selectedVariableInputIndex = -1;
@@ -1909,6 +2032,8 @@ struct BinderModule::Impl {
     FolderNode* folderDeleteTarget = nullptr;
     bool folderEditPopupPending = false;
     bool folderDeletePopupPending = false;
+    FolderNode* folderConditionsTarget = nullptr;
+    bool folderConditionsPopupPending = false;
     int bindDeleteTarget = -1;
     bool bindDeletePopupPending = false;
     int moveBindTarget = -1;
@@ -1937,6 +2062,8 @@ struct BinderModule::Impl {
     int quickMenuTabSelectRequest = -1;
     ImVec2 quickMenuPos{ 0.0f, 0.0f };
     ImVec2 quickMenuSize{ static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight) };
+    std::optional<bool> quickMenuSampCursorActiveAtOpen{};
+    std::optional<bool> quickMenuWindowsCursorActiveAtOpen{};
 
     std::optional<InputDialogState> inputDialog{};
     std::vector<RunningBind> runningBinds{};
@@ -1966,10 +2093,13 @@ struct BinderModule::Impl {
     void PushToast(std::string text, const ImVec4& color, double durationMs);
     void PruneToasts();
     void DrawToasts();
+    void CaptureQuickMenuConditionSnapshot();
+    void ClearQuickMenuConditionSnapshot();
     bool VisibleQuickMenuEntriesExist() const;
     bool FolderVisibleInQuickMenu(const FolderNode& folder) const;
     bool FolderHasVisibleQuickEntries(const FolderNode& folder) const;
     std::vector<int> QuickEntriesForFolder(const FolderNode& folder) const;
+    ConditionRuntimeContext MakeConditionContext(bool helperUiCursorActive = false) const;
     void ResetInputState();
     void Tick();
     void Shutdown();
@@ -2092,16 +2222,27 @@ struct BinderModule::Impl {
     void DrawEditorVariableCatalogTab(TagsModule::TagKind kind);
     void DrawEditorVariableKeyPickerPopup();
     void DrawEditorConditionsPopup();
-    void DrawEditorQuickConditionsPopup();
     void DrawEditorVariablesPopup();
-    void DrawEditorPreviewPopup();
     void DrawEditorDiscardPopup();
     void DrawEditorInline();
     void DrawEditorScenarioTab();
-    void DrawFolderRowInsert(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
-    void DrawFolderTreeNode(FolderNode& folder, bool dndEnabled);
+    void ResetFolderDragState();
+    bool IsFolderDragPayloadActive() const;
+    bool IsFolderDragInProgress() const;
+    bool IsValidFolderDropTarget(int moveId, const FolderListPos& dest, bool* noop = nullptr);
+    void SetFolderDropTarget(const FolderListPos& pos);
+    void ApplyFolderDropOnRelease();
+    void DrawFolderDragSource(FolderNode& folder, const std::string& folderLabel, bool dndEnabled);
+    void DrawFolderNodeDropTarget(
+        FolderNode& folder,
+        const FolderListPos& selfPos,
+        bool dndEnabled,
+        const ImRect& nodeRect);
+    void DrawFolderGapDropTarget(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
+    void DrawFolderRootEmptyDropTarget(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
+    void DrawFolderTreeNode(FolderNode& folder, const FolderListPos& selfPos, bool dndEnabled);
     bool RelocateFolderNode(int moveId, FolderListPos dest, bool recordUndo);
-    void TryFolderMoveInto(int moveId, int intoFolderId);
+    void TryFolderMoveTo(int moveId, const FolderListPos& dest);
     void ClearFolderMoveUndo() { folderMoveUndo_.reset(); }
     void ApplyFolderMoveUndo();
 
@@ -2332,7 +2473,7 @@ FolderNode* BinderModule::Impl::EnsureRootFolder() {
         auto root = std::make_unique<FolderNode>();
         root->id = nextFolderId++;
         root->name = UiSettings::Instance().Text(UiText::BinderDefaultRootFolder);
-        root->quickConditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
+        root->conditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
         folders.push_back(std::move(root));
     }
 
@@ -2368,7 +2509,6 @@ HotkeyEntry BinderModule::Impl::MakeDefaultHotkey() {
     hotkey.hotkeyMode = HotkeyMode::ModifierTrigger;
     hotkey.messages.push_back(HotkeyMessage{ "", 0, 2 });
     hotkey.conditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
-    hotkey.quickConditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.repeatIntervalMs = kDefaultRepeatIntervalMs;
     hotkey.textConfirmation = TextConfirmation{};
     hotkey.runtimeId = AllocateHotkeyRuntimeId();
@@ -2462,8 +2602,8 @@ JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     JsonObject object;
     object["name"] = folder.name;
     object["quick_menu"] = folder.quickMenu;
-    object["quick_conditions"] = SerializeBoolArray(folder.quickConditions);
-    object["quick_conditions_combine"] = ConditionCombineModeId(folder.quickConditionsCombine);
+    object["conditions"] = SerializeBoolArray(folder.conditions);
+    object["conditions_combine"] = ConditionCombineModeId(folder.conditionsCombine);
 
     JsonArray childrenArray;
     for (const auto& child : folder.children) {
@@ -2485,12 +2625,18 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
         folder->name = UiSettings::Instance().Text(UiText::BinderDefaultFolder);
     }
     folder->quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", true);
-    folder->quickConditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
-    if (folder->quickConditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
-        folder->quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    const JsonArray* conditionsArray = jsonutil::JsonArrayOrNull(&object, "conditions");
+    if (!conditionsArray) {
+        conditionsArray = jsonutil::JsonArrayOrNull(&object, "quick_conditions");
     }
-    folder->quickConditionsCombine =
-        NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
+    folder->conditions = DeserializeBoolArray(conditionsArray);
+    if (folder->conditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
+        folder->conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    }
+    folder->conditionsCombine = NormalizeConditionCombineMode(jsonutil::JsonStringOr(
+        &object,
+        "conditions_combine",
+        jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all")));
 
     if (const JsonArray* children = jsonutil::JsonArrayOrNull(&object, "children")) {
         for (const JsonValue& childValue : *children) {
@@ -2511,9 +2657,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     object["keys"] = SerializeUintArray(hotkey.keys);
     object["hotkey_mode"] = HotkeyModeId(hotkey.hotkeyMode);
     object["conditions"] = SerializeBoolArray(hotkey.conditions);
-    object["quick_conditions"] = SerializeBoolArray(hotkey.quickConditions);
     object["conditions_combine"] = ConditionCombineModeId(hotkey.conditionsCombine);
-    object["quick_conditions_combine"] = ConditionCombineModeId(hotkey.quickConditionsCombine);
     object["repeat_mode"] = hotkey.repeatMode;
     object["repeat_interval_ms"] = hotkey.repeatIntervalMs;
     object["enabled"] = hotkey.enabled;
@@ -2584,13 +2728,17 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
     hotkey.keys = ::hotkeys::NormalizeCombo(
         DeserializeUintArray(jsonutil::JsonArrayOrNull(&object, "keys")), hotkey.hotkeyMode);
     hotkey.conditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "conditions"));
-    hotkey.quickConditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
     hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
-    hotkey.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     hotkey.conditionsCombine =
         NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "conditions_combine", "require_all"));
-    hotkey.quickConditionsCombine =
-        NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
+    std::vector<bool> legacyQuickConditions =
+        DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
+    if (!HasSelectedCondition(hotkey.conditions) && HasSelectedCondition(legacyQuickConditions)) {
+        hotkey.conditions = std::move(legacyQuickConditions);
+        hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+        hotkey.conditionsCombine =
+            NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
+    }
     hotkey.repeatMode = jsonutil::JsonBoolOr(&object, "repeat_mode", false);
     hotkey.repeatIntervalMs = jsonutil::JsonNumberOr<int>(&object, "repeat_interval_ms", kDefaultRepeatIntervalMs);
     hotkey.enabled = jsonutil::JsonBoolOr(&object, "enabled", true);
@@ -2736,6 +2884,42 @@ void BinderModule::Impl::DrawToasts() {
     ImGui::End();
 }
 
+void BinderModule::Impl::CaptureQuickMenuConditionSnapshot() {
+    bool sampCursorActive = false;
+    if (sampApi) {
+        sampCursorActive = sampApi->is_chat_opened() || sampApi->isDialogActive() || sampApi->IsSampCursorActive();
+    }
+
+    ConditionRuntimeContext rawContext{};
+    rawContext.helperUiCursorActive = false;
+    rawContext.gameWindowForeground = gameInputForeground_;
+
+    const bool windowsCursorActive = IsWindowsCursorActiveForConditions(&rawContext);
+    quickMenuSampCursorActiveAtOpen = sampCursorActive;
+    quickMenuWindowsCursorActiveAtOpen = windowsCursorActive;
+
+    debuglog::WriteInfo(
+        "[ui] quickmenu condition snapshot sampCursor=%d windowsCursor=%d",
+        sampCursorActive ? 1 : 0,
+        windowsCursorActive ? 1 : 0);
+}
+
+void BinderModule::Impl::ClearQuickMenuConditionSnapshot() {
+    quickMenuSampCursorActiveAtOpen.reset();
+    quickMenuWindowsCursorActiveAtOpen.reset();
+}
+
+ConditionRuntimeContext BinderModule::Impl::MakeConditionContext(bool helperUiCursorActive) const {
+    ConditionRuntimeContext context{};
+    context.helperUiCursorActive = helperUiCursorActive;
+    context.gameWindowForeground = gameInputForeground_;
+    if (helperUiCursorActive) {
+        context.sampCursorActiveOverride = quickMenuSampCursorActiveAtOpen;
+        context.windowsCursorActiveOverride = quickMenuWindowsCursorActiveAtOpen;
+    }
+    return context;
+}
+
 bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
     for (const auto& folder : folders) {
         if (folder && FolderHasVisibleQuickEntries(*folder)) {
@@ -2746,7 +2930,8 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
 }
 
 bool BinderModule::Impl::FolderVisibleInQuickMenu(const FolderNode& folder) const {
-    if (!folder.quickMenu || ConditionsUnsatisfied(folder.quickConditions, folder.quickConditionsCombine, sampApi)) {
+    const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
+    if (!folder.quickMenu || ConditionsUnsatisfied(folder.conditions, folder.conditionsCombine, sampApi, &context)) {
         return false;
     }
     return !folder.parent || FolderVisibleInQuickMenu(*folder.parent);
@@ -2772,13 +2957,14 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
     const auto path = BuildFolderPath(&folder);
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         const HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.quickMenu) {
+        if (!hotkey.enabled || !hotkey.quickMenu) {
             continue;
         }
         if (hotkey.folderPath != path) {
             continue;
         }
-        if (ConditionsUnsatisfied(hotkey.quickConditions, hotkey.quickConditionsCombine, sampApi)) {
+        const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
+        if (ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context)) {
             continue;
         }
         result.push_back(static_cast<int>(i));
@@ -2801,6 +2987,7 @@ void BinderModule::Impl::ResetInputState() {
     captureHotkeyIndex = -1;
     capturePopupInEditor = false;
     quickMenuOpen = false;
+    ClearQuickMenuConditionSnapshot();
     quickMenuToggleLatch = false;
     quickMenuReopenBlocked = false;
     ResetQuickMenuVisualState();
@@ -2873,6 +3060,11 @@ void BinderModule::Impl::Tick() {
     const bool quickWasOpen = quickMenuOpen;
     const bool quickWasBlocked = quickMenuReopenBlocked;
     UpdateQuickMenuState();
+    if (!quickWasOpen && quickMenuOpen) {
+        CaptureQuickMenuConditionSnapshot();
+    } else if (!quickMenuOpen) {
+        ClearQuickMenuConditionSnapshot();
+    }
     if (quickMenuOpen != quickWasOpen || quickMenuReopenBlocked != quickWasBlocked) {
         debuglog::WriteInfo(
             "[ui] quickmenu open %d->%d blocked %d->%d activation=%s comboHeld=%d overlayRender=%d",
@@ -4177,8 +4369,9 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     std::string_view sourceKind,
     const std::string& sourceText,
     bool waitForResolution) {
+    const ConditionRuntimeContext context = MakeConditionContext(false);
     if (hotkey.waitingTextConfirmation || hotkey.awaitingInput
-        || ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi)) {
+        || ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context)) {
         return false;
     }
 
@@ -4567,7 +4760,8 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     std::string conditionMessage;
-    if (ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi, &conditionMessage)) {
+    const ConditionRuntimeContext context = MakeConditionContext(source == "quick_menu");
+    if (ConditionsUnsatisfied(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context, &conditionMessage)) {
         if (!conditionMessage.empty() && source != "incoming_server" && source != "outgoing_chat" && source != "outgoing_command") {
             PushToast(
                 UiSettings::Instance().Format(UiText::ToastConditionBlocked, conditionMessage.c_str()),
@@ -4932,7 +5126,6 @@ void BinderModule::Impl::SetEditorTab(EditorState::Tab tab) {
 HotkeyEntry BinderModule::Impl::BuildEditorComparableDraft() const {
     HotkeyEntry comparable = editor.draft;
     comparable.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
-    comparable.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     comparable.repeatIntervalMs = std::max(comparable.repeatIntervalMs, 0);
     return comparable;
 }
@@ -5117,7 +5310,6 @@ void BinderModule::Impl::SaveEditor() {
     saved.command = Trim(saved.command);
     saved.textTrigger.text = Trim(saved.textTrigger.text);
     saved.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
-    saved.quickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     saved.comboActive = false;
     saved.awaitingInput = false;
     saved.waitingTextConfirmation = false;
@@ -5466,6 +5658,180 @@ void BinderModule::Impl::DuplicateHotkeyAt(int index) {
     SaveConfig();
 }
 
+void BinderModule::Impl::ResetFolderDragState() {
+    folderDragCandidateId_ = 0;
+    folderDragCandidateShiftSeen_ = false;
+    folderDragActive_ = false;
+    folderDropTarget_.reset();
+}
+
+bool BinderModule::Impl::IsFolderDragPayloadActive() const {
+    const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+    return payload != nullptr && payload->IsDataType(kFolderDragPayload) && payload->Data != nullptr;
+}
+
+bool BinderModule::Impl::IsFolderDragInProgress() const {
+    return folderDragActive_ || IsFolderDragPayloadActive();
+}
+
+bool BinderModule::Impl::IsValidFolderDropTarget(int moveId, const FolderListPos& dest, bool* noop) {
+    if (noop) {
+        *noop = false;
+    }
+
+    FolderListPos from{};
+    if (!FindFolderListPos(folders, nullptr, moveId, from) || !dest.list) {
+        return false;
+    }
+
+    FolderNode* node = (*from.list)[static_cast<std::size_t>(from.index)].get();
+    if (IsProtectedRootFolder(node) && dest.list != &folders) {
+        return false;
+    }
+    if (dest.list == &node->children) {
+        return false;
+    }
+    if (from.list != dest.list && !FolderNameUnique(*dest.list, node->name, nullptr)) {
+        return false;
+    }
+
+    FolderNode* const destListOwner = FindListOwner(folders, dest.list);
+    if (destListOwner && node != destListOwner && IsUnderOrEqual(node, destListOwner)) {
+        return false;
+    }
+
+    if (from.list == dest.list && (dest.index == from.index || dest.index == from.index + 1)) {
+        if (noop) {
+            *noop = true;
+        }
+        return true;
+    }
+    return true;
+}
+
+void BinderModule::Impl::SetFolderDropTarget(const FolderListPos& pos) {
+    bool noop = false;
+    if (!IsValidFolderDropTarget(folderDragCandidateId_, pos, &noop) || noop) {
+        return;
+    }
+    folderDropTarget_ = FolderDropTarget{pos};
+}
+
+void BinderModule::Impl::ApplyFolderDropOnRelease() {
+    if (!folderDragActive_ || ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        return;
+    }
+
+    const std::optional<FolderDropTarget> target = folderDropTarget_;
+    const int moveId = folderDragCandidateId_;
+    ResetFolderDragState();
+    if (target) {
+        TryFolderMoveTo(moveId, target->pos);
+    }
+}
+
+void BinderModule::Impl::DrawFolderDragSource(
+    FolderNode& folder,
+    const std::string& folderLabel,
+    const bool dndEnabled) {
+    if (!dndEnabled) {
+        return;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    if (mouseDown && (ImGui::IsItemActive() || (folderDragCandidateId_ == 0 && hovered))) {
+        if (folderDragCandidateId_ != folder.id) {
+            folderDragCandidateId_ = folder.id;
+            folderDragCandidateShiftSeen_ = io.KeyShift;
+        } else if (io.KeyShift) {
+            folderDragCandidateShiftSeen_ = true;
+        }
+    }
+
+    if (folderDragCandidateId_ != folder.id || !folderDragCandidateShiftSeen_) {
+        return;
+    }
+    if (mouseDown && ImGui::IsMouseDragging(ImGuiMouseButton_Left, ScaleUi(1.0f))) {
+        folderDragActive_ = true;
+    }
+
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+        folderDragActive_ = true;
+        int fid = folder.id;
+        ImGui::SetDragDropPayload(kFolderDragPayload, &fid, sizeof(fid));
+        ImGui::TextUnformatted(folderLabel.c_str());
+        ImGui::EndDragDropSource();
+    }
+}
+
+void BinderModule::Impl::DrawFolderNodeDropTarget(
+    FolderNode& folder,
+    const FolderListPos& selfPos,
+    const bool dndEnabled,
+    const ImRect& nodeRect) {
+    if (!IsFolderDragInProgress()) {
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_HOTKEY_INDEX")) {
+                if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()
+                    && !ImGui::GetIO().KeyShift) {
+                    const int hotkeyIndex = *static_cast<const int*>(payload->Data);
+                    if (hotkeyIndex >= 0 && hotkeyIndex < static_cast<int>(hotkeys.size())) {
+                        hotkeys[static_cast<std::size_t>(hotkeyIndex)].folderPath = BuildFolderPath(&folder);
+                        selectedFolder = &folder;
+                        ExpandFolderBranch(&folder);
+                        SaveConfig();
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+
+    if (dndEnabled && IsFolderDragInProgress()) {
+        const FolderDropZone zone = ResolveFolderDropZone(nodeRect);
+        if (ImGui::IsMouseHoveringRect(nodeRect.Min, nodeRect.Max, true)) {
+            FolderListPos dest = selfPos;
+            if (zone == FolderDropZone::After) {
+                dest.index = selfPos.index + 1;
+            } else if (zone == FolderDropZone::Into) {
+                dest.list = &folder.children;
+                dest.index = static_cast<int>(folder.children.size());
+                dest.listParent = &folder;
+            }
+            bool noop = false;
+            if (IsValidFolderDropTarget(folderDragCandidateId_, dest, &noop) && !noop) {
+                DrawFolderDropPreview(nodeRect, zone);
+                SetFolderDropTarget(dest);
+            }
+        }
+    }
+}
+
+void BinderModule::Impl::DrawFolderGapDropTarget(
+    const FolderListPos& pos,
+    const bool dndEnabled,
+    const char* idSuffix) {
+    if (!dndEnabled || !IsFolderDragInProgress()) {
+        return;
+    }
+
+    ImGui::PushID(idSuffix);
+    const float w = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float h = FolderDragGapHeight();
+    ImGui::InvisibleButton("##folder_gap_drop", ImVec2(w, h));
+    const ImRect rect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    const bool hovered = ImGui::IsMouseHoveringRect(rect.Min, rect.Max, true);
+    bool noop = false;
+    const bool valid = IsValidFolderDropTarget(folderDragCandidateId_, pos, &noop) && !noop;
+    DrawFolderGapPreview(rect, hovered && valid);
+    if (hovered && valid) {
+        SetFolderDropTarget(pos);
+    }
+    ImGui::PopID();
+}
+
 bool BinderModule::Impl::RelocateFolderNode(int moveId, FolderListPos dest, bool recordUndo) {
     FolderListPos from;
     if (!FindFolderListPos(folders, nullptr, moveId, from)) {
@@ -5536,24 +5902,36 @@ bool BinderModule::Impl::RelocateFolderNode(int moveId, FolderListPos dest, bool
     } else {
         folderMoveUndo_.reset();
     }
+    debuglog::WriteInfo(
+        "[binder] folder moved id=%d oldParent=%d oldIndex=%d newParent=%d newIndex=%d",
+        node->id,
+        savedListParentId,
+        savedListIndex,
+        newParent ? newParent->id : -1,
+        dix);
+    folderTreeMutatedThisFrame_ = true;
     ExpandFolderBranch(node);
     SaveConfig();
     return true;
 }
 
-void BinderModule::Impl::TryFolderMoveInto(int moveId, int intoFolderId) {
+void BinderModule::Impl::TryFolderMoveTo(int moveId, const FolderListPos& dest) {
+    bool noop = false;
     UiSettings& ui = UiSettings::Instance();
-    FolderNode* const ref = FindFolderByIdR(folders, intoFolderId);
-    if (!ref) {
+    if (!IsValidFolderDropTarget(moveId, dest, &noop)) {
+        const int destParentId = dest.list == &folders ? -1 : (dest.listParent ? dest.listParent->id : -1);
+        debuglog::WriteError(
+            "[binder] folder move rejected id=%d destParent=%d destIndex=%d",
+            moveId,
+            destParentId,
+            dest.index);
+        PushToast(ui.Text(UiText::ToastFolderMoveInvalid), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2400.0);
         return;
     }
-    FolderListPos d{};
-    d.list = &ref->children;
-    d.index = 0;
-    d.listParent = ref;
-    if (!RelocateFolderNode(moveId, d, true)) {
-        PushToast(ui.Text(UiText::ToastFolderMoveInvalid), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2400.0);
-    } else {
+    if (noop) {
+        return;
+    }
+    if (RelocateFolderNode(moveId, dest, true)) {
         PushToast(ui.Text(UiText::ToastFolderMoved), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2000.0);
     }
 }
@@ -5588,49 +5966,40 @@ void BinderModule::Impl::ApplyFolderMoveUndo() {
     }
 }
 
-void BinderModule::Impl::DrawFolderRowInsert(
-    const FolderListPos& pos, const bool dndEnabled, const char* idSuffix) {
-    if (!dndEnabled) {
+void BinderModule::Impl::DrawFolderRootEmptyDropTarget(
+    const FolderListPos& pos,
+    const bool dndEnabled,
+    const char* idSuffix) {
+    if (!dndEnabled || !IsFolderDragInProgress()) {
         return;
     }
+
+    const float h = ImGui::GetContentRegionAvail().y;
+    if (h < ScaleUi(8.0f)) {
+        return;
+    }
+
     ImGui::PushID(idSuffix);
     const float w = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-    // 1px hit area; list uses ItemSpacing.y=0 to avoid extra gaps between folders.
-    const float h = 1.0f;
-    ImGui::InvisibleButton("##di", ImVec2(w, h));
-    const bool hovered = ImGui::IsItemHovered();
-    if (const ImGuiPayload* pl = ImGui::GetDragDropPayload();
-        pl != nullptr && pl->IsDataType(kFolderDragPayload) && pl->Data != nullptr) {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const ImU32 cLine = ImGui::GetColorU32(hovered ? ImGuiCol_DragDropTarget : ImGuiCol_Separator);
-        const float y = ImGui::GetItemRectMin().y;
-        const ImVec2 p0(ImGui::GetItemRectMin().x, y);
-        const ImVec2 p1(p0.x + w, y);
-        drawList->AddLine(p0, p1, cLine, hovered ? 2.0f : 1.0f);
-    }
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload)) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()) {
-                const int moveId = *static_cast<const int*>(payload->Data);
-                if (!RelocateFolderNode(moveId, pos, true)) {
-                    PushToast(
-                        UiSettings::Instance().Text(UiText::ToastFolderMoveInvalid),
-                        ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
-                        2000.0);
-                } else {
-                    PushToast(
-                        UiSettings::Instance().Text(UiText::ToastFolderMoved),
-                        ImVec4(0.20f, 0.35f, 0.18f, 0.95f),
-                        2000.0);
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
+    ImGui::InvisibleButton("##folder_empty_drop", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    bool noop = false;
+    const bool valid = IsValidFolderDropTarget(folderDragCandidateId_, pos, &noop) && !noop;
+    if (hovered && valid) {
+        const ImRect rect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        ImVec4 fill = ImGui::ColorConvertU32ToFloat4(ImGui::GetColorU32(ImGuiCol_DragDropTarget));
+        fill.w *= 0.12f;
+        ImGui::GetWindowDrawList()->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(fill), ScaleUi(2.0f));
+        DrawFolderGapPreview(ImRect(rect.Min, ImVec2(rect.Max.x, rect.Min.y + FolderDragGapHeight())), true);
+        SetFolderDropTarget(pos);
     }
     ImGui::PopID();
 }
 
-void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder, const bool dndEnabled) {
+void BinderModule::Impl::DrawFolderTreeNode(
+    FolderNode& folder,
+    const FolderListPos& selfPos,
+    const bool dndEnabled) {
     if (!FolderMatchesSearch(folder, folderSearch)) {
         return;
     }
@@ -5653,41 +6022,20 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder, const bool dndEn
     ImGui::SetNextItemOpen(folder.open, ImGuiCond_Always);
     const std::string folderLabel = FormatFolderLabel(folder.name);
     const bool opened = ImGui::TreeNodeEx("##folder_node", flags, "%s", folderLabel.c_str());
+    const ImRect nodeRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     folder.open = opened;
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         selectedFolder = &folder;
     }
 
-    if (dndEnabled && ImGui::GetIO().KeyShift) {
-        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
-            int fid = folder.id;
-            ImGui::SetDragDropPayload(kFolderDragPayload, &fid, sizeof(fid));
-            ImGui::TextUnformatted(folderLabel.c_str());
-            ImGui::EndDragDropSource();
+    DrawFolderDragSource(folder, folderLabel, dndEnabled);
+    DrawFolderNodeDropTarget(folder, selfPos, dndEnabled, nodeRect);
+    if (folderTreeMutatedThisFrame_) {
+        if (opened && needTreePop) {
+            ImGui::TreePop();
         }
-    }
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_HOTKEY_INDEX")) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()
-                && !ImGui::GetIO().KeyShift) {
-                const int hotkeyIndex = *static_cast<const int*>(payload->Data);
-                if (hotkeyIndex >= 0 && hotkeyIndex < static_cast<int>(hotkeys.size())) {
-                    hotkeys[static_cast<std::size_t>(hotkeyIndex)].folderPath = BuildFolderPath(&folder);
-                    selectedFolder = &folder;
-                    ExpandFolderBranch(&folder);
-                    SaveConfig();
-                }
-            }
-        }
-        if (dndEnabled) {
-            if (const ImGuiPayload* fpl = ImGui::AcceptDragDropPayload(kFolderDragPayload)) {
-                if (fpl->Data != nullptr && fpl->DataSize == sizeof(int) && fpl->IsDelivery()) {
-                    const int moveId = *static_cast<const int*>(fpl->Data);
-                    TryFolderMoveInto(moveId, folder.id);
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
+        ImGui::PopID();
+        return;
     }
 
     if (ImGui::BeginPopupContextItem("##folder_context")) {
@@ -5706,6 +6054,12 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder, const bool dndEn
             folderPopup.target = &folder;
             folderPopup.name = folder.name;
             folderEditPopupPending = true;
+            ImGui::CloseCurrentPopup();
+        }
+
+        if (ImGui::MenuItem(uiC.Text(UiText::EditorOpenConditions))) {
+            folderConditionsTarget = &folder;
+            folderConditionsPopupPending = true;
             ImGui::CloseCurrentPopup();
         }
 
@@ -5728,27 +6082,37 @@ void BinderModule::Impl::DrawFolderTreeNode(FolderNode& folder, const bool dndEn
     if (opened && !folder.children.empty()) {
         const int cn = static_cast<int>(folder.children.size());
         for (int i = 0; i < cn; ++i) {
-            if (dndEnabled) {
-                FolderListPos before{};
-                before.list = &folder.children;
-                before.index = i;
-                before.listParent = &folder;
-                DrawFolderRowInsert(
-                    before,
-                    dndEnabled,
-                    (std::string("c") + std::to_string(folder.id) + "i" + std::to_string(i)).c_str());
+            FolderListPos before{};
+            before.list = &folder.children;
+            before.index = i;
+            before.listParent = &folder;
+            DrawFolderGapDropTarget(
+                before,
+                dndEnabled,
+                (std::string("c") + std::to_string(folder.id) + "gap" + std::to_string(i)).c_str());
+            if (folderTreeMutatedThisFrame_) {
+                break;
             }
             if (folder.children[static_cast<std::size_t>(i)]) {
-                DrawFolderTreeNode(*folder.children[static_cast<std::size_t>(i)], dndEnabled);
+                FolderListPos childPos{};
+                childPos.list = &folder.children;
+                childPos.index = i;
+                childPos.listParent = &folder;
+                DrawFolderTreeNode(*folder.children[static_cast<std::size_t>(i)], childPos, dndEnabled);
+                if (folderTreeMutatedThisFrame_) {
+                    break;
+                }
             }
         }
-        if (dndEnabled) {
+        if (dndEnabled && !folderTreeMutatedThisFrame_) {
             FolderListPos afterPos{};
             afterPos.list = &folder.children;
             afterPos.index = cn;
             afterPos.listParent = &folder;
-            DrawFolderRowInsert(
-                afterPos, dndEnabled, (std::string("c") + std::to_string(folder.id) + "e").c_str());
+            DrawFolderGapDropTarget(
+                afterPos,
+                dndEnabled,
+                (std::string("c") + std::to_string(folder.id) + "gap_end").c_str());
         }
     }
     if (opened && needTreePop) {
@@ -5790,6 +6154,13 @@ void BinderModule::Impl::DrawFolderPane() {
     UiSettings& folderPaneUi = UiSettings::Instance();
     InputTextString(folderPaneUi.Text(UiText::SearchFolders), folderSearch, ImGuiInputTextFlags_AutoSelectAll, 128);
     const bool folderDndEnabled = Trim(folderSearch).empty();
+    if (!folderDndEnabled) {
+        ResetFolderDragState();
+    } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !folderDragActive_) {
+        ResetFolderDragState();
+    } else {
+        folderDropTarget_.reset();
+    }
     if (folderDndEnabled) {
         ImGui::TextDisabled("%s", folderPaneUi.Text(UiText::BinderFolderDragHint));
     } else {
@@ -5804,38 +6175,61 @@ void BinderModule::Impl::DrawFolderPane() {
     }
     ImGui::Separator();
 
+    folderTreeMutatedThisFrame_ = false;
     if (ImGui::BeginChild("##binder_folders_tree", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-        // Do not add widgets (e.g. DnD line) *before* TreeNodeEx: breaks ImGui tree/ID stack. Draw inserts
-        // only from this parent loop, between siblings.
+        // Gap targets are emitted only from the parent loop, between siblings, to keep ImGui tree push/pop balanced.
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
         const int n = static_cast<int>(folders.size());
         for (int i = 0; i < n; ++i) {
-            if (folderDndEnabled) {
-                FolderListPos p{};
-                p.list = &folders;
-                p.index = i;
-                p.listParent = nullptr;
-                DrawFolderRowInsert(
-                    p, folderDndEnabled, (std::string("rins") + std::to_string(i)).c_str());
+            FolderListPos p{};
+            p.list = &folders;
+            p.index = i;
+            p.listParent = nullptr;
+            DrawFolderGapDropTarget(
+                p, folderDndEnabled, (std::string("rgap") + std::to_string(i)).c_str());
+            if (folderTreeMutatedThisFrame_) {
+                break;
             }
             if (auto& f = folders[static_cast<std::size_t>(i)]) {
-                DrawFolderTreeNode(*f, folderDndEnabled);
+                DrawFolderTreeNode(*f, p, folderDndEnabled);
+                if (folderTreeMutatedThisFrame_) {
+                    break;
+                }
             }
         }
-        if (folderDndEnabled) {
+        if (folderDndEnabled && !folderTreeMutatedThisFrame_) {
             FolderListPos pEnd{};
             pEnd.list = &folders;
             pEnd.index = n;
             pEnd.listParent = nullptr;
-            DrawFolderRowInsert(
-                pEnd, folderDndEnabled, (std::string("rins_end") + std::to_string(n)).c_str());
+            DrawFolderGapDropTarget(
+                pEnd, folderDndEnabled, (std::string("rgap_end") + std::to_string(n)).c_str());
+            DrawFolderRootEmptyDropTarget(
+                pEnd, folderDndEnabled, (std::string("rins_empty") + std::to_string(n)).c_str());
         }
         ImGui::PopStyleVar();
     }
     ImGui::EndChild();
+    ApplyFolderDropOnRelease();
 }
 
 void BinderModule::Impl::DrawFolderPopups() {
+    if (folderConditionsTarget) {
+        if (DrawConditionFlagsPopup(
+                "##binder_folder_conditions",
+                folderConditionsPopupPending,
+                UiText::FolderConditions,
+                folderConditionsTarget->conditions,
+                &folderConditionsTarget->conditionsCombine)) {
+            SaveConfig();
+        }
+        if (!folderConditionsPopupPending && !ImGui::IsPopupOpen("##binder_folder_conditions")) {
+            folderConditionsTarget = nullptr;
+        }
+    } else {
+        folderConditionsPopupPending = false;
+    }
+
     if (folderEditPopupPending) {
         ImGui::OpenPopup("##binder_folder_edit");
         folderEditPopupPending = false;
@@ -5868,7 +6262,7 @@ void BinderModule::Impl::DrawFolderPopups() {
                         auto folder = std::make_unique<FolderNode>();
                         folder->id = nextFolderId++;
                         folder->name = name;
-                        folder->quickConditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
+                        folder->conditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
                         folder->parent = folderPopup.parent;
                         FolderNode* created = folder.get();
                         if (folderPopup.parent) {
@@ -5912,6 +6306,10 @@ void BinderModule::Impl::DrawFolderPopups() {
                 const auto removedPath = BuildFolderPath(folderDeleteTarget);
                 const auto selectedPath = selectedFolder ? BuildFolderPath(selectedFolder) : std::vector<std::string>{};
                 DeleteHotkeysFromFolderPath(removedPath);
+                if (folderConditionsTarget && IsUnderOrEqual(folderDeleteTarget, folderConditionsTarget)) {
+                    folderConditionsTarget = nullptr;
+                    folderConditionsPopupPending = false;
+                }
 
                 auto& siblings = folderDeleteTarget->parent ? folderDeleteTarget->parent->children : folders;
                 siblings.erase(
@@ -6577,21 +6975,12 @@ void BinderModule::Impl::DrawInputEditor() {
 }
 
 void BinderModule::Impl::DrawEditorConditionsPopup() {
-    DrawConditionFlagsPopup(
+    (void)DrawConditionFlagsPopup(
         "##binder_editor_conditions",
         editor.conditionsPopupPending,
         UiText::BlockingConditions,
         editor.draft.conditions,
         &editor.draft.conditionsCombine);
-}
-
-void BinderModule::Impl::DrawEditorQuickConditionsPopup() {
-    DrawConditionFlagsPopup(
-        "##binder_editor_quick_conditions",
-        editor.quickConditionsPopupPending,
-        UiText::QuickMenuConditions,
-        editor.draft.quickConditions,
-        &editor.draft.quickConditionsCombine);
 }
 
 void BinderModule::Impl::DrawEditorVariablesPopup() {
@@ -6673,61 +7062,6 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     DrawEditorVariableKeyPickerPopup();
     if (closeRequested) {
         editor.variablesKeyPickerSearch.clear();
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-}
-
-void BinderModule::Impl::DrawEditorPreviewPopup() {
-    if (editor.previewPopupPending) {
-        ImGui::OpenPopup("##binder_editor_preview");
-        editor.previewPopupPending = false;
-    }
-
-    if (!ImGui::BeginPopupModal("##binder_editor_preview", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        return;
-    }
-
-    UiSettings& ui = UiSettings::Instance();
-    const HotkeyEntry preview = BuildEditorComparableDraft();
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float destinationColumnWidth = std::ceil(
-        ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
-    const bool hasPreviewRows = std::any_of(preview.messages.begin(), preview.messages.end(), [](const HotkeyMessage& message) {
-        return !Trim(message.text).empty() || message.intervalMs != 0 || message.method != 0;
-    });
-
-    ImGui::TextUnformatted(ui.Text(UiText::EditorPreviewTitle));
-    ImGui::Separator();
-    if (!hasPreviewRows) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPreviewEmpty));
-    } else if (ImGui::BeginTable(
-                   "##binder_editor_preview_table",
-                   3,
-                   ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnMessage), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnPauseMs), ImGuiTableColumnFlags_WidthFixed, ScaleUi(110.0f));
-        ImGui::TableSetupColumn(ui.Text(UiText::EditorColumnDestination), ImGuiTableColumnFlags_WidthFixed, destinationColumnWidth);
-        ImGui::TableHeadersRow();
-
-        for (const HotkeyMessage& message : preview.messages) {
-            if (Trim(message.text).empty() && message.intervalMs == 0 && message.method == 0) {
-                continue;
-            }
-
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextWrapped("%s", message.text.c_str());
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%d", std::max(message.intervalMs, 0));
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(SendMethodLabel(message.method));
-        }
-        ImGui::EndTable();
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::Cancel))) {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -6931,12 +7265,10 @@ void BinderModule::Impl::DrawEditorInline() {
     const ImVec4 panelBg(0.12f, 0.14f, 0.18f, 0.98f);
     const ImVec4 footerBg(0.11f, 0.13f, 0.17f, 0.98f);
     const std::string conditionsLabel = std::string(kIconSliders) + " " + ui.Text(UiText::EditorOpenConditions);
-    const std::string quickMenuLabel = std::string(kIconBolt) + " " + ui.Text(UiText::QuickMenuWindowTitle);
     const std::string backLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorBack);
     const std::string previousLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorPreviousBind);
     const std::string nextLabel = std::string(ui.Text(UiText::EditorNextBind)) + " " + std::string(kIconChevronRight);
     const std::string variablesLabel = std::string(kIconTags) + " " + ui.Text(UiText::EditorVariables);
-    const std::string previewLabel = std::string(kIconComment) + " " + ui.Text(UiText::EditorPreview);
     const std::string saveLabel = std::string(kIconSaveDisk) + " " + ui.Text(UiText::Save);
     const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
     const ImVec2 startToggleSize = ScaleUi(46.0f, 30.0f);
@@ -6980,9 +7312,6 @@ void BinderModule::Impl::DrawEditorInline() {
                     headerStateIconSize,
                     editor.draft.enabled)) {
                 editor.draft.enabled = !editor.draft.enabled;
-                if (!editor.draft.enabled) {
-                    editor.draft.quickMenu = false;
-                }
             }
             ImGui::SameLine(0.0f, ScaleUi(8.0f));
             const float headerTitleStartX = ImGui::GetCursorPosX();
@@ -7007,18 +7336,13 @@ void BinderModule::Impl::DrawEditorInline() {
 
             ImGui::TableSetColumnIndex(1);
             const float conditionsButtonWidth = ScaleUi(116.0f);
-            const float quickMenuButtonWidth = ScaleUi(134.0f);
             const float previousButtonWidth = ScaleUi(148.0f);
             const float nextButtonWidth = ScaleUi(136.0f);
-            const float headerActionWidth = conditionsButtonWidth + quickMenuButtonWidth + previousButtonWidth + nextButtonWidth
-                + itemSpacingX * 3.0f;
+            const float headerActionWidth = conditionsButtonWidth + previousButtonWidth + nextButtonWidth
+                + itemSpacingX * 2.0f;
             alignRight(headerActionWidth);
             if (ImGui::Button(conditionsLabel.c_str(), ImVec2(conditionsButtonWidth, 0.0f))) {
                 editor.conditionsPopupPending = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(quickMenuLabel.c_str(), ImVec2(quickMenuButtonWidth, 0.0f))) {
-                editor.quickConditionsPopupPending = true;
             }
             ImGui::SameLine();
             ImGui::BeginDisabled(prevIndex < 0);
@@ -7153,6 +7477,7 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::Checkbox(ui.Text(UiText::TextConfirmation), &editor.draft.textConfirmation.enabled);
+            ImGui::SameLine(0.0f, ScaleUi(24.0f));
             ImGui::Checkbox(ui.Text(UiText::CommandConfirmation), &editor.draft.commandConfirmation.enabled);
             if (editor.draft.textConfirmation.enabled || editor.draft.commandConfirmation.enabled) {
                 ImGui::Spacing();
@@ -7332,10 +7657,6 @@ void BinderModule::Impl::DrawEditorInline() {
             if (ImGui::Button(variablesLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
                 editor.variablesPopupPending = true;
             }
-            ImGui::SameLine();
-            if (ImGui::Button(previewLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
-                editor.previewPopupPending = true;
-            }
 
             ImGui::TableSetColumnIndex(1);
             const float footerActionWidth = ScaleUi(190.0f) + ScaleUi(130.0f) + itemSpacingX;
@@ -7367,9 +7688,7 @@ void BinderModule::Impl::DrawEditorInline() {
 
     DrawCapturePopup(true);
     DrawEditorConditionsPopup();
-    DrawEditorQuickConditionsPopup();
     DrawEditorVariablesPopup();
-    DrawEditorPreviewPopup();
     DrawEditorDiscardPopup();
 }
 
@@ -7455,9 +7774,6 @@ void BinderModule::Impl::DrawBindPane() {
             if (SmallIconActionButton(
                     hotkey.enabled ? kIconToggleOn : kIconToggleOff, "##enabled", ui.Text(UiText::Enabled), iconButtonSize)) {
                 hotkey.enabled = !hotkey.enabled;
-                if (!hotkey.enabled) {
-                    hotkey.quickMenu = false;
-                }
                 SaveConfig();
             }
 

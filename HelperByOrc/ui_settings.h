@@ -203,6 +203,8 @@
     X(ConditionOnFoot, "Пешком", "On foot") \
     X(ConditionChatOpened, "Открыт чат", "Chat open") \
     X(ConditionDialogOpened, "Открыт диалог", "Dialog open") \
+    X(ConditionSampCursorActive, "Активный курсор SA:MP", "SA:MP cursor active") \
+    X(ConditionWindowsCursorActive, "Активный курсор Windows", "Windows cursor active") \
     X(InputModeText, "Свободный ввод", "Free text") \
     X(InputModeButtonsList, "Выбор из вариантов", "Pick from options") \
     X(InputModeButtonsListText, "Варианты + свой текст", "Options + custom text") \
@@ -317,7 +319,7 @@
     X(FolderRename, "Переименовать", "Rename") \
     X(Delete, "Удалить", "Delete") \
     X(SearchFolders, "Поиск папок", "Search folders") \
-    X(BinderFolderDragHint, "Папки: Shift + перетаскивание. Бинды: без Shift.", "Folders: Shift+drag. Binds: no Shift.") \
+    X(BinderFolderDragHint, "Папки: Shift + drag; верх/центр/низ строки = перед/внутрь/после.", "Folders: Shift+drag; row top/middle/bottom = before/inside/after.") \
     X(ToastFolderMoved, "Папка перемещена.", "Folder moved.") \
     X(UndoFolderMove, "Отменить перемещение", "Undo move") \
     X(ToastFolderMoveInvalid, "Нельзя перенести папку сюда.", "Cannot move the folder here.") \
@@ -415,9 +417,6 @@
     X(EditorVariablesParameterClickHint, "Щелчок по строке слева копирует основной плейсхолдер текущего параметра.", "Clicking a row on the left copies the primary placeholder for that parameter.") \
     X(EditorVariablesSimpleClickHint, "Щелчок по строке слева копирует основу тега.", "Clicking a row on the left copies the tag token.") \
     X(EditorVariablesFunctionClickHint, "Щелчок по строке слева копирует готовый пример.", "Clicking a row on the left copies the ready-made example.") \
-    X(EditorPreview, "Предпросмотр", "Preview") \
-    X(EditorPreviewTitle, "Предпросмотр сценария", "Scenario preview") \
-    X(EditorPreviewEmpty, "В сценарии пока нет шагов.", "There are no steps in the scenario yet.") \
     X(EditorDiscardTitle, "Несохранённые изменения", "Unsaved changes") \
     X(EditorDiscardMessage, "Изменения не сохранены. Продолжить и потерять правки?", "Changes are not saved. Continue and discard them?") \
     X(EditorDiscardAction, "Продолжить", "Continue") \
@@ -455,8 +454,8 @@
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
     X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
     X(Change, "Изменить", "Change") \
-    X(BlockingConditions, "Условия запуска бинда", "Bind run conditions") \
-    X(QuickMenuConditions, "Условия показа в быстром меню", "Quick menu visibility conditions") \
+    X(BlockingConditions, "Условия бинда", "Bind conditions") \
+    X(FolderConditions, "Условия папки", "Folder conditions") \
     X(ConditionCombineModeLabel, "Связка условий", "Condition combination") \
     X(ConditionCombineRequireAll, "Все отмеченные (И)", "All selected (AND)") \
     X(ConditionCombineRequireAny, "Любое отмеченное (ИЛИ)", "Any selected (OR)") \
