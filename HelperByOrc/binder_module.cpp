@@ -2110,6 +2110,7 @@ struct BinderModule::Impl {
     void ResetInputState();
     void Tick();
     void Shutdown();
+    void ReloadConfig();
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;
     bool WantsQuickMenuCursor() const;
@@ -3121,6 +3122,20 @@ void BinderModule::Impl::Shutdown() {
     incomingChatEchoGuards.clear();
     pendingBindTagActions.clear();
     ResetInputState();
+}
+
+void BinderModule::Impl::ReloadConfig() {
+    debuglog::WriteInfo("BinderModule::ReloadConfig begin");
+    Shutdown();
+    LoadConfig();
+    configLoaded = true;
+    EnsureRootFolder();
+    RefreshNumbers();
+    ConnectHooks();
+    debuglog::WriteInfo(
+        "BinderModule::ReloadConfig done folders=%llu hotkeys=%llu",
+        static_cast<unsigned long long>(folders.size()),
+        static_cast<unsigned long long>(hotkeys.size()));
 }
 
 bool BinderModule::Impl::WantsOverlayRender() const {
@@ -9247,6 +9262,10 @@ void BinderModule::SetGameInputForeground(bool gameWindowForeground) {
 
 void BinderModule::Shutdown() {
     impl_->Shutdown();
+}
+
+void BinderModule::ReloadConfig() {
+    impl_->ReloadConfig();
 }
 
 std::string BinderModule::GetThisbindTagValue(std::uint64_t runtimeId) const {

@@ -6,6 +6,7 @@
 #include "hotkey_utils.h"
 #include "json_utils.h"
 #include "samp_api.h"
+#include "user_files_path.h"
 
 #include <game_sa/CModelInfo.h>
 #include <game_sa/CPlayerInfo.h>
@@ -36,8 +37,6 @@
 #include <random>
 #include <vector>
 
-#include <ShlObj.h>
-
 namespace {
 
 constexpr std::string_view kTagsSectionName = "tags";
@@ -48,8 +47,8 @@ constexpr int kKeyEmulateTapMs = 35;
 constexpr float kClosestScreenTargetZOffset = 0.9f;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
 constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
-constexpr wchar_t kHelperScreensRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\screens";
-constexpr wchar_t kHelperSavedDialogsRelativePath[] = L"GTA San Andreas User Files\\HelperByOrc\\saved\\dialogs";
+constexpr wchar_t kHelperScreensRelativePath[] = L"screens";
+constexpr wchar_t kHelperSavedDialogsRelativePath[] = L"saved\\dialogs";
 constexpr std::uint64_t kDialogWaitOpenTimeoutMs = 3000;
 constexpr int kRandomMinInt = -2147483647;
 constexpr int kRandomMaxInt = 2147483647;
@@ -436,27 +435,12 @@ std::string WideToMultiByte(std::wstring_view text, unsigned int codePage) {
     return encoded;
 }
 
-std::optional<std::filesystem::path> GetDocumentsFolder() {
-    PWSTR rawPath = nullptr;
-    const HRESULT hr = SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &rawPath);
-    if (FAILED(hr) || !rawPath) {
-        if (rawPath) {
-            CoTaskMemFree(rawPath);
-        }
-        return std::nullopt;
-    }
-
-    std::filesystem::path path(rawPath);
-    CoTaskMemFree(rawPath);
-    return path;
+std::filesystem::path GetHelperScreensRoot(const std::filesystem::path& helperDataPath) {
+    return helperDataPath / kHelperScreensRelativePath;
 }
 
-std::filesystem::path GetHelperScreensRoot(const std::filesystem::path& documentsPath) {
-    return documentsPath / kHelperScreensRelativePath;
-}
-
-std::filesystem::path GetHelperSavedDialogsRoot(const std::filesystem::path& documentsPath) {
-    return documentsPath / kHelperSavedDialogsRelativePath;
+std::filesystem::path GetHelperSavedDialogsRoot(const std::filesystem::path& helperDataPath) {
+    return helperDataPath / kHelperSavedDialogsRelativePath;
 }
 
 std::string Unquote(std::string value) {
@@ -731,12 +715,12 @@ std::filesystem::path MakeUniqueScreenshotPath(const std::filesystem::path& dire
 }
 
 ScreenCaptureResult CaptureGameScreenshot(std::string_view utf8Subfolder) {
-    const std::optional<std::filesystem::path> documentsPath = GetDocumentsFolder();
-    if (!documentsPath.has_value()) {
+    const std::optional<std::filesystem::path> helperDataPath = helper_paths::ResolveHelperDataDirectory();
+    if (!helperDataPath.has_value()) {
         return ScreenCaptureResult{ ScreenCaptureError::DocumentsUnavailable };
     }
 
-    std::filesystem::path targetDirectory = GetHelperScreensRoot(*documentsPath);
+    std::filesystem::path targetDirectory = GetHelperScreensRoot(*helperDataPath);
     if (!utf8Subfolder.empty()) {
         std::filesystem::path relativePath(Utf8ToWide(utf8Subfolder));
         if (relativePath.empty() || !IsValidRelativeScreenFolder(relativePath)) {
@@ -2954,6 +2938,20 @@ void TagsModule::Shutdown() {
     debuglog::WriteInfo("TagsModule::Shutdown done");
 }
 
+void TagsModule::ReloadConfig() {
+    debuglog::WriteInfo("TagsModule::ReloadConfig begin");
+    Shutdown();
+    InitializeRegistry();
+    LoadConfig();
+    if (selectedTagIndex_ < 0 || selectedTagIndex_ >= static_cast<int>(tagRegistry_.Entries().size())) {
+        selectedTagIndex_ = 0;
+    }
+    debuglog::WriteInfo(
+        "TagsModule::ReloadConfig done tags=%llu customVars=%llu",
+        static_cast<unsigned long long>(tagRegistry_.Entries().size()),
+        static_cast<unsigned long long>(customVariables_.size()));
+}
+
 void TagsModule::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     debuglog::WriteInfo("TagsModule::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
@@ -4828,15 +4826,15 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
         return std::string();
     }
 
-    const std::optional<std::filesystem::path> documentsPath = GetDocumentsFolder();
-    if (!documentsPath.has_value()) {
+    const std::optional<std::filesystem::path> helperDataPath = helper_paths::ResolveHelperDataDirectory();
+    if (!helperDataPath.has_value()) {
         if (binderModule_) {
             binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogDocumentsUnavailable), true, 2800.0);
         }
         return std::string();
     }
 
-    const std::filesystem::path targetDirectory = GetHelperSavedDialogsRoot(*documentsPath);
+    const std::filesystem::path targetDirectory = GetHelperSavedDialogsRoot(*helperDataPath);
     std::error_code directoryError;
     std::filesystem::create_directories(targetDirectory, directoryError);
     if (directoryError) {

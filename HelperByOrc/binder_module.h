@@ -43,6 +43,7 @@ public:
     /// Вызывать каждый кадр до `Tick`: `false`, если фокус не на окне GTA/его дочерних (иначе `GetAsyncKeyState` тянет клавиши из чужих окон).
     void SetGameInputForeground(bool gameWindowForeground);
     void Shutdown();
+    void ReloadConfig();
 
     std::string GetThisbindTagValue(std::uint64_t runtimeId) const;
     bool IsRuntimeActive(std::uint64_t runtimeId) const;

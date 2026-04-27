@@ -55,6 +55,7 @@ public:
 
     void OnProcessAttach();
     void Shutdown();
+    void ReloadConfig();
 
     void SetSampApi(SampApi* sampApi);
     void SetBinderModule(BinderModule* binderModule);

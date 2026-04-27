@@ -83,6 +83,48 @@ std::string PathToUtf8(const fs::path& path) {
     return WideToUtf8(path.wstring());
 }
 
+struct ImGuiStringUserData {
+    std::string* value = nullptr;
+};
+
+int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
+    auto* userData = static_cast<ImGuiStringUserData*>(data->UserData);
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize && userData && userData->value) {
+        userData->value->resize(static_cast<std::size_t>(data->BufTextLen));
+        data->Buf = userData->value->data();
+    }
+    return 0;
+}
+
+bool InputTextString(const char* label, std::string& value, ImGuiInputTextFlags flags = 0, std::size_t minBuffer = 128) {
+    if (value.capacity() < minBuffer) {
+        value.reserve(minBuffer);
+    }
+
+    ImGuiStringUserData userData{ &value };
+    return ImGui::InputText(
+        label,
+        value.data(),
+        value.capacity() + 1,
+        flags | ImGuiInputTextFlags_CallbackResize,
+        ImGuiStringResizeCallback,
+        &userData);
+}
+
+std::string TrimAsciiWhitespace(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
+
+    std::size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+        --end;
+    }
+
+    return std::string(value.substr(begin, end - begin));
+}
+
 std::string LowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -1371,6 +1413,20 @@ void ModApp::QueueShellStateSave() const {
     });
 }
 
+void ModApp::ReloadConfigAfterProfileChange() {
+    overlay_.CancelMenuToggleHotkeyCapture();
+    UiSettings::Instance().Load();
+    debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
+    LoadShellState();
+    tags_.ReloadConfig();
+    binder_.ReloadConfig();
+    sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
+    debuglog::WriteInfo(
+        "[profiles] active profile applied id=%s path=%ls",
+        AppConfig::Instance().ActiveProfileId().c_str(),
+        AppConfig::Instance().ConfigPath().c_str());
+}
+
 void ModApp::SetSidebarCollapsed(bool collapsed) {
     if (sidebarCollapsed_ == collapsed) {
         return;
@@ -1566,6 +1622,172 @@ void ModApp::DrawSettingsTab() {
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsIntro));
     ImGui::Spacing();
 
+    AppConfig& config = AppConfig::Instance();
+    std::vector<ConfigProfile> profiles = config.Profiles();
+    std::string activeProfileId = config.ActiveProfileId();
+    auto activeProfileIt = std::find_if(profiles.begin(), profiles.end(), [&](const ConfigProfile& profile) {
+        return profile.id == activeProfileId;
+    });
+    if (activeProfileIt == profiles.end() && !profiles.empty()) {
+        activeProfileIt = profiles.begin();
+        activeProfileId = activeProfileIt->id;
+    }
+
+    const std::string activeProfileName =
+        activeProfileIt == profiles.end() ? std::string() : activeProfileIt->name;
+    if (profileNameBufferProfileId_ != activeProfileId) {
+        profileNameBuffer_ = activeProfileName;
+        profileNameBufferProfileId_ = activeProfileId;
+        profileUiError_.clear();
+    }
+
+    ImGui::SeparatorText(ui.Text(UiText::SettingsProfilesSection));
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsProfilesIntro));
+    ImGui::SetNextItemWidth(Scale(320.0f));
+    if (ImGui::BeginCombo(ui.Text(UiText::SettingsActiveProfile), activeProfileName.c_str())) {
+        for (const ConfigProfile& profile : profiles) {
+            const bool selected = profile.id == activeProfileId;
+            std::string label = profile.name;
+            if (label.empty()) {
+                label = profile.id;
+            }
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                std::string error;
+                if (config.SwitchProfile(profile.id, &error)) {
+                    profileNameBufferProfileId_.clear();
+                    profileUiError_.clear();
+                    ReloadConfigAfterProfileChange();
+                    debuglog::WriteInfo("[profiles] UI switched profile id=%s", profile.id.c_str());
+                } else {
+                    profileUiError_ = ui.Text(UiText::SettingsProfileOperationFailed);
+                    debuglog::WriteError("[profiles] UI switch failed id=%s error=%s", profile.id.c_str(), error.c_str());
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SetNextItemWidth(Scale(320.0f));
+    InputTextString(ui.Text(UiText::SettingsProfileName), profileNameBuffer_, ImGuiInputTextFlags_AutoSelectAll, 128);
+
+    const auto requireProfileName = [&]() {
+        if (TrimAsciiWhitespace(profileNameBuffer_).empty()) {
+            profileUiError_ = ui.Text(UiText::SettingsProfileNameRequired);
+            return false;
+        }
+        return true;
+    };
+    const auto failProfileOperation = [&](const char* action, const std::string& error) {
+        profileUiError_ = ui.Text(UiText::SettingsProfileOperationFailed);
+        debuglog::WriteError("[profiles] UI %s failed: %s", action, error.c_str());
+    };
+
+    if (ImGui::Button(ui.Text(UiText::SettingsProfileCreateEmpty))) {
+        if (requireProfileName()) {
+            std::string error;
+            if (config.CreateProfile(profileNameBuffer_, false, true, &error)) {
+                profileNameBufferProfileId_.clear();
+                profileUiError_.clear();
+                ReloadConfigAfterProfileChange();
+            } else {
+                failProfileOperation("create", error);
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::SettingsProfileDuplicate))) {
+        if (requireProfileName()) {
+            std::string error;
+            if (config.DuplicateProfile(activeProfileId, profileNameBuffer_, true, &error)) {
+                profileNameBufferProfileId_.clear();
+                profileUiError_.clear();
+                ReloadConfigAfterProfileChange();
+            } else {
+                failProfileOperation("duplicate", error);
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::SettingsProfileRename))) {
+        if (requireProfileName()) {
+            std::string error;
+            if (config.RenameProfile(activeProfileId, profileNameBuffer_, &error)) {
+                profileNameBufferProfileId_.clear();
+                profileUiError_.clear();
+            } else {
+                failProfileOperation("rename", error);
+            }
+        }
+    }
+
+    const bool canDeleteProfile = profiles.size() > 1;
+    if (!canDeleteProfile) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button(ui.Text(UiText::SettingsProfileDelete))) {
+        profileDeleteTargetId_ = activeProfileId;
+        profileDeletePopupPending_ = true;
+    }
+    if (!canDeleteProfile) {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", ui.Text(UiText::SettingsProfileCannotDeleteLast));
+    }
+
+    if (!profileUiError_.empty()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.38f, 0.30f, 1.0f), "%s", profileUiError_.c_str());
+    }
+
+    if (profileDeletePopupPending_) {
+        ImGui::OpenPopup(ui.Text(UiText::SettingsProfileDeleteTitle));
+        profileDeletePopupPending_ = false;
+    }
+    if (ImGui::BeginPopupModal(
+            ui.Text(UiText::SettingsProfileDeleteTitle),
+            nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        const std::vector<ConfigProfile> currentProfiles = config.Profiles();
+        const auto deleteProfileIt = std::find_if(currentProfiles.begin(), currentProfiles.end(), [&](const ConfigProfile& profile) {
+            return profile.id == profileDeleteTargetId_;
+        });
+        const std::string deleteProfileName =
+            deleteProfileIt == currentProfiles.end() ? activeProfileName : deleteProfileIt->name;
+        ImGui::TextWrapped(
+            "%s",
+            ui.Format(UiText::SettingsProfileDeleteQuestionFormat, deleteProfileName.c_str()).c_str());
+        if (ImGui::Button(ui.Text(UiText::Delete))) {
+            const std::string previousActiveProfileId = config.ActiveProfileId();
+            std::string error;
+            if (config.DeleteProfile(profileDeleteTargetId_, &error)) {
+                profileDeleteTargetId_.clear();
+                profileNameBufferProfileId_.clear();
+                profileUiError_.clear();
+                if (config.ActiveProfileId() != previousActiveProfileId) {
+                    ReloadConfigAfterProfileChange();
+                }
+                ImGui::CloseCurrentPopup();
+            } else {
+                failProfileOperation("delete", error);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+            profileDeleteTargetId_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::TextWrapped("%s: %s", ui.Text(UiText::SettingsProfilesPath), PathToUtf8(config.ProfilesRoot()).c_str());
+    ImGui::TextWrapped(
+        "%s: %s",
+        ui.Text(UiText::SettingsProfilesRegistryPath),
+        PathToUtf8(config.ProfilesRegistryPath()).c_str());
+    ImGui::Spacing();
+
     const UiLanguage languages[] = { UiLanguage::Russian, UiLanguage::English };
     const char* languageLabels[] = {
         ui.LanguageDisplayName(UiLanguage::Russian),
@@ -1633,7 +1855,7 @@ void ModApp::DrawSettingsTab() {
     ImGui::Spacing();
     const_cast<BinderModule&>(binder_).DrawSettingsSection();
 
-    const std::string configPath = AppConfig::Instance().ConfigPath().string();
+    const std::string configPath = PathToUtf8(AppConfig::Instance().ConfigPath());
     ImGui::TextWrapped("%s: %s", ui.Text(UiText::SettingsConfigPath), configPath.c_str());
     ImGui::Text("%s", ui.Format(UiText::GtaVersionFormat, plugin::GetGameVersionName()).c_str());
 }

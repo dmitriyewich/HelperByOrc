@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 #include <imgui.h>
 
@@ -53,6 +54,7 @@ private:
     void ApplyMainStyle(float scale) const;
     void LoadShellState();
     void QueueShellStateSave() const;
+    void ReloadConfigAfterProfileChange();
     void SetSidebarCollapsed(bool collapsed);
     void EnsureLogoTexture(IDirect3DDevice9* device);
     void ReleaseUiResources();
@@ -71,6 +73,11 @@ private:
     std::array<MenuAnimationState, 6> menuAnimations_{};
     bool sidebarCollapsed_ = false;
     bool mainWindowInitialized_ = false;
+    std::string profileNameBuffer_{};
+    std::string profileNameBufferProfileId_{};
+    std::string profileUiError_{};
+    std::string profileDeleteTargetId_{};
+    bool profileDeletePopupPending_ = false;
     ImVec2 mainWindowPos_{ 60.0f, 60.0f };
     ImVec2 mainWindowSize_{ 1100.0f, 720.0f };
     float appliedUiScale_ = 1.0f;
