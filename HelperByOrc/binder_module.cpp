@@ -409,6 +409,10 @@ std::string FormatFolderPathLabel(const std::vector<std::string>& path) {
     return FormatFolderLabel(JoinPath(path));
 }
 
+std::string FormatUnfiledFolderLabel() {
+    return std::string(kIconBars) + " " + UiSettings::Instance().Text(UiText::BinderUnfiledFolder);
+}
+
 std::vector<std::string> Split(std::string_view value, char delimiter) {
     std::vector<std::string> parts;
     std::size_t start = 0;
@@ -1961,6 +1965,7 @@ struct BinderModule::Impl {
     std::vector<std::unique_ptr<FolderNode>> folders{};
     std::vector<HotkeyEntry> hotkeys{};
     FolderNode* selectedFolder = nullptr;
+    bool selectedUnfiledFolder = false;
     int nextFolderId = 1;
     std::uint64_t nextHotkeyRuntimeId = 1;
     bool configLoaded = false;
@@ -2098,7 +2103,9 @@ struct BinderModule::Impl {
     bool VisibleQuickMenuEntriesExist() const;
     bool FolderVisibleInQuickMenu(const FolderNode& folder) const;
     bool FolderHasVisibleQuickEntries(const FolderNode& folder) const;
+    std::vector<int> QuickEntriesForPath(const std::vector<std::string>& path) const;
     std::vector<int> QuickEntriesForFolder(const FolderNode& folder) const;
+    std::vector<int> QuickEntriesForUnfiled() const;
     ConditionRuntimeContext MakeConditionContext(bool helperUiCursorActive = false) const;
     void ResetInputState();
     void Tick();
@@ -2195,6 +2202,7 @@ struct BinderModule::Impl {
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
     int MoveHotkeysFromFolderPath(const std::vector<std::string>& fromPath, const std::vector<std::string>& toPath);
     int DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath);
+    void MoveBindToFolderPath(int hotkeyIndex, const std::vector<std::string>& folderPath, std::string_view source);
     bool IsProtectedRootFolder(const FolderNode* folder) const;
     bool CanDeleteFolder(const FolderNode* folder) const;
     bool NormalizeProtectedRootFolderName();
@@ -2240,6 +2248,7 @@ struct BinderModule::Impl {
         const ImRect& nodeRect);
     void DrawFolderGapDropTarget(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
     void DrawFolderRootEmptyDropTarget(const FolderListPos& pos, bool dndEnabled, const char* idSuffix);
+    void DrawUnfiledFolderNode(bool dndEnabled);
     void DrawFolderTreeNode(FolderNode& folder, const FolderListPos& selfPos, bool dndEnabled);
     bool RelocateFolderNode(int moveId, FolderListPos dest, bool recordUndo);
     void TryFolderMoveTo(int moveId, const FolderListPos& dest);
@@ -2550,6 +2559,7 @@ void BinderModule::Impl::LoadConfig() {
     folders.clear();
     hotkeys.clear();
     selectedFolder = nullptr;
+    selectedUnfiledFolder = false;
     nextFolderId = 1;
     nextHotkeyRuntimeId = 1;
     quickMenuHotkey.clear();
@@ -2591,6 +2601,7 @@ void BinderModule::Impl::LoadConfig() {
     EnsureRootFolder();
     const bool migratedProtectedRoot = NormalizeProtectedRootFolderName();
     selectedFolder = folders.front().get();
+    selectedUnfiledFolder = false;
     RefreshNumbers();
 
     if (migratedProtectedRoot) {
@@ -2926,6 +2937,9 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
             return true;
         }
     }
+    if (!QuickEntriesForUnfiled().empty()) {
+        return true;
+    }
     return false;
 }
 
@@ -2952,9 +2966,8 @@ bool BinderModule::Impl::FolderHasVisibleQuickEntries(const FolderNode& folder) 
     return false;
 }
 
-std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& folder) const {
+std::vector<int> BinderModule::Impl::QuickEntriesForPath(const std::vector<std::string>& path) const {
     std::vector<int> result;
-    const auto path = BuildFolderPath(&folder);
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         const HotkeyEntry& hotkey = hotkeys[i];
         if (!hotkey.enabled || !hotkey.quickMenu) {
@@ -2970,6 +2983,14 @@ std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& fol
         result.push_back(static_cast<int>(i));
     }
     return result;
+}
+
+std::vector<int> BinderModule::Impl::QuickEntriesForFolder(const FolderNode& folder) const {
+    return QuickEntriesForPath(BuildFolderPath(&folder));
+}
+
+std::vector<int> BinderModule::Impl::QuickEntriesForUnfiled() const {
+    return QuickEntriesForPath({});
 }
 
 void BinderModule::Impl::ResetQuickMenuVisualState() {
@@ -4965,6 +4986,53 @@ int BinderModule::Impl::DeleteHotkeysFromFolderPath(const std::vector<std::strin
     return removed;
 }
 
+void BinderModule::Impl::MoveBindToFolderPath(
+    const int hotkeyIndex,
+    const std::vector<std::string>& folderPath,
+    std::string_view source) {
+    if (hotkeyIndex < 0 || hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+        debuglog::WriteError(
+            "[binder] bind move rejected index=%d source=%.*s reason=out_of_range",
+            hotkeyIndex,
+            static_cast<int>(source.size()),
+            source.data());
+        return;
+    }
+
+    FolderNode* targetFolder = nullptr;
+    const std::string folderPathText = folderPath.empty() ? std::string("<unfiled>") : JoinPath(folderPath);
+    if (!folderPath.empty()) {
+        targetFolder = FindFolderByPath(folders, folderPath);
+        if (!targetFolder) {
+            debuglog::WriteError(
+                "[binder] bind move rejected index=%d source=%.*s reason=folder_not_found path=%s",
+                hotkeyIndex,
+                static_cast<int>(source.size()),
+                source.data(),
+                folderPathText.c_str());
+            return;
+        }
+    }
+
+    hotkeys[static_cast<std::size_t>(hotkeyIndex)].folderPath = folderPath;
+    selectedBindIndex = hotkeyIndex;
+    if (targetFolder) {
+        selectedFolder = targetFolder;
+        selectedUnfiledFolder = false;
+        ExpandFolderBranch(targetFolder);
+    } else {
+        selectedUnfiledFolder = true;
+    }
+
+    debuglog::WriteInfo(
+        "[binder] bind moved index=%d source=%.*s folder=%s",
+        hotkeyIndex,
+        static_cast<int>(source.size()),
+        source.data(),
+        folderPathText.c_str());
+    SaveConfig();
+}
+
 bool BinderModule::Impl::IsProtectedRootFolder(const FolderNode* folder) const {
     return folder != nullptr && folder->parent == nullptr && !folders.empty() && folders.front().get() == folder;
 }
@@ -4984,12 +5052,14 @@ bool BinderModule::Impl::CanDeleteFolder(const FolderNode* folder) const {
 
 std::vector<int> BinderModule::Impl::FilteredBindIndices() const {
     std::vector<int> indices;
-    if (!selectedFolder) {
+    if (!selectedUnfiledFolder && !selectedFolder) {
         return indices;
     }
 
     const std::string query = ToLower(Trim(bindSearch));
-    const auto folderPath = BuildFolderPath(selectedFolder);
+    const std::vector<std::string> folderPath = selectedUnfiledFolder
+        ? std::vector<std::string>{}
+        : BuildFolderPath(selectedFolder);
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         const HotkeyEntry& hotkey = hotkeys[i];
         if (hotkey.folderPath != folderPath) {
@@ -5023,8 +5093,10 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.draft.lastActivatedAtMs = 0.0;
     editor.draft.debounceUntilMs = 0.0;
 
-    if (editor.draft.folderPath.empty()) {
-        editor.draft.folderPath = BuildFolderPath(selectedFolder ? selectedFolder : EnsureRootFolder());
+    if (editor.isNew) {
+        editor.draft.folderPath = selectedUnfiledFolder
+            ? std::vector<std::string>{}
+            : BuildFolderPath(selectedFolder ? selectedFolder : EnsureRootFolder());
     }
 
     editor.inputButtonsBulkDrafts.reserve(editor.draft.inputs.size());
@@ -5239,7 +5311,7 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
         errors.push_back(ui.Text(UiText::ValidationBindNameRequired));
     }
 
-    if (current.folderPath.empty() || !FindFolderByPath(folders, current.folderPath)) {
+    if (!current.folderPath.empty() && !FindFolderByPath(folders, current.folderPath)) {
         errors.push_back(ui.Text(UiText::ValidationExistingFolderRequired));
     }
 
@@ -5328,6 +5400,17 @@ void BinderModule::Impl::SaveEditor() {
     } else {
         hotkeys[editor.hotkeyIndex] = std::move(saved);
         selectedBindIndex = editor.hotkeyIndex;
+    }
+
+    if (selectedBindIndex >= 0 && selectedBindIndex < static_cast<int>(hotkeys.size())) {
+        const std::vector<std::string>& savedFolderPath = hotkeys[static_cast<std::size_t>(selectedBindIndex)].folderPath;
+        if (savedFolderPath.empty()) {
+            selectedUnfiledFolder = true;
+        } else if (FolderNode* folder = FindFolderByPath(folders, savedFolderPath)) {
+            selectedFolder = folder;
+            selectedUnfiledFolder = false;
+            ExpandFolderBranch(folder);
+        }
     }
 
     RefreshNumbers();
@@ -5778,10 +5861,7 @@ void BinderModule::Impl::DrawFolderNodeDropTarget(
                     && !ImGui::GetIO().KeyShift) {
                     const int hotkeyIndex = *static_cast<const int*>(payload->Data);
                     if (hotkeyIndex >= 0 && hotkeyIndex < static_cast<int>(hotkeys.size())) {
-                        hotkeys[static_cast<std::size_t>(hotkeyIndex)].folderPath = BuildFolderPath(&folder);
-                        selectedFolder = &folder;
-                        ExpandFolderBranch(&folder);
-                        SaveConfig();
+                        MoveBindToFolderPath(hotkeyIndex, BuildFolderPath(&folder), "folder_drop");
                     }
                 }
             }
@@ -5996,6 +6076,44 @@ void BinderModule::Impl::DrawFolderRootEmptyDropTarget(
     ImGui::PopID();
 }
 
+void BinderModule::Impl::DrawUnfiledFolderNode(const bool dndEnabled) {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string label = FormatUnfiledFolderLabel();
+    const std::string normalizedSearch = ToLower(Trim(folderSearch));
+    if (!normalizedSearch.empty() && ToLower(label).find(normalizedSearch) == std::string::npos) {
+        return;
+    }
+
+    ImGui::PushID("binder_unfiled_folder");
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen
+        | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (selectedUnfiledFolder) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+
+    (void)ImGui::TreeNodeEx("##folder_unfiled", flags, "%s", label.c_str());
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        selectedUnfiledFolder = true;
+        selectedBindIndex = -1;
+    }
+
+    if (dndEnabled && !IsFolderDragInProgress() && ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_HOTKEY_INDEX")) {
+            if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()
+                && !ImGui::GetIO().KeyShift) {
+                const int hotkeyIndex = *static_cast<const int*>(payload->Data);
+                MoveBindToFolderPath(hotkeyIndex, {}, "unfiled_drop");
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::BinderUnfiledFolderHint));
+    }
+    ImGui::PopID();
+}
+
 void BinderModule::Impl::DrawFolderTreeNode(
     FolderNode& folder,
     const FolderListPos& selfPos,
@@ -6008,7 +6126,7 @@ void BinderModule::Impl::DrawFolderTreeNode(
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick
         | ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (&folder == selectedFolder) {
+    if (!selectedUnfiledFolder && &folder == selectedFolder) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
     if (folder.children.empty()) {
@@ -6026,6 +6144,7 @@ void BinderModule::Impl::DrawFolderTreeNode(
     folder.open = opened;
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         selectedFolder = &folder;
+        selectedUnfiledFolder = false;
     }
 
     DrawFolderDragSource(folder, folderLabel, dndEnabled);
@@ -6131,14 +6250,22 @@ void BinderModule::Impl::DrawFolderPane() {
         folderEditPopupPending = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::FolderRename)) + "##folder_rename").c_str()) && selectedFolder) {
+    const bool canEditSelectedFolder = selectedFolder != nullptr && !selectedUnfiledFolder;
+    if (!canEditSelectedFolder) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button((std::string(UiSettings::Instance().Text(UiText::FolderRename)) + "##folder_rename").c_str())
+        && canEditSelectedFolder) {
         folderPopup = {};
         folderPopup.target = selectedFolder;
         folderPopup.name = selectedFolder->name;
         folderEditPopupPending = true;
     }
+    if (!canEditSelectedFolder) {
+        ImGui::EndDisabled();
+    }
     ImGui::SameLine();
-    const bool canDeleteSelected = CanDeleteFolder(selectedFolder);
+    const bool canDeleteSelected = !selectedUnfiledFolder && CanDeleteFolder(selectedFolder);
     if (!canDeleteSelected) {
         ImGui::BeginDisabled();
     }
@@ -6197,13 +6324,14 @@ void BinderModule::Impl::DrawFolderPane() {
                 }
             }
         }
-        if (folderDndEnabled && !folderTreeMutatedThisFrame_) {
+        if (!folderTreeMutatedThisFrame_) {
             FolderListPos pEnd{};
             pEnd.list = &folders;
             pEnd.index = n;
             pEnd.listParent = nullptr;
             DrawFolderGapDropTarget(
                 pEnd, folderDndEnabled, (std::string("rgap_end") + std::to_string(n)).c_str());
+            DrawUnfiledFolderNode(folderDndEnabled);
             DrawFolderRootEmptyDropTarget(
                 pEnd, folderDndEnabled, (std::string("rins_empty") + std::to_string(n)).c_str());
         }
@@ -6272,6 +6400,7 @@ void BinderModule::Impl::DrawFolderPopups() {
                             folders.push_back(std::move(folder));
                         }
                         selectedFolder = created;
+                        selectedUnfiledFolder = false;
                         ExpandFolderBranch(selectedFolder);
                         applied = true;
                     }
@@ -6320,11 +6449,14 @@ void BinderModule::Impl::DrawFolderPopups() {
 
                 if (!selectedPath.empty() && PathStartsWith(selectedPath, removedPath)) {
                     selectedFolder = fallbackFolder;
+                    selectedUnfiledFolder = false;
                 } else if (selectedFolder == folderDeleteTarget) {
                     selectedFolder = fallbackFolder;
+                    selectedUnfiledFolder = false;
                 }
                 if (!selectedFolder) {
                     selectedFolder = EnsureRootFolder();
+                    selectedUnfiledFolder = false;
                 }
                 folderDeleteTarget = nullptr;
                 SaveConfig();
@@ -7254,8 +7386,13 @@ void BinderModule::Impl::DrawEditorInline() {
 
     const std::string title = ui.Text(editor.isNew ? UiText::NewBindTitle : UiText::EditBindTitle);
     std::string breadcrumb = ui.Text(UiText::BinderSectionTitle);
-    for (const std::string& part : editor.draft.folderPath) {
-        breadcrumb += " / " + part;
+    if (editor.draft.folderPath.empty()) {
+        breadcrumb += " / ";
+        breadcrumb += ui.Text(UiText::BinderUnfiledFolder);
+    } else {
+        for (const std::string& part : editor.draft.folderPath) {
+            breadcrumb += " / " + part;
+        }
     }
     breadcrumb += " / " + (Trim(editor.draft.label).empty()
         ? std::string(ui.Text(editor.isNew ? UiText::NewBindTitle : UiText::EditBindTitle))
@@ -8034,8 +8171,7 @@ void BinderModule::Impl::DrawMoveBindPopup() {
         const std::string folderLabel = FormatFolderLabel(folder.name);
         const bool opened = ImGui::TreeNodeEx("##move_folder_node", flags, "%s", folderLabel.c_str());
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-            hotkey->folderPath = BuildFolderPath(&folder);
-            SaveConfig();
+            MoveBindToFolderPath(moveBindTarget, BuildFolderPath(&folder), "move_popup");
             moveBindTarget = -1;
             ImGui::CloseCurrentPopup();
         }
@@ -8057,6 +8193,18 @@ void BinderModule::Impl::DrawMoveBindPopup() {
             if (folder) {
                 drawFolderNode(drawFolderNode, *folder);
             }
+        }
+        if (!folders.empty()) {
+            ImGui::Separator();
+        }
+        const std::string unfiledLabel = FormatUnfiledFolderLabel() + "##move_bind_unfiled";
+        if (ImGui::Selectable(unfiledLabel.c_str(), hotkey->folderPath.empty(), ImGuiSelectableFlags_SpanAvailWidth)) {
+            MoveBindToFolderPath(moveBindTarget, {}, "move_popup");
+            moveBindTarget = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::BinderUnfiledFolderHint));
         }
     }
     ImGui::EndChild();
@@ -8227,7 +8375,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             visibleFolders.push_back(folder.get());
         }
     }
-    if (visibleFolders.empty()) {
+    const std::vector<int> unfiledEntries = QuickEntriesForUnfiled();
+    if (visibleFolders.empty() && unfiledEntries.empty()) {
         quickMenuOpen = false;
         ResetQuickMenuVisualState();
         return;
@@ -8278,8 +8427,26 @@ void BinderModule::Impl::DrawQuickMenu() {
         const bool traceCascade = nowMs >= s_cascadeTraceNextAtMs;
         if (traceCascade) {
             s_cascadeTraceNextAtMs = nowMs + 500;
-            debuglog::WriteInfo("[ui][qm_cascade] frame open=%d visibleRoots=%d", quickMenuOpen ? 1 : 0, static_cast<int>(visibleFolders.size()));
+            debuglog::WriteInfo(
+                "[ui][qm_cascade] frame open=%d visibleRoots=%d unfiled=%d",
+                quickMenuOpen ? 1 : 0,
+                static_cast<int>(visibleFolders.size()),
+                static_cast<int>(unfiledEntries.size()));
         }
+
+        const auto drawCascadeHotkeyItem = [&](int index, const char* idPrefix) -> bool {
+            if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                return false;
+            }
+            const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+            const std::string visibleLabel = std::string(kIconKeyboard) + " "
+                + (hotkey.label.empty() ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey) : hotkey.label);
+            const std::string itemLabel = visibleLabel + "##" + idPrefix + std::to_string(index);
+            const std::string shortcut = hotkey.keys.empty()
+                ? std::string()
+                : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
+            return ImGui::MenuItem(itemLabel.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), false, hotkey.enabled);
+        };
 
         auto drawCascadeMenuFolder = [&](auto&& self, FolderNode& node, int depth) -> void {
             if (cascadeSelectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
@@ -8320,18 +8487,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             for (const int index : entries) {
-                if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
-                    continue;
-                }
-                const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-                const std::string visibleLabel = std::string(kIconKeyboard) + " "
-                    + (hotkey.label.empty() ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey) : hotkey.label);
-                const std::string itemLabel =
-                    visibleLabel + "##qm_cascade_bind_" + std::to_string(index);
-                const std::string shortcut = hotkey.keys.empty()
-                    ? std::string()
-                    : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
-                if (ImGui::MenuItem(itemLabel.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), false, hotkey.enabled)) {
+                if (drawCascadeHotkeyItem(index, "qm_cascade_bind_")) {
                     cascadeSelectedHotkeyIndex = index;
                     return;
                 }
@@ -8367,7 +8523,10 @@ void BinderModule::Impl::DrawQuickMenu() {
         ImGui::SeparatorText(UiSettings::Instance().Text(UiText::QuickMenuWindowTitle));
 
         if (traceCascade) {
-            debuglog::WriteInfo("[ui][qm_cascade] menu-body roots=%d", static_cast<int>(visibleFolders.size()));
+            debuglog::WriteInfo(
+                "[ui][qm_cascade] menu-body roots=%d unfiled=%d",
+                static_cast<int>(visibleFolders.size()),
+                static_cast<int>(unfiledEntries.size()));
         }
         for (std::size_t rootIdx = 0; rootIdx < visibleFolders.size(); ++rootIdx) {
             auto* folder = visibleFolders[rootIdx];
@@ -8386,6 +8545,17 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
             if (cascadeSelectedHotkeyIndex >= 0) {
                 break;
+            }
+        }
+        if (cascadeSelectedHotkeyIndex < 0 && !unfiledEntries.empty()) {
+            if (!visibleFolders.empty()) {
+                ImGui::Separator();
+            }
+            for (const int index : unfiledEntries) {
+                if (drawCascadeHotkeyItem(index, "qm_cascade_unfiled_bind_")) {
+                    cascadeSelectedHotkeyIndex = index;
+                    break;
+                }
             }
         }
 
@@ -8427,13 +8597,8 @@ void BinderModule::Impl::DrawQuickMenu() {
         return clicked && enabled;
     };
 
-    // Одно окно: содержимое вкладки — в BeginListBox (рамка + скролл), внутри — TreeNodeEx для папок.
-    const auto drawQuickFolderTree = [&](auto&& self, FolderNode& node, int depth) -> void {
-        if (selectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
-            return;
-        }
-
-        for (const int index : QuickEntriesForFolder(node)) {
+    const auto drawQuickHotkeyItems = [&](const std::vector<int>& entries, const char* idPrefix) {
+        for (const int index : entries) {
             if (selectedHotkeyIndex >= 0 || index < 0 || index >= static_cast<int>(hotkeys.size())) {
                 break;
             }
@@ -8441,7 +8606,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
             const std::string visibleLabel = std::string(kIconKeyboard) + " "
                 + (hotkey.label.empty() ? UiSettings::Instance().Text(UiText::BinderDefaultHotkey) : hotkey.label);
-            const std::string label = visibleLabel + "##quick_bind_" + std::to_string(index);
+            const std::string label = visibleLabel + "##" + idPrefix + std::to_string(index);
             const std::string shortcut = hotkey.keys.empty()
                 ? std::string()
                 : ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode);
@@ -8451,6 +8616,15 @@ void BinderModule::Impl::DrawQuickMenu() {
                 break;
             }
         }
+    };
+
+    // Одно окно: содержимое вкладки — в BeginListBox (рамка + скролл), внутри — TreeNodeEx для папок.
+    const auto drawQuickFolderTree = [&](auto&& self, FolderNode& node, int depth) -> void {
+        if (selectedHotkeyIndex >= 0 || !FolderVisibleInQuickMenu(node)) {
+            return;
+        }
+
+        drawQuickHotkeyItems(QuickEntriesForFolder(node), "quick_bind_");
 
         if (selectedHotkeyIndex >= 0) {
             return;
@@ -8536,7 +8710,7 @@ void BinderModule::Impl::DrawQuickMenu() {
         }
     }
 
-    if (ImGui::BeginTabBar("##quick_menu_tabs")) {
+    if (!visibleFolders.empty() && ImGui::BeginTabBar("##quick_menu_tabs")) {
         for (std::size_t i = 0; i < visibleFolders.size(); ++i) {
             FolderNode& folder = *visibleFolders[i];
             ImGuiTabItemFlags flags = 0;
@@ -8552,7 +8726,14 @@ void BinderModule::Impl::DrawQuickMenu() {
 
                 ImGui::PushID(static_cast<int>(i));
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
-                const float listHeight = std::max(ScaleUi(200.0f), avail.y);
+                const float unfiledReserve = unfiledEntries.empty()
+                    ? 0.0f
+                    : std::min(
+                          ScaleUi(128.0f),
+                          ImGui::GetTextLineHeightWithSpacing()
+                              * static_cast<float>(std::min<int>(static_cast<int>(unfiledEntries.size()), 5) + 1)
+                              + ScaleUi(18.0f));
+                const float listHeight = std::max(ScaleUi(120.0f), avail.y - unfiledReserve);
                 if (ImGui::BeginListBox("##quick_menu_tree", ImVec2(avail.x, listHeight))) {
                     drawQuickFolderTree(drawQuickFolderTree, folder, 0);
                     ImGui::EndListBox();
@@ -8569,6 +8750,22 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
         }
         ImGui::EndTabBar();
+    }
+
+    if (selectedHotkeyIndex < 0 && !unfiledEntries.empty()) {
+        if (!visibleFolders.empty()) {
+            ImGui::Separator();
+        }
+        ImGui::TextDisabled("%s", UiSettings::Instance().Text(UiText::BinderUnfiledFolder));
+        const float entryHeight = ImGui::GetFrameHeightWithSpacing();
+        const float preferredHeight = entryHeight * static_cast<float>(std::min<int>(static_cast<int>(unfiledEntries.size()), 5))
+            + ImGui::GetStyle().FramePadding.y * 2.0f;
+        const float maxHeight = std::max(ScaleUi(64.0f), ImGui::GetContentRegionAvail().y);
+        const float listHeight = std::clamp(preferredHeight, ScaleUi(48.0f), maxHeight);
+        if (ImGui::BeginListBox("##quick_menu_unfiled", ImVec2(-FLT_MIN, listHeight))) {
+            drawQuickHotkeyItems(unfiledEntries, "quick_unfiled_bind_");
+            ImGui::EndListBox();
+        }
     }
 
     if (persistentOpen && !windowOpen) {

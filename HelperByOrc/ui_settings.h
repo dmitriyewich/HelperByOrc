@@ -194,6 +194,8 @@
     X(BinderDefaultHotkey, "Новый бинд", "New bind") \
     X(BinderDefaultFolder, "Папка", "Folder") \
     X(BinderNewFolder, "Новая папка", "New folder") \
+    X(BinderUnfiledFolder, "Вне папок", "Outside folders") \
+    X(BinderUnfiledFolderHint, "Бинды без папки. Перетащите сюда бинд, чтобы убрать его из папок.", "Binds without a folder. Drop a bind here to remove it from folders.") \
     X(ConditionInWater, "В воде", "In water") \
     X(ConditionDead, "Мёртв", "Dead") \
     X(ConditionInAir, "В воздухе", "In air") \
