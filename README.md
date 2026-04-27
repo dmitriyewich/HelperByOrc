@@ -13,13 +13,14 @@ The repository intentionally contains:
 - project source code;
 - build files: `HelperByOrc.slnx`, `HelperByOrc/HelperByOrc.vcxproj`, workflow files;
 - vendored dependencies in `HelperByOrc/external`;
-- documentation: `README.md`, `README.txt`, `context.md`.
+- documentation: `README.md`.
 
 The repository intentionally does not contain local runtime/build artifacts:
 
 - `HelperByOrc/Release`, `HelperByOrc/build`, `HelperByOrc/Debug`;
 - `HelperByOrc.asi`, `.pdb`, `.lib` outputs;
 - local IDE/service folders like `.cursor`, `.codex` runtime files;
+- local development docs/config like `README.txt`, `context.md`, `AGENTS.md`, root `.gitignore`;
 - reference dumps, temporary unpacked DLLs and local archives.
 
 Vendored libraries are stored as normal files, not as nested Git repositories/submodules. Current external tree includes `plugin-sdk`, `imgui`, `MinHook`, `raknet`, `SAMP-API` and `memwrapper`.
@@ -33,7 +34,7 @@ Vendored libraries are stored as normal files, not as nested Git repositories/su
 - Output: `HelperByOrc/Release/HelperByOrc.asi`.
 - Active hook backend: `MinHook`.
 - Release build profile is normal/debuggable: no LTCG, no `/GS-`, no omitted frame pointers, symbols enabled, SDL/GS enabled.
-- Arizona-specific `_chat.asi` direct integration is temporarily disabled at compile time through `HelperByOrc/feature_flags.h`; chat input uses the standard SA:MP fallback path.
+- Arizona-specific `_chat.asi` direct integration is enabled through `HelperByOrc/feature_flags.h`; when `_chat.asi` input discovery succeeds, the plugin uses that path, otherwise it falls back to the standard SA:MP chat path.
 
 ## Stability Changes
 
