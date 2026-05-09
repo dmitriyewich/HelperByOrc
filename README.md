@@ -1,145 +1,105 @@
 # HelperByOrc
 
-Нативный `ASI`-плагин для `GTA San Andreas` / `SA:MP`: бинды, команды, быстрое меню и удобная организация действий прямо в игре.
+Нативный **ASI-плагин** для **GTA San Andreas / SA:MP** (Win32/x86): бинды, команды, быстрые действия, папки, условия, профили и удобное ImGui-меню прямо в игре.
 
-Проект переносит исходную Lua/MoonLoader-логику HelperByOrc в Win32 C++ модуль. Активные имя репозитория, solution, project и runtime-артефакта: `HelperByOrc`.
+Проект переносит исходную Lua/MoonLoader-логику `HelperByOrc` в C++ ASI-модуль. Полная документация и инструкции вынесены в wiki: [HelperByOrc Wiki](https://github.com/dmitriyewich/HelperByOrc/wiki).
 
-## Репозиторий
-
-GitHub: [github.com/dmitriyewich/HelperByOrc](https://github.com/dmitriyewich/HelperByOrc)
-
-В репозитории намеренно хранятся:
-
-- исходный код проекта;
-- файлы сборки: `HelperByOrc.slnx`, `HelperByOrc/HelperByOrc.vcxproj`, workflow-файлы;
-- vendored-зависимости в `HelperByOrc/external`;
-- публичная документация `README.md`.
-
-В репозиторий намеренно не добавляются локальные runtime/build-артефакты:
-
-- `HelperByOrc/Release`, `HelperByOrc/build`, `HelperByOrc/Debug`;
-- результаты сборки `HelperByOrc.asi`, `.pdb`, `.lib`;
-- локальные служебные папки вроде `.cursor`, `.codex`;
-- локальные документы и конфиги `README.txt`, `context.md`, `AGENTS.md`, корневой `.gitignore`;
-- reference dumps, временные распакованные DLL и локальные архивы.
-
-Vendored-библиотеки лежат обычными файлами, без вложенных Git-репозиториев и submodule. Текущее дерево `HelperByOrc/external` включает `plugin-sdk`, `imgui`, `MinHook`, `raknet`, `SAMP-API` и `memwrapper`.
+---
 
 ## Возможности
 
 - Бинды на клавиши и комбинации.
-- Быстрое меню биндов.
+- Быстрое меню биндов в каскадном или древовидном стиле.
 - Папки и подпапки для организации действий.
-- Виртуальная неудаляемая секция `Вне папок` для биндов без папки.
-- Перетаскивание папок с видимыми зонами вставки: `Shift + drag`, верх/центр/низ строки означают вставку перед папкой, внутрь папки или после папки.
-- Перенос папки на пустую область корня: папка попадает в конец списка.
-- Единые условия запуска/показа для биндов, быстрого меню и папок.
+- Виртуальная секция `Вне папок` для биндов без папки.
+- Ручная сортировка папок через `Shift + drag` с видимыми зонами вставки: перед папкой, внутрь папки, после папки или в конец корня.
+- Единая модель условий для запуска биндов, показа в быстром меню и отображения папок.
 - Условия активного курсора SA:MP и активного Windows-курсора.
-- Вставка текста в чат и отправка команд через SA:MP-чат, с Arizona `_chat.asi` direct path и fallback на стандартный SA:MP-путь.
-- Настройки интерфейса прямо в игре.
-- Профили конфигурации: переключение, создание, дублирование, переименование и удаление прямо во вкладке «Настройки».
+- Вставка текста в чат и отправка команд через SA:MP-чат.
+- Arizona `_chat.asi` direct path с fallback на стандартный SA:MP-путь.
+- Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
+- Теги и пользовательские переменные.
+- Профили конфигурации: переключение, создание, дублирование, переименование и удаление во вкладке «Настройки».
 - Русская и английская локализация.
+- Расширенная диагностика SA:MP readiness, D3D9 overlay, AppCompat и ранних конфликтов хуков.
 
-## Текущее состояние
+Подробнее по разделам:
 
-- Цель сборки: `Win32` / `x86`.
-- Формат: `ASI`.
-- Основной проект: `HelperByOrc/HelperByOrc.vcxproj`.
-- Solution: `HelperByOrc.slnx`.
-- Выходной файл: `HelperByOrc/Release/HelperByOrc.asi`.
-- Активный backend хуков: `MinHook`.
-- Release-профиль оставлен нормальным и пригодным для диагностики: без LTCG, без `/GS-`, без omit frame pointers, с включёнными символами, SDL и GS.
-- Arizona `_chat.asi` direct integration включён через `HelperByOrc/feature_flags.h`; если discovery `_chat.asi` не срабатывает, плагин использует стандартный SA:MP fallback для чата.
+- [Главная](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%93%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F)
+- [Биндер](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D0%B8%D0%BD%D0%B4%D0%B5%D1%80)
+- [Быстрое меню](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%BE%D0%B5-%D0%BC%D0%B5%D0%BD%D1%8E)
+- [Профили](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9F%D1%80%D0%BE%D1%84%D0%B8%D0%BB%D0%B8)
+- [Теги и переменные](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%A2%D0%B5%D0%B3%D0%B8-%D0%B8-%D0%BF%D0%B5%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5)
+- [Настройки](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B8)
+- [Диагностика](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%94%D0%B8%D0%B0%D0%B3%D0%BD%D0%BE%D1%81%D1%82%D0%B8%D0%BA%D0%B0)
+- [Сборка](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%A1%D0%B1%D0%BE%D1%80%D0%BA%D0%B0)
 
-## Перетаскивание Папок
+---
 
-В списке папок есть виртуальная секция `Вне папок`. Она не сохраняется как обычная папка, не переименовывается и не удаляется. Бинды в этой секции имеют пустой `folder_path`; перетаскивание бинда на `Вне папок` очищает привязку к папке.
+## Требования и ограничения
 
-В быстром меню бинды из `Вне папок` отображаются после пользовательских папок, отдельным списком, а не внутри папки.
+| Параметр | Значение |
+|----------|----------|
+| Игра | GTA San Andreas + SA:MP |
+| Архитектура | **Win32 (x86)** |
+| Сборка | **Release\|Win32** |
+| SA:MP | Поддерживаемые `samp.dll`: **R1, R2, R3, R3-1, R4, R4-2, R5-1, DL-R1** |
+| Ограничение | Для неизвестных `samp.dll` SA:MP-часть деградирует в fallback-режим |
+| Ограничение | Не заменяйте `HelperByOrc.asi` во время работы игры |
+| Лог | `HelperByOrc.log`, уровень: `Off`, `Error`, `Info` |
 
-Папки переносятся в режиме `Shift + drag`. Порядок зажатия больше не важен: можно сначала зажать `Shift`, затем ЛКМ, либо начать удерживать ЛКМ и добавить `Shift` до начала движения.
+---
 
-Во время перетаскивания появляются реальные зоны вставки:
+## Установка
 
-- верхняя часть строки папки - вставить перед этой папкой;
-- центральная часть строки - перенести внутрь этой папки;
-- нижняя часть строки - вставить после этой папки;
-- пустая область корня - перенести папку в конец корневого списка.
+1. Получите `HelperByOrc.asi` из релиза или локальной сборки.
+2. Поместите `HelperByOrc.asi` в папку игры, ASI loader или modloader.
+3. Запустите игру.
+4. Откройте меню плагина. Комбинация по умолчанию: `Ctrl + Z`.
+5. Настройте язык, масштаб, уровень лога и профиль во вкладке «Настройки».
 
-Превью цели рисуется вручную: линия для вставки перед/после и рамка для переноса внутрь. Применение переноса выполняется при отпускании ЛКМ по выбранной цели, поэтому логика не зависит от нестабильного `ImGui::AcceptDragDropPayload(...).IsDelivery()` на маленьких drop-зонах.
+Профили и конфиг хранятся в:
 
-Защиты:
-
-- нельзя перенести папку саму в себя;
-- нельзя перенести папку в собственного потомка;
-- нельзя перенести защищённую корневую папку внутрь другой папки;
-- нельзя создать дубль имени в целевом списке;
-- no-op цели не подсвечиваются и не применяются.
-
-## Условия
-
-Условия биндов и быстрого меню приведены к единой модели `conditions`. Для старых конфигов сохранён fallback чтения legacy `quick_conditions`.
-
-Поддерживаются условия, связанные с курсором:
-
-- SA:MP cursor active;
-- Windows cursor active.
-
-Для папок доступны собственные условия отображения. Быстрое меню учитывает enabled-состояние и условия папок/биндов при построении списка действий.
-
-## Профили
-
-Профили хранятся в `GTA San Andreas User Files/HelperByOrc/profiles`. Каждый профиль содержит отдельный `HelperByOrc.json`; во вкладке «Настройки» можно переключать активный профиль, создавать пустой, дублировать текущий, переименовывать и удалять профиль. Если установлен portablegta, путь к `GTA San Andreas User Files` берётся из игрового userfiles-getter.
-
-## Надёжность И Диагностика
-
-- Тяжёлая инициализация и shutdown вынесены из `DllMain` в bootstrap worker thread.
-- SA:MP hooks и RakNet hooks ставятся только после SA:MP full-ready.
-- D3D overlay подключается после SA:MP full-ready, чтобы не конфликтовать с курсором и вводом на загрузочном экране.
-- AppCompat-диагностика логирует Layer checks для текущего exe, `__COMPAT_LAYER`, известные compatibility tags и Windows shim modules вроде `apphelp.dll`, `AcLayers.dll`, `AcGenral.dll`.
-- D3D9-диагностика логирует создание dummy device, vtable targets, target module/RVA для `Reset`, `Present`, `EndScene` и итоговую hook policy.
-- Если `IDirect3DDevice9::Reset` указывает в `apphelp.dll`, Reset hook намеренно пропускается. Overlay остаётся активным через `Present` / `EndScene`.
-- Runtime-лог включает SA:MP readiness probes, pointer regions, transfer-owner modules для уже пропатченных SA:MP-функций и `[probe][stuck]` diagnostics, если full-ready не достигается слишком долго.
-
-## Основные Модули
-
-- `mod_app` - lifecycle, top-level UI, SA:MP readiness gate и cursor ownership.
-- `imgui_overlay` - D3D9 hooks, ImGui initialization, WndProc routing.
-- `samp_api` - безопасный доступ к SA:MP memory и readiness diagnostics.
-- `samp_hooks` - обычные SA:MP hooks.
-- `samp_rak_hooks` - RakNet hooks и RPC/packet interception.
-- `binder_module` - command binder, папки, условия и связанный UI.
-- `tags_module` - variables/tags engine.
-- `hotkey_utils` - общий hotkey capture и matching.
-- `text_encoding` - UTF-8/game encoding conversion.
-
-## Сборка
-
-Используйте MSBuild из Visual Studio.
-
-Локальная сборка:
-
-```powershell
-MSBuild HelperByOrc.slnx /p:Configuration=Release /p:Platform=Win32 /m
+```text
+GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\HelperByOrc.json
 ```
 
-GitHub Actions build:
+Если используется `portablegta`, путь к `GTA San Andreas User Files` берётся из игрового portable userfiles-getter.
 
-- workflow: `.github/workflows/build-release-win32.yml`;
-- собирает `Release|Win32`;
-- проверяет vendored-зависимости перед сборкой;
-- загружает `HelperByOrc.asi` и `HelperByOrc.pdb` как workflow/release artifacts.
+---
 
-Проект локально нацелен на Visual Studio toolset `v145`. GitHub workflow переопределяет `PlatformToolset=v143` для hosted Windows runners.
+## Сборка из исходников
 
-## Runtime-Файлы
+```powershell
+MSBuild HelperByOrc.slnx /t:Build /p:Configuration=Release /p:Platform=Win32 /m
+```
 
-- `HelperByOrc.asi` - плагин.
-- `GTA San Andreas User Files/HelperByOrc/profiles/<profile-id>/HelperByOrc.json` - настройки пользователя и конфиг биндов выбранного профиля.
-- `HelperByOrc.log` - диагностический лог.
+Выходной файл:
 
-## Диагностика Проблем
+```text
+HelperByOrc\Release\HelperByOrc.asi
+```
 
-- `sampInfo=0` при `refGame=1` - раннее состояние SA:MP: GUI/game initialization уже достигнут, но `CNetGame` ещё не создан. Это не самостоятельная ошибка, если позже `sampInfo` становится non-null.
-- Compatibility Mode может направлять D3D9 `Reset` через `apphelp.dll`. Плагин определяет это и пропускает только небезопасный Reset hook.
-- Если SA:MP не доходит до full-ready, проверьте `[samp][diag]`, `[diag][appcompat]`, `[ui][d3d]`, loaded modules и transfer-owner строки в `HelperByOrc.log`.
+Локальный проект использует Visual Studio toolset `v145`. GitHub Actions переопределяет `PlatformToolset=v143` для hosted Windows runners.
+
+---
+
+## Диагностика
+
+Главный файл для разбора проблем: `HelperByOrc.log`.
+
+В первую очередь смотрите:
+
+- `[bootstrap]` - ранний старт и shutdown;
+- `[probe]`, `[probe][stuck]`, `[samp][diag]` - готовность SA:MP;
+- `[ui][d3d]` - D3D9 hook policy и overlay;
+- `[diag][appcompat]` - Compatibility Mode, `apphelp.dll`, `AcLayers.dll`;
+- transfer-owner строки - кто уже пропатчил SA:MP-функции до плагина.
+
+Подробно: [Диагностика](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%94%D0%B8%D0%B0%D0%B3%D0%BD%D0%BE%D1%81%D1%82%D0%B8%D0%BA%D0%B0).
+
+---
+
+## Автор
+
+**[@dmitriyewich](https://github.com/dmitriyewich)** - [HelperByOrc](https://github.com/dmitriyewich/HelperByOrc)
