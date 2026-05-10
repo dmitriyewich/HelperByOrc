@@ -587,21 +587,29 @@ enum class ExplorerItemKind {
     Bind,
 };
 
+enum class ExplorerSelectionKind {
+    None,
+    Folder,
+    Bind,
+};
+
 struct ExplorerItem {
     ExplorerItemKind kind = ExplorerItemKind::Folder;
     std::string key;
+};
+
+struct ExplorerSelection {
+    ExplorerSelectionKind kind = ExplorerSelectionKind::None;
+    int folderId = 0;
+    std::string bindOrderId{};
 };
 
 struct ExplorerListLayout {
     float width = 0.0f;
     float rowHeight = 0.0f;
     float headerHeight = 0.0f;
-    float enabledX = 0.0f;
-    float enabledW = 0.0f;
-    float quickX = 0.0f;
-    float quickW = 0.0f;
-    float launchX = 0.0f;
-    float launchW = 0.0f;
+    float iconX = 0.0f;
+    float iconW = 0.0f;
     float nameX = 0.0f;
     float nameW = 0.0f;
     float actionsX = 0.0f;
@@ -1312,7 +1320,7 @@ QuickMenuStyle NormalizeQuickMenuStyle(std::string_view value) {
     if (normalized == "tree" || normalized == "style1" || normalized == "1") {
         return QuickMenuStyle::Tree;
     }
-    // legacy: "style2" was removed two-pane; "style3" was cascade — both map to cascade
+    // Legacy style ids from older configs now map to the single cascade branch.
     if (normalized == "cascade" || normalized == "style2" || normalized == "style3" || normalized == "2"
         || normalized == "3") {
         return QuickMenuStyle::Cascade;
@@ -1746,7 +1754,7 @@ bool PathStartsWith(const std::vector<std::string>& path, const std::vector<std:
     return path.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), path.begin());
 }
 
-bool IsLegacyProtectedRootFolderName(std::string_view name) {
+bool IsLegacyRootFolderName(std::string_view name) {
     return name == "Биндер" || name == "Binder";
 }
 
@@ -1824,21 +1832,64 @@ FolderDropZone ResolveFolderDropZone(const ImRect& rect) {
 void DrawFolderDropPreview(const ImRect& rect, FolderDropZone zone) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImU32 color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
+    ImVec4 glow = ImGui::ColorConvertU32ToFloat4(color);
+    glow.w = std::min(0.40f, glow.w * 0.26f);
     if (zone == FolderDropZone::Into) {
-        ImVec4 fill = ImGui::ColorConvertU32ToFloat4(color);
-        fill.w *= 0.18f;
-        drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(fill), ScaleUi(2.0f));
-        drawList->AddRect(rect.Min, rect.Max, color, 0.0f, 0, ScaleUi(2.0f));
+        const ImRect inner(
+            ImVec2(rect.Min.x + ScaleUi(2.0f), rect.Min.y + ScaleUi(2.0f)),
+            ImVec2(rect.Max.x - ScaleUi(2.0f), rect.Max.y - ScaleUi(2.0f)));
+        drawList->AddRectFilled(inner.Min, inner.Max, ImGui::GetColorU32(glow), ScaleUi(3.0f));
+        drawList->AddRect(inner.Min, inner.Max, color, ScaleUi(3.0f), 0, ScaleUi(2.0f));
+        drawList->AddRectFilled(
+            ImVec2(inner.Min.x, inner.Min.y),
+            ImVec2(inner.Min.x + ScaleUi(4.0f), inner.Max.y),
+            color,
+            ScaleUi(2.0f));
         return;
     }
 
     const float y = zone == FolderDropZone::Before ? rect.Min.y : rect.Max.y;
+    const float snappedY = std::floor(y) + 0.5f;
     drawList->AddRectFilled(
-        ImVec2(rect.Min.x, y - ScaleUi(1.5f)),
-        ImVec2(rect.Max.x, y + ScaleUi(1.5f)),
+        ImVec2(rect.Min.x, snappedY - ScaleUi(5.0f)),
+        ImVec2(rect.Max.x, snappedY + ScaleUi(5.0f)),
+        ImGui::GetColorU32(glow),
+        ScaleUi(2.0f));
+    drawList->AddRectFilled(
+        ImVec2(rect.Min.x, snappedY - ScaleUi(2.0f)),
+        ImVec2(rect.Max.x, snappedY + ScaleUi(2.0f)),
         color,
         ScaleUi(1.0f));
-    drawList->AddCircleFilled(ImVec2(rect.Min.x + ScaleUi(3.0f), y), ScaleUi(3.0f), color);
+    drawList->AddCircleFilled(ImVec2(rect.Min.x + ScaleUi(5.0f), snappedY), ScaleUi(4.0f), color);
+}
+
+const ImGuiPayload* ActiveExplorerDragPayload() {
+    const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+    if (payload == nullptr) {
+        return nullptr;
+    }
+    if (!payload->IsDataType(kBindDragPayload) && !payload->IsDataType(kFolderDragPayload)) {
+        return nullptr;
+    }
+    return payload;
+}
+
+bool IsExplorerBindDragPayload(const ImGuiPayload* payload) {
+    return payload != nullptr
+        && payload->IsDataType(kBindDragPayload)
+        && payload->Data != nullptr
+        && payload->DataSize == sizeof(int);
+}
+
+bool TryGetExplorerFolderDragId(const ImGuiPayload* payload, int& folderId) {
+    if (payload == nullptr
+        || !payload->IsDataType(kFolderDragPayload)
+        || payload->Data == nullptr
+        || payload->DataSize != sizeof(int)) {
+        return false;
+    }
+    folderId = *static_cast<const int*>(payload->Data);
+    return true;
 }
 
 FolderNode* FindFolderByIdR(std::vector<std::unique_ptr<FolderNode>>& from, int id) {
@@ -1934,6 +1985,8 @@ struct BinderModule::Impl {
     std::vector<HotkeyEntry> hotkeys{};
     FolderNode* currentFolder = nullptr;
     FolderNode* selectedFolder = nullptr;
+    ExplorerSelection explorerSelection{};
+    bool explorerSelectionScrollPending = false;
     int nextFolderId = 1;
     std::uint64_t nextHotkeyRuntimeId = 1;
     std::uint64_t nextHotkeyOrderId = 1;
@@ -2066,6 +2119,18 @@ struct BinderModule::Impl {
     const std::vector<ExplorerItem>& ItemsForFolder(const FolderNode* folder) const;
     std::vector<std::string> CurrentFolderPath() const;
     std::vector<std::string> FolderPathForDirectory(const FolderNode* folder) const;
+    void ClearExplorerSelection();
+    void SelectExplorerFolder(FolderNode* folder, bool scrollIntoView = false);
+    void SelectExplorerBind(int index, bool scrollIntoView = false);
+    void SelectExplorerItem(const ExplorerItem& item, FolderNode* directory, bool scrollIntoView = false);
+    bool IsExplorerFolderSelected(const FolderNode* folder) const;
+    bool IsExplorerBindSelected(int index) const;
+    int FindExplorerSelectionIndex(const std::vector<ExplorerItem>& items, FolderNode* directory) const;
+    void MoveExplorerSelection(int delta);
+    void SelectExplorerNeighborAfterRemoval(
+        FolderNode* directory,
+        const ExplorerItem& removedItem,
+        const std::vector<ExplorerItem>& beforeItems);
     void OpenFolder(FolderNode* folder, bool pushHistory = true);
     void OpenFolderPath(const std::vector<std::string>& path, bool pushHistory = true);
     void NavigateUp();
@@ -2087,6 +2152,7 @@ struct BinderModule::Impl {
         int insertIndex,
         std::string_view source,
         bool recordUndo);
+    bool CanMoveFolderToExplorerDirectory(int folderId, FolderNode* targetFolder, int insertIndex, bool* noop = nullptr);
     FolderNode* FindFolderByNameInDirectory(FolderNode* folder, std::string_view name) const;
     int FindHotkeyIndexByOrderId(std::string_view orderId) const;
     JsonValue SerializeFolder(const FolderNode& folder) const;
@@ -2095,6 +2161,7 @@ struct BinderModule::Impl {
     std::vector<ExplorerItem> DeserializeExplorerItems(const JsonArray* array) const;
     JsonValue SerializeHotkey(const HotkeyEntry& hotkey) const;
     HotkeyEntry DeserializeHotkey(const JsonObject& object);
+    void LogExplorerOrderValidation(std::string_view source);
     void PushToast(std::string text, const ImVec4& color, double durationMs);
     void PruneToasts();
     void DrawToasts();
@@ -2206,9 +2273,8 @@ struct BinderModule::Impl {
     bool CommitInlineFolderEdit();
     void CancelInlineFolderEdit();
     bool IsInlineRenamingFolder(const FolderNode* folder) const;
-    bool IsProtectedRootFolder(const FolderNode* folder) const;
     bool CanDeleteFolder(const FolderNode* folder) const;
-    bool NormalizeProtectedRootFolderName();
+    bool NormalizeLegacyRootFolderName();
     void BeginCapture(CaptureTarget target);
     void DrawCapturePopup(bool insideEditorPopup);
     void DrawQuickMenu();
@@ -2246,6 +2312,7 @@ struct BinderModule::Impl {
     void DrawExplorerToolbar();
     void DrawExplorerSearchResults();
     void DrawExplorerDirectory();
+    void DrawExplorerEmptyAreaContextMenu(const char* popupId);
     void DrawExplorerInlineFolderEditRow(int rowIndex, const ExplorerListLayout& layout, const ImRect& rowRect);
     void DrawExplorerInlineFolderEditContent(const ExplorerListLayout& layout, const ImRect& rowRect, bool selected);
     void DrawExplorerFolderRow(FolderNode& folder, int rowIndex, const ExplorerListLayout& layout, const ImRect& rowRect);
@@ -2476,22 +2543,11 @@ void BinderModule::Impl::ConnectHooks() {
 }
 
 FolderNode* BinderModule::Impl::EnsureRootFolder() {
-    if (folders.empty()) {
-        auto root = std::make_unique<FolderNode>();
-        root->id = nextFolderId++;
-        root->name = UiSettings::Instance().Text(UiText::BinderDefaultRootFolder);
-        root->conditions.assign(static_cast<std::size_t>(ConditionId::Count), false);
-        folders.push_back(std::move(root));
-    }
-
-    if (!selectedFolder) {
-        selectedFolder = folders.front().get();
-    }
-    return folders.front().get();
+    return folders.empty() ? nullptr : folders.front().get();
 }
 
-bool BinderModule::Impl::NormalizeProtectedRootFolderName() {
-    FolderNode* root = EnsureRootFolder();
+bool BinderModule::Impl::NormalizeLegacyRootFolderName() {
+    FolderNode* root = folders.empty() ? nullptr : folders.front().get();
     if (!root) {
         return false;
     }
@@ -2500,7 +2556,7 @@ bool BinderModule::Impl::NormalizeProtectedRootFolderName() {
     if (root->name == desiredName) {
         return false;
     }
-    if (!root->name.empty() && !IsLegacyProtectedRootFolderName(root->name)) {
+    if (!root->name.empty() && !IsLegacyRootFolderName(root->name)) {
         return false;
     }
 
@@ -2533,6 +2589,7 @@ void BinderModule::Impl::RefreshNumbers() {
 void BinderModule::Impl::SaveConfig() {
     EnsureRootFolder();
     NormalizeExplorerOrders();
+    LogExplorerOrderValidation("save");
     JsonObject root;
     root["quick_menu_hotkey"] = SerializeUintArray(quickMenuHotkey);
     root["quick_menu_activation_mode"] = QuickMenuActivationModeId(quickMenuActivationMode);
@@ -2563,6 +2620,8 @@ void BinderModule::Impl::LoadConfig() {
     hotkeys.clear();
     currentFolder = nullptr;
     selectedFolder = nullptr;
+    explorerSelection = {};
+    explorerSelectionScrollPending = false;
     nextFolderId = 1;
     nextHotkeyRuntimeId = 1;
     nextHotkeyOrderId = 1;
@@ -2607,14 +2666,14 @@ void BinderModule::Impl::LoadConfig() {
     }
 
     EnsureRootFolder();
-    const bool migratedProtectedRoot = NormalizeProtectedRootFolderName();
+    const bool migratedLegacyRoot = NormalizeLegacyRootFolderName();
     EnsureHotkeyOrderIds();
     NormalizeExplorerOrders();
     currentFolder = lastOpenFolderPath.empty() ? nullptr : FindFolderByPath(folders, lastOpenFolderPath);
-    selectedFolder = currentFolder;
+    ClearExplorerSelection();
     RefreshNumbers();
 
-    if (migratedProtectedRoot) {
+    if (migratedLegacyRoot) {
         SaveConfig();
     }
 }
@@ -2942,6 +3001,134 @@ std::vector<std::string> BinderModule::Impl::CurrentFolderPath() const {
     return FolderPathForDirectory(currentFolder);
 }
 
+void BinderModule::Impl::ClearExplorerSelection() {
+    explorerSelection = {};
+    explorerSelectionScrollPending = false;
+    selectedFolder = nullptr;
+    selectedBindIndex = -1;
+}
+
+void BinderModule::Impl::SelectExplorerFolder(FolderNode* folder, const bool scrollIntoView) {
+    if (!folder) {
+        ClearExplorerSelection();
+        return;
+    }
+
+    explorerSelection.kind = ExplorerSelectionKind::Folder;
+    explorerSelection.folderId = folder->id;
+    explorerSelection.bindOrderId.clear();
+    explorerSelectionScrollPending = explorerSelectionScrollPending || scrollIntoView;
+    selectedFolder = folder;
+    selectedBindIndex = -1;
+}
+
+void BinderModule::Impl::SelectExplorerBind(const int index, const bool scrollIntoView) {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        ClearExplorerSelection();
+        return;
+    }
+
+    explorerSelection.kind = ExplorerSelectionKind::Bind;
+    explorerSelection.folderId = 0;
+    explorerSelection.bindOrderId = hotkeys[static_cast<std::size_t>(index)].orderId;
+    explorerSelectionScrollPending = explorerSelectionScrollPending || scrollIntoView;
+    selectedFolder = nullptr;
+    selectedBindIndex = index;
+}
+
+void BinderModule::Impl::SelectExplorerItem(
+    const ExplorerItem& item,
+    FolderNode* directory,
+    const bool scrollIntoView) {
+    if (item.kind == ExplorerItemKind::Folder) {
+        SelectExplorerFolder(FindFolderByNameInDirectory(directory, item.key), scrollIntoView);
+        return;
+    }
+
+    SelectExplorerBind(FindHotkeyIndexByOrderId(item.key), scrollIntoView);
+}
+
+bool BinderModule::Impl::IsExplorerFolderSelected(const FolderNode* folder) const {
+    return folder != nullptr
+        && explorerSelection.kind == ExplorerSelectionKind::Folder
+        && explorerSelection.folderId == folder->id;
+}
+
+bool BinderModule::Impl::IsExplorerBindSelected(const int index) const {
+    return index >= 0
+        && index < static_cast<int>(hotkeys.size())
+        && explorerSelection.kind == ExplorerSelectionKind::Bind
+        && explorerSelection.bindOrderId == hotkeys[static_cast<std::size_t>(index)].orderId;
+}
+
+int BinderModule::Impl::FindExplorerSelectionIndex(
+    const std::vector<ExplorerItem>& items,
+    FolderNode* directory) const {
+    for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+        const ExplorerItem& item = items[static_cast<std::size_t>(i)];
+        if (item.kind == ExplorerItemKind::Folder) {
+            const FolderNode* folder = FindFolderByNameInDirectory(directory, item.key);
+            if (IsExplorerFolderSelected(folder)) {
+                return i;
+            }
+            continue;
+        }
+
+        if (explorerSelection.kind == ExplorerSelectionKind::Bind && explorerSelection.bindOrderId == item.key) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void BinderModule::Impl::MoveExplorerSelection(const int delta) {
+    if (delta == 0) {
+        return;
+    }
+
+    NormalizeExplorerOrders();
+    const std::vector<ExplorerItem>& items = ItemsForFolder(currentFolder);
+    if (items.empty()) {
+        ClearExplorerSelection();
+        return;
+    }
+
+    int index = FindExplorerSelectionIndex(items, currentFolder);
+    if (index < 0) {
+        index = delta > 0 ? 0 : static_cast<int>(items.size()) - 1;
+    } else {
+        index = std::clamp(index + delta, 0, static_cast<int>(items.size()) - 1);
+    }
+
+    SelectExplorerItem(items[static_cast<std::size_t>(index)], currentFolder, true);
+}
+
+void BinderModule::Impl::SelectExplorerNeighborAfterRemoval(
+    FolderNode* directory,
+    const ExplorerItem& removedItem,
+    const std::vector<ExplorerItem>& beforeItems) {
+    const std::vector<ExplorerItem>& afterItems = ItemsForFolder(directory);
+    if (afterItems.empty()) {
+        ClearExplorerSelection();
+        return;
+    }
+
+    int removedIndex = -1;
+    for (int i = 0; i < static_cast<int>(beforeItems.size()); ++i) {
+        const ExplorerItem& item = beforeItems[static_cast<std::size_t>(i)];
+        if (item.kind == removedItem.kind && item.key == removedItem.key) {
+            removedIndex = i;
+            break;
+        }
+    }
+
+    if (removedIndex < 0) {
+        removedIndex = 0;
+    }
+    const int nextIndex = std::clamp(removedIndex, 0, static_cast<int>(afterItems.size()) - 1);
+    SelectExplorerItem(afterItems[static_cast<std::size_t>(nextIndex)], directory, true);
+}
+
 FolderNode* BinderModule::Impl::FindFolderByNameInDirectory(FolderNode* folder, std::string_view name) const {
     const auto& children = folder ? folder->children : folders;
     for (const auto& child : children) {
@@ -2969,7 +3156,7 @@ void BinderModule::Impl::OpenFolder(FolderNode* folder, const bool pushHistory) 
     const std::vector<std::string> newPath = FolderPathForDirectory(folder);
     if (oldPath == newPath) {
         currentFolder = folder;
-        selectedFolder = folder;
+        ClearExplorerSelection();
         return;
     }
     CancelInlineFolderEdit();
@@ -2980,8 +3167,7 @@ void BinderModule::Impl::OpenFolder(FolderNode* folder, const bool pushHistory) 
         }
     }
     currentFolder = folder;
-    selectedFolder = folder;
-    selectedBindIndex = -1;
+    ClearExplorerSelection();
     SaveConfig();
 }
 
@@ -3060,6 +3246,79 @@ void BinderModule::Impl::NormalizeExplorerOrderForDirectory(FolderNode* folder) 
 void BinderModule::Impl::NormalizeExplorerOrders() {
     EnsureHotkeyOrderIds();
     NormalizeExplorerOrderForDirectory(nullptr);
+}
+
+void BinderModule::Impl::LogExplorerOrderValidation(std::string_view source) {
+    int errors = 0;
+    const auto logError = [&](const char* message, const std::vector<std::string>& path, const std::string& key) {
+        if (errors++ >= 8) {
+            return;
+        }
+        const std::string dirText = path.empty() ? std::string("<root>") : JoinPath(path);
+        debuglog::WriteError(
+            "[binder] explorer order invalid source=%.*s dir=%s key=%s reason=%s",
+            static_cast<int>(source.size()),
+            source.data(),
+            dirText.c_str(),
+            key.c_str(),
+            message);
+    };
+
+    const auto validateDirectory = [&](auto&& self, FolderNode* folder) -> void {
+        const std::vector<std::string> path = FolderPathForDirectory(folder);
+        std::set<std::string> expectedFolders;
+        const auto& children = folder ? folder->children : folders;
+        for (const auto& child : children) {
+            if (child) {
+                expectedFolders.insert(child->name);
+            }
+        }
+
+        std::set<std::string> expectedBinds;
+        for (const HotkeyEntry& hotkey : hotkeys) {
+            if (hotkey.folderPath == path && !hotkey.orderId.empty()) {
+                expectedBinds.insert(hotkey.orderId);
+            }
+        }
+
+        std::set<std::string> seenFolders;
+        std::set<std::string> seenBinds;
+        for (const ExplorerItem& item : ItemsForFolder(folder)) {
+            if (item.kind == ExplorerItemKind::Folder) {
+                if (expectedFolders.find(item.key) == expectedFolders.end()) {
+                    logError("missing_folder", path, item.key);
+                } else if (!seenFolders.insert(item.key).second) {
+                    logError("duplicate_folder", path, item.key);
+                }
+                continue;
+            }
+
+            if (expectedBinds.find(item.key) == expectedBinds.end()) {
+                logError("missing_bind", path, item.key);
+            } else if (!seenBinds.insert(item.key).second) {
+                logError("duplicate_bind", path, item.key);
+            }
+        }
+
+        for (const std::string& name : expectedFolders) {
+            if (seenFolders.find(name) == seenFolders.end()) {
+                logError("folder_not_in_order", path, name);
+            }
+        }
+        for (const std::string& orderId : expectedBinds) {
+            if (seenBinds.find(orderId) == seenBinds.end()) {
+                logError("bind_not_in_order", path, orderId);
+            }
+        }
+
+        for (const auto& child : children) {
+            if (child) {
+                self(self, child.get());
+            }
+        }
+    };
+
+    validateDirectory(validateDirectory, nullptr);
 }
 
 void BinderModule::Impl::RemoveBindFromExplorerOrders(const std::string& orderId) {
@@ -3156,10 +3415,13 @@ bool BinderModule::Impl::MoveBindToExplorerDirectory(
         targetFolder,
         ExplorerItem{ ExplorerItemKind::Bind, orderId },
         insertIndex.value_or(static_cast<int>(targetItems.size())));
-    selectedBindIndex = hotkeyIndex;
-    selectedFolder = targetFolder;
     if (!StartsWith(source, "explorer_")) {
         currentFolder = targetFolder;
+    }
+    if (currentFolder == targetFolder) {
+        SelectExplorerBind(hotkeyIndex, true);
+    } else {
+        SelectExplorerFolder(targetFolder, true);
     }
 
     debuglog::WriteInfo(
@@ -3170,6 +3432,43 @@ bool BinderModule::Impl::MoveBindToExplorerDirectory(
         JoinPath(hotkey.folderPath).c_str());
     SaveConfig();
     return true;
+}
+
+bool BinderModule::Impl::CanMoveFolderToExplorerDirectory(
+    const int folderId,
+    FolderNode* targetFolder,
+    const int insertIndex,
+    bool* noop) {
+    if (noop) {
+        *noop = false;
+    }
+
+    FolderListPos from;
+    if (!FindFolderListPos(folders, nullptr, folderId, from)) {
+        return false;
+    }
+    FolderNode* moving = (*from.list)[static_cast<std::size_t>(from.index)].get();
+    if (!moving) {
+        return false;
+    }
+
+    const std::vector<ExplorerItem>& targetOrder = ItemsForFolder(targetFolder);
+    const auto folderVectorIndexForOrder = [&](int orderIndex) {
+        int folderIndex = 0;
+        for (int i = 0; i < std::min(orderIndex, static_cast<int>(targetOrder.size())); ++i) {
+            const ExplorerItem& item = targetOrder[static_cast<std::size_t>(i)];
+            if (item.kind == ExplorerItemKind::Folder) {
+                ++folderIndex;
+            }
+        }
+        return folderIndex;
+    };
+
+    FolderListPos dest{};
+    dest.list = targetFolder ? &targetFolder->children : &folders;
+    dest.listParent = targetFolder;
+    dest.index = folderVectorIndexForOrder(insertIndex);
+    return IsValidFolderDropTarget(folderId, dest, noop);
 }
 
 bool BinderModule::Impl::MoveFolderToExplorerDirectory(
@@ -3192,7 +3491,7 @@ bool BinderModule::Impl::MoveFolderToExplorerDirectory(
         int folderIndex = 0;
         for (int i = 0; i < std::min(orderIndex, static_cast<int>(targetOrder.size())); ++i) {
             const ExplorerItem& item = targetOrder[static_cast<std::size_t>(i)];
-            if (item.kind == ExplorerItemKind::Folder && item.key != moving->name) {
+            if (item.kind == ExplorerItemKind::Folder) {
                 ++folderIndex;
             }
         }
@@ -3236,7 +3535,7 @@ bool BinderModule::Impl::MoveFolderToExplorerDirectory(
     if (noop) {
         RemoveFolderFromParentOrder(moving);
         InsertExplorerItem(targetFolder, ExplorerItem{ ExplorerItemKind::Folder, folderName }, insertIndex);
-        selectedFolder = moving;
+        SelectExplorerFolder(moving, true);
         SaveConfig();
         return true;
     }
@@ -3251,7 +3550,11 @@ bool BinderModule::Impl::MoveFolderToExplorerDirectory(
     if (!StartsWith(source, "explorer_")) {
         currentFolder = targetFolder;
     }
-    selectedFolder = moving;
+    if (currentFolder == targetFolder) {
+        SelectExplorerFolder(moving, true);
+    } else {
+        SelectExplorerFolder(targetFolder, true);
+    }
     debuglog::WriteInfo(
         "[binder] explorer folder moved id=%d source=%.*s",
         folderId,
@@ -5395,7 +5698,9 @@ int BinderModule::Impl::DeleteHotkeysFromFolderPath(const std::vector<std::strin
 
     if (removed > 0) {
         RefreshNumbers();
-        selectedBindIndex = -1;
+        if (explorerSelection.kind == ExplorerSelectionKind::Bind) {
+            ClearExplorerSelection();
+        }
         bindDeleteTarget = -1;
         moveBindTarget = -1;
         bindLinesTarget = -1;
@@ -5450,8 +5755,7 @@ void BinderModule::Impl::BeginInlineCreateFolder(FolderNode* parent) {
     folderInlineEdit.parent = parent;
     folderInlineEdit.name = NextFolderNameForParent(parent);
     folderInlineEdit.focusPending = true;
-    selectedBindIndex = -1;
-    selectedFolder = parent;
+    ClearExplorerSelection();
 }
 
 void BinderModule::Impl::BeginInlineRenameFolder(FolderNode* folder) {
@@ -5465,8 +5769,7 @@ void BinderModule::Impl::BeginInlineRenameFolder(FolderNode* folder) {
     folderInlineEdit.parent = folder->parent;
     folderInlineEdit.name = folder->name;
     folderInlineEdit.focusPending = true;
-    selectedBindIndex = -1;
-    selectedFolder = folder;
+    SelectExplorerFolder(folder);
 }
 
 void BinderModule::Impl::CancelInlineFolderEdit() {
@@ -5480,6 +5783,10 @@ bool BinderModule::Impl::IsInlineRenamingFolder(const FolderNode* folder) const 
 bool BinderModule::Impl::CommitInlineFolderEdit() {
     const std::string name = SanitizeFolderName(folderInlineEdit.name);
     if (name.empty()) {
+        PushToast(
+            UiSettings::Instance().Text(UiText::ValidationFolderNameRequired),
+            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+            2200.0);
         folderInlineEdit.focusPending = true;
         return false;
     }
@@ -5493,6 +5800,10 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
 
         auto& siblings = target->parent ? target->parent->children : folders;
         if (!FolderNameUnique(siblings, name, target)) {
+            PushToast(
+                UiSettings::Instance().Text(UiText::ValidationFolderNameUnique),
+                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+                2200.0);
             folderInlineEdit.focusPending = true;
             return false;
         }
@@ -5512,8 +5823,7 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
             }
         }
 
-        selectedFolder = target;
-        selectedBindIndex = -1;
+        SelectExplorerFolder(target);
         CancelInlineFolderEdit();
         SaveConfig();
         return true;
@@ -5523,6 +5833,10 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
         FolderNode* parent = folderInlineEdit.parent;
         auto& siblings = parent ? parent->children : folders;
         if (!FolderNameUnique(siblings, name)) {
+            PushToast(
+                UiSettings::Instance().Text(UiText::ValidationFolderNameUnique),
+                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
+                2200.0);
             folderInlineEdit.focusPending = true;
             return false;
         }
@@ -5540,9 +5854,8 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
         }
         AppendExplorerItemIfMissing(parent, ExplorerItem{ ExplorerItemKind::Folder, created->name });
 
-        selectedFolder = created;
-        selectedBindIndex = -1;
         currentFolder = parent;
+        SelectExplorerFolder(created, true);
         CancelInlineFolderEdit();
         SaveConfig();
         return true;
@@ -5552,18 +5865,8 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
     return false;
 }
 
-bool BinderModule::Impl::IsProtectedRootFolder(const FolderNode* folder) const {
-    return folder != nullptr && folder->parent == nullptr && !folders.empty() && folders.front().get() == folder;
-}
-
 bool BinderModule::Impl::CanDeleteFolder(const FolderNode* folder) const {
     if (!folder) {
-        return false;
-    }
-    if (IsProtectedRootFolder(folder)) {
-        return false;
-    }
-    if (folder->parent == nullptr && folders.size() <= 1) {
         return false;
     }
     return true;
@@ -5614,7 +5917,11 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.focusNamePending = true;
     editor.pendingAction = EditorState::PendingAction::None;
     editor.pendingTargetIndex = -1;
-    selectedBindIndex = index;
+    if (index >= 0) {
+        SelectExplorerBind(index);
+    } else {
+        ClearExplorerSelection();
+    }
 }
 
 std::vector<HotkeyMessage> BinderModule::Impl::ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const {
@@ -5916,7 +6223,7 @@ void BinderModule::Impl::SaveEditor() {
         }
         AppendExplorerItemIfMissing(folder, ExplorerItem{ ExplorerItemKind::Bind, selected.orderId });
         currentFolder = folder;
-        selectedFolder = folder;
+        SelectExplorerBind(selectedBindIndex, true);
     }
 
     RefreshNumbers();
@@ -6245,6 +6552,7 @@ void BinderModule::Impl::DuplicateHotkeyAt(int index) {
     hotkeys.insert(hotkeys.begin() + static_cast<std::ptrdiff_t>(index + 1), std::move(duplicated));
     RefreshNumbers();
     selectedBindIndex = index + 1;
+    SelectExplorerBind(selectedBindIndex, true);
     FolderNode* folder = hotkeys[static_cast<std::size_t>(selectedBindIndex)].folderPath.empty()
         ? nullptr
         : FindFolderByPath(folders, hotkeys[static_cast<std::size_t>(selectedBindIndex)].folderPath);
@@ -6275,9 +6583,6 @@ bool BinderModule::Impl::IsValidFolderDropTarget(int moveId, const FolderListPos
     }
 
     FolderNode* node = (*from.list)[static_cast<std::size_t>(from.index)].get();
-    if (IsProtectedRootFolder(node) && dest.list != &folders) {
-        return false;
-    }
     if (dest.list == &node->children) {
         return false;
     }
@@ -6308,9 +6613,6 @@ bool BinderModule::Impl::RelocateFolderNode(int moveId, FolderListPos dest, bool
         return false;
     }
     FolderNode* node = (*from.list)[static_cast<std::size_t>(from.index)].get();
-    if (IsProtectedRootFolder(node) && dest.list != &folders) {
-        return false;
-    }
     if (dest.list == &node->children) {
         return false;
     }
@@ -6448,6 +6750,16 @@ void BinderModule::Impl::DrawFolderPopups() {
         auto finishFolderDelete = [&](FolderNode* fallbackFolder, const std::vector<std::string>& removedPath) {
             const auto selectedPath = selectedFolder ? BuildFolderPath(selectedFolder) : std::vector<std::string>{};
             const auto currentPath = CurrentFolderPath();
+            FolderNode* removedParent = folderDeleteTarget ? folderDeleteTarget->parent : nullptr;
+            const ExplorerItem removedItem{
+                ExplorerItemKind::Folder,
+                folderDeleteTarget ? folderDeleteTarget->name : std::string{},
+            };
+            const std::vector<ExplorerItem> beforeItems = ItemsForFolder(removedParent);
+            const bool currentWasInRemovedTree =
+                (!currentPath.empty() && PathStartsWith(currentPath, removedPath)) || currentFolder == folderDeleteTarget;
+            const bool selectionWasInRemovedTree =
+                (!selectedPath.empty() && PathStartsWith(selectedPath, removedPath)) || selectedFolder == folderDeleteTarget;
             if (folderConditionsTarget && IsUnderOrEqual(folderDeleteTarget, folderConditionsTarget)) {
                 folderConditionsTarget = nullptr;
                 folderConditionsPopupPending = false;
@@ -6458,25 +6770,24 @@ void BinderModule::Impl::DrawFolderPopups() {
             }
             RemoveFolderFromParentOrder(folderDeleteTarget);
             removeFolderNode();
-            if ((!selectedPath.empty() && PathStartsWith(selectedPath, removedPath)) || selectedFolder == folderDeleteTarget) {
-                selectedFolder = fallbackFolder;
-            }
-            if ((!currentPath.empty() && PathStartsWith(currentPath, removedPath)) || currentFolder == folderDeleteTarget) {
+            if (currentWasInRemovedTree) {
                 currentFolder = fallbackFolder;
             }
             folderDeleteTarget = nullptr;
             SaveConfig();
+            if ((currentWasInRemovedTree || selectionWasInRemovedTree) && currentFolder == removedParent) {
+                SelectExplorerNeighborAfterRemoval(removedParent, removedItem, beforeItems);
+            } else if (selectionWasInRemovedTree) {
+                ClearExplorerSelection();
+            }
             ImGui::CloseCurrentPopup();
         };
 
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::DeleteFolderAll))) {
-            if (CanDeleteFolder(folderDeleteTarget)) {
-                FolderNode* fallbackFolder = folderDeleteTarget->parent;
-                const auto removedPath = BuildFolderPath(folderDeleteTarget);
-                DeleteHotkeysFromFolderPath(removedPath);
-                finishFolderDelete(fallbackFolder, removedPath);
-            }
+        if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
+            folderDeleteTarget = nullptr;
+            ImGui::CloseCurrentPopup();
         }
+        ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
         if (ImGui::Button(UiSettings::Instance().Text(UiText::DeleteFolderMoveContentsHere))) {
             if (CanDeleteFolder(folderDeleteTarget)) {
@@ -6540,9 +6851,13 @@ void BinderModule::Impl::DrawFolderPopups() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
-            folderDeleteTarget = nullptr;
-            ImGui::CloseCurrentPopup();
+        if (ImGui::Button(UiSettings::Instance().Text(UiText::DeleteFolderAll))) {
+            if (CanDeleteFolder(folderDeleteTarget)) {
+                FolderNode* fallbackFolder = folderDeleteTarget->parent;
+                const auto removedPath = BuildFolderPath(folderDeleteTarget);
+                DeleteHotkeysFromFolderPath(removedPath);
+                finishFolderDelete(fallbackFolder, removedPath);
+            }
         }
         ImGui::EndPopup();
     }
@@ -7913,25 +8228,86 @@ void BinderModule::Impl::DrawEditor() {
 
 void BinderModule::Impl::DrawExplorerBreadcrumb() {
     UiSettings& ui = UiSettings::Instance();
-    if (ImGui::SmallButton((std::string(ui.Text(UiText::BinderRootName)) + "##binder_breadcrumb_root").c_str())) {
-        OpenFolder(nullptr, true);
-    }
-
     std::vector<FolderNode*> chain;
     for (FolderNode* folder = currentFolder; folder != nullptr; folder = folder->parent) {
         chain.push_back(folder);
     }
     std::reverse(chain.begin(), chain.end());
+
+    std::string fullPath = ui.Text(UiText::BinderRootName);
+    for (const FolderNode* folder : chain) {
+        if (folder) {
+            fullPath += " / " + folder->name;
+        }
+    }
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const auto separatorWidth = [&]() {
+        return ImGui::CalcTextSize("/").x + ScaleUi(8.0f);
+    };
+    const auto crumbWidth = [&](std::string_view label) {
+        return ImGui::CalcTextSize(std::string(label).c_str()).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+    };
+
+    float requiredWidth = crumbWidth(ui.Text(UiText::BinderRootName));
+    for (const FolderNode* folder : chain) {
+        if (folder) {
+            requiredWidth += separatorWidth() + crumbWidth(folder->name);
+        }
+    }
+
+    const bool collapse = chain.size() > 2
+        && ImGui::GetContentRegionAvail().x > ScaleUi(80.0f)
+        && requiredWidth > ImGui::GetContentRegionAvail().x;
+
+    const auto drawSeparator = [&]() {
+        ImGui::SameLine(0.0f, ScaleUi(4.0f));
+        ImGui::TextDisabled("/");
+        ImGui::SameLine(0.0f, ScaleUi(4.0f));
+    };
+
+    const auto drawTooltip = [&]() {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%s", fullPath.c_str());
+        }
+    };
+
+    if (ImGui::SmallButton((std::string(ui.Text(UiText::BinderRootName)) + "##binder_breadcrumb_root").c_str())) {
+        OpenFolder(nullptr, true);
+    }
+    drawTooltip();
+
+    if (collapse) {
+        drawSeparator();
+        ImGui::BeginDisabled();
+        ImGui::SmallButton("...##binder_breadcrumb_ellipsis");
+        ImGui::EndDisabled();
+        drawTooltip();
+
+        const std::size_t start = chain.size() > 2 ? chain.size() - 2 : 0;
+        for (std::size_t i = start; i < chain.size(); ++i) {
+            FolderNode* folder = chain[i];
+            if (!folder) {
+                continue;
+            }
+            drawSeparator();
+            if (ImGui::SmallButton((folder->name + "##bc_" + std::to_string(folder->id)).c_str())) {
+                OpenFolder(folder, true);
+            }
+            drawTooltip();
+        }
+        return;
+    }
+
     for (FolderNode* folder : chain) {
         if (!folder) {
             continue;
         }
-        ImGui::SameLine(0.0f, ScaleUi(4.0f));
-        ImGui::TextDisabled("/");
-        ImGui::SameLine(0.0f, ScaleUi(4.0f));
+        drawSeparator();
         if (ImGui::SmallButton((folder->name + "##bc_" + std::to_string(folder->id)).c_str())) {
             OpenFolder(folder, true);
         }
+        drawTooltip();
     }
 }
 
@@ -8000,17 +8376,19 @@ void BinderModule::Impl::DrawExplorerInlineFolderEditContent(
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImGuiStyle& style = ImGui::GetStyle();
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const float padX = ScaleUi(12.0f);
     const ImVec2 folderIconSize = ImGui::CalcTextSize(kIconFolder);
     ImVec4 iconColor = style.Colors[ImGuiCol_Text];
     iconColor.w = selected ? 1.0f : 0.92f;
-    drawList->AddText(ImVec2(rowRect.Min.x + padX, textY), ImGui::GetColorU32(iconColor), kIconFolder);
+    drawList->AddText(
+        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - folderIconSize.x) * 0.5f)), textY),
+        ImGui::GetColorU32(iconColor),
+        kIconFolder);
 
     const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 buttonSize(buttonSide, buttonSide);
     const float buttonGap = ScaleUi(4.0f);
     const float actionGroupWidth = buttonSide * 2.0f + buttonGap;
-    const float inputX = rowRect.Min.x + padX + folderIconSize.x + ScaleUi(8.0f);
+    const float inputX = layout.nameX + ScaleUi(6.0f);
     const float inputY = rowRect.Min.y + std::floor(std::max(0.0f, (layout.rowHeight - ImGui::GetFrameHeight()) * 0.5f));
     const float inputMaxX = std::max(inputX + ScaleUi(48.0f), layout.actionsX - ScaleUi(8.0f));
     const float inputWidth = std::max(ScaleUi(48.0f), inputMaxX - inputX);
@@ -8030,7 +8408,7 @@ void BinderModule::Impl::DrawExplorerInlineFolderEditContent(
     const bool deactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
 
     ImGui::SetCursorScreenPos(ImVec2(
-        std::floor(layout.actionsX + std::max(0.0f, (layout.actionsW - actionGroupWidth) * 0.5f)),
+        std::floor(layout.actionsX + layout.actionsW - actionGroupWidth),
         std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - buttonSide) * 0.5f))));
     const bool saveClicked = SmallIconActionButton(kIconCheck, "##folder_inline_save", ui.Text(UiText::Save), buttonSize);
     ImGui::SameLine(0.0f, buttonGap);
@@ -8074,7 +8452,7 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     const ExplorerListLayout& layout,
     const ImRect& rowRect) {
     UiSettings& ui = UiSettings::Instance();
-    const bool selected = selectedBindIndex < 0 && selectedFolder == &folder;
+    const bool selected = IsExplorerFolderSelected(&folder);
     const ImGuiStyle& style = ImGui::GetStyle();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
@@ -8106,24 +8484,49 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     }
 
     ImGui::SetCursorScreenPos(rowRect.Min);
-    const float rowHitWidth = std::max(1.0f, layout.width - layout.actionsW - ScaleUi(4.0f));
+    const float rowHitWidth = std::max(1.0f, layout.actionsX - rowRect.Min.x - ScaleUi(4.0f));
     const bool clicked = ImGui::InvisibleButton(
         "##folder_row",
         ImVec2(rowHitWidth, layout.rowHeight),
         ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool rowItemHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
     const bool doubleClicked = rowItemHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    std::optional<FolderDropZone> dropPreviewZone{};
     const auto drawRowDropPreview = [&](FolderDropZone zone) {
         ImGui::PushClipRect(rowRect.Min, rowRect.Max, true);
         DrawFolderDropPreview(rowRect, zone);
         ImGui::PopClipRect();
     };
     if (clicked || doubleClicked) {
-        selectedFolder = &folder;
-        selectedBindIndex = -1;
+        SelectExplorerFolder(&folder);
     }
     if (doubleClicked) {
         OpenFolder(&folder, true);
+    }
+    if (selected && explorerSelectionScrollPending) {
+        ImGui::SetScrollHereY(0.50f);
+        explorerSelectionScrollPending = false;
+    }
+
+    if (hovered) {
+        if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+            const FolderDropZone zone = ResolveFolderDropZone(rowRect);
+            if (IsExplorerBindDragPayload(payload)) {
+                dropPreviewZone = zone;
+            } else {
+                int folderId = 0;
+                if (TryGetExplorerFolderDragId(payload, folderId)) {
+                    const bool into = zone == FolderDropZone::Into;
+                    FolderNode* targetFolder = into ? &folder : currentFolder;
+                    const int insertIndex = into
+                        ? static_cast<int>(folder.items.size())
+                        : rowIndex + (zone == FolderDropZone::After ? 1 : 0);
+                    if (CanMoveFolderToExplorerDirectory(folderId, targetFolder, insertIndex)) {
+                        dropPreviewZone = zone;
+                    }
+                }
+            }
+        }
     }
 
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
@@ -8138,7 +8541,7 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         const bool into = zone == FolderDropZone::Into;
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
             if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                drawRowDropPreview(zone);
+                dropPreviewZone = zone;
                 if (payload->IsDelivery()) {
                     const int hotkeyIndex = *static_cast<const int*>(payload->Data);
                     if (into) {
@@ -8155,18 +8558,40 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         }
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
             if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                drawRowDropPreview(zone);
+                const int folderId = *static_cast<const int*>(payload->Data);
+                FolderNode* targetFolder = into ? &folder : currentFolder;
+                const int insertIndex = into
+                    ? static_cast<int>(folder.items.size())
+                    : rowIndex + (zone == FolderDropZone::After ? 1 : 0);
+                const bool validTarget = CanMoveFolderToExplorerDirectory(
+                    folderId,
+                    targetFolder,
+                    insertIndex);
+                if (validTarget) {
+                    dropPreviewZone = zone;
+                }
                 if (payload->IsDelivery()) {
-                    const int folderId = *static_cast<const int*>(payload->Data);
-                    if (into) {
-                        MoveFolderToExplorerDirectory(folderId, &folder, static_cast<int>(folder.items.size()), "explorer_folder_into", true);
-                    } else {
-                        MoveFolderToExplorerDirectory(
+                    if (!validTarget) {
+                        debuglog::WriteError(
+                            "[binder] explorer folder drop rejected id=%d target=folder_row zone=%d",
                             folderId,
-                            currentFolder,
-                            rowIndex + (zone == FolderDropZone::After ? 1 : 0),
-                            "explorer_folder_reorder",
-                            true);
+                            static_cast<int>(zone));
+                    } else {
+                        if (into) {
+                            MoveFolderToExplorerDirectory(
+                                folderId,
+                                &folder,
+                                static_cast<int>(folder.items.size()),
+                                "explorer_folder_into",
+                                true);
+                        } else {
+                            MoveFolderToExplorerDirectory(
+                                folderId,
+                                currentFolder,
+                                rowIndex + (zone == FolderDropZone::After ? 1 : 0),
+                                "explorer_folder_reorder",
+                                true);
+                        }
                     }
                 }
             }
@@ -8175,17 +8600,23 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     }
 
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const float padX = ScaleUi(12.0f);
+    const ImVec2 iconSize = ImGui::CalcTextSize(kIconFolder);
+    ImVec4 iconColor = style.Colors[ImGuiCol_Text];
+    iconColor.w = selected || hovered ? 1.0f : 0.92f;
+    drawList->AddText(
+        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - iconSize.x) * 0.5f)), textY),
+        ImGui::GetColorU32(iconColor),
+        kIconFolder);
+
     const bool hasConditions = HasSelectedCondition(folder.conditions);
     const std::string marker = std::string(kIconSliders);
     const ImVec2 markerSize = hasConditions ? ImGui::CalcTextSize(marker.c_str()) : ImVec2(0.0f, 0.0f);
     const float markerReserve = hasConditions ? markerSize.x + ScaleUi(18.0f) : 0.0f;
-    const float nameMaxX = layout.actionsX - ScaleUi(8.0f);
     const ImRect nameRect(
-        ImVec2(rowRect.Min.x + padX, rowRect.Min.y),
-        ImVec2(nameMaxX, rowRect.Max.y));
+        ImVec2(layout.nameX, rowRect.Min.y),
+        ImVec2(layout.actionsX - ScaleUi(8.0f), rowRect.Max.y));
     const std::string folderLabel = EllipsizeText(
-        std::string(kIconFolder) + " " + folder.name,
+        folder.name,
         std::max(0.0f, nameRect.GetWidth() - markerReserve));
     ImVec4 textColor = style.Colors[ImGuiCol_Text];
     textColor.w = selected || hovered ? 1.0f : 0.92f;
@@ -8218,6 +8649,7 @@ void BinderModule::Impl::DrawExplorerFolderRow(
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+            SelectExplorerFolder(&folder);
             BeginInlineRenameFolder(&folder);
             ImGui::CloseCurrentPopup();
         }
@@ -8231,6 +8663,7 @@ void BinderModule::Impl::DrawExplorerFolderRow(
             ImGui::BeginDisabled();
         }
         if (ImGui::MenuItem(ui.Text(UiText::Delete)) && canDelete) {
+            SelectExplorerFolder(&folder);
             folderDeleteTarget = &folder;
             folderDeletePopupPending = true;
             ImGui::CloseCurrentPopup();
@@ -8247,9 +8680,10 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         const float gap = ScaleUi(4.0f);
         const float groupWidth = buttonSide * 3.0f + gap * 2.0f;
         ImGui::SetCursorScreenPos(ImVec2(
-            std::floor(layout.actionsX + std::max(0.0f, (layout.actionsW - groupWidth) * 0.5f)),
+            std::floor(layout.actionsX + layout.actionsW - groupWidth),
             std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - buttonSide) * 0.5f))));
         if (SmallIconActionButton(kIconEdit, "##folder_rename", ui.Text(UiText::FolderRename), buttonSize)) {
+            SelectExplorerFolder(&folder);
             BeginInlineRenameFolder(&folder);
         }
         ImGui::SameLine(0.0f, gap);
@@ -8263,12 +8697,16 @@ void BinderModule::Impl::DrawExplorerFolderRow(
             ImGui::BeginDisabled();
         }
         if (SmallIconActionButton(kIconDelete, "##folder_delete", ui.Text(UiText::Delete), buttonSize) && canDelete) {
+            SelectExplorerFolder(&folder);
             folderDeleteTarget = &folder;
             folderDeletePopupPending = true;
         }
         if (!canDelete) {
             ImGui::EndDisabled();
         }
+    }
+    if (dropPreviewZone.has_value()) {
+        drawRowDropPreview(*dropPreviewZone);
     }
     ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
     ImGui::PopID();
@@ -8289,15 +8727,9 @@ void BinderModule::Impl::DrawExplorerBindRow(
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const float iconButtonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 iconButtonSize(iconButtonSide, iconButtonSide);
-    const float actionButtonsWidth = iconButtonSide * 4.0f + ScaleUi(4.0f) * 3.0f;
-    const float regularActionButtonGap = ScaleUi(4.0f);
-    const float compactActionButtonGap = ScaleUi(4.0f);
-    const float compactActionButtonSide = std::max(
-        ScaleUi(10.0f),
-        static_cast<float>(std::floor((actionButtonsWidth - compactActionButtonGap * 4.0f) / 5.0f)));
-    const ImVec2 compactActionButtonSize(compactActionButtonSide, compactActionButtonSide);
+    const float actionButtonGap = ScaleUi(4.0f);
     const bool rowHovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
-    const bool selected = selectedBindIndex == index;
+    const bool selected = IsExplorerBindSelected(index);
 
     ImVec4 rowBg = style.Colors[ImGuiCol_HeaderHovered];
     rowBg.w = rowHovered ? 0.14f : 0.0f;
@@ -8319,21 +8751,187 @@ void BinderModule::Impl::DrawExplorerBindRow(
 
     ImGui::PushID(index);
 
-    const auto centerButtonInCell = [&](float cellX, float cellW, float buttonSide) {
-        return ImVec2(
-            std::floor(cellX + std::max(0.0f, (cellW - buttonSide) * 0.5f)),
-            std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - buttonSide) * 0.5f)));
+    const ImRect rowHitRect(
+        rowRect.Min,
+        ImVec2(std::max(rowRect.Min.x + ScaleUi(1.0f), layout.actionsX - ScaleUi(4.0f)), rowRect.Max.y));
+    ImGui::SetCursorScreenPos(rowHitRect.Min);
+    const bool bindClicked = ImGui::InvisibleButton(
+        "##bind_row",
+        rowHitRect.GetSize(),
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const bool bindHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    const bool showBindTooltip = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
+    std::optional<FolderDropZone> dropPreviewZone{};
+    const auto drawRowDropPreview = [&](FolderDropZone zone) {
+        ImGui::PushClipRect(rowRect.Min, rowRect.Max, true);
+        DrawFolderDropPreview(rowRect, zone);
+        ImGui::PopClipRect();
     };
+    if (bindClicked) {
+        SelectExplorerBind(index);
+    }
 
-    ImGui::SetCursorScreenPos(centerButtonInCell(layout.enabledX, layout.enabledW, iconButtonSide));
+    const ImVec2 bindIconSize = ImGui::CalcTextSize(kIconKeyboard);
+    ImVec4 iconColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
+    iconColor.w = hotkey.enabled ? 0.92f : 0.62f;
+    if (selected || bindHovered) {
+        iconColor.w = hotkey.enabled ? 1.0f : 0.78f;
+    }
+    const float bindTextY = rowRect.Min.y + (rowRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+    drawList->AddText(
+        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - bindIconSize.x) * 0.5f)), bindTextY),
+        ImGui::GetColorU32(iconColor),
+        kIconKeyboard);
+
+    const ImRect bindRect(
+        ImVec2(layout.nameX, rowRect.Min.y),
+        ImVec2(layout.nameX + layout.nameW, rowRect.Max.y));
+    const float bindPadX = 0.0f;
+    const float textAvailableWidth = std::max(0.0f, bindRect.GetWidth() - bindPadX * 2.0f);
+    const std::string bindTitle = "\xE2\x84\x96" + std::to_string(hotkey.number) + " " + hotkey.label;
+    const LaunchCellContent launchContent = BuildLaunchCellContent(hotkey);
+    const std::string launchRaw = launchContent.primary.empty() ? std::string{} : " (" + launchContent.primary + ")";
+    const float launchGap = ScaleUi(6.0f);
+    const float titleWidth = ImGui::CalcTextSize(bindTitle.c_str()).x;
+    const float minLaunchWidth = ScaleUi(42.0f);
+    const float remainingForLaunch = textAvailableWidth - titleWidth - launchGap;
+    const bool drawLaunch = !launchRaw.empty() && remainingForLaunch >= minLaunchWidth;
+    const std::string launchLabel = drawLaunch
+        ? EllipsizeText(launchRaw, std::max(0.0f, remainingForLaunch))
+        : std::string{};
+    const float launchWidth = drawLaunch ? ImGui::CalcTextSize(launchLabel.c_str()).x : 0.0f;
+    const float titleMaxWidth = std::max(0.0f, textAvailableWidth - (drawLaunch ? launchWidth + launchGap : 0.0f));
+    const std::string bindName = EllipsizeText(bindTitle, titleMaxWidth);
+    ImVec4 bindNameColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
+    bindNameColor.w = hotkey.enabled ? 0.96f : 0.82f;
+    ImVec4 launchTextColor = style.Colors[ImGuiCol_TextDisabled];
+    launchTextColor.w = hotkey.enabled ? 0.78f : 0.54f;
+    if (selected) {
+        bindNameColor = style.Colors[ImGuiCol_Text];
+        launchTextColor.w = 0.86f;
+    } else if (bindHovered && hotkey.enabled) {
+        bindNameColor.w = 1.00f;
+        launchTextColor.w = 0.88f;
+    }
+
+    ImGui::PushClipRect(bindRect.Min, bindRect.Max, true);
+    const float textStartX = bindRect.Min.x + bindPadX;
+    drawList->AddText(
+        ImVec2(textStartX, bindTextY),
+        ImGui::GetColorU32(bindNameColor),
+        bindName.c_str());
+    if (drawLaunch) {
+        drawList->AddText(
+            ImVec2(textStartX + ImGui::CalcTextSize(bindName.c_str()).x + launchGap, bindTextY),
+            ImGui::GetColorU32(launchTextColor),
+            launchLabel.c_str());
+    }
+    ImGui::PopClipRect();
+    if (bindHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        SelectExplorerBind(index);
+        StartEditing(index, false);
+    }
+    if (selected && explorerSelectionScrollPending) {
+        ImGui::SetScrollHereY(0.50f);
+        explorerSelectionScrollPending = false;
+    }
+    if (rowHovered) {
+        if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+            FolderDropZone zone = ResolveFolderDropZone(rowRect);
+            if (zone == FolderDropZone::Into) {
+                zone = FolderDropZone::After;
+            }
+            if (IsExplorerBindDragPayload(payload)) {
+                dropPreviewZone = zone;
+            } else {
+                int folderId = 0;
+                if (TryGetExplorerFolderDragId(payload, folderId)) {
+                    const int insertIndex = rowIndex + (zone == FolderDropZone::After ? 1 : 0);
+                    if (CanMoveFolderToExplorerDirectory(folderId, currentFolder, insertIndex)) {
+                        dropPreviewZone = zone;
+                    }
+                }
+            }
+        }
+    }
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+        const int hotkeyIndex = index;
+        ImGui::SetDragDropPayload(kBindDragPayload, &hotkeyIndex, sizeof(hotkeyIndex));
+        ImGui::TextUnformatted(bindName.c_str());
+        ImGui::EndDragDropSource();
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        FolderDropZone zone = ResolveFolderDropZone(rowRect);
+        if (zone == FolderDropZone::Into) {
+            zone = FolderDropZone::After;
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+            if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
+                dropPreviewZone = zone;
+                if (payload->IsDelivery()) {
+                    const int hotkeyIndex = *static_cast<const int*>(payload->Data);
+                    MoveBindToExplorerDirectory(
+                        hotkeyIndex,
+                        currentFolder,
+                        rowIndex + (zone == FolderDropZone::After ? 1 : 0),
+                        "explorer_bind_reorder");
+                }
+            }
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+            if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
+                const int folderId = *static_cast<const int*>(payload->Data);
+                const int insertIndex = rowIndex + (zone == FolderDropZone::After ? 1 : 0);
+                const bool validTarget = CanMoveFolderToExplorerDirectory(folderId, currentFolder, insertIndex);
+                if (validTarget) {
+                    dropPreviewZone = zone;
+                }
+                if (payload->IsDelivery()) {
+                    if (!validTarget) {
+                        debuglog::WriteError(
+                            "[binder] explorer folder drop rejected id=%d target=bind_row zone=%d",
+                            folderId,
+                            static_cast<int>(zone));
+                    } else {
+                        MoveFolderToExplorerDirectory(
+                            folderId,
+                            currentFolder,
+                            rowIndex + (zone == FolderDropZone::After ? 1 : 0),
+                            "explorer_folder_reorder",
+                            true);
+                    }
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (showBindTooltip) {
+        std::vector<std::string> tooltipLines{
+            ui.Format(UiText::BindListEntryFormat, hotkey.number, hotkey.label.c_str()),
+        };
+        const std::vector<std::string> launchLabels = BuildLaunchLabels(hotkey);
+        if (!launchLabels.empty()) {
+            tooltipLines.push_back(JoinLaunchLabels(launchLabels, "\n"));
+        }
+        ImGui::SetTooltip("%s", JoinLaunchLabels(tooltipLines, "\n").c_str());
+    }
+
+    const bool isRunning = IsHotkeyRunning(index);
+    const bool isPaused = IsHotkeyPaused(index);
+    const int actionButtonCount = isRunning ? 7 : 6;
+    const float actionGroupWidth =
+        iconButtonSize.x * static_cast<float>(actionButtonCount)
+        + actionButtonGap * static_cast<float>(std::max(actionButtonCount - 1, 0));
+    ImGui::SetCursorScreenPos(ImVec2(
+        std::floor(layout.actionsX + layout.actionsW - actionGroupWidth),
+        std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - iconButtonSize.y) * 0.5f))));
     if (SmallIconActionButton(
             hotkey.enabled ? kIconToggleOn : kIconToggleOff, "##enabled", ui.Text(UiText::Enabled), iconButtonSize)) {
         hotkey.enabled = !hotkey.enabled;
         SaveConfig();
     }
-
+    ImGui::SameLine(0.0f, actionButtonGap);
     const bool dimQuickIcon = !hotkey.enabled || !hotkey.quickMenu;
-    ImGui::SetCursorScreenPos(centerButtonInCell(layout.quickX, layout.quickW, iconButtonSide));
     if (dimQuickIcon) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     }
@@ -8350,199 +8948,66 @@ void BinderModule::Impl::DrawExplorerBindRow(
     if (dimQuickIcon) {
         ImGui::PopStyleColor();
     }
-
-    const LaunchCellContent launchContent = BuildLaunchCellContent(hotkey);
-    const ImRect launchRect(
-        ImVec2(layout.launchX, rowRect.Min.y),
-        ImVec2(layout.launchX + layout.launchW, rowRect.Max.y));
-    const float launchPadX = ScaleUi(6.0f);
-    const std::string launchLabel =
-        EllipsizeText(launchContent.primary, std::max(0.0f, launchRect.GetWidth() - launchPadX * 2.0f));
-    const ImVec2 launchLabelSize = ImGui::CalcTextSize(launchLabel.c_str());
-    ImVec4 launchTextColor = style.Colors[ImGuiCol_TextDisabled];
-    launchTextColor.w = hotkey.enabled ? 0.78f : 0.54f;
-    if (selected) {
-        launchTextColor = style.Colors[ImGuiCol_Text];
-        launchTextColor.w = 0.88f;
-    }
-    ImGui::PushClipRect(launchRect.Min, launchRect.Max, true);
-    drawList->AddText(
-        ImVec2(
-            std::floor(launchRect.Min.x + (launchRect.GetWidth() - launchLabelSize.x) * 0.5f),
-            std::floor(launchRect.Min.y + (launchRect.GetHeight() - launchLabelSize.y) * 0.5f)),
-        ImGui::GetColorU32(launchTextColor),
-        launchLabel.c_str());
-    ImGui::PopClipRect();
-    ImGui::SetCursorScreenPos(launchRect.Min);
-    ImGui::InvisibleButton("##launch_summary", launchRect.GetSize());
-    std::vector<std::string> launchTooltipLines;
-    if (launchLabel != launchContent.primary) {
-        launchTooltipLines.push_back(launchContent.primary);
-    }
-    launchTooltipLines.insert(
-        launchTooltipLines.end(),
-        launchContent.secondary.begin(),
-        launchContent.secondary.end());
-    if (!launchTooltipLines.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        const std::string launchTooltip = JoinLaunchLabels(launchTooltipLines, "\n");
-        ImGui::SetTooltip("%s", launchTooltip.c_str());
-    }
-
-    const ImRect bindRect(
-        ImVec2(layout.nameX, rowRect.Min.y),
-        ImVec2(layout.nameX + layout.nameW, rowRect.Max.y));
-    const float bindPadX = ScaleUi(6.0f);
-    const float bindGap = ScaleUi(8.0f);
-    const std::string bindNumber = "\xE2\x84\x96" + std::to_string(hotkey.number);
-    const ImVec2 bindNumberSize = ImGui::CalcTextSize(bindNumber.c_str());
-    const float bindTextY = bindRect.Min.y + (bindRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
-    const float bindTextMinX = bindRect.Min.x + bindPadX + bindNumberSize.x + bindGap;
-    const float bindTextMaxWidth = std::max(0.0f, bindRect.GetWidth() - bindPadX * 2.0f - bindNumberSize.x - bindGap);
-    const std::string bindName = EllipsizeText(hotkey.label, bindTextMaxWidth);
-    ImGui::SetCursorScreenPos(bindRect.Min);
-    const bool bindClicked = ImGui::InvisibleButton(
-        "##bind_select",
-        bindRect.GetSize(),
-        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    const bool bindHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-    const bool showBindTooltip = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
-    if (bindClicked) {
-        selectedBindIndex = index;
-        selectedFolder = nullptr;
-    }
-    ImVec4 bindNumberColor = style.Colors[ImGuiCol_TextDisabled];
-    bindNumberColor.w = hotkey.enabled ? 0.72f : 0.50f;
-    ImVec4 bindNameColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
-    bindNameColor.w = hotkey.enabled ? 0.96f : 0.82f;
-    if (selected) {
-        bindNumberColor = style.Colors[ImGuiCol_Text];
-        bindNumberColor.w = 0.82f;
-        bindNameColor = style.Colors[ImGuiCol_Text];
-    } else if (bindHovered && hotkey.enabled) {
-        bindNumberColor.w = 0.84f;
-        bindNameColor.w = 1.00f;
-    }
-
-    ImGui::PushClipRect(bindRect.Min, bindRect.Max, true);
-    drawList->AddText(
-        ImVec2(bindRect.Min.x + bindPadX, bindTextY),
-        ImGui::GetColorU32(bindNumberColor),
-        bindNumber.c_str());
-    drawList->AddText(
-        ImVec2(bindTextMinX, bindTextY),
-        ImGui::GetColorU32(bindNameColor),
-        bindName.c_str());
-    ImGui::PopClipRect();
-    if (bindHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        selectedBindIndex = index;
-        StartEditing(index, false);
-    }
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
-        const int hotkeyIndex = index;
-        ImGui::SetDragDropPayload(kBindDragPayload, &hotkeyIndex, sizeof(hotkeyIndex));
-        ImGui::TextUnformatted(bindName.c_str());
-        ImGui::EndDragDropSource();
-    }
-    if (ImGui::BeginDragDropTarget()) {
-        FolderDropZone zone = ResolveFolderDropZone(rowRect);
-        if (zone == FolderDropZone::Into) {
-            zone = FolderDropZone::After;
-        }
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                DrawFolderDropPreview(rowRect, zone);
-                if (payload->IsDelivery()) {
-                    const int hotkeyIndex = *static_cast<const int*>(payload->Data);
-                    MoveBindToExplorerDirectory(
-                        hotkeyIndex,
-                        currentFolder,
-                        rowIndex + (zone == FolderDropZone::After ? 1 : 0),
-                        "explorer_bind_reorder");
-                }
-            }
-        }
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                DrawFolderDropPreview(rowRect, zone);
-                if (payload->IsDelivery()) {
-                    const int folderId = *static_cast<const int*>(payload->Data);
-                    MoveFolderToExplorerDirectory(
-                        folderId,
-                        currentFolder,
-                        rowIndex + (zone == FolderDropZone::After ? 1 : 0),
-                        "explorer_folder_reorder",
-                        true);
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-    if (showBindTooltip) {
-        ImGui::SetTooltip("%s", ui.Format(UiText::BindListEntryFormat, hotkey.number, hotkey.label.c_str()).c_str());
-    }
-
-    const bool isRunning = IsHotkeyRunning(index);
-    const bool isPaused = IsHotkeyPaused(index);
-    const ImVec2 currentActionButtonSize = isRunning ? compactActionButtonSize : iconButtonSize;
-    const float currentActionButtonGap = isRunning ? compactActionButtonGap : regularActionButtonGap;
-    const int actionButtonCount = isRunning ? 5 : 4;
-    const float actionGroupWidth =
-        currentActionButtonSize.x * static_cast<float>(actionButtonCount)
-        + currentActionButtonGap * static_cast<float>(std::max(actionButtonCount - 1, 0));
-    ImGui::SetCursorScreenPos(ImVec2(
-        std::floor(layout.actionsX + std::max(0.0f, (layout.actionsW - actionGroupWidth) * 0.5f)),
-        std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - currentActionButtonSize.y) * 0.5f))));
+    ImGui::SameLine(0.0f, actionButtonGap);
     if (!isRunning) {
         ImGui::BeginDisabled(!hotkey.enabled);
-        if (SmallIconActionButton(kIconPlay, "##run", ui.Text(UiText::Run), currentActionButtonSize)) {
+        if (SmallIconActionButton(kIconPlay, "##run", ui.Text(UiText::Run), iconButtonSize)) {
             TryEnqueueHotkey(index, 0, "manual", "");
         }
         ImGui::EndDisabled();
     } else if (isPaused) {
-        if (SmallIconActionButton(kIconPlay, "##resume", ui.Text(UiText::Resume), currentActionButtonSize)) {
+        if (SmallIconActionButton(kIconPlay, "##resume", ui.Text(UiText::Resume), iconButtonSize)) {
             ResumeHotkey(index);
         }
-        ImGui::SameLine(0.0f, currentActionButtonGap);
-        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), currentActionButtonSize)) {
+        ImGui::SameLine(0.0f, actionButtonGap);
+        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
             StopHotkey(index);
         }
     } else {
-        if (SmallIconActionButton(kIconPause, "##pause", ui.Text(UiText::Pause), currentActionButtonSize)) {
+        if (SmallIconActionButton(kIconPause, "##pause", ui.Text(UiText::Pause), iconButtonSize)) {
             PauseHotkey(index);
         }
-        ImGui::SameLine(0.0f, currentActionButtonGap);
-        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), currentActionButtonSize)) {
+        ImGui::SameLine(0.0f, actionButtonGap);
+        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
             StopHotkey(index);
         }
     }
-    ImGui::SameLine(0.0f, currentActionButtonGap);
-    if (SmallIconActionButton(kIconEdit, "##edit", ui.Text(UiText::Edit), currentActionButtonSize)) {
+    ImGui::SameLine(0.0f, actionButtonGap);
+    if (SmallIconActionButton(kIconEdit, "##edit", ui.Text(UiText::Edit), iconButtonSize)) {
+        SelectExplorerBind(index);
         StartEditing(index, false);
     }
-    ImGui::SameLine(0.0f, currentActionButtonGap);
-    if (SmallIconActionButton(kIconDelete, "##delete", ui.Text(UiText::Delete), currentActionButtonSize)) {
+    ImGui::SameLine(0.0f, actionButtonGap);
+    if (SmallIconActionButton(kIconDelete, "##delete", ui.Text(UiText::Delete), iconButtonSize)) {
+        SelectExplorerBind(index);
         bindDeleteTarget = index;
         bindDeletePopupPending = true;
     }
-    ImGui::SameLine(0.0f, currentActionButtonGap);
-    if (SmallIconActionButton(kIconBars, "##more", ui.Text(UiText::ColumnActions), currentActionButtonSize)) {
+    ImGui::SameLine(0.0f, actionButtonGap);
+    if (SmallIconActionButton(kIconBars, "##more", ui.Text(UiText::ColumnActions), iconButtonSize)) {
         ImGui::OpenPopup("##binder_bind_actions");
     }
     if (ImGui::BeginPopup("##binder_bind_actions")) {
         if (ImGui::MenuItem(ui.Text(UiText::ActionMoveTo))) {
+            SelectExplorerBind(index);
             moveBindTarget = index;
             moveBindPopupPending = true;
         }
         if (ImGui::MenuItem(ui.Text(UiText::ActionDuplicate))) {
+            SelectExplorerBind(index);
             DuplicateHotkeyAt(index);
         }
         if (ImGui::MenuItem(ui.Text(UiText::ActionBindLines))) {
+            SelectExplorerBind(index);
             bindLinesTarget = index;
             bindLinesPopupPending = true;
         }
         ImGui::EndPopup();
     }
 
+    if (dropPreviewZone.has_value()) {
+        drawRowDropPreview(*dropPreviewZone);
+    }
     ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
     ImGui::PopID();
 }
@@ -8552,17 +9017,36 @@ void BinderModule::Impl::DrawExplorerKeyboardShortcuts(const bool focused) {
         return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-        if (selectedBindIndex >= 0 && selectedBindIndex < static_cast<int>(hotkeys.size())) {
-            StartEditing(selectedBindIndex, false);
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !bindSearch.empty()) {
+        bindSearch.clear();
+        return;
+    }
+
+    if (!Trim(bindSearch).empty()) {
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) {
+        MoveExplorerSelection(-1);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) {
+        MoveExplorerSelection(1);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        const int bindIndex = explorerSelection.kind == ExplorerSelectionKind::Bind
+            ? FindHotkeyIndexByOrderId(explorerSelection.bindOrderId)
+            : selectedBindIndex;
+        if (bindIndex >= 0 && bindIndex < static_cast<int>(hotkeys.size())) {
+            StartEditing(bindIndex, false);
         } else if (selectedFolder && selectedFolder != currentFolder) {
             OpenFolder(selectedFolder, true);
         }
     } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
         NavigateUp();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
-        if (selectedBindIndex >= 0 && selectedBindIndex < static_cast<int>(hotkeys.size())) {
-            bindDeleteTarget = selectedBindIndex;
+        const int bindIndex = explorerSelection.kind == ExplorerSelectionKind::Bind
+            ? FindHotkeyIndexByOrderId(explorerSelection.bindOrderId)
+            : selectedBindIndex;
+        if (bindIndex >= 0 && bindIndex < static_cast<int>(hotkeys.size())) {
+            bindDeleteTarget = bindIndex;
             bindDeletePopupPending = true;
         } else if (CanDeleteFolder(selectedFolder)) {
             folderDeleteTarget = selectedFolder;
@@ -8572,8 +9056,6 @@ void BinderModule::Impl::DrawExplorerKeyboardShortcuts(const bool focused) {
         if (selectedFolder && selectedFolder != currentFolder) {
             BeginInlineRenameFolder(selectedFolder);
         }
-    } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !bindSearch.empty()) {
-        bindSearch.clear();
     }
 }
 
@@ -8638,6 +9120,7 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && folder) {
                     OpenFolder(folder, true);
+                    bindSearch.clear();
                 }
             } else {
                 const int index = FindHotkeyIndexByOrderId(result.first.key);
@@ -8646,7 +9129,8 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
                     : std::string(kIconKeyboard);
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && index >= 0) {
-                    selectedBindIndex = index;
+                    SelectExplorerBind(index);
+                    bindSearch.clear();
                     StartEditing(index, false);
                 }
             }
@@ -8661,6 +9145,21 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
     }
 }
 
+void BinderModule::Impl::DrawExplorerEmptyAreaContextMenu(const char* popupId) {
+    if (ImGui::BeginPopupContextItem(popupId)) {
+        UiSettings& ui = UiSettings::Instance();
+        if (ImGui::MenuItem(ui.Text(UiText::AddBind))) {
+            StartEditing(-1, true);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::FolderAdd))) {
+            BeginInlineCreateFolder(currentFolder);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void BinderModule::Impl::DrawExplorerDirectory() {
     NormalizeExplorerOrders();
     const std::vector<ExplorerItem> items = ItemsForFolder(currentFolder);
@@ -8671,46 +9170,20 @@ void BinderModule::Impl::DrawExplorerDirectory() {
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const float iconButtonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-    const float columnGap = ScaleUi(10.0f);
-    const float minNameWidth = ScaleUi(150.0f);
-    const float minLaunchWidth = ScaleUi(70.0f);
-    const float minActionsWidth = std::ceil(ScaleUi(10.0f) * 5.0f + ScaleUi(3.0f) * 4.0f + ScaleUi(12.0f));
+    const float columnGap = ScaleUi(8.0f);
+    const float minNameWidth = ScaleUi(90.0f);
 
     ExplorerListLayout layout;
     layout.width = availableWidth;
     layout.rowHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(28.0f));
     layout.headerHeight = std::max(ImGui::GetTextLineHeight() + ScaleUi(10.0f), ScaleUi(26.0f));
-    layout.enabledW = std::ceil(iconButtonSide + ScaleUi(18.0f));
-    layout.quickW = layout.enabledW;
-    layout.launchW = ScaleUi(112.0f);
-    layout.actionsW = std::ceil(iconButtonSide * 5.0f + ScaleUi(4.0f) * 4.0f + ScaleUi(20.0f));
-
-    const auto nameWidthFor = [&]() {
-        return layout.width - layout.enabledW - layout.quickW - layout.launchW - layout.actionsW - columnGap * 2.0f;
-    };
-    float shortage = minNameWidth - nameWidthFor();
-    if (shortage > 0.0f) {
-        const float reduction = std::min(shortage, std::max(0.0f, layout.launchW - minLaunchWidth));
-        layout.launchW -= reduction;
-        shortage -= reduction;
-    }
-    if (shortage > 0.0f) {
-        const float reduction = std::min(shortage, std::max(0.0f, layout.actionsW - minActionsWidth));
-        layout.actionsW -= reduction;
-        shortage -= reduction;
-    }
-    if (nameWidthFor() < ScaleUi(70.0f)) {
-        const float reduction = std::min(layout.launchW, ScaleUi(70.0f) - nameWidthFor());
-        layout.launchW -= reduction;
-    }
-    layout.launchW = std::max(1.0f, layout.launchW);
+    layout.iconW = std::ceil(iconButtonSide + ScaleUi(18.0f));
+    layout.actionsW = std::ceil(iconButtonSide * 7.0f + ScaleUi(4.0f) * 6.0f + ScaleUi(8.0f));
     layout.actionsW = std::max(1.0f, layout.actionsW);
 
-    layout.enabledX = start.x;
-    layout.quickX = layout.enabledX + layout.enabledW;
-    layout.launchX = layout.quickX + layout.quickW;
-    layout.actionsX = start.x + layout.width - layout.actionsW;
-    layout.nameX = layout.launchX + layout.launchW + columnGap;
+    layout.iconX = start.x;
+    layout.actionsX = std::max(start.x + layout.iconW + minNameWidth + columnGap, start.x + layout.width - layout.actionsW);
+    layout.nameX = layout.iconX + layout.iconW;
     layout.nameW = std::max(1.0f, layout.actionsX - layout.nameX - columnGap);
 
     const ImRect headerRect(start, ImVec2(start.x + layout.width, start.y + layout.headerHeight));
@@ -8742,10 +9215,8 @@ void BinderModule::Impl::DrawExplorerDirectory() {
         }
     };
 
-    drawHeaderLabel(kIconToggleOn, layout.enabledX, layout.enabledW, ui.Text(UiText::Enabled), true);
-    drawHeaderLabel(kIconBolt, layout.quickX, layout.quickW, ui.Text(UiText::ShowInQuickMenu), true);
-    drawHeaderLabel(ui.Text(UiText::ColumnLaunch), layout.launchX, layout.launchW, nullptr, true);
-    drawHeaderLabel(ui.Text(UiText::ColumnBind), layout.nameX, layout.nameW, nullptr, false);
+    drawHeaderLabel("", layout.iconX, layout.iconW, nullptr, true);
+    drawHeaderLabel(ui.Text(UiText::ColumnName), layout.nameX, layout.nameW, nullptr, false);
     drawHeaderLabel(ui.Text(UiText::ColumnActions), layout.actionsX, layout.actionsW, nullptr, true);
 
     ImGui::Dummy(ImVec2(layout.width, layout.headerHeight));
@@ -8791,10 +9262,29 @@ void BinderModule::Impl::DrawExplorerDirectory() {
             ui.Text(UiText::BinderEmptyFolder));
         ImGui::SetCursorScreenPos(emptyRect.Min);
         ImGui::InvisibleButton("##explorer_empty_message_drop", emptyRect.GetSize());
+        const bool emptyMessageHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            ClearExplorerSelection();
+        }
+        DrawExplorerEmptyAreaContextMenu("##explorer_empty_message_context");
+        std::optional<FolderDropZone> emptyMessagePreview{};
+        if (emptyMessageHovered) {
+            if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+                if (IsExplorerBindDragPayload(payload)) {
+                    emptyMessagePreview = FolderDropZone::Into;
+                } else {
+                    int folderId = 0;
+                    if (TryGetExplorerFolderDragId(payload, folderId)
+                        && CanMoveFolderToExplorerDirectory(folderId, currentFolder, 0)) {
+                        emptyMessagePreview = FolderDropZone::Into;
+                    }
+                }
+            }
+        }
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
                 if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                    DrawFolderDropPreview(emptyRect, FolderDropZone::Into);
+                    emptyMessagePreview = FolderDropZone::Into;
                     if (payload->IsDelivery()) {
                         MoveBindToExplorerDirectory(
                             *static_cast<const int*>(payload->Data),
@@ -8806,18 +9296,31 @@ void BinderModule::Impl::DrawExplorerDirectory() {
             }
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
                 if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                    DrawFolderDropPreview(emptyRect, FolderDropZone::Into);
+                    const int folderId = *static_cast<const int*>(payload->Data);
+                    const bool validTarget = CanMoveFolderToExplorerDirectory(folderId, currentFolder, 0);
+                    if (validTarget) {
+                        emptyMessagePreview = FolderDropZone::Into;
+                    }
                     if (payload->IsDelivery()) {
-                        MoveFolderToExplorerDirectory(
-                            *static_cast<const int*>(payload->Data),
-                            currentFolder,
-                            0,
-                            "explorer_empty_drop",
-                            true);
+                        if (!validTarget) {
+                            debuglog::WriteError(
+                                "[binder] explorer folder drop rejected id=%d target=empty_message",
+                                folderId);
+                        } else {
+                            MoveFolderToExplorerDirectory(
+                                folderId,
+                                currentFolder,
+                                0,
+                                "explorer_empty_drop",
+                                true);
+                        }
                     }
                 }
             }
             ImGui::EndDragDropTarget();
+        }
+        if (emptyMessagePreview.has_value()) {
+            DrawFolderDropPreview(emptyRect, *emptyMessagePreview);
         }
         ImGui::SetCursorScreenPos(ImVec2(emptyRect.Min.x, emptyRect.Max.y));
     }
@@ -8827,10 +9330,30 @@ void BinderModule::Impl::DrawExplorerDirectory() {
         const ImVec2 dropPos = ImGui::GetCursorScreenPos();
         const ImRect dropRect(dropPos, ImVec2(dropPos.x + layout.width, dropPos.y + remainingHeight));
         ImGui::InvisibleButton("##explorer_empty_area_drop", dropRect.GetSize());
+        const bool emptyAreaHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            ClearExplorerSelection();
+        }
+        DrawExplorerEmptyAreaContextMenu("##explorer_empty_area_context");
+        const FolderDropZone emptyAreaZone = items.empty() ? FolderDropZone::Into : FolderDropZone::Before;
+        std::optional<FolderDropZone> emptyAreaPreview{};
+        if (emptyAreaHovered) {
+            if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+                if (IsExplorerBindDragPayload(payload)) {
+                    emptyAreaPreview = emptyAreaZone;
+                } else {
+                    int folderId = 0;
+                    if (TryGetExplorerFolderDragId(payload, folderId)
+                        && CanMoveFolderToExplorerDirectory(folderId, currentFolder, static_cast<int>(items.size()))) {
+                        emptyAreaPreview = emptyAreaZone;
+                    }
+                }
+            }
+        }
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
                 if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                    DrawFolderDropPreview(dropRect, items.empty() ? FolderDropZone::Into : FolderDropZone::Before);
+                    emptyAreaPreview = emptyAreaZone;
                     if (payload->IsDelivery()) {
                         MoveBindToExplorerDirectory(
                             *static_cast<const int*>(payload->Data),
@@ -8842,18 +9365,32 @@ void BinderModule::Impl::DrawExplorerDirectory() {
             }
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
                 if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                    DrawFolderDropPreview(dropRect, items.empty() ? FolderDropZone::Into : FolderDropZone::Before);
+                    const int folderId = *static_cast<const int*>(payload->Data);
+                    const bool validTarget =
+                        CanMoveFolderToExplorerDirectory(folderId, currentFolder, static_cast<int>(items.size()));
+                    if (validTarget) {
+                        emptyAreaPreview = emptyAreaZone;
+                    }
                     if (payload->IsDelivery()) {
-                        MoveFolderToExplorerDirectory(
-                            *static_cast<const int*>(payload->Data),
-                            currentFolder,
-                            static_cast<int>(items.size()),
-                            "explorer_empty_drop",
-                            true);
+                        if (!validTarget) {
+                            debuglog::WriteError(
+                                "[binder] explorer folder drop rejected id=%d target=empty_area",
+                                folderId);
+                        } else {
+                            MoveFolderToExplorerDirectory(
+                                folderId,
+                                currentFolder,
+                                static_cast<int>(items.size()),
+                                "explorer_empty_drop",
+                                true);
+                        }
                     }
                 }
             }
             ImGui::EndDragDropTarget();
+        }
+        if (emptyAreaPreview.has_value()) {
+            DrawFolderDropPreview(dropRect, *emptyAreaPreview);
         }
     }
 }
@@ -8864,18 +9401,14 @@ void BinderModule::Impl::DrawExplorerPane() {
     ImGui::Separator();
 
     const bool searchActive = !Trim(bindSearch).empty();
-    const bool childOpen = ImGui::BeginChild("##binder_explorer_child", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
-    if (childOpen) {
-        const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-            || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
-        if (searchActive) {
-            DrawExplorerSearchResults();
-        } else {
-            DrawExplorerDirectory();
-        }
-        DrawExplorerKeyboardShortcuts(focused);
+    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+        || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+    if (searchActive) {
+        DrawExplorerSearchResults();
+    } else {
+        DrawExplorerDirectory();
     }
-    ImGui::EndChild();
+    DrawExplorerKeyboardShortcuts(focused);
 
     if (bindDeletePopupPending) {
         ImGui::OpenPopup("##binder_bind_delete");
@@ -8887,22 +9420,30 @@ void BinderModule::Impl::DrawExplorerPane() {
         if (bindDeleteTarget >= 0 && bindDeleteTarget < static_cast<int>(hotkeys.size())) {
             ImGui::TextDisabled("%s", hotkeys[static_cast<std::size_t>(bindDeleteTarget)].label.c_str());
         }
+        if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
+            bindDeleteTarget = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
         if (ImGui::Button(UiSettings::Instance().Text(UiText::Delete))) {
             if (bindDeleteTarget >= 0 && bindDeleteTarget < static_cast<int>(hotkeys.size())) {
-                RemoveBindFromExplorerOrders(hotkeys[static_cast<std::size_t>(bindDeleteTarget)].orderId);
+                const HotkeyEntry& target = hotkeys[static_cast<std::size_t>(bindDeleteTarget)];
+                const ExplorerItem removedItem{ ExplorerItemKind::Bind, target.orderId };
+                const std::vector<ExplorerItem> beforeItems = ItemsForFolder(currentFolder);
+                const bool removedFromCurrentDirectory = target.folderPath == CurrentFolderPath();
+                RemoveBindFromExplorerOrders(target.orderId);
                 StopHotkey(bindDeleteTarget);
                 hotkeys.erase(hotkeys.begin() + bindDeleteTarget);
                 RefreshNumbers();
                 SaveConfig();
-                if (selectedBindIndex == bindDeleteTarget) {
-                    selectedBindIndex = -1;
+                if (removedFromCurrentDirectory) {
+                    SelectExplorerNeighborAfterRemoval(currentFolder, removedItem, beforeItems);
+                } else if (explorerSelection.kind == ExplorerSelectionKind::Bind
+                    && explorerSelection.bindOrderId == removedItem.key) {
+                    ClearExplorerSelection();
                 }
             }
-            bindDeleteTarget = -1;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
             bindDeleteTarget = -1;
             ImGui::CloseCurrentPopup();
         }

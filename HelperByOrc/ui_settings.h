@@ -321,6 +321,8 @@
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
+    X(ValidationFolderNameRequired, "Укажите название папки.", "Enter a folder name.") \
+    X(ValidationFolderNameUnique, "Папка с таким названием уже есть здесь.", "A folder with this name already exists here.") \
     X(ValidationRepeatInterval, "Интервал повтора не может быть отрицательным.", "Repeat interval cannot be negative.") \
     X(ValidationTriggerTextRequired, "Укажите текст триггера.", "Enter trigger text.") \
     X(ValidationCommandRequired, "Укажите команду.", "Enter a command.") \
@@ -489,8 +491,6 @@
     X(Pause, "Пауза", "Pause") \
     X(Stop, "Стоп", "Stop") \
     X(SearchBinds, "Поиск биндов", "Search binds") \
-    X(ColumnLaunch, "Запуск", "Launch") \
-    X(ColumnBind, "Бинд", "Bind") \
     X(ColumnName, "Название", "Name") \
     X(ColumnHotkey, "Клавиша", "Hotkey") \
     X(ColumnActions, "Действия", "Actions") \
