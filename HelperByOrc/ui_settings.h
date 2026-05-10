@@ -209,8 +209,6 @@
     X(BinderDefaultHotkey, "Новый бинд", "New bind") \
     X(BinderDefaultFolder, "Папка", "Folder") \
     X(BinderNewFolder, "Новая папка", "New folder") \
-    X(BinderUnfiledFolder, "Вне папок", "Outside folders") \
-    X(BinderUnfiledFolderHint, "Бинды без папки. Перетащите сюда бинд, чтобы убрать его из папок.", "Binds without a folder. Drop a bind here to remove it from folders.") \
     X(ConditionInWater, "В воде", "In water") \
     X(ConditionDead, "Мёртв", "Dead") \
     X(ConditionInAir, "В воздухе", "In air") \
@@ -335,17 +333,20 @@
     X(FolderAdd, "+ Папка", "+ Folder") \
     X(FolderRename, "Переименовать", "Rename") \
     X(Delete, "Удалить", "Delete") \
-    X(SearchFolders, "Поиск папок", "Search folders") \
-    X(BinderFolderDragHint, "Папки: Shift + drag; верх/центр/низ строки = перед/внутрь/после.", "Folders: Shift+drag; row top/middle/bottom = before/inside/after.") \
-    X(ToastFolderMoved, "Папка перемещена.", "Folder moved.") \
     X(UndoFolderMove, "Отменить перемещение", "Undo move") \
     X(ToastFolderMoveInvalid, "Нельзя перенести папку сюда.", "Cannot move the folder here.") \
-    X(FolderDragDisabledWithSearch, "Перемещение папок отключено, пока включён поиск папок.", "Folder drag-and-drop is disabled while the folder search field is in use.") \
     X(FolderDropInto, "Сделать подпапкой", "Nest into folder") \
     X(Name, "Название", "Name") \
     X(Save, "Сохранить", "Save") \
     X(Cancel, "Отмена", "Cancel") \
     X(DeleteFolderMoveBindsQuestion, "Удалить папку вместе с подпапками и биндами?", "Delete the folder together with its subfolders and binds?") \
+    X(DeleteFolderAll, "Удалить всё", "Delete all") \
+    X(DeleteFolderMoveContentsHere, "Перенести содержимое сюда", "Move contents here") \
+    X(BinderRootName, "Биндер", "Binder") \
+    X(BinderEmptyFolder, "Папка пуста", "Folder is empty") \
+    X(BinderSearchGlobal, "Поиск", "Search") \
+    X(BinderGoUp, "Вверх", "Up") \
+    X(BinderOpenFolder, "Открыть", "Open") \
     X(AddField, "+ Параметр", "+ Parameter") \
     X(AddButton, "+ Вариант", "+ Option") \
     X(FieldLabelFormat, "Параметр %d", "Parameter %d") \
