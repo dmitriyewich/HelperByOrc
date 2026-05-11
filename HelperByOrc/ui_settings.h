@@ -240,8 +240,7 @@
     X(SendUnknown, "Неизвестно", "Unknown") \
     X(ToastBindConfirmExpired, "Подтверждение бинда истекло: %s", "Bind confirmation expired: %s") \
     X(ToastBindCanceled, "Бинд отменён: %s", "Bind canceled: %s") \
-    X(ToastConditionBlocked, "Условия не выполнены: %s", "Conditions not met: %s") \
-    X(ToastConditionRequireAnyNotMet, "Ни одно из отмеченных условий не выполнено.", "None of the selected conditions are met.") \
+    X(ToastConditionBlocked, "Бинд заблокирован: %s", "Bind blocked: %s") \
     X(ToastFinishActiveInput, "Сначала завершите активный ввод.", "Finish the active input first.") \
     X(ToastSendLocalFailed, "Не удалось добавить сообщение в чат SA:MP.", "Failed to add a message to the SA:MP chat.") \
     X(ToastSendSampFailed, "Не удалось отправить текст в SA:MP.", "Failed to send text to SA:MP.") \
@@ -319,7 +318,7 @@
     X(ToastIfAndOrConditionFailed, "Ошибка условия [ifandor(...)] : %s", "Failed to evaluate [ifandor(...)] condition: %s") \
     X(ToastBindSaved, "Бинд сохранён.", "Bind saved.") \
     X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
-    X(ValidationBindNameRequired, "Укажите название бинда.", "Enter a bind name.") \
+    X(ValidationFirstMessageRequired, "Заполните первую строку бинда.", "Fill in the first bind line.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
     X(ValidationFolderNameRequired, "Укажите название папки.", "Enter a folder name.") \
     X(ValidationFolderNameUnique, "Папка с таким названием уже есть здесь.", "A folder with this name already exists here.") \
@@ -339,7 +338,9 @@
     X(ToastFolderMoveInvalid, "Нельзя перенести папку сюда.", "Cannot move the folder here.") \
     X(FolderDropInto, "Сделать подпапкой", "Nest into folder") \
     X(Name, "Название", "Name") \
+    X(NameOptional, "Название (необяз.)", "Name (optional)") \
     X(Save, "Сохранить", "Save") \
+    X(Done, "Готово", "Done") \
     X(Cancel, "Отмена", "Cancel") \
     X(DeleteFolderMoveBindsQuestion, "Удалить папку вместе с подпапками и биндами?", "Delete the folder together with its subfolders and binds?") \
     X(DeleteFolderAll, "Удалить всё", "Delete all") \
@@ -407,13 +408,15 @@
     X(InputFieldPlaceholderFormat, "Подстановка: {{%s}}", "Insert token: {{%s}}") \
     X(NewBindTitle, "Новый бинд", "New bind") \
     X(EditBindTitle, "Редактирование бинда", "Edit bind") \
-    X(EditorStartSection, "Как запускается", "How it starts") \
-    X(EditorCollapseStartSection, "Скрыть блок запуска", "Hide launch block") \
-    X(EditorExpandStartSection, "Показать блок запуска", "Show launch block") \
+    X(EditorPrimaryLaunch, "Основное", "Main") \
+    X(EditorAdvancedLaunch, "Доп. запуск", "Extra launch") \
     X(EditorScenarioTab, "Сценарий", "Scenario") \
-    X(EditorMultiInputTab, "Мульти-ввод", "Multi-input") \
+    X(EditorMultiInputTitle, "Мульти-ввод", "Multi-input") \
+    X(EditorOpenMultiInput, "Мульти-ввод", "Multi-input") \
     X(EditorInputFieldsTab, "Параметры", "Parameters") \
-    X(EditorOpenConditions, "Условия", "Conditions") \
+    X(EditorOpenConditions, "Блокировки", "Blocks") \
+    X(EditorConditionsNone, "Блокировок: нет", "Blocks: none") \
+    X(EditorConditionsCount, "Блокировок: %d", "Blocks: %d") \
     X(EditorBack, "Назад", "Back") \
     X(EditorPreviousBind, "Предыдущий бинд", "Previous bind") \
     X(EditorNextBind, "Следующий бинд", "Next bind") \
@@ -423,7 +426,7 @@
     X(EditorTriggerPatternMode, "Режим шаблона", "Pattern mode") \
     X(EditorTriggerExample, "Например: Голова, [Гг]олова, ^дом\\d+$", "For example: Head, [Hh]ead, ^house\\d+$") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
-    X(EditorAddStep, "+ Добавить шаг", "+ Add step") \
+    X(EditorAddStep, "Шаг", "Step") \
     X(EditorDuplicateStep, "Дублировать шаг", "Duplicate step") \
     X(EditorMoveStep, "Переместить шаг", "Move step") \
     X(EditorVariables, "Переменные", "Variables") \
@@ -453,6 +456,11 @@
     X(HotkeyFormat, "Хоткей: %s", "Hotkey: %s") \
     X(ChangeHotkey, "Изменить хоткей", "Change hotkey") \
     X(ShowInQuickMenu, "Показывать в быстром меню", "Show in quick menu") \
+    X(EditorToggleQuickMenu, "Быстрое меню", "Quick menu") \
+    X(EditorToggleTrigger, "Триггер", "Trigger") \
+    X(EditorTogglePattern, "Шаблон", "Pattern") \
+    X(EditorToggleTextConfirm, "Подтв. триггер", "Confirm trigger") \
+    X(EditorToggleCommandConfirm, "Подтв. команда", "Confirm command") \
     X(Repeat, "Повтор", "Repeat") \
     X(RepeatInterval, "Интервал повтора", "Repeat interval") \
     X(AddRow, "+ Строка", "+ Row") \
@@ -474,12 +482,9 @@
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
     X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
     X(Change, "Изменить", "Change") \
-    X(BlockingConditions, "Условия бинда", "Bind conditions") \
-    X(FolderConditions, "Условия папки", "Folder conditions") \
-    X(ConditionCombineModeLabel, "Связка условий", "Condition combination") \
-    X(ConditionCombineRequireAll, "Все отмеченные (И)", "All selected (AND)") \
-    X(ConditionCombineRequireAny, "Любое отмеченное (ИЛИ)", "Any selected (OR)") \
-    X(ConditionCombineHint, "И — нужны все отмеченные состояния.\nИЛИ — достаточно любого одного.", "AND requires every checked state.\nOR needs at least one checked state.") \
+    X(BlockingConditions, "Не запускать, если активно", "Do not run when active") \
+    X(FolderConditions, "Скрыть папку, если активно", "Hide folder when active") \
+    X(ConditionBlockHint, "Сработает блокировка, если активно хотя бы одно отмеченное условие.", "Blocks when any selected condition is active.") \
     X(InputDialogSearchHint, "Поиск по названию, тексту или подсказке", "Search by label, text, or hint") \
     X(InputDialogNoOptions, "Нет доступных вариантов.", "No available options.") \
     X(InputDialogPreviewTitle, "Предпросмотр отправки", "Send preview") \
