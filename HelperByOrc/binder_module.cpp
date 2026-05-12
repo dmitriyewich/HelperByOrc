@@ -9420,6 +9420,10 @@ void BinderModule::Impl::DrawExplorerDirectory() {
             DrawFolderDropPreview(dropRect, *emptyAreaPreview);
         }
     }
+
+    // The custom list advances layout with SetCursorScreenPos(); commit the final
+    // position even when the list overflows and no empty-area item is emitted.
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
 void BinderModule::Impl::DrawExplorerPane() {
