@@ -17,6 +17,7 @@ namespace fs = std::filesystem;
 
 constexpr wchar_t kUnifiedConfigFileName[] = L"HelperByOrc.json";
 constexpr wchar_t kProfilesRegistryFileName[] = L"profiles.json";
+constexpr wchar_t kNotepadAssetsFolderName[] = L"notepad";
 constexpr int kConfigSchemaVersion = 1;
 constexpr int kProfilesSchemaVersion = 1;
 constexpr char kDefaultProfileId[] = "default";
@@ -211,6 +212,65 @@ bool IsPathInsideDirectory(const fs::path& directory, const fs::path& candidate)
     return true;
 }
 
+bool CopyDirectoryIfExists(const fs::path& source, const fs::path& target, std::string* error = nullptr) {
+    std::error_code existsError;
+    if (!fs::exists(source, existsError)) {
+        return true;
+    }
+    if (existsError || !fs::is_directory(source, existsError)) {
+        if (error) {
+            *error = "source asset directory is unavailable";
+        }
+        debuglog::WriteError("[profiles] source asset directory unavailable: %ls error=%d", source.c_str(), existsError.value());
+        return false;
+    }
+
+    std::error_code createError;
+    fs::create_directories(target, createError);
+    if (createError) {
+        if (error) {
+            *error = "failed to create target asset directory";
+        }
+        debuglog::WriteError("[profiles] failed to create target asset directory: %ls error=%d", target.c_str(), createError.value());
+        return false;
+    }
+
+    std::error_code iteratorError;
+    for (fs::recursive_directory_iterator it(source, iteratorError), end; it != end && !iteratorError; it.increment(iteratorError)) {
+        const fs::directory_entry& entry = *it;
+        const fs::path relative = fs::relative(entry.path(), source);
+        const fs::path destination = target / relative;
+        std::error_code copyError;
+        if (entry.is_directory(copyError)) {
+            fs::create_directories(destination, copyError);
+        } else if (entry.is_regular_file(copyError)) {
+            fs::create_directories(destination.parent_path(), copyError);
+            if (!copyError) {
+                fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing, copyError);
+            }
+        }
+        if (copyError) {
+            if (error) {
+                *error = "failed to copy profile assets";
+            }
+            debuglog::WriteError(
+                "[profiles] failed to copy profile assets: source=%ls target=%ls error=%d",
+                entry.path().c_str(),
+                destination.c_str(),
+                copyError.value());
+            return false;
+        }
+    }
+    if (iteratorError) {
+        if (error) {
+            *error = "failed to enumerate profile assets";
+        }
+        debuglog::WriteError("[profiles] failed to enumerate profile assets: %ls error=%d", source.c_str(), iteratorError.value());
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 AppConfig& AppConfig::Instance() {
@@ -273,6 +333,11 @@ jsonutil::JsonObject AppConfig::ReadSectionObject(std::string_view sectionName) 
 
 const std::filesystem::path& AppConfig::ConfigPath() const {
     return configPath_;
+}
+
+std::filesystem::path AppConfig::ActiveProfileDirectory() const {
+    std::lock_guard lock(mutex_);
+    return configPath_.parent_path();
 }
 
 std::filesystem::path AppConfig::ProfilesRoot() const {
@@ -412,6 +477,13 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         if (error) {
             *error = "failed to write duplicated profile config";
         }
+        return false;
+    }
+    const fs::path sourceAssets = source->configPath.parent_path() / kNotepadAssetsFolderName;
+    const fs::path targetAssets = targetPath.parent_path() / kNotepadAssetsFolderName;
+    if (!CopyDirectoryIfExists(sourceAssets, targetAssets, error)) {
+        std::error_code removeError;
+        fs::remove_all(targetPath.parent_path(), removeError);
         return false;
     }
 

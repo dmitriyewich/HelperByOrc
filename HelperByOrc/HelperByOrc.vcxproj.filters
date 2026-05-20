@@ -36,6 +36,12 @@
     <Filter Include="Header Files\Binder">
       <UniqueIdentifier>{209503DE-E4AB-40C5-B6CB-B9D8DC51EF31}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Notepad">
+      <UniqueIdentifier>{E16E44CF-4302-4F54-96A5-4942F66510FA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Notepad">
+      <UniqueIdentifier>{4925471F-40CF-4E66-9345-2B47099E01D5}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Resource Files">
       <UniqueIdentifier>{9A54DB63-14A7-4755-B917-63A4FCD54F5E}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
@@ -65,6 +71,9 @@
     </ClCompile>
     <ClCompile Include="mod_app.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="notepad_module.cpp">
+      <Filter>Source Files\Notepad</Filter>
     </ClCompile>
     <ClCompile Include="raknet_bitstream_view.cpp">
       <Filter>Source Files</Filter>
@@ -156,6 +165,9 @@
     </ClInclude>
     <ClInclude Include="mod_app.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="notepad_module.h">
+      <Filter>Header Files\Notepad</Filter>
     </ClInclude>
     <ClInclude Include="minhook_utils.h">
       <Filter>Header Files</Filter>

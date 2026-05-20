@@ -87,7 +87,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreImportLibrary>true</IgnoreImportLibrary>
       <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -120,7 +120,7 @@
       <LinkIncremental>false</LinkIncremental>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
       <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -134,6 +134,7 @@
     <ClCompile Include="json_utils.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="mod_app.cpp" />
+    <ClCompile Include="notepad_module.cpp" />
     <ClCompile Include="raknet_bitstream_view.cpp" />
     <ClCompile Include="samp_api.cpp" />
     <ClCompile Include="samp_hooks.cpp" />
@@ -176,6 +177,7 @@
     <ClInclude Include="json_utils.h" />
     <ClInclude Include="minhook_utils.h" />
     <ClInclude Include="mod_app.h" />
+    <ClInclude Include="notepad_module.h" />
     <ClInclude Include="raknet_bitstream_view.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="samp_api.h" />

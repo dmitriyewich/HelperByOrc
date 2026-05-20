@@ -170,7 +170,58 @@
     X(MiscVariablesPreviewCommandTextLabel, "Введённая команда", "Entered command") \
     X(MiscVariablesPreviewResultLabel, "Результат", "Result") \
     X(MiscVariablesPreviewEmpty, "Результат пустой.", "The result is empty.") \
-    X(NotepadIntro, "Вкладка оставлена как пустая оболочка. При необходимости сюда можно вернуть заметки или встроенный редактор текста.", "The tab is kept as an empty shell. Notes or an embedded text editor can be restored here later if needed.") \
+    X(NotepadIntro, "Профильный блокнот с папками, разметкой, локальными картинками и live preview.", "Profile-aware notepad with folders, markup, local images, and live preview.") \
+    X(NotepadRootName, "Блокнот", "Notepad") \
+    X(NotepadNewNote, "Заметка", "Note") \
+    X(NotepadNewFolder, "Папка", "Folder") \
+    X(NotepadDefaultFolder, "Новая папка", "New folder") \
+    X(NotepadUntitled, "Без названия", "Untitled") \
+    X(NotepadCopySuffix, " копия", " copy") \
+    X(NotepadSearchHint, "Поиск заметок", "Search notes") \
+    X(NotepadSearchResults, "Найдено:", "Found:") \
+    X(NotepadFavorites, "Избранное", "Favorites") \
+    X(NotepadEmptyFolder, "В этой папке пока пусто.", "This folder is empty.") \
+    X(NotepadEmptySearch, "По запросу ничего не найдено.", "No notes matched the query.") \
+    X(NotepadNoSelection, "Выберите заметку слева или создайте новую.", "Select a note on the left or create a new one.") \
+    X(NotepadEditor, "Редактор", "Editor") \
+    X(NotepadLivePreview, "Предпросмотр", "Preview") \
+    X(NotepadFavorite, "В избранное", "Add to favorites") \
+    X(NotepadUnfavorite, "Убрать из избранного", "Remove from favorites") \
+    X(NotepadOpenFolder, "Открыть папку", "Open folder") \
+    X(NotepadImportTxt, "Импорт .txt", "Import .txt") \
+    X(NotepadExportTxt, "Экспорт .txt", "Export .txt") \
+    X(NotepadCopyRaw, "Копировать raw", "Copy raw") \
+    X(NotepadCopyRendered, "Копировать текст", "Copy text") \
+    X(NotepadCopyLine, "Копировать строки", "Copy lines") \
+    X(NotepadPreviewMode, "Предпросмотр", "Preview") \
+    X(NotepadInsertImage, "Картинка", "Image") \
+    X(NotepadApplyTags, "Подставлять теги", "Expand tags") \
+    X(NotepadMarkupHelp, "Разметка", "Markup") \
+    X(NotepadMarkupHelpTitle, "Поддерживаемая разметка", "Supported markup") \
+    X(NotepadMarkupHelpHint, "Картинки ищутся только в папке профиля notepad/images. Абсолютные пути и .. запрещены.", "Images are resolved only from the profile notepad/images folder. Absolute paths and .. are blocked.") \
+    X(NotepadModalTitle, "Блокнот", "Notepad") \
+    X(NotepadCreateFolderTitle, "Новая папка", "New folder") \
+    X(NotepadCreateNoteTitle, "Новая заметка", "New note") \
+    X(NotepadRenameTitle, "Переименование", "Rename") \
+    X(NotepadDeleteNoteTitle, "Удаление заметки", "Delete note") \
+    X(NotepadDeleteFolderTitle, "Удаление папки", "Delete folder") \
+    X(NotepadFolderName, "Имя папки", "Folder name") \
+    X(NotepadNoteTitle, "Название заметки", "Note title") \
+    X(NotepadDeleteNoteQuestionFormat, "Удалить заметку \"%s\"?", "Delete note \"%s\"?") \
+    X(NotepadDeleteFolderQuestionFormat, "Удалить папку \"%s\"? Внутри папок: %d, заметок: %d.", "Delete folder \"%s\"? Nested folders: %d, notes: %d.") \
+    X(NotepadConfirmDelete, "Удалить", "Delete") \
+    X(NotepadFolderExists, "Папка с таким именем уже есть.", "A folder with this name already exists.") \
+    X(NotepadInvalidName, "Некорректное имя.", "Invalid name.") \
+    X(NotepadImportFailed, "Не удалось импортировать txt.", "Failed to import txt.") \
+    X(NotepadExportFailed, "Не удалось экспортировать заметку.", "Failed to export note.") \
+    X(NotepadExportSuccessFormat, "Экспортировано: %s", "Exported: %s") \
+    X(NotepadImageCopied, "Картинка скопирована в профиль и вставлена в заметку.", "Image was copied into the profile and inserted into the note.") \
+    X(NotepadImageInsertFailed, "Не удалось вставить картинку.", "Failed to insert image.") \
+    X(NotepadInvalidImagePath, "Некорректный путь к картинке.", "Invalid image path.") \
+    X(NotepadMissingImageFormat, "Картинка не найдена: %s", "Image not found: %s") \
+    X(NotepadTxtFilesFilter, "Текстовые файлы (*.txt)", "Text files (*.txt)") \
+    X(NotepadImageFilesFilter, "Картинки (*.png;*.jpg;*.jpeg;*.bmp;*.gif)", "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif)") \
+    X(NotepadAllFilesFilter, "Все файлы (*.*)", "All files (*.*)") \
     X(SettingsIntro, "Здесь настраиваются язык интерфейса, автоматический масштаб под разрешение экрана, пользовательский множитель масштаба и параметры быстрого меню.", "Configure interface language, automatic scaling for screen resolution, a custom scale multiplier, and quick menu settings here.") \
     X(GtaVersionFormat, "Версия GTA: %s", "GTA version: %s") \
     X(SettingsLanguage, "Язык", "Language") \

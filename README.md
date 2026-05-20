@@ -1,6 +1,6 @@
 # HelperByOrc
 
-Нативный **ASI-плагин** для **GTA San Andreas / SA:MP** (Win32/x86): бинды, команды, быстрые действия, папки, условия, профили и удобное ImGui-меню прямо в игре.
+Нативный **ASI-плагин** для **GTA San Andreas / SA:MP** (Win32/x86): бинды, команды, быстрые действия, папки, условия, профильный блокнот и удобное ImGui-меню прямо в игре.
 
 Проект переносит исходную Lua/MoonLoader-логику `HelperByOrc` в C++ ASI-модуль. Полная документация и инструкции вынесены в wiki: [HelperByOrc Wiki](https://github.com/dmitriyewich/HelperByOrc/wiki).
 
@@ -23,6 +23,7 @@
 - Arizona `_chat.asi` direct path с fallback на стандартный SA:MP-путь.
 - Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
 - Теги и пользовательские переменные, включая `{thiscategory}` / `[thiscategory]` для категории текущего bind.
+- Профильный блокнот: папки, поиск, избранное, split preview, Lua-compatible разметка, локальные картинки, импорт/экспорт `.txt`.
 - Профили конфигурации: переключение, создание, дублирование, переименование и удаление во вкладке «Настройки».
 - Русская и английская локализация.
 - Расширенная диагностика SA:MP readiness, D3D9 overlay, AppCompat и ранних конфликтов хуков.
@@ -32,6 +33,7 @@
 - [Главная](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%93%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F)
 - [Биндер](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D0%B8%D0%BD%D0%B4%D0%B5%D1%80)
 - [Быстрое меню](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%BE%D0%B5-%D0%BC%D0%B5%D0%BD%D1%8E)
+- [Блокнот](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D0%BB%D0%BE%D0%BA%D0%BD%D0%BE%D1%82)
 - [Профили](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9F%D1%80%D0%BE%D1%84%D0%B8%D0%BB%D0%B8)
 - [Теги и переменные](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%A2%D0%B5%D0%B3%D0%B8-%D0%B8-%D0%BF%D0%B5%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5)
 - [Настройки](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B8)
@@ -66,6 +68,12 @@
 
 ```text
 GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\HelperByOrc.json
+```
+
+Картинки блокнота лежат рядом с конфигом профиля:
+
+```text
+GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\notepad\images
 ```
 
 Если используется `portablegta`, путь к `GTA San Andreas User Files` берётся из игрового portable userfiles-getter.

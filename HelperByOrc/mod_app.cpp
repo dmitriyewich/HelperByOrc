@@ -992,6 +992,8 @@ void ModApp::OnProcessAttach(HMODULE module) {
     binder_.SetSampRakHooks(&sampRakHooks_);
     binder_.SetIncomingMessageRouter(&incomingMessageRouter_);
     binder_.SetTagsModule(&tags_);
+    notepad_.OnProcessAttach(module);
+    notepad_.SetTagsModule(&tags_);
     tags_.SetBinderModule(&binder_);
 
     overlay_.SetPrepareFrameCallback([this](IDirect3DDevice9* device) { PrepareUiForImGuiNewFrame(device); });
@@ -1035,6 +1037,8 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("Incoming router shutdown done");
     binder_.Shutdown();
     debuglog::WriteInfo("Binder shutdown done");
+    notepad_.Shutdown();
+    debuglog::WriteInfo("Notepad shutdown done");
     tags_.Shutdown();
     debuglog::WriteInfo("Tags shutdown done");
     AppConfig::Instance().Shutdown();
@@ -1420,6 +1424,7 @@ void ModApp::ReloadConfigAfterProfileChange() {
     LoadShellState();
     tags_.ReloadConfig();
     binder_.ReloadConfig();
+    notepad_.ReloadConfig();
     sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     debuglog::WriteInfo(
         "[profiles] active profile applied id=%s path=%ls",
@@ -1472,6 +1477,7 @@ void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
 }
 
 void ModApp::ReleaseUiResources() {
+    notepad_.ReleaseDeviceResources();
     if (logoTexture_) {
         logoTexture_->Release();
         logoTexture_ = nullptr;
@@ -1610,10 +1616,8 @@ void ModApp::DrawMiscTab() {
     tags_.DrawMiscTab();
 }
 
-void ModApp::DrawNotepadTab() const {
-    const UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::TabNotepad));
-    ImGui::TextWrapped("%s", ui.Text(UiText::NotepadIntro));
+void ModApp::DrawNotepadTab(IDirect3DDevice9* device) {
+    notepad_.DrawMainTab(device);
 }
 
 void ModApp::DrawSettingsTab() {
@@ -1653,6 +1657,7 @@ void ModApp::DrawSettingsTab() {
             }
             if (ImGui::Selectable(label.c_str(), selected)) {
                 std::string error;
+                notepad_.FlushPendingEdits();
                 if (config.SwitchProfile(profile.id, &error)) {
                     profileNameBufferProfileId_.clear();
                     profileUiError_.clear();
@@ -1688,6 +1693,7 @@ void ModApp::DrawSettingsTab() {
     if (ImGui::Button(ui.Text(UiText::SettingsProfileCreateEmpty))) {
         if (requireProfileName()) {
             std::string error;
+            notepad_.FlushPendingEdits();
             if (config.CreateProfile(profileNameBuffer_, false, true, &error)) {
                 profileNameBufferProfileId_.clear();
                 profileUiError_.clear();
@@ -1701,6 +1707,7 @@ void ModApp::DrawSettingsTab() {
     if (ImGui::Button(ui.Text(UiText::SettingsProfileDuplicate))) {
         if (requireProfileName()) {
             std::string error;
+            notepad_.FlushPendingEdits();
             if (config.DuplicateProfile(activeProfileId, profileNameBuffer_, true, &error)) {
                 profileNameBufferProfileId_.clear();
                 profileUiError_.clear();
@@ -1761,6 +1768,7 @@ void ModApp::DrawSettingsTab() {
         if (ImGui::Button(ui.Text(UiText::Delete))) {
             const std::string previousActiveProfileId = config.ActiveProfileId();
             std::string error;
+            notepad_.FlushPendingEdits();
             if (config.DeleteProfile(profileDeleteTargetId_, &error)) {
                 profileDeleteTargetId_.clear();
                 profileNameBufferProfileId_.clear();
@@ -2056,7 +2064,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
                 DrawMiscTab();
                 break;
             case MainTab::Notepad:
-                DrawNotepadTab();
+                DrawNotepadTab(device);
                 break;
             case MainTab::Settings:
                 DrawSettingsTab();

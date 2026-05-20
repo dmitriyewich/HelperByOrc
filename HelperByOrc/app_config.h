@@ -36,6 +36,7 @@ public:
     jsonutil::JsonObject ReadSectionObject(std::string_view sectionName);
 
     const std::filesystem::path& ConfigPath() const;
+    std::filesystem::path ActiveProfileDirectory() const;
     std::filesystem::path ProfilesRoot() const;
     std::filesystem::path ProfilesRegistryPath() const;
     std::string ActiveProfileId() const;

@@ -13,6 +13,7 @@
 #include "imgui_overlay.h"
 #include "binder_module.h"
 #include "incoming_message_router.h"
+#include "notepad_module.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -64,7 +65,7 @@ private:
     void DrawBinderTab() const;
     void DrawSmiHelperTab() const;
     void DrawMiscTab();
-    void DrawNotepadTab() const;
+    void DrawNotepadTab(IDirect3DDevice9* device);
     void DrawSettingsTab();
 
     HMODULE module_ = nullptr;
@@ -104,5 +105,6 @@ private:
     SampRakHooks sampRakHooks_{};
     IncomingMessageRouter incomingMessageRouter_{};
     BinderModule binder_{};
+    NotepadModule notepad_{};
     TagsModule tags_{};
 };

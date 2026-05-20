@@ -1,0 +1,2684 @@
+#include "notepad_module.h"
+
+#include "app_config.h"
+#include "debug_log.h"
+#include "json_utils.h"
+#include "tags_module.h"
+#include "ui_settings.h"
+
+#include <d3dx9tex.h>
+#include <imgui.h>
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <chrono>
+#include <commdlg.h>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+namespace {
+
+namespace fs = std::filesystem;
+
+constexpr std::string_view kNotepadSectionName = "notepad";
+constexpr int kNotepadSchemaVersion = 1;
+constexpr wchar_t kNotepadAssetsFolder[] = L"notepad";
+constexpr wchar_t kNotepadImagesFolder[] = L"images";
+constexpr wchar_t kNotepadExportFolder[] = L"export";
+constexpr char kPayloadNote[] = "HBO_NOTEPAD_NOTE";
+constexpr char kPayloadFolder[] = "HBO_NOTEPAD_FOLDER";
+constexpr char kModalPopupId[] = "###notepad_modal";
+constexpr char kOrderTypeFolder[] = "folder";
+constexpr char kOrderTypeNote[] = "note";
+constexpr char kIconFolder[] = "\xEF\x84\x94";
+constexpr char kIconBook[] = "\xEF\x80\xAD";
+constexpr char kIconPlus[] = "\xEF\x81\xA7";
+constexpr char kIconEdit[] = "\xEF\x81\x84";
+constexpr char kIconDelete[] = "\xEF\x8B\xAD";
+constexpr char kIconStar[] = "\xEF\x80\x86";
+constexpr char kIconSearch[] = "\xEF\x80\x82";
+constexpr char kIconSave[] = "\xEF\x83\x87";
+constexpr char kIconCopy[] = "\xEF\x83\x85";
+constexpr char kIconImage[] = "\xEF\x80\xBE";
+constexpr char kIconFileImport[] = "\xEF\x95\xAF";
+constexpr char kIconFileExport[] = "\xEF\x95\xAE";
+constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
+constexpr char kIconAngleUp[] = "\xEF\x84\x86";
+constexpr char kIconCheck[] = "\xEF\x80\x8C";
+constexpr char kIconBars[] = "\xEF\x83\x89";
+constexpr char kIconCompass[] = "\xEF\x85\x8E";
+
+enum class ItemType {
+    Folder,
+    Note,
+};
+
+enum class DropPlacement {
+    Before,
+    After,
+    Inside,
+    End,
+};
+
+enum class PendingModal {
+    None,
+    CreateFolder,
+    CreateNote,
+    RenameFolder,
+    RenameNote,
+    DeleteFolder,
+    DeleteNote,
+};
+
+struct FolderEntry {
+    std::string path{};
+    std::uint64_t createdAt = 0;
+    std::uint64_t updatedAt = 0;
+};
+
+struct NoteEntry {
+    std::string id{};
+    std::string title{};
+    std::string folderPath{};
+    std::string text{};
+    bool favorite = false;
+    std::uint64_t createdAt = 0;
+    std::uint64_t updatedAt = 0;
+};
+
+struct OrderItem {
+    ItemType type = ItemType::Note;
+    std::string value{};
+};
+
+struct RowItem {
+    ItemType type = ItemType::Note;
+    std::string value{};
+    std::string label{};
+};
+
+struct ParsedImage {
+    std::string source{};
+    int width = 0;
+    int height = 0;
+};
+
+struct RichSegment {
+    std::string text{};
+    ImVec4 color{};
+    ImVec4 bgColor{};
+    ImVec4 hrColor{};
+    bool hasColor = false;
+    bool hasBgColor = false;
+    bool hasHrColor = false;
+    float alpha = 1.0f;
+    int fontSize = 0;
+    float indent = 0.0f;
+    std::string icon{};
+    bool bullet = false;
+    bool sameLine = false;
+    bool isHr = false;
+    int extraBreaks = 0;
+    enum class Align { Left, Center, Right } align = Align::Left;
+    enum class Transform { None, Upper, Lower } transform = Transform::None;
+    std::optional<ParsedImage> image{};
+};
+
+struct TextureCacheEntry {
+    IDirect3DTexture9* texture = nullptr;
+    UINT width = 0;
+    UINT height = 0;
+    bool failed = false;
+};
+
+struct ImGuiStringUserData {
+    std::string* value = nullptr;
+    int* cursor = nullptr;
+};
+
+std::uint64_t UnixTimeNow() {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+float ScaleUi(float value) {
+    return UiSettings::Instance().Scale(value);
+}
+
+ImVec2 ScaleUi(float x, float y) {
+    return UiSettings::Instance().Scale(ImVec2(x, y));
+}
+
+std::string TrimAscii(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
+    std::size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+        --end;
+    }
+    return std::string(value.substr(begin, end - begin));
+}
+
+std::wstring MultiByteToWide(std::string_view text, UINT codePage, DWORD flags = 0) {
+    if (text.empty()) {
+        return {};
+    }
+    const int required = MultiByteToWideChar(
+        codePage,
+        flags,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0);
+    if (required <= 0) {
+        return {};
+    }
+    std::wstring result(static_cast<std::size_t>(required), L'\0');
+    if (MultiByteToWideChar(
+            codePage,
+            flags,
+            text.data(),
+            static_cast<int>(text.size()),
+            result.data(),
+            required)
+        <= 0) {
+        return {};
+    }
+    return result;
+}
+
+std::wstring Utf8ToWide(std::string_view text) {
+    std::wstring wide = MultiByteToWide(text, CP_UTF8, MB_ERR_INVALID_CHARS);
+    if (wide.empty() && !text.empty()) {
+        wide = MultiByteToWide(text, CP_ACP);
+    }
+    return wide;
+}
+
+std::string WideToUtf8(std::wstring_view text) {
+    if (text.empty()) {
+        return {};
+    }
+    const int required = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (required <= 0) {
+        return {};
+    }
+    std::string result(static_cast<std::size_t>(required), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            text.data(),
+            static_cast<int>(text.size()),
+            result.data(),
+            required,
+            nullptr,
+            nullptr)
+        <= 0) {
+        return {};
+    }
+    return result;
+}
+
+std::string NormalizeImportedText(std::string text) {
+    if (text.size() >= 3
+        && static_cast<unsigned char>(text[0]) == 0xEF
+        && static_cast<unsigned char>(text[1]) == 0xBB
+        && static_cast<unsigned char>(text[2]) == 0xBF) {
+        text.erase(0, 3);
+    }
+    if (text.empty()) {
+        return text;
+    }
+    if (!MultiByteToWide(text, CP_UTF8, MB_ERR_INVALID_CHARS).empty()) {
+        return text;
+    }
+    const std::wstring wide = MultiByteToWide(text, CP_ACP);
+    return wide.empty() ? text : WideToUtf8(wide);
+}
+
+std::string PathToUtf8(const fs::path& path) {
+    return WideToUtf8(path.wstring());
+}
+
+std::string LowerUtf8(std::string_view text) {
+    std::wstring wide = Utf8ToWide(text);
+    if (wide.empty()) {
+        std::string result(text);
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return result;
+    }
+    CharLowerBuffW(wide.data(), static_cast<DWORD>(wide.size()));
+    return WideToUtf8(wide);
+}
+
+std::string UpperUtf8(std::string_view text) {
+    std::wstring wide = Utf8ToWide(text);
+    if (wide.empty()) {
+        std::string result(text);
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::toupper(ch));
+        });
+        return result;
+    }
+    CharUpperBuffW(wide.data(), static_cast<DWORD>(wide.size()));
+    return WideToUtf8(wide);
+}
+
+bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    const std::string h = LowerUtf8(haystack);
+    const std::string n = LowerUtf8(needle);
+    return h.find(n) != std::string::npos;
+}
+
+int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
+    auto* userData = static_cast<ImGuiStringUserData*>(data->UserData);
+    if (!userData || !userData->value) {
+        return 0;
+    }
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+        userData->value->resize(static_cast<std::size_t>(data->BufTextLen));
+        data->Buf = userData->value->data();
+    } else if (data->EventFlag == ImGuiInputTextFlags_CallbackEdit && userData->cursor) {
+        *userData->cursor = data->CursorPos;
+    }
+    return 0;
+}
+
+bool InputTextString(
+    const char* label,
+    std::string& value,
+    ImGuiInputTextFlags flags = 0,
+    std::size_t minBuffer = 128,
+    int* cursor = nullptr) {
+    if (value.capacity() < minBuffer) {
+        value.reserve(minBuffer);
+    }
+    ImGuiStringUserData userData{ &value, cursor };
+    return ImGui::InputText(
+        label,
+        value.data(),
+        value.capacity() + 1,
+        flags | ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit,
+        ImGuiStringResizeCallback,
+        &userData);
+}
+
+bool InputTextWithHintString(
+    const char* label,
+    const char* hint,
+    std::string& value,
+    ImGuiInputTextFlags flags = 0,
+    std::size_t minBuffer = 128,
+    int* cursor = nullptr) {
+    if (value.capacity() < minBuffer) {
+        value.reserve(minBuffer);
+    }
+    ImGuiStringUserData userData{ &value, cursor };
+    return ImGui::InputTextWithHint(
+        label,
+        hint,
+        value.data(),
+        value.capacity() + 1,
+        flags | ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit,
+        ImGuiStringResizeCallback,
+        &userData);
+}
+
+bool InputTextMultilineString(
+    const char* label,
+    std::string& value,
+    const ImVec2& size,
+    ImGuiInputTextFlags flags = 0,
+    int* cursor = nullptr) {
+    if (value.capacity() < 4096) {
+        value.reserve(4096);
+    }
+    ImGuiStringUserData userData{ &value, cursor };
+    return ImGui::InputTextMultiline(
+        label,
+        value.data(),
+        value.capacity() + 1,
+        size,
+        flags | ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit,
+        ImGuiStringResizeCallback,
+        &userData);
+}
+
+std::vector<std::string> SplitPath(std::string_view path) {
+    std::vector<std::string> parts;
+    std::size_t begin = 0;
+    while (begin < path.size()) {
+        std::size_t end = path.find('/', begin);
+        if (end == std::string_view::npos) {
+            end = path.size();
+        }
+        std::string part = TrimAscii(path.substr(begin, end - begin));
+        if (!part.empty()) {
+            parts.push_back(std::move(part));
+        }
+        begin = end + 1;
+    }
+    return parts;
+}
+
+std::string JoinPathParts(const std::vector<std::string>& parts, std::size_t count) {
+    std::string result;
+    for (std::size_t i = 0; i < count && i < parts.size(); ++i) {
+        if (!result.empty()) {
+            result += "/";
+        }
+        result += parts[i];
+    }
+    return result;
+}
+
+std::string NormalizeFolderPath(std::string_view path) {
+    const std::vector<std::string> parts = SplitPath(path);
+    return JoinPathParts(parts, parts.size());
+}
+
+std::string ParentPath(std::string_view path) {
+    const std::string normalized = NormalizeFolderPath(path);
+    const std::size_t pos = normalized.find_last_of('/');
+    return pos == std::string::npos ? std::string() : normalized.substr(0, pos);
+}
+
+std::string BaseName(std::string_view path) {
+    const std::string normalized = NormalizeFolderPath(path);
+    const std::size_t pos = normalized.find_last_of('/');
+    return pos == std::string::npos ? normalized : normalized.substr(pos + 1);
+}
+
+std::string JoinFolderPath(std::string_view parent, std::string_view name) {
+    const std::string cleanParent = NormalizeFolderPath(parent);
+    const std::string cleanName = TrimAscii(name);
+    return cleanParent.empty() ? cleanName : cleanParent + "/" + cleanName;
+}
+
+bool PathStartsWith(std::string_view path, std::string_view prefix) {
+    if (prefix.empty()) {
+        return true;
+    }
+    if (path == prefix) {
+        return true;
+    }
+    return path.size() > prefix.size()
+        && path.substr(0, prefix.size()) == prefix
+        && path[prefix.size()] == '/';
+}
+
+std::string ReplacePathPrefix(std::string_view path, std::string_view oldPrefix, std::string_view newPrefix) {
+    if (!PathStartsWith(path, oldPrefix)) {
+        return std::string(path);
+    }
+    if (path.size() == oldPrefix.size()) {
+        return NormalizeFolderPath(newPrefix);
+    }
+    const std::string suffix(path.substr(oldPrefix.size() + 1));
+    return newPrefix.empty() ? suffix : std::string(newPrefix) + "/" + suffix;
+}
+
+bool IsValidFolderName(std::string_view name) {
+    const std::string value = TrimAscii(name);
+    if (value.empty()) {
+        return false;
+    }
+    return value.find('/') == std::string::npos && value.find('\\') == std::string::npos;
+}
+
+std::string SanitizeFileStem(std::string_view value, std::string_view fallback) {
+    std::wstring wide = Utf8ToWide(value);
+    std::wstring result;
+    for (wchar_t ch : wide) {
+        if (ch == L'<' || ch == L'>' || ch == L':' || ch == L'"' || ch == L'/' || ch == L'\\'
+            || ch == L'|' || ch == L'?' || ch == L'*' || ch < 32) {
+            result.push_back(L'_');
+        } else {
+            result.push_back(ch);
+        }
+    }
+    std::string utf8 = TrimAscii(WideToUtf8(result));
+    if (utf8.empty() || utf8 == "." || utf8 == "..") {
+        utf8 = std::string(fallback);
+    }
+    return utf8;
+}
+
+bool IsSafeRelativeAssetPath(std::string_view path) {
+    const std::wstring wide = Utf8ToWide(path);
+    if (wide.empty()) {
+        return false;
+    }
+    const fs::path relative(wide);
+    if (relative.is_absolute() || relative.has_root_directory() || relative.has_root_name()) {
+        return false;
+    }
+    for (const auto& part : relative) {
+        if (part == L"." || part == L"..") {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::wstring BuildDialogFilter(std::initializer_list<std::pair<UiText, const wchar_t*>> entries) {
+    std::wstring filter;
+    for (const auto& [labelId, pattern] : entries) {
+        filter += Utf8ToWide(UiSettings::Instance().Text(labelId));
+        filter.push_back(L'\0');
+        filter += pattern;
+        filter.push_back(L'\0');
+    }
+    filter.push_back(L'\0');
+    return filter;
+}
+
+std::optional<ImVec4> ParseColorHex(std::string_view value) {
+    if (value.size() != 6) {
+        return std::nullopt;
+    }
+    auto hex = [](char ch) -> int {
+        if (ch >= '0' && ch <= '9') {
+            return ch - '0';
+        }
+        if (ch >= 'a' && ch <= 'f') {
+            return ch - 'a' + 10;
+        }
+        if (ch >= 'A' && ch <= 'F') {
+            return ch - 'A' + 10;
+        }
+        return -1;
+    };
+    int values[6]{};
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        values[i] = hex(value[i]);
+        if (values[i] < 0) {
+            return std::nullopt;
+        }
+    }
+    const int r = values[0] * 16 + values[1];
+    const int g = values[2] * 16 + values[3];
+    const int b = values[4] * 16 + values[5];
+    return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
+}
+
+bool HasDirectiveBoundary(std::string_view text, std::size_t consumed) {
+    if (consumed >= text.size()) {
+        return true;
+    }
+    const char ch = text[consumed];
+    return std::isspace(static_cast<unsigned char>(ch)) != 0 || ch == '#';
+}
+
+std::vector<std::string> SplitDirectiveArgs(std::string_view raw) {
+    std::vector<std::string> args;
+    std::string current;
+    int depth = 0;
+    char quote = '\0';
+    for (char ch : raw) {
+        if ((ch == '\'' || ch == '"') && quote == '\0') {
+            quote = ch;
+            current.push_back(ch);
+            continue;
+        }
+        if (quote != '\0') {
+            if (ch == quote) {
+                quote = '\0';
+            }
+            current.push_back(ch);
+            continue;
+        }
+        if (ch == '(') {
+            ++depth;
+            current.push_back(ch);
+            continue;
+        }
+        if (ch == ')') {
+            depth = std::max(0, depth - 1);
+            current.push_back(ch);
+            continue;
+        }
+        if (ch == ',' && depth == 0) {
+            args.push_back(TrimAscii(current));
+            current.clear();
+            continue;
+        }
+        current.push_back(ch);
+    }
+    args.push_back(TrimAscii(current));
+    return args;
+}
+
+std::string Unquote(std::string value) {
+    value = TrimAscii(value);
+    if (value.size() >= 2) {
+        const char first = value.front();
+        const char last = value.back();
+        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+            return value.substr(1, value.size() - 2);
+        }
+    }
+    return value;
+}
+
+std::optional<ParsedImage> ParseImageArgs(std::string_view args) {
+    const std::vector<std::string> parts = SplitDirectiveArgs(args);
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+    ParsedImage image;
+    image.source = Unquote(parts.front());
+    if (image.source.empty()) {
+        return std::nullopt;
+    }
+    for (std::size_t i = 1; i < parts.size(); ++i) {
+        const std::string lowered = LowerUtf8(parts[i]);
+        int w = 0;
+        int h = 0;
+        if (sscanf_s(lowered.c_str(), "size(%d,%d)", &w, &h) == 2 && w > 0 && h > 0) {
+            image.width = w;
+            image.height = h;
+        }
+    }
+    return image;
+}
+
+std::optional<ParsedImage> ParseImagePrefix(std::string_view text, std::size_t& consumed) {
+    const std::string lowered = LowerUtf8(text);
+    if (lowered.rfind("#img(", 0) != 0) {
+        return std::nullopt;
+    }
+    int depth = 0;
+    for (std::size_t i = 4; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == '(') {
+            ++depth;
+        } else if (ch == ')') {
+            --depth;
+            if (depth == 0) {
+                if (!HasDirectiveBoundary(text, i + 1)) {
+                    return std::nullopt;
+                }
+                consumed = i + 1;
+                return ParseImageArgs(text.substr(5, i - 5));
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::string ResolveIconGlyph(std::string_view name) {
+    const std::string normalized = LowerUtf8(name);
+    static const std::map<std::string, const char*> kIcons = {
+        { "book", kIconBook },
+        { "compass", kIconCompass },
+        { "copy", kIconCopy },
+        { "file", kIconBook },
+        { "folder", kIconFolder },
+        { "image", kIconImage },
+        { "note", kIconBook },
+        { "save", kIconSave },
+        { "star", kIconStar },
+        { "check", kIconCheck },
+        { "bars", kIconBars },
+    };
+    const auto it = kIcons.find(normalized);
+    if (it != kIcons.end()) {
+        return it->second;
+    }
+    return "[" + UpperUtf8(name) + "]";
+}
+
+RichSegment ParseRichSegment(std::string_view rawLine) {
+    RichSegment segment;
+    std::string original(rawLine);
+    std::size_t nonSpace = 0;
+    while (nonSpace < original.size() && std::isspace(static_cast<unsigned char>(original[nonSpace])) != 0) {
+        ++nonSpace;
+    }
+    std::string leading = original.substr(0, nonSpace);
+    std::string rest = original.substr(nonSpace);
+    bool usedDirective = false;
+
+    while (!rest.empty()) {
+        bool consumedAny = false;
+        std::size_t consumed = 0;
+        const std::string lowered = LowerUtf8(rest);
+        if (rest.size() >= 8 && rest.front() == '{' && rest[7] == '}') {
+            if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(rest).substr(1, 6))) {
+                segment.color = *color;
+                segment.hasColor = true;
+                consumedAny = true;
+                consumed = 8;
+            }
+        } else if (lowered.rfind("#sameline", 0) == 0 && HasDirectiveBoundary(rest, 9)) {
+            segment.sameLine = true;
+            consumedAny = true;
+            consumed = 9;
+        } else if (lowered.rfind("#right", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
+            segment.align = RichSegment::Align::Right;
+            consumedAny = true;
+            consumed = 6;
+        } else if (lowered.rfind("#center", 0) == 0 && HasDirectiveBoundary(rest, 7)) {
+            segment.align = RichSegment::Align::Center;
+            consumedAny = true;
+            consumed = 7;
+        } else if (lowered.rfind("#left", 0) == 0 && HasDirectiveBoundary(rest, 5)) {
+            segment.align = RichSegment::Align::Left;
+            consumedAny = true;
+            consumed = 5;
+        } else if (lowered.rfind("#bullet", 0) == 0 && HasDirectiveBoundary(rest, 7)) {
+            segment.bullet = true;
+            consumedAny = true;
+            consumed = 7;
+        } else if (lowered.rfind("#upper", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
+            segment.transform = RichSegment::Transform::Upper;
+            consumedAny = true;
+            consumed = 6;
+        } else if (lowered.rfind("#lower", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
+            segment.transform = RichSegment::Transform::Lower;
+            consumedAny = true;
+            consumed = 6;
+        } else if (std::optional<ParsedImage> image = ParseImagePrefix(rest, consumed)) {
+            segment.image = std::move(*image);
+            consumedAny = true;
+        }
+
+        if (!consumedAny) {
+            std::string digits;
+            auto readDigits = [&](std::size_t prefixLen, bool allowNegative = false) -> std::string {
+                std::string out;
+                std::size_t pos = prefixLen;
+                if (allowNegative && pos < lowered.size() && lowered[pos] == '-') {
+                    out.push_back('-');
+                    ++pos;
+                }
+                while (pos < lowered.size() && std::isdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
+                    out.push_back(lowered[pos++]);
+                }
+                consumed = pos;
+                return out;
+            };
+
+            if (lowered.rfind("#font", 0) == 0) {
+                digits = readDigits(5);
+                const int size = digits.empty() ? 0 : std::atoi(digits.c_str());
+                if ((size == 12 || size == 14 || size == 16 || size == 18 || size == 30) && HasDirectiveBoundary(rest, consumed)) {
+                    segment.fontSize = size;
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#icon", 0) == 0) {
+                std::size_t pos = 5;
+                while (pos < lowered.size() && (std::isalnum(static_cast<unsigned char>(lowered[pos])) != 0 || lowered[pos] == '_')) {
+                    ++pos;
+                }
+                if (pos > 5 && HasDirectiveBoundary(rest, pos)) {
+                    segment.icon = ResolveIconGlyph(lowered.substr(5, pos - 5));
+                    consumed = pos;
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#color", 0) == 0 && lowered.size() >= 12) {
+                if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(6, 6));
+                    color && HasDirectiveBoundary(rest, 12)) {
+                    segment.color = *color;
+                    segment.hasColor = true;
+                    consumed = 12;
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#bg", 0) == 0 && lowered.size() >= 9) {
+                if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6));
+                    color && HasDirectiveBoundary(rest, 9)) {
+                    segment.bgColor = *color;
+                    segment.hasBgColor = true;
+                    consumed = 9;
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#alpha", 0) == 0) {
+                digits = readDigits(6);
+                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
+                    segment.alpha = std::clamp(std::atoi(digits.c_str()), 0, 100) / 100.0f;
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#indent", 0) == 0) {
+                digits = readDigits(7, true);
+                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
+                    segment.indent += ScaleUi(static_cast<float>(std::atoi(digits.c_str())));
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#pad", 0) == 0) {
+                digits = readDigits(4, true);
+                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
+                    segment.indent += ScaleUi(static_cast<float>(std::atoi(digits.c_str())));
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#tab", 0) == 0) {
+                digits = readDigits(4);
+                if (HasDirectiveBoundary(rest, consumed)) {
+                    segment.indent += ScaleUi(static_cast<float>(std::max(1, std::atoi(digits.empty() ? "1" : digits.c_str())) * 32));
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#br", 0) == 0) {
+                digits = readDigits(3);
+                if (HasDirectiveBoundary(rest, consumed)) {
+                    segment.extraBreaks += std::max(1, std::atoi(digits.empty() ? "1" : digits.c_str()));
+                    consumedAny = true;
+                }
+            } else if (lowered.rfind("#hr", 0) == 0) {
+                std::size_t pos = 3;
+                while (pos < lowered.size() && std::isxdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
+                    ++pos;
+                }
+                if (HasDirectiveBoundary(rest, pos)) {
+                    segment.isHr = true;
+                    if (pos == 9) {
+                        if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6))) {
+                            segment.hrColor = *color;
+                            segment.hasHrColor = true;
+                        }
+                    }
+                    consumed = pos;
+                    consumedAny = true;
+                }
+            }
+        }
+
+        if (!consumedAny) {
+            break;
+        }
+        usedDirective = true;
+        rest.erase(0, consumed);
+        while (!rest.empty() && std::isspace(static_cast<unsigned char>(rest.front())) != 0) {
+            rest.erase(rest.begin());
+        }
+    }
+
+    segment.text = usedDirective ? rest : leading + rest;
+    if (segment.transform == RichSegment::Transform::Upper) {
+        segment.text = UpperUtf8(segment.text);
+    } else if (segment.transform == RichSegment::Transform::Lower) {
+        segment.text = LowerUtf8(segment.text);
+    }
+    return segment;
+}
+
+std::vector<std::vector<RichSegment>> ParseRichText(std::string_view text) {
+    std::vector<std::vector<RichSegment>> result;
+    std::stringstream stream{ std::string(text) };
+    std::string line;
+    while (std::getline(stream, line)) {
+        RichSegment segment = ParseRichSegment(line);
+        if (segment.sameLine && !result.empty()) {
+            result.back().push_back(std::move(segment));
+        } else {
+            result.push_back({ std::move(segment) });
+        }
+    }
+    if (text.empty() || (!text.empty() && text.back() == '\n')) {
+        result.push_back({ RichSegment{} });
+    }
+    return result;
+}
+
+std::string StripMarkupLine(std::string_view line) {
+    RichSegment segment = ParseRichSegment(line);
+    if (segment.image || segment.isHr) {
+        return {};
+    }
+    std::string text = segment.text;
+    if (!segment.icon.empty()) {
+        text = segment.icon + (text.empty() ? "" : " " + text);
+    }
+    if (segment.bullet) {
+        text = "- " + text;
+    }
+    return text;
+}
+
+std::string StripMarkup(std::string_view text) {
+    std::stringstream stream{ std::string(text) };
+    std::string line;
+    std::string out;
+    bool first = true;
+    while (std::getline(stream, line)) {
+        if (!first) {
+            out += "\n";
+        }
+        first = false;
+        out += StripMarkupLine(line);
+    }
+    return out;
+}
+
+jsonutil::JsonArray SerializeOrderItems(const std::vector<OrderItem>& items) {
+    jsonutil::JsonArray array;
+    for (const OrderItem& item : items) {
+        jsonutil::JsonObject object;
+        object["type"] = item.type == ItemType::Folder ? kOrderTypeFolder : kOrderTypeNote;
+        object["value"] = item.value;
+        array.emplace_back(std::move(object));
+    }
+    return array;
+}
+
+std::vector<OrderItem> DeserializeOrderItems(const jsonutil::JsonArray* array) {
+    std::vector<OrderItem> items;
+    if (!array) {
+        return items;
+    }
+    for (const jsonutil::JsonValue& value : *array) {
+        const jsonutil::JsonObject* object = value.TryObject();
+        if (!object) {
+            continue;
+        }
+        const std::string type = jsonutil::JsonStringOr(object, "type", "");
+        const std::string itemValue = jsonutil::JsonStringOr(object, "value", "");
+        if (itemValue.empty()) {
+            continue;
+        }
+        if (type == kOrderTypeFolder) {
+            items.push_back({ ItemType::Folder, NormalizeFolderPath(itemValue) });
+        } else if (type == kOrderTypeNote) {
+            items.push_back({ ItemType::Note, itemValue });
+        }
+    }
+    return items;
+}
+
+} // namespace
+
+struct NotepadModule::Impl {
+    HMODULE module = nullptr;
+    TagsModule* tagsModule = nullptr;
+    bool configLoaded = false;
+    std::vector<FolderEntry> folders;
+    std::vector<NoteEntry> notes;
+    std::map<std::string, std::vector<OrderItem>> order;
+    std::string currentFolder;
+    std::string selectedNoteId;
+    std::string selectedFolderPath;
+    ItemType selectedType = ItemType::Note;
+    std::string search;
+    bool editing = false;
+    bool editDirty = false;
+    bool applyTags = true;
+    bool copyLineMode = false;
+    std::string editBuffer;
+    int editCursor = -1;
+    PendingModal pendingModal = PendingModal::None;
+    bool modalOpenRequested = false;
+    std::string modalBuffer;
+    std::string modalTarget;
+    std::string statusMessage;
+    std::map<std::wstring, TextureCacheEntry> textureCache;
+    std::uint64_t idCounter = 0;
+
+    void OnProcessAttach(HMODULE moduleHandle) {
+        module = moduleHandle;
+    }
+
+    void SetTagsModule(TagsModule* modulePtr) {
+        tagsModule = modulePtr;
+    }
+
+    void Shutdown() {
+        SaveEditBufferIfNeeded();
+        ReleaseDeviceResources();
+        configLoaded = false;
+        folders.clear();
+        notes.clear();
+        order.clear();
+    }
+
+    void ReloadConfig() {
+        ReleaseDeviceResources();
+        configLoaded = false;
+        folders.clear();
+        notes.clear();
+        order.clear();
+        currentFolder.clear();
+        selectedNoteId.clear();
+        selectedFolderPath.clear();
+        editing = false;
+        editDirty = false;
+        editBuffer.clear();
+    }
+
+    void FlushPendingEdits() {
+        SaveEditBufferIfNeeded();
+    }
+
+    void ReleaseDeviceResources() {
+        for (auto& [_, entry] : textureCache) {
+            if (entry.texture) {
+                entry.texture->Release();
+                entry.texture = nullptr;
+            }
+        }
+        textureCache.clear();
+    }
+
+    fs::path ProfileDirectory() const {
+        return AppConfig::Instance().ActiveProfileDirectory();
+    }
+
+    fs::path NotepadDirectory() const {
+        return ProfileDirectory() / kNotepadAssetsFolder;
+    }
+
+    fs::path ImagesDirectory() const {
+        return NotepadDirectory() / kNotepadImagesFolder;
+    }
+
+    fs::path ExportDirectory() const {
+        return NotepadDirectory() / kNotepadExportFolder;
+    }
+
+    void EnsureAssetDirectories() const {
+        std::error_code error;
+        fs::create_directories(ImagesDirectory(), error);
+        if (error) {
+            debuglog::WriteError("[notepad] failed to create images directory: %ls error=%d", ImagesDirectory().c_str(), error.value());
+        }
+        error.clear();
+        fs::create_directories(ExportDirectory(), error);
+        if (error) {
+            debuglog::WriteError("[notepad] failed to create export directory: %ls error=%d", ExportDirectory().c_str(), error.value());
+        }
+    }
+
+    FolderEntry* FindFolder(std::string_view path) {
+        const std::string normalized = NormalizeFolderPath(path);
+        const auto it = std::find_if(folders.begin(), folders.end(), [&](const FolderEntry& folder) {
+            return folder.path == normalized;
+        });
+        return it == folders.end() ? nullptr : &(*it);
+    }
+
+    const FolderEntry* FindFolder(std::string_view path) const {
+        const std::string normalized = NormalizeFolderPath(path);
+        const auto it = std::find_if(folders.begin(), folders.end(), [&](const FolderEntry& folder) {
+            return folder.path == normalized;
+        });
+        return it == folders.end() ? nullptr : &(*it);
+    }
+
+    NoteEntry* FindNote(std::string_view id) {
+        const auto it = std::find_if(notes.begin(), notes.end(), [&](const NoteEntry& note) {
+            return note.id == id;
+        });
+        return it == notes.end() ? nullptr : &(*it);
+    }
+
+    const NoteEntry* FindNote(std::string_view id) const {
+        const auto it = std::find_if(notes.begin(), notes.end(), [&](const NoteEntry& note) {
+            return note.id == id;
+        });
+        return it == notes.end() ? nullptr : &(*it);
+    }
+
+    bool FolderExists(std::string_view path) const {
+        return path.empty() || FindFolder(path) != nullptr;
+    }
+
+    bool FolderNameExists(std::string_view parent, std::string_view name, std::string_view ignorePath = {}) const {
+        const std::string target = JoinFolderPath(parent, name);
+        for (const FolderEntry& folder : folders) {
+            if (folder.path == target && folder.path != ignorePath) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::string GenerateNoteId() {
+        const std::uint64_t now = static_cast<std::uint64_t>(GetTickCount64());
+        for (;;) {
+            char buffer[64]{};
+            std::snprintf(buffer, sizeof(buffer), "note_%llx_%llx",
+                static_cast<unsigned long long>(now),
+                static_cast<unsigned long long>(++idCounter));
+            if (!FindNote(buffer)) {
+                return buffer;
+            }
+        }
+    }
+
+    void EnsureLoaded() {
+        if (configLoaded) {
+            return;
+        }
+        LoadConfig();
+        configLoaded = true;
+    }
+
+    void LoadConfig() {
+        folders.clear();
+        notes.clear();
+        order.clear();
+        currentFolder.clear();
+        selectedNoteId.clear();
+        selectedFolderPath.clear();
+        editing = false;
+        editDirty = false;
+        editBuffer.clear();
+        EnsureAssetDirectories();
+
+        const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kNotepadSectionName);
+        if (const jsonutil::JsonArray* folderArray = jsonutil::JsonArrayOrNull(&section, "folders")) {
+            for (const jsonutil::JsonValue& value : *folderArray) {
+                const jsonutil::JsonObject* object = value.TryObject();
+                if (!object) {
+                    continue;
+                }
+                FolderEntry folder;
+                folder.path = NormalizeFolderPath(jsonutil::JsonStringOr(object, "path", ""));
+                folder.createdAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "created_at", UnixTimeNow());
+                folder.updatedAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "updated_at", folder.createdAt);
+                if (!folder.path.empty() && !FindFolder(folder.path)) {
+                    folders.push_back(std::move(folder));
+                }
+            }
+        }
+
+        if (const jsonutil::JsonArray* noteArray = jsonutil::JsonArrayOrNull(&section, "notes")) {
+            for (const jsonutil::JsonValue& value : *noteArray) {
+                const jsonutil::JsonObject* object = value.TryObject();
+                if (!object) {
+                    continue;
+                }
+                NoteEntry note;
+                note.id = jsonutil::JsonStringOr(object, "id", "");
+                note.title = jsonutil::JsonStringOr(object, "title", UiSettings::Instance().Text(UiText::NotepadUntitled));
+                note.folderPath = NormalizeFolderPath(jsonutil::JsonStringOr(object, "folder_path", ""));
+                note.text = jsonutil::JsonStringOr(object, "text", "");
+                note.favorite = jsonutil::JsonBoolOr(object, "favorite", false);
+                note.createdAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "created_at", UnixTimeNow());
+                note.updatedAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "updated_at", note.createdAt);
+                if (note.id.empty()) {
+                    note.id = GenerateNoteId();
+                }
+                if (!FindNote(note.id)) {
+                    notes.push_back(std::move(note));
+                }
+            }
+        }
+
+        if (const jsonutil::JsonObject* orderObject = jsonutil::JsonObjectOrNull(&section, "order")) {
+            for (const auto& [key, value] : *orderObject) {
+                order[NormalizeFolderPath(key)] = DeserializeOrderItems(value.TryArray());
+            }
+        }
+
+        currentFolder = NormalizeFolderPath(jsonutil::JsonStringOr(&section, "last_open_folder_path", ""));
+        selectedNoteId = jsonutil::JsonStringOr(&section, "selected_note_id", "");
+        if (!FolderExists(currentFolder)) {
+            currentFolder.clear();
+        }
+        if (!FindNote(selectedNoteId)) {
+            selectedNoteId.clear();
+        }
+        NormalizeModel();
+        debuglog::WriteInfo("[notepad] config loaded folders=%zu notes=%zu", folders.size(), notes.size());
+    }
+
+    void NormalizeModel() {
+        for (NoteEntry& note : notes) {
+            note.folderPath = NormalizeFolderPath(note.folderPath);
+            if (!note.folderPath.empty() && !FindFolder(note.folderPath)) {
+                note.folderPath.clear();
+            }
+            if (note.title.empty()) {
+                note.title = UiSettings::Instance().Text(UiText::NotepadUntitled);
+            }
+        }
+
+        std::sort(folders.begin(), folders.end(), [](const FolderEntry& lhs, const FolderEntry& rhs) {
+            return LowerUtf8(lhs.path) < LowerUtf8(rhs.path);
+        });
+
+        std::set<std::string> validFolderPaths;
+        validFolderPaths.insert("");
+        for (const FolderEntry& folder : folders) {
+            validFolderPaths.insert(folder.path);
+        }
+
+        for (auto it = order.begin(); it != order.end();) {
+            if (!validFolderPaths.contains(it->first)) {
+                it = order.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (const std::string& path : validFolderPaths) {
+            order.try_emplace(path);
+        }
+
+        for (auto& [directory, items] : order) {
+            std::set<std::string> seenFolders;
+            std::set<std::string> seenNotes;
+            std::vector<OrderItem> normalized;
+            for (const OrderItem& item : items) {
+                if (item.type == ItemType::Folder) {
+                    const FolderEntry* folder = FindFolder(item.value);
+                    if (folder && ParentPath(folder->path) == directory && seenFolders.insert(folder->path).second) {
+                        normalized.push_back({ ItemType::Folder, folder->path });
+                    }
+                } else if (item.type == ItemType::Note) {
+                    const NoteEntry* note = FindNote(item.value);
+                    if (note && note->folderPath == directory && seenNotes.insert(note->id).second) {
+                        normalized.push_back({ ItemType::Note, note->id });
+                    }
+                }
+            }
+
+            for (const FolderEntry& folder : folders) {
+                if (ParentPath(folder.path) == directory && seenFolders.insert(folder.path).second) {
+                    normalized.push_back({ ItemType::Folder, folder.path });
+                }
+            }
+            for (const NoteEntry& note : notes) {
+                if (note.folderPath == directory && seenNotes.insert(note.id).second) {
+                    normalized.push_back({ ItemType::Note, note.id });
+                }
+            }
+            items = std::move(normalized);
+        }
+    }
+
+    jsonutil::JsonValue SerializeConfig() const {
+        jsonutil::JsonObject root;
+        root["schema_version"] = kNotepadSchemaVersion;
+
+        jsonutil::JsonArray folderArray;
+        for (const FolderEntry& folder : folders) {
+            jsonutil::JsonObject object;
+            object["path"] = folder.path;
+            object["created_at"] = static_cast<double>(folder.createdAt);
+            object["updated_at"] = static_cast<double>(folder.updatedAt);
+            folderArray.emplace_back(std::move(object));
+        }
+        root["folders"] = std::move(folderArray);
+
+        jsonutil::JsonArray noteArray;
+        for (const NoteEntry& note : notes) {
+            jsonutil::JsonObject object;
+            object["id"] = note.id;
+            object["title"] = note.title;
+            object["folder_path"] = note.folderPath;
+            object["text"] = note.text;
+            object["favorite"] = note.favorite;
+            object["created_at"] = static_cast<double>(note.createdAt);
+            object["updated_at"] = static_cast<double>(note.updatedAt);
+            noteArray.emplace_back(std::move(object));
+        }
+        root["notes"] = std::move(noteArray);
+
+        jsonutil::JsonObject orderObject;
+        for (const auto& [path, items] : order) {
+            orderObject[path] = SerializeOrderItems(items);
+        }
+        root["order"] = std::move(orderObject);
+        root["last_open_folder_path"] = currentFolder;
+        root["selected_note_id"] = selectedNoteId;
+        return jsonutil::JsonValue(std::move(root));
+    }
+
+    void QueueSave() {
+        NormalizeModel();
+        AppConfig::Instance().QueueSectionReplace(std::string(kNotepadSectionName), SerializeConfig());
+    }
+
+    void SelectNote(std::string_view id) {
+        SaveEditBufferIfNeeded();
+        NoteEntry* note = FindNote(id);
+        if (!note) {
+            return;
+        }
+        selectedNoteId = note->id;
+        selectedFolderPath.clear();
+        selectedType = ItemType::Note;
+        editing = false;
+        editDirty = false;
+        editBuffer = note->text;
+        editCursor = static_cast<int>(editBuffer.size());
+        currentFolder = note->folderPath;
+        QueueSave();
+    }
+
+    void SelectFolder(std::string_view path) {
+        SaveEditBufferIfNeeded();
+        const std::string normalized = NormalizeFolderPath(path);
+        if (!normalized.empty() && !FindFolder(normalized)) {
+            return;
+        }
+        selectedFolderPath = normalized;
+        selectedNoteId.clear();
+        selectedType = ItemType::Folder;
+    }
+
+    void OpenFolder(std::string_view path) {
+        SaveEditBufferIfNeeded();
+        const std::string normalized = NormalizeFolderPath(path);
+        if (!normalized.empty() && !FindFolder(normalized)) {
+            return;
+        }
+        currentFolder = normalized;
+        selectedFolderPath = normalized;
+        selectedNoteId.clear();
+        selectedType = ItemType::Folder;
+        QueueSave();
+    }
+
+    void SaveEditBufferIfNeeded() {
+        if (!editing || !editDirty) {
+            return;
+        }
+        NoteEntry* note = FindNote(selectedNoteId);
+        if (!note) {
+            editing = false;
+            editDirty = false;
+            return;
+        }
+        note->text = editBuffer;
+        note->updatedAt = UnixTimeNow();
+        editDirty = false;
+        QueueSave();
+        debuglog::WriteInfo("[notepad] note saved id=%s len=%zu", note->id.c_str(), note->text.size());
+    }
+
+    void CreateFolder(std::string_view parent, std::string_view name) {
+        const std::string cleanName = TrimAscii(name);
+        const std::string cleanParent = NormalizeFolderPath(parent);
+        if (!IsValidFolderName(cleanName)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadInvalidName);
+            return;
+        }
+        if (FolderNameExists(cleanParent, cleanName)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadFolderExists);
+            return;
+        }
+        FolderEntry folder;
+        folder.path = JoinFolderPath(cleanParent, cleanName);
+        folder.createdAt = UnixTimeNow();
+        folder.updatedAt = folder.createdAt;
+        folders.push_back(folder);
+        order.try_emplace(folder.path);
+        order[cleanParent].push_back({ ItemType::Folder, folder.path });
+        SelectFolder(folder.path);
+        QueueSave();
+        debuglog::WriteInfo("[notepad] folder created path=%s", folder.path.c_str());
+    }
+
+    void CreateNote(std::string_view folderPath, std::string_view title) {
+        NoteEntry note;
+        note.id = GenerateNoteId();
+        note.title = TrimAscii(title);
+        if (note.title.empty()) {
+            note.title = UiSettings::Instance().Text(UiText::NotepadUntitled);
+        }
+        note.folderPath = NormalizeFolderPath(folderPath);
+        note.createdAt = UnixTimeNow();
+        note.updatedAt = note.createdAt;
+        notes.push_back(note);
+        order[note.folderPath].push_back({ ItemType::Note, note.id });
+        SelectNote(note.id);
+        editing = true;
+        editBuffer = note.text;
+        editDirty = false;
+        QueueSave();
+        debuglog::WriteInfo("[notepad] note created id=%s folder=%s", note.id.c_str(), note.folderPath.c_str());
+    }
+
+    void DuplicateNote(std::string_view id) {
+        const NoteEntry* original = FindNote(id);
+        if (!original) {
+            return;
+        }
+        NoteEntry copy = *original;
+        copy.id = GenerateNoteId();
+        copy.title += UiSettings::Instance().Text(UiText::NotepadCopySuffix);
+        copy.favorite = false;
+        copy.createdAt = UnixTimeNow();
+        copy.updatedAt = copy.createdAt;
+        notes.push_back(copy);
+        order[copy.folderPath].push_back({ ItemType::Note, copy.id });
+        SelectNote(copy.id);
+        QueueSave();
+    }
+
+    void RenameNote(std::string_view id, std::string_view title) {
+        NoteEntry* note = FindNote(id);
+        if (!note) {
+            return;
+        }
+        const std::string cleanTitle = TrimAscii(title);
+        note->title = cleanTitle.empty() ? UiSettings::Instance().Text(UiText::NotepadUntitled) : cleanTitle;
+        note->updatedAt = UnixTimeNow();
+        QueueSave();
+    }
+
+    void RenameFolder(std::string_view path, std::string_view newName) {
+        const std::string oldPath = NormalizeFolderPath(path);
+        FolderEntry* folder = FindFolder(oldPath);
+        const std::string cleanName = TrimAscii(newName);
+        if (!folder || !IsValidFolderName(cleanName)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadInvalidName);
+            return;
+        }
+        const std::string parent = ParentPath(oldPath);
+        const std::string newPath = JoinFolderPath(parent, cleanName);
+        if (newPath != oldPath && FolderNameExists(parent, cleanName, oldPath)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadFolderExists);
+            return;
+        }
+
+        for (FolderEntry& item : folders) {
+            if (PathStartsWith(item.path, oldPath)) {
+                item.path = ReplacePathPrefix(item.path, oldPath, newPath);
+                item.updatedAt = UnixTimeNow();
+            }
+        }
+        for (NoteEntry& note : notes) {
+            if (PathStartsWith(note.folderPath, oldPath)) {
+                note.folderPath = ReplacePathPrefix(note.folderPath, oldPath, newPath);
+                note.updatedAt = UnixTimeNow();
+            }
+        }
+        RewriteOrderFolderPrefix(oldPath, newPath);
+        if (currentFolder == oldPath || PathStartsWith(currentFolder, oldPath)) {
+            currentFolder = ReplacePathPrefix(currentFolder, oldPath, newPath);
+        }
+        if (selectedFolderPath == oldPath || PathStartsWith(selectedFolderPath, oldPath)) {
+            selectedFolderPath = ReplacePathPrefix(selectedFolderPath, oldPath, newPath);
+        }
+        NormalizeModel();
+        QueueSave();
+    }
+
+    void DeleteNote(std::string_view id) {
+        SaveEditBufferIfNeeded();
+        const auto it = std::find_if(notes.begin(), notes.end(), [&](const NoteEntry& note) {
+            return note.id == id;
+        });
+        if (it == notes.end()) {
+            return;
+        }
+        const std::string removedId = it->id;
+        notes.erase(it);
+        RemoveOrderItem({ ItemType::Note, removedId });
+        if (selectedNoteId == removedId) {
+            selectedNoteId.clear();
+            editing = false;
+            editBuffer.clear();
+        }
+        QueueSave();
+        debuglog::WriteInfo("[notepad] note deleted id=%s", removedId.c_str());
+    }
+
+    void DeleteFolder(std::string_view path) {
+        SaveEditBufferIfNeeded();
+        const std::string removedPath = NormalizeFolderPath(path);
+        if (removedPath.empty() || !FindFolder(removedPath)) {
+            return;
+        }
+        folders.erase(std::remove_if(folders.begin(), folders.end(), [&](const FolderEntry& folder) {
+            return PathStartsWith(folder.path, removedPath);
+        }), folders.end());
+        notes.erase(std::remove_if(notes.begin(), notes.end(), [&](const NoteEntry& note) {
+            return PathStartsWith(note.folderPath, removedPath);
+        }), notes.end());
+        for (auto it = order.begin(); it != order.end();) {
+            if (PathStartsWith(it->first, removedPath)) {
+                it = order.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        RemoveOrderItem({ ItemType::Folder, removedPath });
+        if (PathStartsWith(currentFolder, removedPath)) {
+            currentFolder = ParentPath(removedPath);
+        }
+        if (PathStartsWith(selectedFolderPath, removedPath)) {
+            selectedFolderPath.clear();
+        }
+        if (!selectedNoteId.empty() && !FindNote(selectedNoteId)) {
+            selectedNoteId.clear();
+            editing = false;
+            editBuffer.clear();
+        }
+        NormalizeModel();
+        QueueSave();
+        debuglog::WriteInfo("[notepad] folder deleted path=%s", removedPath.c_str());
+    }
+
+    void RemoveOrderItem(const OrderItem& item) {
+        for (auto& [_, items] : order) {
+            items.erase(std::remove_if(items.begin(), items.end(), [&](const OrderItem& existing) {
+                return existing.type == item.type && existing.value == item.value;
+            }), items.end());
+        }
+    }
+
+    void InsertOrderItem(std::string_view directory, OrderItem item, const std::optional<OrderItem>& anchor, DropPlacement placement) {
+        std::vector<OrderItem>& items = order[NormalizeFolderPath(directory)];
+        std::size_t index = items.size();
+        if (anchor.has_value() && placement != DropPlacement::End) {
+            const auto it = std::find_if(items.begin(), items.end(), [&](const OrderItem& existing) {
+                return existing.type == anchor->type && existing.value == anchor->value;
+            });
+            if (it != items.end()) {
+                index = static_cast<std::size_t>(std::distance(items.begin(), it));
+                if (placement == DropPlacement::After) {
+                    ++index;
+                }
+            }
+        }
+        items.insert(items.begin() + static_cast<std::ptrdiff_t>(std::min(index, items.size())), std::move(item));
+    }
+
+    void RewriteOrderFolderPrefix(std::string_view oldPath, std::string_view newPath) {
+        std::map<std::string, std::vector<OrderItem>> rewritten;
+        for (auto& [key, items] : order) {
+            const std::string newKey = PathStartsWith(key, oldPath) ? ReplacePathPrefix(key, oldPath, newPath) : key;
+            for (OrderItem& item : items) {
+                if (item.type == ItemType::Folder && PathStartsWith(item.value, oldPath)) {
+                    item.value = ReplacePathPrefix(item.value, oldPath, newPath);
+                }
+            }
+            auto& target = rewritten[newKey];
+            target.insert(target.end(), items.begin(), items.end());
+        }
+        order = std::move(rewritten);
+    }
+
+    bool ApplyDrop(const OrderItem& dragged, std::string targetDirectory, std::optional<OrderItem> anchor, DropPlacement placement) {
+        targetDirectory = NormalizeFolderPath(targetDirectory);
+        if (anchor.has_value() && anchor->type == dragged.type && anchor->value == dragged.value && placement != DropPlacement::Inside) {
+            return false;
+        }
+        if (dragged.type == ItemType::Note) {
+            NoteEntry* note = FindNote(dragged.value);
+            if (!note || !FolderExists(targetDirectory)) {
+                return false;
+            }
+            RemoveOrderItem(dragged);
+            note->folderPath = targetDirectory;
+            note->updatedAt = UnixTimeNow();
+            InsertOrderItem(targetDirectory, dragged, anchor, placement);
+            SelectNote(note->id);
+            QueueSave();
+            return true;
+        }
+
+        FolderEntry* folder = FindFolder(dragged.value);
+        if (!folder || !FolderExists(targetDirectory)) {
+            return false;
+        }
+        const std::string oldPath = folder->path;
+        if (targetDirectory == oldPath || PathStartsWith(targetDirectory, oldPath)) {
+            return false;
+        }
+        const std::string name = BaseName(oldPath);
+        std::string newPath = JoinFolderPath(targetDirectory, name);
+        if (newPath != oldPath && FolderNameExists(targetDirectory, name, oldPath)) {
+            return false;
+        }
+
+        RemoveOrderItem({ ItemType::Folder, oldPath });
+        if (newPath != oldPath) {
+            for (FolderEntry& item : folders) {
+                if (PathStartsWith(item.path, oldPath)) {
+                    item.path = ReplacePathPrefix(item.path, oldPath, newPath);
+                    item.updatedAt = UnixTimeNow();
+                }
+            }
+            for (NoteEntry& note : notes) {
+                if (PathStartsWith(note.folderPath, oldPath)) {
+                    note.folderPath = ReplacePathPrefix(note.folderPath, oldPath, newPath);
+                    note.updatedAt = UnixTimeNow();
+                }
+            }
+            RewriteOrderFolderPrefix(oldPath, newPath);
+            if (PathStartsWith(currentFolder, oldPath)) {
+                currentFolder = ReplacePathPrefix(currentFolder, oldPath, newPath);
+            }
+            if (PathStartsWith(selectedFolderPath, oldPath)) {
+                selectedFolderPath = ReplacePathPrefix(selectedFolderPath, oldPath, newPath);
+            }
+        }
+        InsertOrderItem(targetDirectory, { ItemType::Folder, newPath }, anchor, placement);
+        SelectFolder(newPath);
+        NormalizeModel();
+        QueueSave();
+        return true;
+    }
+
+    int CountDescendantFolders(std::string_view path) const {
+        int count = 0;
+        for (const FolderEntry& folder : folders) {
+            if (folder.path != path && PathStartsWith(folder.path, path)) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    int CountNotesInFolderTree(std::string_view path) const {
+        int count = 0;
+        for (const NoteEntry& note : notes) {
+            if (PathStartsWith(note.folderPath, path)) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    std::vector<RowItem> BuildRows(std::string_view directory) const {
+        const std::string normalized = NormalizeFolderPath(directory);
+        std::vector<RowItem> rows;
+        const auto orderIt = order.find(normalized);
+        if (orderIt == order.end()) {
+            return rows;
+        }
+        for (const OrderItem& item : orderIt->second) {
+            if (item.type == ItemType::Folder) {
+                if (const FolderEntry* folder = FindFolder(item.value)) {
+                    rows.push_back({ ItemType::Folder, folder->path, BaseName(folder->path) });
+                }
+            } else if (const NoteEntry* note = FindNote(item.value)) {
+                rows.push_back({ ItemType::Note, note->id, note->title });
+            }
+        }
+        return rows;
+    }
+
+    std::vector<const NoteEntry*> FavoriteNotes() const {
+        std::vector<const NoteEntry*> result;
+        for (const NoteEntry& note : notes) {
+            if (note.favorite) {
+                result.push_back(&note);
+            }
+        }
+        return result;
+    }
+
+    std::vector<const NoteEntry*> SearchNotes(std::string_view query) const {
+        std::vector<const NoteEntry*> result;
+        for (const NoteEntry& note : notes) {
+            if (ContainsNoCase(note.title, query) || ContainsNoCase(note.text, query) || ContainsNoCase(note.folderPath, query)) {
+                result.push_back(&note);
+            }
+        }
+        return result;
+    }
+
+    std::string RenderedText(const NoteEntry& note) const {
+        if (!applyTags || !tagsModule) {
+            return note.text;
+        }
+        return tagsModule->ExpandText(note.text);
+    }
+
+    void DrawMainTab(IDirect3DDevice9* device) {
+        EnsureLoaded();
+        HandleKeyboardShortcuts();
+
+        UiSettings& ui = UiSettings::Instance();
+        ImGui::SeparatorText(ui.Text(UiText::TabNotepad));
+        if (!statusMessage.empty()) {
+            ImGui::TextDisabled("%s", statusMessage.c_str());
+        }
+        ImGui::Spacing();
+
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const bool narrow = avail.x < ScaleUi(900.0f);
+        if (narrow) {
+            const float navHeight = std::clamp(avail.y * 0.34f, ScaleUi(210.0f), ScaleUi(300.0f));
+            if (ImGui::BeginChild("notepad_left_top", ImVec2(0.0f, navHeight), ImGuiChildFlags_None)) {
+                DrawLeftPanel();
+            }
+            ImGui::EndChild();
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            if (ImGui::BeginChild("notepad_right_bottom", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                DrawRightPanel(device);
+            }
+            ImGui::EndChild();
+        } else {
+            const float leftWidth = std::clamp(avail.x * 0.30f, ScaleUi(260.0f), ScaleUi(340.0f));
+            if (ImGui::BeginChild("notepad_left", ImVec2(leftWidth, 0.0f), ImGuiChildFlags_None)) {
+                DrawLeftPanel();
+            }
+            ImGui::EndChild();
+            ImGui::SameLine(0.0f, ScaleUi(10.0f));
+            if (ImGui::BeginChild("notepad_right", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                DrawRightPanel(device);
+            }
+            ImGui::EndChild();
+        }
+
+        DrawModals();
+    }
+
+    void HandleKeyboardShortcuts() {
+        const ImGuiIO& io = ImGui::GetIO();
+        if (editing && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+            SaveEditBufferIfNeeded();
+            editing = false;
+        }
+        if (ImGui::IsAnyItemActive()) {
+            return;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+            if (!selectedNoteId.empty()) {
+                OpenDeleteNoteModal(selectedNoteId);
+            } else if (!selectedFolderPath.empty()) {
+                OpenDeleteFolderModal(selectedFolderPath);
+            }
+        } else if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+            if (!selectedNoteId.empty()) {
+                OpenRenameNoteModal(selectedNoteId);
+            } else if (!selectedFolderPath.empty()) {
+                OpenRenameFolderModal(selectedFolderPath);
+            }
+        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            if (editing) {
+                editing = false;
+                editDirty = false;
+                if (const NoteEntry* note = FindNote(selectedNoteId)) {
+                    editBuffer = note->text;
+                }
+            }
+        } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            if (!selectedFolderPath.empty()) {
+                OpenFolder(selectedFolderPath);
+            }
+        }
+    }
+
+    bool DrawToolbarButton(const char* icon, const char* id, const char* tooltip) {
+        const std::string label = std::string(icon) + "##" + id;
+        const bool pressed = ImGui::Button(label.c_str(), ScaleUi(30.0f, 28.0f));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", tooltip);
+        }
+        return pressed;
+    }
+
+    std::string CompactBreadcrumbLabel() const {
+        UiSettings& ui = UiSettings::Instance();
+        if (currentFolder.empty()) {
+            return ui.Text(UiText::NotepadRootName);
+        }
+        const std::vector<std::string> parts = SplitPath(currentFolder);
+        if (parts.size() <= 2) {
+            return std::string(ui.Text(UiText::NotepadRootName)) + " / " + currentFolder;
+        }
+        return std::string(ui.Text(UiText::NotepadRootName)) + " / ... / " + parts.back();
+    }
+
+    void DrawFavoriteMarker(const NoteEntry& note) const {
+        if (!note.favorite) {
+            return;
+        }
+        const ImVec2 rowMin = ImGui::GetItemRectMin();
+        const ImVec2 rowMax = ImGui::GetItemRectMax();
+        const ImVec2 textSize = ImGui::CalcTextSize(kIconStar);
+        const ImVec2 pos(rowMax.x - textSize.x - ScaleUi(6.0f), rowMin.y + (rowMax.y - rowMin.y - textSize.y) * 0.5f);
+        ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImVec4(1.0f, 0.82f, 0.18f, 1.0f)), kIconStar);
+    }
+
+    void DrawNoteSelectableRow(const NoteEntry& note, const std::string& label, bool selected) {
+        if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_None, ImVec2(0.0f, ScaleUi(24.0f)))) {
+            SelectNote(note.id);
+            if (!search.empty()) {
+                search.clear();
+            }
+        }
+        DrawFavoriteMarker(note);
+        DrawNoteContextMenu(note);
+    }
+
+    void DrawLeftPanel() {
+        UiSettings& ui = UiSettings::Instance();
+        if (DrawToolbarButton(kIconPlus, "notepad_new_note", ui.Text(UiText::NotepadNewNote))) {
+            modalBuffer = ui.Text(UiText::NotepadUntitled);
+            modalTarget = currentFolder;
+            pendingModal = PendingModal::CreateNote;
+            modalOpenRequested = true;
+        }
+        ImGui::SameLine();
+        if (DrawToolbarButton(kIconFolder, "notepad_new_folder", ui.Text(UiText::NotepadNewFolder))) {
+            modalBuffer = ui.Text(UiText::NotepadDefaultFolder);
+            modalTarget = currentFolder;
+            pendingModal = PendingModal::CreateFolder;
+            modalOpenRequested = true;
+        }
+        ImGui::SameLine();
+        if (DrawToolbarButton(kIconFileImport, "notepad_import_txt", ui.Text(UiText::NotepadImportTxt))) {
+            ImportTxtAsNote();
+        }
+
+        ImGui::SetNextItemWidth(-1.0f);
+        const std::string searchHint = std::string(kIconSearch) + " " + ui.Text(UiText::NotepadSearchHint);
+        InputTextWithHintString("##notepad_search", searchHint.c_str(), search, 0, 128);
+        if (search.empty()) {
+            DrawBreadcrumbs();
+        }
+
+        if (ImGui::BeginChild("notepad_nav_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+            if (search.empty()) {
+                const bool hasFavorites = !FavoriteNotes().empty();
+                DrawFavorites();
+                if (hasFavorites) {
+                    ImGui::Separator();
+                }
+                DrawCurrentFolderRows();
+            } else {
+                DrawSearchResults();
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    void DrawBreadcrumbs() {
+        UiSettings& ui = UiSettings::Instance();
+        ImGui::Spacing();
+        if (ImGui::Button((std::string(kIconChevronLeft) + "##notepad_back_root").c_str(), ScaleUi(26.0f, 0.0f))) {
+            OpenFolder("");
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::NotepadRootName));
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string(kIconAngleUp) + "##notepad_up").c_str(), ScaleUi(26.0f, 0.0f))) {
+            OpenFolder(ParentPath(currentFolder));
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::EditorBack));
+        }
+        ImGui::SameLine();
+        const std::string label = CompactBreadcrumbLabel();
+        ImGui::TextUnformatted(label.c_str());
+        if (ImGui::IsItemHovered() && !currentFolder.empty()) {
+            const std::string full = std::string(ui.Text(UiText::NotepadRootName)) + " / " + currentFolder;
+            ImGui::SetTooltip("%s", full.c_str());
+        }
+        ImGui::Spacing();
+    }
+
+    void DrawFavorites() {
+        UiSettings& ui = UiSettings::Instance();
+        const auto favorites = FavoriteNotes();
+        if (favorites.empty()) {
+            return;
+        }
+        const bool selectedFavoriteVisible = std::any_of(favorites.begin(), favorites.end(), [&](const NoteEntry* note) {
+            return note && note->id == selectedNoteId;
+        });
+        const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth
+            | (selectedFavoriteVisible ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+        const std::string header = std::string(kIconStar) + " " + ui.Text(UiText::NotepadFavorites)
+            + " (" + std::to_string(favorites.size()) + ")";
+        if (!ImGui::TreeNodeEx("##notepad_favorites", flags, "%s", header.c_str())) {
+            return;
+        }
+        for (const NoteEntry* note : favorites) {
+            if (!note) {
+                continue;
+            }
+            const std::string label = std::string(kIconBook) + " " + note->title + "##fav_" + note->id;
+            DrawNoteSelectableRow(*note, label, selectedNoteId == note->id);
+        }
+        ImGui::TreePop();
+    }
+
+    void DrawCurrentFolderRows() {
+        UiSettings& ui = UiSettings::Instance();
+        const std::vector<RowItem> rows = BuildRows(currentFolder);
+        if (rows.empty()) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEmptyFolder));
+        }
+        for (const RowItem& row : rows) {
+            DrawRow(row);
+        }
+        DrawEndDropTarget();
+    }
+
+    void DrawRow(const RowItem& row) {
+        const bool isFolder = row.type == ItemType::Folder;
+        const bool selected = isFolder ? selectedFolderPath == row.value : selectedNoteId == row.value;
+        const std::string icon = isFolder ? kIconFolder : kIconBook;
+        std::string label = icon + " " + row.label;
+        label += "##notepad_row_" + row.value;
+
+        if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, ScaleUi(24.0f)))) {
+            if (isFolder) {
+                SelectFolder(row.value);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    OpenFolder(row.value);
+                }
+            } else {
+                SelectNote(row.value);
+            }
+        }
+        const ImVec2 rowMin = ImGui::GetItemRectMin();
+        const ImVec2 rowMax = ImGui::GetItemRectMax();
+        if (!isFolder) {
+            if (const NoteEntry* note = FindNote(row.value)) {
+                DrawFavoriteMarker(*note);
+            }
+        }
+        DrawDragSource({ row.type, row.value }, row.label);
+        DrawRowDropTarget({ row.type, row.value }, rowMin, rowMax);
+        if (isFolder) {
+            if (ImGui::BeginPopupContextItem(("notepad_folder_popup_" + row.value).c_str())) {
+                DrawFolderContextActions(row.value);
+                ImGui::EndPopup();
+            }
+        } else if (const NoteEntry* note = FindNote(row.value)) {
+            DrawNoteContextMenu(*note);
+        }
+    }
+
+    void DrawDragSource(const OrderItem& item, const std::string& label) {
+        if (!ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            return;
+        }
+        const char* payloadType = item.type == ItemType::Folder ? kPayloadFolder : kPayloadNote;
+        ImGui::SetDragDropPayload(payloadType, item.value.c_str(), item.value.size() + 1);
+        ImGui::TextUnformatted(label.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    void DrawRowDropTarget(const OrderItem& anchor, const ImVec2& rowMin, const ImVec2& rowMax) {
+        if (!ImGui::BeginDragDropTarget()) {
+            return;
+        }
+        const float y = ImGui::GetIO().MousePos.y;
+        const float height = std::max(1.0f, rowMax.y - rowMin.y);
+        DropPlacement placement = DropPlacement::Before;
+        std::string targetDirectory = currentFolder;
+        if (y > rowMin.y + height * 0.66f) {
+            placement = DropPlacement::After;
+        } else if (anchor.type == ItemType::Folder && y > rowMin.y + height * 0.33f) {
+            placement = DropPlacement::Inside;
+            targetDirectory = anchor.value;
+        }
+
+        auto acceptPayload = [&](const char* type, ItemType itemType) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(type)) {
+                const std::string value(static_cast<const char*>(payload->Data));
+                if (payload->IsDelivery()) {
+                    std::optional<OrderItem> targetAnchor = placement == DropPlacement::Inside ? std::nullopt : std::optional<OrderItem>(anchor);
+                    ApplyDrop({ itemType, value }, targetDirectory, targetAnchor, placement);
+                }
+            }
+        };
+        acceptPayload(kPayloadNote, ItemType::Note);
+        acceptPayload(kPayloadFolder, ItemType::Folder);
+        ImGui::EndDragDropTarget();
+    }
+
+    void DrawEndDropTarget() {
+        ImGui::Dummy(ImVec2(-1.0f, ScaleUi(30.0f)));
+        if (!ImGui::BeginDragDropTarget()) {
+            return;
+        }
+        auto acceptPayload = [&](const char* type, ItemType itemType) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(type)) {
+                const std::string value(static_cast<const char*>(payload->Data));
+                if (payload->IsDelivery()) {
+                    ApplyDrop({ itemType, value }, currentFolder, std::nullopt, DropPlacement::End);
+                }
+            }
+        };
+        acceptPayload(kPayloadNote, ItemType::Note);
+        acceptPayload(kPayloadFolder, ItemType::Folder);
+        ImGui::EndDragDropTarget();
+    }
+
+    void DrawSearchResults() {
+        UiSettings& ui = UiSettings::Instance();
+        const auto results = SearchNotes(search);
+        if (results.empty()) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEmptySearch));
+            return;
+        }
+        ImGui::TextDisabled("%s %zu", ui.Text(UiText::NotepadSearchResults), results.size());
+        for (const NoteEntry* note : results) {
+            std::string label = std::string(kIconBook) + " " + note->title;
+            if (!note->folderPath.empty()) {
+                label += "  [" + note->folderPath + "]";
+            }
+            label += "##notepad_search_" + note->id;
+            DrawNoteSelectableRow(*note, label, selectedNoteId == note->id);
+        }
+    }
+
+    void DrawNoteContextMenu(const NoteEntry& note) {
+        if (!ImGui::BeginPopupContextItem(("notepad_note_popup_" + note.id).c_str())) {
+            return;
+        }
+        UiSettings& ui = UiSettings::Instance();
+        if (ImGui::MenuItem(ui.Text(UiText::Edit))) {
+            SelectNote(note.id);
+            editing = true;
+            editBuffer = note.text;
+            editDirty = false;
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+            OpenRenameNoteModal(note.id);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::ActionDuplicate))) {
+            DuplicateNote(note.id);
+        }
+        if (ImGui::MenuItem(note.favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))) {
+            if (NoteEntry* target = FindNote(note.id)) {
+                target->favorite = !target->favorite;
+                target->updatedAt = UnixTimeNow();
+                QueueSave();
+            }
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::NotepadExportTxt))) {
+            ExportNote(note);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+            OpenDeleteNoteModal(note.id);
+        }
+        ImGui::EndPopup();
+    }
+
+    void DrawFolderContextActions(const std::string& path) {
+        UiSettings& ui = UiSettings::Instance();
+        if (ImGui::MenuItem(ui.Text(UiText::NotepadOpenFolder))) {
+            OpenFolder(path);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+            OpenRenameFolderModal(path);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+            OpenDeleteFolderModal(path);
+        }
+    }
+
+    void DrawRightPanel(IDirect3DDevice9* device) {
+        UiSettings& ui = UiSettings::Instance();
+        NoteEntry* note = selectedNoteId.empty() ? nullptr : FindNote(selectedNoteId);
+        if (!note) {
+            ImGui::TextColored(ImVec4(0.65f, 0.75f, 0.90f, 1.0f), "%s", ui.Text(UiText::NotepadNoSelection));
+            return;
+        }
+
+        ImGui::TextUnformatted(note->title.c_str());
+        ImGui::SameLine();
+        if (note->favorite) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", kIconStar);
+            ImGui::SameLine();
+        }
+        if (ImGui::Button((std::string(kIconStar) + " " + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))).c_str())) {
+            note->favorite = !note->favorite;
+            note->updatedAt = UnixTimeNow();
+            QueueSave();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string(kIconEdit) + " " + ui.Text(UiText::Edit)).c_str())) {
+            editing = true;
+            editBuffer = note->text;
+            editDirty = false;
+            editCursor = static_cast<int>(editBuffer.size());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string(kIconFileExport) + " " + ui.Text(UiText::NotepadExportTxt)).c_str())) {
+            ExportNote(*note);
+        }
+        ImGui::SameLine();
+        ImGui::Checkbox(ui.Text(UiText::NotepadApplyTags), &applyTags);
+
+        ImGui::Separator();
+        if (!editing) {
+            DrawReadOnlyNote(*note, device);
+        } else {
+            DrawEditor(*note, device);
+        }
+    }
+
+    void DrawReadOnlyNote(const NoteEntry& note, IDirect3DDevice9* device) {
+        UiSettings& ui = UiSettings::Instance();
+        if (ImGui::Button((std::string(kIconCopy) + " " + ui.Text(UiText::NotepadCopyRaw)).c_str())) {
+            ImGui::SetClipboardText(note.text.c_str());
+            statusMessage = ui.Text(UiText::ToastClipboardCopied);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string(kIconCopy) + " " + ui.Text(UiText::NotepadCopyRendered)).c_str())) {
+            const std::string rendered = RenderedText(note);
+            ImGui::SetClipboardText(StripMarkup(rendered).c_str());
+            statusMessage = ui.Text(UiText::ToastClipboardCopied);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(copyLineMode ? ui.Text(UiText::NotepadPreviewMode) : ui.Text(UiText::NotepadCopyLine))) {
+            copyLineMode = !copyLineMode;
+        }
+        ImGui::Spacing();
+        if (ImGui::BeginChild("notepad_preview_read", ImVec2(0.0f, 0.0f), false)) {
+            if (copyLineMode) {
+                DrawCopyLines(RenderedText(note));
+            } else {
+                DrawPreviewText(RenderedText(note), device);
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    void DrawCopyLines(const std::string& text) {
+        std::stringstream stream{ text };
+        std::string line;
+        int index = 0;
+        while (std::getline(stream, line)) {
+            std::string plain = StripMarkupLine(line);
+            if (plain.empty()) {
+                plain = " ";
+            }
+            ImGui::PushID(index++);
+            if (ImGui::Selectable(plain.c_str(), false)) {
+                ImGui::SetClipboardText(plain == " " ? "" : plain.c_str());
+                statusMessage = UiSettings::Instance().Text(UiText::ToastClipboardCopied);
+            }
+            ImGui::PopID();
+        }
+    }
+
+    void DrawEditor(NoteEntry& note, IDirect3DDevice9* device) {
+        UiSettings& ui = UiSettings::Instance();
+        const bool savePressed = ImGui::Button((std::string(kIconSave) + " " + ui.Text(UiText::Save)).c_str());
+        if (savePressed) {
+            editDirty = true;
+            SaveEditBufferIfNeeded();
+            editing = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+            editing = false;
+            editDirty = false;
+            editBuffer = note.text;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string(kIconImage) + " " + ui.Text(UiText::NotepadInsertImage)).c_str())) {
+            InsertImageFromDialog();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::NotepadMarkupHelp))) {
+            ImGui::OpenPopup("notepad_markup_help");
+        }
+        DrawMarkupHelpPopup();
+
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const bool vertical = avail.x < ScaleUi(760.0f);
+        if (vertical) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEditor));
+            if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, std::max(ScaleUi(220.0f), avail.y * 0.48f)), 0, &editCursor)) {
+                editDirty = true;
+            }
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
+            if (ImGui::BeginChild("notepad_preview_edit_vertical", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                DrawPreviewText(applyTags && tagsModule ? tagsModule->ExpandText(editBuffer) : editBuffer, device);
+            }
+            ImGui::EndChild();
+        } else {
+            const float editorWidth = std::max(ScaleUi(300.0f), avail.x * 0.50f);
+            if (ImGui::BeginChild("notepad_edit_column", ImVec2(editorWidth, 0.0f), false)) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEditor));
+                if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, -1.0f), 0, &editCursor)) {
+                    editDirty = true;
+                }
+            }
+            ImGui::EndChild();
+            ImGui::SameLine();
+            if (ImGui::BeginChild("notepad_preview_edit", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
+                DrawPreviewText(applyTags && tagsModule ? tagsModule->ExpandText(editBuffer) : editBuffer, device);
+            }
+            ImGui::EndChild();
+        }
+    }
+
+    void DrawMarkupHelpPopup() {
+        UiSettings& ui = UiSettings::Instance();
+        if (!ImGui::BeginPopup("notepad_markup_help")) {
+            return;
+        }
+        ImGui::TextUnformatted(ui.Text(UiText::NotepadMarkupHelpTitle));
+        ImGui::Separator();
+        ImGui::TextUnformatted("{FF0000} text");
+        ImGui::TextUnformatted("#center text");
+        ImGui::TextUnformatted("#color00ff00 #bg202020 text");
+        ImGui::TextUnformatted("#font18 #iconcompass text");
+        ImGui::TextUnformatted("#img(example.png, size(320,180))");
+        ImGui::TextUnformatted("#bullet text");
+        ImGui::TextUnformatted("#hr");
+        ImGui::TextDisabled("%s", ui.Text(UiText::NotepadMarkupHelpHint));
+        ImGui::EndPopup();
+    }
+
+    void DrawPreviewText(const std::string& text, IDirect3DDevice9* device) {
+        const auto lines = ParseRichText(text);
+        for (const std::vector<RichSegment>& line : lines) {
+            DrawRichLine(line, device);
+        }
+    }
+
+    void DrawRichLine(const std::vector<RichSegment>& segments, IDirect3DDevice9* device) {
+        if (segments.empty()) {
+            ImGui::TextUnformatted("");
+            return;
+        }
+        const float lineStartX = ImGui::GetCursorPosX();
+        const float lineStartY = ImGui::GetCursorPosY();
+        const float avail = ImGui::GetContentRegionAvail().x;
+        float maxHeight = ImGui::GetTextLineHeightWithSpacing();
+        bool hasDrawn = false;
+
+        for (std::size_t i = 0; i < segments.size(); ++i) {
+            const RichSegment& segment = segments[i];
+            if (segment.isHr) {
+                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                const ImVec4 color = segment.hasHrColor ? segment.hrColor : ImGui::GetStyleColorVec4(ImGuiCol_Separator);
+                ImGui::GetWindowDrawList()->AddLine(
+                    ImVec2(cursor.x, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
+                    ImVec2(cursor.x + avail, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
+                    ImGui::GetColorU32(color),
+                    ScaleUi(1.0f));
+                ImGui::Dummy(ImVec2(avail, ImGui::GetTextLineHeightWithSpacing()));
+                return;
+            }
+
+            const float width = CalcSegmentWidth(segment, device);
+            float targetX = lineStartX + segment.indent;
+            if (segment.align == RichSegment::Align::Center) {
+                targetX = lineStartX + std::max(0.0f, (avail - width) * 0.5f);
+            } else if (segment.align == RichSegment::Align::Right) {
+                targetX = lineStartX + std::max(0.0f, avail - width);
+            } else if (i > 0) {
+                ImGui::SameLine(0.0f, ScaleUi(6.0f));
+                targetX = ImGui::GetCursorPosX() + segment.indent;
+            }
+            ImGui::SetCursorPosX(std::max(lineStartX, targetX));
+            const ImVec2 before = ImGui::GetCursorScreenPos();
+            DrawSegment(segment, device);
+            const ImVec2 after = ImGui::GetItemRectMax();
+            maxHeight = std::max(maxHeight, after.y - before.y + ImGui::GetStyle().ItemSpacing.y);
+            hasDrawn = true;
+        }
+
+        if (!hasDrawn) {
+            ImGui::TextUnformatted("");
+        }
+        const float currentY = ImGui::GetCursorPosY();
+        const float targetY = lineStartY + maxHeight;
+        if (targetY > currentY) {
+            ImGui::Dummy(ImVec2(0.0f, targetY - currentY));
+        }
+        for (int i = 0; i < segments.front().extraBreaks; ++i) {
+            ImGui::TextUnformatted("");
+        }
+    }
+
+    float CalcSegmentWidth(const RichSegment& segment, IDirect3DDevice9* device) {
+        if (segment.image) {
+            const ImVec2 size = ResolveImageRenderSize(*segment.image, device);
+            return size.x;
+        }
+        std::string text = segment.text;
+        if (!segment.icon.empty()) {
+            text = segment.icon + (text.empty() ? "" : " " + text);
+        }
+        if (segment.bullet) {
+            text = "• " + text;
+        }
+        const float previousScale = 1.0f;
+        if (segment.fontSize > 0) {
+            ImGui::SetWindowFontScale(segment.fontSize / 16.0f);
+        }
+        const float width = ImGui::CalcTextSize(text.c_str()).x;
+        if (segment.fontSize > 0) {
+            ImGui::SetWindowFontScale(previousScale);
+        }
+        return width;
+    }
+
+    void DrawSegment(const RichSegment& segment, IDirect3DDevice9* device) {
+        ImVec4 textColor = segment.hasColor ? segment.color : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        textColor.w *= segment.alpha;
+        ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+        if (segment.fontSize > 0) {
+            ImGui::SetWindowFontScale(segment.fontSize / 16.0f);
+        }
+
+        if (segment.image) {
+            DrawImageSegment(*segment.image, device);
+        } else {
+            std::string text = segment.text;
+            if (!segment.icon.empty()) {
+                text = segment.icon + (text.empty() ? "" : " " + text);
+            }
+            if (segment.bullet) {
+                text = "• " + text;
+            }
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const ImVec2 textSize = ImGui::CalcTextSize(text.empty() ? " " : text.c_str());
+            if (segment.hasBgColor && !text.empty()) {
+                ImVec4 bg = segment.bgColor;
+                bg.w *= segment.alpha;
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    ImVec2(start.x - ScaleUi(3.0f), start.y - ScaleUi(2.0f)),
+                    ImVec2(start.x + textSize.x + ScaleUi(3.0f), start.y + textSize.y + ScaleUi(2.0f)),
+                    ImGui::GetColorU32(bg),
+                    ScaleUi(3.0f));
+            }
+            ImGui::TextWrapped("%s", text.c_str());
+        }
+
+        if (segment.fontSize > 0) {
+            ImGui::SetWindowFontScale(1.0f);
+        }
+        ImGui::PopStyleColor();
+    }
+
+    fs::path ResolveImagePath(const ParsedImage& image) const {
+        if (!IsSafeRelativeAssetPath(image.source)) {
+            return {};
+        }
+        return (ImagesDirectory() / fs::path(Utf8ToWide(image.source))).lexically_normal();
+    }
+
+    TextureCacheEntry* LoadTexture(IDirect3DDevice9* device, const fs::path& path) {
+        if (!device || path.empty()) {
+            return nullptr;
+        }
+        const std::wstring key = path.wstring();
+        auto [it, inserted] = textureCache.try_emplace(key);
+        TextureCacheEntry& entry = it->second;
+        if (!inserted) {
+            return entry.failed ? nullptr : &entry;
+        }
+        D3DXIMAGE_INFO info{};
+        const HRESULT infoResult = D3DXGetImageInfoFromFileW(path.c_str(), &info);
+        if (FAILED(infoResult)) {
+            entry.failed = true;
+            return nullptr;
+        }
+        IDirect3DTexture9* texture = nullptr;
+        const HRESULT textureResult = D3DXCreateTextureFromFileW(device, path.c_str(), &texture);
+        if (FAILED(textureResult) || !texture) {
+            entry.failed = true;
+            return nullptr;
+        }
+        entry.texture = texture;
+        entry.width = info.Width;
+        entry.height = info.Height;
+        return &entry;
+    }
+
+    ImVec2 ResolveImageRenderSize(const ParsedImage& image, IDirect3DDevice9* device) {
+        const fs::path path = ResolveImagePath(image);
+        const TextureCacheEntry* texture = LoadTexture(device, path);
+        float width = image.width > 0 ? ScaleUi(static_cast<float>(image.width)) : 0.0f;
+        float height = image.height > 0 ? ScaleUi(static_cast<float>(image.height)) : 0.0f;
+        if (texture && texture->width > 0 && texture->height > 0) {
+            if (width <= 0.0f && height <= 0.0f) {
+                width = static_cast<float>(texture->width);
+                height = static_cast<float>(texture->height);
+            } else if (width > 0.0f && height <= 0.0f) {
+                height = width * static_cast<float>(texture->height) / static_cast<float>(texture->width);
+            } else if (height > 0.0f && width <= 0.0f) {
+                width = height * static_cast<float>(texture->width) / static_cast<float>(texture->height);
+            }
+        } else if (width <= 0.0f || height <= 0.0f) {
+            return ScaleUi(160.0f, 24.0f);
+        }
+        const float maxWidth = std::max(ScaleUi(80.0f), ImGui::GetContentRegionAvail().x);
+        if (width > maxWidth && width > 0.0f) {
+            const float ratio = maxWidth / width;
+            width *= ratio;
+            height *= ratio;
+        }
+        return ImVec2(std::max(ScaleUi(16.0f), width), std::max(ScaleUi(16.0f), height));
+    }
+
+    void DrawImageSegment(const ParsedImage& image, IDirect3DDevice9* device) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!IsSafeRelativeAssetPath(image.source)) {
+            ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.25f, 1.0f), "%s", ui.Text(UiText::NotepadInvalidImagePath));
+            return;
+        }
+        const fs::path path = ResolveImagePath(image);
+        TextureCacheEntry* texture = LoadTexture(device, path);
+        if (!texture || !texture->texture) {
+            const std::string message = ui.Format(UiText::NotepadMissingImageFormat, image.source.c_str());
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", message.c_str());
+            return;
+        }
+        const ImVec2 size = ResolveImageRenderSize(image, device);
+        ImGui::Image(reinterpret_cast<ImTextureID>(texture->texture), size);
+    }
+
+    void OpenRenameNoteModal(std::string_view id) {
+        if (const NoteEntry* note = FindNote(id)) {
+            modalTarget = note->id;
+            modalBuffer = note->title;
+            pendingModal = PendingModal::RenameNote;
+            modalOpenRequested = true;
+        }
+    }
+
+    void OpenRenameFolderModal(std::string_view path) {
+        const std::string normalized = NormalizeFolderPath(path);
+        if (FindFolder(normalized)) {
+            modalTarget = normalized;
+            modalBuffer = BaseName(normalized);
+            pendingModal = PendingModal::RenameFolder;
+            modalOpenRequested = true;
+        }
+    }
+
+    void OpenDeleteNoteModal(std::string_view id) {
+        if (FindNote(id)) {
+            modalTarget = std::string(id);
+            pendingModal = PendingModal::DeleteNote;
+            modalOpenRequested = true;
+        }
+    }
+
+    void OpenDeleteFolderModal(std::string_view path) {
+        const std::string normalized = NormalizeFolderPath(path);
+        if (FindFolder(normalized)) {
+            modalTarget = normalized;
+            pendingModal = PendingModal::DeleteFolder;
+            modalOpenRequested = true;
+        }
+    }
+
+    void DrawModals() {
+        if (pendingModal == PendingModal::None) {
+            return;
+        }
+        UiSettings& ui = UiSettings::Instance();
+        const char* title = ui.Text(UiText::NotepadModalTitle);
+        if (pendingModal == PendingModal::DeleteNote) {
+            title = ui.Text(UiText::NotepadDeleteNoteTitle);
+        } else if (pendingModal == PendingModal::DeleteFolder) {
+            title = ui.Text(UiText::NotepadDeleteFolderTitle);
+        } else if (pendingModal == PendingModal::RenameFolder || pendingModal == PendingModal::RenameNote) {
+            title = ui.Text(UiText::NotepadRenameTitle);
+        } else if (pendingModal == PendingModal::CreateFolder) {
+            title = ui.Text(UiText::NotepadCreateFolderTitle);
+        } else if (pendingModal == PendingModal::CreateNote) {
+            title = ui.Text(UiText::NotepadCreateNoteTitle);
+        }
+
+        ImGui::SetNextWindowSize(ScaleUi(420.0f, 0.0f), ImGuiCond_Appearing);
+        const std::string modalTitle = std::string(title) + kModalPopupId;
+        if (modalOpenRequested) {
+            ImGui::OpenPopup(modalTitle.c_str());
+            modalOpenRequested = false;
+        }
+        if (!ImGui::BeginPopupModal(modalTitle.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            return;
+        }
+        ImGui::TextUnformatted(title);
+        ImGui::Separator();
+
+        const bool deleteModal = pendingModal == PendingModal::DeleteNote || pendingModal == PendingModal::DeleteFolder;
+        bool submitModal = false;
+        if (deleteModal) {
+            if (pendingModal == PendingModal::DeleteNote) {
+                const NoteEntry* note = FindNote(modalTarget);
+                const std::string question = ui.Format(
+                    UiText::NotepadDeleteNoteQuestionFormat,
+                    note ? note->title.c_str() : modalTarget.c_str());
+                ImGui::TextWrapped("%s", question.c_str());
+            } else {
+                const std::string question = ui.Format(
+                    UiText::NotepadDeleteFolderQuestionFormat,
+                    BaseName(modalTarget).c_str(),
+                    CountDescendantFolders(modalTarget),
+                    CountNotesInFolderTree(modalTarget));
+                ImGui::TextWrapped("%s", question.c_str());
+            }
+        } else {
+            ImGui::SetNextItemWidth(ScaleUi(360.0f));
+            const char* hint = pendingModal == PendingModal::CreateNote || pendingModal == PendingModal::RenameNote
+                ? ui.Text(UiText::NotepadNoteTitle)
+                : ui.Text(UiText::NotepadFolderName);
+            submitModal = InputTextString(
+                ("##notepad_modal_input_" + std::string(hint)).c_str(),
+                modalBuffer,
+                ImGuiInputTextFlags_EnterReturnsTrue,
+                128);
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            pendingModal = PendingModal::None;
+            modalOpenRequested = false;
+            modalTarget.clear();
+            modalBuffer.clear();
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        const char* primary = deleteModal ? ui.Text(UiText::NotepadConfirmDelete) : ui.Text(UiText::Save);
+        if (submitModal || ImGui::Button(primary)) {
+            ApplyModalAction();
+            ImGui::CloseCurrentPopup();
+            pendingModal = PendingModal::None;
+            modalOpenRequested = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+            pendingModal = PendingModal::None;
+            modalOpenRequested = false;
+            modalTarget.clear();
+            modalBuffer.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    void ApplyModalAction() {
+        switch (pendingModal) {
+        case PendingModal::CreateFolder:
+            CreateFolder(modalTarget, modalBuffer);
+            break;
+        case PendingModal::CreateNote:
+            CreateNote(modalTarget, modalBuffer);
+            break;
+        case PendingModal::RenameFolder:
+            RenameFolder(modalTarget, modalBuffer);
+            break;
+        case PendingModal::RenameNote:
+            RenameNote(modalTarget, modalBuffer);
+            break;
+        case PendingModal::DeleteFolder:
+            DeleteFolder(modalTarget);
+            break;
+        case PendingModal::DeleteNote:
+            DeleteNote(modalTarget);
+            break;
+        case PendingModal::None:
+            break;
+        }
+        modalTarget.clear();
+        modalBuffer.clear();
+    }
+
+    std::optional<fs::path> OpenFileDialog(UiText titleId, const std::wstring& filter) const {
+        wchar_t fileName[MAX_PATH]{};
+        const std::wstring title = Utf8ToWide(UiSettings::Instance().Text(titleId));
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = nullptr;
+        ofn.lpstrFile = fileName;
+        ofn.nMaxFile = static_cast<DWORD>(std::size(fileName));
+        ofn.lpstrFilter = filter.c_str();
+        ofn.lpstrTitle = title.c_str();
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
+        if (!GetOpenFileNameW(&ofn)) {
+            return std::nullopt;
+        }
+        return fs::path(fileName);
+    }
+
+    void ImportTxtAsNote() {
+        const auto source = OpenFileDialog(UiText::NotepadImportTxt, BuildDialogFilter({
+            { UiText::NotepadTxtFilesFilter, L"*.txt" },
+            { UiText::NotepadAllFilesFilter, L"*.*" },
+        }));
+        if (!source.has_value()) {
+            return;
+        }
+        std::ifstream file(*source, std::ios::binary);
+        if (!file) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadImportFailed);
+            return;
+        }
+        const std::string content = NormalizeImportedText(
+            std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()));
+        const std::string title = PathToUtf8(source->stem());
+        CreateNote(currentFolder, title.empty() ? UiSettings::Instance().Text(UiText::NotepadUntitled) : title);
+        if (NoteEntry* note = FindNote(selectedNoteId)) {
+            note->text = content;
+            note->updatedAt = UnixTimeNow();
+            editBuffer = content;
+            editDirty = false;
+            editing = false;
+            QueueSave();
+        }
+    }
+
+    fs::path MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
+        fs::path candidate = directory / desiredName.filename();
+        const fs::path stem = candidate.stem();
+        const fs::path ext = candidate.extension();
+        int suffix = 1;
+        while (fs::exists(candidate)) {
+            candidate = directory / (stem.wstring() + L"_" + std::to_wstring(suffix++) + ext.wstring());
+        }
+        return candidate;
+    }
+
+    void InsertImageFromDialog() {
+        const auto source = OpenFileDialog(
+            UiText::NotepadInsertImage,
+            BuildDialogFilter({
+                { UiText::NotepadImageFilesFilter, L"*.png;*.jpg;*.jpeg;*.bmp;*.gif" },
+                { UiText::NotepadAllFilesFilter, L"*.*" },
+            }));
+        if (!source.has_value()) {
+            return;
+        }
+        EnsureAssetDirectories();
+        const std::string sanitized = SanitizeFileStem(PathToUtf8(source->stem()), "image");
+        const fs::path desiredName = fs::path(Utf8ToWide(sanitized)).replace_extension(source->extension());
+        const fs::path target = MakeUniquePath(ImagesDirectory(), desiredName);
+        std::error_code copyError;
+        fs::copy_file(*source, target, fs::copy_options::none, copyError);
+        if (copyError) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadImageInsertFailed);
+            debuglog::WriteError("[notepad] image copy failed source=%ls target=%ls error=%d", source->c_str(), target.c_str(), copyError.value());
+            return;
+        }
+        const std::string relative = PathToUtf8(target.filename());
+        InsertTextAtCursor("#img(" + relative + ")\n");
+        statusMessage = UiSettings::Instance().Text(UiText::NotepadImageCopied);
+    }
+
+    void InsertTextAtCursor(std::string text) {
+        const int safeCursor = std::clamp(editCursor, 0, static_cast<int>(editBuffer.size()));
+        editBuffer.insert(static_cast<std::size_t>(safeCursor), text);
+        editCursor = safeCursor + static_cast<int>(text.size());
+        editDirty = true;
+    }
+
+    void ExportNote(const NoteEntry& note) {
+        EnsureAssetDirectories();
+        const std::string safeTitle = SanitizeFileStem(note.title, "note");
+        fs::path target = MakeUniquePath(ExportDirectory(), fs::path(Utf8ToWide(safeTitle)).replace_extension(L".txt"));
+        std::ofstream file(target, std::ios::binary | std::ios::trunc);
+        if (!file) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadExportFailed);
+            return;
+        }
+        file.write(note.text.data(), static_cast<std::streamsize>(note.text.size()));
+        if (!file) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadExportFailed);
+            return;
+        }
+        statusMessage = UiSettings::Instance().Format(UiText::NotepadExportSuccessFormat, PathToUtf8(target.filename()).c_str());
+    }
+};
+
+NotepadModule::NotepadModule() : impl_(std::make_unique<Impl>()) {
+}
+
+NotepadModule::~NotepadModule() = default;
+
+NotepadModule::NotepadModule(NotepadModule&&) noexcept = default;
+
+NotepadModule& NotepadModule::operator=(NotepadModule&&) noexcept = default;
+
+void NotepadModule::OnProcessAttach(HMODULE module) {
+    impl_->OnProcessAttach(module);
+}
+
+void NotepadModule::Shutdown() {
+    impl_->Shutdown();
+}
+
+void NotepadModule::ReloadConfig() {
+    impl_->ReloadConfig();
+}
+
+void NotepadModule::FlushPendingEdits() {
+    impl_->FlushPendingEdits();
+}
+
+void NotepadModule::ReleaseDeviceResources() {
+    impl_->ReleaseDeviceResources();
+}
+
+void NotepadModule::SetTagsModule(TagsModule* tagsModule) {
+    impl_->SetTagsModule(tagsModule);
+}
+
+void NotepadModule::DrawMainTab(IDirect3DDevice9* device) {
+    impl_->DrawMainTab(device);
+}
