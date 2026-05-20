@@ -2246,6 +2246,24 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "thiscategory",
+        "{thiscategory}",
+        "{thiscategory}",
+        UiText::TagsBuiltinThiscategoryDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinThiscategoryTag(context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "thiscategory",
+        "[thiscategory]",
+        "[thiscategory]",
+        UiText::TagsBuiltinThiscategoryDescription,
+        [](const TagsModule& module, std::string_view, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinThiscategoryTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "bindstopall",
         "{bindstopall}",
         "{bindstopall}",
@@ -3647,6 +3665,13 @@ std::optional<std::string> TagsModule::ResolveBuiltinThisbindTag(const Evaluatio
     return binderModule_->GetThisbindTagValue(context.runningBindRuntimeId);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinThiscategoryTag(const EvaluationContext& context) const {
+    if (!binderModule_ || context.runningBindRuntimeId == 0) {
+        return std::string();
+    }
+    return binderModule_->GetThiscategoryTagValue(context.runningBindRuntimeId);
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const {
     if (!context.allowSideEffects || !binderModule_) {
         return std::string();
@@ -5042,6 +5067,17 @@ std::string TagsModule::ExpandFunctionTags(std::string_view text, const Evaluati
         std::size_t openParen = nameEnd;
         while (openParen < text.size() && std::isspace(static_cast<unsigned char>(text[openParen])) != 0) {
             ++openParen;
+        }
+        if (openParen < text.size() && text[openParen] == ']') {
+            const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
+            if (const std::optional<std::string> value = ResolveFunctionTag(name, {}, context, depth);
+                value.has_value()) {
+                output += *value;
+            } else {
+                output.append(text.substr(start, openParen - start + 1));
+            }
+            pos = openParen + 1;
+            continue;
         }
         if (openParen >= text.size() || text[openParen] != '(') {
             output.append(text.substr(start, openParen - start));

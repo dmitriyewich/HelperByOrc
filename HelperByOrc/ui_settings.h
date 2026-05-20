@@ -41,6 +41,7 @@
     X(TagsBuiltinIdDescription, "Возвращает ваш локальный ID игрока через SampApi::Local_ID().", "Returns your local player ID via SampApi::Local_ID().") \
     X(TagsBuiltinNickDescription, "Возвращает ваш текущий ник через GetNameID(Local_ID()).", "Returns your current nickname via GetNameID(Local_ID()).") \
     X(TagsBuiltinThisbindDescription, "Возвращает имя и папку текущего запущенного бинда в формате, пригодном для bind-тегов.", "Returns the name and folder of the currently running bind in a format suitable for bind tags.") \
+    X(TagsBuiltinThiscategoryDescription, "Возвращает категорию текущего запущенного бинда.", "Returns the category of the currently running bind.") \
     X(TagsBuiltinBindStopAllDescription, "Останавливает все запущенные бинды и возвращает пустую строку.", "Stops every running bind and returns an empty string.") \
     X(TagsBuiltinTargetIdDescription, "Возвращает ID игрока, в которого вы целились последним.", "Returns the ID of the player you aimed at most recently.") \
     X(TagsBuiltinTargetNickDescription, "Возвращает ник игрока, в которого вы целились последним.", "Returns the nickname of the player you aimed at most recently.") \
@@ -208,6 +209,7 @@
     X(BinderDefaultRootFolder, "Основные", "Main") \
     X(BinderDefaultHotkey, "Новый бинд", "New bind") \
     X(BinderDefaultFolder, "Папка", "Folder") \
+    X(BinderNewCategory, "Новая категория", "New category") \
     X(BinderNewFolder, "Новая папка", "New folder") \
     X(ConditionInWater, "В воде", "In water") \
     X(ConditionDead, "Мёртв", "Dead") \
@@ -322,6 +324,8 @@
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
     X(ValidationFolderNameRequired, "Укажите название папки.", "Enter a folder name.") \
     X(ValidationFolderNameUnique, "Папка с таким названием уже есть здесь.", "A folder with this name already exists here.") \
+    X(ValidationCategoryNameRequired, "Укажите название категории.", "Enter a category name.") \
+    X(ValidationCategoryNameUnique, "Категория с таким названием уже есть.", "A category with this name already exists.") \
     X(ValidationRepeatInterval, "Интервал повтора не может быть отрицательным.", "Repeat interval cannot be negative.") \
     X(ValidationTriggerTextRequired, "Укажите текст триггера.", "Enter trigger text.") \
     X(ValidationCommandRequired, "Укажите команду.", "Enter a command.") \
@@ -346,6 +350,17 @@
     X(DeleteFolderAll, "Удалить всё", "Delete all") \
     X(DeleteFolderMoveContentsHere, "Перенести содержимое сюда", "Move contents here") \
     X(BinderRootName, "Биндер", "Binder") \
+    X(CategoryAdd, "Добавить категорию", "Add category") \
+    X(CategoryRenameTitle, "Переименование категории", "Rename category") \
+    X(CategoryConditions, "Скрыть категорию, если активно", "Hide category when active") \
+    X(CategoryQuickMenuConditions, "Блокировки быстрого меню", "Quick menu blocks") \
+    X(CategoryCannotDeleteLast, "Нельзя удалить последнюю категорию.", "The last category cannot be deleted.") \
+    X(DeleteCategoryQuestion, "Удалить категорию?", "Delete category?") \
+    X(DeleteCategoryMoveContents, "Перенести и удалить", "Move and delete") \
+    X(DeleteCategoryAll, "Удалить всё", "Delete all") \
+    X(CategoryMoveContentsTarget, "Куда перенести", "Move contents to") \
+    X(CategoryMoveLeft, "Переместить влево", "Move left") \
+    X(CategoryMoveRight, "Переместить вправо", "Move right") \
     X(BinderEmptyFolder, "Папка пуста", "Folder is empty") \
     X(BinderSearchGlobal, "Поиск", "Search") \
     X(BinderGoUp, "Вверх", "Up") \

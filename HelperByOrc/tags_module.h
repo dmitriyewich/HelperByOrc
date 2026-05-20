@@ -199,6 +199,7 @@ private:
     std::optional<std::string> ResolveBuiltinIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinThisbindTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinThiscategoryTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTargetNickTag(const EvaluationContext& context) const;
