@@ -3,6 +3,7 @@
 #include "debug_log.h"
 #include "font_awesome7_data.h"
 #include "minhook_utils.h"
+#include "ui_icons.h"
 #include "ui_settings.h"
 
 #include <imgui.h>
@@ -277,13 +278,6 @@ void DbgTraceImGuiInternalState(const char* reason) {
 }
 
 bool MergeFontAwesomeIcons(ImGuiIO& io) {
-    static constexpr ImWchar kIconRanges[] = {
-        0xF044, 0xF044, // pen-to-square
-        0xF04B, 0xF04B, // play
-        0xF2ED, 0xF2ED, // trash-can
-        0,
-    };
-
     ImFontConfig iconConfig{};
     iconConfig.MergeMode = true;
     iconConfig.PixelSnapH = true;
@@ -292,7 +286,7 @@ bool MergeFontAwesomeIcons(ImGuiIO& io) {
         FontAwesome7Data::kSolidCompressedBase85,
         kOverlayFontSize,
         &iconConfig,
-        kIconRanges);
+        ui_icons::FontAwesomeRanges);
     if (!icons) {
         debuglog::WriteError("Failed to merge Font Awesome 7 icon font");
         return false;

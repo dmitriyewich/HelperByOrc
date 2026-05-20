@@ -4,6 +4,7 @@
 #include "debug_log.h"
 #include "json_utils.h"
 #include "tags_module.h"
+#include "ui_icons.h"
 #include "ui_settings.h"
 
 #include <d3dx9tex.h>
@@ -42,23 +43,6 @@ constexpr char kPayloadFolder[] = "HBO_NOTEPAD_FOLDER";
 constexpr char kModalPopupId[] = "###notepad_modal";
 constexpr char kOrderTypeFolder[] = "folder";
 constexpr char kOrderTypeNote[] = "note";
-constexpr char kIconFolder[] = "\xEF\x84\x94";
-constexpr char kIconBook[] = "\xEF\x80\xAD";
-constexpr char kIconPlus[] = "\xEF\x81\xA7";
-constexpr char kIconEdit[] = "\xEF\x81\x84";
-constexpr char kIconDelete[] = "\xEF\x8B\xAD";
-constexpr char kIconStar[] = "\xEF\x80\x86";
-constexpr char kIconSearch[] = "\xEF\x80\x82";
-constexpr char kIconSave[] = "\xEF\x83\x87";
-constexpr char kIconCopy[] = "\xEF\x83\x85";
-constexpr char kIconImage[] = "\xEF\x80\xBE";
-constexpr char kIconFileImport[] = "\xEF\x95\xAF";
-constexpr char kIconFileExport[] = "\xEF\x95\xAE";
-constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
-constexpr char kIconAngleUp[] = "\xEF\x84\x86";
-constexpr char kIconCheck[] = "\xEF\x80\x8C";
-constexpr char kIconBars[] = "\xEF\x83\x89";
-constexpr char kIconCompass[] = "\xEF\x85\x8E";
 
 enum class ItemType {
     Folder,
@@ -636,21 +620,21 @@ std::optional<ParsedImage> ParseImagePrefix(std::string_view text, std::size_t& 
 
 std::string ResolveIconGlyph(std::string_view name) {
     const std::string normalized = LowerUtf8(name);
-    static const std::map<std::string, const char*> kIcons = {
-        { "book", kIconBook },
-        { "compass", kIconCompass },
-        { "copy", kIconCopy },
-        { "file", kIconBook },
-        { "folder", kIconFolder },
-        { "image", kIconImage },
-        { "note", kIconBook },
-        { "save", kIconSave },
-        { "star", kIconStar },
-        { "check", kIconCheck },
-        { "bars", kIconBars },
+    static const std::map<std::string, const char*> iconsByName = {
+        { "book", ui_icons::Book },
+        { "compass", ui_icons::Compass },
+        { "copy", ui_icons::Copy },
+        { "file", ui_icons::Book },
+        { "folder", ui_icons::Folder },
+        { "image", ui_icons::Image },
+        { "note", ui_icons::Book },
+        { "save", ui_icons::SaveDisk },
+        { "star", ui_icons::Star },
+        { "check", ui_icons::Check },
+        { "bars", ui_icons::Bars },
     };
-    const auto it = kIcons.find(normalized);
-    if (it != kIcons.end()) {
+    const auto it = iconsByName.find(normalized);
+    if (it != iconsByName.end()) {
         return it->second;
     }
     return "[" + UpperUtf8(name) + "]";
@@ -1751,9 +1735,9 @@ struct NotepadModule::Impl {
         }
         const ImVec2 rowMin = ImGui::GetItemRectMin();
         const ImVec2 rowMax = ImGui::GetItemRectMax();
-        const ImVec2 textSize = ImGui::CalcTextSize(kIconStar);
+        const ImVec2 textSize = ImGui::CalcTextSize(ui_icons::Star);
         const ImVec2 pos(rowMax.x - textSize.x - ScaleUi(6.0f), rowMin.y + (rowMax.y - rowMin.y - textSize.y) * 0.5f);
-        ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImVec4(1.0f, 0.82f, 0.18f, 1.0f)), kIconStar);
+        ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImVec4(1.0f, 0.82f, 0.18f, 1.0f)), ui_icons::Star);
     }
 
     void DrawNoteSelectableRow(const NoteEntry& note, const std::string& label, bool selected) {
@@ -1769,26 +1753,26 @@ struct NotepadModule::Impl {
 
     void DrawLeftPanel() {
         UiSettings& ui = UiSettings::Instance();
-        if (DrawToolbarButton(kIconPlus, "notepad_new_note", ui.Text(UiText::NotepadNewNote))) {
+        if (DrawToolbarButton(ui_icons::Plus, "notepad_new_note", ui.Text(UiText::NotepadNewNote))) {
             modalBuffer = ui.Text(UiText::NotepadUntitled);
             modalTarget = currentFolder;
             pendingModal = PendingModal::CreateNote;
             modalOpenRequested = true;
         }
         ImGui::SameLine();
-        if (DrawToolbarButton(kIconFolder, "notepad_new_folder", ui.Text(UiText::NotepadNewFolder))) {
+        if (DrawToolbarButton(ui_icons::Folder, "notepad_new_folder", ui.Text(UiText::NotepadNewFolder))) {
             modalBuffer = ui.Text(UiText::NotepadDefaultFolder);
             modalTarget = currentFolder;
             pendingModal = PendingModal::CreateFolder;
             modalOpenRequested = true;
         }
         ImGui::SameLine();
-        if (DrawToolbarButton(kIconFileImport, "notepad_import_txt", ui.Text(UiText::NotepadImportTxt))) {
+        if (DrawToolbarButton(ui_icons::FileImport, "notepad_import_txt", ui.Text(UiText::NotepadImportTxt))) {
             ImportTxtAsNote();
         }
 
         ImGui::SetNextItemWidth(-1.0f);
-        const std::string searchHint = std::string(kIconSearch) + " " + ui.Text(UiText::NotepadSearchHint);
+        const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::NotepadSearchHint);
         InputTextWithHintString("##notepad_search", searchHint.c_str(), search, 0, 128);
         if (search.empty()) {
             DrawBreadcrumbs();
@@ -1812,14 +1796,14 @@ struct NotepadModule::Impl {
     void DrawBreadcrumbs() {
         UiSettings& ui = UiSettings::Instance();
         ImGui::Spacing();
-        if (ImGui::Button((std::string(kIconChevronLeft) + "##notepad_back_root").c_str(), ScaleUi(26.0f, 0.0f))) {
+        if (ImGui::Button((std::string(ui_icons::ChevronLeft) + "##notepad_back_root").c_str(), ScaleUi(26.0f, 0.0f))) {
             OpenFolder("");
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", ui.Text(UiText::NotepadRootName));
         }
         ImGui::SameLine();
-        if (ImGui::Button((std::string(kIconAngleUp) + "##notepad_up").c_str(), ScaleUi(26.0f, 0.0f))) {
+        if (ImGui::Button((std::string(ui_icons::AngleUp) + "##notepad_up").c_str(), ScaleUi(26.0f, 0.0f))) {
             OpenFolder(ParentPath(currentFolder));
         }
         if (ImGui::IsItemHovered()) {
@@ -1846,7 +1830,7 @@ struct NotepadModule::Impl {
         });
         const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth
             | (selectedFavoriteVisible ? ImGuiTreeNodeFlags_DefaultOpen : 0);
-        const std::string header = std::string(kIconStar) + " " + ui.Text(UiText::NotepadFavorites)
+        const std::string header = std::string(ui_icons::Star) + " " + ui.Text(UiText::NotepadFavorites)
             + " (" + std::to_string(favorites.size()) + ")";
         if (!ImGui::TreeNodeEx("##notepad_favorites", flags, "%s", header.c_str())) {
             return;
@@ -1855,7 +1839,7 @@ struct NotepadModule::Impl {
             if (!note) {
                 continue;
             }
-            const std::string label = std::string(kIconBook) + " " + note->title + "##fav_" + note->id;
+            const std::string label = std::string(ui_icons::Book) + " " + note->title + "##fav_" + note->id;
             DrawNoteSelectableRow(*note, label, selectedNoteId == note->id);
         }
         ImGui::TreePop();
@@ -1876,7 +1860,7 @@ struct NotepadModule::Impl {
     void DrawRow(const RowItem& row) {
         const bool isFolder = row.type == ItemType::Folder;
         const bool selected = isFolder ? selectedFolderPath == row.value : selectedNoteId == row.value;
-        const std::string icon = isFolder ? kIconFolder : kIconBook;
+        const std::string icon = isFolder ? ui_icons::Folder : ui_icons::Book;
         std::string label = icon + " " + row.label;
         label += "##notepad_row_" + row.value;
 
@@ -1975,7 +1959,7 @@ struct NotepadModule::Impl {
         }
         ImGui::TextDisabled("%s %zu", ui.Text(UiText::NotepadSearchResults), results.size());
         for (const NoteEntry* note : results) {
-            std::string label = std::string(kIconBook) + " " + note->title;
+            std::string label = std::string(ui_icons::Book) + " " + note->title;
             if (!note->folderPath.empty()) {
                 label += "  [" + note->folderPath + "]";
             }
@@ -2041,23 +2025,23 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted(note->title.c_str());
         ImGui::SameLine();
         if (note->favorite) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", kIconStar);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", ui_icons::Star);
             ImGui::SameLine();
         }
-        if (ImGui::Button((std::string(kIconStar) + " " + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::Star) + " " + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))).c_str())) {
             note->favorite = !note->favorite;
             note->updatedAt = UnixTimeNow();
             QueueSave();
         }
         ImGui::SameLine();
-        if (ImGui::Button((std::string(kIconEdit) + " " + ui.Text(UiText::Edit)).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::Edit) + " " + ui.Text(UiText::Edit)).c_str())) {
             editing = true;
             editBuffer = note->text;
             editDirty = false;
             editCursor = static_cast<int>(editBuffer.size());
         }
         ImGui::SameLine();
-        if (ImGui::Button((std::string(kIconFileExport) + " " + ui.Text(UiText::NotepadExportTxt)).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::FileExport) + " " + ui.Text(UiText::NotepadExportTxt)).c_str())) {
             ExportNote(*note);
         }
         ImGui::SameLine();
@@ -2073,12 +2057,12 @@ struct NotepadModule::Impl {
 
     void DrawReadOnlyNote(const NoteEntry& note, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::Button((std::string(kIconCopy) + " " + ui.Text(UiText::NotepadCopyRaw)).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRaw)).c_str())) {
             ImGui::SetClipboardText(note.text.c_str());
             statusMessage = ui.Text(UiText::ToastClipboardCopied);
         }
         ImGui::SameLine();
-        if (ImGui::Button((std::string(kIconCopy) + " " + ui.Text(UiText::NotepadCopyRendered)).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRendered)).c_str())) {
             const std::string rendered = RenderedText(note);
             ImGui::SetClipboardText(StripMarkup(rendered).c_str());
             statusMessage = ui.Text(UiText::ToastClipboardCopied);
@@ -2118,7 +2102,7 @@ struct NotepadModule::Impl {
 
     void DrawEditor(NoteEntry& note, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
-        const bool savePressed = ImGui::Button((std::string(kIconSave) + " " + ui.Text(UiText::Save)).c_str());
+        const bool savePressed = ImGui::Button((std::string(ui_icons::SaveDisk) + " " + ui.Text(UiText::Save)).c_str());
         if (savePressed) {
             editDirty = true;
             SaveEditBufferIfNeeded();
@@ -2131,7 +2115,7 @@ struct NotepadModule::Impl {
             editBuffer = note.text;
         }
         ImGui::SameLine();
-        if (ImGui::Button((std::string(kIconImage) + " " + ui.Text(UiText::NotepadInsertImage)).c_str())) {
+        if (ImGui::Button((std::string(ui_icons::Image) + " " + ui.Text(UiText::NotepadInsertImage)).c_str())) {
             InsertImageFromDialog();
         }
         ImGui::SameLine();

@@ -5,6 +5,7 @@
 #include "feature_flags.h"
 #include "minhook_utils.h"
 #include "resource.h"
+#include "ui_icons.h"
 #include "ui_settings.h"
 
 #include <GameVersion.h>
@@ -39,12 +40,6 @@ constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
-constexpr char kIconHouse[] = "\xEF\xA0\x8C";
-constexpr char kIconKeyboard[] = "\xEF\x84\x9C";
-constexpr char kIconNewspaper[] = "\xEF\x87\xAA";
-constexpr char kIconBook[] = "\xEF\x80\xAD";
-constexpr char kIconCubes[] = "\xEF\x86\xB3";
-constexpr char kIconGear[] = "\xEF\x80\x93";
 
 namespace fs = std::filesystem;
 
@@ -56,12 +51,12 @@ struct TabDefinition {
 };
 
 const std::array<TabDefinition, 6> kTabs = {{
-    { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, kIconHouse },
-    { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, kIconKeyboard },
-    { MainTab::SmiHelper, UiText::TabSmiHelper, UiText::TabSmiHelperCompact, kIconNewspaper },
-    { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, kIconCubes },
-    { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, kIconBook },
-    { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, kIconGear },
+    { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, ui_icons::House },
+    { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, ui_icons::Keyboard },
+    { MainTab::SmiHelper, UiText::TabSmiHelper, UiText::TabSmiHelperCompact, ui_icons::Newspaper },
+    { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, ui_icons::Cubes },
+    { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, ui_icons::Book },
+    { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, ui_icons::Gear },
 }};
 
 std::string WideToUtf8(const std::wstring& text) {

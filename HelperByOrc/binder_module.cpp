@@ -10,6 +10,7 @@
 #include "samp_rak_hooks.h"
 #include "tags_module.h"
 #include "text_encoding.h"
+#include "ui_icons.h"
 #include "ui_settings.h"
 
 #include <game_sa/CPed.h>
@@ -60,35 +61,8 @@ constexpr char kQuickMenuHostPopupId[] = "##helperbyorc_qm_host";
 constexpr int kTextConfirmTimeoutMs = 5000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr int kIncomingChatEchoGuardTimeoutMs = 1000;
-constexpr char kIconToggleOff[] = "\xEF\x88\x84";
-constexpr char kIconToggleOn[] = "\xEF\x88\x85";
-constexpr char kIconBolt[] = "\xEF\x83\xA7";
-constexpr char kIconComment[] = "\xEF\x83\xA5";
-constexpr char kIconMessageDots[] = "\xEF\x92\xA3";
-constexpr char kIconTerminal[] = "\xEF\x84\xA0";
-constexpr char kIconKeyboard[] = "\xEF\x84\x9C";
-constexpr char kIconPlay[] = "\xEF\x81\x8B";
-constexpr char kIconPause[] = "\xEF\x81\x8C";
-constexpr char kIconStop[] = "\xEF\x81\x8D";
-constexpr char kIconEdit[] = "\xEF\x81\x84";
-constexpr char kIconDelete[] = "\xEF\x8B\xAD";
-constexpr char kIconBars[] = "\xEF\x83\x89";
-constexpr char kIconAngleDown[] = "\xEF\x84\x87";
-constexpr char kIconAngleUp[] = "\xEF\x84\x86";
-constexpr char kIconBracketsCurly[] = "\xEF\x9F\xAA";
-constexpr char kIconFolder[] = "\xEF\x84\x94";
-constexpr char kIconClone[] = "\xEF\x89\x8D";
-constexpr char kIconMoveRows[] = "\xEF\x81\xBD";
-constexpr char kIconPlus[] = "\xEF\x81\xA7";
-constexpr char kIconSliders[] = "\xEF\x87\x9E";
-constexpr char kIconTags[] = "\xEF\x80\xAC";
-constexpr char kIconSaveDisk[] = "\xEF\x83\x87";
-constexpr char kIconChevronLeft[] = "\xEF\x81\x93";
-constexpr char kIconChevronRight[] = "\xEF\x81\x94";
-constexpr char kIconCheck[] = "\xEF\x80\x8C";
 constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
 constexpr char kDialogSelectionLocalChatColorTag[] = "{E2C063}";
-constexpr char kIconStar[] = "\xEF\x80\x86";
 constexpr char kBindDragPayload[] = "BINDER_HOTKEY_INDEX";
 constexpr char kFolderDragPayload[] = "BINDER_FOLDER_ID";
 
@@ -438,9 +412,9 @@ std::string JoinPath(const std::vector<std::string>& path) {
 
 std::string FormatFolderLabel(std::string_view name) {
     if (name.empty()) {
-        return kIconFolder;
+        return ui_icons::Folder;
     }
-    return std::string(kIconFolder) + " " + std::string(name);
+    return std::string(ui_icons::Folder) + " " + std::string(name);
 }
 
 std::string FormatFolderPathLabel(const std::vector<std::string>& path) {
@@ -606,17 +580,17 @@ std::vector<std::string> BuildLaunchLabels(const HotkeyEntry& hotkey) {
     std::vector<std::string> labels;
 
     if (!hotkey.keys.empty()) {
-        AppendLaunchLabel(labels, kIconKeyboard, ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode));
+        AppendLaunchLabel(labels, ui_icons::Keyboard, ::hotkeys::ToString(hotkey.keys, hotkey.hotkeyMode));
     }
 
     const std::string commandText = Trim(hotkey.command);
     if (hotkey.commandEnabled && !commandText.empty()) {
-        AppendLaunchLabel(labels, kIconTerminal, commandText);
+        AppendLaunchLabel(labels, ui_icons::Terminal, commandText);
     }
 
     const std::string triggerText = Trim(hotkey.textTrigger.text);
     if (hotkey.textTrigger.enabled && !triggerText.empty()) {
-        AppendLaunchLabel(labels, kIconComment, triggerText);
+        AppendLaunchLabel(labels, ui_icons::Comment, triggerText);
     }
 
     return labels;
@@ -8009,7 +7983,7 @@ void BinderModule::Impl::DrawInputEditor() {
             ImGui::TextWrapped("%s", fieldTitle.c_str());
             ImGui::Separator();
 
-            if (SmallIconActionButton(kIconAngleUp, "##binder_input_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
+            if (SmallIconActionButton(ui_icons::AngleUp, "##binder_input_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
                 && currentIndex > 0) {
                 std::swap(
                     editor.draft.inputs[static_cast<std::size_t>(currentIndex)],
@@ -8023,7 +7997,7 @@ void BinderModule::Impl::DrawInputEditor() {
                 selectInput(currentIndex - 1);
             }
             ImGui::SameLine();
-            if (SmallIconActionButton(kIconAngleDown, "##binder_input_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
+            if (SmallIconActionButton(ui_icons::AngleDown, "##binder_input_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
                 && currentIndex + 1 < static_cast<int>(editor.draft.inputs.size())) {
                 std::swap(
                     editor.draft.inputs[static_cast<std::size_t>(currentIndex)],
@@ -8037,7 +8011,7 @@ void BinderModule::Impl::DrawInputEditor() {
                 selectInput(currentIndex + 1);
             }
             ImGui::SameLine();
-            if (SmallIconActionButton(kIconClone, "##binder_input_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
+            if (SmallIconActionButton(ui_icons::Clone, "##binder_input_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
                 HotkeyInput duplicate = editor.draft.inputs[static_cast<std::size_t>(currentIndex)];
                 editor.draft.inputs.insert(editor.draft.inputs.begin() + currentIndex + 1, std::move(duplicate));
                 editor.inputButtonsBulkDrafts.insert(
@@ -8049,7 +8023,7 @@ void BinderModule::Impl::DrawInputEditor() {
                 selectInput(currentIndex + 1);
             }
             ImGui::SameLine();
-            if (SmallIconActionButton(kIconDelete, "##binder_input_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+            if (SmallIconActionButton(ui_icons::Delete, "##binder_input_delete", ui.Text(UiText::Delete), actionButtonSize)) {
                 editor.draft.inputs.erase(editor.draft.inputs.begin() + currentIndex);
                 editor.inputButtonsBulkDrafts.erase(editor.inputButtonsBulkDrafts.begin() + currentIndex);
                 editor.inputButtonsBulkPreviews.erase(editor.inputButtonsBulkPreviews.begin() + currentIndex);
@@ -8139,7 +8113,7 @@ void BinderModule::Impl::DrawInputEditor() {
                     ImGui::Spacing();
                     ImGui::TextDisabled("%s", ui.Format(UiText::InputFieldPlaceholderFormat, normalizedKey.c_str()).c_str());
                     ImGui::SameLine();
-                    if (SmallIconActionButton(kIconClone, "##binder_copy_input_placeholder", ui.Text(UiText::CopyPlaceholder), actionButtonSize)) {
+                    if (SmallIconActionButton(ui_icons::Clone, "##binder_copy_input_placeholder", ui.Text(UiText::CopyPlaceholder), actionButtonSize)) {
                         ImGui::SetClipboardText(("{{" + normalizedKey + "}}").c_str());
                     }
                 }
@@ -8166,7 +8140,7 @@ void BinderModule::Impl::DrawInputEditor() {
                                 && editor.selectedInputButtonIndex < static_cast<int>(input.buttons.size());
                             if (hasSelectedButton) {
                                 ImGui::SameLine();
-                                if (SmallIconActionButton(kIconClone, "##binder_button_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
+                                if (SmallIconActionButton(ui_icons::Clone, "##binder_button_duplicate", ui.Text(UiText::ActionDuplicate), actionButtonSize)) {
                                     const int selectedButtonIndex = editor.selectedInputButtonIndex;
                                     InputButton duplicate = input.buttons[static_cast<std::size_t>(selectedButtonIndex)];
                                     input.buttons.insert(input.buttons.begin() + selectedButtonIndex + 1, std::move(duplicate));
@@ -8174,7 +8148,7 @@ void BinderModule::Impl::DrawInputEditor() {
                                     syncSelectedButtonsText(input);
                                 }
                                 ImGui::SameLine();
-                                if (SmallIconActionButton(kIconAngleUp, "##binder_button_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
+                                if (SmallIconActionButton(ui_icons::AngleUp, "##binder_button_move_up", ui.Text(UiText::MoveUp), actionButtonSize)
                                     && editor.selectedInputButtonIndex > 0) {
                                     const int selectedButtonIndex = editor.selectedInputButtonIndex;
                                     std::swap(
@@ -8184,7 +8158,7 @@ void BinderModule::Impl::DrawInputEditor() {
                                     syncSelectedButtonsText(input);
                                 }
                                 ImGui::SameLine();
-                                if (SmallIconActionButton(kIconAngleDown, "##binder_button_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
+                                if (SmallIconActionButton(ui_icons::AngleDown, "##binder_button_move_down", ui.Text(UiText::MoveDown), actionButtonSize)
                                     && editor.selectedInputButtonIndex + 1 < static_cast<int>(input.buttons.size())) {
                                     const int selectedButtonIndex = editor.selectedInputButtonIndex;
                                     std::swap(
@@ -8194,7 +8168,7 @@ void BinderModule::Impl::DrawInputEditor() {
                                     syncSelectedButtonsText(input);
                                 }
                                 ImGui::SameLine();
-                                if (SmallIconActionButton(kIconDelete, "##binder_button_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+                                if (SmallIconActionButton(ui_icons::Delete, "##binder_button_delete", ui.Text(UiText::Delete), actionButtonSize)) {
                                     input.buttons.erase(input.buttons.begin() + editor.selectedInputButtonIndex);
                                     if (input.buttons.empty()) {
                                         editor.selectedInputButtonIndex = -1;
@@ -8542,7 +8516,7 @@ void BinderModule::Impl::DrawEditorDiscardPopup() {
 void BinderModule::Impl::DrawEditorScenarioTab() {
     UiSettings& ui = UiSettings::Instance();
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float dragHandleWidth = std::ceil(ImGui::CalcTextSize(kIconMoveRows).x + ScaleUi(4.0f));
+    const float dragHandleWidth = std::ceil(ImGui::CalcTextSize(ui_icons::MoveRows).x + ScaleUi(4.0f));
     const float dragHandleHeight = ImGui::GetFrameHeight();
     const float dragColumnWidth = std::ceil(dragHandleWidth + style.CellPadding.x * 2.0f);
     const float destinationColumnWidth = std::ceil(
@@ -8558,8 +8532,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("%s", ui.Text(UiText::EditorScenarioHint));
     ImGui::SameLine();
-    const std::string addStepButton = std::string(kIconPlus) + " " + ui.Text(UiText::EditorAddStep);
-    const std::string multiInputButton = std::string(kIconBars) + " " + ui.Text(UiText::EditorOpenMultiInput);
+    const std::string addStepButton = std::string(ui_icons::Plus) + " " + ui.Text(UiText::EditorAddStep);
+    const std::string multiInputButton = std::string(ui_icons::Bars) + " " + ui.Text(UiText::EditorOpenMultiInput);
     const float addStepButtonWidth = ScaleUi(96.0f);
     const float multiInputButtonWidth = ScaleUi(142.0f);
     const float currentX = ImGui::GetCursorPosX();
@@ -8616,7 +8590,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGui::PushID(static_cast<int>(i));
             ImGui::TableSetColumnIndex(0);
             CenterNextItemHorizontally(dragHandleWidth);
-            IconOnlyButton(kIconMoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleWidth, dragHandleHeight));
+            IconOnlyButton(ui_icons::MoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleWidth, dragHandleHeight));
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
                 const int payloadIndex = static_cast<int>(i);
                 ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
@@ -8681,11 +8655,11 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + actionButtonsOffsetY);
             }
             CenterNextItemHorizontally(actionButtonsWidth);
-            if (SmallIconActionButton(kIconClone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), actionButtonSize)) {
+            if (SmallIconActionButton(ui_icons::Clone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), actionButtonSize)) {
                 duplicateIndex = static_cast<int>(i);
             }
             ImGui::SameLine(0.0f, actionButtonsSpacing);
-            if (SmallIconActionButton(kIconDelete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+            if (SmallIconActionButton(ui_icons::Delete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
                 removeIndex = static_cast<int>(i);
             }
             ImGui::PopID();
@@ -8810,11 +8784,11 @@ void BinderModule::Impl::DrawEditorInline() {
     const ImVec4 headerBg(0.14f, 0.16f, 0.20f, 0.98f);
     const ImVec4 panelBg(0.12f, 0.14f, 0.18f, 0.98f);
     const ImVec4 footerBg(0.11f, 0.13f, 0.17f, 0.98f);
-    const std::string backLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorBack);
-    const std::string previousLabel = std::string(kIconChevronLeft) + " " + ui.Text(UiText::EditorPreviousBind);
-    const std::string nextLabel = std::string(ui.Text(UiText::EditorNextBind)) + " " + std::string(kIconChevronRight);
-    const std::string variablesLabel = std::string(kIconTags) + " " + ui.Text(UiText::EditorVariables);
-    const std::string saveLabel = std::string(kIconSaveDisk) + " " + ui.Text(UiText::Save);
+    const std::string backLabel = std::string(ui_icons::ChevronLeft) + " " + ui.Text(UiText::EditorBack);
+    const std::string previousLabel = std::string(ui_icons::ChevronLeft) + " " + ui.Text(UiText::EditorPreviousBind);
+    const std::string nextLabel = std::string(ui.Text(UiText::EditorNextBind)) + " " + std::string(ui_icons::ChevronRight);
+    const std::string variablesLabel = std::string(ui_icons::Tags) + " " + ui.Text(UiText::EditorVariables);
+    const std::string saveLabel = std::string(ui_icons::SaveDisk) + " " + ui.Text(UiText::Save);
     const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
 
     const auto alignRight = [](float width) {
@@ -8855,7 +8829,7 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::TextUnformatted(title.c_str());
             if (hasUnsavedChanges) {
                 ImGui::SameLine(0.0f, ScaleUi(10.0f));
-                ImGui::TextColored(ImVec4(0.96f, 0.68f, 0.25f, 1.0f), "%s", kIconStar);
+                ImGui::TextColored(ImVec4(0.96f, 0.68f, 0.25f, 1.0f), "%s", ui_icons::Star);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                     ImGui::SetTooltip("%s", ui.Text(UiText::EditorUnsaved));
                 }
@@ -8938,7 +8912,7 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("%s", ui.Text(UiText::Command));
-            ToggleChip(kIconTerminal, ui.Text(UiText::Command), "##binder_editor_command_enabled", editor.draft.commandEnabled, ScaleUi(118.0f));
+            ToggleChip(ui_icons::Terminal, ui.Text(UiText::Command), "##binder_editor_command_enabled", editor.draft.commandEnabled, ScaleUi(118.0f));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             InputTextString("##binder_editor_command", editor.draft.command, ImGuiInputTextFlags_AutoSelectAll, 128);
@@ -8952,7 +8926,7 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::AlignTextToFramePadding();
             ImGui::TextDisabled("%s", conditionsSummary.c_str());
             ImGui::SameLine();
-            if (ImGui::Button((std::string(kIconSliders) + " " + ui.Text(UiText::Change) + "##conditions").c_str(), ScaleUi(132.0f, 0.0f))) {
+            if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::Change) + "##conditions").c_str(), ScaleUi(132.0f, 0.0f))) {
                 editor.conditionsPopupPending = true;
             }
 
@@ -8970,9 +8944,9 @@ void BinderModule::Impl::DrawEditorInline() {
         ImGui::SetNextItemOpen(hasAdvancedLaunch, ImGuiCond_Once);
         if (ImGui::CollapsingHeader(ui.Text(UiText::EditorAdvancedLaunch))) {
             ImGui::Spacing();
-            ToggleChip(kIconBolt, ui.Text(UiText::EditorToggleQuickMenu), "##binder_editor_quick_menu", editor.draft.quickMenu, ScaleUi(150.0f));
+            ToggleChip(ui_icons::Bolt, ui.Text(UiText::EditorToggleQuickMenu), "##binder_editor_quick_menu", editor.draft.quickMenu, ScaleUi(150.0f));
             ImGui::SameLine();
-            ToggleChip(kIconAngleDown, ui.Text(UiText::Repeat), "##binder_editor_repeat_mode", editor.draft.repeatMode, ScaleUi(112.0f));
+            ToggleChip(ui_icons::AngleDown, ui.Text(UiText::Repeat), "##binder_editor_repeat_mode", editor.draft.repeatMode, ScaleUi(112.0f));
             ImGui::SameLine();
             ImGui::BeginDisabled(!editor.draft.repeatMode);
             ImGui::SetNextItemWidth(ScaleUi(112.0f));
@@ -8987,10 +8961,10 @@ void BinderModule::Impl::DrawEditorInline() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                 ImGui::SetTooltip("%s", ui.Text(UiText::EditorTriggerHint));
             }
-            ToggleChip(kIconMessageDots, ui.Text(UiText::EditorToggleTrigger), "##binder_editor_trigger_enabled", editor.draft.textTrigger.enabled, ScaleUi(118.0f));
+            ToggleChip(ui_icons::MessageDots, ui.Text(UiText::EditorToggleTrigger), "##binder_editor_trigger_enabled", editor.draft.textTrigger.enabled, ScaleUi(118.0f));
             ImGui::SameLine();
             ImGui::BeginDisabled(!editor.draft.textTrigger.enabled);
-            ToggleChip(kIconBracketsCurly, ui.Text(UiText::EditorTogglePattern), "##binder_editor_trigger_pattern", editor.draft.textTrigger.pattern, ScaleUi(118.0f));
+            ToggleChip(ui_icons::BracketsCurly, ui.Text(UiText::EditorTogglePattern), "##binder_editor_trigger_pattern", editor.draft.textTrigger.pattern, ScaleUi(118.0f));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             InputTextWithHintString(
@@ -9003,14 +8977,14 @@ void BinderModule::Impl::DrawEditorInline() {
 
             ImGui::Spacing();
             ToggleChip(
-                kIconCheck,
+                ui_icons::Check,
                 ui.Text(UiText::EditorToggleTextConfirm),
                 "##binder_editor_text_confirm",
                 editor.draft.textConfirmation.enabled,
                 ScaleUi(164.0f));
             ImGui::SameLine();
             ToggleChip(
-                kIconCheck,
+                ui_icons::Check,
                 ui.Text(UiText::EditorToggleCommandConfirm),
                 "##binder_editor_command_confirm",
                 editor.draft.commandConfirmation.enabled,
@@ -9033,7 +9007,7 @@ void BinderModule::Impl::DrawEditorInline() {
                     ImGui::TextDisabled(
                         "%s",
                         ui.Format(UiText::ConfirmKeyFormat, ::hotkeys::KeyName(editor.draft.textConfirmation.key).c_str()).c_str());
-                    if (ImGui::Button((std::string(kIconKeyboard) + " " + ui.Text(UiText::Change) + "##confirm").c_str(), ScaleUi(168.0f, 0.0f))) {
+                    if (ImGui::Button((std::string(ui_icons::Keyboard) + " " + ui.Text(UiText::Change) + "##confirm").c_str(), ScaleUi(168.0f, 0.0f))) {
                         BeginCapture(CaptureTarget::ConfirmKey);
                     }
 
@@ -9041,7 +9015,7 @@ void BinderModule::Impl::DrawEditorInline() {
                     ImGui::TextDisabled(
                         "%s",
                         ui.Format(UiText::CancelKeyFormat, ::hotkeys::KeyName(editor.draft.textConfirmation.cancelKey).c_str()).c_str());
-                    if (ImGui::Button((std::string(kIconKeyboard) + " " + ui.Text(UiText::Change) + "##cancel").c_str(), ScaleUi(168.0f, 0.0f))) {
+                    if (ImGui::Button((std::string(ui_icons::Keyboard) + " " + ui.Text(UiText::Change) + "##cancel").c_str(), ScaleUi(168.0f, 0.0f))) {
                         BeginCapture(CaptureTarget::CancelKey);
                     }
 
@@ -9240,7 +9214,7 @@ void BinderModule::Impl::DrawExplorerToolbar() {
     if (backDisabled) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button((std::string(kIconChevronLeft) + "##binder_back").c_str(), navButtonSize)) {
+    if (ImGui::Button((std::string(ui_icons::ChevronLeft) + "##binder_back").c_str(), navButtonSize)) {
         NavigateBack();
     }
     if (backDisabled) {
@@ -9255,7 +9229,7 @@ void BinderModule::Impl::DrawExplorerToolbar() {
     if (upDisabled) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button((std::string(kIconAngleUp) + "##binder_up").c_str(), navButtonSize)) {
+    if (ImGui::Button((std::string(ui_icons::AngleUp) + "##binder_up").c_str(), navButtonSize)) {
         NavigateUp();
     }
     if (upDisabled) {
@@ -9297,13 +9271,13 @@ void BinderModule::Impl::DrawExplorerInlineFolderEditContent(
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImGuiStyle& style = ImGui::GetStyle();
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const ImVec2 folderIconSize = ImGui::CalcTextSize(kIconFolder);
+    const ImVec2 folderIconSize = ImGui::CalcTextSize(ui_icons::Folder);
     ImVec4 iconColor = style.Colors[ImGuiCol_Text];
     iconColor.w = selected ? 1.0f : 0.92f;
     drawList->AddText(
         ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - folderIconSize.x) * 0.5f)), textY),
         ImGui::GetColorU32(iconColor),
-        kIconFolder);
+        ui_icons::Folder);
 
     const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 buttonSize(buttonSide, buttonSide);
@@ -9331,9 +9305,9 @@ void BinderModule::Impl::DrawExplorerInlineFolderEditContent(
     ImGui::SetCursorScreenPos(ImVec2(
         std::floor(layout.actionsX + layout.actionsW - actionGroupWidth),
         std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - buttonSide) * 0.5f))));
-    const bool saveClicked = SmallIconActionButton(kIconCheck, "##folder_inline_save", ui.Text(UiText::Save), buttonSize);
+    const bool saveClicked = SmallIconActionButton(ui_icons::Check, "##folder_inline_save", ui.Text(UiText::Save), buttonSize);
     ImGui::SameLine(0.0f, buttonGap);
-    const bool cancelClicked = SmallIconActionButton(kIconDelete, "##folder_inline_cancel", ui.Text(UiText::Cancel), buttonSize);
+    const bool cancelClicked = SmallIconActionButton(ui_icons::Delete, "##folder_inline_cancel", ui.Text(UiText::Cancel), buttonSize);
 
     if (cancelClicked || escapePressed) {
         CancelInlineFolderEdit();
@@ -9521,16 +9495,16 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     }
 
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const ImVec2 iconSize = ImGui::CalcTextSize(kIconFolder);
+    const ImVec2 iconSize = ImGui::CalcTextSize(ui_icons::Folder);
     ImVec4 iconColor = style.Colors[ImGuiCol_Text];
     iconColor.w = selected || hovered ? 1.0f : 0.92f;
     drawList->AddText(
         ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - iconSize.x) * 0.5f)), textY),
         ImGui::GetColorU32(iconColor),
-        kIconFolder);
+        ui_icons::Folder);
 
     const bool hasConditions = HasSelectedCondition(folder.conditions);
-    const std::string marker = std::string(kIconSliders);
+    const std::string marker = std::string(ui_icons::Sliders);
     const ImVec2 markerSize = hasConditions ? ImGui::CalcTextSize(marker.c_str()) : ImVec2(0.0f, 0.0f);
     const float markerReserve = hasConditions ? markerSize.x + ScaleUi(18.0f) : 0.0f;
     const ImRect nameRect(
@@ -9603,12 +9577,12 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         ImGui::SetCursorScreenPos(ImVec2(
             std::floor(layout.actionsX + layout.actionsW - groupWidth),
             std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - buttonSide) * 0.5f))));
-        if (SmallIconActionButton(kIconEdit, "##folder_rename", ui.Text(UiText::FolderRename), buttonSize)) {
+        if (SmallIconActionButton(ui_icons::Edit, "##folder_rename", ui.Text(UiText::FolderRename), buttonSize)) {
             SelectExplorerFolder(&folder);
             BeginInlineRenameFolder(&folder);
         }
         ImGui::SameLine(0.0f, gap);
-        if (SmallIconActionButton(kIconSliders, "##folder_conditions", ui.Text(UiText::EditorOpenConditions), buttonSize)) {
+        if (SmallIconActionButton(ui_icons::Sliders, "##folder_conditions", ui.Text(UiText::EditorOpenConditions), buttonSize)) {
             folderConditionsTarget = &folder;
             folderConditionsPopupPending = true;
         }
@@ -9617,7 +9591,7 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         if (!canDelete) {
             ImGui::BeginDisabled();
         }
-        if (SmallIconActionButton(kIconDelete, "##folder_delete", ui.Text(UiText::Delete), buttonSize) && canDelete) {
+        if (SmallIconActionButton(ui_icons::Delete, "##folder_delete", ui.Text(UiText::Delete), buttonSize) && canDelete) {
             SelectExplorerFolder(&folder);
             folderDeleteTarget = &folder;
             folderDeletePopupPending = true;
@@ -9692,7 +9666,7 @@ void BinderModule::Impl::DrawExplorerBindRow(
         SelectExplorerBind(index);
     }
 
-    const ImVec2 bindIconSize = ImGui::CalcTextSize(kIconKeyboard);
+    const ImVec2 bindIconSize = ImGui::CalcTextSize(ui_icons::Keyboard);
     ImVec4 iconColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
     iconColor.w = hotkey.enabled ? 0.92f : 0.62f;
     if (selected || bindHovered) {
@@ -9702,7 +9676,7 @@ void BinderModule::Impl::DrawExplorerBindRow(
     drawList->AddText(
         ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - bindIconSize.x) * 0.5f)), bindTextY),
         ImGui::GetColorU32(iconColor),
-        kIconKeyboard);
+        ui_icons::Keyboard);
 
     const ImRect bindRect(
         ImVec2(layout.nameX, rowRect.Min.y),
@@ -9848,65 +9822,65 @@ void BinderModule::Impl::DrawExplorerBindRow(
         std::floor(layout.actionsX + layout.actionsW - actionGroupWidth),
         std::floor(rowRect.Min.y + std::max(0.0f, (layout.rowHeight - iconButtonSize.y) * 0.5f))));
     if (SmallIconActionButton(
-            hotkey.enabled ? kIconToggleOn : kIconToggleOff, "##enabled", ui.Text(UiText::Enabled), iconButtonSize)) {
+            hotkey.enabled ? ui_icons::ToggleOn : ui_icons::ToggleOff, "##enabled", ui.Text(UiText::Enabled), iconButtonSize)) {
         hotkey.enabled = !hotkey.enabled;
         SaveConfig();
     }
     ImGui::SameLine(0.0f, actionButtonGap);
-    const bool dimQuickIcon = !hotkey.enabled || !hotkey.quickMenu;
-    if (dimQuickIcon) {
+    const bool dimQuickButton = !hotkey.enabled || !hotkey.quickMenu;
+    if (dimQuickButton) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     }
     if (!hotkey.enabled) {
         ImGui::BeginDisabled();
     }
-    if (SmallIconActionButton(kIconBolt, "##quick", ui.Text(UiText::ShowInQuickMenu), iconButtonSize)) {
+    if (SmallIconActionButton(ui_icons::Bolt, "##quick", ui.Text(UiText::ShowInQuickMenu), iconButtonSize)) {
         hotkey.quickMenu = !hotkey.quickMenu;
         SaveConfig();
     }
     if (!hotkey.enabled) {
         ImGui::EndDisabled();
     }
-    if (dimQuickIcon) {
+    if (dimQuickButton) {
         ImGui::PopStyleColor();
     }
     ImGui::SameLine(0.0f, actionButtonGap);
     if (!isRunning) {
         ImGui::BeginDisabled(!hotkey.enabled);
-        if (SmallIconActionButton(kIconPlay, "##run", ui.Text(UiText::Run), iconButtonSize)) {
+        if (SmallIconActionButton(ui_icons::Play, "##run", ui.Text(UiText::Run), iconButtonSize)) {
             TryEnqueueHotkey(index, 0, "manual", "");
         }
         ImGui::EndDisabled();
     } else if (isPaused) {
-        if (SmallIconActionButton(kIconPlay, "##resume", ui.Text(UiText::Resume), iconButtonSize)) {
+        if (SmallIconActionButton(ui_icons::Play, "##resume", ui.Text(UiText::Resume), iconButtonSize)) {
             ResumeHotkey(index);
         }
         ImGui::SameLine(0.0f, actionButtonGap);
-        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
+        if (SmallIconActionButton(ui_icons::Stop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
             StopHotkey(index);
         }
     } else {
-        if (SmallIconActionButton(kIconPause, "##pause", ui.Text(UiText::Pause), iconButtonSize)) {
+        if (SmallIconActionButton(ui_icons::Pause, "##pause", ui.Text(UiText::Pause), iconButtonSize)) {
             PauseHotkey(index);
         }
         ImGui::SameLine(0.0f, actionButtonGap);
-        if (SmallIconActionButton(kIconStop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
+        if (SmallIconActionButton(ui_icons::Stop, "##stop", ui.Text(UiText::Stop), iconButtonSize)) {
             StopHotkey(index);
         }
     }
     ImGui::SameLine(0.0f, actionButtonGap);
-    if (SmallIconActionButton(kIconEdit, "##edit", ui.Text(UiText::Edit), iconButtonSize)) {
+    if (SmallIconActionButton(ui_icons::Edit, "##edit", ui.Text(UiText::Edit), iconButtonSize)) {
         SelectExplorerBind(index);
         StartEditing(index, false);
     }
     ImGui::SameLine(0.0f, actionButtonGap);
-    if (SmallIconActionButton(kIconDelete, "##delete", ui.Text(UiText::Delete), iconButtonSize)) {
+    if (SmallIconActionButton(ui_icons::Delete, "##delete", ui.Text(UiText::Delete), iconButtonSize)) {
         SelectExplorerBind(index);
         bindDeleteTarget = index;
         bindDeletePopupPending = true;
     }
     ImGui::SameLine(0.0f, actionButtonGap);
-    if (SmallIconActionButton(kIconBars, "##more", ui.Text(UiText::ColumnActions), iconButtonSize)) {
+    if (SmallIconActionButton(ui_icons::Bars, "##more", ui.Text(UiText::ColumnActions), iconButtonSize)) {
         ImGui::OpenPopup("##binder_bind_actions");
     }
     if (ImGui::BeginPopup("##binder_bind_actions")) {
@@ -10060,7 +10034,7 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             if (result.categoryOnly) {
-                const std::string label = std::string(kIconFolder) + " " + result.item.key;
+                const std::string label = std::string(ui_icons::Folder) + " " + result.item.key;
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     SelectCategory(result.categoryId);
@@ -10068,7 +10042,7 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
                     bindSearch.clear();
                 }
             } else if (result.item.kind == ExplorerItemKind::Folder) {
-                const std::string label = std::string(kIconFolder) + " " + result.item.key;
+                const std::string label = std::string(ui_icons::Folder) + " " + result.item.key;
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     SelectCategory(result.categoryId);
@@ -10085,8 +10059,8 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
             } else {
                 const int index = FindHotkeyIndexByOrderId(result.item.key);
                 const std::string label = index >= 0
-                    ? std::string(kIconKeyboard) + " " + hotkeys[static_cast<std::size_t>(index)].label
-                    : std::string(kIconKeyboard);
+                    ? std::string(ui_icons::Keyboard) + " " + hotkeys[static_cast<std::size_t>(index)].label
+                    : std::string(ui_icons::Keyboard);
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && index >= 0) {
                     SelectCategory(result.categoryId);
@@ -10482,7 +10456,7 @@ void BinderModule::Impl::DrawMoveBindPopup() {
         for (const BinderCategory& category : categories) {
             ImGui::PushID(category.id.c_str());
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow;
-            const std::string categoryLabel = std::string(kIconFolder) + " " + category.name;
+            const std::string categoryLabel = std::string(ui_icons::Folder) + " " + category.name;
             const bool opened = ImGui::TreeNodeEx("##move_bind_category", flags, "%s", categoryLabel.c_str());
             if (ImGui::BeginPopupContextItem("##move_bind_category_context")) {
                 ImGui::TextDisabled("%s", category.name.c_str());
@@ -10495,7 +10469,7 @@ void BinderModule::Impl::DrawMoveBindPopup() {
                 ImGui::CloseCurrentPopup();
             }
             if (opened) {
-                const std::string rootLabel = std::string(kIconFolder) + " " + ui.Text(UiText::BinderRootName) + "##move_bind_root";
+                const std::string rootLabel = std::string(ui_icons::Folder) + " " + ui.Text(UiText::BinderRootName) + "##move_bind_root";
                 const bool rootSelected = hotkey->categoryId == category.id && hotkey->folderPath.empty();
                 if (ImGui::Selectable(rootLabel.c_str(), rootSelected, ImGuiSelectableFlags_SpanAvailWidth)) {
                     SelectCategory(category.id);
@@ -10755,7 +10729,7 @@ void BinderModule::Impl::DrawQuickMenu() {
 
     const auto hotkeyLabel = [&](const int index, const char* idPrefix) {
         const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        return std::string(kIconKeyboard) + " "
+        return std::string(ui_icons::Keyboard) + " "
             + BuildBindDisplayLabel(hotkey)
             + "##" + idPrefix + std::to_string(index);
     };
@@ -10821,7 +10795,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                     continue;
                 }
                 const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
-                const std::string label = std::string(kIconFolder) + " " + child->name + "##qm_folder_" + path;
+                const std::string label = std::string(ui_icons::Folder) + " " + child->name + "##qm_folder_" + path;
                 if (ImGui::BeginMenu(label.c_str())) {
                     self(self, category, child, "qm_bind_");
                     ImGui::EndMenu();
@@ -10879,7 +10853,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                     continue;
                 }
                 const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
-                const std::string label = std::string(kIconFolder) + " " + child->name + "##qm_tree_folder_" + path;
+                const std::string label = std::string(ui_icons::Folder) + " " + child->name + "##qm_tree_folder_" + path;
                 ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;
                 if (depth == 0) {
                     flags |= ImGuiTreeNodeFlags_DefaultOpen;
@@ -11142,7 +11116,7 @@ void BinderModule::Impl::DrawInputDialog() {
                     const bool selected =
                         field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
                     if (selected && field.input.multiSelect) {
-                        label = std::string(kIconCheck) + " " + label;
+                        label = std::string(ui_icons::Check) + " " + label;
                     }
                     if (drawButtonChoice(label, selected)) {
                         applyButtonSelection(field, buttonIndex);
@@ -11173,7 +11147,7 @@ void BinderModule::Impl::DrawInputDialog() {
                     const bool selected =
                         field.input.multiSelect ? field.selectedButtons.contains(buttonIndex) : field.selectedButtonIndex.value_or(-1) == buttonIndex;
                     if (selected && field.input.multiSelect) {
-                        label = std::string(kIconCheck) + " " + label;
+                        label = std::string(ui_icons::Check) + " " + label;
                     }
                     if (drawButtonChoice(label, selected)) {
                         applyButtonSelection(field, buttonIndex);

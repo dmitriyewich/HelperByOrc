@@ -154,6 +154,9 @@
     <ClInclude Include="feature_flags.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="font_awesome7_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="hotkey_utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -203,6 +206,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_settings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ui_icons.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="user_files_path.h">
