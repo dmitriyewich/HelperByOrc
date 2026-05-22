@@ -13,6 +13,7 @@
 #include "imgui_overlay.h"
 #include "binder_module.h"
 #include "incoming_message_router.h"
+#include "notification_manager.h"
 #include "notepad_module.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
@@ -71,6 +72,7 @@ private:
     void DrawSettingsSummaryBar();
     void DrawSettingsGeneralSection();
     void DrawSettingsHotkeysSection();
+    void DrawSettingsNotificationsSection();
     void DrawSettingsProfilesSection();
     void DrawSettingsDiagnosticsSection();
 
@@ -110,6 +112,7 @@ private:
     SampHooks sampHooks_{};
     SampRakHooks sampRakHooks_{};
     IncomingMessageRouter incomingMessageRouter_{};
+    NotificationManager notifications_{};
     BinderModule binder_{};
     NotepadModule notepad_{};
     TagsModule tags_{};

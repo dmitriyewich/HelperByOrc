@@ -11,6 +11,7 @@
 
 class SampApi;
 class BinderModule;
+class NotificationManager;
 
 class TagsModule {
 public:
@@ -59,6 +60,7 @@ public:
 
     void SetSampApi(SampApi* sampApi);
     void SetBinderModule(BinderModule* binderModule);
+    void SetNotificationManager(NotificationManager* notificationManager);
 
     void PushContext(const EvaluationContext& context) const;
     void PopContext() const;
@@ -182,6 +184,9 @@ private:
         std::uint64_t deadlineAtMs,
         int expectedDialogId = -1);
     void ClearPendingDialogWait(std::uint64_t runtimeId);
+    void NotifyTagError(std::string_view text, double durationMs = 2800.0) const;
+    void NotifyDialogError(std::string_view text, double durationMs = 2800.0) const;
+    void NotifySuccess(std::string_view text, double durationMs = 2200.0) const;
     void QueuePendingKeyHoldWait(std::uint64_t runtimeId, unsigned int keyCode, std::uint64_t releaseAtMs) const;
     void ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) const;
     bool HasPendingDialogWait(std::uint64_t runtimeId) const;
@@ -352,6 +357,7 @@ private:
 
     SampApi* sampApi_ = nullptr;
     BinderModule* binderModule_ = nullptr;
+    NotificationManager* notificationManager_ = nullptr;
     std::string searchQuery_{};
     int selectedTagIndex_ = 0;
     MiscPage currentPage_ = MiscPage::Home;

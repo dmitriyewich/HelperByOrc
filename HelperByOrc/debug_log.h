@@ -17,6 +17,7 @@ void SetLevel(Level level);
 Level GetLevel();
 void WriteError(const char* format, ...);
 void WriteInfo(const char* format, ...);
+void WriteAlways(Level level, const char* format, ...);
 void Write(const char* format, ...);
 
 } // namespace debuglog

@@ -5,6 +5,7 @@
 #include "debug_log.h"
 #include "hotkey_utils.h"
 #include "json_utils.h"
+#include "notification_manager.h"
 #include "samp_api.h"
 #include "user_files_path.h"
 
@@ -2980,6 +2981,35 @@ void TagsModule::SetBinderModule(BinderModule* binderModule) {
     debuglog::WriteInfo("TagsModule::SetBinderModule assigned=%d", binderModule_ ? 1 : 0);
 }
 
+void TagsModule::SetNotificationManager(NotificationManager* notificationManager) {
+    notificationManager_ = notificationManager;
+    debuglog::WriteInfo("TagsModule::SetNotificationManager assigned=%d", notificationManager_ ? 1 : 0);
+}
+
+void TagsModule::NotifyTagError(std::string_view text, double durationMs) const {
+    if (!notificationManager_ || text.empty()) {
+        return;
+    }
+
+    notificationManager_->Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, text, durationMs);
+}
+
+void TagsModule::NotifyDialogError(std::string_view text, double durationMs) const {
+    if (!notificationManager_ || text.empty()) {
+        return;
+    }
+
+    notificationManager_->Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, text, durationMs);
+}
+
+void TagsModule::NotifySuccess(std::string_view text, double durationMs) const {
+    if (!notificationManager_ || text.empty()) {
+        return;
+    }
+
+    notificationManager_->Notify(NotificationGroup::Success, NotificationSeverity::Success, text, durationMs);
+}
+
 TagsModule::OwnedEvaluationContext TagsModule::MakeOwnedContext(const EvaluationContext& context, SampApi* fallbackSampApi) {
     OwnedEvaluationContext owned;
     owned.sampApi = context.sampApi ? context.sampApi : fallbackSampApi;
@@ -3210,7 +3240,7 @@ void TagsModule::ProcessPendingDialogWaits() {
             }
 
             if (it->deadlineAtMs != 0 && now >= it->deadlineAtMs) {
-                binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogWaitOpenTimedOut), true, 3000.0);
+                NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogWaitOpenTimedOut), 3000.0);
                 binderModule_->StopRuntime(runtimeId);
                 it = pendingDialogWaits_.erase(it);
                 continue;
@@ -3233,11 +3263,10 @@ void TagsModule::ProcessPendingDialogWaits() {
             }
 
             if (it->deadlineAtMs != 0 && now >= it->deadlineAtMs) {
-                binderModule_->ShowToast(
+                NotifyDialogError(
                     UiSettings::Instance().Format(
                         UiText::ToastDialogWaitIdTimedOut,
                         std::to_string(std::max(it->expectedDialogId, 0)).c_str()),
-                    true,
                     3000.0);
                 binderModule_->StopRuntime(runtimeId);
                 it = pendingDialogWaits_.erase(it);
@@ -3862,7 +3891,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinScreenTag(const EvaluationC
 
     const ScreenCaptureResult result = CaptureGameScreenshot({});
     if (!result.Ok() && binderModule_) {
-        binderModule_->ShowToast(DescribeScreenCaptureError(result.error, result.detail), true, 2800.0);
+        NotifyTagError(DescribeScreenCaptureError(result.error, result.detail), 2800.0);
     }
     return std::string();
 }
@@ -3873,7 +3902,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinTPhotoTag(const EvaluationC
     }
 
     if (!TakeGameCameraPhoto() && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastTPhotoFailed), true, 2800.0);
+        NotifyTagError(UiSettings::Instance().Text(UiText::ToastTPhotoFailed), 2800.0);
     }
     return std::string();
 }
@@ -4277,7 +4306,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(
     const std::vector<std::string_view> parts = SplitTopLevelDelimitedParts(param, ';');
     if (parts.size() != 2) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidFormat), true, 2800.0);
+            NotifyTagError(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidFormat), 2800.0);
         }
         return std::string();
     }
@@ -4285,7 +4314,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(
     const std::optional<int> keyCode = ParseInteger(parts[0]);
     if (!keyCode.has_value() || *keyCode < 1 || *keyCode > 0xFF) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidKey), true, 2800.0);
+            NotifyTagError(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidKey), 2800.0);
         }
         return std::string();
     }
@@ -4293,7 +4322,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(
     const std::optional<int> durationMs = ParseInteger(parts[1]);
     if (!durationMs.has_value() || *durationMs < 1) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidDuration), true, 2800.0);
+            NotifyTagError(UiSettings::Instance().Text(UiText::ToastKeyDownInvalidDuration), 2800.0);
         }
         return std::string();
     }
@@ -4372,7 +4401,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinIfAndOrFunctionTag(
     const IfAndOrSplitResult split = SplitIfAndOrParam(rawParam);
     if (!split.valid) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastIfAndOrInvalidSyntax), true, 2800.0);
+            NotifyTagError(UiSettings::Instance().Text(UiText::ToastIfAndOrInvalidSyntax), 2800.0);
         }
         return std::string();
     }
@@ -4380,7 +4409,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinIfAndOrFunctionTag(
     const std::string trimmedCondition(TrimAsciiWhitespace(split.condition));
     if (trimmedCondition.empty()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastIfAndOrEmptyCondition), true, 2800.0);
+            NotifyTagError(UiSettings::Instance().Text(UiText::ToastIfAndOrEmptyCondition), 2800.0);
         }
         return std::string();
     }
@@ -4392,9 +4421,8 @@ std::optional<std::string> TagsModule::ResolveBuiltinIfAndOrFunctionTag(
     const std::optional<bool> conditionResult = EvaluateConditionExpression(expandedCondition, conditionError);
     if (!conditionResult.has_value()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(
+            NotifyTagError(
                 UiSettings::Instance().Format(UiText::ToastIfAndOrConditionFailed, conditionError.c_str()),
-                true,
                 3200.0);
         }
         return std::string();
@@ -4410,7 +4438,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinTimefFunctionTag(
     const TimeFormatParseResult parsed = ParseTimefFormat(param);
     if (!parsed.Ok()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(DescribeTimeFormatError(parsed.error, parsed.invalidToken), true, 2800.0);
+            NotifyTagError(DescribeTimeFormatError(parsed.error, parsed.invalidToken), 2800.0);
         }
         return std::string();
     }
@@ -4418,7 +4446,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinTimefFunctionTag(
     const std::string formatted = FormatCurrentTime(parsed.format);
     if (formatted.empty()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(DescribeTimeFormatError(TimeFormatError::FormatFailed, {}), true, 2800.0);
+            NotifyTagError(DescribeTimeFormatError(TimeFormatError::FormatFailed, {}), 2800.0);
         }
         return std::string();
     }
@@ -4451,7 +4479,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinScreenFunctionTag(
     std::string folder = Unquote(Trim(param));
     const ScreenCaptureResult result = CaptureGameScreenshot(folder);
     if (!result.Ok() && binderModule_) {
-        binderModule_->ShowToast(DescribeScreenCaptureError(result.error, result.detail), true, 2800.0);
+        NotifyTagError(DescribeScreenCaptureError(result.error, result.detail), 2800.0);
     }
     return std::string();
 }
@@ -4480,7 +4508,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogCloseFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogCloseNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4489,14 +4517,14 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogCloseFunctionTag(
     const std::optional<int> button = ParseInteger(rawValue);
     if (!button.has_value() || (*button != 0 && *button != 1)) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseInvalidButton), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogCloseInvalidButton), 2800.0);
         }
         return std::string();
     }
 
     const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(*button);
     if (!result.ok && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogCloseFailed), true, 2800.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogCloseFailed), 2800.0);
     }
 
     return std::string();
@@ -4512,7 +4540,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSetTextFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4520,14 +4548,14 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSetTextFunctionTag(
     const int style = sampApi->GetCurrentDialogStyle();
     if (style < 0 || !sampApi->isDialogInputStyle(style) || !sampApi->pDialogInput_pEditBox_active_func()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoEditbox), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSetTextNoEditbox), 2800.0);
         }
         return std::string();
     }
 
     const std::string text = Unquote(std::string(param));
     if (!sampApi->sampSetDialogEditboxText(text, false) && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSetTextFailed), true, 2800.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSetTextFailed), 2800.0);
     }
 
     return std::string();
@@ -4543,7 +4571,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogWaitIdFunctionTag(
     const std::string rawValue = Unquote(Trim(param));
     const std::optional<int> dialogId = ParseInteger(rawValue);
     if (!dialogId.has_value() || *dialogId < 0) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogWaitIdInvalidId), true, 2800.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogWaitIdInvalidId), 2800.0);
         return std::string();
     }
 
@@ -4573,7 +4601,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogItemNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4581,7 +4609,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
     const std::string rawValue = Unquote(Trim(param));
     if (rawValue.empty()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemEmptyParam), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogItemEmptyParam), 2800.0);
         }
         return std::string();
     }
@@ -4591,7 +4619,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
     if (!items.has_value()) {
         if (binderModule_) {
             const UiText textId = error == "not_list" ? UiText::ToastDialogItemNotList : UiText::ToastDialogItemReadFailed;
-            binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(textId), 2800.0);
         }
         return std::string();
     }
@@ -4603,16 +4631,15 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
         targetIndex = *foundIndex;
     } else {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemNotFound), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogItemNotFound), 2800.0);
         }
         return std::string();
     }
 
     if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
         if (binderModule_) {
-            binderModule_->ShowToast(
+            NotifyDialogError(
                 UiSettings::Instance().Format(UiText::ToastDialogItemOutOfRange, std::to_string(targetIndex + 1).c_str()),
-                true,
                 2800.0);
         }
         return std::string();
@@ -4620,7 +4647,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogItemFunctionTag(
 
     const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(1, targetIndex);
     if (!result.ok && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogItemFailed), true, 2800.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogItemFailed), 2800.0);
     }
 
     return std::string();
@@ -4636,7 +4663,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSelectNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4644,7 +4671,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectFunctionTag(
     const std::string rawValue = Unquote(Trim(param));
     if (rawValue.empty()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectEmptyParam), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSelectEmptyParam), 2800.0);
         }
         return std::string();
     }
@@ -4654,7 +4681,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectFunctionTag(
     if (!items.has_value()) {
         if (binderModule_) {
             const UiText textId = error == "not_list" ? UiText::ToastDialogSelectNotList : UiText::ToastDialogSelectReadFailed;
-            binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(textId), 2800.0);
         }
         return std::string();
     }
@@ -4666,25 +4693,24 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogSelectFunctionTag(
         targetIndex = *foundIndex;
     } else {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectNotFound), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSelectNotFound), 2800.0);
         }
         return std::string();
     }
 
     if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
         if (binderModule_) {
-            binderModule_->ShowToast(
+            NotifyDialogError(
                 UiSettings::Instance().Format(
                     UiText::ToastDialogSelectOutOfRange,
                     std::to_string(targetIndex + 1).c_str()),
-                true,
                 2800.0);
         }
         return std::string();
     }
 
     if (!sampApi->SetCurrentDialogListItem(targetIndex) && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogSelectFailed), true, 2800.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSelectFailed), 2800.0);
     }
 
     return std::string();
@@ -4701,7 +4727,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogResponseNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4709,7 +4735,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
     const DialogResponseParams parsed = ParseDialogResponseParams(rawParam);
     if (!parsed.valid) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidFormat), true, 3000.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidFormat), 3000.0);
         }
         return std::string();
     }
@@ -4721,7 +4747,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
     const std::optional<int> button = ParseInteger(buttonValue);
     if (!button.has_value() || (*button != 0 && *button != 1)) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidButton), true, 3000.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogResponseInvalidButton), 3000.0);
         }
         return std::string();
     }
@@ -4739,7 +4765,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
                 if (binderModule_) {
                     const UiText textId =
                         error == "not_list" ? UiText::ToastDialogResponseItemNotList : UiText::ToastDialogResponseReadFailed;
-                    binderModule_->ShowToast(UiSettings::Instance().Text(textId), true, 3000.0);
+                    NotifyDialogError(UiSettings::Instance().Text(textId), 3000.0);
                 }
                 return std::string();
             }
@@ -4751,18 +4777,17 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
                 targetIndex = *foundIndex;
             } else {
                 if (binderModule_) {
-                    binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseItemNotFound), true, 3000.0);
+                    NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogResponseItemNotFound), 3000.0);
                 }
                 return std::string();
             }
 
             if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
                 if (binderModule_) {
-                    binderModule_->ShowToast(
+                    NotifyDialogError(
                         UiSettings::Instance().Format(
                             UiText::ToastDialogResponseItemOutOfRange,
                             std::to_string(targetIndex + 1).c_str()),
-                        true,
                         3000.0);
                 }
                 return std::string();
@@ -4778,7 +4803,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogResponseFunctionTag(
 
     const SampApi::DialogSubmitResult result = sampApi->submitCurrentDialog(*button, listItem, inputText, false);
     if (!result.ok && binderModule_) {
-        binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogResponseFailed), true, 3000.0);
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogResponseFailed), 3000.0);
     }
 
     return std::string();
@@ -4790,7 +4815,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogTextFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogTextNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4798,7 +4823,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogTextFunctionTag(
     const std::string rawValue = Unquote(Trim(param));
     if (rawValue.empty()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextEmptyParam), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogTextEmptyParam), 2800.0);
         }
         return std::string();
     }
@@ -4806,7 +4831,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogTextFunctionTag(
     const std::optional<int> index = ParseInteger(rawValue);
     if (!index.has_value() || *index < 0) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextInvalidIndex), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogTextInvalidIndex), 2800.0);
         }
         return std::string();
     }
@@ -4815,19 +4840,18 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogTextFunctionTag(
     const std::optional<DialogTextItems> items = ReadActiveDialogTextItems(sampApi, error);
     if (!items.has_value()) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastDialogTextReadFailed), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogTextReadFailed), 2800.0);
         }
         return std::string();
     }
 
     if (*index >= static_cast<int>(items->flat.size())) {
         if (context.allowSideEffects && binderModule_) {
-            binderModule_->ShowToast(
+            NotifyDialogError(
                 UiSettings::Instance().Format(
                     UiText::ToastDialogTextOutOfRange,
                     std::to_string(*index).c_str(),
                     std::to_string(items->flat.empty() ? 0 : static_cast<int>(items->flat.size() - 1)).c_str()),
-                true,
                 2800.0);
         }
         return std::string();
@@ -4846,7 +4870,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || !sampApi->isDialogActive()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogNoActive), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastSaveDialogNoActive), 2800.0);
         }
         return std::string();
     }
@@ -4854,7 +4878,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
     const std::optional<std::filesystem::path> helperDataPath = helper_paths::ResolveHelperDataDirectory();
     if (!helperDataPath.has_value()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogDocumentsUnavailable), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastSaveDialogDocumentsUnavailable), 2800.0);
         }
         return std::string();
     }
@@ -4864,7 +4888,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
     std::filesystem::create_directories(targetDirectory, directoryError);
     if (directoryError) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogCreateDirFailed), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastSaveDialogCreateDirFailed), 2800.0);
         }
         return std::string();
     }
@@ -4888,7 +4912,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
     std::ofstream stream(targetPath, std::ios::binary);
     if (!stream.is_open()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), 2800.0);
         }
         return std::string();
     }
@@ -4918,7 +4942,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
 
     if (!stream.good()) {
         if (binderModule_) {
-            binderModule_->ShowToast(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), true, 2800.0);
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastSaveDialogWriteFailed), 2800.0);
         }
         return std::string();
     }
@@ -4928,9 +4952,8 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
         if (savedPath.empty()) {
             savedPath = WideToMultiByte(targetPath.filename().native(), CP_UTF8);
         }
-        binderModule_->ShowToast(
+        NotifySuccess(
             UiSettings::Instance().Format(UiText::ToastSaveDialogSuccess, savedPath.c_str()),
-            false,
             2800.0);
     }
 

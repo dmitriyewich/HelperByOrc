@@ -24,7 +24,7 @@ bool ShouldWrite(Level level) {
     return static_cast<int>(g_level) >= static_cast<int>(level);
 }
 
-void WriteInternal(Level level, const char* format, va_list args) {
+void WriteInternal(Level level, bool force, const char* format, va_list args) {
     if (!format) {
         return;
     }
@@ -32,7 +32,7 @@ void WriteInternal(Level level, const char* format, va_list args) {
     char message[4096]{};
     std::vsnprintf(message, sizeof(message), format, args);
 
-    if (!ShouldWrite(level)) {
+    if (!force && !ShouldWrite(level)) {
         return;
     }
 
@@ -86,14 +86,21 @@ Level GetLevel() {
 void WriteError(const char* format, ...) {
     va_list args;
     va_start(args, format);
-    WriteInternal(Level::Error, format, args);
+    WriteInternal(Level::Error, false, format, args);
     va_end(args);
 }
 
 void WriteInfo(const char* format, ...) {
     va_list args;
     va_start(args, format);
-    WriteInternal(Level::Info, format, args);
+    WriteInternal(Level::Info, false, format, args);
+    va_end(args);
+}
+
+void WriteAlways(Level level, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    WriteInternal(level, true, format, args);
     va_end(args);
 }
 
@@ -105,7 +112,7 @@ void Write(const char* format, ...) {
     const Level effectiveLevel = IsErrorLike(format) ? Level::Error : Level::Info;
     va_list args;
     va_start(args, format);
-    WriteInternal(effectiveLevel, format, args);
+    WriteInternal(effectiveLevel, false, format, args);
     va_end(args);
 }
 

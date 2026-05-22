@@ -14,6 +14,7 @@ class SampHooks;
 class SampRakHooks;
 class TagsModule;
 class IncomingMessageRouter;
+class NotificationManager;
 
 class BinderModule {
 public:
@@ -37,6 +38,7 @@ public:
     void SetSampHooks(SampHooks* sampHooks);
     void SetSampRakHooks(SampRakHooks* sampRakHooks);
     void SetIncomingMessageRouter(IncomingMessageRouter* incomingMessageRouter);
+    void SetNotificationManager(NotificationManager* notificationManager);
     void SetTagsModule(TagsModule* tagsModule);
 
     void Tick();
@@ -53,8 +55,6 @@ public:
     bool ResumeRuntime(std::uint64_t runtimeId);
     bool StopRuntime(std::uint64_t runtimeId);
     TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
-    void ShowToast(std::string_view text, bool error = false, double durationMs = 2500.0);
-
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;

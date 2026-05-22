@@ -72,6 +72,9 @@
     <ClCompile Include="mod_app.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="notification_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="notepad_module.cpp">
       <Filter>Source Files\Notepad</Filter>
     </ClCompile>
@@ -167,6 +170,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="mod_app.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="notification_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="notepad_module.h">

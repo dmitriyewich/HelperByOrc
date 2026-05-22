@@ -233,6 +233,38 @@
     X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \
     X(SettingsQuickMenuIntro, "Как открывается быстрое меню биндов.", "How the binder quick menu opens.") \
     X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
+    X(SettingsNotificationsEnabled, "Включить системные уведомления", "Enable system notifications") \
+    X(SettingsNotificationsChannel, "Канал", "Channel") \
+    X(SettingsNotificationsChannelPopup, "Окно", "Popup") \
+    X(SettingsNotificationsChannelLog, "Лог", "Log") \
+    X(SettingsNotificationsGroups, "События", "Events") \
+    X(SettingsNotificationsGroupBinderErrors, "Ошибки биндов и отправки", "Bind and send errors") \
+    X(SettingsNotificationsGroupTagErrors, "Ошибки тегов", "Tag errors") \
+    X(SettingsNotificationsGroupSampDialogErrors, "Ошибки диалогов SA:MP", "SA:MP dialog errors") \
+    X(SettingsNotificationsGroupSuccess, "Успешные действия", "Successful actions") \
+    X(SettingsNotificationsGroupConfirmation, "Подтверждения и отмены", "Confirmations and cancels") \
+    X(SettingsNotificationsPosition, "Позиция", "Position") \
+    X(SettingsNotificationsPositionTopLeft, "Сверху слева", "Top left") \
+    X(SettingsNotificationsPositionTopCenter, "Сверху по центру", "Top center") \
+    X(SettingsNotificationsPositionTopRight, "Сверху справа", "Top right") \
+    X(SettingsNotificationsPositionMiddleLeft, "По центру слева", "Middle left") \
+    X(SettingsNotificationsPositionMiddleCenter, "По центру", "Middle center") \
+    X(SettingsNotificationsPositionMiddleRight, "По центру справа", "Middle right") \
+    X(SettingsNotificationsPositionBottomLeft, "Снизу слева", "Bottom left") \
+    X(SettingsNotificationsPositionBottomCenter, "Снизу по центру", "Bottom center") \
+    X(SettingsNotificationsPositionBottomRight, "Снизу справа", "Bottom right") \
+    X(SettingsNotificationsOffsetX, "Отступ X", "Offset X") \
+    X(SettingsNotificationsOffsetY, "Отступ Y", "Offset Y") \
+    X(SettingsNotificationsDisplay, "Отображение", "Display") \
+    X(SettingsNotificationsDurationMs, "Время показа, мс", "Duration, ms") \
+    X(SettingsNotificationsWidth, "Ширина окна", "Popup width") \
+    X(SettingsNotificationsOpacity, "Прозрачность", "Opacity") \
+    X(SettingsNotificationsAntiFlood, "Антифлуд", "Anti-flood") \
+    X(SettingsNotificationsDedupeMs, "Схлопывать повторы, мс", "Collapse repeats, ms") \
+    X(SettingsNotificationsMaxVisible, "Максимум на экране", "Max visible") \
+    X(SettingsNotificationsMaxQueue, "Максимум в очереди", "Max queued") \
+    X(SettingsNotificationsTest, "Тестовое уведомление", "Test notification") \
+    X(SettingsNotificationsTestText, "Тестовое уведомление HelperByOrc.", "HelperByOrc test notification.") \
     X(SettingsSummaryProfile, "Профиль", "Profile") \
     X(SettingsSummaryLanguage, "Язык", "Language") \
     X(SettingsSummaryMainWindow, "Главное окно", "Main window") \
@@ -328,8 +360,8 @@
     X(SendLog, "В лог", "To log") \
     X(SendToast, "Уведомление", "Toast") \
     X(SendUnknown, "Неизвестно", "Unknown") \
-    X(ToastBindConfirmExpired, "Подтверждение бинда истекло: %s", "Bind confirmation expired: %s") \
-    X(ToastBindCanceled, "Бинд отменён: %s", "Bind canceled: %s") \
+    X(ToastBindConfirmExpired, "%s: подтверждение бинда истекло: %s", "%s: bind confirmation expired: %s") \
+    X(ToastBindCanceled, "%s: бинд отменён: %s", "%s: bind canceled: %s") \
     X(ToastConditionBlocked, "Бинд заблокирован: %s", "Bind blocked: %s") \
     X(ToastFinishActiveInput, "Сначала завершите активный ввод.", "Finish the active input first.") \
     X(ToastSendLocalFailed, "Не удалось добавить сообщение в чат SA:MP.", "Failed to add a message to the SA:MP chat.") \
@@ -407,7 +439,7 @@
     X(ToastIfAndOrEmptyCondition, "Для [ifandor(...)] нужно указать условие перед символом ?", "The [ifandor(...)] tag requires a condition before the ? symbol") \
     X(ToastIfAndOrConditionFailed, "Ошибка условия [ifandor(...)] : %s", "Failed to evaluate [ifandor(...)] condition: %s") \
     X(ToastBindSaved, "Бинд сохранён.", "Bind saved.") \
-    X(ToastConfirmPrompt, "Подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "Confirm bind \"%s\": [%s] accept, [%s] cancel") \
+    X(ToastConfirmPrompt, "%s: подтвердить бинд \"%s\": [%s] принять, [%s] отменить", "%s: confirm bind \"%s\": [%s] accept, [%s] cancel") \
     X(ValidationFirstMessageRequired, "Заполните первую строку бинда.", "Fill in the first bind line.") \
     X(ValidationExistingFolderRequired, "Укажите существующую папку.", "Select an existing folder.") \
     X(ValidationFolderNameRequired, "Укажите название папки.", "Enter a folder name.") \

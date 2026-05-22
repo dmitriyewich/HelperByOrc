@@ -5,6 +5,7 @@
 #include "hotkey_utils.h"
 #include "incoming_message_router.h"
 #include "json_utils.h"
+#include "notification_manager.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -30,7 +31,6 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
-#include <deque>
 #include <filesystem>
 #include <limits>
 #include <map>
@@ -50,7 +50,6 @@ namespace {
 constexpr UINT kDefaultConfirmKey = '1';
 constexpr UINT kDefaultCancelKey = '2';
 constexpr UINT kDefaultQuickMenuFallback = VK_XBUTTON1;
-constexpr int kMaxToasts = 8;
 constexpr int kMinMessageIntervalMs = 0;
 constexpr double kHotkeyDebounceMs = 0.0;
 constexpr int kDefaultRepeatIntervalMs = 500;
@@ -559,6 +558,14 @@ std::string BuildBindDisplayLabel(const HotkeyEntry& hotkey) {
     return UiSettings::Instance().Text(UiText::BinderDefaultHotkey);
 }
 
+UiText ConfirmationSourceLabelId(std::string_view sourceKind) {
+    return sourceKind == "command" ? UiText::EditorToggleCommandConfirm : UiText::EditorToggleTextConfirm;
+}
+
+const char* ConfirmationSourceLabel(std::string_view sourceKind) {
+    return UiSettings::Instance().Text(ConfirmationSourceLabelId(sourceKind));
+}
+
 bool HasRequiredFirstMessage(const HotkeyEntry& hotkey) {
     return !hotkey.messages.empty() && !Trim(hotkey.messages.front().text).empty();
 }
@@ -675,12 +682,6 @@ struct BinderCategory {
     std::vector<ExplorerItem> rootItems;
     std::vector<std::string> lastOpenFolderPath;
     std::vector<std::vector<std::string>> navigationBackStack;
-};
-
-struct Toast {
-    std::string text;
-    ImVec4 color{ 0.10f, 0.10f, 0.10f, 0.95f };
-    double expiresAtMs = 0.0;
 };
 
 struct OutgoingGuard {
@@ -2006,6 +2007,7 @@ struct BinderModule::Impl {
     SampRakHooks* sampRakHooks = nullptr;
     IncomingMessageRouter* incomingMessageRouter = nullptr;
     TagsModule* tagsModule = nullptr;
+    NotificationManager* notificationManager = nullptr;
 
     std::vector<BinderCategory> categories{};
     std::string activeCategoryId{};
@@ -2130,7 +2132,6 @@ struct BinderModule::Impl {
 
     std::optional<InputDialogState> inputDialog{};
     std::vector<RunningBind> runningBinds{};
-    std::deque<Toast> toasts{};
     std::vector<OutgoingGuard> outgoingGuards{};
     std::vector<IncomingChatEchoGuard> incomingChatEchoGuards{};
     std::vector<PendingBindTagAction> pendingBindTagActions{};
@@ -2141,6 +2142,7 @@ struct BinderModule::Impl {
     void SetSampHooks(SampHooks* hooks);
     void SetSampRakHooks(SampRakHooks* hooks);
     void SetIncomingMessageRouter(IncomingMessageRouter* router);
+    void SetNotificationManager(NotificationManager* manager);
     void SetTagsModule(TagsModule* module);
     void ConnectHooks();
     std::string AllocateCategoryId();
@@ -2224,9 +2226,8 @@ struct BinderModule::Impl {
     JsonValue SerializeHotkey(const HotkeyEntry& hotkey) const;
     HotkeyEntry DeserializeHotkey(const JsonObject& object);
     void LogExplorerOrderValidation(std::string_view source);
-    void PushToast(std::string text, const ImVec4& color, double durationMs);
-    void PruneToasts();
-    void DrawToasts();
+    void Notify(NotificationGroup group, NotificationSeverity severity, std::string_view text, double durationMs = 0.0);
+    void ShowUserPopup(std::string_view text, double durationMs = 2200.0);
     void CaptureQuickMenuConditionSnapshot();
     void ClearQuickMenuConditionSnapshot();
     bool VisibleQuickMenuEntriesExist() const;
@@ -2576,6 +2577,10 @@ void BinderModule::Impl::SetIncomingMessageRouter(IncomingMessageRouter* router)
     ConnectHooks();
 }
 
+void BinderModule::Impl::SetNotificationManager(NotificationManager* manager) {
+    notificationManager = manager;
+}
+
 void BinderModule::Impl::SetTagsModule(TagsModule* module) {
     tagsModule = module;
 }
@@ -2815,9 +2820,10 @@ void BinderModule::Impl::DeleteCategory(
     std::string_view moveTargetId,
     const bool deleteContents) {
     if (categories.size() <= 1) {
-        PushToast(
+        Notify(
+            NotificationGroup::Validation,
+            NotificationSeverity::Error,
             UiSettings::Instance().Text(UiText::CategoryCannotDeleteLast),
-            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
             2200.0);
         return;
     }
@@ -4033,9 +4039,10 @@ bool BinderModule::Impl::MoveFolderToExplorerDirectory(
             folderId,
             static_cast<int>(source.size()),
             source.data());
-        PushToast(
+        Notify(
+            NotificationGroup::Validation,
+            NotificationSeverity::Error,
             UiSettings::Instance().Text(UiText::ToastFolderMoveInvalid),
-            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
             2200.0);
         return false;
     }
@@ -4155,59 +4162,24 @@ bool BinderModule::Impl::MoveFolderToCategoryRoot(
     return true;
 }
 
-void BinderModule::Impl::PushToast(std::string text, const ImVec4& color, double durationMs) {
-    if (text.empty()) {
+void BinderModule::Impl::Notify(
+    NotificationGroup group,
+    NotificationSeverity severity,
+    std::string_view text,
+    double durationMs) {
+    if (!notificationManager || text.empty()) {
         return;
     }
 
-    const double now = static_cast<double>(GetTickCount64());
-    toasts.push_back(Toast{ std::move(text), color, now + durationMs });
-    while (toasts.size() > static_cast<std::size_t>(kMaxToasts)) {
-        toasts.pop_front();
-    }
+    notificationManager->Notify(group, severity, text, durationMs);
 }
 
-void BinderModule::Impl::PruneToasts() {
-    const double now = static_cast<double>(GetTickCount64());
-    while (!toasts.empty() && toasts.front().expiresAtMs <= now) {
-        toasts.pop_front();
-    }
-}
-
-void BinderModule::Impl::DrawToasts() {
-    PruneToasts();
-    if (toasts.empty()) {
+void BinderModule::Impl::ShowUserPopup(std::string_view text, double durationMs) {
+    if (!notificationManager || text.empty()) {
         return;
     }
 
-    const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - ScaleUi(20.0f), ScaleUi(20.0f)), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    // Рисуем после быстрого меню / модалок: без NoMouseInputs прозрачное окно всё равно «ловит» мышь
-    // и может увести фокус ImGui — родитель выглядит тусклым, клики не доходят до UI под стеком.
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
-        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
-        | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs;
-
-    if (ImGui::Begin("##binder_toasts", nullptr, flags)) {
-        for (std::size_t i = 0; i < toasts.size(); ++i) {
-            const Toast& toast = toasts[i];
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, toast.color);
-            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ScaleUi(6.0f));
-            if (ImGui::BeginChild(
-                    ("toast_" + std::to_string(i)).c_str(),
-                    ImVec2(ScaleUi(320.0f), 0.0f),
-                    ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-                ImGui::TextWrapped("%s", toast.text.c_str());
-            }
-            ImGui::EndChild();
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-        }
-    }
-    ImGui::End();
+    notificationManager->ShowUserPopup(text, NotificationSeverity::Success, durationMs);
 }
 
 void BinderModule::Impl::CaptureQuickMenuConditionSnapshot() {
@@ -4376,7 +4348,6 @@ void BinderModule::Impl::Tick() {
     }
     if (!gameInputForeground_) {
         ProcessRunningBinds();
-        PruneToasts();
         prevFrameGameInputForeground_ = gameInputForeground_;
         return;
     }
@@ -4408,7 +4379,6 @@ void BinderModule::Impl::Tick() {
     }
     ProcessHotkeys();
     ProcessRunningBinds();
-    PruneToasts();
     prevFrameGameInputForeground_ = gameInputForeground_;
 }
 
@@ -4420,7 +4390,6 @@ void BinderModule::Impl::Shutdown() {
     editor.active = false;
     inputDialog.reset();
     runningBinds.clear();
-    toasts.clear();
     outgoingGuards.clear();
     incomingChatEchoGuards.clear();
     pendingBindTagActions.clear();
@@ -4445,7 +4414,6 @@ bool BinderModule::Impl::WantsOverlayRender() const {
     return quickMenuOpen
         || inputDialog.has_value()
         || capture.Active()
-        || !toasts.empty()
         || bindLinesPopupPending
         || bindLinesTarget >= 0;
 }
@@ -4513,7 +4481,11 @@ bool BinderModule::Impl::ApplyCapturedKeys(const std::vector<UINT>& keys) {
         break;
     case CaptureTarget::QuickMenuHotkey:
         if (std::string description; DescribeQuickMenuConflictWithMenuToggleHotkey(keys, description)) {
-            PushToast(ui.Format(UiText::HotkeyConflictFormat, description.c_str()), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2800.0);
+            Notify(
+                NotificationGroup::BinderErrors,
+                NotificationSeverity::Error,
+                ui.Format(UiText::HotkeyConflictFormat, description.c_str()),
+                2800.0);
             return false;
         }
         quickMenuHotkey = ::hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
@@ -5356,7 +5328,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
     const BindTagAction action = ParseBindTagActionName(actionName);
     if (action == BindTagAction::Unknown) {
         result.error = "unknown_action";
-        PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
         return result;
     }
 
@@ -5375,7 +5347,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
 
         result = ExecuteBindTagActionNow(action, {}, actionName);
         if (!result.success && !result.error.empty()) {
-            PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+            Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
         }
         return result;
     }
@@ -5391,7 +5363,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
         if (action == BindTagAction::Ended) {
             result.value = "0";
         }
-        PushToast(DescribeBindTagError(actionName, error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, error), 2600.0);
         return result;
     }
 
@@ -5411,7 +5383,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
         if (action == BindTagAction::Ended) {
             result.value = "0";
         }
-        PushToast(DescribeBindTagError(actionName, result.error), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2600.0);
+        Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
     }
     return result;
 }
@@ -5548,9 +5520,10 @@ void BinderModule::Impl::ExecutePendingBindTagActions(std::uint64_t sourceRuntim
         BinderModule::TagActionResult result =
             ExecuteBindTagActionNow(pending.action, pending.targetIndices, pending.actionName);
         if (!result.success && !result.error.empty()) {
-            PushToast(
+            Notify(
+                NotificationGroup::TagErrors,
+                NotificationSeverity::Error,
                 DescribeBindTagError(pending.actionName, result.error),
-                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
                 2600.0);
         }
     }
@@ -5735,12 +5708,18 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     hotkey.pendingTriggerSource = std::string(sourceKind);
     hotkey.textConfirmationDeadlineMs = waitForResolution ? 0.0 : now + kTextConfirmTimeoutMs;
 
-    const std::string confirmText = UiSettings::Instance().Format(
+    UiSettings& ui = UiSettings::Instance();
+    const std::string confirmText = ui.Format(
         UiText::ToastConfirmPrompt,
+        ConfirmationSourceLabel(sourceKind),
         BuildBindDisplayLabel(hotkey).c_str(),
         ::hotkeys::KeyName(hotkey.textConfirmation.key).c_str(),
         ::hotkeys::KeyName(hotkey.textConfirmation.cancelKey).c_str());
-    PushToast(confirmText, ImVec4(0.55f, 0.30f, 0.10f, 0.95f), waitForResolution ? 4000.0 : 2500.0);
+    Notify(
+        NotificationGroup::Confirmation,
+        NotificationSeverity::Warning,
+        confirmText,
+        waitForResolution ? 4000.0 : 2500.0);
     return true;
 }
 
@@ -5842,13 +5821,18 @@ void BinderModule::Impl::ExpireTextConfirmations() {
             continue;
         }
         if (now >= hotkey.textConfirmationDeadlineMs) {
+            const char* confirmationLabel = ConfirmationSourceLabel(hotkey.pendingTriggerSource);
             hotkey.waitingTextConfirmation = false;
             hotkey.textConfirmationDeadlineMs = 0.0;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
-            PushToast(
-                UiSettings::Instance().Format(UiText::ToastBindConfirmExpired, BuildBindDisplayLabel(hotkey).c_str()),
-                ImVec4(0.55f, 0.30f, 0.10f, 0.95f),
+            Notify(
+                NotificationGroup::Confirmation,
+                NotificationSeverity::Warning,
+                UiSettings::Instance().Format(
+                    UiText::ToastBindConfirmExpired,
+                    confirmationLabel,
+                    BuildBindDisplayLabel(hotkey).c_str()),
                 2500.0);
         }
     }
@@ -5879,13 +5863,18 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
             TryEnqueueHotkey(static_cast<int>(i), 0, pendingSource, pendingText);
             handled = true;
         } else if (keyCode == hotkey.textConfirmation.cancelKey) {
+            const char* confirmationLabel = ConfirmationSourceLabel(hotkey.pendingTriggerSource);
             hotkey.waitingTextConfirmation = false;
             hotkey.textConfirmationDeadlineMs = 0.0;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
-            PushToast(
-                UiSettings::Instance().Format(UiText::ToastBindCanceled, BuildBindDisplayLabel(hotkey).c_str()),
-                ImVec4(0.55f, 0.30f, 0.10f, 0.95f),
+            Notify(
+                NotificationGroup::Confirmation,
+                NotificationSeverity::Warning,
+                UiSettings::Instance().Format(
+                    UiText::ToastBindCanceled,
+                    confirmationLabel,
+                    BuildBindDisplayLabel(hotkey).c_str()),
                 2200.0);
             handled = true;
         }
@@ -6117,9 +6106,10 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     const ConditionRuntimeContext context = MakeConditionContext(source == "quick_menu");
     if (ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context, &conditionMessage)) {
         if (!conditionMessage.empty() && source != "incoming_server" && source != "outgoing_chat" && source != "outgoing_command") {
-            PushToast(
+            Notify(
+                NotificationGroup::BinderErrors,
+                NotificationSeverity::Warning,
                 UiSettings::Instance().Format(UiText::ToastConditionBlocked, conditionMessage.c_str()),
-                ImVec4(0.55f, 0.30f, 0.10f, 0.95f),
                 2200.0);
         }
         return false;
@@ -6127,7 +6117,11 @@ bool BinderModule::Impl::TryEnqueueHotkey(
 
     if (!hotkey.inputs.empty()) {
         if (inputDialog.has_value() && inputDialog->hotkeyIndex != index) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastFinishActiveInput), ImVec4(0.55f, 0.30f, 0.10f, 0.95f), 2500.0);
+            Notify(
+                NotificationGroup::BinderErrors,
+                NotificationSeverity::Warning,
+                UiSettings::Instance().Text(UiText::ToastFinishActiveInput),
+                2500.0);
             return false;
         }
 
@@ -6168,7 +6162,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         const std::string decoratedText = DecorateDialogLocalChatText(expandedText, sampApi);
         const auto [messageText, color] = ParseLeadingChatColor(decoratedText);
         if (!sampApi || !sampApi->memoryAddMessageSamp(messageText, color, true)) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastSendLocalFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastSendLocalFailed), 2500.0);
         }
         break;
     }
@@ -6178,7 +6172,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
         if (!sampApi || !sampApi->process_chat_input(expandedText, true)) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastSendSampFailed), 2500.0);
         }
         break;
     }
@@ -6210,7 +6204,7 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
                 static_cast<unsigned long long>(expandedText.size()),
                 preview.c_str(),
                 error.c_str());
-            PushToast(UiSettings::Instance().Text(UiText::ToastSendSampFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastSendSampFailed), 2500.0);
         } else {
             debuglog::WriteInfo(
                 "Binder DoSend via_samp ok kind=%s len=%llu text=%s",
@@ -6225,34 +6219,35 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         break;
     case 4:
         if (!sampApi || !sampApi->Set_ChatInputText(text, false, true)) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastInsertChatFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertChatFailed), 2500.0);
         }
         break;
     case 5:
         if (!sampApi || !sampApi->Set_ChatInputText(text, true, true)) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastOpenChatFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastOpenChatFailed), 2500.0);
         }
         break;
     case 6:
         if (!sampApi || !sampApi->sampSetDialogEditboxText(text, true)) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), 2500.0);
         }
         break;
     case 7:
         if (!SetClipboardUtf8Text(expandWithTags(text))) {
-            PushToast(UiSettings::Instance().Text(UiText::ToastClipboardFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+            Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastClipboardFailed), 2500.0);
         }
         break;
     case 8:
         debuglog::WriteInfo("Binder log: %s", expandWithTags(text).c_str());
         break;
     case 9:
-        PushToast(expandWithTags(text), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 2200.0);
+        ShowUserPopup(expandWithTags(text), 2200.0);
         break;
     default:
-        PushToast(
+        Notify(
+            NotificationGroup::BinderErrors,
+            NotificationSeverity::Error,
             UiSettings::Instance().Format(UiText::ToastUnknownSendMethod, method),
-            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
             2500.0);
         break;
     }
@@ -6404,9 +6399,10 @@ bool BinderModule::Impl::IsInlineRenamingFolder(const FolderNode* folder) const 
 bool BinderModule::Impl::CommitInlineFolderEdit() {
     const std::string name = SanitizeFolderName(folderInlineEdit.name);
     if (name.empty()) {
-        PushToast(
+        Notify(
+            NotificationGroup::Validation,
+            NotificationSeverity::Error,
             UiSettings::Instance().Text(UiText::ValidationFolderNameRequired),
-            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
             2200.0);
         folderInlineEdit.focusPending = true;
         return false;
@@ -6421,9 +6417,10 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
 
         auto& siblings = target->parent ? target->parent->children : ActiveFolders();
         if (!FolderNameUnique(siblings, name, target)) {
-            PushToast(
+            Notify(
+                NotificationGroup::Validation,
+                NotificationSeverity::Error,
                 UiSettings::Instance().Text(UiText::ValidationFolderNameUnique),
-                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
                 2200.0);
             folderInlineEdit.focusPending = true;
             return false;
@@ -6454,9 +6451,10 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
         FolderNode* parent = folderInlineEdit.parent;
         auto& siblings = parent ? parent->children : ActiveFolders();
         if (!FolderNameUnique(siblings, name)) {
-            PushToast(
+            Notify(
+                NotificationGroup::Validation,
+                NotificationSeverity::Error,
                 UiSettings::Instance().Text(UiText::ValidationFolderNameUnique),
-                ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
                 2200.0);
             folderInlineEdit.focusPending = true;
             return false;
@@ -6871,12 +6869,20 @@ void BinderModule::Impl::SaveEditor() {
 
 bool BinderModule::Impl::CopyTextToClipboard(std::string_view text, bool showSuccessToast) {
     if (!SetClipboardUtf8Text(text)) {
-        PushToast(UiSettings::Instance().Text(UiText::ToastClipboardFailed), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2500.0);
+        Notify(
+            NotificationGroup::BinderErrors,
+            NotificationSeverity::Error,
+            UiSettings::Instance().Text(UiText::ToastClipboardFailed),
+            2500.0);
         return false;
     }
 
     if (showSuccessToast) {
-        PushToast(UiSettings::Instance().Text(UiText::ToastClipboardCopied), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 1400.0);
+        Notify(
+            NotificationGroup::Success,
+            NotificationSeverity::Success,
+            UiSettings::Instance().Text(UiText::ToastClipboardCopied),
+            1400.0);
     }
     return true;
 }
@@ -7353,9 +7359,10 @@ void BinderModule::Impl::ApplyFolderMoveUndo() {
         d.listParent = p;
     }
     if (!RelocateFolderNode(moveId, d, false)) {
-        PushToast(
+        Notify(
+            NotificationGroup::Validation,
+            NotificationSeverity::Error,
             UiSettings::Instance().Text(UiText::ToastFolderMoveInvalid),
-            ImVec4(0.55f, 0.20f, 0.20f, 0.95f),
             2000.0);
     }
 }
@@ -7538,10 +7545,10 @@ void BinderModule::Impl::DrawCategoryPopups() {
         if (save) {
             const std::string name = SanitizeFolderName(categoryRenameBuffer);
             if (name.empty()) {
-                PushToast(ui.Text(UiText::ValidationCategoryNameRequired), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2200.0);
+                Notify(NotificationGroup::Validation, NotificationSeverity::Error, ui.Text(UiText::ValidationCategoryNameRequired), 2200.0);
                 categoryRenamePopupPending = true;
             } else if (!CategoryNameUnique(name, category)) {
-                PushToast(ui.Text(UiText::ValidationCategoryNameUnique), ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2200.0);
+                Notify(NotificationGroup::Validation, NotificationSeverity::Error, ui.Text(UiText::ValidationCategoryNameUnique), 2200.0);
                 categoryRenamePopupPending = true;
             } else {
                 category->name = name;
@@ -9093,10 +9100,10 @@ void BinderModule::Impl::DrawEditorInline() {
                 std::vector<std::string> errors;
                 if (ValidateEditor(errors)) {
                     SaveEditor();
-                    PushToast(ui.Text(UiText::ToastBindSaved), ImVec4(0.20f, 0.35f, 0.18f, 0.95f), 1800.0);
+                    Notify(NotificationGroup::Success, NotificationSeverity::Success, ui.Text(UiText::ToastBindSaved), 1800.0);
                 } else {
                     for (const std::string& error : errors) {
-                        PushToast(error, ImVec4(0.55f, 0.20f, 0.20f, 0.95f), 2800.0);
+                        Notify(NotificationGroup::Validation, NotificationSeverity::Error, error, 2800.0);
                     }
                 }
             }
@@ -11329,7 +11336,6 @@ void BinderModule::Impl::DrawOverlay() {
     DrawInputDialog();
     DrawCapturePopup(false);
     DrawBindLinesPopup();
-    DrawToasts();
 }
 
 BinderModule::BinderModule() : impl_(std::make_unique<Impl>()) {
@@ -11358,6 +11364,10 @@ void BinderModule::SetSampRakHooks(SampRakHooks* sampRakHooks) {
 
 void BinderModule::SetIncomingMessageRouter(IncomingMessageRouter* incomingMessageRouter) {
     impl_->SetIncomingMessageRouter(incomingMessageRouter);
+}
+
+void BinderModule::SetNotificationManager(NotificationManager* notificationManager) {
+    impl_->SetNotificationManager(notificationManager);
 }
 
 void BinderModule::SetTagsModule(TagsModule* tagsModule) {
@@ -11413,17 +11423,6 @@ BinderModule::TagActionResult BinderModule::ExecuteTagAction(
     std::string_view param,
     std::uint64_t sourceRuntimeId) {
     return impl_->ExecuteTagAction(action, param, sourceRuntimeId);
-}
-
-void BinderModule::ShowToast(std::string_view text, bool error, double durationMs) {
-    if (!impl_ || text.empty()) {
-        return;
-    }
-
-    impl_->PushToast(
-        std::string(text),
-        error ? ImVec4(0.55f, 0.20f, 0.20f, 0.95f) : ImVec4(0.20f, 0.35f, 0.18f, 0.95f),
-        durationMs);
 }
 
 bool BinderModule::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {

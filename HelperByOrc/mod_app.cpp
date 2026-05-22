@@ -1093,6 +1093,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     UiSettings::Instance().Load();
     debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
     debuglog::WriteInfo("UI settings loaded (log_level=%s)", ToUiLogLevelName(UiSettings::Instance().LogLevel()));
+    notifications_.LoadConfig();
     LoadShellState();
 
     tags_.SetSampApi(&sampApi_);
@@ -1131,10 +1132,12 @@ void ModApp::OnProcessAttach(HMODULE module) {
     binder_.SetSampHooks(&sampHooks_);
     binder_.SetSampRakHooks(&sampRakHooks_);
     binder_.SetIncomingMessageRouter(&incomingMessageRouter_);
+    binder_.SetNotificationManager(&notifications_);
     binder_.SetTagsModule(&tags_);
     notepad_.OnProcessAttach(module);
     notepad_.SetTagsModule(&tags_);
     tags_.SetBinderModule(&binder_);
+    tags_.SetNotificationManager(&notifications_);
 
     overlay_.SetPrepareFrameCallback([this](IDirect3DDevice9* device) { PrepareUiForImGuiNewFrame(device); });
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
@@ -1142,7 +1145,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
         return binder_.OnWindowMessage(message, wparam, lparam);
     });
-    overlay_.SetAuxiliaryUiVisibleCallback([this]() { return binder_.WantsOverlayRender(); });
+    overlay_.SetAuxiliaryUiVisibleCallback([this]() {
+        return binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
+    });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
         return binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
     });
@@ -1177,6 +1182,8 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("Incoming router shutdown done");
     binder_.Shutdown();
     debuglog::WriteInfo("Binder shutdown done");
+    notifications_.Shutdown();
+    debuglog::WriteInfo("Notifications shutdown done");
     notepad_.Shutdown();
     debuglog::WriteInfo("Notepad shutdown done");
     tags_.Shutdown();
@@ -1560,6 +1567,7 @@ void ModApp::QueueShellStateSave() const {
 void ModApp::ReloadConfigAfterProfileChange() {
     overlay_.CancelMenuToggleHotkeyCapture();
     UiSettings::Instance().Load();
+    notifications_.LoadConfig();
     debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
     LoadShellState();
     tags_.ReloadConfig();
@@ -1906,6 +1914,155 @@ void ModApp::DrawSettingsHotkeysSection() {
     }
 }
 
+void ModApp::DrawSettingsNotificationsSection() {
+    UiSettings& ui = UiSettings::Instance();
+    NotificationSettings settings = notifications_.Settings();
+    bool changed = false;
+
+    ImGui::SeparatorText(ui.Text(UiText::SettingsSectionNotifications));
+
+    bool enabled = settings.enabled;
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsNotificationsEnabled), &enabled)) {
+        settings.enabled = enabled;
+        changed = true;
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsChannel));
+    int channel = static_cast<int>(settings.channel);
+    if (ImGui::RadioButton(ui.Text(UiText::SettingsNotificationsChannelPopup), channel == static_cast<int>(NotificationChannel::Popup))) {
+        channel = static_cast<int>(NotificationChannel::Popup);
+        settings.channel = NotificationChannel::Popup;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton(ui.Text(UiText::SettingsNotificationsChannelLog), channel == static_cast<int>(NotificationChannel::Log))) {
+        channel = static_cast<int>(NotificationChannel::Log);
+        settings.channel = NotificationChannel::Log;
+        changed = true;
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsGroups));
+    const struct {
+        NotificationGroup group;
+        UiText label;
+    } groupRows[] = {
+        { NotificationGroup::BinderErrors, UiText::SettingsNotificationsGroupBinderErrors },
+        { NotificationGroup::TagErrors, UiText::SettingsNotificationsGroupTagErrors },
+        { NotificationGroup::SampDialogErrors, UiText::SettingsNotificationsGroupSampDialogErrors },
+        { NotificationGroup::Success, UiText::SettingsNotificationsGroupSuccess },
+        { NotificationGroup::Confirmation, UiText::SettingsNotificationsGroupConfirmation },
+    };
+    if (ImGui::BeginTable(
+            "##settings_notification_groups",
+            ImGui::GetContentRegionAvail().x < Scale(620.0f) ? 1 : 2,
+            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+        int cell = 0;
+        for (const auto& row : groupRows) {
+            if (cell % ImGui::TableGetColumnCount() == 0) {
+                ImGui::TableNextRow();
+            }
+            ImGui::TableSetColumnIndex(cell % ImGui::TableGetColumnCount());
+            bool groupEnabled = settings.groups[NotificationGroupIndex(row.group)];
+            if (ImGui::Checkbox(ui.Text(row.label), &groupEnabled)) {
+                settings.groups[NotificationGroupIndex(row.group)] = groupEnabled;
+                changed = true;
+            }
+            ++cell;
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsPosition));
+    const NotificationPosition positions[] = {
+        NotificationPosition::TopLeft,
+        NotificationPosition::TopCenter,
+        NotificationPosition::TopRight,
+        NotificationPosition::MiddleLeft,
+        NotificationPosition::MiddleCenter,
+        NotificationPosition::MiddleRight,
+        NotificationPosition::BottomLeft,
+        NotificationPosition::BottomCenter,
+        NotificationPosition::BottomRight,
+    };
+    const char* positionLabels[] = {
+        ui.Text(UiText::SettingsNotificationsPositionTopLeft),
+        ui.Text(UiText::SettingsNotificationsPositionTopCenter),
+        ui.Text(UiText::SettingsNotificationsPositionTopRight),
+        ui.Text(UiText::SettingsNotificationsPositionMiddleLeft),
+        ui.Text(UiText::SettingsNotificationsPositionMiddleCenter),
+        ui.Text(UiText::SettingsNotificationsPositionMiddleRight),
+        ui.Text(UiText::SettingsNotificationsPositionBottomLeft),
+        ui.Text(UiText::SettingsNotificationsPositionBottomCenter),
+        ui.Text(UiText::SettingsNotificationsPositionBottomRight),
+    };
+    int positionIndex = static_cast<int>(settings.position);
+    ImGui::SetNextItemWidth(Scale(260.0f));
+    if (ImGui::Combo(ui.Text(UiText::SettingsNotificationsPosition), &positionIndex, positionLabels, IM_ARRAYSIZE(positionLabels))) {
+        settings.position = positions[std::clamp(positionIndex, 0, static_cast<int>(IM_ARRAYSIZE(positions)) - 1)];
+        changed = true;
+    }
+
+    ImGui::SetNextItemWidth(Scale(160.0f));
+    if (ImGui::DragFloat(ui.Text(UiText::SettingsNotificationsOffsetX), &settings.offsetX, 1.0f, -500.0f, 500.0f, "%.0f")) {
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(Scale(160.0f));
+    if (ImGui::DragFloat(ui.Text(UiText::SettingsNotificationsOffsetY), &settings.offsetY, 1.0f, -500.0f, 500.0f, "%.0f")) {
+        changed = true;
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsDisplay));
+    int durationMs = static_cast<int>(settings.durationMs);
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::DragInt(ui.Text(UiText::SettingsNotificationsDurationMs), &durationMs, 25.0f, 500, 15000)) {
+        settings.durationMs = static_cast<double>(durationMs);
+        changed = true;
+    }
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::DragFloat(ui.Text(UiText::SettingsNotificationsWidth), &settings.width, 2.0f, 200.0f, 560.0f, "%.0f")) {
+        changed = true;
+    }
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::SliderFloat(ui.Text(UiText::SettingsNotificationsOpacity), &settings.opacity, 0.20f, 1.0f, "%.2f")) {
+        changed = true;
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsAntiFlood));
+    int dedupeMs = static_cast<int>(settings.dedupeWindowMs);
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::DragInt(ui.Text(UiText::SettingsNotificationsDedupeMs), &dedupeMs, 25.0f, 0, 10000)) {
+        settings.dedupeWindowMs = static_cast<double>(dedupeMs);
+        changed = true;
+    }
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::DragInt(ui.Text(UiText::SettingsNotificationsMaxVisible), &settings.maxVisible, 0.1f, 1, 10)) {
+        changed = true;
+    }
+    ImGui::SetNextItemWidth(Scale(180.0f));
+    if (ImGui::DragInt(ui.Text(UiText::SettingsNotificationsMaxQueue), &settings.maxQueue, 0.5f, 1, 64)) {
+        changed = true;
+    }
+
+    if (changed) {
+        notifications_.ApplySettings(settings);
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button(ui.Text(UiText::SettingsNotificationsTest))) {
+        notifications_.Notify(
+            NotificationGroup::Success,
+            NotificationSeverity::Success,
+            ui.Text(UiText::SettingsNotificationsTestText),
+            settings.durationMs);
+    }
+}
+
 void ModApp::DrawSettingsProfilesSection() {
     UiSettings& ui = UiSettings::Instance();
     AppConfig& config = AppConfig::Instance();
@@ -2182,7 +2339,7 @@ void ModApp::DrawSettingsTab() {
             DrawSettingsHotkeysSection();
             break;
         case UiSettingsSection::Notifications:
-            ImGui::SeparatorText(ui.Text(UiText::SettingsSectionNotifications));
+            DrawSettingsNotificationsSection();
             break;
         case UiSettingsSection::Profiles:
             DrawSettingsProfilesSection();
@@ -2237,6 +2394,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
     if (!showMainWindow) {
         binder_.DrawOverlay();
+        notifications_.DrawOverlay();
         AppConfig::Instance().ProcessPendingWrites();
         return;
     }
@@ -2414,5 +2572,6 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     ImGui::End();
     overlay_.DrawMenuToggleHotkeyCapturePopup();
     binder_.DrawOverlay();
+    notifications_.DrawOverlay();
     AppConfig::Instance().ProcessPendingWrites();
 }
