@@ -65,6 +65,7 @@ public:
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     void Tick();
+    bool IsMiscHomePage() const;
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;

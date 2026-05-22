@@ -2341,7 +2341,8 @@ struct BinderModule::Impl {
     void BeginCapture(CaptureTarget target);
     void DrawCapturePopup(bool insideEditorPopup);
     void DrawQuickMenu();
-    void DrawSettingsSection();
+    std::string QuickMenuHotkeyText() const;
+    void DrawSettingsSection(bool includeHeader);
     void DrawInputDialog();
     void StartEditing(int index, bool isNew);
     std::vector<HotkeyMessage> ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const;
@@ -4624,6 +4625,10 @@ std::vector<UINT> BinderModule::Impl::CurrentQuickMenuHotkey() const {
         return ::hotkeys::NormalizeCombo(quickMenuHotkey, HotkeyMode::ModifierTrigger);
     }
     return { kDefaultQuickMenuFallback };
+}
+
+std::string BinderModule::Impl::QuickMenuHotkeyText() const {
+    return ::hotkeys::ToString(CurrentQuickMenuHotkey());
 }
 
 bool BinderModule::Impl::IsQuickMenuComboPressed() const {
@@ -10607,12 +10612,14 @@ void BinderModule::Impl::DrawCapturePopup(bool insideEditorPopup) {
     }
 }
 
-void BinderModule::Impl::DrawSettingsSection() {
+void BinderModule::Impl::DrawSettingsSection(bool includeHeader) {
     EnsureInitialized();
 
     UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::QuickMenuWindowTitle));
-    ImGui::Text("%s", ui.Format(UiText::QuickMenuFormat, ::hotkeys::ToString(CurrentQuickMenuHotkey()).c_str()).c_str());
+    if (includeHeader) {
+        ImGui::SeparatorText(ui.Text(UiText::QuickMenuWindowTitle));
+    }
+    ImGui::Text("%s", ui.Format(UiText::QuickMenuFormat, QuickMenuHotkeyText().c_str()).c_str());
     ImGui::SameLine();
     if (ImGui::Button(ui.Text(UiText::ChangeQuickMenuHotkey))) {
         BeginCapture(CaptureTarget::QuickMenuHotkey);
@@ -11443,8 +11450,12 @@ void BinderModule::DrawMainTab() {
     impl_->DrawMainTab();
 }
 
-void BinderModule::DrawSettingsSection() {
-    impl_->DrawSettingsSection();
+std::string BinderModule::QuickMenuHotkeyText() const {
+    return impl_->QuickMenuHotkeyText();
+}
+
+void BinderModule::DrawSettingsSection(bool includeHeader) {
+    impl_->DrawSettingsSection(includeHeader);
 }
 
 void BinderModule::DrawOverlay() {

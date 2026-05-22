@@ -62,7 +62,8 @@ public:
     bool DescribeMainWindowHotkeyConflict(const std::vector<unsigned int>& keys, std::string& description);
 
     void DrawMainTab();
-    void DrawSettingsSection();
+    std::string QuickMenuHotkeyText() const;
+    void DrawSettingsSection(bool includeHeader = true);
     void DrawOverlay();
 
 private:

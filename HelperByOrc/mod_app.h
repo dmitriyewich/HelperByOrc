@@ -65,8 +65,14 @@ private:
     void DrawBinderTab() const;
     void DrawSmiHelperTab() const;
     void DrawMiscTab();
+    void DrawGameFixesCard();
     void DrawNotepadTab(IDirect3DDevice9* device);
     void DrawSettingsTab();
+    void DrawSettingsSummaryBar();
+    void DrawSettingsGeneralSection();
+    void DrawSettingsHotkeysSection();
+    void DrawSettingsProfilesSection();
+    void DrawSettingsDiagnosticsSection();
 
     HMODULE module_ = nullptr;
     ImGuiOverlay overlay_;

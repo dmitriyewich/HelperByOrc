@@ -5553,6 +5553,10 @@ void TagsModule::DrawVariablesPage() {
     }
 }
 
+bool TagsModule::IsMiscHomePage() const {
+    return currentPage_ == MiscPage::Home;
+}
+
 void TagsModule::DrawMiscTab() {
     if (currentPage_ == MiscPage::Variables) {
         DrawVariablesPage();

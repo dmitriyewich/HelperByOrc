@@ -61,6 +61,26 @@ UiLogLevel ParseLogLevel(std::string_view value) {
     return UiLogLevel::Info;
 }
 
+UiSettingsSection ParseSettingsSection(std::string_view value) {
+    const std::string normalized = ToLower(value);
+    if (normalized == "hotkeys") {
+        return UiSettingsSection::Hotkeys;
+    }
+    if (normalized == "profiles") {
+        return UiSettingsSection::Profiles;
+    }
+    if (normalized == "quick_menu") {
+        return UiSettingsSection::QuickMenu;
+    }
+    if (normalized == "notifications") {
+        return UiSettingsSection::Notifications;
+    }
+    if (normalized == "diagnostics") {
+        return UiSettingsSection::Diagnostics;
+    }
+    return UiSettingsSection::General;
+}
+
 const char* LogLevelId(UiLogLevel level) {
     switch (level) {
     case UiLogLevel::Off:
@@ -70,6 +90,24 @@ const char* LogLevelId(UiLogLevel level) {
     case UiLogLevel::Info:
     default:
         return "info";
+    }
+}
+
+const char* SettingsSectionId(UiSettingsSection section) {
+    switch (section) {
+    case UiSettingsSection::Hotkeys:
+        return "hotkeys";
+    case UiSettingsSection::Profiles:
+        return "profiles";
+    case UiSettingsSection::QuickMenu:
+        return "quick_menu";
+    case UiSettingsSection::Notifications:
+        return "notifications";
+    case UiSettingsSection::Diagnostics:
+        return "diagnostics";
+    case UiSettingsSection::General:
+    default:
+        return "general";
     }
 }
 
@@ -136,6 +174,7 @@ void UiSettings::Load() {
     logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
+    settingsActiveSection_ = ParseSettingsSection(jsonutil::JsonStringOr(&section, "settings_active_section", "general"));
     currentScale_ = 1.0f;
 }
 
@@ -218,13 +257,27 @@ void UiSettings::SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey) {
     QueueSave();
 }
 
+void UiSettings::ResetMenuToggleHotkey() {
+    SetMenuToggleHotkey(DefaultMenuToggleHotkey());
+}
+
+UiSettingsSection UiSettings::SettingsActiveSection() const {
+    return settingsActiveSection_;
+}
+
+void UiSettings::SetSettingsActiveSection(UiSettingsSection section) {
+    if (settingsActiveSection_ == section) {
+        return;
+    }
+
+    settingsActiveSection_ = section;
+    QueueSave();
+}
+
 void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
-    logLevel_ = UiLogLevel::Info;
-    applyDamageProtectionEnabled_ = true;
-    menuToggleHotkey_ = DefaultMenuToggleHotkey();
     QueueSave();
 }
 
@@ -285,6 +338,7 @@ void UiSettings::QueueSave() const {
     section["log_level"] = LogLevelId(logLevel_);
     section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
+    section["settings_active_section"] = SettingsSectionId(settingsActiveSection_);
     AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
 }
 

@@ -222,22 +222,39 @@
     X(NotepadTxtFilesFilter, "Текстовые файлы (*.txt)", "Text files (*.txt)") \
     X(NotepadImageFilesFilter, "Картинки (*.png;*.jpg;*.jpeg;*.bmp;*.gif)", "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif)") \
     X(NotepadAllFilesFilter, "Все файлы (*.*)", "All files (*.*)") \
-    X(SettingsIntro, "Здесь настраиваются язык интерфейса, автоматический масштаб под разрешение экрана, пользовательский множитель масштаба и параметры быстрого меню.", "Configure interface language, automatic scaling for screen resolution, a custom scale multiplier, and quick menu settings here.") \
-    X(GtaVersionFormat, "Версия GTA: %s", "GTA version: %s") \
+    X(SettingsGtaVersion, "Версия GTA", "GTA version") \
+    X(SettingsSectionGeneral, "Общее", "General") \
+    X(SettingsSectionHotkeys, "Горячие клавиши", "Hotkeys") \
+    X(SettingsSectionProfiles, "Профили", "Profiles") \
+    X(SettingsSectionQuickMenu, "Быстрое меню", "Quick menu") \
+    X(SettingsSectionNotifications, "Уведомления", "Notifications") \
+    X(SettingsSectionDiagnostics, "Диагностика", "Diagnostics") \
+    X(SettingsGeneralIntro, "Язык и масштаб интерфейса.", "Language and interface scaling.") \
+    X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \
+    X(SettingsQuickMenuIntro, "Как открывается быстрое меню биндов.", "How the binder quick menu opens.") \
+    X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
+    X(SettingsSummaryProfile, "Профиль", "Profile") \
+    X(SettingsSummaryLanguage, "Язык", "Language") \
+    X(SettingsSummaryMainWindow, "Главное окно", "Main window") \
+    X(SettingsSummaryQuickMenu, "Быстрое меню", "Quick menu") \
     X(SettingsLanguage, "Язык", "Language") \
     X(SettingsUiScale, "Масштаб интерфейса", "Interface Scale") \
     X(SettingsAutoScale, "Автомасштаб под разрешение", "Auto scale for resolution") \
     X(SettingsScaleMultiplier, "Пользовательский множитель", "Custom multiplier") \
     X(SettingsEffectiveScale, "Итоговый масштаб", "Effective scale") \
-    X(SettingsResetDefaults, "Сбросить настройки UI", "Reset UI settings") \
+    X(SettingsResetDefaults, "Сбросить интерфейс", "Reset interface") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
+    X(SettingsLogPath, "Файл журнала", "Log file") \
     X(SettingsLogLevel, "Уровень логирования", "Log level") \
     X(SettingsLogLevelOff, "Off", "Off") \
     X(SettingsLogLevelError, "Error", "Error") \
     X(SettingsLogLevelInfo, "Info", "Info") \
-    X(SettingsApplyDamageProtection, "Защита компонентов транспорта от отваливания", "Vehicle components fall-off protection") \
+    X(SettingsApplyDamageProtection, "Защита деталей транспорта", "Vehicle parts protection") \
+    X(SettingsApplyDamageProtectionDesc, "Не даёт деталям транспорта отваливаться после урона.", "Prevents vehicle parts from falling off after damage.") \
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
     X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
+    X(SettingsMainWindowHotkeyHelp, "Комбинация открывает и закрывает главное окно HelperByOrc.", "This shortcut opens and closes the main HelperByOrc window.") \
+    X(SettingsResetHotkey, "Сбросить", "Reset") \
     X(SettingsProfilesSection, "Профили", "Profiles") \
     X(SettingsProfilesIntro, "Каждый профиль хранит отдельный HelperByOrc.json. Переключение сразу перезагружает настройки UI, биндер и переменные.", "Each profile stores a separate HelperByOrc.json. Switching reloads UI settings, binder data, and variables immediately.") \
     X(SettingsActiveProfile, "Активный профиль", "Active profile") \
@@ -253,6 +270,26 @@
     X(SettingsProfileOperationFailed, "Не удалось выполнить действие с профилем. Подробности записаны в лог.", "Failed to complete the profile action. Details were written to the log.") \
     X(SettingsProfilesPath, "Папка профилей", "Profiles folder") \
     X(SettingsProfilesRegistryPath, "Реестр профилей", "Profiles registry") \
+    X(SettingsOpenProfilesFolder, "Открыть папку профилей", "Open profiles folder") \
+    X(SettingsOpenConfigFile, "Открыть конфиг", "Open config") \
+    X(SettingsOpenRegistryFile, "Открыть реестр", "Open registry") \
+    X(SettingsOpenLogFile, "Открыть журнал", "Open log") \
+    X(SettingsCopyPath, "Копировать путь", "Copy path") \
+    X(SettingsSampStatus, "SA:MP", "SA:MP") \
+    X(SettingsSampVersion, "Версия SA:MP", "SA:MP version") \
+    X(SettingsSampWaiting, "ожидание samp.dll", "waiting for samp.dll") \
+    X(SettingsSampLoaded, "загружен", "loaded") \
+    X(SettingsSampReady, "готов", "ready") \
+    X(SettingsSampUnsupported, "неподдерживаемая версия", "unsupported version") \
+    X(SettingsChatAsiStatus, "_chat.asi", "_chat.asi") \
+    X(SettingsChatAsiLoaded, "загружен", "loaded") \
+    X(SettingsChatAsiNotLoaded, "не загружен", "not loaded") \
+    X(SettingsFallbackStatus, "SA:MP fallback", "SA:MP fallback") \
+    X(SettingsFallbackAvailable, "доступен при готовом SA:MP", "available when SA:MP is ready") \
+    X(SettingsHooksStatus, "SA:MP hooks", "SA:MP hooks") \
+    X(SettingsRakHooksStatus, "RakNet hooks", "RakNet hooks") \
+    X(MiscGameFixesTitle, "Игровые исправления", "Game fixes") \
+    X(MiscGameFixesDesc, "Небольшие исправления поведения игры, которые работают без отдельной настройки биндов.", "Small game behavior fixes that do not require binder setup.") \
     X(HotkeyConflictFormat, "Комбинация конфликтует с %s.", "This combination conflicts with %s.") \
     X(HotkeyConflictMainWindowFormat, "хоткеем открытия главного окна (%s)", "the main window hotkey (%s)") \
     X(HotkeyConflictQuickMenuFormat, "хоткеем быстрого меню (%s)", "the quick menu hotkey (%s)") \
@@ -602,6 +639,15 @@ enum class UiLogLevel : int {
     Info = 2,
 };
 
+enum class UiSettingsSection {
+    General = 0,
+    QuickMenu,
+    Notifications,
+    Profiles,
+    Hotkeys,
+    Diagnostics,
+};
+
 enum class UiText {
 #define APP_UI_TEXT_ENUM(id, ru, en) id,
     APP_UI_TEXTS(APP_UI_TEXT_ENUM)
@@ -631,6 +677,10 @@ public:
 
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
+    void ResetMenuToggleHotkey();
+
+    UiSettingsSection SettingsActiveSection() const;
+    void SetSettingsActiveSection(UiSettingsSection section);
 
     void ResetToDefaults();
 
@@ -653,5 +703,6 @@ private:
     UiLogLevel logLevel_ = UiLogLevel::Info;
     bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
+    UiSettingsSection settingsActiveSection_ = UiSettingsSection::General;
     float currentScale_ = 1.0f;
 };

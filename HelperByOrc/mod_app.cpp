@@ -11,6 +11,7 @@
 #include <GameVersion.h>
 #include <d3dx9tex.h>
 #include <imgui.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +21,7 @@
 #include <string>
 #include <system_error>
 #include <tlhelp32.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -50,6 +52,11 @@ struct TabDefinition {
     const char* icon;
 };
 
+struct SettingsSectionDefinition {
+    UiSettingsSection section;
+    UiText label;
+};
+
 const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, ui_icons::House },
     { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, ui_icons::Keyboard },
@@ -57,6 +64,15 @@ const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, ui_icons::Cubes },
     { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, ui_icons::Book },
     { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, ui_icons::Gear },
+}};
+
+const std::array<SettingsSectionDefinition, 6> kSettingsSections = {{
+    { UiSettingsSection::General, UiText::SettingsSectionGeneral },
+    { UiSettingsSection::QuickMenu, UiText::SettingsSectionQuickMenu },
+    { UiSettingsSection::Notifications, UiText::SettingsSectionNotifications },
+    { UiSettingsSection::Profiles, UiText::SettingsSectionProfiles },
+    { UiSettingsSection::Hotkeys, UiText::SettingsSectionHotkeys },
+    { UiSettingsSection::Diagnostics, UiText::SettingsSectionDiagnostics },
 }};
 
 std::string WideToUtf8(const std::wstring& text) {
@@ -846,6 +862,135 @@ ImVec2 ScaleVec(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
+fs::path DebugLogPath(HMODULE module) {
+    if (!module) {
+        return {};
+    }
+    return GetModulePathFs(module).parent_path() / L"HelperByOrc.log";
+}
+
+bool OpenFilesystemPath(const fs::path& path) {
+    if (path.empty()) {
+        return false;
+    }
+
+    const auto result = ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result) > 32;
+}
+
+void CopyPathToClipboard(const fs::path& path) {
+    const std::string text = PathToUtf8(path);
+    ImGui::SetClipboardText(text.c_str());
+}
+
+struct SettingsHeaderTabAnimation {
+    float hoverAmount = 0.0f;
+    float selectedAmount = 0.0f;
+};
+
+float AnimateTo(float value, float target, float speed) {
+    const float step = std::clamp(ImGui::GetIO().DeltaTime * speed, 0.0f, 1.0f);
+    return value + (target - value) * step;
+}
+
+ImVec4 MixColor(const ImVec4& from, const ImVec4& to, float amount) {
+    const float t = std::clamp(amount, 0.0f, 1.0f);
+    return ImVec4(
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t,
+        from.z + (to.z - from.z) * t,
+        from.w + (to.w - from.w) * t);
+}
+
+bool DrawSettingsHeaderTab(UiText labelId, bool selected) {
+    static std::unordered_map<ImGuiID, SettingsHeaderTabAnimation> animations;
+
+    UiSettings& ui = UiSettings::Instance();
+    const char* label = ui.Text(labelId);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 textSize = ImGui::CalcTextSize(label);
+    const ImVec2 tabSize(textSize.x + Scale(24.0f), Scale(34.0f));
+    const ImGuiID id = ImGui::GetID("##settings_header_tab");
+
+    SettingsHeaderTabAnimation& animation = animations[id];
+    if (animation.selectedAmount == 0.0f && animation.hoverAmount == 0.0f && selected) {
+        animation.selectedAmount = 1.0f;
+    }
+
+    const ImVec2 p1 = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##settings_header_tab", tabSize);
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 p2 = ImGui::GetItemRectMax();
+
+    animation.hoverAmount = AnimateTo(animation.hoverAmount, hovered && !selected ? 1.0f : 0.0f, 14.0f);
+    animation.selectedAmount = AnimateTo(animation.selectedAmount, selected ? 1.0f : 0.0f, 12.0f);
+
+    const ImVec4 idleColor = style.Colors[ImGuiCol_TextDisabled];
+    const ImVec4 hoverColor = style.Colors[ImGuiCol_Text];
+    const ImVec4 accentColor = style.Colors[ImGuiCol_ButtonActive];
+    const ImVec4 textColor = MixColor(MixColor(idleColor, hoverColor, animation.hoverAmount), accentColor, animation.selectedAmount);
+
+    const ImVec2 textPos(
+        p1.x + (tabSize.x - textSize.x) * 0.5f,
+        p1.y + (tabSize.y - textSize.y) * 0.5f - Scale(1.0f));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->AddText(textPos, ImGui::ColorConvertFloat4ToU32(textColor), label);
+
+    const float lineAmount = std::max(animation.selectedAmount, animation.hoverAmount);
+    if (lineAmount > 0.01f) {
+        ImVec4 lineColor = accentColor;
+        lineColor.w *= std::clamp(animation.selectedAmount + animation.hoverAmount * 0.65f, 0.0f, 1.0f);
+
+        const float centerX = (p1.x + p2.x) * 0.5f;
+        const float lineY = p2.y - Scale(4.0f);
+        const float halfWidth = (textSize.x * 0.5f) * lineAmount;
+        drawList->AddLine(
+            ImVec2(centerX - halfWidth, lineY),
+            ImVec2(centerX + halfWidth, lineY),
+            ImGui::ColorConvertFloat4ToU32(lineColor),
+            Scale(2.5f));
+    }
+
+    return clicked;
+}
+
+void DrawSummaryCell(const char* label, const std::string& value) {
+    ImGui::TextDisabled("%s", label);
+    ImGui::SameLine(0.0f, Scale(4.0f));
+    ImGui::TextWrapped("%s", value.empty() ? "-" : value.c_str());
+}
+
+void DrawDiagnosticValue(const char* label, const std::string& value) {
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%s", label);
+    ImGui::TableNextColumn();
+    ImGui::TextWrapped("%s", value.empty() ? "-" : value.c_str());
+}
+
+void DrawPathDiagnosticRow(UiText labelId, const fs::path& path, UiText openActionId) {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string pathText = PathToUtf8(path);
+
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%s", ui.Text(labelId));
+    ImGui::TableNextColumn();
+    ImGui::TextWrapped("%s", pathText.empty() ? "-" : pathText.c_str());
+
+    ImGui::PushID(static_cast<int>(labelId));
+    if (ImGui::Button(ui.Text(openActionId))) {
+        if (!OpenFilesystemPath(path)) {
+            debuglog::WriteError("[ui] failed to open path: %s", pathText.c_str());
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::SettingsCopyPath))) {
+        CopyPathToClipboard(path);
+    }
+    ImGui::PopID();
+}
+
 bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD* size) {
     if (!module || !data || !size) {
         return false;
@@ -1609,18 +1754,160 @@ void ModApp::DrawSmiHelperTab() const {
 
 void ModApp::DrawMiscTab() {
     tags_.DrawMiscTab();
+    if (tags_.IsMiscHomePage()) {
+        ImGui::Spacing();
+        DrawGameFixesCard();
+    }
+}
+
+void ModApp::DrawGameFixesCard() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Scale(8.0f));
+    if (ImGui::BeginChild("##misc_game_fixes", ImVec2(0.0f, Scale(126.0f)), ImGuiChildFlags_FrameStyle)) {
+        ImGui::TextColored(ImVec4(0.75f, 0.92f, 0.62f, 1.0f), "%s", ui.Text(UiText::MiscGameFixesTitle));
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", ui.Text(UiText::MiscGameFixesDesc));
+        ImGui::Spacing();
+
+        bool applyDamageProtectionEnabled = ui.ApplyDamageProtectionEnabled();
+        if (ImGui::Checkbox(ui.Text(UiText::SettingsApplyDamageProtection), &applyDamageProtectionEnabled)) {
+            ui.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
+            sampHooks_.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
+            debuglog::WriteInfo(
+                "Settings changed: apply_damage_protection=%d",
+                applyDamageProtectionEnabled ? 1 : 0);
+        }
+        ImGui::TextDisabled("%s", ui.Text(UiText::SettingsApplyDamageProtectionDesc));
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
 }
 
 void ModApp::DrawNotepadTab(IDirect3DDevice9* device) {
     notepad_.DrawMainTab(device);
 }
 
-void ModApp::DrawSettingsTab() {
+void ModApp::DrawSettingsSummaryBar() {
     UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::TabSettings));
-    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsIntro));
+    AppConfig& config = AppConfig::Instance();
+
+    std::string activeProfileName = config.ActiveProfileId();
+    for (const ConfigProfile& profile : config.Profiles()) {
+        if (profile.active) {
+            activeProfileName = profile.name.empty() ? profile.id : profile.name;
+            break;
+        }
+    }
+
+    const int columnCount = ImGui::GetContentRegionAvail().x < Scale(640.0f) ? 2 : 4;
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ScaleVec(0.0f, 2.0f));
+    if (ImGui::BeginTable(
+            "##settings_summary_table",
+            columnCount,
+            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+        int cell = 0;
+        const auto drawCell = [&](const char* label, const std::string& value) {
+            if (cell % columnCount == 0) {
+                ImGui::TableNextRow();
+            }
+            ImGui::TableSetColumnIndex(cell % columnCount);
+            DrawSummaryCell(label, value);
+            ++cell;
+        };
+
+        drawCell(ui.Text(UiText::SettingsSummaryProfile), activeProfileName);
+        drawCell(ui.Text(UiText::SettingsSummaryLanguage), ui.LanguageDisplayName(ui.Language()));
+        drawCell(ui.Text(UiText::SettingsSummaryMainWindow), overlay_.MenuToggleHotkeyText());
+        drawCell(ui.Text(UiText::SettingsSummaryQuickMenu), binder_.QuickMenuHotkeyText());
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
+    ImGui::Spacing();
+    ImGui::Separator();
+}
+
+void ModApp::DrawSettingsGeneralSection() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsSectionGeneral));
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsGeneralIntro));
     ImGui::Spacing();
 
+    const UiLanguage languages[] = { UiLanguage::Russian, UiLanguage::English };
+    const char* languageLabels[] = {
+        ui.LanguageDisplayName(UiLanguage::Russian),
+        ui.LanguageDisplayName(UiLanguage::English),
+    };
+    int languageIndex = ui.Language() == UiLanguage::English ? 1 : 0;
+    ImGui::SetNextItemWidth(Scale(260.0f));
+    if (ImGui::Combo(ui.Text(UiText::SettingsLanguage), &languageIndex, languageLabels, IM_ARRAYSIZE(languageLabels))) {
+        ui.SetLanguage(languages[languageIndex]);
+        debuglog::WriteInfo("Settings changed: language=%s", languageIndex == 1 ? "en" : "ru");
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsUiScale));
+    bool autoScale = ui.AutoScaleEnabled();
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsAutoScale), &autoScale)) {
+        ui.SetAutoScaleEnabled(autoScale);
+        debuglog::WriteInfo("Settings changed: auto_scale=%d", autoScale ? 1 : 0);
+    }
+
+    float scaleMultiplier = ui.ScaleMultiplier();
+    ImGui::SetNextItemWidth(Scale(300.0f));
+    if (ImGui::SliderFloat(ui.Text(UiText::SettingsScaleMultiplier), &scaleMultiplier, 0.75f, 2.0f, "%.2fx")) {
+        ui.SetScaleMultiplier(scaleMultiplier);
+        debuglog::WriteInfo("Settings changed: scale_multiplier=%.2f", scaleMultiplier);
+    }
+
+    ImGui::Text("%s: %.2fx", ui.Text(UiText::SettingsEffectiveScale), ui.CurrentScale());
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsScaleHint));
+    ImGui::Spacing();
+
+    if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
+        ui.ResetToDefaults();
+        debuglog::WriteInfo("Interface settings reset to defaults");
+    }
+}
+
+void ModApp::DrawSettingsHotkeysSection() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsSectionHotkeys));
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsHotkeysIntro));
+    ImGui::Spacing();
+
+    if (ImGui::BeginTable(
+            "##settings_hotkeys_table",
+            3,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthStretch, 0.36f);
+        ImGui::TableSetupColumn("hotkey", ImGuiTableColumnFlags_WidthStretch, 0.34f);
+        ImGui::TableSetupColumn("buttons", ImGuiTableColumnFlags_WidthStretch, 0.30f);
+        ImGui::TableNextRow();
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextWrapped("%s", ui.Text(UiText::SettingsMainWindowHotkey));
+        ImGui::TextDisabled("%s", ui.Text(UiText::SettingsMainWindowHotkeyHelp));
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, overlay_.MenuToggleHotkeyText().c_str()).c_str());
+
+        ImGui::TableSetColumnIndex(2);
+        if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
+            overlay_.BeginMenuToggleHotkeyCapture();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::SettingsResetHotkey))) {
+            overlay_.CancelMenuToggleHotkeyCapture();
+            ui.ResetMenuToggleHotkey();
+            debuglog::WriteInfo("Settings changed: open_menu_hotkey reset");
+        }
+        ImGui::EndTable();
+    }
+}
+
+void ModApp::DrawSettingsProfilesSection() {
+    UiSettings& ui = UiSettings::Instance();
     AppConfig& config = AppConfig::Instance();
     std::vector<ConfigProfile> profiles = config.Profiles();
     std::string activeProfileId = config.ActiveProfileId();
@@ -1642,6 +1929,8 @@ void ModApp::DrawSettingsTab() {
 
     ImGui::SeparatorText(ui.Text(UiText::SettingsProfilesSection));
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsProfilesIntro));
+    ImGui::Spacing();
+
     ImGui::SetNextItemWidth(Scale(320.0f));
     if (ImGui::BeginCombo(ui.Text(UiText::SettingsActiveProfile), activeProfileName.c_str())) {
         for (const ConfigProfile& profile : profiles) {
@@ -1783,24 +2072,15 @@ void ModApp::DrawSettingsTab() {
         }
         ImGui::EndPopup();
     }
+}
 
-    ImGui::TextWrapped("%s: %s", ui.Text(UiText::SettingsProfilesPath), PathToUtf8(config.ProfilesRoot()).c_str());
-    ImGui::TextWrapped(
-        "%s: %s",
-        ui.Text(UiText::SettingsProfilesRegistryPath),
-        PathToUtf8(config.ProfilesRegistryPath()).c_str());
+void ModApp::DrawSettingsDiagnosticsSection() {
+    UiSettings& ui = UiSettings::Instance();
+    AppConfig& config = AppConfig::Instance();
+
+    ImGui::SeparatorText(ui.Text(UiText::SettingsSectionDiagnostics));
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsDiagnosticsIntro));
     ImGui::Spacing();
-
-    const UiLanguage languages[] = { UiLanguage::Russian, UiLanguage::English };
-    const char* languageLabels[] = {
-        ui.LanguageDisplayName(UiLanguage::Russian),
-        ui.LanguageDisplayName(UiLanguage::English),
-    };
-    int languageIndex = ui.Language() == UiLanguage::English ? 1 : 0;
-    if (ImGui::Combo(ui.Text(UiText::SettingsLanguage), &languageIndex, languageLabels, IM_ARRAYSIZE(languageLabels))) {
-        ui.SetLanguage(languages[languageIndex]);
-        debuglog::WriteInfo("Settings changed: language=%s", languageIndex == 1 ? "en" : "ru");
-    }
 
     const UiLogLevel logLevels[] = { UiLogLevel::Off, UiLogLevel::Error, UiLogLevel::Info };
     const char* logLevelLabels[] = {
@@ -1809,6 +2089,7 @@ void ModApp::DrawSettingsTab() {
         ui.Text(UiText::SettingsLogLevelInfo),
     };
     int logLevelIndex = static_cast<int>(ui.LogLevel());
+    ImGui::SetNextItemWidth(Scale(220.0f));
     if (ImGui::Combo(ui.Text(UiText::SettingsLogLevel), &logLevelIndex, logLevelLabels, IM_ARRAYSIZE(logLevelLabels))) {
         const UiLogLevel selected = logLevels[std::clamp(logLevelIndex, 0, 2)];
         ui.SetLogLevel(selected);
@@ -1816,51 +2097,112 @@ void ModApp::DrawSettingsTab() {
         debuglog::WriteInfo("Settings changed: log_level=%s", ToUiLogLevelName(selected));
     }
 
-    bool applyDamageProtectionEnabled = ui.ApplyDamageProtectionEnabled();
-    if (ImGui::Checkbox(ui.Text(UiText::SettingsApplyDamageProtection), &applyDamageProtectionEnabled)) {
-        ui.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
-        sampHooks_.SetApplyDamageProtectionEnabled(applyDamageProtectionEnabled);
-        debuglog::WriteInfo(
-            "Settings changed: apply_damage_protection=%d",
-            applyDamageProtectionEnabled ? 1 : 0);
+    std::string sampStatus = ui.Text(UiText::SettingsSampWaiting);
+    if (sampApi_.sampModule()) {
+        sampStatus = sampApi_.isSupportedVersion()
+            ? (sampUiPipelineReady_ ? ui.Text(UiText::SettingsSampReady) : ui.Text(UiText::SettingsSampLoaded))
+            : ui.Text(UiText::SettingsSampUnsupported);
     }
+    const std::string sampVersion = sampApi_.sampModule() ? sampApi_.currentVersionName() : "-";
+    const std::string chatAsiStatus =
+        GetModuleHandleA("_chat.asi") ? ui.Text(UiText::SettingsChatAsiLoaded) : ui.Text(UiText::SettingsChatAsiNotLoaded);
 
     ImGui::Spacing();
-    ImGui::TextUnformatted(ui.Text(UiText::SettingsMainWindowHotkey));
-    ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, overlay_.MenuToggleHotkeyText().c_str()).c_str());
-    if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
-        overlay_.BeginMenuToggleHotkeyCapture();
+    if (ImGui::BeginTable(
+            "##settings_diagnostics_table",
+            2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, Scale(190.0f));
+        ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+
+        ImGui::TableNextRow();
+        DrawPathDiagnosticRow(UiText::SettingsProfilesPath, config.ProfilesRoot(), UiText::SettingsOpenProfilesFolder);
+        ImGui::TableNextRow();
+        DrawPathDiagnosticRow(UiText::SettingsConfigPath, config.ConfigPath(), UiText::SettingsOpenConfigFile);
+        ImGui::TableNextRow();
+        DrawPathDiagnosticRow(UiText::SettingsLogPath, DebugLogPath(module_), UiText::SettingsOpenLogFile);
+        ImGui::TableNextRow();
+        DrawPathDiagnosticRow(UiText::SettingsProfilesRegistryPath, config.ProfilesRegistryPath(), UiText::SettingsOpenRegistryFile);
+
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsGtaVersion), plugin::GetGameVersionName());
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsSampStatus), sampStatus);
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsSampVersion), sampVersion);
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsChatAsiStatus), chatAsiStatus);
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsFallbackStatus), ui.Text(UiText::SettingsFallbackAvailable));
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsHooksStatus), sampHooks_.statusText());
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsRakHooksStatus), sampRakHooks_.statusText());
+
+        ImGui::EndTable();
     }
+}
 
-    bool autoScale = ui.AutoScaleEnabled();
-    if (ImGui::Checkbox(ui.Text(UiText::SettingsAutoScale), &autoScale)) {
-        ui.SetAutoScaleEnabled(autoScale);
-        debuglog::WriteInfo("Settings changed: auto_scale=%d", autoScale ? 1 : 0);
+void ModApp::DrawSettingsTab() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SeparatorText(ui.Text(UiText::TabSettings));
+
+    const UiSettingsSection activeSection = ui.SettingsActiveSection();
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(Scale(30.0f), 0.0f));
+    if (ImGui::BeginChild(
+            "##settings_section_tabs",
+            ImVec2(0.0f, Scale(56.0f)),
+            ImGuiChildFlags_None,
+            ImGuiWindowFlags_HorizontalScrollbar)) {
+        for (std::size_t index = 0; index < kSettingsSections.size(); ++index) {
+            const SettingsSectionDefinition& section = kSettingsSections[index];
+            if (index > 0) {
+                ImGui::SameLine();
+            }
+
+            ImGui::PushID(static_cast<int>(index));
+            if (DrawSettingsHeaderTab(section.label, activeSection == section.section)) {
+                ui.SetSettingsActiveSection(section.section);
+                debuglog::WriteInfo("Settings section changed");
+            }
+            ImGui::PopID();
+        }
     }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
 
-    float scaleMultiplier = ui.ScaleMultiplier();
-    if (ImGui::SliderFloat(ui.Text(UiText::SettingsScaleMultiplier), &scaleMultiplier, 0.75f, 2.0f, "%.2fx")) {
-        ui.SetScaleMultiplier(scaleMultiplier);
-        debuglog::WriteInfo("Settings changed: scale_multiplier=%.2f", scaleMultiplier);
-    }
-
-    ImGui::Text("%s: %.2fx", ui.Text(UiText::SettingsEffectiveScale), ui.CurrentScale());
-    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsScaleHint));
-
-    if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
-        ui.ResetToDefaults();
-        debuglog::SetLevel(ToDebugLogLevel(ui.LogLevel()));
-        sampHooks_.SetApplyDamageProtectionEnabled(ui.ApplyDamageProtectionEnabled());
-        debuglog::WriteInfo("Settings reset to defaults");
-        overlay_.CancelMenuToggleHotkeyCapture();
-    }
-
+    DrawSettingsSummaryBar();
     ImGui::Spacing();
-    const_cast<BinderModule&>(binder_).DrawSettingsSection();
 
-    const std::string configPath = PathToUtf8(AppConfig::Instance().ConfigPath());
-    ImGui::TextWrapped("%s: %s", ui.Text(UiText::SettingsConfigPath), configPath.c_str());
-    ImGui::Text("%s", ui.Format(UiText::GtaVersionFormat, plugin::GetGameVersionName()).c_str());
+    if (ImGui::BeginChild("##settings_content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None)) {
+        switch (ui.SettingsActiveSection()) {
+        case UiSettingsSection::Hotkeys:
+            DrawSettingsHotkeysSection();
+            break;
+        case UiSettingsSection::Notifications:
+            ImGui::SeparatorText(ui.Text(UiText::SettingsSectionNotifications));
+            break;
+        case UiSettingsSection::Profiles:
+            DrawSettingsProfilesSection();
+            break;
+        case UiSettingsSection::QuickMenu:
+            ImGui::SeparatorText(ui.Text(UiText::SettingsSectionQuickMenu));
+            ImGui::TextWrapped("%s", ui.Text(UiText::SettingsQuickMenuIntro));
+            ImGui::Spacing();
+            binder_.DrawSettingsSection(false);
+            break;
+        case UiSettingsSection::Diagnostics:
+            DrawSettingsDiagnosticsSection();
+            break;
+        case UiSettingsSection::General:
+        default:
+            DrawSettingsGeneralSection();
+            break;
+        }
+    }
+    ImGui::EndChild();
 }
 
 void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
