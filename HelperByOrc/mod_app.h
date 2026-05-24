@@ -16,6 +16,7 @@
 #include "incoming_message_router.h"
 #include "notification_manager.h"
 #include "notepad_module.h"
+#include "overlay_cursor_controller.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -99,10 +100,7 @@ private:
     std::uint64_t nextRuntimeModuleSnapshotAtMs_ = 0;
     std::uint64_t sampNotReadySinceMs_ = 0;
     std::uint64_t nextSampStuckTraceAtMs_ = 0;
-    int overlayCursorMode_ = -1;
-    bool overlayCursorEnabled_ = false;
-    bool overlayLastUiHold_ = false;
-    std::uint64_t overlayCursorLastApplyMs_ = 0;
+    OverlayCursorController overlayCursor_{};
     bool sampUiPipelineReady_ = false;
     std::uint64_t sampUiPipelineLastProbeMs_ = 0;
     HANDLE deferredOverlayThread_ = nullptr;

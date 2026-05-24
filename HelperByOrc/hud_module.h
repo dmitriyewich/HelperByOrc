@@ -28,6 +28,7 @@ public:
     void SetTagsModule(TagsModule* tagsModule);
     void SetNotepadModule(NotepadModule* notepadModule);
     void SetSampApi(SampApi* sampApi);
+    void SetPlacementInputBlocked(bool blocked);
 
     void DrawMainTab(IDirect3DDevice9* device);
     void DrawOverlay(IDirect3DDevice9* device, bool helperWindowOpen);

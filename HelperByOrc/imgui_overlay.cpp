@@ -1095,7 +1095,7 @@ bool ImGuiOverlay::IsAuxiliaryUiVisible() const {
 }
 
 bool ImGuiOverlay::WantsInputRouting() const {
-    return menuOpen_ || IsAuxiliaryUiVisible();
+    return menuOpen_ || WantsAuxiliaryUiCursor() || WantsTextInputCapture();
 }
 
 bool ImGuiOverlay::WantsAuxiliaryUiCursor() const {
@@ -1249,10 +1249,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         EnsureWndProcHookInstalled();
     }
 
-    static bool s_hadNoOverlayUi = true;
     const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
-    const bool enteredOverlayFromNone = s_hadNoOverlayUi && hasOverlayUi;
-    s_hadNoOverlayUi = !hasOverlayUi;
+    const bool wantsUiCursor = WantsUiCursor();
+    const bool enteredUiCursor = !lastWantsUiCursor_ && wantsUiCursor;
+    lastWantsUiCursor_ = wantsUiCursor;
 
     if (!hasOverlayUi) {
         AdvanceImGuiFrameWithoutUi(device);
@@ -1290,8 +1290,9 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     // без hover (WantCaptureMouse=0), а клики «съедаются».
     if (gameWindow_ != nullptr) {
         ImGuiIO& io = ImGui::GetIO();
-        if (enteredOverlayFromNone) {
+        if (enteredUiCursor) {
             io.ClearInputMouse();
+            debuglog::WriteInfo("[ui] uiCursor 0->1: mouse input state reset");
         }
         POINT pt{};
         if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
@@ -1304,7 +1305,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     ImGui::NewFrame();
-    if (WantsUiCursor()) {
+    if (wantsUiCursor) {
         // При активном overlay-курcоре хотим стабильный mouse-capture и на следующем кадре тоже,
         // чтобы исключить кратковременные провалы WantCaptureMouse=0 между WndProc/NewFrame.
         ImGui::SetNextFrameWantCaptureMouse(true);

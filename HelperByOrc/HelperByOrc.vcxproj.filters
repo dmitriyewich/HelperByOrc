@@ -93,6 +93,9 @@
     <ClCompile Include="notepad_module.cpp">
       <Filter>Source Files\Notepad</Filter>
     </ClCompile>
+    <ClCompile Include="overlay_cursor_controller.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="raknet_bitstream_view.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -201,6 +204,9 @@
     </ClInclude>
     <ClInclude Include="notepad_module.h">
       <Filter>Header Files\Notepad</Filter>
+    </ClInclude>
+    <ClInclude Include="overlay_cursor_controller.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="minhook_utils.h">
       <Filter>Header Files</Filter>

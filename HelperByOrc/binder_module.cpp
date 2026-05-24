@@ -4200,7 +4200,10 @@ bool BinderModule::Impl::WantsOverlayRender() const {
 }
 
 bool BinderModule::Impl::WantsInputCapture() const {
-    return inputDialog.has_value() || capture.Active();
+    return inputDialog.has_value()
+        || capture.Active()
+        || bindLinesPopupPending
+        || bindLinesTarget >= 0;
 }
 
 bool BinderModule::Impl::WantsQuickMenuCursor() const {

@@ -112,6 +112,7 @@ private:
     bool traceLastMenuOpen_ = false;
     bool traceLastAuxVisible_ = false;
     bool traceLastIdleFrame_ = true;
+    bool lastWantsUiCursor_ = false;
     uint64_t traceLastUiDiagTick_ = 0;
 
     void* endSceneTarget_ = nullptr;

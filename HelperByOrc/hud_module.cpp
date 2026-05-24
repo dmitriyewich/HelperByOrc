@@ -437,6 +437,7 @@ struct HudModule::Impl {
     std::uint64_t idCounter = 0;
     bool placementMode = false;
     std::string placementWidgetId;
+    bool placementInputBlocked = false;
     bool conditionsPopupPending = false;
 
     void OnProcessAttach(HMODULE moduleHandle) {
@@ -854,7 +855,7 @@ struct HudModule::Impl {
             return;
         }
 
-        const bool placing = placementMode && placementWidgetId == widget.id;
+        const bool placing = placementMode && placementWidgetId == widget.id && !placementInputBlocked;
         const ImVec2 pos = ScreenPosition(widget, displaySize);
         const ImVec2 pivot = AnchorPivot(widget.position.anchor);
         ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
@@ -934,11 +935,11 @@ struct HudModule::Impl {
     }
 
     bool WantsInputCapture() const {
-        return placementMode;
+        return placementMode && !placementInputBlocked;
     }
 
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM) {
-        if (!placementMode) {
+        if (!placementMode || placementInputBlocked) {
             return false;
         }
         if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_ESCAPE) {
@@ -1275,6 +1276,10 @@ void HudModule::SetNotepadModule(NotepadModule* notepadModule) {
 
 void HudModule::SetSampApi(SampApi* sampApi) {
     impl_->sampApi = sampApi;
+}
+
+void HudModule::SetPlacementInputBlocked(bool blocked) {
+    impl_->placementInputBlocked = blocked;
 }
 
 void HudModule::DrawMainTab(IDirect3DDevice9* device) {

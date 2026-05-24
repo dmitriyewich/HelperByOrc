@@ -139,6 +139,7 @@
     <ClCompile Include="mod_app.cpp" />
     <ClCompile Include="notification_manager.cpp" />
     <ClCompile Include="notepad_module.cpp" />
+    <ClCompile Include="overlay_cursor_controller.cpp" />
     <ClCompile Include="raknet_bitstream_view.cpp" />
     <ClCompile Include="samp_api.cpp" />
     <ClCompile Include="samp_hooks.cpp" />
@@ -187,6 +188,7 @@
     <ClInclude Include="mod_app.h" />
     <ClInclude Include="notification_manager.h" />
     <ClInclude Include="notepad_module.h" />
+    <ClInclude Include="overlay_cursor_controller.h" />
     <ClInclude Include="raknet_bitstream_view.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="samp_api.h" />

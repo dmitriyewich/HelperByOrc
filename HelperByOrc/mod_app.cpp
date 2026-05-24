@@ -32,12 +32,6 @@ constexpr float kSidebarCollapsedWidth = 50.0f;
 constexpr float kLogoExpandedSize = 128.0f;
 constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
-constexpr int kSampCursorModeNone = 0;
-constexpr int kSampCursorModeLockCam = 3;
-constexpr uint64_t kCursorReassertIntervalMs = 200;
-constexpr uint64_t kCursorReassertTraceIntervalMs = 2500;
-constexpr uint64_t kCursorTraceIntervalMs = 700;
-constexpr uint64_t kCursorUnavailableTraceIntervalMs = 1500;
 constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
@@ -1140,6 +1134,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     hud_.SetTagsModule(&tags_);
     hud_.SetNotepadModule(&notepad_);
     hud_.SetSampApi(&sampApi_);
+    overlayCursor_.SetSampApi(&sampApi_);
     tags_.SetBinderModule(&binder_);
     tags_.SetNotificationManager(&notifications_);
 
@@ -1147,13 +1142,20 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
+        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+        hud_.SetPlacementInputBlocked(quickMenuActive);
+        if (quickMenuActive || binder_.WantsInputCapture()) {
+            return binder_.OnWindowMessage(message, wparam, lparam) || hud_.OnWindowMessage(message, wparam, lparam);
+        }
         return hud_.OnWindowMessage(message, wparam, lparam) || binder_.OnWindowMessage(message, wparam, lparam);
     });
     overlay_.SetAuxiliaryUiVisibleCallback([this]() {
         return hud_.WantsOverlayRender() || binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
     });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
-        return hud_.WantsInputCapture() || binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
+        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+        hud_.SetPlacementInputBlocked(quickMenuActive);
+        return quickMenuActive || binder_.WantsInputCapture() || hud_.WantsInputCapture();
     });
     overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
@@ -1170,15 +1172,9 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("ModApp shutdown begin");
     StopDeferredOverlayThread();
     ::ClipCursor(nullptr);
-    ::ReleaseCapture();
-    overlayLastUiHold_ = false;
 
     sampApi_.Refresh();
-    if (sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
-        sampApi_.Set_CursorMode(kSampCursorModeNone, false);
-    }
-    overlayCursorMode_ = kSampCursorModeNone;
-    overlayCursorEnabled_ = false;
+    overlayCursor_.Shutdown();
 
     overlay_.Shutdown();
     debuglog::WriteInfo("Overlay shutdown done");
@@ -1218,130 +1214,28 @@ void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
 }
 
 void ModApp::UpdateOverlayCursorMode() {
-    const bool wantsUi = overlay_.WantsUiCursor();
-    const uint64_t now = GetTickCount64();
-    if (!sampUiPipelineReady_) {
-        if (overlayLastUiHold_) {
-            ::ReleaseCapture();
-            overlayLastUiHold_ = false;
-            debuglog::WriteInfo("[ui] cursor pipeline gated: released capture while SA:MP is not fully initialized");
-        }
-        if (overlayCursorMode_ != kSampCursorModeNone || overlayCursorEnabled_) {
-            overlayCursorMode_ = kSampCursorModeNone;
-            overlayCursorEnabled_ = false;
-            overlayCursorLastApplyMs_ = now;
-        }
-        static uint64_t s_lastGateTraceMs = 0;
-        if (now - s_lastGateTraceMs >= kCursorUnavailableTraceIntervalMs) {
-            s_lastGateTraceMs = now;
-            debuglog::WriteInfo("[ui] cursor pipeline gated: waiting for full SA:MP initialization");
-        }
-        return;
-    }
-
     HWND gameHw = overlay_.GetGameWindow();
     HWND fg = GetForegroundWindow();
     const bool appHasFocus = gameHw && fg && IsWindow(gameHw)
         && (fg == gameHw || IsChild(gameHw, fg) != FALSE);
 
-    bool chatOrDialogActive = false;
+    bool chatOpen = false;
+    bool dialogOpen = false;
     sampApi_.Refresh();
     if (sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
-        chatOrDialogActive = sampApi_.is_chat_opened() || sampApi_.isDialogActive();
+        chatOpen = sampApi_.is_chat_opened();
+        dialogOpen = sampApi_.isDialogActive();
     }
 
-    const bool rmbHeld = (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-    const bool shouldHoldUi = appHasFocus && (wantsUi || chatOrDialogActive);
-
-    static bool s_traceWantsUi = false;
-    static bool s_traceFocus = false;
-    static bool s_traceRmb = false;
-    static bool s_traceChatDialog = false;
-    static bool s_traceHold = false;
-    static uint64_t s_lastCursorTraceMs = 0;
-    const bool changedCore = wantsUi != s_traceWantsUi || appHasFocus != s_traceFocus
-        || chatOrDialogActive != s_traceChatDialog || shouldHoldUi != s_traceHold;
-    const bool changedRmbOnly = !changedCore && (rmbHeld != s_traceRmb);
-    const bool allowRmbSpamSafeTrace = changedRmbOnly && (now - s_lastCursorTraceMs >= kCursorTraceIntervalMs);
-    if (changedCore || allowRmbSpamSafeTrace) {
-        s_traceWantsUi = wantsUi;
-        s_traceFocus = appHasFocus;
-        s_traceRmb = rmbHeld;
-        s_traceChatDialog = chatOrDialogActive;
-        s_traceHold = shouldHoldUi;
-        s_lastCursorTraceMs = now;
-        debuglog::WriteInfo(
-            "[ui] cursor wantsUi=%d chatOpen=%d dialogOpen=%d chatOrDialog=%d fg=%d rmb=%d shouldHold=%d gameHw=%p fgHw=%p sampMode=%d sampEn=%d",
-            wantsUi ? 1 : 0,
-            (chatOrDialogActive && sampApi_.is_chat_opened()) ? 1 : 0,
-            (chatOrDialogActive && sampApi_.isDialogActive()) ? 1 : 0,
-            chatOrDialogActive ? 1 : 0,
-            appHasFocus ? 1 : 0,
-            rmbHeld ? 1 : 0,
-            shouldHoldUi ? 1 : 0,
-            gameHw,
-            fg,
-            overlayCursorMode_,
-            overlayCursorEnabled_ ? 1 : 0);
-    }
-
-    if (overlayLastUiHold_ && !shouldHoldUi) {
-        ::ReleaseCapture();
-        debuglog::WriteInfo("[ui] ReleaseCapture due to UI-hold end");
-    }
-    overlayLastUiHold_ = shouldHoldUi;
-
-    const int desiredMode = shouldHoldUi ? kSampCursorModeLockCam : kSampCursorModeNone;
-    const bool desiredEnabled = shouldHoldUi;
-    const bool desiredSameAsCache = overlayCursorMode_ == desiredMode && overlayCursorEnabled_ == desiredEnabled;
-    const bool shouldReassert = desiredEnabled && (now - overlayCursorLastApplyMs_ >= kCursorReassertIntervalMs);
-
-    if (desiredSameAsCache && !shouldReassert) {
-        return;
-    }
-
-    if (!sampApi_.sampModule() || !sampApi_.isSupportedVersion()) {
-        static uint64_t s_lastCursorUnavailableTraceMs = 0;
-        if (wantsUi && now - s_lastCursorUnavailableTraceMs >= kCursorUnavailableTraceIntervalMs) {
-            s_lastCursorUnavailableTraceMs = now;
-            debuglog::WriteInfo(
-                "[ui] cursor apply skipped: sampModule=%d supported=%d",
-                sampApi_.sampModule() ? 1 : 0,
-                sampApi_.isSupportedVersion() ? 1 : 0);
-        }
-        return;
-    }
-
-    if (!sampApi_.Set_CursorMode(desiredMode, desiredEnabled)) {
-        debuglog::WriteError(
-            "[ui] Set_CursorMode FAILED want mode=%d en=%d: %s",
-            desiredMode,
-            desiredEnabled ? 1 : 0,
-            sampApi_.lastError().c_str());
-        return;
-    }
-
-    bool shouldLogApply = true;
-    if (shouldReassert && desiredSameAsCache) {
-        static uint64_t s_lastReassertTraceMs = 0;
-        shouldLogApply = (now - s_lastReassertTraceMs) >= kCursorReassertTraceIntervalMs;
-        if (shouldLogApply) {
-            s_lastReassertTraceMs = now;
-        }
-    }
-    if (shouldLogApply) {
-        debuglog::WriteInfo(
-            "[ui] Set_CursorMode ok mode=%d en=%d (was %d / %d reassert=%d)",
-            desiredMode,
-            desiredEnabled ? 1 : 0,
-            overlayCursorMode_,
-            overlayCursorEnabled_ ? 1 : 0,
-            shouldReassert ? 1 : 0);
-    }
-
-    overlayCursorMode_ = desiredMode;
-    overlayCursorEnabled_ = desiredEnabled;
-    overlayCursorLastApplyMs_ = now;
+    OverlayCursorController::Inputs inputs{};
+    inputs.sampUiPipelineReady = sampUiPipelineReady_;
+    inputs.wantsUiCursor = overlay_.WantsUiCursor();
+    inputs.chatOpen = chatOpen;
+    inputs.dialogOpen = dialogOpen;
+    inputs.appHasFocus = appHasFocus;
+    inputs.gameWindow = gameHw;
+    inputs.foregroundWindow = fg;
+    overlayCursor_.Apply(inputs);
 }
 
 DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
@@ -1459,6 +1353,7 @@ void ModApp::Tick() {
     incomingMessageRouter_.Tick();
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.Tick();
+    hud_.SetPlacementInputBlocked(binder_.WantsQuickMenuCursor());
     tags_.Tick();
 
     RefreshSampGate();
@@ -2391,6 +2286,8 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         s_lastShowMainWindow = showMainWindow;
         debuglog::WriteInfo("[ui] main window visibility -> %d", showMainWindow ? 1 : 0);
     }
+    const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+    hud_.SetPlacementInputBlocked(quickMenuActive);
     hud_.DrawOverlay(device, showMainWindow);
     if (!showMainWindow) {
         binder_.DrawOverlay();
