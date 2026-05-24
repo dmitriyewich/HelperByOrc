@@ -475,6 +475,24 @@ bool SampApi::IsConnected(int id) {
     return connected;
 }
 
+std::optional<std::uint32_t> SampApi::GetPlayerColor(int id) {
+    if (id < 0 || id > 1003 || !isSupportedVersion() || !IsConnected(id)) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t colorsOffset = main_offsets.SAMP_COLOR_OFFSET.Get(currentVersion_);
+    const std::uintptr_t colorsBase = ModuleBase() + colorsOffset;
+    if (colorsOffset == 0 || colorsBase == 0) {
+        return std::nullopt;
+    }
+
+    std::uint32_t color = 0;
+    if (!SafeRead(colorsBase + static_cast<std::uintptr_t>(id) * sizeof(std::uint32_t), color)) {
+        return std::nullopt;
+    }
+    return color;
+}
+
 
 bool SampApi::restoreOriginalFunctionGlobals() {
     functionBackendActive_ = BACKEND_STANDARD;

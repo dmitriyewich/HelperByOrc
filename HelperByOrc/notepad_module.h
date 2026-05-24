@@ -5,12 +5,29 @@
 
 #include <d3d9.h>
 
+#include <filesystem>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
 
 class TagsModule;
 
 class NotepadModule {
 public:
+    struct NoteSummary {
+        std::string id{};
+        std::string title{};
+        std::string folderPath{};
+    };
+
+    struct NoteContent {
+        std::string id{};
+        std::string title{};
+        std::string folderPath{};
+        std::string text{};
+    };
+
     NotepadModule();
     ~NotepadModule();
 
@@ -26,6 +43,9 @@ public:
     void ReleaseDeviceResources();
     void SetTagsModule(TagsModule* tagsModule);
     void DrawMainTab(IDirect3DDevice9* device);
+    bool TryGetNote(std::string_view id, NoteContent& out);
+    std::vector<NoteSummary> NoteSummaries();
+    std::filesystem::path ImagesDirectoryPath();
 
 private:
     struct Impl;

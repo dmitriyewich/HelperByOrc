@@ -10,8 +10,9 @@
 
 #include <imgui.h>
 
-#include "imgui_overlay.h"
 #include "binder_module.h"
+#include "hud_module.h"
+#include "imgui_overlay.h"
 #include "incoming_message_router.h"
 #include "notification_manager.h"
 #include "notepad_module.h"
@@ -23,7 +24,7 @@
 enum class MainTab : std::uint8_t {
     Home = 0,
     Binder,
-    SmiHelper,
+    Hud,
     Misc,
     Notepad,
     Settings,
@@ -64,7 +65,7 @@ private:
     void DrawSectionCard(const char* id, const char* title, const char* description, const ImVec4& accent) const;
     void DrawHomeTab() const;
     void DrawBinderTab() const;
-    void DrawSmiHelperTab() const;
+    void DrawHudTab(IDirect3DDevice9* device);
     void DrawMiscTab();
     void DrawGameFixesCard();
     void DrawNotepadTab(IDirect3DDevice9* device);
@@ -115,5 +116,6 @@ private:
     NotificationManager notifications_{};
     BinderModule binder_{};
     NotepadModule notepad_{};
+    HudModule hud_{};
     TagsModule tags_{};
 };

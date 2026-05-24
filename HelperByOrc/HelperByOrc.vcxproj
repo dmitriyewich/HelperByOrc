@@ -127,12 +127,15 @@
   <ItemGroup>
     <ClCompile Include="app_config.cpp" />
     <ClCompile Include="binder_module.cpp" />
+    <ClCompile Include="conditions_module.cpp" />
     <ClCompile Include="debug_log.cpp" />
     <ClCompile Include="hotkey_utils.cpp" />
+    <ClCompile Include="hud_module.cpp" />
     <ClCompile Include="incoming_message_router.cpp" />
     <ClCompile Include="imgui_overlay.cpp" />
     <ClCompile Include="json_utils.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="markup_renderer.cpp" />
     <ClCompile Include="mod_app.cpp" />
     <ClCompile Include="notification_manager.cpp" />
     <ClCompile Include="notepad_module.cpp" />
@@ -164,6 +167,7 @@
   <ItemGroup>
     <ClInclude Include="app_config.h" />
     <ClInclude Include="binder_module.h" />
+    <ClInclude Include="conditions_module.h" />
     <ClInclude Include="debug_log.h" />
     <ClInclude Include="feature_flags.h" />
     <ClInclude Include="font_awesome7_data.h" />
@@ -174,9 +178,11 @@
     <ClInclude Include="external\raknet\BitStream.h" />
     <ClInclude Include="external\raknet\RakClient.h" />
     <ClInclude Include="hotkey_utils.h" />
+    <ClInclude Include="hud_module.h" />
     <ClInclude Include="incoming_message_router.h" />
     <ClInclude Include="imgui_overlay.h" />
     <ClInclude Include="json_utils.h" />
+    <ClInclude Include="markup_renderer.h" />
     <ClInclude Include="minhook_utils.h" />
     <ClInclude Include="mod_app.h" />
     <ClInclude Include="notification_manager.h" />

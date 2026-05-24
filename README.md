@@ -1,6 +1,6 @@
 # HelperByOrc
 
-Нативный **ASI-плагин** для **GTA San Andreas / SA:MP** (Win32/x86): бинды, команды, быстрые действия, папки, условия, профильный блокнот и удобное ImGui-меню прямо в игре.
+Нативный **ASI-плагин** для **GTA San Andreas / SA:MP** (Win32/x86): бинды, команды, быстрые действия, папки, условия, профильный блокнот, HUD-виджеты и удобное ImGui-меню прямо в игре.
 
 Проект переносит исходную Lua/MoonLoader-логику `HelperByOrc` в C++ ASI-модуль. Полная документация и инструкции вынесены в wiki: [HelperByOrc Wiki](https://github.com/dmitriyewich/HelperByOrc/wiki).
 
@@ -24,6 +24,7 @@
 - Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
 - Теги и пользовательские переменные, включая `{thiscategory}` / `[thiscategory]` для категории текущего bind.
 - Профильный блокнот: папки, поиск, избранное, split preview, Lua-compatible разметка, локальные картинки, импорт/экспорт `.txt`.
+- HUD-конструктор экранных виджетов: inline-текст или заметка Блокнота, разметка, картинки, переменные, пресеты и размещение мышью поверх игры.
 - Профили конфигурации: переключение, создание, дублирование, переименование и удаление во вкладке «Настройки».
 - Настройки с верхними разделами: общее, быстрое меню, уведомления, профили, горячие клавиши и диагностика.
 - Настраиваемые уведомления: popup или `HelperByOrc.log`, группы событий, позиция окна, антифлуд и обязательные ошибки UI-валидации.
@@ -37,6 +38,7 @@
 - [Биндер](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D0%B8%D0%BD%D0%B4%D0%B5%D1%80)
 - [Быстрое меню](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%BE%D0%B5-%D0%BC%D0%B5%D0%BD%D1%8E)
 - [Блокнот](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%91%D0%BB%D0%BE%D0%BA%D0%BD%D0%BE%D1%82)
+- [HUD](https://github.com/dmitriyewich/HelperByOrc/wiki/HUD)
 - [Профили](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9F%D1%80%D0%BE%D1%84%D0%B8%D0%BB%D0%B8)
 - [Теги и переменные](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%A2%D0%B5%D0%B3%D0%B8-%D0%B8-%D0%BF%D0%B5%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B5)
 - [Настройки](https://github.com/dmitriyewich/HelperByOrc/wiki/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B8)
@@ -78,6 +80,14 @@ GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\HelperByOrc.json
 ```text
 GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\notepad\images
 ```
+
+Картинки HUD лежат в профиле отдельно:
+
+```text
+GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\hud\images
+```
+
+HUD v1 не импортирует старые HUD-конфиги. Картинки в разметке читаются только из профильных папок, URL, абсолютные пути и `..` блокируются. Условия HUD используют общий список блокировок Биндера; `refresh_ms=0` обновляет виджет каждый кадр и может снизить FPS.
 
 Если используется `portablegta`, путь к `GTA San Andreas User Files` берётся из игрового portable userfiles-getter.
 

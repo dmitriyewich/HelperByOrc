@@ -60,7 +60,7 @@ struct SettingsSectionDefinition {
 const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, ui_icons::House },
     { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, ui_icons::Keyboard },
-    { MainTab::SmiHelper, UiText::TabSmiHelper, UiText::TabSmiHelperCompact, ui_icons::Newspaper },
+    { MainTab::Hud, UiText::TabHud, UiText::TabHudCompact, ui_icons::Sliders },
     { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, ui_icons::Cubes },
     { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, ui_icons::Book },
     { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, ui_icons::Gear },
@@ -1136,6 +1136,10 @@ void ModApp::OnProcessAttach(HMODULE module) {
     binder_.SetTagsModule(&tags_);
     notepad_.OnProcessAttach(module);
     notepad_.SetTagsModule(&tags_);
+    hud_.OnProcessAttach(module);
+    hud_.SetTagsModule(&tags_);
+    hud_.SetNotepadModule(&notepad_);
+    hud_.SetSampApi(&sampApi_);
     tags_.SetBinderModule(&binder_);
     tags_.SetNotificationManager(&notifications_);
 
@@ -1143,13 +1147,13 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
-        return binder_.OnWindowMessage(message, wparam, lparam);
+        return hud_.OnWindowMessage(message, wparam, lparam) || binder_.OnWindowMessage(message, wparam, lparam);
     });
     overlay_.SetAuxiliaryUiVisibleCallback([this]() {
-        return binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
+        return hud_.WantsOverlayRender() || binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
     });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
-        return binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
+        return hud_.WantsInputCapture() || binder_.WantsQuickMenuCursor() || binder_.WantsInputCapture();
     });
     overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
@@ -1186,6 +1190,8 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("Notifications shutdown done");
     notepad_.Shutdown();
     debuglog::WriteInfo("Notepad shutdown done");
+    hud_.Shutdown();
+    debuglog::WriteInfo("HUD shutdown done");
     tags_.Shutdown();
     debuglog::WriteInfo("Tags shutdown done");
     AppConfig::Instance().Shutdown();
@@ -1573,6 +1579,7 @@ void ModApp::ReloadConfigAfterProfileChange() {
     tags_.ReloadConfig();
     binder_.ReloadConfig();
     notepad_.ReloadConfig();
+    hud_.ReloadConfig();
     sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     debuglog::WriteInfo(
         "[profiles] active profile applied id=%s path=%ls",
@@ -1626,6 +1633,7 @@ void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
 
 void ModApp::ReleaseUiResources() {
     notepad_.ReleaseDeviceResources();
+    hud_.ReleaseDeviceResources();
     if (logoTexture_) {
         logoTexture_->Release();
         logoTexture_ = nullptr;
@@ -1747,17 +1755,8 @@ void ModApp::DrawBinderTab() const {
     const_cast<BinderModule&>(binder_).DrawMainTab();
 }
 
-void ModApp::DrawSmiHelperTab() const {
-    const UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::TabSmiHelper));
-    ImGui::TextWrapped("%s", ui.Text(UiText::SmiHelperIntro));
-    ImGui::Spacing();
-
-    DrawSectionCard(
-        "smi_shell",
-        ui.Text(UiText::SmiHelperShellTitle),
-        ui.Text(UiText::SmiHelperShellDesc),
-        ImVec4(0.75f, 0.90f, 1.0f, 1.0f));
+void ModApp::DrawHudTab(IDirect3DDevice9* device) {
+    hud_.DrawMainTab(device);
 }
 
 void ModApp::DrawMiscTab() {
@@ -2392,6 +2391,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         s_lastShowMainWindow = showMainWindow;
         debuglog::WriteInfo("[ui] main window visibility -> %d", showMainWindow ? 1 : 0);
     }
+    hud_.DrawOverlay(device, showMainWindow);
     if (!showMainWindow) {
         binder_.DrawOverlay();
         notifications_.DrawOverlay();
@@ -2552,8 +2552,8 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
             case MainTab::Binder:
                 DrawBinderTab();
                 break;
-            case MainTab::SmiHelper:
-                DrawSmiHelperTab();
+            case MainTab::Hud:
+                DrawHudTab(device);
                 break;
             case MainTab::Misc:
                 DrawMiscTab();

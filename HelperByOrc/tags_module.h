@@ -71,6 +71,7 @@ public:
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;
+    std::string ExpandHudText(std::string_view text) const;
     std::string ExpandOutgoingText(
         std::string_view text,
         std::string_view activationSource,
@@ -222,6 +223,9 @@ private:
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyWeaponTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyWeaponIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyWeaponClipTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyMoneyTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinFpsTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinGetVehTypeTag(const EvaluationContext& context) const;
@@ -269,6 +273,15 @@ private:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSkinFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinNickColorFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCarFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCarHealthFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinKeyDownFunctionTag(

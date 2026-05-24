@@ -13,6 +13,7 @@
 #include <game_sa/CPlayerInfo.h>
 #include <game_sa/CSprite.h>
 #include <game_sa/CVehicle.h>
+#include <game_sa/CVehicleModelInfo.h>
 #include <extensions/ScriptCommands.h>
 #include <game_sa/eScriptCommands.h>
 #include <game_sa/CPools.h>
@@ -24,12 +25,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -1720,6 +1723,76 @@ std::string GetVehicleTypeName(int modelId) {
     return "unknown";
 }
 
+std::string GetWeaponDisplayName(eWeaponType weaponType) {
+    switch (weaponType) {
+    case WEAPONTYPE_UNARMED: return "Fist";
+    case WEAPONTYPE_BRASSKNUCKLE: return "Brass Knuckles";
+    case WEAPONTYPE_GOLFCLUB: return "Golf Club";
+    case WEAPONTYPE_NIGHTSTICK: return "Nightstick";
+    case WEAPONTYPE_KNIFE: return "Knife";
+    case WEAPONTYPE_BASEBALLBAT: return "Baseball Bat";
+    case WEAPONTYPE_SHOVEL: return "Shovel";
+    case WEAPONTYPE_POOLCUE: return "Pool Cue";
+    case WEAPONTYPE_KATANA: return "Katana";
+    case WEAPONTYPE_CHAINSAW: return "Chainsaw";
+    case WEAPONTYPE_DILDO1: return "Dildo";
+    case WEAPONTYPE_DILDO2: return "Dildo";
+    case WEAPONTYPE_VIBE1: return "Vibrator";
+    case WEAPONTYPE_VIBE2: return "Vibrator";
+    case WEAPONTYPE_FLOWERS: return "Flowers";
+    case WEAPONTYPE_CANE: return "Cane";
+    case WEAPONTYPE_GRENADE: return "Grenade";
+    case WEAPONTYPE_TEARGAS: return "Tear Gas";
+    case WEAPONTYPE_MOLOTOV: return "Molotov";
+    case WEAPONTYPE_ROCKET: return "Rocket";
+    case WEAPONTYPE_ROCKET_HS: return "Rocket HS";
+    case WEAPONTYPE_FREEFALL_BOMB: return "Freefall Bomb";
+    case WEAPONTYPE_PISTOL: return "Pistol";
+    case WEAPONTYPE_PISTOL_SILENCED: return "Silenced Pistol";
+    case WEAPONTYPE_DESERT_EAGLE: return "Desert Eagle";
+    case WEAPONTYPE_SHOTGUN: return "Shotgun";
+    case WEAPONTYPE_SAWNOFF: return "Sawn-off";
+    case WEAPONTYPE_SPAS12: return "SPAS-12";
+    case WEAPONTYPE_MICRO_UZI: return "Micro Uzi";
+    case WEAPONTYPE_MP5: return "MP5";
+    case WEAPONTYPE_AK47: return "AK-47";
+    case WEAPONTYPE_M4: return "M4";
+    case WEAPONTYPE_TEC9: return "Tec-9";
+    case WEAPONTYPE_COUNTRYRIFLE: return "Rifle";
+    case WEAPONTYPE_SNIPERRIFLE: return "Sniper Rifle";
+    case WEAPONTYPE_RLAUNCHER: return "Rocket Launcher";
+    case WEAPONTYPE_RLAUNCHER_HS: return "Heat Seeker";
+    case WEAPONTYPE_FTHROWER: return "Flamethrower";
+    case WEAPONTYPE_MINIGUN: return "Minigun";
+    case WEAPONTYPE_SATCHEL_CHARGE: return "Satchel";
+    case WEAPONTYPE_DETONATOR: return "Detonator";
+    case WEAPONTYPE_SPRAYCAN: return "Spray Can";
+    case WEAPONTYPE_EXTINGUISHER: return "Extinguisher";
+    case WEAPONTYPE_CAMERA: return "Camera";
+    case WEAPONTYPE_NIGHTVISION: return "Night Vision";
+    case WEAPONTYPE_INFRARED: return "Thermal Vision";
+    case WEAPONTYPE_PARACHUTE: return "Parachute";
+    default: return "Unknown";
+    }
+}
+
+std::string FormatSampColorTag(std::uint32_t color) {
+    const unsigned int red = (color >> 16) & 0xFFu;
+    const unsigned int green = (color >> 8) & 0xFFu;
+    const unsigned int blue = color & 0xFFu;
+    char buffer[10]{};
+    std::snprintf(buffer, sizeof(buffer), "{%02X%02X%02X}", red, green, blue);
+    return buffer;
+}
+
+const CWeapon* FindLocalWeapon() {
+    CPed* const playerPed = FindPlayerPed();
+    if (!playerPed || playerPed->m_nSelectedWepSlot >= std::size(playerPed->m_aWeapons)) {
+        return nullptr;
+    }
+    return playerPed->GetWeapon();
+}
+
 const CPed* FindPlayerPedBySampId(SampApi& sampApi, int id) {
     if (id < 0) {
         return nullptr;
@@ -1769,6 +1842,22 @@ std::optional<std::string> ResolveVehicleTypeForPed(const CPed* ped) {
     }
 
     return GetVehicleTypeName(ped->m_pVehicle->m_nModelIndex);
+}
+
+std::optional<std::string> ResolveVehicleNameForPed(const CPed* ped) {
+    if (!ped || !IsVehiclePointerValid(ped->m_pVehicle)) {
+        return std::string();
+    }
+
+    const int modelId = ped->m_pVehicle->m_nModelIndex;
+    if (CModelInfo::IsVehicleModelType(modelId) >= 0) {
+        if (auto* modelInfo = static_cast<CVehicleModelInfo*>(CModelInfo::GetModelInfo(modelId))) {
+            if (modelInfo->m_szGameName[0] != '\0') {
+                return std::string(modelInfo->m_szGameName);
+            }
+        }
+    }
+    return GetVehicleTypeName(modelId);
 }
 
 } // namespace
@@ -2409,6 +2498,33 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "myweapon",
+        "{myweapon}",
+        "{myweapon}",
+        UiText::TagsBuiltinMyWeaponDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyWeaponTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myweaponid",
+        "{myweaponid}",
+        "{myweaponid}",
+        UiText::TagsBuiltinMyWeaponIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyWeaponIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myweaponclip",
+        "{myweaponclip}",
+        "{myweaponclip}",
+        UiText::TagsBuiltinMyWeaponClipDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyWeaponClipTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "mymoney",
         "{mymoney}",
         "{mymoney}",
@@ -2667,6 +2783,33 @@ void TagsModule::InitializeRegistry() {
         UiText::TagsBuiltinSkinFunctionDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinSkinFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "nickcolor",
+        "[nickcolor(...)]",
+        "[nickcolor(15)]",
+        UiText::TagsBuiltinNickColorFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinNickColorFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "car",
+        "[car(...)]",
+        "[car(15)]",
+        UiText::TagsBuiltinCarFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCarFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "carhealth",
+        "[carhealth(...)]",
+        "[carhealth(15)]",
+        UiText::TagsBuiltinCarHealthFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCarHealthFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(
@@ -3853,6 +3996,30 @@ std::optional<std::string> TagsModule::ResolveBuiltinMySkinTag(const EvaluationC
     return std::to_string(playerPed->m_nModelIndex);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinMyWeaponTag(const EvaluationContext&) const {
+    const CWeapon* const weapon = FindLocalWeapon();
+    if (!weapon) {
+        return std::string();
+    }
+    return GetWeaponDisplayName(weapon->m_eWeaponType);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinMyWeaponIdTag(const EvaluationContext&) const {
+    const CWeapon* const weapon = FindLocalWeapon();
+    if (!weapon) {
+        return std::string();
+    }
+    return std::to_string(static_cast<unsigned int>(weapon->m_eWeaponType));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinMyWeaponClipTag(const EvaluationContext&) const {
+    const CWeapon* const weapon = FindLocalWeapon();
+    if (!weapon) {
+        return std::string("0");
+    }
+    return std::to_string(weapon->m_nAmmoInClip);
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinMyMoneyTag(const EvaluationContext&) const {
     CPlayerPed* const playerPed = FindPlayerPed();
     if (!playerPed) {
@@ -4298,6 +4465,58 @@ std::optional<std::string> TagsModule::ResolveBuiltinSkinFunctionTag(
     }
 
     return std::to_string(ped->m_nModelIndex);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinNickColorFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string("{FFFFFF}");
+    }
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value() || !sampApi->IsConnected(*id)) {
+        return std::string("{FFFFFF}");
+    }
+
+    const std::optional<std::uint32_t> color = sampApi->GetPlayerColor(*id);
+    return color.has_value() ? FormatSampColorTag(*color) : std::string("{FFFFFF}");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinCarFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    return ResolveVehicleNameForPed(FindPlayerPedBySampId(*sampApi, *id));
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinCarHealthFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    const CPed* const ped = FindPlayerPedBySampId(*sampApi, *id);
+    if (!ped || !IsVehiclePointerValid(ped->m_pVehicle)) {
+        return std::string();
+    }
+    return FormatWholeStatValue(ped->m_pVehicle->m_fHealth);
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinKeyDownFunctionTag(
@@ -5163,6 +5382,12 @@ std::string TagsModule::ExpandText(std::string_view text, const EvaluationContex
         effective.sampApi = sampApi_;
     }
     return ExpandTextRecursive(text, effective, 0);
+}
+
+std::string TagsModule::ExpandHudText(std::string_view text) const {
+    EvaluationContext context = ResolveActiveContext("hud", {});
+    context.allowSideEffects = false;
+    return ExpandText(text, context);
 }
 
 std::string TagsModule::ExpandOutgoingText(

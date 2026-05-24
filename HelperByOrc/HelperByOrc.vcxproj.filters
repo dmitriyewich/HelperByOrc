@@ -42,6 +42,12 @@
     <Filter Include="Header Files\Notepad">
       <UniqueIdentifier>{4925471F-40CF-4E66-9345-2B47099E01D5}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\HUD">
+      <UniqueIdentifier>{F275A7BB-307D-46A2-84F8-319E408A6C0E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\HUD">
+      <UniqueIdentifier>{D55D82B2-0E4B-4D84-A83C-21AA66F26832}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Resource Files">
       <UniqueIdentifier>{9A54DB63-14A7-4755-B917-63A4FCD54F5E}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
@@ -54,11 +60,17 @@
     <ClCompile Include="binder_module.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
+    <ClCompile Include="conditions_module.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="debug_log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="hotkey_utils.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="hud_module.cpp">
+      <Filter>Source Files\HUD</Filter>
     </ClCompile>
     <ClCompile Include="imgui_overlay.cpp">
       <Filter>Source Files</Filter>
@@ -68,6 +80,9 @@
     </ClCompile>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="markup_renderer.cpp">
+      <Filter>Source Files\HUD</Filter>
     </ClCompile>
     <ClCompile Include="mod_app.cpp">
       <Filter>Source Files</Filter>
@@ -151,6 +166,9 @@
     <ClInclude Include="binder_module.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
+    <ClInclude Include="conditions_module.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="debug_log.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -163,11 +181,17 @@
     <ClInclude Include="hotkey_utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hud_module.h">
+      <Filter>Header Files\HUD</Filter>
+    </ClInclude>
     <ClInclude Include="imgui_overlay.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="json_utils.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="markup_renderer.h">
+      <Filter>Header Files\HUD</Filter>
     </ClInclude>
     <ClInclude Include="mod_app.h">
       <Filter>Header Files</Filter>

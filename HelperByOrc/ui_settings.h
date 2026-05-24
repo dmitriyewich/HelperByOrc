@@ -12,13 +12,13 @@
     X(LanguageEnglish, "English", "English") \
     X(TabHome, "Главная", "Home") \
     X(TabBinder, "Биндер", "Binder") \
-    X(TabSmiHelper, "СМИ Хелпер", "SMI Helper") \
+    X(TabHud, "HUD", "HUD") \
     X(TabMisc, "Прочее", "Misc") \
     X(TabNotepad, "Блокнот", "Notepad") \
     X(TabSettings, "Настройки", "Settings") \
     X(TabHomeCompact, "ГЛ", "HM") \
     X(TabBinderCompact, "БН", "BD") \
-    X(TabSmiHelperCompact, "СМ", "SM") \
+    X(TabHudCompact, "HUD", "HUD") \
     X(TabMiscCompact, "ПР", "MS") \
     X(TabNotepadCompact, "БЛ", "NP") \
     X(TabSettingsCompact, "НС", "ST") \
@@ -26,10 +26,60 @@
     X(HomeInterfaceTitle, "Основа интерфейса", "Interface Foundation") \
     X(HomeInterfaceDesc, "Главное окно, кастомный title bar, логотип из ресурса и анимированное боковое меню уже готовы под дальнейшую разработку.", "The main window, custom title bar, resource logo, and animated sidebar are ready for the next feature work.") \
     X(HomeTabsTitle, "Порядок вкладок", "Tab Layout") \
-    X(HomeTabsDesc, "Главная, Биндер, СМИ Хелпер, Прочее, Блокнот, Настройки. Порядок приведён к новому варианту без тестовых экранов.", "Home, Binder, SMI Helper, Misc, Notepad, Settings. The tab order was cleaned up and no longer includes test screens.") \
-    X(SmiHelperIntro, "Пустая заготовка вкладки. Здесь можно будет вернуть рабочие панели и инструменты уже без тестового мусора.", "This tab is an empty placeholder. The working SMI Helper panels can be restored here without test leftovers.") \
-    X(SmiHelperShellTitle, "Каркас вкладки", "Tab Shell") \
-    X(SmiHelperShellDesc, "Вкладка оставлена чистой. Подходит для дальнейшего переноса реального функционала СМИ Хелпера.", "The tab stays intentionally clean and is ready for the real SMI Helper functionality to be ported in.") \
+    X(HomeTabsDesc, "Главная, Биндер, HUD, Прочее, Блокнот, Настройки. Порядок приведён к новому варианту без тестовых экранов.", "Home, Binder, HUD, Misc, Notepad, Settings. The tab order was cleaned up and no longer includes test screens.") \
+    X(HudIntro, "Конструктор экранных виджетов с текстом, картинками, иконками и переменными.", "Screen widget builder with text, images, icons, and variables.") \
+    X(HudSearchHint, "Поиск виджетов", "Search widgets") \
+    X(HudNoWidgets, "Виджетов пока нет. Добавьте пустой виджет или пресет.", "No widgets yet. Add an empty widget or a preset.") \
+    X(HudNoSelection, "Выберите виджет слева или создайте новый.", "Select a widget on the left or create a new one.") \
+    X(HudAddWidget, "Виджет", "Widget") \
+    X(HudDuplicateWidget, "Дублировать", "Duplicate") \
+    X(HudPresets, "Пресеты", "Presets") \
+    X(HudPresetWeapon, "Оружие", "Weapon") \
+    X(HudPresetFreeText, "Свободный текст", "Free text") \
+    X(HudDefaultWidgetName, "Новый виджет", "New widget") \
+    X(HudSource, "Источник", "Source") \
+    X(HudSourceInline, "Свой текст", "Inline text") \
+    X(HudSourceNotepad, "Заметка из Блокнота", "Notepad note") \
+    X(HudLinkedNoteMissing, "Связанная заметка не найдена.", "Linked note was not found.") \
+    X(HudActionTagsDisabled, "Action-теги в HUD не выполняются: команды, скриншоты, фото, управление биндами и диалогами будут пропущены.", "Action tags are disabled in HUD: commands, screenshots, photos, bind control, and dialog actions will be skipped.") \
+    X(HudText, "Текст виджета", "Widget text") \
+    X(HudPosition, "Позиция", "Position") \
+    X(HudAnchor, "Якорь", "Anchor") \
+    X(HudAnchorTopLeft, "Слева сверху", "Top left") \
+    X(HudAnchorTopCenter, "Сверху по центру", "Top center") \
+    X(HudAnchorTopRight, "Справа сверху", "Top right") \
+    X(HudAnchorCenterLeft, "Слева по центру", "Center left") \
+    X(HudAnchorCenter, "Центр", "Center") \
+    X(HudAnchorCenterRight, "Справа по центру", "Center right") \
+    X(HudAnchorBottomLeft, "Слева снизу", "Bottom left") \
+    X(HudAnchorBottomCenter, "Снизу по центру", "Bottom center") \
+    X(HudAnchorBottomRight, "Справа снизу", "Bottom right") \
+    X(HudOffsetX, "Смещение X", "Offset X") \
+    X(HudOffsetY, "Смещение Y", "Offset Y") \
+    X(HudPlaceOnScreen, "Разместить на экране", "Place on screen") \
+    X(HudPlacementActive, "Перетащите виджет мышью. Esc отменит режим.", "Drag the widget with the mouse. Esc cancels placement.") \
+    X(HudSize, "Размер", "Size") \
+    X(HudAutoSize, "Авторазмер", "Auto size") \
+    X(HudWidth, "Ширина", "Width") \
+    X(HudHeight, "Высота", "Height") \
+    X(HudScale, "Масштаб", "Scale") \
+    X(HudStyle, "Стиль", "Style") \
+    X(HudBackground, "Фон", "Background") \
+    X(HudBackgroundAlpha, "Прозрачность фона", "Background opacity") \
+    X(HudPaddingX, "Отступ X", "Padding X") \
+    X(HudPaddingY, "Отступ Y", "Padding Y") \
+    X(HudRounding, "Закругление", "Rounding") \
+    X(HudBorder, "Рамка", "Border") \
+    X(HudShadow, "Тень", "Shadow") \
+    X(HudVisibility, "Видимость", "Visibility") \
+    X(HudVisibilityConditions, "Условия", "Conditions") \
+    X(HudHideWhenHelperOpen, "Скрывать при открытом Helper", "Hide when Helper is open") \
+    X(HudHideWhenChatOpen, "Скрывать при открытом чате", "Hide when chat is open") \
+    X(HudHideWhenDialogOpen, "Скрывать при открытом диалоге", "Hide when dialog is open") \
+    X(HudRefreshMs, "Обновление (мс)", "Refresh (ms)") \
+    X(HudRefreshZeroWarning, "0 мс обновляет виджет каждый кадр. Это может снизить FPS, особенно при тяжёлых тегах или множестве виджетов.", "0 ms refreshes the widget every frame. This can reduce FPS, especially with expensive tags or many widgets.") \
+    X(HudPreview, "Предпросмотр", "Preview") \
+    X(HudImagesFolder, "Папка картинок", "Images folder") \
     X(MiscIntro, "Служебные тесты, отладочные кнопки и логи убраны. Оставлена только пустая оболочка раздела.", "Service tests, debug buttons, and logs were removed. Only the empty shell of this section remains.") \
     X(MiscShellTitle, "Техническая вкладка", "Technical Tab") \
     X(MiscShellDesc, "Раздел готов для будущих утилит, но сейчас не содержит ни тестовых действий, ни диагностических панелей.", "This section is ready for future utilities, but currently contains no test actions or diagnostic panels.") \
@@ -58,6 +108,9 @@
     X(TagsBuiltinHealthDescription, "Возвращает ваше текущее здоровье локального игрока.", "Returns the current health of the local player.") \
     X(TagsBuiltinDateDescription, "Возвращает текущую локальную дату в формате ДД.ММ.ГГГГ.", "Returns the current local date formatted as DD.MM.YYYY.") \
     X(TagsBuiltinMySkinDescription, "Возвращает ID текущего скина локального игрока через model index педа.", "Returns the current local player skin ID via the ped model index.") \
+    X(TagsBuiltinMyWeaponDescription, "Возвращает название текущего оружия локального игрока.", "Returns the local player's current weapon name.") \
+    X(TagsBuiltinMyWeaponIdDescription, "Возвращает ID текущего оружия локального игрока.", "Returns the local player's current weapon ID.") \
+    X(TagsBuiltinMyWeaponClipDescription, "Возвращает количество патронов в текущей обойме локального игрока.", "Returns the current ammo-in-clip value for the local player's weapon.") \
     X(TagsBuiltinMyMoneyDescription, "Возвращает количество денег на руках у локального игрока.", "Returns the amount of money currently carried by the local player.") \
     X(TagsBuiltinFpsDescription, "Возвращает текущий FPS клиента как целое число.", "Returns the current client FPS as an integer.") \
     X(TagsBuiltinGetVehTypeDescription, "Возвращает тип транспорта, в котором сейчас находится локальный игрок. Если вы не в транспорте, возвращает пустую строку.", "Returns the type of vehicle the local player is currently in. If you are not in a vehicle, it returns an empty string.") \
@@ -87,6 +140,9 @@
     X(TagsBuiltinArmourFunctionDescription, "Возвращает броню игрока по ID. Если игрок недоступен или значение не удалось получить, возвращает пустую строку.", "Returns a player's armour by ID. If the player is unavailable or the value cannot be read, it returns an empty string.") \
     X(TagsBuiltinHealthFunctionDescription, "Возвращает здоровье игрока по ID. Если игрок недоступен или значение не удалось получить, возвращает пустую строку.", "Returns a player's health by ID. If the player is unavailable or the value cannot be read, it returns an empty string.") \
     X(TagsBuiltinSkinFunctionDescription, "Возвращает model index педа игрока по указанному ID. Если пед игрока не найден или не застримлен, возвращает пустую строку.", "Returns the ped model index for the specified player ID. If the player's ped is not found or not streamed in, it returns an empty string.") \
+    X(TagsBuiltinNickColorFunctionDescription, "Возвращает цвет ника игрока в HUD-разметке {RRGGBB}. Если цвет недоступен, возвращает белый.", "Returns the player's nick color as HUD markup {RRGGBB}. If the color is unavailable, it returns white.") \
+    X(TagsBuiltinCarFunctionDescription, "Возвращает название транспорта игрока по ID. Если игрок не в транспорте или не застримлен, возвращает пустую строку.", "Returns the vehicle name for a player by ID. If the player is not in a vehicle or is not streamed in, it returns an empty string.") \
+    X(TagsBuiltinCarHealthFunctionDescription, "Возвращает здоровье транспорта игрока по ID. Если транспорт недоступен, возвращает пустую строку.", "Returns the vehicle health for a player by ID. If the vehicle is unavailable, it returns an empty string.") \
     X(TagsBuiltinKeyDownDescription, "Зажимает указанную виртуальную клавишу Windows на заданное количество миллисекунд. Формат: [keydown(КодКлавиши;Мс)]. В уже запущенном бинде тег ставит выполнение на паузу до конца удержания.", "Holds the specified Windows virtual key for the requested number of milliseconds. Format: [keydown(KeyCode;Ms)]. In a running bind, the tag pauses execution until the hold finishes.") \
     X(TagsBuiltinStrLowDescription, "Возвращает текст в нижнем регистре. Работает и для кириллицы.", "Returns the text in lowercase. Cyrillic text is supported as well.") \
     X(TagsBuiltinAddTimeDescription, "Возвращает текущее локальное время плюс указанное смещение. Поддерживает форматы MM:SS и HH:MM:SS. Результат всегда выводится как %H:%M:%S.", "Returns the current local time plus the specified offset. Supports MM:SS and HH:MM:SS formats. The result is always printed as %H:%M:%S.") \

@@ -267,6 +267,7 @@ public:
     int getChatMode();
     bool SetPageSize(int pageSize);
     HealthAndArmour GetHealthAndArmour(int id);
+    std::optional<std::uint32_t> GetPlayerColor(int id);
     bool send_chat_internal(std::string_view text, bool alreadyDecoded = false);
     bool send_chat(std::string_view text, bool alreadyDecoded = false);
     bool process_chat_input(std::string_view text, bool alreadyDecoded = false);
