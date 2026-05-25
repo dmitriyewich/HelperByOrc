@@ -120,6 +120,10 @@ public:
         VersionedOffset CDXUTListBox__GetSelectedIndex;
         VersionedOffset CDXUTListBox__GetItem;
         VersionedOffset SAMP_SET_DIALOG_LIST_ITEM_OFFSET;
+        VersionedOffset CChatMode;
+        VersionedOffset RefScoreboard;
+        VersionedOffset CScoreboardEnabled;
+        VersionedOffset CNetGameState;
     };
 
     struct DialogPosition {
@@ -260,6 +264,9 @@ public:
         bool alreadyDecoded = false);
 
     bool is_chat_opened();
+    bool IsChatVisible();
+    bool IsScoreboardOpen();
+    bool IsServerConnected();
     int Local_ID();
     std::pair<bool, int> getPedID(const void* ped);
     const void* GetPlayerPedPointer(int id, bool trace = false, const char* traceLabel = nullptr);
@@ -320,6 +327,8 @@ private:
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;
+    bool ResolveScoreboard(std::uint32_t& scoreboard) const;
+    std::optional<int> GetNetGameState() const;
     bool IsSampReadyByFallback(std::string& reason) const;
     void ResetChatAsiInputDiscovery(HMODULE module = nullptr);
     bool EnsureChatAsiInputDiscovery();

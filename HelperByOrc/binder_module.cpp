@@ -1805,6 +1805,7 @@ struct BinderModule::Impl {
     bool incomingMessageRouterBound = false;
     bool rakHooksBound = false;
     bool gameInputForeground_ = true;
+    bool helperUiActive_ = false;
     bool prevFrameGameInputForeground_ = true;
 
     std::string bindSearch{};
@@ -2013,7 +2014,7 @@ struct BinderModule::Impl {
     void ClearQuickMenuConditionSnapshot();
     bool VisibleQuickMenuEntriesExist() const;
     bool FolderVisibleInQuickMenu(const FolderNode& folder) const;
-    ConditionRuntimeContext MakeConditionContext(bool helperUiCursorActive = false) const;
+    ConditionRuntimeContext MakeConditionContext(bool quickMenuContext = false) const;
     void ResetInputState();
     void Tick();
     void Shutdown();
@@ -3988,11 +3989,12 @@ void BinderModule::Impl::ClearQuickMenuConditionSnapshot() {
     quickMenuWindowsCursorActiveAtOpen.reset();
 }
 
-ConditionRuntimeContext BinderModule::Impl::MakeConditionContext(bool helperUiCursorActive) const {
+ConditionRuntimeContext BinderModule::Impl::MakeConditionContext(bool quickMenuContext) const {
     ConditionRuntimeContext context{};
-    context.helperUiCursorActive = helperUiCursorActive;
+    context.helperUiActive = quickMenuContext ? false : helperUiActive_;
+    context.helperUiCursorActive = quickMenuContext || helperUiActive_;
     context.gameWindowForeground = gameInputForeground_;
-    if (helperUiCursorActive) {
+    if (quickMenuContext) {
         context.sampCursorActiveOverride = quickMenuSampCursorActiveAtOpen;
         context.windowsCursorActiveOverride = quickMenuWindowsCursorActiveAtOpen;
     }
@@ -11164,6 +11166,10 @@ void BinderModule::Tick() {
 
 void BinderModule::SetGameInputForeground(bool gameWindowForeground) {
     impl_->gameInputForeground_ = gameWindowForeground;
+}
+
+void BinderModule::SetHelperUiActive(bool helperUiActive) {
+    impl_->helperUiActive_ = helperUiActive;
 }
 
 void BinderModule::Shutdown() {

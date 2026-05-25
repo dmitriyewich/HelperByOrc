@@ -70,6 +70,10 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x00084850, 0x000848F0, 0x00088760, 0x00088760, 0x00088EA0, 0x00088ED0, 0x00088E70, 0x000888F0 }, // CDXUTListBox__GetSelectedIndex
     { 0x00086390, 0x00086430, 0x0008A2B0, 0x0008A2B0, 0x0008A9F0, 0x0008AA20, 0x0008A9C0, 0x0008A440 }, // CDXUTListBox__GetItem
     { 0x000863C0, 0x00086460, 0x0008A2E0, 0x0008A2E0, 0x0008AA20, 0x0008AA50, 0x0008A9F0, 0x0008A470 }, // SAMP_SET_DIALOG_LIST_ITEM_OFFSET
+    { 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00000008 }, // CChat::m_nMode
+    { 0x21A0B4, 0x21A0BC, 0x26E894, 0x26E894, 0x26E9C4, 0x26E9C4, 0x26EB4C, 0x2AC9DC }, // RefScoreboard
+    { 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000 }, // CScoreboard::m_bIsEnabled
+    { 0x000003BD, 0x000003B9, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD }, // CNetGame::m_nGameState
 };
 
 std::uint32_t SampApi::VersionedOffset::Get(Version version) const {
@@ -729,4 +733,40 @@ bool SampApi::ResolveDialog(std::uint32_t& dialog) const {
     dialog = 0;
     return sampModule_ && versionResolved_
         && SafeRead(ModuleBase() + main_offsets.SAMP_DIALOG_INFO_OFFSET.Get(currentVersion_), dialog) && dialog != 0;
+}
+
+bool SampApi::ResolveScoreboard(std::uint32_t& scoreboard) const {
+    scoreboard = 0;
+    return sampModule_ && versionResolved_
+        && SafeRead(ModuleBase() + main_offsets.RefScoreboard.Get(currentVersion_), scoreboard) && scoreboard != 0;
+}
+
+std::optional<int> SampApi::GetNetGameState() const {
+    std::uint32_t sampInfo = 0;
+    if (!ResolveSampInfo(sampInfo) || sampInfo == 0) {
+        return std::nullopt;
+    }
+
+    std::int32_t state = 0;
+    if (!SafeRead(sampInfo + main_offsets.CNetGameState.Get(currentVersion_), state)) {
+        return std::nullopt;
+    }
+
+    return state;
+}
+
+bool SampApi::IsScoreboardOpen() {
+    std::uint32_t scoreboard = 0;
+    if (!ResolveScoreboard(scoreboard) || scoreboard == 0) {
+        return false;
+    }
+
+    std::int32_t enabled = 0;
+    return SafeRead(scoreboard + main_offsets.CScoreboardEnabled.Get(currentVersion_), enabled) && enabled != 0;
+}
+
+bool SampApi::IsServerConnected() {
+    const std::optional<int> state = GetNetGameState();
+    const std::optional<int> connectedState = ConnectedGameStateValue(currentVersion_);
+    return state.has_value() && connectedState.has_value() && *state == *connectedState;
 }

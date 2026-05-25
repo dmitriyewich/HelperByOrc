@@ -134,6 +134,10 @@ ImVec2 ScaleUi(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
+float InlineSegmentSpacing() {
+    return ImGui::GetStyle().ItemSpacing.x;
+}
+
 std::optional<ImVec4> ParseColorHex(std::string_view value) {
     if (value.size() != 6) {
         return std::nullopt;
@@ -698,7 +702,7 @@ struct MarkupRenderer::Impl {
                 continue;
             }
             if (hasVisibleSegment) {
-                width += segment.inlineContinuation ? 0.0f : ScaleUi(6.0f);
+                width += segment.inlineContinuation ? 0.0f : InlineSegmentSpacing();
             }
             width += segmentWidth;
             hasVisibleSegment = true;
@@ -809,11 +813,14 @@ struct MarkupRenderer::Impl {
             if (segment.isHr) {
                 const ImVec2 cursor = ImGui::GetCursorScreenPos();
                 const ImVec4 color = segment.hasHrColor ? segment.hrColor : ImGui::GetStyleColorVec4(ImGuiCol_Separator);
-                ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(cursor.x, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
-                    ImVec2(cursor.x + avail, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
-                    ImGui::GetColorU32(color),
-                    ScaleUi(1.0f));
+                const float separatorSize = ImGui::GetStyle().SeparatorSize;
+                if (separatorSize > 0.0f) {
+                    ImGui::GetWindowDrawList()->AddLine(
+                        ImVec2(cursor.x, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
+                        ImVec2(cursor.x + avail, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
+                        ImGui::GetColorU32(color),
+                        separatorSize);
+                }
                 ImGui::Dummy(ImVec2(avail, ImGui::GetTextLineHeightWithSpacing()));
                 return;
             }
@@ -824,7 +831,7 @@ struct MarkupRenderer::Impl {
             } else if (segment.align == RichSegment::Align::Right) {
                 targetX = lineStartX + std::max(0.0f, avail - lineWidth);
             } else if (i > 0) {
-                ImGui::SameLine(0.0f, segment.inlineContinuation ? 0.0f : ScaleUi(6.0f));
+                ImGui::SameLine(0.0f, segment.inlineContinuation ? 0.0f : InlineSegmentSpacing());
                 targetX = ImGui::GetCursorPosX() + segment.indent;
             }
             ImGui::SetCursorPosX(std::max(lineStartX, targetX));

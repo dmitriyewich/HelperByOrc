@@ -71,11 +71,28 @@
     X(HudRounding, "Закругление", "Rounding") \
     X(HudBorder, "Рамка", "Border") \
     X(HudShadow, "Тень", "Shadow") \
+    X(HudStyleWindow, "Окно", "Window") \
+    X(HudStyleTextRows, "Текст и строки", "Text and rows") \
+    X(HudStyleBorderShadow, "Рамка и тень", "Border and shadow") \
+    X(HudStyleSeparators, "Разделители", "Separators") \
+    X(HudTextColor, "Цвет текста", "Text color") \
+    X(HudTextAlpha, "Прозрачность текста", "Text opacity") \
+    X(HudItemSpacingX, "Интервал X", "Spacing X") \
+    X(HudItemSpacingY, "Интервал между строками", "Line spacing") \
+    X(HudItemInnerSpacingX, "Внутренний интервал X", "Inner spacing X") \
+    X(HudItemInnerSpacingY, "Внутренний интервал Y", "Inner spacing Y") \
+    X(HudBorderColor, "Цвет рамки", "Border color") \
+    X(HudBorderAlpha, "Прозрачность рамки", "Border opacity") \
+    X(HudBorderSize, "Толщина рамки", "Border size") \
+    X(HudSeparatorColor, "Цвет разделителя", "Separator color") \
+    X(HudSeparatorAlpha, "Прозрачность разделителя", "Separator opacity") \
+    X(HudSeparatorSize, "Толщина разделителя", "Separator size") \
+    X(HudShadowColor, "Цвет тени", "Shadow color") \
+    X(HudShadowAlpha, "Прозрачность тени", "Shadow opacity") \
+    X(HudShadowOffsetX, "Смещение тени X", "Shadow offset X") \
+    X(HudShadowOffsetY, "Смещение тени Y", "Shadow offset Y") \
     X(HudVisibility, "Видимость", "Visibility") \
     X(HudVisibilityConditions, "Условия", "Conditions") \
-    X(HudHideWhenHelperOpen, "Скрывать при открытом Helper", "Hide when Helper is open") \
-    X(HudHideWhenChatOpen, "Скрывать при открытом чате", "Hide when chat is open") \
-    X(HudHideWhenDialogOpen, "Скрывать при открытом диалоге", "Hide when dialog is open") \
     X(HudRefreshMs, "Обновление (мс)", "Refresh (ms)") \
     X(HudRefreshZeroWarning, "0 мс обновляет виджет каждый кадр. Это может снизить FPS, особенно при тяжёлых тегах или множестве виджетов.", "0 ms refreshes the widget every frame. This can reduce FPS, especially with expensive tags or many widgets.") \
     X(HudPreview, "Предпросмотр", "Preview") \
@@ -396,8 +413,64 @@
     X(ConditionOnFoot, "Пешком", "On foot") \
     X(ConditionChatOpened, "Открыт чат", "Chat open") \
     X(ConditionDialogOpened, "Открыт диалог", "Dialog open") \
+    X(ConditionScoreboardOpen, "Таб открыт", "Scoreboard open") \
+    X(ConditionScoreboardClosed, "Таб закрыт", "Scoreboard closed") \
+    X(ConditionChatVisible, "Чат виден", "Chat visible") \
+    X(ConditionChatHidden, "Чат скрыт", "Chat hidden") \
     X(ConditionSampCursorActive, "Активный курсор SA:MP", "SA:MP cursor active") \
     X(ConditionWindowsCursorActive, "Активный курсор Windows", "Windows cursor active") \
+    X(ConditionHelperActive, "Активный Helper", "Helper active") \
+    X(ConditionGameHudVisible, "HUD игры виден", "Game HUD visible") \
+    X(ConditionGameHudHidden, "HUD игры не виден", "Game HUD hidden") \
+    X(ConditionCameraAttached, "Камера прикреплена", "Camera attached") \
+    X(ConditionCameraDetached, "Камера не прикреплена", "Camera detached") \
+    X(ConditionServerConnected, "Подключён к серверу", "Connected to server") \
+    X(ConditionServerDisconnected, "Не подключён к серверу", "Disconnected from server") \
+    X(ConditionDriver, "За рулём", "Driver") \
+    X(ConditionPassenger, "Пассажир", "Passenger") \
+    X(ConditionVehicleSirenOn, "Сирена включена", "Siren on") \
+    X(ConditionVehicleSirenOff, "Сирена выключена", "Siren off") \
+    X(ConditionVehicleEngineOn, "Двигатель заведён", "Engine on") \
+    X(ConditionVehicleEngineOff, "Двигатель заглушён", "Engine off") \
+    X(ConditionGtaMenuOpen, "GTA меню открыто", "GTA menu open") \
+    X(ConditionGtaMenuClosed, "GTA меню закрыто", "GTA menu closed") \
+    X(ConditionSampCursorInactive, "Неактивный курсор SA:MP", "SA:MP cursor inactive") \
+    X(ConditionWindowsCursorInactive, "Неактивный курсор Windows", "Windows cursor inactive") \
+    X(ConditionChatClosed, "Закрыт чат", "Chat closed") \
+    X(ConditionDialogClosed, "Закрыт диалог", "Dialog closed") \
+    X(ConditionVehicleBoat, "Лодка", "Boat") \
+    X(ConditionVehicleCar, "Машина", "Car") \
+    X(ConditionVehicleTrain, "Поезд", "Train") \
+    X(ConditionVehicleHeli, "Вертолёт", "Helicopter") \
+    X(ConditionVehiclePlane, "Самолёт", "Plane") \
+    X(ConditionVehicleBike, "Мотоцикл", "Motorcycle") \
+    X(ConditionVehicleFakePlane, "Псевдосамолёт", "Fake plane") \
+    X(ConditionVehicleMonsterTruck, "Монстр-трак", "Monster truck") \
+    X(ConditionVehicleQuadBike, "Квадроцикл", "Quad bike") \
+    X(ConditionVehicleBicycle, "Велосипед", "Bicycle") \
+    X(ConditionNotVehicleBoat, "Не лодка", "Not boat") \
+    X(ConditionNotVehicleTrain, "Не поезд", "Not train") \
+    X(ConditionNotVehiclePlane, "Не самолёт", "Not plane") \
+    X(ConditionNotVehicleFakePlane, "Не псевдосамолёт", "Not fake plane") \
+    X(ConditionNotVehicleCar, "Не машина", "Not car") \
+    X(ConditionNotVehicleHeli, "Не вертолёт", "Not helicopter") \
+    X(ConditionNotVehicleBike, "Не мотоцикл", "Not motorcycle") \
+    X(ConditionNotVehicleMonsterTruck, "Не монстр-трак", "Not monster truck") \
+    X(ConditionNotVehicleBicycle, "Не велосипед", "Not bicycle") \
+    X(ConditionNotVehicleQuadBike, "Не квадроцикл", "Not quad bike") \
+    X(ConditionNotInWater, "Не в воде", "Not in water") \
+    X(ConditionNotInAir, "Не в воздухе", "Not in air") \
+    X(ConditionDeprecated, "Удалённое условие", "Removed condition") \
+    X(ConditionCategoryPlayer, "Игрок", "Player") \
+    X(ConditionCategoryInterface, "Интерфейс", "Interface") \
+    X(ConditionCategoryGame, "Игра", "Game") \
+    X(ConditionCategoryVehicle, "Транспорт", "Vehicle") \
+    X(ConditionSearchHint, "Поиск условий", "Search conditions") \
+    X(ConditionSelectedCount, "Выбрано: %d", "Selected: %d") \
+    X(ConditionSelectedNone, "Условия не выбраны.", "No conditions selected.") \
+    X(ConditionReset, "Сбросить", "Reset") \
+    X(ConditionNoMatches, "Нет условий по этому фильтру.", "No conditions match this filter.") \
+    X(ConditionConflictDisabled, "Недоступно: конфликтует с «%s».", "Unavailable: conflicts with \"%s\".") \
     X(InputModeText, "Свободный ввод", "Free text") \
     X(InputModeButtonsList, "Выбор из вариантов", "Pick from options") \
     X(InputModeButtonsListText, "Варианты + свой текст", "Options + custom text") \

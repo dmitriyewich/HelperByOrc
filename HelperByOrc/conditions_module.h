@@ -27,10 +27,57 @@ enum class ConditionId : std::size_t {
     DialogOpened,
     SampCursorActive,
     WindowsCursorActive,
+    HelperActive,
+    GameHudVisible,
+    CameraAttached,
+    Driver,
+    Passenger,
+    GtaMenuOpen,
+    InBoat,
+    InCar,
+    InTrain,
+    InHeli,
+    InPlane,
+    InBike,
+    InFakePlane,
+    InMonsterTruck,
+    InQuadBike,
+    InBicycle,
+    DeprecatedInTrailer,
+    GameHudHidden,
+    CameraDetached,
+    GtaMenuClosed,
+    SampCursorInactive,
+    WindowsCursorInactive,
+    ChatClosed,
+    DialogClosed,
+    NotInBoat,
+    NotInTrain,
+    NotInPlane,
+    NotInFakePlane,
+    NotInCar,
+    NotInHeli,
+    NotInBike,
+    NotInMonsterTruck,
+    NotInBicycle,
+    NotInQuadBike,
+    NotInWater,
+    NotInAir,
+    ScoreboardOpen,
+    ScoreboardClosed,
+    ChatVisible,
+    ChatHidden,
+    ServerConnected,
+    ServerDisconnected,
+    VehicleSirenOn,
+    VehicleSirenOff,
+    VehicleEngineOn,
+    VehicleEngineOff,
     Count,
 };
 
 struct ConditionRuntimeContext {
+    bool helperUiActive = false;
     bool helperUiCursorActive = false;
     bool gameWindowForeground = true;
     std::optional<bool> sampCursorActiveOverride{};
@@ -39,6 +86,7 @@ struct ConditionRuntimeContext {
 
 std::size_t ConditionCount();
 void NormalizeConditionFlags(std::vector<bool>& flags);
+void SetConditionFlag(std::vector<bool>& flags, ConditionId condition, bool value);
 const char* ConditionLabel(ConditionId condition);
 ConditionCombineMode NormalizeConditionCombineMode(std::string_view value);
 std::string ConditionCombineModeId(ConditionCombineMode mode);

@@ -8,6 +8,10 @@ bool SampApi::is_chat_opened() {
     return SafeRead(input + main_offsets.CInput_Opened.Get(currentVersion_), opened) && opened == 1;
 }
 
+bool SampApi::IsChatVisible() {
+    return getChatMode() != 0;
+}
+
 int SampApi::Local_ID() {
     std::uint32_t pool = 0;
     if (!ResolvePedPool(pool) || pool == 0) {
@@ -427,8 +431,8 @@ int SampApi::getChatMode() {
         return 0;
     }
 
-    std::int8_t mode = 0;
-    if (!SafeRead(chat + 0x8, mode)) {
+    std::int32_t mode = 0;
+    if (!SafeRead(chat + main_offsets.CChatMode.Get(currentVersion_), mode)) {
         return 0;
     }
 

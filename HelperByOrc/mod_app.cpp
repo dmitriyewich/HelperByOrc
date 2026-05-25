@@ -1352,6 +1352,7 @@ void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
     incomingMessageRouter_.Tick();
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
+    binder_.SetHelperUiActive(overlay_.IsMenuOpen());
     binder_.Tick();
     hud_.SetPlacementInputBlocked(binder_.WantsQuickMenuCursor());
     tags_.Tick();

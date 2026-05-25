@@ -74,20 +74,37 @@ struct HudSize {
 
 struct HudStyleConfig {
     ImVec4 background = ImVec4(0.08f, 0.09f, 0.11f, 1.0f);
+    ImVec4 text = ImVec4(0.90f, 0.92f, 0.97f, 1.0f);
+    ImVec4 borderColor = ImVec4(0.34f, 0.39f, 0.48f, 1.0f);
+    ImVec4 separatorColor = ImVec4(0.27f, 0.33f, 0.44f, 1.0f);
+    ImVec4 shadowColor = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
     float backgroundAlpha = 0.72f;
+    float textAlpha = 1.0f;
+    float borderAlpha = 0.82f;
+    float separatorAlpha = 1.0f;
+    float shadowAlpha = 0.28f;
     float paddingX = 10.0f;
     float paddingY = 8.0f;
+    float itemSpacingX = 6.0f;
+    float itemSpacingY = 4.0f;
+    float itemInnerSpacingX = 3.0f;
+    float itemInnerSpacingY = 3.0f;
     float rounding = 6.0f;
+    float borderSize = 1.0f;
+    float separatorSize = 1.0f;
+    float shadowOffsetX = 4.0f;
+    float shadowOffsetY = 5.0f;
     bool border = false;
     bool shadow = false;
 };
 
 struct HudVisibility {
+    HudVisibility() {
+        SetConditionFlag(conditions, ConditionId::HelperActive, true);
+    }
+
     std::vector<bool> conditions{};
     ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAny;
-    bool hideWhenHelperOpen = true;
-    bool hideWhenChatOpen = false;
-    bool hideWhenDialogOpen = false;
 };
 
 struct HudWidget {
@@ -365,6 +382,86 @@ ImVec4 HexToColor(std::string_view value, const ImVec4& fallback) {
         1.0f);
 }
 
+struct HudStyleScope {
+    int vars = 0;
+    int colors = 0;
+};
+
+ImVec4 WithAlpha(ImVec4 color, float alpha) {
+    color.w = std::clamp(alpha, 0.0f, 1.0f);
+    return color;
+}
+
+float HudContentScale(const HudWidget& widget) {
+    return std::max(0.01f, widget.size.scale);
+}
+
+float ScaleHudContent(const HudWidget& widget, float value) {
+    return ScaleUi(value * HudContentScale(widget));
+}
+
+ImVec2 ScaleHudContent(const HudWidget& widget, float x, float y) {
+    const float scale = HudContentScale(widget);
+    return ScaleUi(x * scale, y * scale);
+}
+
+HudStyleScope PushHudWidgetStyle(const HudWidget& widget, bool placing) {
+    HudStyleScope scope{};
+
+    const float borderSize = placing
+        ? std::max(ScaleUi(1.0f), ScaleUi(widget.style.borderSize))
+        : (widget.style.border ? ScaleUi(widget.style.borderSize) : 0.0f);
+
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_WindowPadding,
+        ScaleHudContent(widget, widget.style.paddingX, widget.style.paddingY));
+    ++scope.vars;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, ScaleUi(widget.style.rounding));
+    ++scope.vars;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, borderSize);
+    ++scope.vars;
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_ItemSpacing,
+        ScaleHudContent(widget, widget.style.itemSpacingX, widget.style.itemSpacingY));
+    ++scope.vars;
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_ItemInnerSpacing,
+        ScaleHudContent(widget, widget.style.itemInnerSpacingX, widget.style.itemInnerSpacingY));
+    ++scope.vars;
+    ImGui::PushStyleVar(ImGuiStyleVar_SeparatorSize, ScaleUi(widget.style.separatorSize));
+    ++scope.vars;
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ScaleUi(widget.style.rounding));
+    ++scope.vars;
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, borderSize);
+    ++scope.vars;
+
+    const ImVec4 background = WithAlpha(widget.style.background, widget.style.backgroundAlpha);
+    const ImVec4 border = placing
+        ? ImVec4(0.35f, 0.78f, 1.0f, 1.0f)
+        : WithAlpha(widget.style.borderColor, widget.style.borderAlpha);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, background);
+    ++scope.colors;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+    ++scope.colors;
+    ImGui::PushStyleColor(ImGuiCol_Text, WithAlpha(widget.style.text, widget.style.textAlpha));
+    ++scope.colors;
+    ImGui::PushStyleColor(ImGuiCol_Border, border);
+    ++scope.colors;
+    ImGui::PushStyleColor(ImGuiCol_Separator, WithAlpha(widget.style.separatorColor, widget.style.separatorAlpha));
+    ++scope.colors;
+
+    return scope;
+}
+
+void PopHudWidgetStyle(const HudStyleScope& scope) {
+    if (scope.colors > 0) {
+        ImGui::PopStyleColor(scope.colors);
+    }
+    if (scope.vars > 0) {
+        ImGui::PopStyleVar(scope.vars);
+    }
+}
+
 ImVec2 AnchorBase(Anchor anchor, const ImVec2& displaySize) {
     switch (anchor) {
     case Anchor::TopLeft: return ImVec2(0.0f, 0.0f);
@@ -634,11 +731,27 @@ struct HudModule::Impl {
         jsonutil::JsonObject style;
         style["background_color"] = ColorToHex(widget.style.background);
         style["background_alpha"] = widget.style.backgroundAlpha;
+        style["text_color"] = ColorToHex(widget.style.text);
+        style["text_alpha"] = widget.style.textAlpha;
         style["padding_x"] = widget.style.paddingX;
         style["padding_y"] = widget.style.paddingY;
+        style["item_spacing_x"] = widget.style.itemSpacingX;
+        style["item_spacing_y"] = widget.style.itemSpacingY;
+        style["item_inner_spacing_x"] = widget.style.itemInnerSpacingX;
+        style["item_inner_spacing_y"] = widget.style.itemInnerSpacingY;
         style["rounding"] = widget.style.rounding;
         style["border"] = widget.style.border;
+        style["border_color"] = ColorToHex(widget.style.borderColor);
+        style["border_alpha"] = widget.style.borderAlpha;
+        style["border_size"] = widget.style.borderSize;
+        style["separator_color"] = ColorToHex(widget.style.separatorColor);
+        style["separator_alpha"] = widget.style.separatorAlpha;
+        style["separator_size"] = widget.style.separatorSize;
         style["shadow"] = widget.style.shadow;
+        style["shadow_color"] = ColorToHex(widget.style.shadowColor);
+        style["shadow_alpha"] = widget.style.shadowAlpha;
+        style["shadow_offset_x"] = widget.style.shadowOffsetX;
+        style["shadow_offset_y"] = widget.style.shadowOffsetY;
         root["style"] = std::move(style);
 
         jsonutil::JsonObject visibility;
@@ -646,9 +759,6 @@ struct HudModule::Impl {
         NormalizeConditionFlags(conditions);
         visibility["conditions"] = SerializeBoolArray(conditions);
         visibility["conditions_combine"] = ConditionCombineModeId(widget.visibility.conditionsCombine);
-        visibility["hide_when_helper_open"] = widget.visibility.hideWhenHelperOpen;
-        visibility["hide_when_chat_open"] = widget.visibility.hideWhenChatOpen;
-        visibility["hide_when_dialog_open"] = widget.visibility.hideWhenDialogOpen;
         root["visibility"] = std::move(visibility);
 
         root["refresh_ms"] = widget.refreshMs;
@@ -695,21 +805,49 @@ struct HudModule::Impl {
         if (const jsonutil::JsonObject* style = jsonutil::JsonObjectOrNull(&object, "style")) {
             widget.style.background = HexToColor(jsonutil::JsonStringOr(style, "background_color", ColorToHex(widget.style.background)), widget.style.background);
             widget.style.backgroundAlpha = std::clamp(jsonutil::JsonNumberOr(style, "background_alpha", widget.style.backgroundAlpha), 0.0f, 1.0f);
+            widget.style.text = HexToColor(jsonutil::JsonStringOr(style, "text_color", ColorToHex(widget.style.text)), widget.style.text);
+            widget.style.textAlpha = std::clamp(jsonutil::JsonNumberOr(style, "text_alpha", widget.style.textAlpha), 0.0f, 1.0f);
             widget.style.paddingX = std::clamp(jsonutil::JsonNumberOr(style, "padding_x", widget.style.paddingX), 0.0f, 80.0f);
             widget.style.paddingY = std::clamp(jsonutil::JsonNumberOr(style, "padding_y", widget.style.paddingY), 0.0f, 80.0f);
+            widget.style.itemSpacingX = std::clamp(jsonutil::JsonNumberOr(style, "item_spacing_x", widget.style.itemSpacingX), 0.0f, 80.0f);
+            widget.style.itemSpacingY = std::clamp(jsonutil::JsonNumberOr(style, "item_spacing_y", widget.style.itemSpacingY), 0.0f, 80.0f);
+            widget.style.itemInnerSpacingX = std::clamp(jsonutil::JsonNumberOr(style, "item_inner_spacing_x", widget.style.itemInnerSpacingX), 0.0f, 80.0f);
+            widget.style.itemInnerSpacingY = std::clamp(jsonutil::JsonNumberOr(style, "item_inner_spacing_y", widget.style.itemInnerSpacingY), 0.0f, 80.0f);
             widget.style.rounding = std::clamp(jsonutil::JsonNumberOr(style, "rounding", widget.style.rounding), 0.0f, 40.0f);
             widget.style.border = jsonutil::JsonBoolOr(style, "border", widget.style.border);
+            widget.style.borderColor = HexToColor(jsonutil::JsonStringOr(style, "border_color", ColorToHex(widget.style.borderColor)), widget.style.borderColor);
+            widget.style.borderAlpha = std::clamp(jsonutil::JsonNumberOr(style, "border_alpha", widget.style.borderAlpha), 0.0f, 1.0f);
+            widget.style.borderSize = std::clamp(jsonutil::JsonNumberOr(style, "border_size", widget.style.borderSize), 0.0f, 12.0f);
+            widget.style.separatorColor = HexToColor(jsonutil::JsonStringOr(style, "separator_color", ColorToHex(widget.style.separatorColor)), widget.style.separatorColor);
+            widget.style.separatorAlpha = std::clamp(jsonutil::JsonNumberOr(style, "separator_alpha", widget.style.separatorAlpha), 0.0f, 1.0f);
+            widget.style.separatorSize = std::clamp(jsonutil::JsonNumberOr(style, "separator_size", widget.style.separatorSize), 0.0f, 12.0f);
             widget.style.shadow = jsonutil::JsonBoolOr(style, "shadow", widget.style.shadow);
+            widget.style.shadowColor = HexToColor(jsonutil::JsonStringOr(style, "shadow_color", ColorToHex(widget.style.shadowColor)), widget.style.shadowColor);
+            widget.style.shadowAlpha = std::clamp(jsonutil::JsonNumberOr(style, "shadow_alpha", widget.style.shadowAlpha), 0.0f, 1.0f);
+            widget.style.shadowOffsetX = std::clamp(jsonutil::JsonNumberOr(style, "shadow_offset_x", widget.style.shadowOffsetX), -80.0f, 80.0f);
+            widget.style.shadowOffsetY = std::clamp(jsonutil::JsonNumberOr(style, "shadow_offset_y", widget.style.shadowOffsetY), -80.0f, 80.0f);
         }
 
         if (const jsonutil::JsonObject* visibility = jsonutil::JsonObjectOrNull(&object, "visibility")) {
-            widget.visibility.conditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(visibility, "conditions"));
+            if (const jsonutil::JsonArray* conditionsArray = jsonutil::JsonArrayOrNull(visibility, "conditions")) {
+                widget.visibility.conditions = DeserializeBoolArray(conditionsArray);
+            }
             NormalizeConditionFlags(widget.visibility.conditions);
             widget.visibility.conditionsCombine =
                 NormalizeConditionCombineMode(jsonutil::JsonStringOr(visibility, "conditions_combine", "require_any"));
-            widget.visibility.hideWhenHelperOpen = jsonutil::JsonBoolOr(visibility, "hide_when_helper_open", widget.visibility.hideWhenHelperOpen);
-            widget.visibility.hideWhenChatOpen = jsonutil::JsonBoolOr(visibility, "hide_when_chat_open", widget.visibility.hideWhenChatOpen);
-            widget.visibility.hideWhenDialogOpen = jsonutil::JsonBoolOr(visibility, "hide_when_dialog_open", widget.visibility.hideWhenDialogOpen);
+
+            const auto migrateLegacyVisibilityFlag = [&](const char* key, ConditionId condition) {
+                const auto it = visibility->find(key);
+                if (it == visibility->end()) {
+                    return;
+                }
+                if (const bool* value = it->second.TryBool()) {
+                    SetConditionFlag(widget.visibility.conditions, condition, *value);
+                }
+            };
+            migrateLegacyVisibilityFlag("hide_when_helper_open", ConditionId::HelperActive);
+            migrateLegacyVisibilityFlag("hide_when_chat_open", ConditionId::ChatOpened);
+            migrateLegacyVisibilityFlag("hide_when_dialog_open", ConditionId::DialogOpened);
         }
 
         widget.refreshMs = std::max(0, jsonutil::JsonNumberOr(&object, "refresh_ms", widget.refreshMs));
@@ -788,20 +926,11 @@ struct HudModule::Impl {
         if (!widget.enabled) {
             return false;
         }
-        if (helperWindowOpen && widget.visibility.hideWhenHelperOpen && !(placementMode && placementWidgetId == widget.id)) {
-            return false;
-        }
-        if (sampApi && sampApi->sampModule() && sampApi->isSupportedVersion()) {
-            if (widget.visibility.hideWhenChatOpen && sampApi->is_chat_opened()) {
-                return false;
-            }
-            if (widget.visibility.hideWhenDialogOpen && sampApi->isDialogActive()) {
-                return false;
-            }
-        }
         NormalizeConditionFlags(widget.visibility.conditions);
         ConditionRuntimeContext conditionContext{};
-        conditionContext.helperUiCursorActive = helperWindowOpen;
+        const bool helperBlocksWidget = helperWindowOpen && !(placementMode && placementWidgetId == widget.id);
+        conditionContext.helperUiActive = helperBlocksWidget;
+        conditionContext.helperUiCursorActive = helperBlocksWidget;
         if (ConditionsBlocked(widget.visibility.conditions, widget.visibility.conditionsCombine, sampApi, &conditionContext)) {
             return false;
         }
@@ -865,13 +994,7 @@ struct HudModule::Impl {
             ImGui::SetNextWindowSize(ScaleUi(widget.size.width * widget.size.scale, widget.size.height * widget.size.scale), ImGuiCond_Always);
         }
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(widget.style.paddingX * widget.size.scale, widget.style.paddingY * widget.size.scale));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, ScaleUi(widget.style.rounding));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, widget.style.border || placing ? ScaleUi(1.0f) : 0.0f);
-        ImVec4 bg = widget.style.background;
-        bg.w = widget.style.backgroundAlpha;
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, bg);
-        ImGui::PushStyleColor(ImGuiCol_Border, placing ? ImVec4(0.35f, 0.78f, 1.0f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_Border));
+        const HudStyleScope styleScope = PushHudWidgetStyle(widget, placing);
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
             | ImGuiWindowFlags_NoSavedSettings
@@ -891,10 +1014,12 @@ struct HudModule::Impl {
             if (widget.style.shadow) {
                 const ImVec2 min = ImGui::GetWindowPos();
                 const ImVec2 max(min.x + ImGui::GetWindowSize().x, min.y + ImGui::GetWindowSize().y);
+                const ImVec4 shadow = WithAlpha(widget.style.shadowColor, widget.style.shadowAlpha);
+                const ImVec2 shadowOffset = ScaleUi(widget.style.shadowOffsetX, widget.style.shadowOffsetY);
                 ImGui::GetBackgroundDrawList()->AddRectFilled(
-                    ImVec2(min.x + ScaleUi(4.0f), min.y + ScaleUi(5.0f)),
-                    ImVec2(max.x + ScaleUi(4.0f), max.y + ScaleUi(5.0f)),
-                    ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.28f)),
+                    ImVec2(min.x + shadowOffset.x, min.y + shadowOffset.y),
+                    ImVec2(max.x + shadowOffset.x, max.y + shadowOffset.y),
+                    ImGui::GetColorU32(shadow),
                     ScaleUi(widget.style.rounding));
             }
             const float previousScale = 1.0f;
@@ -916,8 +1041,7 @@ struct HudModule::Impl {
             }
         }
         ImGui::End();
-        ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar(3);
+        PopHudWidgetStyle(styleScope);
     }
 
     void DrawOverlay(IDirect3DDevice9* device, bool helperWindowOpen) {
@@ -1064,11 +1188,16 @@ struct HudModule::Impl {
         }
 
         ImGui::SeparatorText(ui.Text(UiText::HudPreview));
+        const HudStyleScope styleScope = PushHudWidgetStyle(widget, false);
         if (ImGui::BeginChild("hud_preview", ScaleUi(0.0f, 170.0f), ImGuiChildFlags_Borders)) {
             const std::string text = ExpandedText(widget);
+            const float previousScale = 1.0f;
+            ImGui::SetWindowFontScale(widget.size.scale);
             renderer.DrawText(text, device, ImageRootForWidget(widget), MarkupRenderer::DrawOptions{ !widget.size.autoSize });
+            ImGui::SetWindowFontScale(previousScale);
         }
         ImGui::EndChild();
+        PopHudWidgetStyle(styleScope);
     }
 
     bool DrawAnchorCombo(HudWidget& widget) {
@@ -1127,14 +1256,36 @@ struct HudModule::Impl {
         changed |= ImGui::SliderFloat(ui.Text(UiText::HudScale), &widget.size.scale, 0.5f, 3.0f, "%.2f");
 
         ImGui::SeparatorText(ui.Text(UiText::HudStyle));
+        ImGui::SeparatorText(ui.Text(UiText::HudStyleWindow));
         changed |= ImGui::ColorEdit3(ui.Text(UiText::HudBackground), &widget.style.background.x, ImGuiColorEditFlags_NoInputs);
         changed |= ImGui::SliderFloat(ui.Text(UiText::HudBackgroundAlpha), &widget.style.backgroundAlpha, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::DragFloat(ui.Text(UiText::HudPaddingX), &widget.style.paddingX, 0.5f, 0.0f, 80.0f, "%.1f");
         changed |= ImGui::DragFloat(ui.Text(UiText::HudPaddingY), &widget.style.paddingY, 0.5f, 0.0f, 80.0f, "%.1f");
         changed |= ImGui::DragFloat(ui.Text(UiText::HudRounding), &widget.style.rounding, 0.5f, 0.0f, 40.0f, "%.1f");
+
+        ImGui::SeparatorText(ui.Text(UiText::HudStyleTextRows));
+        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudTextColor), &widget.style.text.x, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::SliderFloat(ui.Text(UiText::HudTextAlpha), &widget.style.textAlpha, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudItemSpacingX), &widget.style.itemSpacingX, 0.5f, 0.0f, 80.0f, "%.1f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudItemSpacingY), &widget.style.itemSpacingY, 0.5f, 0.0f, 80.0f, "%.1f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudItemInnerSpacingX), &widget.style.itemInnerSpacingX, 0.5f, 0.0f, 80.0f, "%.1f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudItemInnerSpacingY), &widget.style.itemInnerSpacingY, 0.5f, 0.0f, 80.0f, "%.1f");
+
+        ImGui::SeparatorText(ui.Text(UiText::HudStyleBorderShadow));
         changed |= ImGui::Checkbox(ui.Text(UiText::HudBorder), &widget.style.border);
-        ImGui::SameLine();
+        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudBorderColor), &widget.style.borderColor.x, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::SliderFloat(ui.Text(UiText::HudBorderAlpha), &widget.style.borderAlpha, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudBorderSize), &widget.style.borderSize, 0.1f, 0.0f, 12.0f, "%.1f");
         changed |= ImGui::Checkbox(ui.Text(UiText::HudShadow), &widget.style.shadow);
+        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudShadowColor), &widget.style.shadowColor.x, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::SliderFloat(ui.Text(UiText::HudShadowAlpha), &widget.style.shadowAlpha, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudShadowOffsetX), &widget.style.shadowOffsetX, 0.5f, -80.0f, 80.0f, "%.1f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudShadowOffsetY), &widget.style.shadowOffsetY, 0.5f, -80.0f, 80.0f, "%.1f");
+
+        ImGui::SeparatorText(ui.Text(UiText::HudStyleSeparators));
+        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudSeparatorColor), &widget.style.separatorColor.x, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::SliderFloat(ui.Text(UiText::HudSeparatorAlpha), &widget.style.separatorAlpha, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudSeparatorSize), &widget.style.separatorSize, 0.1f, 0.0f, 12.0f, "%.1f");
 
         ImGui::SeparatorText(ui.Text(UiText::HudVisibility));
         NormalizeConditionFlags(widget.visibility.conditions);
@@ -1150,9 +1301,6 @@ struct HudModule::Impl {
             UiText::HudVisibilityConditions,
             widget.visibility.conditions,
             &widget.visibility.conditionsCombine);
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudHideWhenHelperOpen), &widget.visibility.hideWhenHelperOpen);
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudHideWhenChatOpen), &widget.visibility.hideWhenChatOpen);
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudHideWhenDialogOpen), &widget.visibility.hideWhenDialogOpen);
         if (ImGui::InputInt(ui.Text(UiText::HudRefreshMs), &widget.refreshMs, 50, 100)) {
             widget.nextRefreshAtMs = 0;
             changed = true;

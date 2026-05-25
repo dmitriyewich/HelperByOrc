@@ -95,6 +95,23 @@ constexpr std::uint32_t kMatrixPositionOffset = 0x30;
 constexpr std::size_t kRakClientVtblSendBitStream = 6;
 constexpr std::size_t kRakClientVtblRpcBitStream = 25;
 
+std::optional<int> ConnectedGameStateValue(SampApi::Version version) {
+    switch (version) {
+    case SampApi::Version::R1:
+    case SampApi::Version::R2:
+        return 0x0E;
+    case SampApi::Version::R3:
+    case SampApi::Version::R3_1:
+    case SampApi::Version::R4:
+    case SampApi::Version::R4_2:
+    case SampApi::Version::R5_1:
+    case SampApi::Version::DL_R1:
+        return 0x05;
+    default:
+        return std::nullopt;
+    }
+}
+
 bool IsReadableMemory(std::uintptr_t address, std::size_t size) {
     if (address == 0 || size == 0) {
         return false;
