@@ -42,68 +42,63 @@ struct ConditionDefinition {
     ConditionCategory category;
 };
 
-struct ConditionConflictPair {
-    ConditionId first;
-    ConditionId second;
-};
-
 constexpr std::array kConditionDefinitions = {
-    ConditionDefinition{ConditionId::InWater, UiText::ConditionInWater, ConditionCategory::Player},
     ConditionDefinition{ConditionId::Dead, UiText::ConditionDead, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::InAir, UiText::ConditionInAir, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::InAnyCar, UiText::ConditionInAnyCar, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::WithoutWeapon, UiText::ConditionWithoutWeapon, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::WithWeapon, UiText::ConditionWithWeapon, ConditionCategory::Player},
     ConditionDefinition{ConditionId::OnFoot, UiText::ConditionOnFoot, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::ChatOpened, UiText::ConditionChatOpened, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::DialogOpened, UiText::ConditionDialogOpened, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ScoreboardOpen, UiText::ConditionScoreboardOpen, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ChatVisible, UiText::ConditionChatVisible, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::SampCursorActive, UiText::ConditionSampCursorActive, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::WindowsCursorActive, UiText::ConditionWindowsCursorActive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::WithWeapon, UiText::ConditionWithWeapon, ConditionCategory::Player},
+    ConditionDefinition{ConditionId::WithoutWeapon, UiText::ConditionWithoutWeapon, ConditionCategory::Player},
+    ConditionDefinition{ConditionId::InWater, UiText::ConditionInWater, ConditionCategory::Player},
+    ConditionDefinition{ConditionId::NotInWater, UiText::ConditionNotInWater, ConditionCategory::Player},
+    ConditionDefinition{ConditionId::InAir, UiText::ConditionInAir, ConditionCategory::Player},
+    ConditionDefinition{ConditionId::NotInAir, UiText::ConditionNotInAir, ConditionCategory::Player},
     ConditionDefinition{ConditionId::HelperActive, UiText::ConditionHelperActive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ChatOpened, UiText::ConditionChatOpened, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ChatClosed, UiText::ConditionChatClosed, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ChatVisible, UiText::ConditionChatVisible, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ChatHidden, UiText::ConditionChatHidden, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::DialogOpened, UiText::ConditionDialogOpened, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::DialogClosed, UiText::ConditionDialogClosed, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ScoreboardOpen, UiText::ConditionScoreboardOpen, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::ScoreboardClosed, UiText::ConditionScoreboardClosed, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::SampCursorActive, UiText::ConditionSampCursorActive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::SampCursorInactive, UiText::ConditionSampCursorInactive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::WindowsCursorActive, UiText::ConditionWindowsCursorActive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::WindowsCursorInactive, UiText::ConditionWindowsCursorInactive, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::GtaMenuOpen, UiText::ConditionGtaMenuOpen, ConditionCategory::Interface},
+    ConditionDefinition{ConditionId::GtaMenuClosed, UiText::ConditionGtaMenuClosed, ConditionCategory::Interface},
     ConditionDefinition{ConditionId::GameHudVisible, UiText::ConditionGameHudVisible, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::GameHudHidden, UiText::ConditionGameHudHidden, ConditionCategory::Game},
     ConditionDefinition{ConditionId::CameraAttached, UiText::ConditionCameraAttached, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::CameraDetached, UiText::ConditionCameraDetached, ConditionCategory::Game},
     ConditionDefinition{ConditionId::ServerConnected, UiText::ConditionServerConnected, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::ServerDisconnected, UiText::ConditionServerDisconnected, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::InAnyCar, UiText::ConditionInAnyCar, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::Driver, UiText::ConditionDriver, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::Passenger, UiText::ConditionPassenger, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::VehicleSirenOn, UiText::ConditionVehicleSirenOn, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleEngineOn, UiText::ConditionVehicleEngineOn, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::GtaMenuOpen, UiText::ConditionGtaMenuOpen, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::InBoat, UiText::ConditionVehicleBoat, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InCar, UiText::ConditionVehicleCar, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InTrain, UiText::ConditionVehicleTrain, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InHeli, UiText::ConditionVehicleHeli, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InPlane, UiText::ConditionVehiclePlane, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InBike, UiText::ConditionVehicleBike, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InFakePlane, UiText::ConditionVehicleFakePlane, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InMonsterTruck, UiText::ConditionVehicleMonsterTruck, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InQuadBike, UiText::ConditionVehicleQuadBike, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::InBicycle, UiText::ConditionVehicleBicycle, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::GameHudHidden, UiText::ConditionGameHudHidden, ConditionCategory::Game},
-    ConditionDefinition{ConditionId::CameraDetached, UiText::ConditionCameraDetached, ConditionCategory::Game},
-    ConditionDefinition{ConditionId::GtaMenuClosed, UiText::ConditionGtaMenuClosed, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::SampCursorInactive, UiText::ConditionSampCursorInactive, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::WindowsCursorInactive, UiText::ConditionWindowsCursorInactive, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ChatClosed, UiText::ConditionChatClosed, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::DialogClosed, UiText::ConditionDialogClosed, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ScoreboardClosed, UiText::ConditionScoreboardClosed, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ChatHidden, UiText::ConditionChatHidden, ConditionCategory::Interface},
-    ConditionDefinition{ConditionId::ServerDisconnected, UiText::ConditionServerDisconnected, ConditionCategory::Game},
-    ConditionDefinition{ConditionId::VehicleSirenOff, UiText::ConditionVehicleSirenOff, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleEngineOff, UiText::ConditionVehicleEngineOff, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInBoat, UiText::ConditionNotVehicleBoat, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInTrain, UiText::ConditionNotVehicleTrain, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInPlane, UiText::ConditionNotVehiclePlane, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInFakePlane, UiText::ConditionNotVehicleFakePlane, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::VehicleSirenOn, UiText::ConditionVehicleSirenOn, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::VehicleSirenOff, UiText::ConditionVehicleSirenOff, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InCar, UiText::ConditionVehicleCar, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::NotInCar, UiText::ConditionNotVehicleCar, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InBoat, UiText::ConditionVehicleBoat, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::NotInBoat, UiText::ConditionNotVehicleBoat, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InHeli, UiText::ConditionVehicleHeli, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::NotInHeli, UiText::ConditionNotVehicleHeli, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InPlane, UiText::ConditionVehiclePlane, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::NotInPlane, UiText::ConditionNotVehiclePlane, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InFakePlane, UiText::ConditionVehicleFakePlane, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::NotInFakePlane, UiText::ConditionNotVehicleFakePlane, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InTrain, UiText::ConditionVehicleTrain, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::NotInTrain, UiText::ConditionNotVehicleTrain, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InBike, UiText::ConditionVehicleBike, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::NotInBike, UiText::ConditionNotVehicleBike, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInMonsterTruck, UiText::ConditionNotVehicleMonsterTruck, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InBicycle, UiText::ConditionVehicleBicycle, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::NotInBicycle, UiText::ConditionNotVehicleBicycle, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InMonsterTruck, UiText::ConditionVehicleMonsterTruck, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::NotInMonsterTruck, UiText::ConditionNotVehicleMonsterTruck, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::InQuadBike, UiText::ConditionVehicleQuadBike, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::NotInQuadBike, UiText::ConditionNotVehicleQuadBike, ConditionCategory::Vehicle},
-    ConditionDefinition{ConditionId::NotInWater, UiText::ConditionNotInWater, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::NotInAir, UiText::ConditionNotInAir, ConditionCategory::Player},
 };
 
 constexpr std::array<UiText, static_cast<std::size_t>(ConditionCategory::Count)> kConditionCategoryLabelIds = {
@@ -111,59 +106,6 @@ constexpr std::array<UiText, static_cast<std::size_t>(ConditionCategory::Count)>
     UiText::ConditionCategoryInterface,
     UiText::ConditionCategoryGame,
     UiText::ConditionCategoryVehicle,
-};
-
-constexpr std::array kDirectConditionConflicts = {
-    ConditionConflictPair{ConditionId::InWater, ConditionId::NotInWater},
-    ConditionConflictPair{ConditionId::InAir, ConditionId::NotInAir},
-    ConditionConflictPair{ConditionId::WithoutWeapon, ConditionId::WithWeapon},
-    ConditionConflictPair{ConditionId::OnFoot, ConditionId::InAnyCar},
-    ConditionConflictPair{ConditionId::ChatOpened, ConditionId::ChatClosed},
-    ConditionConflictPair{ConditionId::DialogOpened, ConditionId::DialogClosed},
-    ConditionConflictPair{ConditionId::ScoreboardOpen, ConditionId::ScoreboardClosed},
-    ConditionConflictPair{ConditionId::ChatVisible, ConditionId::ChatHidden},
-    ConditionConflictPair{ConditionId::SampCursorActive, ConditionId::SampCursorInactive},
-    ConditionConflictPair{ConditionId::WindowsCursorActive, ConditionId::WindowsCursorInactive},
-    ConditionConflictPair{ConditionId::GameHudVisible, ConditionId::GameHudHidden},
-    ConditionConflictPair{ConditionId::CameraAttached, ConditionId::CameraDetached},
-    ConditionConflictPair{ConditionId::ServerConnected, ConditionId::ServerDisconnected},
-    ConditionConflictPair{ConditionId::Driver, ConditionId::Passenger},
-    ConditionConflictPair{ConditionId::VehicleSirenOn, ConditionId::VehicleSirenOff},
-    ConditionConflictPair{ConditionId::VehicleEngineOn, ConditionId::VehicleEngineOff},
-    ConditionConflictPair{ConditionId::GtaMenuOpen, ConditionId::GtaMenuClosed},
-    ConditionConflictPair{ConditionId::InBoat, ConditionId::NotInBoat},
-    ConditionConflictPair{ConditionId::InCar, ConditionId::NotInCar},
-    ConditionConflictPair{ConditionId::InTrain, ConditionId::NotInTrain},
-    ConditionConflictPair{ConditionId::InHeli, ConditionId::NotInHeli},
-    ConditionConflictPair{ConditionId::InPlane, ConditionId::NotInPlane},
-    ConditionConflictPair{ConditionId::InBike, ConditionId::NotInBike},
-    ConditionConflictPair{ConditionId::InFakePlane, ConditionId::NotInFakePlane},
-    ConditionConflictPair{ConditionId::InMonsterTruck, ConditionId::NotInMonsterTruck},
-    ConditionConflictPair{ConditionId::InQuadBike, ConditionId::NotInQuadBike},
-    ConditionConflictPair{ConditionId::InBicycle, ConditionId::NotInBicycle},
-};
-
-constexpr std::array kVehicleTypeConditions = {
-    ConditionId::InBoat,
-    ConditionId::InCar,
-    ConditionId::InTrain,
-    ConditionId::InHeli,
-    ConditionId::InPlane,
-    ConditionId::InBike,
-    ConditionId::InFakePlane,
-    ConditionId::InMonsterTruck,
-    ConditionId::InQuadBike,
-    ConditionId::InBicycle,
-};
-
-constexpr std::array kVehicleOnlyConditions = {
-    ConditionId::InAnyCar,
-    ConditionId::Driver,
-    ConditionId::Passenger,
-    ConditionId::VehicleSirenOn,
-    ConditionId::VehicleSirenOff,
-    ConditionId::VehicleEngineOn,
-    ConditionId::VehicleEngineOff,
 };
 
 std::size_t ConditionIndex(ConditionId condition) {
@@ -181,64 +123,6 @@ const ConditionDefinition* ConditionDefinitionFor(ConditionId condition) {
 
 bool IsSelectableCondition(ConditionId condition) {
     return ConditionDefinitionFor(condition) != nullptr;
-}
-
-template <typename T, std::size_t Size>
-bool ContainsCondition(const std::array<T, Size>& conditions, ConditionId condition) {
-    return std::find(conditions.begin(), conditions.end(), condition) != conditions.end();
-}
-
-bool IsVehicleTypeCondition(ConditionId condition) {
-    return ContainsCondition(kVehicleTypeConditions, condition);
-}
-
-bool IsVehicleOnlyCondition(ConditionId condition) {
-    return ContainsCondition(kVehicleOnlyConditions, condition) || IsVehicleTypeCondition(condition);
-}
-
-bool AreConditionsConflicting(ConditionId left, ConditionId right) {
-    if (left == right) {
-        return false;
-    }
-
-    for (const ConditionConflictPair& pair : kDirectConditionConflicts) {
-        if ((pair.first == left && pair.second == right) || (pair.first == right && pair.second == left)) {
-            return true;
-        }
-    }
-
-    if (IsVehicleTypeCondition(left) && IsVehicleTypeCondition(right)) {
-        return true;
-    }
-
-    return (left == ConditionId::OnFoot && IsVehicleOnlyCondition(right))
-        || (right == ConditionId::OnFoot && IsVehicleOnlyCondition(left));
-}
-
-bool ConditionConflictsWithSelection(
-    ConditionId condition,
-    const std::vector<bool>& flags,
-    ConditionId* conflict = nullptr) {
-    const std::size_t conditionIndex = ConditionIndex(condition);
-    if (conditionIndex < flags.size() && flags[conditionIndex]) {
-        return false;
-    }
-
-    for (std::size_t i = 0; i < flags.size() && i < ConditionCount(); ++i) {
-        if (!flags[i] || !IsSelectableCondition(static_cast<ConditionId>(i))) {
-            continue;
-        }
-
-        const ConditionId selected = static_cast<ConditionId>(i);
-        if (AreConditionsConflicting(condition, selected)) {
-            if (conflict) {
-                *conflict = selected;
-            }
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::int8_t ReadGameInt8(std::uintptr_t address) {
@@ -411,8 +295,9 @@ bool IsGtaMenuOpen() {
 
 int CountSelectedConditions(const std::vector<bool>& flags) {
     int selected = 0;
-    for (std::size_t i = 0; i < flags.size() && i < ConditionCount(); ++i) {
-        if (flags[i] && IsSelectableCondition(static_cast<ConditionId>(i))) {
+    for (const ConditionDefinition& definition : kConditionDefinitions) {
+        const std::size_t index = ConditionIndex(definition.id);
+        if (index < flags.size() && flags[index]) {
             ++selected;
         }
     }
@@ -423,13 +308,14 @@ void DrawSelectedConditionChips(std::vector<bool>& flags, bool& changed) {
     const float contentRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     bool hasChipOnLine = false;
 
-    for (std::size_t i = 0; i < flags.size() && i < ConditionCount(); ++i) {
-        if (!flags[i] || !IsSelectableCondition(static_cast<ConditionId>(i))) {
+    for (const ConditionDefinition& definition : kConditionDefinitions) {
+        const std::size_t index = ConditionIndex(definition.id);
+        if (index >= flags.size() || !flags[index]) {
             continue;
         }
 
-        const std::string label = std::string("x ") + ConditionLabel(static_cast<ConditionId>(i))
-            + "##condition_chip_" + std::to_string(i);
+        const std::string label = std::string("x ") + ConditionLabel(definition.id)
+            + "##condition_chip_" + std::to_string(index);
         const ImVec2 textSize = ImGui::CalcTextSize(label.c_str(), nullptr, true);
         const float buttonWidth = textSize.x + ImGui::GetStyle().FramePadding.x * 2.0f;
 
@@ -442,7 +328,7 @@ void DrawSelectedConditionChips(std::vector<bool>& flags, bool& changed) {
         }
 
         if (ImGui::SmallButton(label.c_str())) {
-            flags[i] = false;
+            flags[index] = false;
             changed = true;
         }
         hasChipOnLine = true;
@@ -469,9 +355,6 @@ void SetConditionFlag(std::vector<bool>& flags, ConditionId condition, bool valu
     if (!IsSelectableCondition(condition)) {
         return;
     }
-    if (value && ConditionConflictsWithSelection(condition, flags)) {
-        return;
-    }
     flags[ConditionIndex(condition)] = value;
 }
 
@@ -493,8 +376,9 @@ std::string ConditionCombineModeId(ConditionCombineMode mode) {
 }
 
 bool HasSelectedCondition(const std::vector<bool>& flags) {
-    for (std::size_t i = 0; i < flags.size() && i < ConditionCount(); ++i) {
-        if (flags[i] && IsSelectableCondition(static_cast<ConditionId>(i))) {
+    for (const ConditionDefinition& definition : kConditionDefinitions) {
+        const std::size_t index = ConditionIndex(definition.id);
+        if (index < flags.size() && flags[index]) {
             return true;
         }
     }
@@ -723,13 +607,14 @@ bool ConditionsBlocked(
         return false;
     }
 
-    for (std::size_t i = 0; i < flags.size() && i < ConditionCount(); ++i) {
-        if (!flags[i] || !IsSelectableCondition(static_cast<ConditionId>(i))) {
+    for (const ConditionDefinition& definition : kConditionDefinitions) {
+        const std::size_t index = ConditionIndex(definition.id);
+        if (index >= flags.size() || !flags[index]) {
             continue;
         }
-        if (CheckCondition(static_cast<ConditionId>(i), sampApi, context)) {
+        if (CheckCondition(definition.id, sampApi, context)) {
             if (message) {
-                *message = ConditionLabel(static_cast<ConditionId>(i));
+                *message = ConditionLabel(definition.id);
             }
             return true;
         }
@@ -824,24 +709,11 @@ bool DrawConditionFlagsPopup(
                 ++visibleCount;
                 const std::size_t index = ConditionIndex(definition.id);
                 bool value = flags[index];
-                ConditionId conflict = ConditionId::Count;
-                const bool disabledByConflict = ConditionConflictsWithSelection(definition.id, flags, &conflict);
                 ImGui::TableNextColumn();
                 ImGui::PushID(static_cast<int>(index));
-                if (disabledByConflict) {
-                    ImGui::BeginDisabled();
-                }
                 if (ImGui::Checkbox(label, &value)) {
                     flags[index] = value;
                     changed = true;
-                }
-                if (disabledByConflict) {
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                        ImGui::SetTooltip(
-                            "%s",
-                            ui.Format(UiText::ConditionConflictDisabled, ConditionLabel(conflict)).c_str());
-                    }
                 }
                 ImGui::PopID();
             }

@@ -470,7 +470,6 @@
     X(ConditionSelectedNone, "Условия не выбраны.", "No conditions selected.") \
     X(ConditionReset, "Сбросить", "Reset") \
     X(ConditionNoMatches, "Нет условий по этому фильтру.", "No conditions match this filter.") \
-    X(ConditionConflictDisabled, "Недоступно: конфликтует с «%s».", "Unavailable: conflicts with \"%s\".") \
     X(InputModeText, "Свободный ввод", "Free text") \
     X(InputModeButtonsList, "Выбор из вариантов", "Pick from options") \
     X(InputModeButtonsListText, "Варианты + свой текст", "Options + custom text") \
