@@ -73,7 +73,6 @@ jobs:
           name: HelperByOrc-Release-Win32
           path: |
             HelperByOrc/Release/HelperByOrc.asi
-            HelperByOrc/Release/HelperByOrc.pdb
           if-no-files-found: error
           retention-days: 30
 
@@ -83,4 +82,3 @@ jobs:
         with:
           files: |
             HelperByOrc/Release/HelperByOrc.asi
-            HelperByOrc/Release/HelperByOrc.pdb

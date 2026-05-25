@@ -105,6 +105,8 @@ MSBuild HelperByOrc.slnx /t:Build /p:Configuration=Release /p:Platform=Win32 /m
 HelperByOrc\Release\HelperByOrc.asi
 ```
 
+`HelperByOrc.pdb` может создаваться локальной Release-сборкой как файл символов для диагностики падений, но для установки он не нужен и в публичный GitHub Release не входит.
+
 Локальный проект использует Visual Studio toolset `v145`. GitHub Actions переопределяет `PlatformToolset=v143` для hosted Windows runners.
 
 ---
