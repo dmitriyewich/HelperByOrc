@@ -60,8 +60,9 @@ const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, ui_icons::Gear },
 }};
 
-const std::array<SettingsSectionDefinition, 6> kSettingsSections = {{
+const std::array<SettingsSectionDefinition, 7> kSettingsSections = {{
     { UiSettingsSection::General, UiText::SettingsSectionGeneral },
+    { UiSettingsSection::Binder, UiText::SettingsSectionBinder },
     { UiSettingsSection::QuickMenu, UiText::SettingsSectionQuickMenu },
     { UiSettingsSection::Notifications, UiText::SettingsSectionNotifications },
     { UiSettingsSection::Profiles, UiText::SettingsSectionProfiles },
@@ -2303,6 +2304,9 @@ void ModApp::DrawSettingsTab() {
             break;
         case UiSettingsSection::Profiles:
             DrawSettingsProfilesSection();
+            break;
+        case UiSettingsSection::Binder:
+            binder_.DrawBinderSettingsSection(true);
             break;
         case UiSettingsSection::QuickMenu:
             ImGui::SeparatorText(ui.Text(UiText::SettingsSectionQuickMenu));

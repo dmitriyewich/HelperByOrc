@@ -63,6 +63,9 @@ UiLogLevel ParseLogLevel(std::string_view value) {
 
 UiSettingsSection ParseSettingsSection(std::string_view value) {
     const std::string normalized = ToLower(value);
+    if (normalized == "binder") {
+        return UiSettingsSection::Binder;
+    }
     if (normalized == "hotkeys") {
         return UiSettingsSection::Hotkeys;
     }
@@ -95,6 +98,8 @@ const char* LogLevelId(UiLogLevel level) {
 
 const char* SettingsSectionId(UiSettingsSection section) {
     switch (section) {
+    case UiSettingsSection::Binder:
+        return "binder";
     case UiSettingsSection::Hotkeys:
         return "hotkeys";
     case UiSettingsSection::Profiles:

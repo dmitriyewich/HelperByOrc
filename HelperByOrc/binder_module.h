@@ -67,6 +67,7 @@ public:
     void DrawMainTab();
     std::string QuickMenuHotkeyText() const;
     void DrawSettingsSection(bool includeHeader = true);
+    void DrawBinderSettingsSection(bool includeHeader = true);
     void DrawOverlay();
 
 private:

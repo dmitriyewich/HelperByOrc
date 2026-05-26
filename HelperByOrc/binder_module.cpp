@@ -54,7 +54,10 @@ constexpr int kQuickMenuWidth = 214;
 constexpr int kQuickMenuHeight = 277;
 // Строка id для OpenPopup/BeginPopup: только ## — без заголовка в строке окна, заголовок рисуем внутри.
 constexpr char kQuickMenuHostPopupId[] = "##helperbyorc_qm_host";
-constexpr int kTextConfirmTimeoutMs = 5000;
+constexpr int kTextConfirmTimeoutMs = 3000;
+constexpr int kDefaultTextConfirmationWaitTimeoutMs = 60000;
+constexpr int kMinTextConfirmationWaitTimeoutMs = 5000;
+constexpr int kMaxTextConfirmationWaitTimeoutMs = 600000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr int kIncomingChatEchoGuardTimeoutMs = 1000;
 constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
@@ -1922,6 +1925,7 @@ struct BinderModule::Impl {
     std::vector<UINT> quickMenuHotkey{};
     QuickMenuActivationMode quickMenuActivationMode = QuickMenuActivationMode::Hold;
     QuickMenuStyle quickMenuStyle = QuickMenuStyle::Cascade;
+    int textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     bool quickMenuOpen = false;
     std::string quickMenuActiveCategoryId{};
     bool quickMenuReopenBlocked = false;
@@ -2158,6 +2162,7 @@ struct BinderModule::Impl {
     void DrawQuickMenu();
     std::string QuickMenuHotkeyText() const;
     void DrawSettingsSection(bool includeHeader);
+    void DrawBinderSettingsSection(bool includeHeader);
     void DrawInputDialog();
     void StartEditing(int index, bool isNew);
     std::vector<HotkeyMessage> ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const;
@@ -2772,6 +2777,7 @@ void BinderModule::Impl::SaveConfig() {
     root["quick_menu_hotkey"] = SerializeUintArray(quickMenuHotkey);
     root["quick_menu_activation_mode"] = QuickMenuActivationModeId(quickMenuActivationMode);
     root["quick_menu_style"] = QuickMenuStyleId(quickMenuStyle);
+    root["text_confirmation_wait_timeout_ms"] = textConfirmationWaitTimeoutMs;
     root["active_category_id"] = activeCategoryId;
 
     JsonArray categoryArray;
@@ -2805,6 +2811,7 @@ void BinderModule::Impl::LoadConfig() {
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
     quickMenuStyle = QuickMenuStyle::Cascade;
+    textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     quickMenuActiveCategoryId.clear();
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
     const JsonObject* root = sharedSection.TryObject();
@@ -2819,6 +2826,13 @@ void BinderModule::Impl::LoadConfig() {
         NormalizeQuickMenuActivationMode(jsonutil::JsonStringOr(root, "quick_menu_activation_mode", "hold"));
     quickMenuStyle =
         NormalizeQuickMenuStyle(jsonutil::JsonStringOr(root, "quick_menu_style", "cascade"));
+    textConfirmationWaitTimeoutMs = std::clamp(
+        jsonutil::JsonNumberOr<int>(
+            root,
+            "text_confirmation_wait_timeout_ms",
+            kDefaultTextConfirmationWaitTimeoutMs),
+        kMinTextConfirmationWaitTimeoutMs,
+        kMaxTextConfirmationWaitTimeoutMs);
     activeCategoryId = jsonutil::JsonStringOr(root, "active_category_id", "");
 
     if (const JsonArray* categoryArray = jsonutil::JsonArrayOrNull(root, "categories")) {
@@ -5810,7 +5824,11 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     hotkey.waitingTextConfirmation = true;
     hotkey.pendingTriggerText = sourceText;
     hotkey.pendingTriggerSource = std::string(sourceKind);
-    hotkey.textConfirmationDeadlineMs = waitForResolution ? 0.0 : now + kTextConfirmTimeoutMs;
+    if (waitForResolution && sourceKind != "command") {
+        hotkey.textConfirmationDeadlineMs = now + textConfirmationWaitTimeoutMs;
+    } else {
+        hotkey.textConfirmationDeadlineMs = waitForResolution ? 0.0 : now + kTextConfirmTimeoutMs;
+    }
 
     UiSettings& ui = UiSettings::Instance();
     const std::string confirmText = ui.Format(
@@ -9106,6 +9124,9 @@ void BinderModule::Impl::DrawEditorInline() {
                 ImGui::Spacing();
                 if (editor.draft.textConfirmation.enabled) {
                     ImGui::Checkbox(ui.Text(UiText::TriggerWaitWithoutTimeout), &editor.draft.textConfirmation.waitForResolution);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                        ImGui::SetTooltip("%s", ui.Text(UiText::TriggerWaitTimeoutHint));
+                    }
                 }
                 if (editor.draft.commandConfirmation.enabled) {
                     ImGui::Checkbox(ui.Text(UiText::CommandWaitWithoutTimeout), &editor.draft.commandConfirmation.waitForResolution);
@@ -10759,6 +10780,39 @@ void BinderModule::Impl::DrawSettingsSection(bool includeHeader) {
     }
 }
 
+void BinderModule::Impl::DrawBinderSettingsSection(bool includeHeader) {
+    EnsureInitialized();
+
+    UiSettings& ui = UiSettings::Instance();
+    if (includeHeader) {
+        ImGui::SeparatorText(ui.Text(UiText::SettingsSectionBinder));
+    }
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsBinderIntro));
+    ImGui::Spacing();
+
+    int timeoutSeconds = textConfirmationWaitTimeoutMs / 1000;
+    ImGui::SetNextItemWidth(ScaleUi(150.0f));
+    if (ImGui::DragInt(
+            ui.Text(UiText::SettingsBinderTextConfirmationTimeoutSec),
+            &timeoutSeconds,
+            0.2f,
+            kMinTextConfirmationWaitTimeoutMs / 1000,
+            kMaxTextConfirmationWaitTimeoutMs / 1000)) {
+        timeoutSeconds = std::clamp(
+            timeoutSeconds,
+            kMinTextConfirmationWaitTimeoutMs / 1000,
+            kMaxTextConfirmationWaitTimeoutMs / 1000);
+        const int timeoutMs = timeoutSeconds * 1000;
+        if (textConfirmationWaitTimeoutMs != timeoutMs) {
+            textConfirmationWaitTimeoutMs = timeoutMs;
+            SaveConfig();
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::SettingsBinderTextConfirmationTimeoutHint));
+    }
+}
+
 void BinderModule::Impl::DrawQuickMenu() {
     if (!quickMenuOpen) {
         return;
@@ -11568,6 +11622,10 @@ std::string BinderModule::QuickMenuHotkeyText() const {
 
 void BinderModule::DrawSettingsSection(bool includeHeader) {
     impl_->DrawSettingsSection(includeHeader);
+}
+
+void BinderModule::DrawBinderSettingsSection(bool includeHeader) {
+    impl_->DrawBinderSettingsSection(includeHeader);
 }
 
 void BinderModule::DrawOverlay() {

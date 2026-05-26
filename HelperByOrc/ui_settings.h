@@ -357,12 +357,16 @@
     X(NotepadAllFilesFilter, "Все файлы (*.*)", "All files (*.*)") \
     X(SettingsGtaVersion, "Версия GTA", "GTA version") \
     X(SettingsSectionGeneral, "Общее", "General") \
+    X(SettingsSectionBinder, "Биндер", "Binder") \
     X(SettingsSectionHotkeys, "Горячие клавиши", "Hotkeys") \
     X(SettingsSectionProfiles, "Профили", "Profiles") \
     X(SettingsSectionQuickMenu, "Быстрое меню", "Quick menu") \
     X(SettingsSectionNotifications, "Уведомления", "Notifications") \
     X(SettingsSectionDiagnostics, "Диагностика", "Diagnostics") \
     X(SettingsGeneralIntro, "Язык и масштаб интерфейса.", "Language and interface scaling.") \
+    X(SettingsBinderIntro, "Общие параметры выполнения биндов.", "General bind runtime settings.") \
+    X(SettingsBinderTextConfirmationTimeoutSec, "Таймер подтверждения триггера, сек", "Trigger confirmation timeout, sec") \
+    X(SettingsBinderTextConfirmationTimeoutHint, "Если бинд ждёт подтверждение по текстовому триггеру дольше этого времени, ожидание сбрасывается и бинд не запускается. Диапазон: 5-600 секунд.", "If a bind waits for text-trigger confirmation longer than this value, the pending confirmation is cleared and the bind is not started. Range: 5-600 seconds.") \
     X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \
     X(SettingsQuickMenuIntro, "Как открывается быстрое меню биндов.", "How the binder quick menu opens.") \
     X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
@@ -803,7 +807,8 @@
     X(TextConfirmation, "Требовать подтверждение по триггеру", "Require confirmation on trigger") \
     X(CommandConfirmation, "Требовать подтверждение по команде", "Require confirmation on command") \
     X(WaitWithoutTimeout, "Дожидаться подтверждения или отклонения", "Wait for confirmation or rejection") \
-    X(TriggerWaitWithoutTimeout, "Дожидаться подтверждения или отклонения по триггеру", "Wait for confirmation or rejection on trigger") \
+    X(TriggerWaitWithoutTimeout, "Ждать подтверждения по триггеру до таймера", "Wait for trigger confirmation until timeout") \
+    X(TriggerWaitTimeoutHint, "Таймер настраивается во вкладке «Настройки» -> «Биндер». По умолчанию: 60 секунд.", "The timeout is configured in Settings -> Binder. Default: 60 seconds.") \
     X(CommandWaitWithoutTimeout, "Дожидаться подтверждения или отклонения по команде", "Wait for confirmation or rejection on command") \
     X(ConfirmKeyFormat, "Клавиша подтверждения: %s", "Confirm key: %s") \
     X(CancelKeyFormat, "Клавиша отклонения: %s", "Cancel key: %s") \
@@ -864,6 +869,7 @@ enum class UiLogLevel : int {
 
 enum class UiSettingsSection {
     General = 0,
+    Binder,
     QuickMenu,
     Notifications,
     Profiles,
