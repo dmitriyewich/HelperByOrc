@@ -47,6 +47,7 @@ constexpr UINT kDefaultConfirmKey = '1';
 constexpr UINT kDefaultCancelKey = '2';
 constexpr UINT kDefaultQuickMenuFallback = VK_XBUTTON1;
 constexpr int kMinMessageIntervalMs = 0;
+constexpr int kNestedBindStartDelayMs = 1;
 constexpr double kHotkeyDebounceMs = 0.0;
 constexpr int kDefaultRepeatIntervalMs = 500;
 constexpr int kQuickMenuWidth = 214;
@@ -858,6 +859,12 @@ struct PendingBindTagAction {
     std::uint64_t sourceRuntimeId = 0;
     std::string actionName{};
     std::vector<int> targetIndices{};
+};
+
+struct PendingCommandDispatch {
+    std::uint64_t sourceRuntimeId = 0;
+    std::string command{};
+    int method = 2;
 };
 
 struct InputDialogField {
@@ -1930,6 +1937,8 @@ struct BinderModule::Impl {
     std::vector<OutgoingGuard> outgoingGuards{};
     std::vector<IncomingChatEchoGuard> incomingChatEchoGuards{};
     std::vector<PendingBindTagAction> pendingBindTagActions{};
+    std::vector<PendingCommandDispatch> pendingCommandDispatches{};
+    std::vector<std::uint64_t> pendingSelfRestarts{};
 
     void EnsureInitialized();
     void OnProcessAttach(HMODULE moduleHandle);
@@ -2061,6 +2070,8 @@ struct BinderModule::Impl {
     bool ResumeRuntime(std::uint64_t runtimeId);
     bool StopRuntime(std::uint64_t runtimeId);
     BinderModule::TagActionResult ExecuteTagAction(std::string_view action, std::string_view param, std::uint64_t sourceRuntimeId);
+    void QueueSelfRestart(std::uint64_t runtimeId);
+    bool StartPendingSelfRestart(std::uint64_t runtimeId);
     RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId);
     const RunningBind* FindRunningBind(std::uint64_t hotkeyRuntimeId) const;
     RunningBind* FindRunningBindForHotkey(int index);
@@ -2073,6 +2084,7 @@ struct BinderModule::Impl {
     int StopAllHotkeys();
     void StopHotkeyByRuntimeId(std::uint64_t runtimeId);
     void ExecutePendingBindTagActions(std::uint64_t sourceRuntimeId);
+    void ExecutePendingCommandDispatches(std::uint64_t sourceRuntimeId);
     void StartRunningBind(
         const HotkeyEntry& hotkey,
         std::map<std::string, std::string> inputValues,
@@ -2089,6 +2101,9 @@ struct BinderModule::Impl {
     bool ConsumeIncomingChatEchoGuard(std::string_view normalizedText, std::string_view normalizedPrefixedText);
     std::string NormalizeActivationText(std::string_view text) const;
     bool MatchesActivationCommand(std::string_view input, std::string_view command) const;
+    bool HasCommandTriggerCandidate(const std::string& normalizedCommand, double now) const;
+    bool DispatchCommandTrigger(const std::string& normalizedCommand, int startDelayMs);
+    bool QueueCommandDispatchFromRunningBind(const std::string& normalizedCommand, std::uint64_t sourceRuntimeId, int method);
     bool TryBeginPendingConfirmation(
         HotkeyEntry& hotkey,
         std::string_view sourceKind,
@@ -2116,14 +2131,16 @@ struct BinderModule::Impl {
     BinderModule::TagActionResult ExecuteBindTagActionNow(
         BindTagAction action,
         const std::vector<int>& targetIndices,
-        std::string_view actionName);
+        std::string_view actionName,
+        std::uint64_t sourceRuntimeId = 0);
     std::string DescribeBindTagError(std::string_view actionName, std::string_view error) const;
     bool RequestBindLinesPopup(int index);
     std::string BuildInputValue(const InputDialogField& field) const;
     std::vector<int> FilterButtons(const InputDialogState& dialog, std::size_t fieldIndex) const;
     bool TryEnqueueHotkey(HotkeyEntry& hotkey, int startDelayMs, std::string_view source, const std::string& sourceText);
     bool TryEnqueueHotkey(int index, int startDelayMs, std::string_view source, const std::string& sourceText);
-    void DoSend(const std::string& text, int method);
+    void SendExpandedText(const std::string& expandedText, int method);
+    void DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId = 0);
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
     int MoveHotkeysFromFolderPath(const std::vector<std::string>& fromPath, const std::vector<std::string>& toPath);
     int DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath);
@@ -4191,6 +4208,8 @@ void BinderModule::Impl::Shutdown() {
     outgoingGuards.clear();
     incomingChatEchoGuards.clear();
     pendingBindTagActions.clear();
+    pendingCommandDispatches.clear();
+    pendingSelfRestarts.clear();
     ResetInputState();
 }
 
@@ -4590,10 +4609,10 @@ void BinderModule::Impl::ProcessRunningBinds() {
                     true,
                     running.hotkeyRuntimeId,
                 });
-                DoSend(finalText, message.method);
+                DoSend(finalText, message.method, currentRuntimeId);
                 tagsModule->PopContext();
             } else {
-                DoSend(finalText, message.method);
+                DoSend(finalText, message.method, currentRuntimeId);
             }
         }
 
@@ -4608,12 +4627,14 @@ void BinderModule::Impl::ProcessRunningBinds() {
         }
 
         ExecutePendingBindTagActions(currentRuntimeId);
+        ExecutePendingCommandDispatches(currentRuntimeId);
 
         const bool currentStillRunning = i < runningBinds.size() && runningBinds[i].hotkeyRuntimeId == currentRuntimeId;
         if (!hasNextMessage) {
             if (currentStillRunning) {
                 runningBinds.erase(runningBinds.begin() + static_cast<std::ptrdiff_t>(i));
             }
+            StartPendingSelfRestart(currentRuntimeId);
             continue;
         }
 
@@ -4722,6 +4743,31 @@ bool BinderModule::Impl::StopRuntime(std::uint64_t runtimeId) {
 
     StopHotkeyByRuntimeId(runtimeId);
     return true;
+}
+
+void BinderModule::Impl::QueueSelfRestart(std::uint64_t runtimeId) {
+    if (runtimeId == 0) {
+        return;
+    }
+    if (std::find(pendingSelfRestarts.begin(), pendingSelfRestarts.end(), runtimeId) != pendingSelfRestarts.end()) {
+        return;
+    }
+    pendingSelfRestarts.push_back(runtimeId);
+}
+
+bool BinderModule::Impl::StartPendingSelfRestart(std::uint64_t runtimeId) {
+    const auto it = std::find(pendingSelfRestarts.begin(), pendingSelfRestarts.end(), runtimeId);
+    if (it == pendingSelfRestarts.end()) {
+        return false;
+    }
+
+    pendingSelfRestarts.erase(it);
+    const int index = FindHotkeyIndexByRuntimeId(runtimeId);
+    if (index < 0) {
+        return false;
+    }
+
+    return TryEnqueueHotkey(index, kNestedBindStartDelayMs, "bind_tag", "[bindstart({thisbind})]");
 }
 
 std::vector<int> BinderModule::Impl::ResolveBindTagTargets(
@@ -5074,7 +5120,8 @@ bool BinderModule::Impl::RequestBindLinesPopup(int index) {
 BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
     BindTagAction action,
     const std::vector<int>& targetIndices,
-    std::string_view actionName) {
+    std::string_view actionName,
+    std::uint64_t sourceRuntimeId) {
     (void)actionName;
 
     BinderModule::TagActionResult result;
@@ -5154,6 +5201,18 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
     case BindTagAction::Start: {
         int changed = 0;
         for (const int index : targetIndices) {
+            if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+                continue;
+            }
+
+            if (sourceRuntimeId != 0
+                && hotkeys[static_cast<std::size_t>(index)].runtimeId == sourceRuntimeId
+                && FindRunningBind(sourceRuntimeId) != nullptr) {
+                QueueSelfRestart(sourceRuntimeId);
+                ++changed;
+                continue;
+            }
+
             if (TryEnqueueHotkey(index, 0, "bind_tag", std::string(actionName))) {
                 ++changed;
             }
@@ -5290,7 +5349,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
             return result;
         }
 
-        result = ExecuteBindTagActionNow(action, {}, actionName);
+        result = ExecuteBindTagActionNow(action, {}, actionName, sourceRuntimeId);
         if (!result.success && !result.error.empty()) {
             Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
         }
@@ -5323,7 +5382,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
         return result;
     }
 
-    result = ExecuteBindTagActionNow(action, targetIndices, actionName);
+    result = ExecuteBindTagActionNow(action, targetIndices, actionName, sourceRuntimeId);
     if (!result.success && !result.error.empty()) {
         if (action == BindTagAction::Ended) {
             result.value = "0";
@@ -5436,6 +5495,16 @@ void BinderModule::Impl::StopHotkeyByRuntimeId(std::uint64_t runtimeId) {
             return pending.sourceRuntimeId == runtimeId;
         }),
         pendingBindTagActions.end());
+
+    pendingCommandDispatches.erase(
+        std::remove_if(pendingCommandDispatches.begin(), pendingCommandDispatches.end(), [&](const PendingCommandDispatch& pending) {
+            return pending.sourceRuntimeId == runtimeId;
+        }),
+        pendingCommandDispatches.end());
+
+    pendingSelfRestarts.erase(
+        std::remove(pendingSelfRestarts.begin(), pendingSelfRestarts.end(), runtimeId),
+        pendingSelfRestarts.end());
 }
 
 bool BinderModule::Impl::StopHotkey(int index) {
@@ -5463,13 +5532,32 @@ void BinderModule::Impl::ExecutePendingBindTagActions(std::uint64_t sourceRuntim
 
     for (PendingBindTagAction& pending : localActions) {
         BinderModule::TagActionResult result =
-            ExecuteBindTagActionNow(pending.action, pending.targetIndices, pending.actionName);
+            ExecuteBindTagActionNow(pending.action, pending.targetIndices, pending.actionName, pending.sourceRuntimeId);
         if (!result.success && !result.error.empty()) {
             Notify(
                 NotificationGroup::TagErrors,
                 NotificationSeverity::Error,
                 DescribeBindTagError(pending.actionName, result.error),
                 2600.0);
+        }
+    }
+}
+
+void BinderModule::Impl::ExecutePendingCommandDispatches(std::uint64_t sourceRuntimeId) {
+    std::vector<PendingCommandDispatch> localDispatches;
+    for (std::size_t i = 0; i < pendingCommandDispatches.size();) {
+        if (pendingCommandDispatches[i].sourceRuntimeId != sourceRuntimeId) {
+            ++i;
+            continue;
+        }
+
+        localDispatches.push_back(std::move(pendingCommandDispatches[i]));
+        pendingCommandDispatches.erase(pendingCommandDispatches.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+
+    for (const PendingCommandDispatch& pending : localDispatches) {
+        if (!DispatchCommandTrigger(pending.command, kNestedBindStartDelayMs)) {
+            SendExpandedText(pending.command, pending.method);
         }
     }
 }
@@ -5636,6 +5724,77 @@ bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::s
             || std::isspace(static_cast<unsigned char>(normalizedInput[normalizedCommand.size()])) != 0);
 }
 
+bool BinderModule::Impl::HasCommandTriggerCandidate(const std::string& normalizedCommand, double now) const {
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        const HotkeyEntry& hotkey = hotkeys[i];
+        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
+            continue;
+        }
+        if (!MatchesActivationCommand(normalizedCommand, hotkey.command)) {
+            continue;
+        }
+        if (IsHotkeyRunning(static_cast<int>(i))) {
+            continue;
+        }
+        if (now < hotkey.debounceUntilMs) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool BinderModule::Impl::DispatchCommandTrigger(const std::string& normalizedCommand, int startDelayMs) {
+    const double now = static_cast<double>(GetTickCount64());
+    bool handled = false;
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        HotkeyEntry& hotkey = hotkeys[i];
+        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
+            continue;
+        }
+        if (!MatchesActivationCommand(normalizedCommand, hotkey.command)) {
+            continue;
+        }
+        if (IsHotkeyRunning(static_cast<int>(i))) {
+            continue;
+        }
+        if (now < hotkey.debounceUntilMs) {
+            continue;
+        }
+        hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
+        handled = true;
+        if (hotkey.commandConfirmation.enabled
+            && TryBeginPendingConfirmation(hotkey, "command", normalizedCommand, hotkey.commandConfirmation.waitForResolution)) {
+            continue;
+        }
+        TryEnqueueHotkey(static_cast<int>(i), startDelayMs, "command", normalizedCommand);
+    }
+    return handled;
+}
+
+bool BinderModule::Impl::QueueCommandDispatchFromRunningBind(
+    const std::string& command,
+    std::uint64_t sourceRuntimeId,
+    int method) {
+    std::string normalizedCommand = NormalizeActivationText(command);
+    if (!normalizedCommand.empty() && normalizedCommand.front() != '/') {
+        normalizedCommand.insert(normalizedCommand.begin(), '/');
+    }
+    if (sourceRuntimeId == 0 || normalizedCommand.empty() || normalizedCommand.front() != '/') {
+        return false;
+    }
+    if (!HasCommandTriggerCandidate(normalizedCommand, static_cast<double>(GetTickCount64()))) {
+        return false;
+    }
+
+    pendingCommandDispatches.push_back(PendingCommandDispatch{
+        sourceRuntimeId,
+        normalizedCommand,
+        method,
+    });
+    return true;
+}
+
 bool BinderModule::Impl::TryBeginPendingConfirmation(
     HotkeyEntry& hotkey,
     std::string_view sourceKind,
@@ -5683,29 +5842,7 @@ bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
         handled = OnTextTriggerEvent(normalized, "outgoing_command");
     }
 
-    const double now = static_cast<double>(GetTickCount64());
-    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
-        HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
-            continue;
-        }
-        if (!MatchesActivationCommand(normalized, hotkey.command)) {
-            continue;
-        }
-        if (IsHotkeyRunning(static_cast<int>(i))) {
-            continue;
-        }
-        if (now < hotkey.debounceUntilMs) {
-            continue;
-        }
-        hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
-        handled = true;
-        if (hotkey.commandConfirmation.enabled
-            && TryBeginPendingConfirmation(hotkey, "command", normalized, hotkey.commandConfirmation.waitForResolution)) {
-            continue;
-        }
-        TryEnqueueHotkey(static_cast<int>(i), 0, "command", normalized);
-    }
+    handled = DispatchCommandTrigger(normalized, 0) || handled;
     return handled;
 }
 
@@ -6096,14 +6233,9 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     return true;
 }
 
-void BinderModule::Impl::DoSend(const std::string& text, int method) {
-    const auto expandWithTags = [&](std::string_view source) {
-        return tagsModule ? tagsModule->ExpandText(source) : std::string(source);
-    };
-
+void BinderModule::Impl::SendExpandedText(const std::string& expandedText, int method) {
     switch (method) {
     case 0: {
-        const std::string expandedText = expandWithTags(text);
         const std::string decoratedText = DecorateDialogLocalChatText(expandedText, sampApi);
         const auto [messageText, color] = ParseLeadingChatColor(decoratedText);
         if (!sampApi || !sampApi->memoryAddMessageSamp(messageText, color, true)) {
@@ -6113,7 +6245,6 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
     }
     case 1:
     {
-        const std::string expandedText = expandWithTags(text);
         RegisterOutgoingGuard(!expandedText.empty() && expandedText.front() == '/' ? "command" : "chat", expandedText);
         RegisterOutgoingGuard("echo", NormalizeTriggerText(expandedText));
         if (!sampApi || !sampApi->process_chat_input(expandedText, true)) {
@@ -6123,7 +6254,6 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
     }
     case 2:
     {
-        const std::string expandedText = expandWithTags(text);
         const auto previewText = [](std::string_view value) {
             constexpr std::size_t kMaxPreviewLength = 96;
             if (value.size() <= kMaxPreviewLength) {
@@ -6160,33 +6290,32 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
         break;
     }
     case 3:
-        static_cast<void>(expandWithTags(text));
         break;
     case 4:
-        if (!sampApi || !sampApi->Set_ChatInputText(text, false, true)) {
+        if (!sampApi || !sampApi->Set_ChatInputText(expandedText, false, true)) {
             Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertChatFailed), 2500.0);
         }
         break;
     case 5:
-        if (!sampApi || !sampApi->Set_ChatInputText(text, true, true)) {
+        if (!sampApi || !sampApi->Set_ChatInputText(expandedText, true, true)) {
             Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastOpenChatFailed), 2500.0);
         }
         break;
     case 6:
-        if (!sampApi || !sampApi->sampSetDialogEditboxText(text, true)) {
+        if (!sampApi || !sampApi->sampSetDialogEditboxText(expandedText, true)) {
             Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), 2500.0);
         }
         break;
     case 7:
-        if (!SetClipboardUtf8Text(expandWithTags(text))) {
+        if (!SetClipboardUtf8Text(expandedText)) {
             Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastClipboardFailed), 2500.0);
         }
         break;
     case 8:
-        debuglog::WriteInfo("Binder log: %s", expandWithTags(text).c_str());
+        debuglog::WriteInfo("Binder log: %s", expandedText.c_str());
         break;
     case 9:
-        ShowUserPopup(expandWithTags(text), 2200.0);
+        ShowUserPopup(expandedText, 2200.0);
         break;
     default:
         Notify(
@@ -6196,6 +6325,30 @@ void BinderModule::Impl::DoSend(const std::string& text, int method) {
             2500.0);
         break;
     }
+}
+
+void BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId) {
+    const bool expandTags = method == 0 || method == 1 || method == 2 || method == 3 || method == 7 || method == 8 || method == 9;
+    const std::string expandedText = expandTags && tagsModule ? tagsModule->ExpandText(text) : text;
+
+    if ((method == 1 || method == 2)
+        && !expandedText.empty()
+        && expandedText.front() == '/'
+        && QueueCommandDispatchFromRunningBind(expandedText, sourceRuntimeId, method)) {
+        if (method == 2) {
+            constexpr std::size_t kMaxPreviewLength = 96;
+            const std::string preview = expandedText.size() <= kMaxPreviewLength
+                ? expandedText
+                : std::string(expandedText.substr(0, kMaxPreviewLength - 3)) + "...";
+            debuglog::WriteInfo(
+                "Binder DoSend local command dispatch queued len=%llu text=%s",
+                static_cast<unsigned long long>(expandedText.size()),
+                preview.c_str());
+        }
+        return;
+    }
+
+    SendExpandedText(expandedText, method);
 }
 
 int BinderModule::Impl::RemapHotkeysFolderPrefix(
@@ -8922,6 +9075,9 @@ void BinderModule::Impl::DrawEditorInline() {
             ImGui::SameLine();
             ImGui::BeginDisabled(!editor.draft.textTrigger.enabled);
             ToggleChip(ui_icons::BracketsCurly, ui.Text(UiText::EditorTogglePattern), "##binder_editor_trigger_pattern", editor.draft.textTrigger.pattern, ScaleUi(118.0f));
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("%s", ui.Text(UiText::EditorTriggerPatternTooltip));
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             InputTextWithHintString(
