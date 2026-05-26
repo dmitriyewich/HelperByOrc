@@ -49,6 +49,8 @@ public:
     void ReloadConfig();
 
     std::string GetThisbindTagValue(std::uint64_t runtimeId) const;
+    std::string GetThisbindNameTagValue(std::uint64_t runtimeId) const;
+    std::string GetThisbindFolderTagValue(std::uint64_t runtimeId) const;
     std::string GetThiscategoryTagValue(std::uint64_t runtimeId) const;
     bool IsRuntimeActive(std::uint64_t runtimeId) const;
     bool IsRuntimePaused(std::uint64_t runtimeId) const;

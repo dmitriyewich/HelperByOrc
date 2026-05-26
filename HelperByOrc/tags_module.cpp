@@ -2336,6 +2336,33 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "thisbindselector",
+        "{thisbindselector}",
+        "{thisbindselector}",
+        UiText::TagsBuiltinThisbindSelectorDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinThisbindTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "thisbindname",
+        "{thisbindname}",
+        "{thisbindname}",
+        UiText::TagsBuiltinThisbindNameDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinThisbindNameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "thisbindfolder",
+        "{thisbindfolder}",
+        "{thisbindfolder}",
+        UiText::TagsBuiltinThisbindFolderDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinThisbindFolderTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "thiscategory",
         "{thiscategory}",
         "{thiscategory}",
@@ -2851,7 +2878,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "ifandor",
         "[ifandor(...)]",
-        "[ifandor({id}==74?[bindstart(\"10\" \"folder\")]:[bindstart(\"11\" \"folder\")])]",
+        "[ifandor({id}==74?[bindstart(30)]:[bindstart(\"fb\" \"\")])]",
         UiText::TagsBuiltinIfAndOrDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int depth) {
             return module.ResolveBuiltinIfAndOrFunctionTag(param, context, depth);
@@ -2968,7 +2995,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "binddisable",
         "[binddisable(...)]",
-        "[binddisable({thisbind})]",
+        "[binddisable(30)]",
         UiText::TagsBuiltinBindDisableDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("disable", param, context);
@@ -2977,7 +3004,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindenable",
         "[bindenable(...)]",
-        "[bindenable(\"10\" \"folder\")]",
+        "[bindenable(\"fb\" \"\" \"Основные\")]",
         UiText::TagsBuiltinBindEnableDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("enable", param, context);
@@ -2986,7 +3013,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindstart",
         "[bindstart(...)]",
-        "[bindstart(\"10\" \"folder\")]",
+        "[bindstart(30)]",
         UiText::TagsBuiltinBindStartDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("start", param, context);
@@ -3022,7 +3049,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindfastmenu",
         "[bindfastmenu(...)]",
-        "[bindfastmenu(\"10\" \"folder\")]",
+        "[bindfastmenu(\"fb\" \"\")]",
         UiText::TagsBuiltinBindFastMenuDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("fastmenu", param, context);
@@ -3031,7 +3058,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindunfastmenu",
         "[bindunfastmenu(...)]",
-        "[bindunfastmenu(\"10\" \"folder\")]",
+        "[bindunfastmenu(\"fb\" \"\")]",
         UiText::TagsBuiltinBindUnfastMenuDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("unfastmenu", param, context);
@@ -3040,7 +3067,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindrandom",
         "[bindrandom(...)]",
-        "[bindrandom(\"folder\")]",
+        "[bindrandom(\"Команды/Фрапс\" \"Основные\")]",
         UiText::TagsBuiltinBindRandomDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("random", param, context);
@@ -3058,7 +3085,7 @@ void TagsModule::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindpopup",
         "[bindpopup(...)]",
-        "[bindpopup(\"10\" \"folder\")]",
+        "[bindpopup(\"№30 fb\")]",
         UiText::TagsBuiltinBindPopupDescription,
         [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("popup", param, context);
@@ -3837,6 +3864,20 @@ std::optional<std::string> TagsModule::ResolveBuiltinThisbindTag(const Evaluatio
     return binderModule_->GetThisbindTagValue(context.runningBindRuntimeId);
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinThisbindNameTag(const EvaluationContext& context) const {
+    if (!binderModule_ || context.runningBindRuntimeId == 0) {
+        return std::string();
+    }
+    return binderModule_->GetThisbindNameTagValue(context.runningBindRuntimeId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinThisbindFolderTag(const EvaluationContext& context) const {
+    if (!binderModule_ || context.runningBindRuntimeId == 0) {
+        return std::string();
+    }
+    return binderModule_->GetThisbindFolderTagValue(context.runningBindRuntimeId);
+}
+
 std::optional<std::string> TagsModule::ResolveBuiltinThiscategoryTag(const EvaluationContext& context) const {
     if (!binderModule_ || context.runningBindRuntimeId == 0) {
         return std::string();
@@ -3845,7 +3886,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinThiscategoryTag(const Evalu
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const {
-    if (!context.allowSideEffects || !binderModule_) {
+    if (!context.allowSideEffects || !binderModule_ || context.runningBindRuntimeId == 0) {
         return std::string();
     }
     static_cast<void>(binderModule_->ExecuteTagAction("stopall", {}, context.runningBindRuntimeId));
@@ -5183,16 +5224,20 @@ std::optional<std::string> TagsModule::ResolveBinderActionFunctionTag(
     std::string_view action,
     std::string_view param,
     const EvaluationContext& context) const {
+    const bool isPureCheck = action == "ended";
     if (!binderModule_) {
-        return action == "ended" ? std::string("0") : std::string();
+        return isPureCheck ? std::string("0") : std::string();
     }
-    if (!context.allowSideEffects && action != "ended") {
+    if (context.runningBindRuntimeId == 0) {
+        return isPureCheck ? std::string("0") : std::string();
+    }
+    if (!context.allowSideEffects && !isPureCheck) {
         return std::string();
     }
 
     const BinderModule::TagActionResult result =
         binderModule_->ExecuteTagAction(action, param, context.runningBindRuntimeId);
-    if (action == "ended") {
+    if (isPureCheck) {
         return result.value.empty() ? std::string("0") : result.value;
     }
     return result.value;
