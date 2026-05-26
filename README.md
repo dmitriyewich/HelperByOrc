@@ -6,6 +6,20 @@
 
 ---
 
+## Скриншоты
+
+![HelperByOrc - Binder](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/binder-list.png)
+
+![HelperByOrc - быстрое меню](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/quick-menu.png)
+
+![HelperByOrc - Блокнот](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/notepad-preview.png)
+
+![HelperByOrc - HUD](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/hud-editor.png)
+
+![HelperByOrc - игнорирование сообщений](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/unwanted-rules.png)
+
+---
+
 ## Возможности
 
 - Бинды на клавиши и комбинации.
