@@ -18,6 +18,7 @@ inline constexpr std::uint8_t DialogResponse = 62;
 inline constexpr std::uint8_t ClientMessage = 93;
 inline constexpr std::uint8_t ServerCommand = 50;
 inline constexpr std::uint8_t Chat = 101;
+inline constexpr std::uint8_t ChatBubble = 59;
 
 } // namespace SampRpcIds
 
@@ -25,6 +26,9 @@ class SampRakHooks {
 public:
     using RawRpcHandler = std::function<bool(std::uint8_t, RakNetBitStreamView&)>;
     using RawPacketHandler = std::function<bool(std::uint8_t, RakNetBitStreamView&)>;
+    using ServerMessageFilter = std::function<bool(std::int32_t, const std::string&)>;
+    using PlayerChatFilter = std::function<bool(std::uint16_t, const std::string&, const std::string&)>;
+    using ChatBubbleFilter = std::function<bool(std::uint16_t, const std::string&, std::uint32_t, float, std::uint32_t, const std::string&)>;
     using ServerMessageHandler = std::function<bool(std::int32_t&, std::string&)>;
     using ShowDialogHandler = std::function<bool(std::uint16_t&, std::uint8_t&, std::string&, std::string&, std::string&, std::string&)>;
     using SendCommandHandler = std::function<bool(std::string&)>;
@@ -50,6 +54,9 @@ public:
     void AddOnSendPacketHandler(RawPacketHandler handler);
     void AddOnReceiveRpcHandler(RawRpcHandler handler);
     void AddOnReceivePacketHandler(RawPacketHandler handler);
+    void AddServerMessageFilter(ServerMessageFilter handler);
+    void AddPlayerChatFilter(PlayerChatFilter handler);
+    void AddChatBubbleFilter(ChatBubbleFilter handler);
     void AddOnServerMessageHandler(ServerMessageHandler handler);
     void AddOnShowDialogHandler(ShowDialogHandler handler);
     void AddOnSendCommandHandler(SendCommandHandler handler);
@@ -91,6 +98,8 @@ private:
     bool DispatchSendChat(RakNetBitStreamView& view);
     bool DispatchSendDialogResponse(RakNetBitStreamView& view);
     bool DispatchServerMessage(RakNetBitStreamView& view);
+    bool DispatchPlayerChat(RakNetBitStreamView& view);
+    bool DispatchChatBubble(RakNetBitStreamView& view);
     bool DispatchShowDialog(RakNetBitStreamView& view);
 
     void AppendLog(const char* format, ...);
@@ -127,6 +136,9 @@ private:
     std::vector<RawPacketHandler> onSendPacketHandlers_;
     std::vector<RawRpcHandler> onReceiveRpcHandlers_;
     std::vector<RawPacketHandler> onReceivePacketHandlers_;
+    std::vector<ServerMessageFilter> serverMessageFilters_;
+    std::vector<PlayerChatFilter> playerChatFilters_;
+    std::vector<ChatBubbleFilter> chatBubbleFilters_;
     std::vector<ServerMessageHandler> onServerMessageHandlers_;
     std::vector<ShowDialogHandler> onShowDialogHandlers_;
     std::vector<SendCommandHandler> onSendCommandHandlers_;

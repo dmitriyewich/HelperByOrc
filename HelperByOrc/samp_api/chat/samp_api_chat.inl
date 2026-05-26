@@ -687,14 +687,14 @@ bool SampApi::memoryAddMessageSamp(std::string_view text, std::uint32_t color, b
     }
 
     std::uint32_t chat = 0;
-    const auto address = GetAddress(main_offsets.AddChatMessage);
+    const auto address = GetAddress(main_offsets.AddMessage);
     if (!ResolveChat(chat) || chat == 0 || address == 0) {
         SetError("SAMP chat pointer is null");
         return false;
     }
 
-    const auto addMessage = reinterpret_cast<AddChatMessageFn>(address);
-    if (!CallAddChatMessage(addMessage, reinterpret_cast<void*>(chat), color, gameText.c_str())) {
+    const auto addMessage = reinterpret_cast<AddMessageFn>(address);
+    if (!CallAddMessage(addMessage, reinterpret_cast<void*>(chat), color, gameText.c_str())) {
         SetError("Failed to add chat message to SAMP");
         return false;
     }

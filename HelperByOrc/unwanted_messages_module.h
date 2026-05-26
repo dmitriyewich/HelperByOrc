@@ -1,0 +1,145 @@
+#pragma once
+
+#include "json_utils.h"
+
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <regex>
+#include <set>
+#include <string>
+#include <string_view>
+#include <vector>
+
+enum class UnwantedMessageSource {
+    CChatAddEntry,
+    CChatAddMessage,
+    CChatAddChatMessage,
+    RakClientMessage,
+    RakChat,
+    RakChatBubble,
+};
+
+struct UnwantedMessageContext {
+    UnwantedMessageSource source = UnwantedMessageSource::CChatAddEntry;
+    int chatType = -1;
+    int playerId = -1;
+    std::string playerName;
+    std::string text;
+    std::string prefix;
+    std::uint32_t textColor = 0;
+    std::uint32_t prefixColor = 0;
+};
+
+class UnwantedMessagesModule {
+public:
+    enum class RuleType {
+        Literal,
+        Regex,
+    };
+
+    void OnProcessAttach();
+    void Shutdown();
+    void ReloadConfig();
+
+    bool ShouldBlock(const UnwantedMessageContext& context);
+
+    bool IsMiscPageOpen() const;
+    bool DrawMiscCard();
+    void DrawMainPage();
+
+private:
+    struct NormalizerSettings {
+        bool stripColors = false;
+        bool collapseWhitespace = false;
+        bool trim = false;
+    };
+
+    struct Settings {
+        bool enabled = true;
+        NormalizerSettings normalizer{};
+        int maxPatternLength = 2048;
+    };
+
+    struct Rule {
+        std::string id;
+        bool enabled = true;
+        RuleType type = RuleType::Literal;
+        std::string text;
+        bool nocase = false;
+        bool wholeWord = false;
+        std::string error;
+        std::optional<std::regex> compiledRegex;
+    };
+
+    struct MatchResult {
+        bool matched = false;
+        std::string ruleId;
+        std::string ruleText;
+        std::string candidate;
+        UnwantedMessageSource source = UnwantedMessageSource::CChatAddEntry;
+    };
+
+    jsonutil::JsonValue SerializeConfig() const;
+    void LoadFromConfig(const jsonutil::JsonObject& section);
+    void SaveConfig() const;
+    void CompileRules();
+    std::string AllocateRuleId();
+
+    std::vector<std::string> BuildCandidates(const UnwantedMessageContext& context) const;
+    std::string NormalizeCandidate(std::string_view text) const;
+    bool MatchCandidates(const std::vector<std::string>& candidates, UnwantedMessageSource source, MatchResult* result) const;
+    bool MatchRule(const Rule& rule, std::string_view candidate) const;
+    bool MatchLiteral(const Rule& rule, std::string_view candidate) const;
+
+    void DrawToolbar();
+    void DrawNormalizerControls();
+    void DrawRulesList();
+    void DrawAddRule();
+    void DrawTester();
+    void DrawRegexHelper();
+    void DrawStats() const;
+
+    void AddRule(RuleType type, std::string text, bool nocase, bool wholeWord);
+    void DeleteRuleByIndex(std::size_t index);
+    void DeleteSelectedRules();
+    void SetAllRulesEnabled(bool enabled);
+    void SetSelectedRulesEnabled(bool enabled);
+    void RemoveDuplicateRules();
+    void SortRulesByType();
+    void SortRulesByText();
+    bool IsRuleSelected(std::string_view id) const;
+    void SetRuleSelected(std::string_view id, bool selected);
+    void ClearSelection();
+    void SelectAllRules();
+
+    std::string GenerateExactRegex(std::string_view sample) const;
+    std::string GenerateGeneralizedRegex(std::string_view sample) const;
+
+    mutable std::mutex mutex_;
+    Settings settings_{};
+    std::vector<Rule> rules_{};
+    std::uint64_t nextRuleSerial_ = 1;
+    bool miscPageOpen_ = false;
+    std::set<std::string, std::less<>> selectedRuleIds_{};
+
+    std::uint64_t blockedCount_ = 0;
+    MatchResult lastBlocked_{};
+    MatchResult lastTesterMatch_{};
+
+    std::string newRuleText_{};
+    bool newRuleIsRegex_ = false;
+    bool newRuleNoCase_ = false;
+    bool newRuleWholeWord_ = false;
+    std::string testText_{};
+    std::string helperSample_{};
+    bool helperAnchors_ = true;
+    bool helperColors_ = true;
+    bool helperNumbers_ = true;
+    bool helperMoney_ = true;
+    bool helperTime_ = true;
+    bool helperNick_ = true;
+    bool helperBracketTag_ = true;
+    std::string helperExact_{};
+    std::string helperGeneralized_{};
+};

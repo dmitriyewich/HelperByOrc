@@ -33,6 +33,14 @@ void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, c
     if (self_ && self_->installed_) {
         const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
         const std::string prefixUtf8 = textencoding::GameToUtf8(prefix ? prefix : "");
+        if (cchatForwardDepth_ == 0) {
+            for (const auto& filter : self_->chatMessageFilters_) {
+                if (!filter(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor)) {
+                    return;
+                }
+            }
+        }
+
         self_->AppendLog(
             "AddEntry type=%d prefix=%s text=%s color=%08lX prefixColor=%08lX",
             type,
@@ -47,6 +55,49 @@ void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, c
 
     if (self_ && self_->chatAddEntryOriginal_) {
         self_->chatAddEntryOriginal_(chat, type, text, prefix, textColor, prefixColor);
+    }
+}
+
+void __fastcall SampHooks::ChatAddMessageDetour(void* chat, void* edx, unsigned long color, const char* text) {
+    UNREFERENCED_PARAMETER(edx);
+
+    if (self_ && self_->installed_) {
+        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        if (cchatForwardDepth_ == 0) {
+            for (const auto& filter : self_->chatMessageFilters_) {
+                if (!filter(ChatMessageSource::AddMessage, 4, textUtf8, std::string(), color, 0)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    if (self_ && self_->chatAddMessageOriginal_) {
+        ++cchatForwardDepth_;
+        self_->chatAddMessageOriginal_(chat, color, text);
+        --cchatForwardDepth_;
+    }
+}
+
+void __fastcall SampHooks::ChatAddChatMessageDetour(void* chat, void* edx, const char* prefix, unsigned long prefixColor, const char* text) {
+    UNREFERENCED_PARAMETER(edx);
+
+    if (self_ && self_->installed_) {
+        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        const std::string prefixUtf8 = textencoding::GameToUtf8(prefix ? prefix : "");
+        if (cchatForwardDepth_ == 0) {
+            for (const auto& filter : self_->chatMessageFilters_) {
+                if (!filter(ChatMessageSource::AddChatMessage, 2, textUtf8, prefixUtf8, 0, prefixColor)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    if (self_ && self_->chatAddChatMessageOriginal_) {
+        ++cchatForwardDepth_;
+        self_->chatAddChatMessageOriginal_(chat, prefix, prefixColor, text);
+        --cchatForwardDepth_;
     }
 }
 
@@ -246,6 +297,12 @@ void SampHooks::AddOnChatMessageHandler(ChatMessageHandler handler) {
     }
 }
 
+void SampHooks::AddChatMessageFilter(ChatMessageFilter handler) {
+    if (handler) {
+        chatMessageFilters_.push_back(std::move(handler));
+    }
+}
+
 void SampHooks::AddOnSendCommandHandler(SendCommandHandler handler) {
     if (handler) {
         onSendCommandHandlers_.push_back(std::move(handler));
@@ -288,6 +345,8 @@ bool SampHooks::Install() {
     const auto version = sampApi_->currentVersion();
 
     const std::uintptr_t addEntryTarget = sampBase + SampApi::main_offsets.AddEntry.Get(version);
+    const std::uintptr_t addMessageTarget = sampBase + SampApi::main_offsets.AddMessage.Get(version);
+    const std::uintptr_t addChatMessageTarget = sampBase + SampApi::main_offsets.AddChatMessage.Get(version);
     const std::uintptr_t dialogShowTarget = sampBase + SampApi::main_offsets.CDialog_Show.Get(version);
     const std::uintptr_t dialogCloseTarget = sampBase + SampApi::main_offsets.CDialog_Close.Get(version);
     const std::uintptr_t inputSendTarget = sampBase + SampApi::main_offsets.CInput_Send.Get(version);
@@ -298,6 +357,8 @@ bool SampHooks::Install() {
 
     debuglog::WriteInfo("SampHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
     debuglog::WriteInfo("SampHooks: addEntryTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addEntryTarget), static_cast<unsigned>(addEntryTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: addMessageTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addMessageTarget), static_cast<unsigned>(addMessageTarget - sampBase));
+    debuglog::WriteInfo("SampHooks: addChatMessageTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addChatMessageTarget), static_cast<unsigned>(addChatMessageTarget - sampBase));
     debuglog::WriteInfo("SampHooks: dialogShowTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogShowTarget), static_cast<unsigned>(dialogShowTarget - sampBase));
     debuglog::WriteInfo("SampHooks: dialogCloseTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogCloseTarget), static_cast<unsigned>(dialogCloseTarget - sampBase));
     debuglog::WriteInfo("SampHooks: inputSendTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendTarget), static_cast<unsigned>(inputSendTarget - sampBase));
@@ -306,7 +367,8 @@ bool SampHooks::Install() {
     debuglog::WriteInfo("SampHooks: inputHotkeyHandlerTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputHotkeyHandlerTarget), static_cast<unsigned>(inputHotkeyHandlerTarget - sampBase));
     debuglog::WriteInfo("SampHooks: damageTarget=0x%08X", static_cast<unsigned>(damageTarget));
 
-    if (addEntryTarget == sampBase || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
+    if (addEntryTarget == sampBase || addMessageTarget == sampBase || addChatMessageTarget == sampBase
+        || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
         || inputSendTarget == sampBase || inputSendSayTarget == sampBase
         || hotkeyDispatcherTarget == sampBase || inputHotkeyHandlerTarget == sampBase) {
         statusText_ = "some hook offsets are missing for the detected SAMP version";
@@ -315,6 +377,8 @@ bool SampHooks::Install() {
     }
 
     chatAddEntryTarget_ = reinterpret_cast<void*>(addEntryTarget);
+    chatAddMessageTarget_ = reinterpret_cast<void*>(addMessageTarget);
+    chatAddChatMessageTarget_ = reinterpret_cast<void*>(addChatMessageTarget);
     dialogShowTarget_ = reinterpret_cast<void*>(dialogShowTarget);
     dialogCloseTarget_ = reinterpret_cast<void*>(dialogCloseTarget);
     inputSendTarget_ = reinterpret_cast<void*>(inputSendTarget);
@@ -332,6 +396,14 @@ bool SampHooks::Install() {
 
     if (!minhook::CreateAndEnableHook(chatAddEntryTarget_, reinterpret_cast<void*>(&ChatAddEntryDetour), &chatAddEntryOriginal_, "SampHooks::AddEntry")) {
         return failInstall("MinHook install failed for AddEntry", "SampHooks: MinHook install failed for AddEntry");
+    }
+
+    if (!minhook::CreateAndEnableHook(chatAddMessageTarget_, reinterpret_cast<void*>(&ChatAddMessageDetour), &chatAddMessageOriginal_, "SampHooks::AddMessage")) {
+        return failInstall("MinHook install failed for AddMessage", "SampHooks: MinHook install failed for AddMessage");
+    }
+
+    if (!minhook::CreateAndEnableHook(chatAddChatMessageTarget_, reinterpret_cast<void*>(&ChatAddChatMessageDetour), &chatAddChatMessageOriginal_, "SampHooks::AddChatMessage")) {
+        return failInstall("MinHook install failed for AddChatMessage", "SampHooks: MinHook install failed for AddChatMessage");
     }
 
     if (!minhook::CreateAndEnableHook(dialogShowTarget_, reinterpret_cast<void*>(&DialogShowDetour), &dialogShowOriginal_, "SampHooks::CDialog_Show")) {
@@ -372,6 +444,8 @@ bool SampHooks::Install() {
 void SampHooks::CleanupHooks() {
     debuglog::WriteInfo("SampHooks::CleanupHooks begin");
     minhook::DisableAndRemoveHook(chatAddEntryTarget_, "SampHooks::AddEntry");
+    minhook::DisableAndRemoveHook(chatAddMessageTarget_, "SampHooks::AddMessage");
+    minhook::DisableAndRemoveHook(chatAddChatMessageTarget_, "SampHooks::AddChatMessage");
     minhook::DisableAndRemoveHook(dialogShowTarget_, "SampHooks::CDialog_Show");
     minhook::DisableAndRemoveHook(dialogCloseTarget_, "SampHooks::CDialog_Close");
     minhook::DisableAndRemoveHook(inputSendTarget_, "SampHooks::CInput_Send");
@@ -381,6 +455,8 @@ void SampHooks::CleanupHooks() {
     minhook::DisableAndRemoveHook(applyDamageTarget_, "SampHooks::CDamageManager_ApplyDamage");
 
     chatAddEntryOriginal_ = nullptr;
+    chatAddMessageOriginal_ = nullptr;
+    chatAddChatMessageOriginal_ = nullptr;
     dialogShowOriginal_ = nullptr;
     dialogCloseOriginal_ = nullptr;
     inputSendOriginal_ = nullptr;

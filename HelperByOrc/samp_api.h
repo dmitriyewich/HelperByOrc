@@ -87,6 +87,7 @@ public:
         VersionedOffset CHAT_COLOR_OFFSET;
         VersionedOffset CHAT_PREFIX_COLOR_OFFSET;
         VersionedOffset AddChatMessage;
+        VersionedOffset AddMessage;
         VersionedOffset SAMP_CHAT_INPUT_INFO_OFFSET;
         VersionedOffset CInput_Opened;
         VersionedOffset OnResetDevice;
@@ -124,6 +125,10 @@ public:
         VersionedOffset RefScoreboard;
         VersionedOffset CScoreboardEnabled;
         VersionedOffset CNetGameState;
+        VersionedOffset RakHandleRpc;
+        VersionedOffset RakStringWriteEncoder;
+        VersionedOffset RakStringReadDecoder;
+        VersionedOffset RakCompressorPtr;
     };
 
     struct DialogPosition {

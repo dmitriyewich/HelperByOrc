@@ -21,6 +21,7 @@
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
 #include "tags_module.h"
+#include "unwanted_messages_module.h"
 
 enum class MainTab : std::uint8_t {
     Home = 0,
@@ -116,4 +117,5 @@ private:
     NotepadModule notepad_{};
     HudModule hud_{};
     TagsModule tags_{};
+    UnwantedMessagesModule unwanted_{};
 };

@@ -36,7 +36,8 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004 }, // CHAT_PREFIX_TEXT_OFFSET
     { 0x000000F4, 0x000000F4, 0x000000F4, 0x000000F4, 0x000000F4, 0x000000F4, 0x000000F4, 0x000000F4 }, // CHAT_COLOR_OFFSET
     { 0x000000F8, 0x000000F8, 0x000000F8, 0x000000F8, 0x000000F8, 0x000000F8, 0x000000F8, 0x000000F8 }, // CHAT_PREFIX_COLOR_OFFSET
-    { 0x000645A0, 0x00064670, 0x000679F0, 0x000679F0, 0x00068130, 0x00068070, 0x00068170, 0x00067BE0 }, // AddChatMessage
+    { 0x00064450, 0x00064520, 0x000678A0, 0x000678A0, 0x00067FE0, 0x00068020, 0x00068020, 0x00067A90 }, // AddChatMessage
+    { 0x000645A0, 0x00064670, 0x000679F0, 0x000679F0, 0x00068130, 0x00068170, 0x00068170, 0x00067BE0 }, // AddMessage
     { 0x21A0E8, 0x21A0F0, 0x26E8CC, 0x26E8CC, 0x26E9FC, 0x26E9FC, 0x26EB84, 0x2ACA14 }, // SAMP_CHAT_INPUT_INFO_OFFSET
     { 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0 }, // CInput_Opened (m_bEnabled / opened flag)
     { 0x00064600, 0x000646D0, 0x00067A50, 0x00067A50, 0x00068190, 0x000681D0, 0x000681D0, 0x00067C40 }, // OnResetDevice
@@ -74,6 +75,10 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x21A0B4, 0x21A0BC, 0x26E894, 0x26E894, 0x26E9C4, 0x26E9C4, 0x26EB4C, 0x2AC9DC }, // RefScoreboard
     { 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000 }, // CScoreboard::m_bIsEnabled
     { 0x000003BD, 0x000003B9, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD, 0x000003CD }, // CNetGame::m_nGameState
+    { 0x000372F0, 0x000373D0, 0x0003A6A0, 0x0003A6A0, 0x0003AD90, 0x0003ADE0, 0x0003ADE0, 0x0003A8A0 }, // RakNet incoming RPC handler
+    { 0x000506B0, 0x00050790, 0x00053A60, 0x00053A60, 0x00054150, 0x000541A0, 0x000541A0, 0x00053C60 }, // RakNet string write encoder
+    { 0x000507E0, 0x000508C0, 0x00053B90, 0x00053B90, 0x00054280, 0x000542D0, 0x000542D0, 0x00053D90 }, // RakNet string read decoder
+    { 0x0010D894, 0x0010D894, 0x00121914, 0x00121914, 0x00121A3C, 0x00121A3C, 0x00121A3C, 0x0015FA54 }, // RakNet string compressor pointer
 };
 
 std::uint32_t SampApi::VersionedOffset::Get(Version version) const {
@@ -346,6 +351,8 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
     logCodeBytes("InputHotkeyHandler", main_offsets.InputHotkeyHandler);
     logCodeBytes("AddEntry", main_offsets.AddEntry);
     logCodeBytes("AddChatMessage", main_offsets.AddChatMessage);
+    logCodeBytes("AddMessage", main_offsets.AddMessage);
+    logCodeBytes("RakHandleRpc", main_offsets.RakHandleRpc);
 }
 
 bool SampApi::IsSampReadyByFallback(std::string& reason) const {

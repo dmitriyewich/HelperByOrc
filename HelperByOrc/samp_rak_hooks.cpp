@@ -19,20 +19,6 @@ namespace {
 constexpr std::size_t kMaxLogEntries = 128;
 constexpr std::uint8_t kIdTimestamp = 40;
 
-struct RakOffsets {
-    SampApi::VersionedOffset handleRpc;
-    SampApi::VersionedOffset stringWriteEncoder;
-    SampApi::VersionedOffset stringReadDecoder;
-    SampApi::VersionedOffset compressorPtr;
-};
-
-const RakOffsets kRakOffsets = {
-    { 0x372F0, 0x373D0, 0x3A6A0, 0x3A6A0, 0x3AD90, 0x3ADE0, 0x3ADE0, 0x3A8A0 },
-    { 0x506B0, 0x50790, 0x53A60, 0x53A60, 0x54150, 0x541A0, 0x541A0, 0x53C60 },
-    { 0x507E0, 0x508C0, 0x53B90, 0x53B90, 0x54280, 0x542D0, 0x542D0, 0x53D90 },
-    { 0x10D894, 0x10D894, 0x121914, 0x121914, 0x121A3C, 0x121A3C, 0x121A3C, 0x15FA54 },
-};
-
 std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffset& offset, SampApi::Version version) {
     const std::uint32_t relative = offset.Get(version);
     if (!module || relative == 0) {
@@ -200,6 +186,24 @@ void SampRakHooks::AddOnReceivePacketHandler(RawPacketHandler handler) {
     }
 }
 
+void SampRakHooks::AddServerMessageFilter(ServerMessageFilter handler) {
+    if (handler) {
+        serverMessageFilters_.push_back(std::move(handler));
+    }
+}
+
+void SampRakHooks::AddPlayerChatFilter(PlayerChatFilter handler) {
+    if (handler) {
+        playerChatFilters_.push_back(std::move(handler));
+    }
+}
+
+void SampRakHooks::AddChatBubbleFilter(ChatBubbleFilter handler) {
+    if (handler) {
+        chatBubbleFilters_.push_back(std::move(handler));
+    }
+}
+
 void SampRakHooks::AddOnServerMessageHandler(ServerMessageHandler handler) {
     if (handler) {
         onServerMessageHandlers_.push_back(std::move(handler));
@@ -263,7 +267,7 @@ bool SampRakHooks::Install() {
     }
 
     const auto version = sampApi_->currentVersion();
-    const std::uintptr_t incomingRpcTarget = GetVersionedAddress(sampApi_->sampModule(), kRakOffsets.handleRpc, version);
+    const std::uintptr_t incomingRpcTarget = GetVersionedAddress(sampApi_->sampModule(), SampApi::main_offsets.RakHandleRpc, version);
     if (incomingRpcTarget == 0) {
         statusText_ = "Incoming RPC handler offset is missing";
         debuglog::WriteError("SampRakHooks install failed: incoming RPC handler offset is missing");
@@ -418,8 +422,12 @@ bool SampRakHooks::HandleIncomingRpcPayload(std::uint8_t rpcId, RakNetBitStreamV
 
     view.ResetReadPointer();
     switch (rpcId) {
+    case SampRpcIds::ChatBubble:
+        return DispatchChatBubble(view);
     case SampRpcIds::ClientMessage:
         return DispatchServerMessage(view);
+    case SampRpcIds::Chat:
+        return DispatchPlayerChat(view);
     case SampRpcIds::ShowDialog:
         return DispatchShowDialog(view);
     default:
@@ -508,6 +516,12 @@ bool SampRakHooks::DispatchServerMessage(RakNetBitStreamView& view) {
     }
 
     std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
+    for (const auto& filter : serverMessageFilters_) {
+        if (!filter(color, textUtf8)) {
+            return false;
+        }
+    }
+
     for (const auto& handler : onServerMessageHandlers_) {
         if (!handler(color, textUtf8)) {
             return false;
@@ -521,14 +535,61 @@ bool SampRakHooks::DispatchServerMessage(RakNetBitStreamView& view) {
     return true;
 }
 
+bool SampRakHooks::DispatchPlayerChat(RakNetBitStreamView& view) {
+    const std::uint16_t playerId = view.ReadUInt16();
+    std::string textCp1251;
+    if (!ReadString8(view, textCp1251)) {
+        return true;
+    }
+
+    const std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
+    const std::string playerName = sampApi_ ? sampApi_->GetNameID(playerId) : std::string("UNKNOWN");
+    for (const auto& filter : playerChatFilters_) {
+        if (!filter(playerId, playerName, textUtf8)) {
+            return false;
+        }
+    }
+
+    AppendLog("onPlayerChat id=%u name=%s text=%s", playerId, Truncate(playerName, 48).c_str(), Truncate(textUtf8, 96).c_str());
+    return true;
+}
+
+bool SampRakHooks::DispatchChatBubble(RakNetBitStreamView& view) {
+    const std::uint16_t playerId = view.ReadUInt16();
+    const std::uint32_t color = view.ReadUInt32();
+    const float drawDistance = view.ReadFloat();
+    const std::uint32_t durationMs = view.ReadUInt32();
+
+    std::string textCp1251;
+    if (!ReadString8(view, textCp1251)) {
+        return true;
+    }
+
+    const std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
+    const std::string playerName = sampApi_ ? sampApi_->GetNameID(playerId) : std::string("UNKNOWN");
+    for (const auto& filter : chatBubbleFilters_) {
+        if (!filter(playerId, playerName, color, drawDistance, durationMs, textUtf8)) {
+            return false;
+        }
+    }
+
+    AppendLog(
+        "onChatBubble id=%u name=%s color=%08X text=%s",
+        playerId,
+        Truncate(playerName, 48).c_str(),
+        color,
+        Truncate(textUtf8, 96).c_str());
+    return true;
+}
+
 bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
     if (!sampApi_ || !sampApi_->sampModule()) {
         return true;
     }
 
     const auto version = sampApi_->currentVersion();
-    const std::uintptr_t reader = GetVersionedAddress(sampApi_->sampModule(), kRakOffsets.stringReadDecoder, version);
-    const std::uintptr_t compressorPtrAddress = GetVersionedAddress(sampApi_->sampModule(), kRakOffsets.compressorPtr, version);
+    const std::uintptr_t reader = GetVersionedAddress(sampApi_->sampModule(), SampApi::main_offsets.RakStringReadDecoder, version);
+    const std::uintptr_t compressorPtrAddress = GetVersionedAddress(sampApi_->sampModule(), SampApi::main_offsets.RakCompressorPtr, version);
 
     std::uint32_t compressor = 0;
     if (reader == 0 || compressorPtrAddress == 0 || !SafeReadUInt32(compressorPtrAddress, compressor) || compressor == 0) {
@@ -560,7 +621,7 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
         }
     }
 
-    const std::uintptr_t writer = GetVersionedAddress(sampApi_->sampModule(), kRakOffsets.stringWriteEncoder, version);
+    const std::uintptr_t writer = GetVersionedAddress(sampApi_->sampModule(), SampApi::main_offsets.RakStringWriteEncoder, version);
     if (writer == 0) {
         return true;
     }

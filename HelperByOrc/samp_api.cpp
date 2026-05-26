@@ -47,7 +47,7 @@ using DialogCloseFn = void(__thiscall*)(void*, int);
 using InputOpenCloseFn = void(__thiscall*)(void*);
 using SendInputFn = void(__thiscall*)(void*, const char*);
 using ProcessInputFn = void(__thiscall*)(void*);
-using AddChatMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
+using AddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
 using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
@@ -1232,7 +1232,7 @@ bool CallSendInput(SendInputFn fn, void* target, const char* text) {
     }
 }
 
-bool CallAddChatMessage(AddChatMessageFn fn, void* chat, unsigned long color, const char* text) {
+bool CallAddMessage(AddMessageFn fn, void* chat, unsigned long color, const char* text) {
     __try {
         fn(chat, color, text);
         return true;

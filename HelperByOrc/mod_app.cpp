@@ -1088,6 +1088,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
     debuglog::WriteInfo("UI settings loaded (log_level=%s)", ToUiLogLevelName(UiSettings::Instance().LogLevel()));
     notifications_.LoadConfig();
+    unwanted_.OnProcessAttach();
     LoadShellState();
 
     tags_.SetSampApi(&sampApi_);
@@ -1097,6 +1098,26 @@ void ModApp::OnProcessAttach(HMODULE module) {
     sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     sampHooks_.SetHotkeyBlockCallback([this]() {
         return overlay_.IsTextInputActive();
+    });
+    sampHooks_.AddChatMessageFilter([this](
+                                        SampHooks::ChatMessageSource source,
+                                        int type,
+                                        const std::string& text,
+                                        const std::string& prefix,
+                                        std::uint32_t textColor,
+                                        std::uint32_t prefixColor) {
+        UnwantedMessageContext context;
+        context.source = source == SampHooks::ChatMessageSource::AddMessage
+            ? UnwantedMessageSource::CChatAddMessage
+            : source == SampHooks::ChatMessageSource::AddChatMessage
+            ? UnwantedMessageSource::CChatAddChatMessage
+            : UnwantedMessageSource::CChatAddEntry;
+        context.chatType = type;
+        context.text = text;
+        context.prefix = prefix;
+        context.textColor = textColor;
+        context.prefixColor = prefixColor;
+        return !unwanted_.ShouldBlock(context);
     });
     sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
         text = tags_.ExpandOutgoingText(text, "command", text);
@@ -1118,6 +1139,40 @@ void ModApp::OnProcessAttach(HMODULE module) {
             text = tags_.ExpandOutgoingText(text, "chat", text);
         }
         return true;
+    });
+    sampRakHooks_.AddServerMessageFilter([this](std::int32_t color, const std::string& text) {
+        UnwantedMessageContext context;
+        context.source = UnwantedMessageSource::RakClientMessage;
+        context.text = text;
+        context.textColor = static_cast<std::uint32_t>(color);
+        return !unwanted_.ShouldBlock(context);
+    });
+    sampRakHooks_.AddPlayerChatFilter([this](std::uint16_t playerId, const std::string& playerName, const std::string& text) {
+        UnwantedMessageContext context;
+        context.source = UnwantedMessageSource::RakChat;
+        context.playerId = playerId;
+        context.playerName = playerName;
+        context.text = text;
+        context.prefix = playerName;
+        return !unwanted_.ShouldBlock(context);
+    });
+    sampRakHooks_.AddChatBubbleFilter([this](
+                                          std::uint16_t playerId,
+                                          const std::string& playerName,
+                                          std::uint32_t color,
+                                          float drawDistance,
+                                          std::uint32_t durationMs,
+                                          const std::string& text) {
+        UNREFERENCED_PARAMETER(drawDistance);
+        UNREFERENCED_PARAMETER(durationMs);
+        UnwantedMessageContext context;
+        context.source = UnwantedMessageSource::RakChatBubble;
+        context.playerId = playerId;
+        context.playerName = playerName;
+        context.text = text;
+        context.prefix = playerName;
+        context.textColor = color;
+        return !unwanted_.ShouldBlock(context);
     });
     incomingMessageRouter_.SetSampHooks(&sampHooks_);
     incomingMessageRouter_.SetSampRakHooks(&sampRakHooks_);
@@ -1188,6 +1243,8 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("Notepad shutdown done");
     hud_.Shutdown();
     debuglog::WriteInfo("HUD shutdown done");
+    unwanted_.Shutdown();
+    debuglog::WriteInfo("Unwanted messages shutdown done");
     tags_.Shutdown();
     debuglog::WriteInfo("Tags shutdown done");
     AppConfig::Instance().Shutdown();
@@ -1473,6 +1530,7 @@ void ModApp::ReloadConfigAfterProfileChange() {
     debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
     LoadShellState();
     tags_.ReloadConfig();
+    unwanted_.ReloadConfig();
     binder_.ReloadConfig();
     notepad_.ReloadConfig();
     hud_.ReloadConfig();
@@ -1656,8 +1714,15 @@ void ModApp::DrawHudTab(IDirect3DDevice9* device) {
 }
 
 void ModApp::DrawMiscTab() {
+    if (unwanted_.IsMiscPageOpen()) {
+        unwanted_.DrawMainPage();
+        return;
+    }
+
     tags_.DrawMiscTab();
     if (tags_.IsMiscHomePage()) {
+        ImGui::Spacing();
+        unwanted_.DrawMiscCard();
         ImGui::Spacing();
         DrawGameFixesCard();
     }

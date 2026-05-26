@@ -117,6 +117,9 @@
     <ClCompile Include="ui_settings.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="unwanted_messages_module.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="user_files_path.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -242,6 +245,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_settings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="unwanted_messages_module.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_icons.h">
