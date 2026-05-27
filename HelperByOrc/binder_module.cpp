@@ -199,6 +199,91 @@ std::string NormalizeLineEndings(std::string_view value) {
     return result;
 }
 
+bool TryCalcIconMetrics(
+    const char* icon,
+    ImFont* font,
+    const float fontSize,
+    ImVec2& glyphSize,
+    ImVec2& glyphCenter) {
+    if (!icon || !font || fontSize <= 0.0f) {
+        return false;
+    }
+
+    ImWchar iconCodepoint = 0;
+    if (!DecodeFirstUtf8Codepoint(icon, iconCodepoint)) {
+        return false;
+    }
+
+    ImFontBaked* bakedFont = font->GetFontBaked(fontSize);
+    if (!bakedFont) {
+        return false;
+    }
+
+    const ImFontGlyph* glyph = bakedFont->FindGlyphNoFallback(iconCodepoint);
+    if (!glyph) {
+        return false;
+    }
+
+    const float glyphScale = fontSize / std::max(1.0f, bakedFont->Size);
+    glyphSize = ImVec2(
+        (glyph->X1 - glyph->X0) * glyphScale,
+        (glyph->Y1 - glyph->Y0) * glyphScale);
+    glyphCenter = ImVec2(
+        (glyph->X0 + glyph->X1) * glyphScale * 0.5f,
+        (glyph->Y0 + glyph->Y1) * glyphScale * 0.5f);
+    return true;
+}
+
+void DrawCenteredIconGlyph(
+    ImDrawList* drawList,
+    const char* icon,
+    const ImRect& rect,
+    const ImU32 color,
+    float preferredFontSize = 0.0f) {
+    if (!drawList || !icon || icon[0] == '\0') {
+        return;
+    }
+
+    ImFont* font = ImGui::GetFont();
+    float fontSize = preferredFontSize > 0.0f ? preferredFontSize : ImGui::GetFontSize();
+    fontSize = std::max(1.0f, fontSize);
+
+    ImVec2 glyphSize{};
+    ImVec2 glyphCenter{};
+    bool hasGlyphMetrics = TryCalcIconMetrics(icon, font, fontSize, glyphSize, glyphCenter);
+    if (hasGlyphMetrics) {
+        const float padding = std::max(1.0f, std::floor(rect.GetHeight() * 0.12f));
+        const ImVec2 maxGlyphSize(
+            std::max(1.0f, rect.GetWidth() - padding * 2.0f),
+            std::max(1.0f, rect.GetHeight() - padding * 2.0f));
+        const float fitScale = std::min(
+            1.0f,
+            std::min(maxGlyphSize.x / std::max(1.0f, glyphSize.x), maxGlyphSize.y / std::max(1.0f, glyphSize.y)));
+        if (fitScale < 1.0f) {
+            fontSize = std::max(1.0f, std::floor(fontSize * fitScale));
+            hasGlyphMetrics = TryCalcIconMetrics(icon, font, fontSize, glyphSize, glyphCenter);
+        }
+    }
+
+    ImVec2 iconPos{};
+    if (hasGlyphMetrics) {
+        const ImVec2 rectCenter(
+            rect.Min.x + rect.GetWidth() * 0.5f,
+            rect.Min.y + rect.GetHeight() * 0.5f);
+        iconPos.x = std::floor(rectCenter.x - glyphCenter.x + 0.5f);
+        iconPos.y = std::floor(rectCenter.y - glyphCenter.y + 0.5f);
+    } else {
+        const ImVec2 iconSize = font
+            ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, icon)
+            : ImGui::CalcTextSize(icon);
+        iconPos.x = std::floor(rect.Min.x + (rect.GetWidth() - iconSize.x) * 0.5f + 0.5f);
+        iconPos.y = std::floor(rect.Min.y + (rect.GetHeight() - iconSize.y) * 0.5f + 0.5f);
+    }
+
+    const ImVec4 clipRect(rect.Min.x, rect.Min.y, rect.Max.x, rect.Max.y);
+    drawList->AddText(font, fontSize, iconPos, color, icon, nullptr, 0.0f, &clipRect);
+}
+
 bool SmallIconActionButton(const char* icon, const char* id, const char* tooltip, const ImVec2& size) {
     const bool clicked = ImGui::InvisibleButton(id, size);
     const bool hovered = ImGui::IsItemHovered();
@@ -215,31 +300,7 @@ bool SmallIconActionButton(const char* icon, const char* id, const char* tooltip
         drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, 0, style.FrameBorderSize);
     }
 
-    const ImVec2 buttonSize(max.x - min.x, max.y - min.y);
-    ImVec2 iconPos{};
-    bool iconPosResolved = false;
-    ImWchar iconCodepoint = 0;
-    if (DecodeFirstUtf8Codepoint(icon, iconCodepoint)) {
-        if (ImFontBaked* bakedFont = ImGui::GetFontBaked()) {
-            if (const ImFontGlyph* glyph = bakedFont->FindGlyphNoFallback(iconCodepoint)) {
-                const float glyphWidth = glyph->X1 - glyph->X0;
-                const float glyphHeight = glyph->Y1 - glyph->Y0;
-                iconPos.x = min.x + (buttonSize.x - glyphWidth) * 0.5f - glyph->X0;
-                iconPos.y = min.y + (buttonSize.y - glyphHeight) * 0.5f - glyph->Y0;
-                iconPosResolved = true;
-            }
-        }
-    }
-
-    if (!iconPosResolved) {
-        const ImVec2 iconSize = ImGui::CalcTextSize(icon);
-        iconPos.x = min.x + (buttonSize.x - iconSize.x) * 0.5f;
-        iconPos.y = min.y + (buttonSize.y - iconSize.y) * 0.5f;
-    }
-
-    iconPos.x = std::floor(iconPos.x);
-    iconPos.y = std::floor(iconPos.y);
-    drawList->AddText(iconPos, ImGui::GetColorU32(ImGuiCol_Text), icon);
+    DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(ImGuiCol_Text));
 
     if (tooltip != nullptr && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::SetTooltip("%s", tooltip);
@@ -260,31 +321,6 @@ bool IconOnlyButton(
 
     const ImVec2 min = ImGui::GetItemRectMin();
     const ImVec2 max = ImGui::GetItemRectMax();
-    const ImVec2 buttonSize(max.x - min.x, max.y - min.y);
-    ImVec2 iconPos{};
-    bool iconPosResolved = false;
-    ImWchar iconCodepoint = 0;
-    if (DecodeFirstUtf8Codepoint(icon, iconCodepoint)) {
-        if (ImFontBaked* bakedFont = ImGui::GetFontBaked()) {
-            if (const ImFontGlyph* glyph = bakedFont->FindGlyphNoFallback(iconCodepoint)) {
-                const float glyphWidth = glyph->X1 - glyph->X0;
-                const float glyphHeight = glyph->Y1 - glyph->Y0;
-                iconPos.x = min.x + (buttonSize.x - glyphWidth) * 0.5f - glyph->X0;
-                iconPos.y = min.y + (buttonSize.y - glyphHeight) * 0.5f - glyph->Y0;
-                iconPosResolved = true;
-            }
-        }
-    }
-
-    if (!iconPosResolved) {
-        const ImVec2 iconSize = ImGui::CalcTextSize(icon);
-        iconPos.x = min.x + (buttonSize.x - iconSize.x) * 0.5f;
-        iconPos.y = min.y + (buttonSize.y - iconSize.y) * 0.5f;
-    }
-
-    iconPos.x = std::floor(iconPos.x);
-    iconPos.y = std::floor(iconPos.y);
-
     ImGuiCol iconColorId = active ? ImGuiCol_Text : ImGuiCol_TextDisabled;
     if (hovered || held) {
         iconColorId = ImGuiCol_Text;
@@ -292,7 +328,7 @@ bool IconOnlyButton(
     if (!drawList) {
         drawList = ImGui::GetWindowDrawList();
     }
-    drawList->AddText(iconPos, ImGui::GetColorU32(iconColorId), icon);
+    DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(iconColorId));
 
     if (tooltip != nullptr && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::SetTooltip("%s", tooltip);
@@ -9576,7 +9612,7 @@ void BinderModule::Impl::DrawExplorerBreadcrumb() {
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-    const float barHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(30.0f));
+    const float barHeight = ImGui::GetFrameHeight();
     const float barPadX = ScaleUi(6.0f);
     const float chipPadX = ScaleUi(8.0f);
     const float chipGap = ScaleUi(4.0f);
@@ -9716,62 +9752,117 @@ void BinderModule::Impl::DrawExplorerBreadcrumb() {
     ImGui::PopClipRect();
 
     ImGui::SetCursorScreenPos(ImVec2(barRect.Min.x, barRect.Max.y));
-    ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
 void BinderModule::Impl::DrawExplorerToolbar() {
     UiSettings& ui = UiSettings::Instance();
-    const ImVec2 navButtonSize = ScaleUi(30.0f, 0.0f);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float buttonSide = ImGui::GetFrameHeight();
+    const float itemGap = ScaleUi(4.0f);
+    const float groupGap = ScaleUi(8.0f);
+    const ImVec2 buttonSize(buttonSide, buttonSide);
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float toolbarWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    ImVec4 toolbarBg = style.Colors[ImGuiCol_FrameBg];
+    toolbarBg.w = 0.28f;
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        start,
+        ImVec2(start.x + toolbarWidth, start.y + buttonSide),
+        ImGui::GetColorU32(toolbarBg),
+        ScaleUi(5.0f));
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ScaleUi(5.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(itemGap, style.ItemSpacing.y));
+
+    bool firstItem = true;
+    const auto nextToolbarItem = [&](const float spacing) {
+        if (firstItem) {
+            firstItem = false;
+            return;
+        }
+        ImGui::SameLine(0.0f, spacing);
+    };
+
+    const auto drawToolbarButton = [&](const char* icon, const char* id, const char* tooltip, const bool enabled) {
+        nextToolbarItem(itemGap);
+        const bool clicked = ImGui::InvisibleButton(id, buttonSize);
+        const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+        const bool held = enabled && ImGui::IsItemActive();
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+        ImGuiCol bgColorId = ImGuiCol_Button;
+        if (held) {
+            bgColorId = ImGuiCol_ButtonActive;
+        } else if (hovered && enabled) {
+            bgColorId = ImGuiCol_ButtonHovered;
+        }
+        drawList->AddRectFilled(min, max, ImGui::GetColorU32(bgColorId), style.FrameRounding);
+        if (style.FrameBorderSize > 0.0f) {
+            drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, 0, style.FrameBorderSize);
+        }
+
+        const float iconFontSize = std::floor(ImGui::GetFontSize() * 0.78f);
+        DrawCenteredIconGlyph(
+            drawList,
+            icon,
+            ImRect(min, max),
+            ImGui::GetColorU32(enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+            iconFontSize);
+
+        if (tooltip != nullptr && tooltip[0] != '\0'
+            && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", tooltip);
+        }
+        return clicked && enabled;
+    };
 
     const bool backDisabled = ActiveNavigationBackStack().empty();
-    if (backDisabled) {
-        ImGui::BeginDisabled();
-    }
-    if (ImGui::Button((std::string(ui_icons::ChevronLeft) + "##binder_back").c_str(), navButtonSize)) {
+    if (drawToolbarButton(ui_icons::ChevronLeft, "##binder_back", ui.Text(UiText::EditorBack), !backDisabled)) {
         NavigateBack();
     }
-    if (backDisabled) {
-        ImGui::EndDisabled();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        ImGui::SetTooltip("%s", ui.Text(UiText::EditorBack));
-    }
 
-    ImGui::SameLine();
     const bool upDisabled = currentFolder == nullptr;
-    if (upDisabled) {
-        ImGui::BeginDisabled();
-    }
-    if (ImGui::Button((std::string(ui_icons::AngleUp) + "##binder_up").c_str(), navButtonSize)) {
+    if (drawToolbarButton(ui_icons::AngleUp, "##binder_up", ui.Text(UiText::BinderGoUp), !upDisabled)) {
         NavigateUp();
     }
-    if (upDisabled) {
-        ImGui::EndDisabled();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        ImGui::SetTooltip("%s", ui.Text(UiText::BinderGoUp));
-    }
 
-    ImGui::SameLine();
-    if (ImGui::Button((std::string(ui.Text(UiText::AddBind)) + "##explorer_add_bind").c_str())) {
+    if (drawToolbarButton(ui_icons::Keyboard, "##explorer_add_bind", ui.Text(UiText::BinderAddBindTooltip), true)) {
         StartEditing(-1, true);
     }
 
-    ImGui::SameLine();
-    if (ImGui::Button((std::string(ui.Text(UiText::FolderAdd)) + "##explorer_add_folder").c_str())) {
+    if (drawToolbarButton(ui_icons::FolderPlus, "##explorer_add_folder", ui.Text(UiText::BinderAddFolderTooltip), true)) {
         BeginInlineCreateFolder(currentFolder);
     }
 
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(std::max(ScaleUi(180.0f), ImGui::GetContentRegionAvail().x * 0.35f));
-    InputTextString(ui.Text(UiText::BinderSearchGlobal), bindSearch, ImGuiInputTextFlags_AutoSelectAll, 128);
-
     if (folderMoveUndo_) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton((std::string(ui.Text(UiText::UndoFolderMove)) + "##explorer_folder_undo").c_str())) {
+        if (drawToolbarButton(ui_icons::RotateLeft, "##explorer_folder_undo", ui.Text(UiText::UndoFolderMove), true)) {
             ApplyFolderMoveUndo();
         }
     }
+
+    nextToolbarItem(groupGap);
+    const bool canClearSearch = !bindSearch.empty();
+    const float searchRegionWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float clearReserveWidth = canClearSearch ? buttonSide + itemGap : 0.0f;
+    const float searchWidth = std::max(1.0f, searchRegionWidth - clearReserveWidth);
+    const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::BinderSearchGlobal);
+    ImGui::SetNextItemWidth(searchWidth);
+    InputTextWithHintString(
+        "##binder_explorer_search",
+        searchHint.c_str(),
+        bindSearch,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+
+    if (canClearSearch) {
+        if (drawToolbarButton(ui_icons::Xmark, "##binder_explorer_search_clear", ui.Text(UiText::BinderClearSearch), true)) {
+            bindSearch.clear();
+        }
+    }
+
+    ImGui::PopStyleVar(2);
 
     DrawExplorerBreadcrumb();
 }
@@ -9783,14 +9874,13 @@ void BinderModule::Impl::DrawExplorerInlineFolderEditContent(
     UiSettings& ui = UiSettings::Instance();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const ImVec2 folderIconSize = ImGui::CalcTextSize(ui_icons::Folder);
     ImVec4 iconColor = style.Colors[ImGuiCol_Text];
     iconColor.w = selected ? 1.0f : 0.92f;
-    drawList->AddText(
-        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - folderIconSize.x) * 0.5f)), textY),
-        ImGui::GetColorU32(iconColor),
-        ui_icons::Folder);
+    DrawCenteredIconGlyph(
+        drawList,
+        ui_icons::Folder,
+        ImRect(ImVec2(layout.iconX, rowRect.Min.y), ImVec2(layout.iconX + layout.iconW, rowRect.Max.y)),
+        ImGui::GetColorU32(iconColor));
 
     const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 buttonSize(buttonSide, buttonSide);
@@ -10008,13 +10098,13 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     }
 
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
-    const ImVec2 iconSize = ImGui::CalcTextSize(ui_icons::Folder);
     ImVec4 iconColor = style.Colors[ImGuiCol_Text];
     iconColor.w = selected || hovered ? 1.0f : 0.92f;
-    drawList->AddText(
-        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - iconSize.x) * 0.5f)), textY),
-        ImGui::GetColorU32(iconColor),
-        ui_icons::Folder);
+    DrawCenteredIconGlyph(
+        drawList,
+        ui_icons::Folder,
+        ImRect(ImVec2(layout.iconX, rowRect.Min.y), ImVec2(layout.iconX + layout.iconW, rowRect.Max.y)),
+        ImGui::GetColorU32(iconColor));
 
     const bool hasConditions = HasSelectedCondition(folder.conditions);
     const std::string marker = std::string(ui_icons::Sliders);
@@ -10034,10 +10124,12 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         ImGui::GetColorU32(textColor),
         folderLabel.c_str());
     if (hasConditions) {
-        drawList->AddText(
-            ImVec2(nameRect.Max.x - markerSize.x - ScaleUi(4.0f), textY),
-            ImGui::GetColorU32(ImGuiCol_TextDisabled),
-            marker.c_str());
+        const float markerX = nameRect.Max.x - markerSize.x - ScaleUi(4.0f);
+        DrawCenteredIconGlyph(
+            drawList,
+            marker.c_str(),
+            ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + markerSize.x, rowRect.Max.y)),
+            ImGui::GetColorU32(ImGuiCol_TextDisabled));
     }
     ImGui::PopClipRect();
 
@@ -10162,17 +10254,16 @@ void BinderModule::Impl::DrawExplorerBindRow(
         SelectExplorerBind(index);
     }
 
-    const ImVec2 bindIconSize = ImGui::CalcTextSize(ui_icons::Keyboard);
     ImVec4 iconColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
     iconColor.w = hotkey.enabled ? 0.92f : 0.62f;
     if (selected || bindHovered) {
         iconColor.w = hotkey.enabled ? 1.0f : 0.78f;
     }
-    const float bindTextY = rowRect.Min.y + (rowRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
-    drawList->AddText(
-        ImVec2(layout.iconX + std::floor(std::max(0.0f, (layout.iconW - bindIconSize.x) * 0.5f)), bindTextY),
-        ImGui::GetColorU32(iconColor),
-        ui_icons::Keyboard);
+    DrawCenteredIconGlyph(
+        drawList,
+        ui_icons::Keyboard,
+        ImRect(ImVec2(layout.iconX, rowRect.Min.y), ImVec2(layout.iconX + layout.iconW, rowRect.Max.y)),
+        ImGui::GetColorU32(iconColor));
 
     const ImRect bindRect(
         ImVec2(layout.nameX, rowRect.Min.y),
@@ -10208,6 +10299,7 @@ void BinderModule::Impl::DrawExplorerBindRow(
 
     ImGui::PushClipRect(bindRect.Min, bindRect.Max, true);
     const float textStartX = bindRect.Min.x + bindPadX;
+    const float bindTextY = rowRect.Min.y + (rowRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
     drawList->AddText(
         ImVec2(textStartX, bindTextY),
         ImGui::GetColorU32(bindNameColor),
@@ -10835,9 +10927,11 @@ void BinderModule::Impl::DrawExplorerDirectory() {
     }
 
     const float remainingHeight = ImGui::GetContentRegionAvail().y;
-    if (remainingHeight > ScaleUi(8.0f)) {
+    const float bottomSlack = ImGui::GetStyle().ItemSpacing.y + ScaleUi(2.0f);
+    if (remainingHeight > ScaleUi(8.0f) + bottomSlack) {
         const ImVec2 dropPos = ImGui::GetCursorScreenPos();
-        const ImRect dropRect(dropPos, ImVec2(dropPos.x + layout.width, dropPos.y + remainingHeight));
+        const float dropHeight = std::max(ScaleUi(8.0f), remainingHeight - bottomSlack);
+        const ImRect dropRect(dropPos, ImVec2(dropPos.x + layout.width, dropPos.y + dropHeight));
         ImGui::InvisibleButton("##explorer_empty_area_drop", dropRect.GetSize());
         const bool emptyAreaHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
@@ -10911,7 +11005,7 @@ void BinderModule::Impl::DrawExplorerDirectory() {
 void BinderModule::Impl::DrawExplorerPane() {
     EnsureRootFolder();
     DrawExplorerToolbar();
-    ImGui::Separator();
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ScaleUi(2.0f));
 
     const bool searchActive = !Trim(bindSearch).empty();
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)

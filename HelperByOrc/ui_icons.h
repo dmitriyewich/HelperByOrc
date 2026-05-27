@@ -7,6 +7,7 @@ namespace ui_icons {
 inline constexpr char Search[] = "\xEF\x80\x82";        // U+F002
 inline constexpr char Star[] = "\xEF\x80\x86";          // U+F006
 inline constexpr char Check[] = "\xEF\x80\x8C";         // U+F00C
+inline constexpr char Xmark[] = "\xEF\x80\x8D";         // U+F00D
 inline constexpr char Gear[] = "\xEF\x80\x93";          // U+F013
 inline constexpr char Tags[] = "\xEF\x80\xAC";          // U+F02C
 inline constexpr char Book[] = "\xEF\x80\xAD";          // U+F02D
@@ -36,17 +37,19 @@ inline constexpr char Newspaper[] = "\xEF\x87\xAA";     // U+F1EA
 inline constexpr char ToggleOff[] = "\xEF\x88\x84";     // U+F204
 inline constexpr char ToggleOn[] = "\xEF\x88\x85";      // U+F205
 inline constexpr char Clone[] = "\xEF\x89\x8D";         // U+F24D
+inline constexpr char RotateLeft[] = "\xEF\x8B\xAA";    // U+F2EA
 inline constexpr char Delete[] = "\xEF\x8B\xAD";        // U+F2ED
 inline constexpr char MessageDots[] = "\xEF\x92\xA3";   // U+F4A3
 inline constexpr char FileExport[] = "\xEF\x95\xAE";    // U+F56E
 inline constexpr char FileImport[] = "\xEF\x95\xAF";    // U+F56F
+inline constexpr char FolderPlus[] = "\xEF\x99\x9E";    // U+F65E
 inline constexpr char BracketsCurly[] = "\xEF\x9F\xAA"; // U+F7EA
 inline constexpr char House[] = "\xEF\xA0\x8C";         // U+F80C
 
 inline constexpr ImWchar FontAwesomeRanges[] = {
     0xF002, 0xF002,
     0xF006, 0xF006,
-    0xF00C, 0xF00C,
+    0xF00C, 0xF00D,
     0xF013, 0xF013,
     0xF02C, 0xF02D,
     0xF03E, 0xF03E,
@@ -68,9 +71,11 @@ inline constexpr ImWchar FontAwesomeRanges[] = {
     0xF1EA, 0xF1EA,
     0xF204, 0xF205,
     0xF24D, 0xF24D,
+    0xF2EA, 0xF2EA,
     0xF2ED, 0xF2ED,
     0xF4A3, 0xF4A3,
     0xF56E, 0xF56F,
+    0xF65E, 0xF65E,
     0xF7EA, 0xF7EA,
     0xF80C, 0xF80C,
     0,

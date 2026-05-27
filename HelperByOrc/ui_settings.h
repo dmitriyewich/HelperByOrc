@@ -650,6 +650,7 @@
     X(ValidationButtonsTextRequired, "Для параметра с вариантами нужен хотя бы один вариант со значением.", "Parameters with options require at least one option with a value.") \
     X(ValidationInvalidRegex, "Некорректное регулярное выражение триггера: %s", "Invalid trigger regex: %s") \
     X(FolderAdd, "+ Папка", "+ Folder") \
+    X(BinderAddFolderTooltip, "Добавить папку", "Add folder") \
     X(FolderRename, "Переименовать", "Rename") \
     X(Delete, "Удалить", "Delete") \
     X(UndoFolderMove, "Отменить перемещение", "Undo move") \
@@ -824,6 +825,8 @@
     X(InputDialogPreviewTitle, "Предпросмотр отправки", "Send preview") \
     X(InputDialogPreviewEmpty, "В сценарии нет сообщений для отправки.", "There are no messages to send in this scenario.") \
     X(AddBind, "+ Бинд", "+ Bind") \
+    X(BinderAddBindTooltip, "Добавить бинд", "Add bind") \
+    X(BinderClearSearch, "Очистить поиск", "Clear search") \
     X(Edit, "Изменить", "Edit") \
     X(Run, "Запустить", "Run") \
     X(Resume, "Продолжить", "Resume") \
