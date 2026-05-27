@@ -655,6 +655,9 @@
     X(UndoFolderMove, "Отменить перемещение", "Undo move") \
     X(ToastFolderMoveInvalid, "Нельзя перенести папку сюда.", "Cannot move the folder here.") \
     X(FolderDropInto, "Сделать подпапкой", "Nest into folder") \
+    X(BinderDropMoveHere, "Перенести сюда", "Move here") \
+    X(BinderDropCurrentFolder, "Это уже текущая папка.", "This is already the current folder.") \
+    X(BinderDropCrossCategoryDisabled, "Drag-and-drop между категориями отключён. Используйте \"Переместить в...\".", "Cross-category drag-and-drop is disabled. Use \"Move to...\".") \
     X(Name, "Название", "Name") \
     X(NameOptional, "Название (необяз.)", "Name (optional)") \
     X(Save, "Сохранить", "Save") \
