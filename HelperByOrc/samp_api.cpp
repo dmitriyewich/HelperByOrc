@@ -51,6 +51,7 @@ using AddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
 using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
+using ChatAsiInputDirectSendFn = void(__cdecl*)(const char*, std::size_t);
 
 struct ModuleSectionRange {
     std::uintptr_t begin = 0;
@@ -73,6 +74,10 @@ struct ModuleSectionRange {
 constexpr std::uintptr_t kChatEntryBaseOffset = 0x132;
 constexpr std::size_t kChatEntrySize = 0xFC;
 constexpr int kChatEntryCount = 100;
+constexpr std::size_t kChatAsiWriterScanWindow = 0x80;
+constexpr std::size_t kChatAsiSubmitScanWindow = 0x500;
+constexpr std::size_t kChatAsiSubmitBacktrackWindow = 0x400;
+constexpr std::size_t kChatAsiDirectSendScanWindow = 0x80;
 constexpr std::size_t kDefaultSmallStringLimit = 256;
 constexpr std::size_t kDefaultTextLimit = 8192;
 
@@ -787,13 +792,15 @@ bool FindChatAsiWriterForBuffer(
                 continue;
             }
 
-            const std::uintptr_t candidate = RecoverFunctionStart(section, section.begin + offset, 0x80);
+            const std::uintptr_t candidate =
+                RecoverFunctionStart(section, section.begin + offset, kChatAsiWriterScanWindow);
             if (candidate == 0) {
                 continue;
             }
 
             const std::size_t candidateOffset = static_cast<std::size_t>(candidate - section.begin);
-            const std::size_t window = std::min<std::size_t>(0x80, sectionSize - candidateOffset);
+            const std::size_t window =
+                std::min<std::size_t>(kChatAsiWriterScanWindow, sectionSize - candidateOffset);
             bool sawBufferLoad = false;
             bool sawCall = false;
             bool sawDirtyStore = false;
@@ -846,6 +853,122 @@ bool FindChatAsiWriterForBuffer(
     return false;
 }
 
+bool MatchChatAsiSubmitCandidate(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t inputBuffer,
+    std::uintptr_t candidate,
+    std::uintptr_t& dirtyFlag) {
+    dirtyFlag = 0;
+
+    const auto* candidateSection = FindSectionForAddress(sections, candidate, true);
+    if (!candidateSection) {
+        return false;
+    }
+
+    const std::uint32_t inputBuffer32 = static_cast<std::uint32_t>(inputBuffer);
+    const std::uint32_t inputLength32 = static_cast<std::uint32_t>(inputBuffer + 0x10);
+    const std::uint32_t inputCapacity32 = static_cast<std::uint32_t>(inputBuffer + 0x14);
+    const std::size_t candidateOffset = static_cast<std::size_t>(candidate - candidateSection->begin);
+    const auto* candidateBytes = reinterpret_cast<const std::uint8_t*>(candidateSection->begin);
+    const std::size_t window = std::min<std::size_t>(kChatAsiSubmitScanWindow, candidateSection->end - candidate);
+    bool sawBufferLoad = false;
+    bool sawLengthCmp = false;
+    bool sawLengthPush = false;
+    bool sawCapacityCmp = false;
+    bool sawLengthClear = false;
+    bool sawZeroTerminator = false;
+    bool sawDirtyStore = false;
+    bool sawReturn = false;
+    int internalCallCount = 0;
+    std::uintptr_t candidateDirtyFlag = 0;
+
+    for (std::size_t index = 0; index < window; ++index) {
+        const std::uintptr_t address = candidate + index;
+        const std::uint8_t opcode = candidateBytes[candidateOffset + index];
+
+        if (index + 5 <= window
+            && ((opcode >= 0xB8 && opcode <= 0xBF) || opcode == 0x68 || opcode == 0xA1)) {
+            std::uint32_t immediate = 0;
+            std::memcpy(&immediate, candidateBytes + candidateOffset + index + 1, sizeof(immediate));
+            if (immediate == inputBuffer32) {
+                sawBufferLoad = true;
+            }
+        }
+
+        if (index + 6 <= window && opcode == 0xFF && candidateBytes[candidateOffset + index + 1] == 0x35) {
+            std::uint32_t immediate = 0;
+            std::memcpy(&immediate, candidateBytes + candidateOffset + index + 2, sizeof(immediate));
+            if (immediate == inputLength32) {
+                sawLengthPush = true;
+            }
+        }
+
+        if (index + 7 <= window && opcode == 0x83 && candidateBytes[candidateOffset + index + 1] == 0x3D) {
+            std::uint32_t absolute = 0;
+            std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+            const std::uint8_t immediate = candidateBytes[candidateOffset + index + 6];
+            if (absolute == inputLength32 && immediate == 0x00) {
+                sawLengthCmp = true;
+            }
+            if (absolute == inputCapacity32 && immediate == 0x0F) {
+                sawCapacityCmp = true;
+            }
+        }
+
+        if (index + 10 <= window && opcode == 0xC7 && candidateBytes[candidateOffset + index + 1] == 0x05) {
+            std::uint32_t absolute = 0;
+            std::uint32_t immediate = 0;
+            std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+            std::memcpy(&immediate, candidateBytes + candidateOffset + index + 6, sizeof(immediate));
+            if (absolute == inputLength32 && immediate == 0) {
+                sawLengthClear = true;
+            }
+        }
+
+        if (index + 3 <= window && opcode == 0xC6
+            && (candidateBytes[candidateOffset + index + 1] == 0x06
+                || candidateBytes[candidateOffset + index + 1] == 0x00)
+            && candidateBytes[candidateOffset + index + 2] == 0x00) {
+            sawZeroTerminator = true;
+        }
+
+        if (index + 7 <= window && opcode == 0xC6 && candidateBytes[candidateOffset + index + 1] == 0x05
+            && candidateBytes[candidateOffset + index + 6] == 0x01) {
+            std::uint32_t absolute = 0;
+            std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
+            if (IsAddressInWritableSection(sections, absolute)) {
+                sawDirtyStore = true;
+                candidateDirtyFlag = absolute;
+            }
+        }
+
+        if (index + 5 <= window && opcode == 0xE8) {
+            const auto target = ResolveRelativeTarget(address);
+            if (IsAddressInModule(target, imageBase, imageEnd)) {
+                ++internalCallCount;
+            }
+        }
+
+        if (opcode == 0xC3 || opcode == 0xC2) {
+            sawReturn = true;
+            if (sawBufferLoad && sawLengthCmp && sawLengthClear && internalCallCount >= 3
+                && (sawLengthPush || sawCapacityCmp) && (sawZeroTerminator || sawDirtyStore)) {
+                break;
+            }
+        }
+    }
+
+    if (!sawBufferLoad || !sawLengthCmp || !sawLengthClear || !sawReturn || internalCallCount < 3
+        || (!sawLengthPush && !sawCapacityCmp) || (!sawZeroTerminator && !sawDirtyStore)) {
+        return false;
+    }
+
+    dirtyFlag = candidateDirtyFlag;
+    return true;
+}
+
 bool FindChatAsiSubmitForBuffer(
     const std::vector<ModuleSectionRange>& sections,
     std::uintptr_t imageBase,
@@ -856,9 +979,7 @@ bool FindChatAsiSubmitForBuffer(
     submit = 0;
     dirtyFlag = 0;
 
-    const std::uint32_t inputBuffer32 = static_cast<std::uint32_t>(inputBuffer);
     const std::uint32_t inputLength32 = static_cast<std::uint32_t>(inputBuffer + 0x10);
-    const std::uint32_t inputCapacity32 = static_cast<std::uint32_t>(inputBuffer + 0x14);
 
     for (const std::uint32_t expectedArg : { 1u, 0u }) {
         for (const auto& section : sections) {
@@ -889,104 +1010,199 @@ bool FindChatAsiSubmitForBuffer(
                     continue;
                 }
 
-                const auto* candidateSection = FindSectionForAddress(sections, candidate, true);
-                if (!candidateSection) {
-                    continue;
-                }
-
-                const std::size_t candidateOffset = static_cast<std::size_t>(candidate - candidateSection->begin);
-                const auto* candidateBytes = reinterpret_cast<const std::uint8_t*>(candidateSection->begin);
-                const std::size_t window = std::min<std::size_t>(0x100, candidateSection->end - candidate);
-                bool sawBufferLoad = false;
-                bool sawLengthCmp = false;
-                bool sawLengthPush = false;
-                bool sawCapacityCmp = false;
-                bool sawLengthClear = false;
-                bool sawZeroTerminator = false;
-                bool sawDirtyStore = false;
-                bool sawReturn = false;
-                int internalCallCount = 0;
                 std::uintptr_t candidateDirtyFlag = 0;
-
-                for (std::size_t index = 0; index < window; ++index) {
-                    const std::uintptr_t address = candidate + index;
-                    const std::uint8_t opcode = candidateBytes[candidateOffset + index];
-
-                    if (index + 5 <= window
-                        && ((opcode >= 0xB8 && opcode <= 0xBF) || opcode == 0x68 || opcode == 0xA1)) {
-                        std::uint32_t immediate = 0;
-                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 1, sizeof(immediate));
-                        if (immediate == inputBuffer32) {
-                            sawBufferLoad = true;
-                        }
-                    }
-
-                    if (index + 6 <= window && opcode == 0xFF && candidateBytes[candidateOffset + index + 1] == 0x35) {
-                        std::uint32_t immediate = 0;
-                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 2, sizeof(immediate));
-                        if (immediate == inputLength32) {
-                            sawLengthPush = true;
-                        }
-                    }
-
-                    if (index + 7 <= window && opcode == 0x83 && candidateBytes[candidateOffset + index + 1] == 0x3D) {
-                        std::uint32_t absolute = 0;
-                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
-                        const std::uint8_t immediate = candidateBytes[candidateOffset + index + 6];
-                        if (absolute == inputLength32 && immediate == 0x00) {
-                            sawLengthCmp = true;
-                        }
-                        if (absolute == inputCapacity32 && immediate == 0x0F) {
-                            sawCapacityCmp = true;
-                        }
-                    }
-
-                    if (index + 10 <= window && opcode == 0xC7 && candidateBytes[candidateOffset + index + 1] == 0x05) {
-                        std::uint32_t absolute = 0;
-                        std::uint32_t immediate = 0;
-                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
-                        std::memcpy(&immediate, candidateBytes + candidateOffset + index + 6, sizeof(immediate));
-                        if (absolute == inputLength32 && immediate == 0) {
-                            sawLengthClear = true;
-                        }
-                    }
-
-                    if (index + 3 <= window && opcode == 0xC6
-                        && (candidateBytes[candidateOffset + index + 1] == 0x06
-                            || candidateBytes[candidateOffset + index + 1] == 0x00)
-                        && candidateBytes[candidateOffset + index + 2] == 0x00) {
-                        sawZeroTerminator = true;
-                    }
-
-                    if (index + 7 <= window && opcode == 0xC6 && candidateBytes[candidateOffset + index + 1] == 0x05
-                        && candidateBytes[candidateOffset + index + 6] == 0x01) {
-                        std::uint32_t absolute = 0;
-                        std::memcpy(&absolute, candidateBytes + candidateOffset + index + 2, sizeof(absolute));
-                        if (IsAddressInWritableSection(sections, absolute)) {
-                            sawDirtyStore = true;
-                            candidateDirtyFlag = absolute;
-                        }
-                    }
-
-                    if (index + 5 <= window && opcode == 0xE8) {
-                        const auto target = ResolveRelativeTarget(address);
-                        if (IsAddressInModule(target, imageBase, imageEnd)) {
-                            ++internalCallCount;
-                        }
-                    }
-
-                    if (opcode == 0xC3 || opcode == 0xC2) {
-                        sawReturn = true;
-                        break;
-                    }
-                }
-
-                if (sawBufferLoad && sawLengthCmp && sawLengthClear && sawReturn && internalCallCount >= 3
-                    && (sawLengthPush || sawCapacityCmp) && (sawZeroTerminator || sawDirtyStore)) {
+                if (MatchChatAsiSubmitCandidate(
+                        sections,
+                        imageBase,
+                        imageEnd,
+                        inputBuffer,
+                        candidate,
+                        candidateDirtyFlag)) {
                     submit = candidate;
                     dirtyFlag = candidateDirtyFlag;
                     return true;
                 }
+            }
+        }
+    }
+
+    std::vector<std::uintptr_t> checkedCandidates;
+    for (const auto& section : sections) {
+        if (!section.executable()) {
+            continue;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+        const std::size_t sectionSize = section.end - section.begin;
+
+        for (std::size_t offset = 0; offset + 10 <= sectionSize; ++offset) {
+            bool referencesInputLength = false;
+
+            if (offset + 7 <= sectionSize && bytes[offset] == 0x83 && bytes[offset + 1] == 0x3D
+                && bytes[offset + 6] == 0x00) {
+                std::uint32_t absolute = 0;
+                std::memcpy(&absolute, bytes + offset + 2, sizeof(absolute));
+                referencesInputLength = absolute == inputLength32;
+            }
+
+            if (!referencesInputLength && bytes[offset] == 0xC7 && bytes[offset + 1] == 0x05) {
+                std::uint32_t absolute = 0;
+                std::memcpy(&absolute, bytes + offset + 2, sizeof(absolute));
+                referencesInputLength = absolute == inputLength32;
+            }
+
+            if (!referencesInputLength) {
+                continue;
+            }
+
+            const std::uintptr_t candidate =
+                RecoverFunctionStart(section, section.begin + offset, kChatAsiSubmitBacktrackWindow);
+            if (candidate == 0
+                || std::find(checkedCandidates.begin(), checkedCandidates.end(), candidate) != checkedCandidates.end()) {
+                continue;
+            }
+
+            checkedCandidates.push_back(candidate);
+
+            std::uintptr_t candidateDirtyFlag = 0;
+            if (MatchChatAsiSubmitCandidate(
+                    sections,
+                    imageBase,
+                    imageEnd,
+                    inputBuffer,
+                    candidate,
+                    candidateDirtyFlag)) {
+                submit = candidate;
+                dirtyFlag = candidateDirtyFlag;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool LooksLikeChatAsiDirectSendFunction(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t candidate) {
+    const auto* section = FindSectionForAddress(sections, candidate, true);
+    if (!section) {
+        return false;
+    }
+
+    const std::size_t candidateOffset = static_cast<std::size_t>(candidate - section->begin);
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section->begin);
+    const std::size_t window = std::min<std::size_t>(kChatAsiDirectSendScanWindow, section->end - candidate);
+    bool sawLengthGuard = false;
+    bool sawTextArgLoad = false;
+    bool sawSlashCheck = false;
+    bool sawInternalCall = false;
+    bool sawReturn = false;
+
+    for (std::size_t index = 0; index < window; ++index) {
+        const std::uintptr_t address = candidate + index;
+        const std::uint8_t opcode = bytes[candidateOffset + index];
+
+        if (index + 4 <= window && opcode == 0x83 && bytes[candidateOffset + index + 1] == 0x7D
+            && bytes[candidateOffset + index + 2] == 0x0C && bytes[candidateOffset + index + 3] == 0x00) {
+            sawLengthGuard = true;
+        }
+
+        if (index + 3 <= window && opcode == 0x8B && bytes[candidateOffset + index + 1] == 0x45
+            && bytes[candidateOffset + index + 2] == 0x08) {
+            sawTextArgLoad = true;
+        }
+
+        if (index + 3 <= window && opcode == 0x80 && bytes[candidateOffset + index + 1] == 0x38
+            && bytes[candidateOffset + index + 2] == 0x2F) {
+            sawSlashCheck = true;
+        }
+
+        if (index + 5 <= window && opcode == 0xE8) {
+            const auto target = ResolveRelativeTarget(address);
+            if (IsAddressInModule(target, imageBase, imageEnd)) {
+                sawInternalCall = true;
+            }
+        }
+
+        if (opcode == 0xC3 || opcode == 0xC2) {
+            sawReturn = true;
+            if (sawLengthGuard && sawTextArgLoad && sawSlashCheck && sawInternalCall) {
+                break;
+            }
+        }
+    }
+
+    return sawLengthGuard && sawTextArgLoad && sawSlashCheck && sawInternalCall && sawReturn;
+}
+
+bool FindChatAsiDirectSendForSubmit(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t submit,
+    std::uintptr_t& directSend) {
+    directSend = 0;
+
+    const auto* section = FindSectionForAddress(sections, submit, true);
+    if (!section) {
+        return false;
+    }
+
+    const std::size_t submitOffset = static_cast<std::size_t>(submit - section->begin);
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section->begin);
+    const std::size_t window = std::min<std::size_t>(kChatAsiSubmitScanWindow, section->end - submit);
+
+    for (std::size_t index = 0; index < window; ++index) {
+        const std::uintptr_t address = submit + index;
+        const std::uint8_t opcode = bytes[submitOffset + index];
+
+        if (index + 5 <= window && opcode == 0xE8) {
+            const std::uintptr_t target = ResolveRelativeTarget(address);
+            if (IsAddressInModule(target, imageBase, imageEnd)
+                && LooksLikeChatAsiDirectSendFunction(sections, imageBase, imageEnd, target)) {
+                directSend = target;
+                return true;
+            }
+        }
+
+    }
+
+    return false;
+}
+
+bool FindChatAsiDirectSendFunction(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd,
+    std::uintptr_t& directSend) {
+    directSend = 0;
+
+    for (const auto& section : sections) {
+        if (!section.executable()) {
+            continue;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
+        const std::size_t sectionSize = section.end - section.begin;
+
+        for (std::size_t offset = 0; offset + 4 <= sectionSize; ++offset) {
+            if (bytes[offset] != 0x83 || bytes[offset + 1] != 0x7D || bytes[offset + 2] != 0x0C
+                || bytes[offset + 3] != 0x00) {
+                continue;
+            }
+
+            const std::uintptr_t candidate =
+                RecoverFunctionStart(section, section.begin + offset, kChatAsiDirectSendScanWindow);
+            if (candidate == 0) {
+                continue;
+            }
+
+            if (LooksLikeChatAsiDirectSendFunction(sections, imageBase, imageEnd, candidate)) {
+                directSend = candidate;
+                return true;
             }
         }
     }
@@ -1265,6 +1481,16 @@ bool CallChatAsiInputWriter(ChatAsiInputWriterFn fn, const char* text, std::size
 bool CallChatAsiInputSubmit(ChatAsiInputSubmitFn fn, unsigned int mode) {
     __try {
         fn(mode);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool CallChatAsiInputDirectSend(ChatAsiInputDirectSendFn fn, const char* text, std::size_t length) {
+    __try {
+        fn(text, length);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

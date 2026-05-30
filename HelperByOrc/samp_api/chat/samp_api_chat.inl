@@ -799,6 +799,10 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     std::uintptr_t fallbackBuffer = 0;
     std::uintptr_t fallbackWriter = 0;
     std::uintptr_t fallbackWriterDirty = 0;
+    std::uintptr_t fallbackDirectSend = 0;
+    std::uintptr_t moduleDirectSend = 0;
+    FindChatAsiDirectSendFunction(sections, imageBase, imageEnd, moduleDirectSend);
+
     for (const auto ref : refs) {
         const std::uintptr_t inputWrapper = FindNearbyWrapperCall(ref, imageBase, imageEnd);
         const std::uintptr_t inputBuffer = FindWritablePushBefore(ref, sections);
@@ -818,12 +822,39 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
             fallbackBuffer = inputBuffer;
             fallbackWriter = inputWriter;
             fallbackWriterDirty = writerDirtyFlag;
+            fallbackDirectSend = moduleDirectSend;
         }
 
         std::uintptr_t inputSubmit = 0;
         std::uintptr_t submitDirtyFlag = 0;
         if (!FindChatAsiSubmitForBuffer(sections, imageBase, imageEnd, inputBuffer, inputSubmit, submitDirtyFlag)) {
-            continue;
+            if (moduleDirectSend == 0) {
+                continue;
+            }
+
+            chatAsiInputDiscovery_.inputLabel = inputLabel;
+            chatAsiInputDiscovery_.inputWrapper = inputWrapper;
+            chatAsiInputDiscovery_.inputBuffer = inputBuffer;
+            chatAsiInputDiscovery_.inputWriter = inputWriter;
+            chatAsiInputDiscovery_.inputDirectSend = moduleDirectSend;
+
+            debuglog::WriteInfo(
+                "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=not_found direct_send=0x%08X writer_dirty=0x%08X",
+                module,
+                static_cast<unsigned>(inputLabel),
+                static_cast<unsigned>(ref),
+                static_cast<unsigned>(inputWrapper),
+                static_cast<unsigned>(inputBuffer),
+                static_cast<unsigned>(inputWriter),
+                static_cast<unsigned>(moduleDirectSend),
+                static_cast<unsigned>(writerDirtyFlag));
+            return true;
+        }
+
+        std::uintptr_t inputDirectSend = moduleDirectSend;
+        std::uintptr_t submitDirectSend = 0;
+        if (FindChatAsiDirectSendForSubmit(sections, imageBase, imageEnd, inputSubmit, submitDirectSend)) {
+            inputDirectSend = submitDirectSend;
         }
 
         chatAsiInputDiscovery_.inputLabel = inputLabel;
@@ -831,9 +862,10 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputBuffer = inputBuffer;
         chatAsiInputDiscovery_.inputWriter = inputWriter;
         chatAsiInputDiscovery_.inputSubmit = inputSubmit;
+        chatAsiInputDiscovery_.inputDirectSend = inputDirectSend;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
+            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X direct_send=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
             module,
             static_cast<unsigned>(inputLabel),
             static_cast<unsigned>(ref),
@@ -841,6 +873,7 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
             static_cast<unsigned>(inputBuffer),
             static_cast<unsigned>(inputWriter),
             static_cast<unsigned>(inputSubmit),
+            static_cast<unsigned>(inputDirectSend),
             static_cast<unsigned>(writerDirtyFlag),
             static_cast<unsigned>(submitDirtyFlag));
         return true;
@@ -851,16 +884,18 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputWrapper = fallbackWrapper;
         chatAsiInputDiscovery_.inputBuffer = fallbackBuffer;
         chatAsiInputDiscovery_.inputWriter = fallbackWriter;
+        chatAsiInputDiscovery_.inputDirectSend = fallbackDirectSend;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
+            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found direct_send=0x%08X",
             module,
             static_cast<unsigned>(inputLabel),
             static_cast<unsigned>(fallbackRef),
             static_cast<unsigned>(fallbackWrapper),
             static_cast<unsigned>(fallbackBuffer),
             static_cast<unsigned>(fallbackWriter),
-            static_cast<unsigned>(fallbackWriterDirty));
+            static_cast<unsigned>(fallbackWriterDirty),
+            static_cast<unsigned>(fallbackDirectSend));
         return true;
     }
 
@@ -905,7 +940,26 @@ bool SampApi::TryProcessChatInputViaChatAsi(std::string_view utf8Text) {
         return false;
     }
 
+    if (chatAsiInputDiscovery_.inputDirectSend != 0) {
+        std::string text(utf8Text);
+        const auto directSend = reinterpret_cast<ChatAsiInputDirectSendFn>(chatAsiInputDiscovery_.inputDirectSend);
+        if (!CallChatAsiInputDirectSend(directSend, text.c_str(), text.size())) {
+            debuglog::WriteError(
+                "SampApi::_chat.asi direct send SEH fail direct_send=0x%08X len=%llu",
+                static_cast<unsigned>(chatAsiInputDiscovery_.inputDirectSend),
+                static_cast<unsigned long long>(text.size()));
+            return false;
+        }
+
+        return true;
+    }
+
     if (chatAsiInputDiscovery_.inputSubmit == 0) {
+        if (TrySetChatInputTextViaChatAsi(utf8Text)) {
+            debuglog::WriteInfo(
+                "SampApi::_chat.asi input prefilled before SAMP ProcessInput fallback len=%llu",
+                static_cast<unsigned long long>(utf8Text.size()));
+        }
         return false;
     }
 

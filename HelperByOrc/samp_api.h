@@ -310,6 +310,7 @@ private:
         std::uintptr_t inputBuffer = 0;
         std::uintptr_t inputWriter = 0;
         std::uintptr_t inputSubmit = 0;
+        std::uintptr_t inputDirectSend = 0;
     };
 
     bool DetectVersion();
