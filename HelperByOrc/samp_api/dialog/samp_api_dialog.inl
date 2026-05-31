@@ -68,6 +68,13 @@ SampApi::DialogPosition SampApi::getCurrentDialogPosition() {
 
 bool SampApi::Set_CursorMode(int mode, bool enabled) {
     debuglog::WriteInfo("SampApi::Set_CursorMode request mode=%d enabled=%d", mode, enabled ? 1 : 0);
+    if (!ValidateCursorModeFunction()) {
+        SetError(cursorModeValidationError_.empty()
+                ? "SetCursorMode validation failed"
+                : cursorModeValidationError_);
+        return false;
+    }
+
     std::uint32_t game = 0;
     const auto address = GetAddress(main_offsets.SetCursorMode);
     if (address == 0 || !SafeRead(ModuleBase() + main_offsets.RefGame.Get(currentVersion_), game) || game == 0) {

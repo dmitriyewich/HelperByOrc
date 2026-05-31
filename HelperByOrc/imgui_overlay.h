@@ -40,6 +40,8 @@ public:
     bool IsMenuOpen() const;
     bool IsTextInputActive() const;
     bool WantsUiCursor() const;
+    bool WantsInputRouting() const;
+    void SetInputRoutingAllowed(bool allowed);
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
@@ -79,7 +81,7 @@ private:
     bool IsMenuToggleComboDown() const;
     bool CanApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys, std::string* description = nullptr) const;
     bool ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys);
-    bool WantsInputRouting() const;
+    bool CanRouteInput() const;
     bool WantsAuxiliaryUiCursor() const;
     bool WantsTextInputCapture() const;
     bool IsInputPipelineEnabled() const;
@@ -106,6 +108,7 @@ private:
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
     bool inputCaptureActive_ = false;
+    bool inputRoutingAllowed_ = false;
     hotkeys::Capture menuToggleHotkeyCapture_{};
     hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
 

@@ -178,8 +178,11 @@ std::vector<const char*> ConflictTagsForPath(const std::string& path) {
     addIf("moonloader", "moonloader");
     addIf("cleo", "cleo");
     addIf("modloader", "modloader");
+    addIf("mousefix", "mousefix");
     addIf("silentpatch", "silentpatch");
     addIf("ginput", "input-hook");
+    addIf("cursor", "cursor-hook");
+    addIf("rawinput", "input-hook");
     addIf("widescreen", "widescreen");
     addIf("skygfx", "graphics-hook");
     addIf("reshade", "graphics-hook");
@@ -198,6 +201,8 @@ std::vector<const char*> ConflictTagsForPath(const std::string& path) {
     if constexpr (feature_flags::kEnableArizonaIntegration) {
         addIf("_chat.asi", "chat-hook");
         addIf("chat.asi", "chat-hook");
+        addIf("libcef.asi", "cef-ui");
+        addIf("\\cef\\loader.dll", "cef-ui");
     }
     addIf("rivatuner", "overlay");
     addIf("rtss", "overlay");
@@ -1277,23 +1282,30 @@ void ModApp::UpdateOverlayCursorMode() {
     const bool appHasFocus = gameHw && fg && IsWindow(gameHw)
         && (fg == gameHw || IsChild(gameHw, fg) != FALSE);
 
-    bool chatOpen = false;
-    bool dialogOpen = false;
     sampApi_.Refresh();
-    if (sampApi_.sampModule() && sampApi_.isSupportedVersion()) {
-        chatOpen = sampApi_.is_chat_opened();
-        dialogOpen = sampApi_.isDialogActive();
-    }
+    const ExternalCursorSnapshot cursorSnapshot = externalCursorDetector_.Detect(sampApi_, gameHw, fg);
 
     OverlayCursorController::Inputs inputs{};
     inputs.sampUiPipelineReady = sampUiPipelineReady_;
-    inputs.wantsUiCursor = overlay_.WantsUiCursor();
-    inputs.chatOpen = chatOpen;
-    inputs.dialogOpen = dialogOpen;
+    inputs.helperWantsCursor = overlay_.WantsUiCursor();
+    inputs.helperWantsInputRouting = overlay_.WantsInputRouting();
+    inputs.sampCursorMode = cursorSnapshot.sampCursorMode;
+    inputs.chatOpen = cursorSnapshot.chatOpen;
+    inputs.dialogOpen = cursorSnapshot.dialogOpen;
+    inputs.externalCursorActive = cursorSnapshot.externalCursorActive;
+    inputs.externalOwnerName = cursorSnapshot.externalOwnerName;
+    inputs.cursorVisible = cursorSnapshot.cursorVisible;
+    inputs.captureWindow = cursorSnapshot.captureWindow;
+    inputs.captureOwnerModule = cursorSnapshot.captureOwnerModule;
+    inputs.cefKnown = cursorSnapshot.cefKnown;
+    inputs.cefControlled = cursorSnapshot.cefControlled;
+    inputs.cefShown = cursorSnapshot.cefShown;
+    inputs.riskModules = cursorSnapshot.riskModules;
     inputs.appHasFocus = appHasFocus;
     inputs.gameWindow = gameHw;
     inputs.foregroundWindow = fg;
-    overlayCursor_.Apply(inputs);
+    const OverlayCursorController::Result result = overlayCursor_.Apply(inputs);
+    overlay_.SetInputRoutingAllowed(result.routingAllowed);
 }
 
 DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {

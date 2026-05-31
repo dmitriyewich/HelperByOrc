@@ -528,6 +528,22 @@ bool ImGuiOverlay::WantsUiCursor() const {
     return menuOpen_ || WantsAuxiliaryUiCursor();
 }
 
+bool ImGuiOverlay::WantsInputRouting() const {
+    return menuOpen_ || WantsAuxiliaryUiCursor() || WantsTextInputCapture();
+}
+
+void ImGuiOverlay::SetInputRoutingAllowed(bool allowed) {
+    if (inputRoutingAllowed_ == allowed) {
+        return;
+    }
+
+    inputRoutingAllowed_ = allowed;
+    debuglog::WriteInfo("[ui] input routing allowed: %s", allowed ? "yes" : "no");
+    if (!allowed) {
+        ApplyInputCaptureState(false);
+    }
+}
+
 std::string ImGuiOverlay::MenuToggleHotkeyText() const {
     return hotkeys::ToString(UiSettings::Instance().MenuToggleHotkey());
 }
@@ -985,10 +1001,12 @@ void ImGuiOverlay::UpdateHotkeyState() {
         menuOpen_ = !menuOpen_;
         const bool aux = IsAuxiliaryUiVisible();
         debuglog::WriteInfo(
-            "[ui] Menu toggled: %s aux=%d wantRoute=%d wantUiCursor=%d wantAuxCursor=%d",
+            "[ui] Menu toggled: %s aux=%d wantRoute=%d routeAllowed=%d canRoute=%d wantUiCursor=%d wantAuxCursor=%d",
             menuOpen_ ? "open" : "closed",
             aux ? 1 : 0,
             WantsInputRouting() ? 1 : 0,
+            inputRoutingAllowed_ ? 1 : 0,
+            CanRouteInput() ? 1 : 0,
             WantsUiCursor() ? 1 : 0,
             WantsAuxiliaryUiCursor() ? 1 : 0);
     }
@@ -1094,8 +1112,8 @@ bool ImGuiOverlay::IsAuxiliaryUiVisible() const {
     return auxiliaryUiVisibleCallback_ ? auxiliaryUiVisibleCallback_() : false;
 }
 
-bool ImGuiOverlay::WantsInputRouting() const {
-    return menuOpen_ || WantsAuxiliaryUiCursor() || WantsTextInputCapture();
+bool ImGuiOverlay::CanRouteInput() const {
+    return inputRoutingAllowed_ && WantsInputRouting();
 }
 
 bool ImGuiOverlay::WantsAuxiliaryUiCursor() const {
@@ -1143,7 +1161,7 @@ void ImGuiOverlay::ApplyInputCaptureState(bool captured) {
 
 void ImGuiOverlay::UpdateInputCaptureState() {
     bool captured = false;
-    if (imguiInitialized_ && ImGui::GetCurrentContext() != nullptr && WantsInputRouting()) {
+    if (imguiInitialized_ && ImGui::GetCurrentContext() != nullptr && CanRouteInput()) {
         captured = ImGui::GetIO().WantTextInput;
     }
 
@@ -1160,12 +1178,14 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
         traceLastAuxVisible_ = auxVisible;
         traceLastIdleFrame_ = idle;
         debuglog::WriteInfo(
-            "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
+            "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
             frameTag,
             idle ? 1 : 0,
             menuOpen_ ? 1 : 0,
             auxVisible ? 1 : 0,
             WantsInputRouting() ? 1 : 0,
+            inputRoutingAllowed_ ? 1 : 0,
+            CanRouteInput() ? 1 : 0,
             WantsUiCursor() ? 1 : 0,
             WantsAuxiliaryUiCursor() ? 1 : 0,
             WantsTextInputCapture() ? 1 : 0);
@@ -1174,7 +1194,7 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
     if (std::strcmp(frameTag, "after_present_ui") != 0) {
         return;
     }
-    if (!WantsInputRouting() || ImGui::GetCurrentContext() == nullptr) {
+    if (!CanRouteInput() || ImGui::GetCurrentContext() == nullptr) {
         return;
     }
     const ImGuiIO& io = ImGui::GetIO();
@@ -1290,7 +1310,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     // без hover (WantCaptureMouse=0), а клики «съедаются».
     if (gameWindow_ != nullptr) {
         ImGuiIO& io = ImGui::GetIO();
-        if (enteredUiCursor) {
+        if (enteredUiCursor && CanRouteInput()) {
             io.ClearInputMouse();
             debuglog::WriteInfo("[ui] uiCursor 0->1: mouse input state reset");
         }
@@ -1305,7 +1325,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     ImGui::NewFrame();
-    if (wantsUiCursor) {
+    if (wantsUiCursor && CanRouteInput()) {
         // При активном overlay-курcоре хотим стабильный mouse-capture и на следующем кадре тоже,
         // чтобы исключить кратковременные провалы WantCaptureMouse=0 между WndProc/NewFrame.
         ImGui::SetNextFrameWantCaptureMouse(true);
@@ -1473,7 +1493,8 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             return TRUE;
         }
 
-        if (appFg && self_->windowMessageCallback_ && self_->windowMessageCallback_(message, wparam, lparam)) {
+        if (appFg && self_->CanRouteInput() && self_->windowMessageCallback_
+            && self_->windowMessageCallback_(message, wparam, lparam)) {
             if (message != WM_MOUSEMOVE) {
                 debuglog::WriteInfo(
                     "[ui] binder swallowed msg=%u wParam=%p",
@@ -1483,7 +1504,7 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             return TRUE;
         }
 
-        if (appFg && self_->WantsInputRouting()) {
+        if (appFg && self_->CanRouteInput()) {
             const bool wantsUiCursor = self_->WantsUiCursor();
             const bool wantsTextInput = self_->WantsTextInputCapture();
             if (wantsTextInput && self_->HandleTextInputMessage(message, wparam, lparam)) {

@@ -31,6 +31,10 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
+#include <wincrypt.h>
+
+#pragma comment(lib, "advapi32.lib")
 
 namespace {
 
@@ -268,6 +272,182 @@ std::string ModulePath(HMODULE module) {
         return {};
     }
     return path;
+}
+
+std::wstring ModulePathWide(HMODULE module) {
+    wchar_t path[MAX_PATH]{};
+    if (!module || !GetModuleFileNameW(module, path, MAX_PATH)) {
+        return {};
+    }
+    return path;
+}
+
+std::string WideToUtf8(std::wstring_view text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int size = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (size <= 0) {
+        return {};
+    }
+
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        result.data(),
+        size,
+        nullptr,
+        nullptr);
+    return result;
+}
+
+std::string FileTimeText(const FILETIME& fileTime) {
+    SYSTEMTIME utc{};
+    SYSTEMTIME local{};
+    if (!FileTimeToSystemTime(&fileTime, &utc) || !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local)) {
+        return "unknown";
+    }
+
+    char buffer[64]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%04u-%02u-%02u %02u:%02u:%02u",
+        static_cast<unsigned>(local.wYear),
+        static_cast<unsigned>(local.wMonth),
+        static_cast<unsigned>(local.wDay),
+        static_cast<unsigned>(local.wHour),
+        static_cast<unsigned>(local.wMinute),
+        static_cast<unsigned>(local.wSecond));
+    return buffer;
+}
+
+std::string HexDigest(const BYTE* data, DWORD size) {
+    std::string result;
+    result.reserve(static_cast<std::size_t>(size) * 2);
+    for (DWORD i = 0; i < size; ++i) {
+        char byteText[4]{};
+        std::snprintf(byteText, sizeof(byteText), "%02X", static_cast<unsigned>(data[i]));
+        result += byteText;
+    }
+    return result;
+}
+
+std::uint64_t Fnva64File(const std::wstring& path, bool& ok) {
+    ok = false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    constexpr std::uint64_t kOffset = 1469598103934665603ull;
+    constexpr std::uint64_t kPrime = 1099511628211ull;
+    std::uint64_t hash = kOffset;
+    std::array<BYTE, 64 * 1024> buffer{};
+    DWORD read = 0;
+    while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) && read != 0) {
+        for (DWORD i = 0; i < read; ++i) {
+            hash ^= buffer[i];
+            hash *= kPrime;
+        }
+    }
+
+    ok = GetLastError() == ERROR_HANDLE_EOF || read == 0;
+    CloseHandle(file);
+    return hash;
+}
+
+std::string Sha256File(const std::wstring& path, bool& ok) {
+    ok = false;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+
+    HCRYPTPROV provider = 0;
+    HCRYPTHASH hash = 0;
+    if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)
+        || !CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
+        if (hash) {
+            CryptDestroyHash(hash);
+        }
+        if (provider) {
+            CryptReleaseContext(provider, 0);
+        }
+        CloseHandle(file);
+        return {};
+    }
+
+    std::array<BYTE, 64 * 1024> buffer{};
+    DWORD read = 0;
+    bool readOk = true;
+    while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) && read != 0) {
+        if (!CryptHashData(hash, buffer.data(), read, 0)) {
+            readOk = false;
+            break;
+        }
+    }
+
+    BYTE digest[32]{};
+    DWORD digestSize = sizeof(digest);
+    if (readOk && CryptGetHashParam(hash, HP_HASHVAL, digest, &digestSize, 0)) {
+        ok = true;
+    }
+
+    CryptDestroyHash(hash);
+    CryptReleaseContext(provider, 0);
+    CloseHandle(file);
+    return ok ? HexDigest(digest, digestSize) : std::string{};
+}
+
+void LogModuleFingerprint(HMODULE module, const char* label) {
+    const std::wstring path = ModulePathWide(module);
+    if (path.empty()) {
+        debuglog::WriteInfo("[samp][file] %s path unavailable module=%p", label ? label : "module", module);
+        return;
+    }
+
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        debuglog::WriteError(
+            "[samp][file] %s stat failed gle=%lu path=\"%s\"",
+            label ? label : "module",
+            static_cast<unsigned long>(GetLastError()),
+            WideToUtf8(path).c_str());
+        return;
+    }
+
+    const std::uint64_t size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32u) | data.nFileSizeLow;
+    bool fnvOk = false;
+    const std::uint64_t fnv = Fnva64File(path, fnvOk);
+    bool shaOk = false;
+    const std::string sha256 = Sha256File(path, shaOk);
+
+    debuglog::WriteInfo(
+        "[samp][file] %s size=%llu mtime=\"%s\" fnv64=%016llX fnvOk=%d sha256=%s shaOk=%d path=\"%s\"",
+        label ? label : "module",
+        static_cast<unsigned long long>(size),
+        FileTimeText(data.ftLastWriteTime).c_str(),
+        static_cast<unsigned long long>(fnv),
+        fnvOk ? 1 : 0,
+        shaOk ? sha256.c_str() : "<failed>",
+        shaOk ? 1 : 0,
+        WideToUtf8(path).c_str());
 }
 
 std::string ModuleOwnerSummary(std::uintptr_t address) {

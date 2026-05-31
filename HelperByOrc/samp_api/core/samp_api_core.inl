@@ -123,6 +123,9 @@ void SampApi::Refresh() {
         currentEntryPoint_ = nullptr;
         entryPointAddress_ = 0;
         supportedVersion_ = false;
+        cursorModeValidationDone_ = false;
+        cursorModeSignatureValid_ = false;
+        cursorModeValidationError_.clear();
         ResetChatAsiInputDiscovery();
 
         if (sampModule_) {
@@ -180,15 +183,17 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
     const std::uintptr_t base = ModuleBase();
 
     debuglog::WriteInfo(
-        "[samp][diag] %s ts=%llums module=%p version=%s supported=%d resolved=%d entry=0x%X path=\"%s\"",
+        "[samp][diag] %s ts=%llums module=%p version=%s supported=%d resolved=%d cursorWrites=%d entry=0x%X path=\"%s\" cursorError=\"%s\"",
         tag,
         static_cast<unsigned long long>(GetTickCount64()),
         sampModule_,
         currentVersionName(),
         supportedVersion_ ? 1 : 0,
         versionResolved_ ? 1 : 0,
+        cursorModeSignatureValid_ ? 1 : 0,
         entryPointAddress_,
-        ModulePath(sampModule_).c_str());
+        ModulePath(sampModule_).c_str(),
+        cursorModeValidationError_.c_str());
 
     if (!sampModule_) {
         debuglog::WriteInfo("[samp][diag] %s samp.dll is not loaded", tag);
@@ -571,6 +576,14 @@ bool SampApi::isSupportedVersion() const {
     return supportedVersion_;
 }
 
+bool SampApi::IsCursorModeWriteSupported() const {
+    return cursorModeValidationDone_ && cursorModeSignatureValid_;
+}
+
+const std::string& SampApi::cursorModeValidationError() const {
+    return cursorModeValidationError_;
+}
+
 const std::string& SampApi::lastError() const {
     return lastError_;
 }
@@ -603,6 +616,9 @@ bool SampApi::DetectVersion() {
             currentVersion_ = info.version;
             currentEntryPoint_ = &info;
             supportedVersion_ = info.supported;
+            cursorModeValidationDone_ = false;
+            cursorModeSignatureValid_ = false;
+            cursorModeValidationError_.clear();
             ClearError();
 
             debuglog::WriteInfo(
@@ -610,6 +626,10 @@ bool SampApi::DetectVersion() {
                 info.name,
                 info.address,
                 info.supported ? "yes" : "no");
+            LogModuleFingerprint(sampModule_, "samp.dll");
+            if (info.supported) {
+                ValidateCursorModeFunction();
+            }
 
             return true;
         }
@@ -618,10 +638,77 @@ bool SampApi::DetectVersion() {
     currentVersion_ = Version::Unknown;
     currentEntryPoint_ = nullptr;
     supportedVersion_ = false;
+    cursorModeValidationDone_ = false;
+    cursorModeSignatureValid_ = false;
+    cursorModeValidationError_.clear();
 
     debuglog::WriteError("Unknown SAMP entry point: 0x%X", entryPointAddress_);
     SetError("Unknown SAMP version entry point");
     return false;
+}
+
+bool SampApi::ValidateCursorModeFunction() {
+    if (cursorModeValidationDone_) {
+        return cursorModeSignatureValid_;
+    }
+
+    cursorModeValidationDone_ = true;
+    cursorModeSignatureValid_ = false;
+    cursorModeValidationError_.clear();
+
+    if (!sampModule_ || !versionResolved_ || !supportedVersion_) {
+        cursorModeValidationError_ = "samp.dll is not ready for cursor validation";
+        debuglog::WriteError("[samp][cursor] validation skipped: %s", cursorModeValidationError_.c_str());
+        return false;
+    }
+
+    const std::uint32_t relative = main_offsets.SetCursorMode.Get(currentVersion_);
+    const std::uintptr_t address = GetAddress(main_offsets.SetCursorMode);
+    if (relative == 0 || address == 0) {
+        cursorModeValidationError_ = "SetCursorMode offset is not available";
+        debuglog::WriteError(
+            "[samp][cursor] validation failed version=%s: %s",
+            currentVersionName(),
+            cursorModeValidationError_.c_str());
+        return false;
+    }
+
+    static constexpr std::uint8_t kExpectedPrefix[] = {
+        0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x08, 0x83, 0xF8,
+        0x02, 0x56, 0x57, 0x8B, 0xF1, 0x75, 0x6F, 0x6A, 0x05,
+    };
+
+    bool matches = true;
+    for (std::size_t i = 0; i < sizeof(kExpectedPrefix); ++i) {
+        std::uint8_t value = 0;
+        if (!SafeRead(address + i, value) || value != kExpectedPrefix[i]) {
+            matches = false;
+            break;
+        }
+    }
+
+    const std::string bytes = HexBytes(address, 16);
+    debuglog::WriteInfo(
+        "[samp][cursor] validate version=%s entry=0x%X setCursorModeRva=0x%X addr=0x%08X bytes16=\"%s\" transfer=\"%s\"",
+        currentVersionName(),
+        entryPointAddress_,
+        relative,
+        static_cast<unsigned>(address),
+        bytes.c_str(),
+        DecodeControlTransfer(address).c_str());
+
+    if (!matches) {
+        cursorModeValidationError_ = "SetCursorMode signature mismatch; cursor writes disabled for this samp.dll";
+        debuglog::WriteError(
+            "[samp][cursor] validation failed version=%s: %s",
+            currentVersionName(),
+            cursorModeValidationError_.c_str());
+        return false;
+    }
+
+    cursorModeSignatureValid_ = true;
+    debuglog::WriteInfo("[samp][cursor] validation ok version=%s", currentVersionName());
+    return true;
 }
 
 void SampApi::SetError(std::string message) {

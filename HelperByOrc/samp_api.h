@@ -299,6 +299,8 @@ public:
     Version currentVersion() const;
     const char* currentVersionName() const;
     bool isSupportedVersion() const;
+    bool IsCursorModeWriteSupported() const;
+    const std::string& cursorModeValidationError() const;
     const std::string& lastError() const;
 
 private:
@@ -314,6 +316,7 @@ private:
     };
 
     bool DetectVersion();
+    bool ValidateCursorModeFunction();
     void SetError(std::string message);
     void ClearError();
     std::uintptr_t ModuleBase() const;
@@ -346,6 +349,9 @@ private:
     const SampEntryPoint* currentEntryPoint_ = nullptr;
     std::uint32_t entryPointAddress_ = 0;
     bool supportedVersion_ = false;
+    bool cursorModeValidationDone_ = false;
+    bool cursorModeSignatureValid_ = false;
+    std::string cursorModeValidationError_;
     std::string lastError_;
     TextTransformCallback textTransformCallback_;
     int dialogHookBypassDepth_ = 0;

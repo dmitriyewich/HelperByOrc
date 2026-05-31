@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include "binder_module.h"
+#include "external_cursor_detector.h"
 #include "hud_module.h"
 #include "imgui_overlay.h"
 #include "incoming_message_router.h"
@@ -101,6 +102,7 @@ private:
     std::uint64_t nextRuntimeModuleSnapshotAtMs_ = 0;
     std::uint64_t sampNotReadySinceMs_ = 0;
     std::uint64_t nextSampStuckTraceAtMs_ = 0;
+    ExternalCursorDetector externalCursorDetector_{};
     OverlayCursorController overlayCursor_{};
     bool sampUiPipelineReady_ = false;
     std::uint64_t sampUiPipelineLastProbeMs_ = 0;
