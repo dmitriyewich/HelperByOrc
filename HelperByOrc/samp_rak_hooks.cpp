@@ -583,6 +583,10 @@ bool SampRakHooks::DispatchChatBubble(RakNetBitStreamView& view) {
 }
 
 bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
+    if (onShowDialogHandlers_.empty()) {
+        return true;
+    }
+
     if (!sampApi_ || !sampApi_->sampModule()) {
         return true;
     }
@@ -614,6 +618,12 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
     std::string button1Utf8 = textencoding::GameToUtf8(button1Cp1251);
     std::string button2Utf8 = textencoding::GameToUtf8(button2Cp1251);
     std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
+    const std::uint16_t originalDialogId = dialogId;
+    const std::uint8_t originalStyle = style;
+    const std::string originalTitleUtf8 = titleUtf8;
+    const std::string originalButton1Utf8 = button1Utf8;
+    const std::string originalButton2Utf8 = button2Utf8;
+    const std::string originalTextUtf8 = textUtf8;
 
     for (const auto& handler : onShowDialogHandlers_) {
         if (!handler(dialogId, style, titleUtf8, button1Utf8, button2Utf8, textUtf8)) {
@@ -621,8 +631,19 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
         }
     }
 
+    const bool changed = dialogId != originalDialogId
+        || style != originalStyle
+        || titleUtf8 != originalTitleUtf8
+        || button1Utf8 != originalButton1Utf8
+        || button2Utf8 != originalButton2Utf8
+        || textUtf8 != originalTextUtf8;
+    if (!changed) {
+        return true;
+    }
+
     const std::uintptr_t writer = GetVersionedAddress(sampApi_->sampModule(), SampApi::main_offsets.RakStringWriteEncoder, version);
     if (writer == 0) {
+        debuglog::WriteError("SampRakHooks::DispatchShowDialog changed payload but RakStringWriteEncoder is unavailable");
         return true;
     }
 
@@ -765,9 +786,10 @@ bool SampRakHooks::WriteEncodedString(
         return false;
     }
 
-    view.raw()->AddBitsAndReallocate(static_cast<int>(value.size() * 16 + 16));
+    std::string nullTerminated(value);
+    view.raw()->AddBitsAndReallocate(static_cast<int>(nullTerminated.size() * 16 + 16));
     const auto encode = reinterpret_cast<void(__thiscall*)(std::uintptr_t, const char*, int, BitStream*, int)>(writer);
-    encode(compressor, value.data(), static_cast<int>(value.size()) + 1, view.raw(), 0);
+    encode(compressor, nullTerminated.c_str(), static_cast<int>(nullTerminated.size()), view.raw(), 0);
     return true;
 }
 
