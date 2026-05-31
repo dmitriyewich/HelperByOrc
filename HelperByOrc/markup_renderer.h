@@ -14,6 +14,12 @@ public:
         bool wrapText = true;
     };
 
+    struct ImageTexture {
+        ImTextureID textureId = 0;
+        int width = 0;
+        int height = 0;
+    };
+
     MarkupRenderer();
     ~MarkupRenderer();
 
@@ -29,6 +35,11 @@ public:
         IDirect3DDevice9* device,
         const std::filesystem::path& imageRoot,
         const DrawOptions& options);
+    bool ResolveImageTexture(
+        std::string_view source,
+        IDirect3DDevice9* device,
+        const std::filesystem::path& imageRoot,
+        ImageTexture& out);
 
     static bool HasVisibleContent(std::string_view text);
     static std::string StripMarkupLine(std::string_view line);

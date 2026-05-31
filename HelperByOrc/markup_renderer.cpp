@@ -647,6 +647,29 @@ struct MarkupRenderer::Impl {
         return &entry;
     }
 
+    bool ResolveImageTexture(
+        std::string_view source,
+        IDirect3DDevice9* device,
+        const fs::path& imageRoot,
+        MarkupRenderer::ImageTexture& out) {
+        out = {};
+        ParsedImage image;
+        image.source = std::string(source);
+        if (!MarkupRenderer::IsSafeRelativeAssetPath(image.source)) {
+            return false;
+        }
+
+        TextureCacheEntry* texture = LoadTexture(device, ResolveImagePath(image, imageRoot));
+        if (!texture || !texture->texture) {
+            return false;
+        }
+
+        out.textureId = reinterpret_cast<ImTextureID>(texture->texture);
+        out.width = texture->width;
+        out.height = texture->height;
+        return true;
+    }
+
     ImVec2 ResolveImageRenderSize(const ParsedImage& image, IDirect3DDevice9* device, const fs::path& imageRoot) {
         const fs::path path = ResolveImagePath(image, imageRoot);
         const TextureCacheEntry* texture = LoadTexture(device, path);
@@ -889,6 +912,14 @@ void MarkupRenderer::DrawText(
     const std::filesystem::path& imageRoot,
     const DrawOptions& options) {
     impl_->DrawText(text, device, imageRoot, options);
+}
+
+bool MarkupRenderer::ResolveImageTexture(
+    std::string_view source,
+    IDirect3DDevice9* device,
+    const std::filesystem::path& imageRoot,
+    ImageTexture& out) {
+    return impl_->ResolveImageTexture(source, device, imageRoot, out);
 }
 
 bool MarkupRenderer::HasVisibleContent(std::string_view text) {
