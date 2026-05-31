@@ -2358,7 +2358,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
     const bool quickMenuActive = binder_.WantsQuickMenuCursor();
     hud_.SetPlacementInputBlocked(quickMenuActive);
-    hud_.DrawOverlay(device, showMainWindow);
+    hud_.DrawOverlay(device);
     if (!showMainWindow) {
         binder_.DrawOverlay();
         notifications_.DrawOverlay();

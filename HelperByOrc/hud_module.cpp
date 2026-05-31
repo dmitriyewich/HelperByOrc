@@ -36,6 +36,16 @@ constexpr wchar_t kHudAssetsFolder[] = L"hud";
 constexpr wchar_t kHudImagesFolder[] = L"images";
 constexpr int kDefaultRefreshMs = 200;
 
+bool ClearRawConditionFlag(std::vector<bool>& flags, ConditionId condition) {
+    const std::size_t index = static_cast<std::size_t>(condition);
+    if (index >= flags.size() || !flags[index]) {
+        return false;
+    }
+
+    flags[index] = false;
+    return true;
+}
+
 enum class SourceMode {
     Inline,
     NotepadNote,
@@ -99,10 +109,6 @@ struct HudStyleConfig {
 };
 
 struct HudVisibility {
-    HudVisibility() {
-        SetConditionFlag(conditions, ConditionId::HelperActive, true);
-    }
-
     std::vector<bool> conditions{};
     ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAny;
 };
@@ -536,6 +542,7 @@ struct HudModule::Impl {
     std::string placementWidgetId;
     bool placementInputBlocked = false;
     bool conditionsPopupPending = false;
+    bool deprecatedHelperVisibilityMigrated = false;
 
     void OnProcessAttach(HMODULE moduleHandle) {
         module = moduleHandle;
@@ -548,6 +555,7 @@ struct HudModule::Impl {
         configLoaded = false;
         placementMode = false;
         placementWidgetId.clear();
+        deprecatedHelperVisibilityMigrated = false;
     }
 
     void ReloadConfig() {
@@ -559,6 +567,7 @@ struct HudModule::Impl {
         configLoaded = false;
         placementMode = false;
         placementWidgetId.clear();
+        deprecatedHelperVisibilityMigrated = false;
     }
 
     void ReleaseDeviceResources() {
@@ -832,6 +841,9 @@ struct HudModule::Impl {
             if (const jsonutil::JsonArray* conditionsArray = jsonutil::JsonArrayOrNull(visibility, "conditions")) {
                 widget.visibility.conditions = DeserializeBoolArray(conditionsArray);
             }
+            if (ClearRawConditionFlag(widget.visibility.conditions, ConditionId::HelperActive)) {
+                deprecatedHelperVisibilityMigrated = true;
+            }
             NormalizeConditionFlags(widget.visibility.conditions);
             widget.visibility.conditionsCombine =
                 NormalizeConditionCombineMode(jsonutil::JsonStringOr(visibility, "conditions_combine", "require_any"));
@@ -845,7 +857,9 @@ struct HudModule::Impl {
                     SetConditionFlag(widget.visibility.conditions, condition, *value);
                 }
             };
-            migrateLegacyVisibilityFlag("hide_when_helper_open", ConditionId::HelperActive);
+            if (visibility->find("hide_when_helper_open") != visibility->end()) {
+                deprecatedHelperVisibilityMigrated = true;
+            }
             migrateLegacyVisibilityFlag("hide_when_chat_open", ConditionId::ChatOpened);
             migrateLegacyVisibilityFlag("hide_when_dialog_open", ConditionId::DialogOpened);
         }
@@ -860,6 +874,7 @@ struct HudModule::Impl {
         EnsureAssetDirectories();
         widgets.clear();
         selectedWidgetId.clear();
+        deprecatedHelperVisibilityMigrated = false;
 
         const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kHudSectionName);
         selectedWidgetId = jsonutil::JsonStringOr(&section, "selected_widget_id", "");
@@ -881,6 +896,10 @@ struct HudModule::Impl {
         }
         if (selectedWidgetId.empty() && !widgets.empty()) {
             selectedWidgetId = widgets.front().id;
+        }
+        if (deprecatedHelperVisibilityMigrated) {
+            debuglog::WriteInfo("[hud] migrated deprecated Helper visibility condition");
+            QueueSave();
         }
         debuglog::WriteInfo("[hud] config loaded widgets=%zu", widgets.size());
     }
@@ -922,15 +941,12 @@ struct HudModule::Impl {
         return widget.cachedText;
     }
 
-    bool WidgetVisible(HudWidget& widget, bool helperWindowOpen) {
+    bool WidgetVisible(HudWidget& widget) {
         if (!widget.enabled) {
             return false;
         }
         NormalizeConditionFlags(widget.visibility.conditions);
         ConditionRuntimeContext conditionContext{};
-        const bool helperBlocksWidget = helperWindowOpen && !(placementMode && placementWidgetId == widget.id);
-        conditionContext.helperUiActive = helperBlocksWidget;
-        conditionContext.helperUiCursorActive = helperBlocksWidget;
         if (ConditionsBlocked(widget.visibility.conditions, widget.visibility.conditionsCombine, sampApi, &conditionContext)) {
             return false;
         }
@@ -969,8 +985,8 @@ struct HudModule::Impl {
         widget.position.offsetY = (pivotPos.y - base.y) / std::max(0.001f, yScale);
     }
 
-    void DrawWidgetOverlay(HudWidget& widget, IDirect3DDevice9* device, bool helperWindowOpen) {
-        if (!WidgetVisible(widget, helperWindowOpen)) {
+    void DrawWidgetOverlay(HudWidget& widget, IDirect3DDevice9* device) {
+        if (!WidgetVisible(widget)) {
             return;
         }
         const std::string text = ExpandedText(widget);
@@ -1044,10 +1060,10 @@ struct HudModule::Impl {
         PopHudWidgetStyle(styleScope);
     }
 
-    void DrawOverlay(IDirect3DDevice9* device, bool helperWindowOpen) {
+    void DrawOverlay(IDirect3DDevice9* device) {
         EnsureLoaded();
         for (HudWidget& widget : widgets) {
-            DrawWidgetOverlay(widget, device, helperWindowOpen);
+            DrawWidgetOverlay(widget, device);
         }
     }
 
@@ -1434,8 +1450,8 @@ void HudModule::DrawMainTab(IDirect3DDevice9* device) {
     impl_->DrawMainTab(device);
 }
 
-void HudModule::DrawOverlay(IDirect3DDevice9* device, bool helperWindowOpen) {
-    impl_->DrawOverlay(device, helperWindowOpen);
+void HudModule::DrawOverlay(IDirect3DDevice9* device) {
+    impl_->DrawOverlay(device);
 }
 
 bool HudModule::WantsOverlayRender() {

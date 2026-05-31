@@ -91,6 +91,16 @@ bool StartsWith(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
 }
 
+bool ClearDeprecatedHelperCondition(std::vector<bool>& flags) {
+    const std::size_t index = static_cast<std::size_t>(ConditionId::HelperActive);
+    if (index >= flags.size() || !flags[index]) {
+        return false;
+    }
+
+    flags[index] = false;
+    return true;
+}
+
 std::string SanitizeFolderName(std::string_view value) {
     std::string result;
     result.reserve(value.size());
@@ -1873,6 +1883,10 @@ struct BinderModule::Impl {
     bool gameInputForeground_ = true;
     bool helperUiActive_ = false;
     bool prevFrameGameInputForeground_ = true;
+    bool deprecatedHelperConditionMigrated_ = false;
+    int deprecatedHelperBindDisabledCount_ = 0;
+    int deprecatedHelperCategoryQuickDisabledCount_ = 0;
+    int deprecatedHelperFolderQuickDisabledCount_ = 0;
 
     std::string bindSearch{};
     std::optional<FolderMoveUndo> folderMoveUndo_{};
@@ -2025,6 +2039,9 @@ struct BinderModule::Impl {
     void RefreshNumbers();
     void SaveConfig();
     void LoadConfig();
+    bool MigrateDeprecatedHelperCondition(std::vector<bool>& conditions);
+    void ApplyDeprecatedHelperBindMigration(HotkeyEntry& hotkey, bool helperOnly);
+    void LogDeprecatedHelperConditionMigration() const;
     void EnsureHotkeyOrderIds();
     std::vector<ExplorerItem>& ItemsForFolder(FolderNode* folder);
     const std::vector<ExplorerItem>& ItemsForFolder(const FolderNode* folder) const;
@@ -2103,6 +2120,13 @@ struct BinderModule::Impl {
     bool VisibleQuickMenuEntriesExist() const;
     bool FolderVisibleInQuickMenu(const FolderNode& folder) const;
     ConditionRuntimeContext MakeConditionContext(bool quickMenuContext = false) const;
+    bool IsSilentActivationSource(std::string_view source) const;
+    bool IsManualActivationSource(std::string_view source) const;
+    bool ShouldBlockHelperCursorActivation(const HotkeyEntry& hotkey, std::string_view source) const;
+    bool ConditionsBlockHotkeyStart(
+        const HotkeyEntry& hotkey,
+        std::string_view source,
+        std::string* message = nullptr) const;
     void ResetInputState();
     void Tick();
     void Shutdown();
@@ -2860,6 +2884,36 @@ void BinderModule::Impl::SaveConfig() {
     AppConfig::Instance().QueueSectionReplace(std::string(kBinderConfigSectionName), JsonValue(std::move(root)));
 }
 
+bool BinderModule::Impl::MigrateDeprecatedHelperCondition(std::vector<bool>& conditions) {
+    const bool changed = ClearDeprecatedHelperCondition(conditions);
+    NormalizeConditionFlags(conditions);
+    if (changed) {
+        deprecatedHelperConditionMigrated_ = true;
+    }
+    return changed;
+}
+
+void BinderModule::Impl::ApplyDeprecatedHelperBindMigration(HotkeyEntry& hotkey, bool helperOnly) {
+    if (!helperOnly || !hotkey.enabled) {
+        return;
+    }
+
+    hotkey.enabled = false;
+    ++deprecatedHelperBindDisabledCount_;
+}
+
+void BinderModule::Impl::LogDeprecatedHelperConditionMigration() const {
+    if (!deprecatedHelperConditionMigrated_) {
+        return;
+    }
+
+    debuglog::WriteInfo(
+        "[binder] migrated deprecated HelperActive condition disabledBinds=%d disabledQuickCategories=%d disabledQuickFolders=%d",
+        deprecatedHelperBindDisabledCount_,
+        deprecatedHelperCategoryQuickDisabledCount_,
+        deprecatedHelperFolderQuickDisabledCount_);
+}
+
 void BinderModule::Impl::LoadConfig() {
     categories.clear();
     activeCategoryId.clear();
@@ -2873,6 +2927,10 @@ void BinderModule::Impl::LoadConfig() {
     nextCategoryId = 1;
     nextHotkeyRuntimeId = 1;
     nextHotkeyOrderId = 1;
+    deprecatedHelperConditionMigrated_ = false;
+    deprecatedHelperBindDisabledCount_ = 0;
+    deprecatedHelperCategoryQuickDisabledCount_ = 0;
+    deprecatedHelperFolderQuickDisabledCount_ = 0;
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
     quickMenuStyle = QuickMenuStyle::Cascade;
@@ -2958,7 +3016,8 @@ void BinderModule::Impl::LoadConfig() {
     ClearExplorerSelection();
     RefreshNumbers();
 
-    if (legacyFormat || migratedLegacyRoot) {
+    LogDeprecatedHelperConditionMigration();
+    if (legacyFormat || migratedLegacyRoot || deprecatedHelperConditionMigrated_) {
         SaveConfig();
     }
 }
@@ -3012,6 +3071,11 @@ BinderCategory BinderModule::Impl::DeserializeCategory(const JsonObject& object)
     category.conditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "conditions"));
     if (category.conditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
         category.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    }
+    const bool categoryHadDeprecatedHelper = MigrateDeprecatedHelperCondition(category.conditions);
+    if (categoryHadDeprecatedHelper && !HasSelectedCondition(category.conditions) && category.quickMenu) {
+        category.quickMenu = false;
+        ++deprecatedHelperCategoryQuickDisabledCount_;
     }
     category.conditionsCombine =
         NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "conditions_combine", "require_any"));
@@ -3067,6 +3131,11 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
     folder->conditions = DeserializeBoolArray(conditionsArray);
     if (folder->conditions.size() < static_cast<std::size_t>(ConditionId::Count)) {
         folder->conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    }
+    const bool folderHadDeprecatedHelper = MigrateDeprecatedHelperCondition(folder->conditions);
+    if (folderHadDeprecatedHelper && !HasSelectedCondition(folder->conditions) && folder->quickMenu) {
+        folder->quickMenu = false;
+        ++deprecatedHelperFolderQuickDisabledCount_;
     }
     folder->conditionsCombine = NormalizeConditionCombineMode(jsonutil::JsonStringOr(
         &object,
@@ -3206,19 +3275,24 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
         DeserializeUintArray(jsonutil::JsonArrayOrNull(&object, "keys")), hotkey.hotkeyMode);
     hotkey.conditions = DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "conditions"));
     hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    const bool hadDeprecatedHelperCondition = MigrateDeprecatedHelperCondition(hotkey.conditions);
     hotkey.conditionsCombine =
         NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "conditions_combine", "require_all"));
     std::vector<bool> legacyQuickConditions =
         DeserializeBoolArray(jsonutil::JsonArrayOrNull(&object, "quick_conditions"));
+    legacyQuickConditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
+    const bool hadDeprecatedHelperQuickCondition = MigrateDeprecatedHelperCondition(legacyQuickConditions);
     if (!HasSelectedCondition(hotkey.conditions) && HasSelectedCondition(legacyQuickConditions)) {
         hotkey.conditions = std::move(legacyQuickConditions);
-        hotkey.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
         hotkey.conditionsCombine =
             NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all"));
     }
+    const bool helperOnlyAfterMigration =
+        (hadDeprecatedHelperCondition || hadDeprecatedHelperQuickCondition) && !HasSelectedCondition(hotkey.conditions);
     hotkey.repeatMode = jsonutil::JsonBoolOr(&object, "repeat_mode", false);
     hotkey.repeatIntervalMs = jsonutil::JsonNumberOr<int>(&object, "repeat_interval_ms", kDefaultRepeatIntervalMs);
     hotkey.enabled = jsonutil::JsonBoolOr(&object, "enabled", true);
+    ApplyDeprecatedHelperBindMigration(hotkey, helperOnlyAfterMigration);
     hotkey.quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", false);
     hotkey.command = jsonutil::JsonStringOr(&object, "command", "");
     hotkey.commandEnabled = jsonutil::JsonBoolOr(&object, "command_enabled", false);
@@ -4368,6 +4442,38 @@ ConditionRuntimeContext BinderModule::Impl::MakeConditionContext(bool quickMenuC
     return context;
 }
 
+bool BinderModule::Impl::IsSilentActivationSource(std::string_view source) const {
+    return source == "incoming_server"
+        || source == "outgoing_chat"
+        || source == "outgoing_command";
+}
+
+bool BinderModule::Impl::IsManualActivationSource(std::string_view source) const {
+    return source == "manual";
+}
+
+bool BinderModule::Impl::ShouldBlockHelperCursorActivation(const HotkeyEntry& hotkey, std::string_view source) const {
+    return helperUiActive_ && !IsManualActivationSource(source) && HasCursorCondition(hotkey.conditions);
+}
+
+bool BinderModule::Impl::ConditionsBlockHotkeyStart(
+    const HotkeyEntry& hotkey,
+    std::string_view source,
+    std::string* message) const {
+    if (ShouldBlockHelperCursorActivation(hotkey, source)) {
+        if (message) {
+            *message = UiSettings::Instance().Text(UiText::ConditionHelperCursorBlocked);
+        }
+        return true;
+    }
+
+    const ConditionRuntimeContext context = MakeConditionContext(source == "quick_menu");
+    const ConditionCheckMode checkMode = IsManualActivationSource(source)
+        ? ConditionCheckMode::IgnoreCursorConditions
+        : ConditionCheckMode::Normal;
+    return ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context, message, checkMode);
+}
+
 bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
     const auto hotkeyVisible = [&](const int index) {
         if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
@@ -5514,6 +5620,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
                 || hotkey.awaitingInput
                 || hotkey.waitingTextConfirmation
                 || IsHotkeyRunning(index)
+                || ShouldBlockHelperCursorActivation(hotkey, "bind_tag")
                 || ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &conditionContext)) {
                 continue;
             }
@@ -6147,9 +6254,9 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     std::string_view sourceKind,
     const std::string& sourceText,
     bool waitForResolution) {
-    const ConditionRuntimeContext context = MakeConditionContext(false);
+    std::string conditionMessage;
     if (hotkey.waitingTextConfirmation || hotkey.awaitingInput
-        || ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context)) {
+        || ConditionsBlockHotkeyStart(hotkey, sourceKind, &conditionMessage)) {
         return false;
     }
 
@@ -6536,9 +6643,8 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     std::string conditionMessage;
-    const ConditionRuntimeContext context = MakeConditionContext(source == "quick_menu");
-    if (ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context, &conditionMessage)) {
-        if (!conditionMessage.empty() && source != "incoming_server" && source != "outgoing_chat" && source != "outgoing_command") {
+    if (ConditionsBlockHotkeyStart(hotkey, source, &conditionMessage)) {
+        if (!conditionMessage.empty() && !IsSilentActivationSource(source)) {
             Notify(
                 NotificationGroup::BinderErrors,
                 NotificationSeverity::Warning,

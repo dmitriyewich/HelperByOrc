@@ -51,7 +51,6 @@ constexpr std::array kConditionDefinitions = {
     ConditionDefinition{ConditionId::NotInWater, UiText::ConditionNotInWater, ConditionCategory::Player},
     ConditionDefinition{ConditionId::InAir, UiText::ConditionInAir, ConditionCategory::Player},
     ConditionDefinition{ConditionId::NotInAir, UiText::ConditionNotInAir, ConditionCategory::Player},
-    ConditionDefinition{ConditionId::HelperActive, UiText::ConditionHelperActive, ConditionCategory::Interface},
     ConditionDefinition{ConditionId::ChatOpened, UiText::ConditionChatOpened, ConditionCategory::Interface},
     ConditionDefinition{ConditionId::ChatClosed, UiText::ConditionChatClosed, ConditionCategory::Interface},
     ConditionDefinition{ConditionId::ChatVisible, UiText::ConditionChatVisible, ConditionCategory::Interface},
@@ -385,12 +384,33 @@ bool HasSelectedCondition(const std::vector<bool>& flags) {
     return false;
 }
 
+bool IsCursorCondition(ConditionId condition) {
+    return condition == ConditionId::SampCursorActive
+        || condition == ConditionId::SampCursorInactive
+        || condition == ConditionId::WindowsCursorActive
+        || condition == ConditionId::WindowsCursorInactive;
+}
+
+bool HasCursorCondition(const std::vector<bool>& flags) {
+    for (const ConditionDefinition& definition : kConditionDefinitions) {
+        if (!IsCursorCondition(definition.id)) {
+            continue;
+        }
+        const std::size_t index = ConditionIndex(definition.id);
+        if (index < flags.size() && flags[index]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool TryGetWindowsCursorActiveForConditions(const ConditionRuntimeContext* context, bool& active) {
     active = false;
     if (context && !context->gameWindowForeground) {
         return false;
     }
     if (context && context->helperUiCursorActive) {
+        active = true;
         return true;
     }
 
@@ -417,6 +437,7 @@ bool TryGetSampCursorActiveForConditions(SampApi* sampApi, const ConditionRuntim
         return true;
     }
     if (context && context->helperUiCursorActive) {
+        active = true;
         return true;
     }
 
@@ -601,13 +622,17 @@ bool ConditionsBlocked(
     ConditionCombineMode mode,
     SampApi* sampApi,
     const ConditionRuntimeContext* context,
-    std::string* message) {
+    std::string* message,
+    ConditionCheckMode checkMode) {
     (void)mode;
     if (!HasSelectedCondition(flags)) {
         return false;
     }
 
     for (const ConditionDefinition& definition : kConditionDefinitions) {
+        if (checkMode == ConditionCheckMode::IgnoreCursorConditions && IsCursorCondition(definition.id)) {
+            continue;
+        }
         const std::size_t index = ConditionIndex(definition.id);
         if (index >= flags.size() || !flags[index]) {
             continue;

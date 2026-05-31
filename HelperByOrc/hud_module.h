@@ -31,7 +31,7 @@ public:
     void SetPlacementInputBlocked(bool blocked);
 
     void DrawMainTab(IDirect3DDevice9* device);
-    void DrawOverlay(IDirect3DDevice9* device, bool helperWindowOpen);
+    void DrawOverlay(IDirect3DDevice9* device);
     bool WantsOverlayRender();
     bool WantsInputCapture() const;
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);

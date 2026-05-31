@@ -15,6 +15,11 @@ enum class ConditionCombineMode {
     RequireAny,
 };
 
+enum class ConditionCheckMode {
+    Normal,
+    IgnoreCursorConditions,
+};
+
 enum class ConditionId : std::size_t {
     InWater = 0,
     Dead,
@@ -91,6 +96,8 @@ const char* ConditionLabel(ConditionId condition);
 ConditionCombineMode NormalizeConditionCombineMode(std::string_view value);
 std::string ConditionCombineModeId(ConditionCombineMode mode);
 bool HasSelectedCondition(const std::vector<bool>& flags);
+bool IsCursorCondition(ConditionId condition);
+bool HasCursorCondition(const std::vector<bool>& flags);
 bool IsWindowsCursorActiveForConditions(const ConditionRuntimeContext* context = nullptr);
 bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRuntimeContext* context = nullptr);
 bool ConditionsBlocked(
@@ -98,7 +105,8 @@ bool ConditionsBlocked(
     ConditionCombineMode mode,
     SampApi* sampApi,
     const ConditionRuntimeContext* context = nullptr,
-    std::string* message = nullptr);
+    std::string* message = nullptr,
+    ConditionCheckMode checkMode = ConditionCheckMode::Normal);
 bool DrawConditionFlagsPopup(
     const char* popupId,
     bool& popupPending,

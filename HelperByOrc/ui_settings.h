@@ -483,7 +483,7 @@
     X(ConditionChatHidden, "Чат скрыт", "Chat hidden") \
     X(ConditionSampCursorActive, "Активный курсор SA:MP", "SA:MP cursor active") \
     X(ConditionWindowsCursorActive, "Активный курсор Windows", "Windows cursor active") \
-    X(ConditionHelperActive, "Активный Helper", "Helper active") \
+    X(ConditionHelperCursorBlocked, "окно Helper открыто", "Helper window is open") \
     X(ConditionGameHudVisible, "HUD игры виден", "Game HUD visible") \
     X(ConditionGameHudHidden, "HUD игры не виден", "Game HUD hidden") \
     X(ConditionCameraAttached, "Камера прикреплена", "Camera attached") \
