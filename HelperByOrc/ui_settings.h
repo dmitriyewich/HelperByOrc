@@ -449,6 +449,9 @@
     X(SettingsSectionDiagnostics, "Диагностика", "Diagnostics") \
     X(SettingsGeneralIntro, "Язык и масштаб интерфейса.", "Language and interface scaling.") \
     X(SettingsBinderIntro, "Общие параметры выполнения биндов.", "General bind runtime settings.") \
+    X(SettingsBinderListStyle, "Стиль списка биндов", "Bind list style") \
+    X(SettingsBinderListStyleExplorer, "Проводник", "Explorer") \
+    X(SettingsBinderListStyleTwoPane, "Две панели", "Two-pane") \
     X(SettingsBinderTextConfirmationTimeoutSec, "Таймер подтверждения триггера, сек", "Trigger confirmation timeout, sec") \
     X(SettingsBinderTextConfirmationTimeoutHint, "Если бинд ждёт подтверждение по текстовому триггеру дольше этого времени, ожидание сбрасывается и бинд не запускается. Диапазон: 5-600 секунд.", "If a bind waits for text-trigger confirmation longer than this value, the pending confirmation is cleared and the bind is not started. Range: 5-600 seconds.") \
     X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \
@@ -752,6 +755,7 @@
     X(DeleteFolderAll, "Удалить всё", "Delete all") \
     X(DeleteFolderMoveContentsHere, "Перенести содержимое сюда", "Move contents here") \
     X(BinderRootName, "Биндер", "Binder") \
+    X(BinderNoFolder, "Без папки", "No folder") \
     X(CategoryAdd, "Добавить категорию", "Add category") \
     X(CategoryRenameTitle, "Переименование категории", "Rename category") \
     X(CategoryConditions, "Скрыть категорию, если активно", "Hide category when active") \
@@ -764,7 +768,10 @@
     X(CategoryMoveLeft, "Переместить влево", "Move left") \
     X(CategoryMoveRight, "Переместить вправо", "Move right") \
     X(BinderEmptyFolder, "Папка пуста", "Folder is empty") \
+    X(BinderEmptyBinds, "Биндов нет", "No binds") \
     X(BinderSearchGlobal, "Поиск", "Search") \
+    X(BinderSearchFolders, "Поиск папок", "Search folders") \
+    X(BinderSearchBinds, "Поиск биндов", "Search binds") \
     X(BinderGoUp, "Вверх", "Up") \
     X(BinderOpenFolder, "Открыть", "Open") \
     X(AddField, "+ Параметр", "+ Parameter") \

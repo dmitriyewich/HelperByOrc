@@ -495,6 +495,11 @@ enum class QuickMenuStyle {
     Cascade = 1,
 };
 
+enum class BindListStyle {
+    Explorer = 0,
+    TwoPane = 1,
+};
+
 enum class InputMode {
     Text,
     ButtonsList,
@@ -961,6 +966,8 @@ HotkeyMode NormalizeHotkeyMode(std::string_view value);
 std::string HotkeyModeId(HotkeyMode mode);
 QuickMenuActivationMode NormalizeQuickMenuActivationMode(std::string_view value);
 std::string QuickMenuActivationModeId(QuickMenuActivationMode mode);
+BindListStyle NormalizeBindListStyle(std::string_view value);
+std::string BindListStyleId(BindListStyle style);
 std::string NormalizeInputKey(std::string_view value);
 std::size_t CountUtf8Codepoints(std::string_view value);
 std::vector<InputButton> ParseButtonsText(std::string_view multiLine);
@@ -1191,6 +1198,18 @@ QuickMenuActivationMode NormalizeQuickMenuActivationMode(std::string_view value)
 
 std::string QuickMenuActivationModeId(QuickMenuActivationMode mode) {
     return mode == QuickMenuActivationMode::Toggle ? "toggle" : "hold";
+}
+
+BindListStyle NormalizeBindListStyle(std::string_view value) {
+    const std::string normalized = ToLower(value);
+    if (normalized == "two_pane" || normalized == "two-pane" || normalized == "twopane" || normalized == "split") {
+        return BindListStyle::TwoPane;
+    }
+    return BindListStyle::Explorer;
+}
+
+std::string BindListStyleId(BindListStyle style) {
+    return style == BindListStyle::TwoPane ? "two_pane" : "explorer";
 }
 
 QuickMenuStyle NormalizeQuickMenuStyle(std::string_view value) {
@@ -1889,6 +1908,8 @@ struct BinderModule::Impl {
     int deprecatedHelperFolderQuickDisabledCount_ = 0;
 
     std::string bindSearch{};
+    std::string twoPaneFolderSearch{};
+    std::string twoPaneBindSearch{};
     std::optional<FolderMoveUndo> folderMoveUndo_{};
 
     struct EditorState {
@@ -1984,6 +2005,7 @@ struct BinderModule::Impl {
     std::vector<UINT> quickMenuHotkey{};
     QuickMenuActivationMode quickMenuActivationMode = QuickMenuActivationMode::Hold;
     QuickMenuStyle quickMenuStyle = QuickMenuStyle::Cascade;
+    BindListStyle bindListStyle = BindListStyle::Explorer;
     int textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     bool quickMenuOpen = false;
     std::string quickMenuActiveCategoryId{};
@@ -2053,6 +2075,7 @@ struct BinderModule::Impl {
     void SelectExplorerItem(const ExplorerItem& item, FolderNode* directory, bool scrollIntoView = false);
     bool IsExplorerFolderSelected(const FolderNode* folder) const;
     bool IsExplorerBindSelected(int index) const;
+    bool IsExplorerSelectionVisibleInFolder(const ExplorerSelection& selection, FolderNode* directory);
     int FindExplorerSelectionIndex(const std::vector<ExplorerItem>& items, FolderNode* directory) const;
     void MoveExplorerSelection(int delta);
     void SelectExplorerNeighborAfterRemoval(
@@ -2093,6 +2116,11 @@ struct BinderModule::Impl {
         const ImGuiPayload* payload,
         FolderNode* targetFolder,
         bool rejectNoop);
+    bool DropExplorerPayloadToTwoPaneDirectory(
+        const ImGuiPayload* payload,
+        FolderNode* targetFolder,
+        std::optional<int> insertIndex,
+        std::string_view source);
     bool DropExplorerPayloadToDirectory(const ImGuiPayload* payload, FolderNode* targetFolder, std::string_view source);
     ExplorerDirectoryDropStatus DrawExplorerDirectoryDropTarget(
         const ImRect& rect,
@@ -2282,6 +2310,17 @@ struct BinderModule::Impl {
     void DrawCategoryTabs();
     void DrawCategoryPopups();
     void DrawExplorerPane();
+    void DrawTwoPaneBinder();
+    void DrawTwoPaneFolderPane();
+    void DrawTwoPaneRootRow(int& rowIndex, const std::string& filter);
+    bool TwoPaneFolderMatchesFilter(const FolderNode& folder, std::string_view filter) const;
+    void DrawTwoPaneFolderNode(FolderNode& folder, int depth, int& rowIndex, const std::string& filter);
+    void DrawTwoPaneFolderInlineEditRow(FolderNode* parent, int depth, int& rowIndex);
+    void DrawTwoPaneBindPane();
+    void DrawTwoPaneBindDirectory();
+    bool TwoPaneBindMatchesFilter(const HotkeyEntry& hotkey, std::string_view filter) const;
+    int FolderOrderIndex(FolderNode* folder) const;
+    void DrawBindDeletePopup();
     void DrawExplorerToolbar();
     void DrawExplorerSearchResults();
     void DrawExplorerDirectory();
@@ -2289,7 +2328,12 @@ struct BinderModule::Impl {
     void DrawExplorerInlineFolderEditRow(int rowIndex, const ExplorerListLayout& layout, const ImRect& rowRect);
     void DrawExplorerInlineFolderEditContent(const ExplorerListLayout& layout, const ImRect& rowRect, bool selected);
     void DrawExplorerFolderRow(FolderNode& folder, int rowIndex, const ExplorerListLayout& layout, const ImRect& rowRect);
-    void DrawExplorerBindRow(int index, int rowIndex, const ExplorerListLayout& layout, const ImRect& rowRect);
+    void DrawExplorerBindRow(
+        int index,
+        int rowIndex,
+        const ExplorerListLayout& layout,
+        const ImRect& rowRect,
+        bool acceptFolderPayload = true);
     void DrawExplorerKeyboardShortcuts(bool focused);
     void DrawExplorerBreadcrumb();
     void DrawMoveBindPopup();
@@ -2866,6 +2910,7 @@ void BinderModule::Impl::SaveConfig() {
     root["quick_menu_hotkey"] = SerializeUintArray(quickMenuHotkey);
     root["quick_menu_activation_mode"] = QuickMenuActivationModeId(quickMenuActivationMode);
     root["quick_menu_style"] = QuickMenuStyleId(quickMenuStyle);
+    root["bind_list_style"] = BindListStyleId(bindListStyle);
     root["text_confirmation_wait_timeout_ms"] = textConfirmationWaitTimeoutMs;
     root["active_category_id"] = activeCategoryId;
 
@@ -2934,6 +2979,7 @@ void BinderModule::Impl::LoadConfig() {
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
     quickMenuStyle = QuickMenuStyle::Cascade;
+    bindListStyle = BindListStyle::Explorer;
     textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     quickMenuActiveCategoryId.clear();
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
@@ -2949,6 +2995,8 @@ void BinderModule::Impl::LoadConfig() {
         NormalizeQuickMenuActivationMode(jsonutil::JsonStringOr(root, "quick_menu_activation_mode", "hold"));
     quickMenuStyle =
         NormalizeQuickMenuStyle(jsonutil::JsonStringOr(root, "quick_menu_style", "cascade"));
+    bindListStyle =
+        NormalizeBindListStyle(jsonutil::JsonStringOr(root, "bind_list_style", "explorer"));
     textConfirmationWaitTimeoutMs = std::clamp(
         jsonutil::JsonNumberOr<int>(
             root,
@@ -3489,6 +3537,27 @@ bool BinderModule::Impl::IsExplorerBindSelected(const int index) const {
         && index < static_cast<int>(hotkeys.size())
         && explorerSelection.kind == ExplorerSelectionKind::Bind
         && explorerSelection.bindOrderId == hotkeys[static_cast<std::size_t>(index)].orderId;
+}
+
+bool BinderModule::Impl::IsExplorerSelectionVisibleInFolder(const ExplorerSelection& selection, FolderNode* directory) {
+    if (selection.kind == ExplorerSelectionKind::None) {
+        return true;
+    }
+
+    const std::vector<ExplorerItem>& items = ItemsForFolder(directory);
+    if (selection.kind == ExplorerSelectionKind::Bind) {
+        return std::any_of(items.begin(), items.end(), [&](const ExplorerItem& item) {
+            return item.kind == ExplorerItemKind::Bind && item.key == selection.bindOrderId;
+        });
+    }
+
+    FolderNode* folder = FindFolderByIdR(ActiveFolders(), selection.folderId);
+    if (!folder || folder->parent != directory) {
+        return false;
+    }
+    return std::any_of(items.begin(), items.end(), [&](const ExplorerItem& item) {
+        return item.kind == ExplorerItemKind::Folder && item.key == folder->name;
+    });
 }
 
 int BinderModule::Impl::FindExplorerSelectionIndex(
@@ -4307,6 +4376,58 @@ bool BinderModule::Impl::DropExplorerPayloadToDirectory(
         ClearExplorerSelection();
     }
     return moved;
+}
+
+bool BinderModule::Impl::DropExplorerPayloadToTwoPaneDirectory(
+    const ImGuiPayload* payload,
+    FolderNode* targetFolder,
+    std::optional<int> insertIndex,
+    std::string_view source) {
+    if (!payload) {
+        return false;
+    }
+
+    FolderNode* preservedFolder = currentFolder;
+    const ExplorerSelection preservedSelection = explorerSelection;
+    FolderNode* preservedSelectedFolder = selectedFolder;
+    const int preservedSelectedBindIndex = selectedBindIndex;
+
+    bool moved = false;
+    if (IsExplorerBindDragPayload(payload)) {
+        moved = MoveBindToExplorerDirectory(
+            *static_cast<const int*>(payload->Data),
+            targetFolder,
+            insertIndex,
+            source);
+    } else {
+        int folderId = 0;
+        if (!TryGetExplorerFolderDragId(payload, folderId)) {
+            return false;
+        }
+        moved = MoveFolderToExplorerDirectory(
+            folderId,
+            targetFolder,
+            insertIndex.value_or(static_cast<int>(ItemsForFolder(targetFolder).size())),
+            source,
+            true);
+    }
+
+    if (!moved) {
+        return false;
+    }
+
+    currentFolder = preservedFolder;
+    if (IsExplorerSelectionVisibleInFolder(preservedSelection, currentFolder)) {
+        explorerSelection = preservedSelection;
+        selectedFolder = preservedSelectedFolder;
+        selectedBindIndex = preservedSelectedBindIndex;
+    } else {
+        ClearExplorerSelection();
+    }
+    explorerSelectionScrollPending = false;
+    ActiveCategory().lastOpenFolderPath = CurrentFolderPath();
+    SaveConfig();
+    return true;
 }
 
 ExplorerDirectoryDropStatus BinderModule::Impl::DrawExplorerDirectoryDropTarget(
@@ -10305,7 +10426,8 @@ void BinderModule::Impl::DrawExplorerBindRow(
     const int index,
     const int rowIndex,
     const ExplorerListLayout& layout,
-    const ImRect& rowRect) {
+    const ImRect& rowRect,
+    const bool acceptFolderPayload) {
     if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
         return;
     }
@@ -10433,7 +10555,7 @@ void BinderModule::Impl::DrawExplorerBindRow(
             }
             if (IsExplorerBindDragPayload(payload)) {
                 dropPreviewZone = zone;
-            } else {
+            } else if (acceptFolderPayload) {
                 int folderId = 0;
                 if (TryGetExplorerFolderDragId(payload, folderId)) {
                     const int insertIndex = rowIndex + (zone == FolderDropZone::After ? 1 : 0);
@@ -10468,27 +10590,29 @@ void BinderModule::Impl::DrawExplorerBindRow(
                 }
             }
         }
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
-                const int folderId = *static_cast<const int*>(payload->Data);
-                const int insertIndex = rowIndex + (zone == FolderDropZone::After ? 1 : 0);
-                const bool validTarget = CanMoveFolderToExplorerDirectory(folderId, currentFolder, insertIndex);
-                if (validTarget) {
-                    dropPreviewZone = zone;
-                }
-                if (payload->IsDelivery()) {
-                    if (!validTarget) {
-                        debuglog::WriteError(
-                            "[binder] explorer folder drop rejected id=%d target=bind_row zone=%d",
-                            folderId,
-                            static_cast<int>(zone));
-                    } else {
-                        MoveFolderToExplorerDirectory(
-                            folderId,
-                            currentFolder,
-                            rowIndex + (zone == FolderDropZone::After ? 1 : 0),
-                            "explorer_folder_reorder",
-                            true);
+        if (acceptFolderPayload) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                if (payload->Data != nullptr && payload->DataSize == sizeof(int)) {
+                    const int folderId = *static_cast<const int*>(payload->Data);
+                    const int insertIndex = rowIndex + (zone == FolderDropZone::After ? 1 : 0);
+                    const bool validTarget = CanMoveFolderToExplorerDirectory(folderId, currentFolder, insertIndex);
+                    if (validTarget) {
+                        dropPreviewZone = zone;
+                    }
+                    if (payload->IsDelivery()) {
+                        if (!validTarget) {
+                            debuglog::WriteError(
+                                "[binder] explorer folder drop rejected id=%d target=bind_row zone=%d",
+                                folderId,
+                                static_cast<int>(zone));
+                        } else {
+                            MoveFolderToExplorerDirectory(
+                                folderId,
+                                currentFolder,
+                                rowIndex + (zone == FolderDropZone::After ? 1 : 0),
+                                "explorer_folder_reorder",
+                                true);
+                        }
                     }
                 }
             }
@@ -11123,6 +11247,10 @@ void BinderModule::Impl::DrawExplorerPane() {
     }
     DrawExplorerKeyboardShortcuts(focused);
 
+    DrawBindDeletePopup();
+}
+
+void BinderModule::Impl::DrawBindDeletePopup() {
     if (bindDeletePopupPending) {
         ImGui::OpenPopup("##binder_bind_delete");
         bindDeletePopupPending = false;
@@ -11163,6 +11291,697 @@ void BinderModule::Impl::DrawExplorerPane() {
         }
         ImGui::EndPopup();
     }
+}
+
+int BinderModule::Impl::FolderOrderIndex(FolderNode* folder) const {
+    if (!folder) {
+        return -1;
+    }
+
+    const std::vector<ExplorerItem>& items = ItemsForFolder(folder->parent);
+    for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+        const ExplorerItem& item = items[static_cast<std::size_t>(i)];
+        if (item.kind == ExplorerItemKind::Folder && item.key == folder->name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool BinderModule::Impl::TwoPaneFolderMatchesFilter(const FolderNode& folder, std::string_view filter) const {
+    if (filter.empty()) {
+        return true;
+    }
+
+    const std::string hay = ToLower(folder.name + " " + JoinPath(BuildFolderPath(&folder)));
+    if (hay.find(filter) != std::string::npos) {
+        return true;
+    }
+    for (const auto& child : folder.children) {
+        if (child && TwoPaneFolderMatchesFilter(*child, filter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BinderModule::Impl::TwoPaneBindMatchesFilter(const HotkeyEntry& hotkey, std::string_view filter) const {
+    if (filter.empty()) {
+        return true;
+    }
+
+    const std::string hay = ToLower(
+        BuildBindDisplayLabel(hotkey) + " "
+        + hotkey.command + " "
+        + std::to_string(hotkey.number));
+    return hay.find(filter) != std::string::npos;
+}
+
+void BinderModule::Impl::DrawTwoPaneFolderInlineEditRow(FolderNode* parent, const int depth, int& rowIndex) {
+    if (folderInlineEdit.mode == FolderInlineEditMode::None) {
+        return;
+    }
+    if (folderInlineEdit.mode == FolderInlineEditMode::Create && folderInlineEdit.parent != parent) {
+        return;
+    }
+    if (folderInlineEdit.mode == FolderInlineEditMode::Rename
+        && (!folderInlineEdit.target || folderInlineEdit.target->parent != parent)) {
+        return;
+    }
+
+    UiSettings& ui = UiSettings::Instance();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float rowHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(28.0f));
+    const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 rowPos = ImGui::GetCursorScreenPos();
+    const ImRect rowRect(rowPos, ImVec2(rowPos.x + width, rowPos.y + rowHeight));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    ImVec4 rowBg = style.Colors[ImGuiCol_HeaderActive];
+    rowBg.w = 0.22f;
+    drawList->AddRectFilled(rowRect.Min, rowRect.Max, ImGui::GetColorU32(rowBg), ScaleUi(2.0f));
+    drawList->AddLine(
+        ImVec2(rowRect.Min.x, rowRect.Max.y),
+        rowRect.Max,
+        ImGui::GetColorU32(ImGuiCol_Border, 0.24f));
+
+    const float indent = ScaleUi(16.0f) * static_cast<float>(std::max(depth, 0));
+    const float iconW = ScaleUi(22.0f);
+    const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
+    const ImVec2 buttonSize(buttonSide, buttonSide);
+    const float buttonGap = ScaleUi(4.0f);
+    const float actionGroupWidth = buttonSide * 2.0f + buttonGap;
+    const float inputX = rowRect.Min.x + indent + iconW + ScaleUi(4.0f);
+    const float inputY = rowRect.Min.y + std::floor(std::max(0.0f, (rowHeight - ImGui::GetFrameHeight()) * 0.5f));
+    const float inputMaxX = std::max(inputX + ScaleUi(48.0f), rowRect.Max.x - actionGroupWidth - ScaleUi(10.0f));
+    const float inputWidth = std::max(ScaleUi(48.0f), inputMaxX - inputX);
+
+    DrawCenteredIconGlyph(
+        drawList,
+        ui_icons::Folder,
+        ImRect(
+            ImVec2(rowRect.Min.x + indent, rowRect.Min.y),
+            ImVec2(rowRect.Min.x + indent + iconW, rowRect.Max.y)),
+        ImGui::GetColorU32(ImGuiCol_Text));
+
+    ImGui::PushID(parent ? parent->id : 0);
+    ImGui::PushID(folderInlineEdit.mode == FolderInlineEditMode::Create ? "create" : "rename");
+    if (folderInlineEdit.focusPending) {
+        ImGui::SetKeyboardFocusHere();
+        folderInlineEdit.focusPending = false;
+    }
+    ImGui::SetCursorScreenPos(ImVec2(inputX, inputY));
+    ImGui::SetNextItemWidth(inputWidth);
+    const bool submitted = InputTextString(
+        "##two_pane_folder_name",
+        folderInlineEdit.name,
+        ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue,
+        128);
+    const bool escapePressed = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    const bool deactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SetCursorScreenPos(ImVec2(
+        std::floor(rowRect.Max.x - actionGroupWidth - ScaleUi(4.0f)),
+        std::floor(rowRect.Min.y + std::max(0.0f, (rowHeight - buttonSide) * 0.5f))));
+    const bool saveClicked = SmallIconActionButton(ui_icons::Check, "##save", ui.Text(UiText::Save), buttonSize);
+    ImGui::SameLine(0.0f, buttonGap);
+    const bool cancelClicked = SmallIconActionButton(ui_icons::Delete, "##cancel", ui.Text(UiText::Cancel), buttonSize);
+    ImGui::PopID();
+    ImGui::PopID();
+
+    if (cancelClicked || escapePressed) {
+        CancelInlineFolderEdit();
+    } else if (saveClicked || submitted || deactivatedAfterEdit) {
+        (void)CommitInlineFolderEdit();
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
+    ++rowIndex;
+}
+
+void BinderModule::Impl::DrawTwoPaneRootRow(int& rowIndex, const std::string& filter) {
+    UiSettings& ui = UiSettings::Instance();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float rowHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(28.0f));
+    const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 rowPos = ImGui::GetCursorScreenPos();
+    const ImRect rowRect(rowPos, ImVec2(rowPos.x + width, rowPos.y + rowHeight));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const bool selected = currentFolder == nullptr;
+    const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
+
+    ImVec4 rowBg = style.Colors[ImGuiCol_HeaderHovered];
+    rowBg.w = hovered ? 0.14f : 0.0f;
+    if (rowIndex % 2 != 0 && !hovered && !selected) {
+        rowBg = style.Colors[ImGuiCol_FrameBg];
+        rowBg.w = 0.10f;
+    }
+    if (selected) {
+        rowBg = style.Colors[ImGuiCol_HeaderActive];
+        rowBg.w = 0.26f;
+    }
+    if (rowBg.w > 0.0f) {
+        drawList->AddRectFilled(rowRect.Min, rowRect.Max, ImGui::GetColorU32(rowBg), ScaleUi(2.0f));
+    }
+    drawList->AddLine(
+        ImVec2(rowRect.Min.x, rowRect.Max.y),
+        rowRect.Max,
+        ImGui::GetColorU32(ImGuiCol_Border, 0.24f));
+
+    ImGui::PushID("two_pane_root");
+    ImGui::SetCursorScreenPos(rowRect.Min);
+    const bool clicked = ImGui::InvisibleButton("##row", rowRect.GetSize());
+    if (clicked) {
+        OpenFolder(nullptr, false);
+    }
+
+    std::optional<FolderDropZone> dropPreview{};
+    ExplorerDirectoryDropStatus dropStatus = ExplorerDirectoryDropStatus::None;
+    if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+        if (IsExplorerBindDragPayload(payload)) {
+            dropStatus = CanDropExplorerPayloadToDirectory(payload, nullptr, true);
+        } else {
+            int folderId = 0;
+            if (TryGetExplorerFolderDragId(payload, folderId)) {
+                bool noop = false;
+                const bool valid = CanMoveFolderToExplorerDirectory(
+                    folderId,
+                    nullptr,
+                    static_cast<int>(ItemsForFolder(nullptr).size()),
+                    &noop);
+                dropStatus = !valid
+                    ? ExplorerDirectoryDropStatus::Invalid
+                    : (noop ? ExplorerDirectoryDropStatus::Noop : ExplorerDirectoryDropStatus::Accept);
+            }
+        }
+        if (hovered && dropStatus == ExplorerDirectoryDropStatus::Accept) {
+            dropPreview = FolderDropZone::Into;
+        }
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (dropStatus == ExplorerDirectoryDropStatus::Accept) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                if (payload->IsDelivery()) {
+                    DropExplorerPayloadToTwoPaneDirectory(
+                        payload,
+                        nullptr,
+                        std::nullopt,
+                        "explorer_two_pane_root_drop");
+                }
+            }
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                if (payload->IsDelivery()) {
+                    DropExplorerPayloadToTwoPaneDirectory(
+                        payload,
+                        nullptr,
+                        static_cast<int>(ItemsForFolder(nullptr).size()),
+                        "explorer_two_pane_root_drop");
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    const float iconW = ScaleUi(22.0f);
+    const float textY = rowRect.Min.y + std::floor((rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
+    DrawCenteredIconGlyph(
+        drawList,
+        ui_icons::House,
+        ImRect(rowRect.Min, ImVec2(rowRect.Min.x + iconW, rowRect.Max.y)),
+        ImGui::GetColorU32(selected ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+    const std::string label = EllipsizeText(ui.Text(UiText::BinderNoFolder), std::max(0.0f, rowRect.GetWidth() - iconW - ScaleUi(10.0f)));
+    drawList->AddText(
+        ImVec2(rowRect.Min.x + iconW + ScaleUi(4.0f), textY),
+        ImGui::GetColorU32(selected ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+        label.c_str());
+    if (dropPreview) {
+        DrawFolderDropPreview(rowRect, *dropPreview);
+    } else if (hovered && dropStatus == ExplorerDirectoryDropStatus::Noop && ActiveExplorerDragPayload()) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::BinderDropCurrentFolder));
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
+    ImGui::PopID();
+    ++rowIndex;
+
+    if (folderInlineEdit.mode == FolderInlineEditMode::Create && folderInlineEdit.parent == nullptr && filter.empty()) {
+        DrawTwoPaneFolderInlineEditRow(nullptr, 1, rowIndex);
+    }
+}
+
+void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int depth, int& rowIndex, const std::string& filter) {
+    if (!TwoPaneFolderMatchesFilter(folder, filter)) {
+        return;
+    }
+
+    const bool searchActive = !filter.empty();
+    const bool opened = searchActive || folder.open;
+    if (IsInlineRenamingFolder(&folder)) {
+        DrawTwoPaneFolderInlineEditRow(folder.parent, depth, rowIndex);
+    } else {
+        UiSettings& ui = UiSettings::Instance();
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float rowHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(28.0f));
+        const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+        const ImVec2 rowPos = ImGui::GetCursorScreenPos();
+        const ImRect rowRect(rowPos, ImVec2(rowPos.x + width, rowPos.y + rowHeight));
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const bool selected = currentFolder == &folder;
+        const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
+        const bool hasChildren = !folder.children.empty()
+            || (folderInlineEdit.mode == FolderInlineEditMode::Create && folderInlineEdit.parent == &folder);
+
+        ImVec4 rowBg = style.Colors[ImGuiCol_HeaderHovered];
+        rowBg.w = hovered ? 0.14f : 0.0f;
+        if (rowIndex % 2 != 0 && !hovered && !selected) {
+            rowBg = style.Colors[ImGuiCol_FrameBg];
+            rowBg.w = 0.10f;
+        }
+        if (selected) {
+            rowBg = style.Colors[ImGuiCol_HeaderActive];
+            rowBg.w = 0.26f;
+        }
+        if (rowBg.w > 0.0f) {
+            drawList->AddRectFilled(rowRect.Min, rowRect.Max, ImGui::GetColorU32(rowBg), ScaleUi(2.0f));
+        }
+        drawList->AddLine(
+            ImVec2(rowRect.Min.x, rowRect.Max.y),
+            rowRect.Max,
+            ImGui::GetColorU32(ImGuiCol_Border, 0.24f));
+
+        const float indent = ScaleUi(16.0f) * static_cast<float>(std::max(depth, 0));
+        const float arrowW = ScaleUi(18.0f);
+        const float iconW = ScaleUi(22.0f);
+        const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
+        const ImVec2 buttonSize(buttonSide, buttonSide);
+        const float actionX = rowRect.Max.x - buttonSide - ScaleUi(4.0f);
+        const ImRect arrowRect(
+            ImVec2(rowRect.Min.x + indent, rowRect.Min.y),
+            ImVec2(rowRect.Min.x + indent + arrowW, rowRect.Max.y));
+
+        ImGui::PushID(folder.id);
+        ImGui::SetCursorScreenPos(rowRect.Min);
+        const float rowHitWidth = std::max(1.0f, actionX - rowRect.Min.x - ScaleUi(4.0f));
+        const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowHitWidth, rowHeight));
+        const bool rowItemHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        const bool doubleClicked = rowItemHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+        if (clicked) {
+            if (hasChildren && ImGui::IsMouseHoveringRect(arrowRect.Min, arrowRect.Max, true)) {
+                folder.open = !folder.open;
+                SaveConfig();
+            } else {
+                OpenFolder(&folder, false);
+            }
+        }
+        if (doubleClicked && hasChildren) {
+            folder.open = !folder.open;
+            SaveConfig();
+        }
+
+        std::optional<FolderDropZone> dropPreview{};
+        ExplorerDirectoryDropStatus dropStatus = ExplorerDirectoryDropStatus::None;
+        FolderNode* dropTarget = nullptr;
+        std::optional<int> dropInsertIndex{};
+        if (const ImGuiPayload* payload = ActiveExplorerDragPayload()) {
+            FolderDropZone zone = ResolveFolderDropZone(rowRect);
+            if (IsExplorerBindDragPayload(payload)) {
+                zone = FolderDropZone::Into;
+                dropTarget = &folder;
+                dropStatus = CanDropExplorerPayloadToDirectory(payload, dropTarget, true);
+            } else {
+                int folderId = 0;
+                if (TryGetExplorerFolderDragId(payload, folderId)) {
+                    dropTarget = zone == FolderDropZone::Into ? &folder : folder.parent;
+                    const int orderIndex = FolderOrderIndex(&folder);
+                    dropInsertIndex = zone == FolderDropZone::Into
+                        ? static_cast<int>(ItemsForFolder(&folder).size())
+                        : orderIndex + (zone == FolderDropZone::After ? 1 : 0);
+                    bool noop = false;
+                    const bool valid = orderIndex >= 0
+                        && CanMoveFolderToExplorerDirectory(folderId, dropTarget, *dropInsertIndex, &noop);
+                    dropStatus = !valid
+                        ? ExplorerDirectoryDropStatus::Invalid
+                        : (noop ? ExplorerDirectoryDropStatus::Noop : ExplorerDirectoryDropStatus::Accept);
+                }
+            }
+            if (hovered && dropStatus == ExplorerDirectoryDropStatus::Accept) {
+                dropPreview = zone;
+            }
+        }
+
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+            const int folderId = folder.id;
+            ImGui::SetDragDropPayload(kFolderDragPayload, &folderId, sizeof(folderId));
+            ImGui::TextUnformatted(folder.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) {
+            if (dropStatus == ExplorerDirectoryDropStatus::Accept) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                    if (payload->IsDelivery()) {
+                        DropExplorerPayloadToTwoPaneDirectory(
+                            payload,
+                            dropTarget,
+                            dropInsertIndex,
+                            "explorer_two_pane_folder_drop");
+                    }
+                }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kFolderDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                    if (payload->IsDelivery()) {
+                        DropExplorerPayloadToTwoPaneDirectory(
+                            payload,
+                            dropTarget,
+                            dropInsertIndex,
+                            "explorer_two_pane_folder_drop");
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        const float textY = rowRect.Min.y + std::floor((rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
+        if (hasChildren) {
+            DrawCenteredIconGlyph(
+                drawList,
+                opened ? ui_icons::AngleDown : ui_icons::ChevronRight,
+                arrowRect,
+                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                std::floor(ImGui::GetFontSize() * 0.76f));
+        }
+        const ImRect iconRect(
+            ImVec2(rowRect.Min.x + indent + arrowW, rowRect.Min.y),
+            ImVec2(rowRect.Min.x + indent + arrowW + iconW, rowRect.Max.y));
+        DrawCenteredIconGlyph(
+            drawList,
+            ui_icons::Folder,
+            iconRect,
+            ImGui::GetColorU32(selected ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+
+        const bool hasConditions = HasSelectedCondition(folder.conditions);
+        const std::string marker = std::string(ui_icons::Sliders);
+        const ImVec2 markerSize = hasConditions ? ImGui::CalcTextSize(marker.c_str()) : ImVec2(0.0f, 0.0f);
+        const float markerReserve = hasConditions ? markerSize.x + ScaleUi(12.0f) : 0.0f;
+        const float labelX = iconRect.Max.x + ScaleUi(4.0f);
+        const float labelMaxX = std::max(labelX, actionX - ScaleUi(6.0f));
+        const std::string label = EllipsizeText(folder.name, std::max(0.0f, labelMaxX - labelX - markerReserve));
+        ImGui::PushClipRect(ImVec2(labelX, rowRect.Min.y), ImVec2(labelMaxX, rowRect.Max.y), true);
+        drawList->AddText(
+            ImVec2(labelX, textY),
+            ImGui::GetColorU32(selected ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+            label.c_str());
+        if (hasConditions) {
+            DrawCenteredIconGlyph(
+                drawList,
+                marker.c_str(),
+                ImRect(ImVec2(labelMaxX - markerSize.x, rowRect.Min.y), ImVec2(labelMaxX, rowRect.Max.y)),
+                ImGui::GetColorU32(ImGuiCol_TextDisabled));
+        }
+        ImGui::PopClipRect();
+
+        ImGui::SetCursorScreenPos(ImVec2(
+            std::floor(actionX),
+            std::floor(rowRect.Min.y + std::max(0.0f, (rowHeight - buttonSide) * 0.5f))));
+        if (SmallIconActionButton(ui_icons::Bars, "##folder_actions", ui.Text(UiText::ColumnActions), buttonSize)) {
+            ImGui::OpenPopup("##two_pane_folder_actions");
+        }
+        if (ImGui::BeginPopup("##two_pane_folder_actions")) {
+            if (ImGui::MenuItem(ui.Text(UiText::BinderOpenFolder))) {
+                OpenFolder(&folder, false);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::AddBind))) {
+                OpenFolder(&folder, false);
+                StartEditing(-1, true);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::FolderAdd))) {
+                folder.open = true;
+                OpenFolder(&folder, false);
+                BeginInlineCreateFolder(&folder);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::ActionMoveTo))) {
+                moveFolderTarget = folder.id;
+                moveFolderPopupPending = true;
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+                BeginInlineRenameFolder(&folder);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::EditorOpenConditions))) {
+                folderConditionsTarget = &folder;
+                folderConditionsPopupPending = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+                folderDeleteTarget = &folder;
+                folderDeletePopupPending = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        if (dropPreview) {
+            DrawFolderDropPreview(rowRect, *dropPreview);
+        }
+        if (rowItemHovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && !ActiveExplorerDragPayload()) {
+            const std::string path = JoinPath(BuildFolderPath(&folder));
+            if (!path.empty() && path != folder.name) {
+                ImGui::SetTooltip("%s", path.c_str());
+            }
+        }
+
+        ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
+        ImGui::PopID();
+        ++rowIndex;
+    }
+
+    if (opened) {
+        for (auto& child : folder.children) {
+            if (child) {
+                DrawTwoPaneFolderNode(*child, depth + 1, rowIndex, filter);
+            }
+        }
+        if (folderInlineEdit.mode == FolderInlineEditMode::Create && folderInlineEdit.parent == &folder && filter.empty()) {
+            DrawTwoPaneFolderInlineEditRow(&folder, depth + 1, rowIndex);
+        }
+    }
+}
+
+void BinderModule::Impl::DrawTwoPaneFolderPane() {
+    UiSettings& ui = UiSettings::Instance();
+    const float buttonSide = ImGui::GetFrameHeight();
+    ImGui::TextUnformatted(ui.Text(UiText::ColumnFolders));
+    ImGui::SameLine();
+    if (SmallIconActionButton(ui_icons::FolderPlus, "##two_pane_add_folder", ui.Text(UiText::BinderAddFolderTooltip), ImVec2(buttonSide, buttonSide))) {
+        if (currentFolder) {
+            currentFolder->open = true;
+        }
+        BeginInlineCreateFolder(currentFolder);
+    }
+    ImGui::SetNextItemWidth(-1.0f);
+    InputTextWithHintString(
+        "##binder_two_pane_folder_search",
+        ui.Text(UiText::BinderSearchFolders),
+        twoPaneFolderSearch,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+    ImGui::Separator();
+
+    const std::string filter = ToLower(Trim(twoPaneFolderSearch));
+    int rowIndex = 0;
+    DrawTwoPaneRootRow(rowIndex, filter);
+    for (auto& folder : ActiveFolders()) {
+        if (folder) {
+            DrawTwoPaneFolderNode(*folder, 1, rowIndex, filter);
+        }
+    }
+}
+
+void BinderModule::Impl::DrawTwoPaneBindDirectory() {
+    NormalizeExplorerOrders();
+    const std::vector<ExplorerItem> items = ItemsForFolder(currentFolder);
+    const std::string filter = ToLower(Trim(twoPaneBindSearch));
+
+    UiSettings& ui = UiSettings::Instance();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float iconButtonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
+    const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float columnGap = ScaleUi(8.0f);
+    const float minNameWidth = ScaleUi(90.0f);
+
+    ExplorerListLayout layout;
+    layout.width = availableWidth;
+    layout.rowHeight = std::max(ImGui::GetFrameHeight() + ScaleUi(2.0f), ScaleUi(28.0f));
+    layout.headerHeight = std::max(ImGui::GetTextLineHeight() + ScaleUi(10.0f), ScaleUi(26.0f));
+    layout.iconW = std::ceil(iconButtonSide + ScaleUi(18.0f));
+    layout.actionsW = std::ceil(iconButtonSide * 5.0f + ScaleUi(4.0f) * 4.0f + ScaleUi(8.0f));
+    layout.actionsW = std::max(1.0f, layout.actionsW);
+    layout.iconX = start.x;
+    layout.actionsX = std::max(start.x + layout.iconW + minNameWidth + columnGap, start.x + layout.width - layout.actionsW);
+    layout.nameX = layout.iconX + layout.iconW;
+    layout.nameW = std::max(1.0f, layout.actionsX - layout.nameX - columnGap);
+
+    const ImRect headerRect(start, ImVec2(start.x + layout.width, start.y + layout.headerHeight));
+    ImVec4 headerBg = style.Colors[ImGuiCol_FrameBg];
+    headerBg.w = 0.72f;
+    drawList->AddRectFilled(headerRect.Min, headerRect.Max, ImGui::GetColorU32(headerBg), ScaleUi(2.0f));
+    drawList->AddLine(
+        ImVec2(headerRect.Min.x, headerRect.Max.y),
+        headerRect.Max,
+        ImGui::GetColorU32(ImGuiCol_Border, 0.55f));
+
+    const auto drawHeaderLabel = [&](const char* label, float x, float width, bool centered) {
+        const ImRect cell(ImVec2(x, headerRect.Min.y), ImVec2(x + width, headerRect.Max.y));
+        const float padX = ScaleUi(6.0f);
+        const std::string clipped = EllipsizeText(label ? label : "", std::max(0.0f, cell.GetWidth() - padX * 2.0f));
+        const ImVec2 labelSize = ImGui::CalcTextSize(clipped.c_str());
+        const float textX = centered
+            ? std::floor(cell.Min.x + std::max(0.0f, (cell.GetWidth() - labelSize.x) * 0.5f))
+            : std::floor(cell.Min.x + padX);
+        const float textY = std::floor(cell.Min.y + std::max(0.0f, (cell.GetHeight() - labelSize.y) * 0.5f));
+        ImGui::PushClipRect(cell.Min, cell.Max, true);
+        drawList->AddText(ImVec2(textX, textY), ImGui::GetColorU32(ImGuiCol_TextDisabled), clipped.c_str());
+        ImGui::PopClipRect();
+    };
+
+    drawHeaderLabel("", layout.iconX, layout.iconW, true);
+    drawHeaderLabel(ui.Text(UiText::ColumnName), layout.nameX, layout.nameW, false);
+    drawHeaderLabel(ui.Text(UiText::ColumnActions), layout.actionsX, layout.actionsW, true);
+    ImGui::Dummy(ImVec2(layout.width, layout.headerHeight));
+
+    int visibleRows = 0;
+    for (int orderIndex = 0; orderIndex < static_cast<int>(items.size()); ++orderIndex) {
+        const ExplorerItem& item = items[static_cast<std::size_t>(orderIndex)];
+        if (item.kind != ExplorerItemKind::Bind) {
+            continue;
+        }
+        const int hotkeyIndex = FindHotkeyIndexByOrderId(item.key);
+        if (hotkeyIndex < 0 || hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+            continue;
+        }
+        HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(hotkeyIndex)];
+        if (hotkey.categoryId != ActiveCategory().id || hotkey.folderPath != CurrentFolderPath()) {
+            continue;
+        }
+        if (!TwoPaneBindMatchesFilter(hotkey, filter)) {
+            continue;
+        }
+
+        const ImVec2 rowPos = ImGui::GetCursorScreenPos();
+        const ImRect rowRect(rowPos, ImVec2(rowPos.x + layout.width, rowPos.y + layout.rowHeight));
+        DrawExplorerBindRow(hotkeyIndex, orderIndex, layout, rowRect, false);
+        ++visibleRows;
+    }
+
+    if (visibleRows == 0) {
+        const ImVec2 rowPos = ImGui::GetCursorScreenPos();
+        const ImRect emptyRect(rowPos, ImVec2(rowPos.x + layout.width, rowPos.y + layout.rowHeight));
+        const float textY = emptyRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
+        drawList->AddText(
+            ImVec2(emptyRect.Min.x + ScaleUi(12.0f), textY),
+            ImGui::GetColorU32(ImGuiCol_TextDisabled),
+            ui.Text(UiText::BinderEmptyBinds));
+        ImGui::SetCursorScreenPos(emptyRect.Min);
+        ImGui::InvisibleButton("##two_pane_empty_binds_drop", emptyRect.GetSize());
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()) {
+                    MoveBindToExplorerDirectory(
+                        *static_cast<const int*>(payload->Data),
+                        currentFolder,
+                        static_cast<int>(items.size()),
+                        "explorer_two_pane_bind_drop");
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && IsExplorerBindDragPayload(ActiveExplorerDragPayload())) {
+            DrawFolderDropPreview(emptyRect, FolderDropZone::Into);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(emptyRect.Min.x, emptyRect.Max.y));
+    }
+
+    const float remainingHeight = ImGui::GetContentRegionAvail().y;
+    const float bottomSlack = ImGui::GetStyle().ItemSpacing.y + ScaleUi(2.0f);
+    if (remainingHeight > ScaleUi(8.0f) + bottomSlack) {
+        const ImVec2 dropPos = ImGui::GetCursorScreenPos();
+        const float dropHeight = std::max(ScaleUi(8.0f), remainingHeight - bottomSlack);
+        const ImRect dropRect(dropPos, ImVec2(dropPos.x + layout.width, dropPos.y + dropHeight));
+        ImGui::InvisibleButton("##two_pane_bind_empty_area_drop", dropRect.GetSize());
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBindDragPayload, ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                if (payload->Data != nullptr && payload->DataSize == sizeof(int) && payload->IsDelivery()) {
+                    MoveBindToExplorerDirectory(
+                        *static_cast<const int*>(payload->Data),
+                        currentFolder,
+                        static_cast<int>(items.size()),
+                        "explorer_two_pane_bind_drop");
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && IsExplorerBindDragPayload(ActiveExplorerDragPayload())) {
+            DrawFolderDropPreview(dropRect, FolderDropZone::Before);
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+}
+
+void BinderModule::Impl::DrawTwoPaneBindPane() {
+    UiSettings& ui = UiSettings::Instance();
+    const float buttonSide = ImGui::GetFrameHeight();
+    const std::string folderLabel = currentFolder ? JoinPath(BuildFolderPath(currentFolder)) : ui.Text(UiText::BinderNoFolder);
+    const std::string title = std::string(ui.Text(UiText::ColumnBinds)) + ": " + folderLabel;
+    ImGui::TextUnformatted(EllipsizeText(title, std::max(1.0f, ImGui::GetContentRegionAvail().x - buttonSide - ScaleUi(8.0f))).c_str());
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && title.size() != EllipsizeText(title, ImGui::GetItemRectSize().x).size()) {
+        ImGui::SetTooltip("%s", title.c_str());
+    }
+    ImGui::SameLine();
+    if (SmallIconActionButton(ui_icons::Keyboard, "##two_pane_add_bind", ui.Text(UiText::BinderAddBindTooltip), ImVec2(buttonSide, buttonSide))) {
+        StartEditing(-1, true);
+    }
+    ImGui::SetNextItemWidth(-1.0f);
+    InputTextWithHintString(
+        "##binder_two_pane_bind_search",
+        ui.Text(UiText::BinderSearchBinds),
+        twoPaneBindSearch,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+    ImGui::Separator();
+    DrawTwoPaneBindDirectory();
+}
+
+void BinderModule::Impl::DrawTwoPaneBinder() {
+    EnsureRootFolder();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float gap = style.ItemSpacing.x;
+    const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float minLeft = ScaleUi(180.0f);
+    const float minRight = ScaleUi(280.0f);
+    const float maxLeft = ScaleUi(340.0f);
+    float leftWidth = std::clamp(availableWidth * 0.25f, minLeft, maxLeft);
+    if (availableWidth - leftWidth - gap < minRight) {
+        leftWidth = std::max(ScaleUi(140.0f), availableWidth - minRight - gap);
+    }
+    const float maxUsableLeft = std::max(ScaleUi(140.0f), availableWidth - gap - ScaleUi(140.0f));
+    leftWidth = std::clamp(leftWidth, ScaleUi(140.0f), maxUsableLeft);
+
+    if (ImGui::BeginChild("##binder_two_pane_folders", ImVec2(leftWidth, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        DrawTwoPaneFolderPane();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, gap);
+    if (ImGui::BeginChild("##binder_two_pane_binds", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
+        DrawTwoPaneBindPane();
+    }
+    ImGui::EndChild();
+
+    DrawBindDeletePopup();
 }
 
 void BinderModule::Impl::DrawMoveBindPopup() {
@@ -11563,6 +12382,18 @@ void BinderModule::Impl::DrawBinderSettingsSection(bool includeHeader) {
     }
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsBinderIntro));
     ImGui::Spacing();
+
+    const BindListStyle bindStyles[] = { BindListStyle::Explorer, BindListStyle::TwoPane };
+    const char* bindStyleLabels[] = {
+        ui.Text(UiText::SettingsBinderListStyleExplorer),
+        ui.Text(UiText::SettingsBinderListStyleTwoPane),
+    };
+    int bindStyle = bindListStyle == BindListStyle::TwoPane ? 1 : 0;
+    ImGui::SetNextItemWidth(ScaleUi(180.0f));
+    if (ImGui::Combo(ui.Text(UiText::SettingsBinderListStyle), &bindStyle, bindStyleLabels, IM_ARRAYSIZE(bindStyleLabels))) {
+        bindListStyle = bindStyles[bindStyle];
+        SaveConfig();
+    }
 
     int timeoutSeconds = textConfirmationWaitTimeoutMs / 1000;
     ImGui::SetNextItemWidth(ScaleUi(150.0f));
@@ -12253,7 +13084,11 @@ void BinderModule::Impl::DrawMainTab() {
 
     ImGui::SeparatorText(UiSettings::Instance().Text(UiText::BinderSectionTitle));
     DrawCategoryTabs();
-    DrawExplorerPane();
+    if (bindListStyle == BindListStyle::TwoPane) {
+        DrawTwoPaneBinder();
+    } else {
+        DrawExplorerPane();
+    }
 
     DrawCategoryPopups();
     DrawFolderPopups();
