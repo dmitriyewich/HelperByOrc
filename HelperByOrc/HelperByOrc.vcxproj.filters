@@ -57,6 +57,9 @@
     <ClCompile Include="app_config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="binder_editor.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_module.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
@@ -172,7 +175,13 @@
     <ClInclude Include="app_config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="binder_editor.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
     <ClInclude Include="binder_module.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
+    <ClInclude Include="binder_types.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
     <ClInclude Include="conditions_module.h">

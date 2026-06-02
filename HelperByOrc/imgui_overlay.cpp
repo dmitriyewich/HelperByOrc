@@ -482,6 +482,10 @@ void ImGuiOverlay::SetAuxiliaryInputCaptureCallback(VisibilityCallback callback)
     auxiliaryInputCaptureCallback_ = std::move(callback);
 }
 
+void ImGuiOverlay::SetAuxiliaryInputRoutingCallback(VisibilityCallback callback) {
+    auxiliaryInputRoutingCallback_ = std::move(callback);
+}
+
 void ImGuiOverlay::SetInputPipelineGateCallback(GateCallback callback) {
     inputPipelineGateCallback_ = std::move(callback);
 }
@@ -529,7 +533,7 @@ bool ImGuiOverlay::WantsUiCursor() const {
 }
 
 bool ImGuiOverlay::WantsInputRouting() const {
-    return menuOpen_ || WantsAuxiliaryUiCursor() || WantsTextInputCapture();
+    return menuOpen_ || WantsAuxiliaryUiCursor() || WantsAuxiliaryInputRouting() || WantsTextInputCapture();
 }
 
 void ImGuiOverlay::SetInputRoutingAllowed(bool allowed) {
@@ -1118,6 +1122,10 @@ bool ImGuiOverlay::CanRouteInput() const {
 
 bool ImGuiOverlay::WantsAuxiliaryUiCursor() const {
     return auxiliaryInputCaptureCallback_ ? auxiliaryInputCaptureCallback_() : false;
+}
+
+bool ImGuiOverlay::WantsAuxiliaryInputRouting() const {
+    return auxiliaryInputRoutingCallback_ ? auxiliaryInputRoutingCallback_() : false;
 }
 
 bool ImGuiOverlay::WantsTextInputCapture() const {

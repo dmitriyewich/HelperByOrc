@@ -1204,8 +1204,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
         const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+        const bool binderWantsRouting = binder_.WantsInputRouting();
         hud_.SetPlacementInputBlocked(quickMenuActive);
-        if (quickMenuActive || binder_.WantsInputCapture()) {
+        if (quickMenuActive || binderWantsRouting) {
             return binder_.OnWindowMessage(message, wparam, lparam) || hud_.OnWindowMessage(message, wparam, lparam);
         }
         return hud_.OnWindowMessage(message, wparam, lparam) || binder_.OnWindowMessage(message, wparam, lparam);
@@ -1217,6 +1218,10 @@ void ModApp::OnProcessAttach(HMODULE module) {
         const bool quickMenuActive = binder_.WantsQuickMenuCursor();
         hud_.SetPlacementInputBlocked(quickMenuActive);
         return quickMenuActive || binder_.WantsInputCapture() || hud_.WantsInputCapture();
+    });
+    overlay_.SetAuxiliaryInputRoutingCallback([this]() {
+        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+        return quickMenuActive || binder_.WantsInputRouting() || hud_.WantsInputCapture();
     });
     overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });

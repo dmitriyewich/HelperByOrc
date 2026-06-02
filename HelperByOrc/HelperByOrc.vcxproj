@@ -126,6 +126,7 @@
 
   <ItemGroup>
     <ClCompile Include="app_config.cpp" />
+    <ClCompile Include="binder_editor.cpp" />
     <ClCompile Include="binder_module.cpp" />
     <ClCompile Include="conditions_module.cpp" />
     <ClCompile Include="debug_log.cpp" />
@@ -169,7 +170,9 @@
 
   <ItemGroup>
     <ClInclude Include="app_config.h" />
+    <ClInclude Include="binder_editor.h" />
     <ClInclude Include="binder_module.h" />
+    <ClInclude Include="binder_types.h" />
     <ClInclude Include="conditions_module.h" />
     <ClInclude Include="debug_log.h" />
     <ClInclude Include="external_cursor_detector.h" />

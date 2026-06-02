@@ -728,8 +728,6 @@
     X(ValidationCategoryNameRequired, "Укажите название категории.", "Enter a category name.") \
     X(ValidationCategoryNameUnique, "Категория с таким названием уже есть.", "A category with this name already exists.") \
     X(ValidationRepeatInterval, "Интервал повтора не может быть отрицательным.", "Repeat interval cannot be negative.") \
-    X(ValidationTriggerTextRequired, "Укажите текст триггера.", "Enter trigger text.") \
-    X(ValidationCommandRequired, "Укажите команду.", "Enter a command.") \
     X(ValidationConfirmCancelKeysDifferent, "Клавиши подтверждения и отклонения должны отличаться.", "Confirm and cancel keys must be different.") \
     X(ValidationInputKeyRequired, "У каждого параметра должен быть служебный ключ.", "Each parameter must have a service key.") \
     X(ValidationInputKeyUnique, "Служебные ключи параметров должны быть уникальными.", "Parameter service keys must be unique.") \
@@ -751,6 +749,7 @@
     X(Save, "Сохранить", "Save") \
     X(Done, "Готово", "Done") \
     X(Cancel, "Отмена", "Cancel") \
+    X(Close, "Закрыть", "Close") \
     X(DeleteFolderMoveBindsQuestion, "Удалить папку вместе с подпапками и биндами?", "Delete the folder together with its subfolders and binds?") \
     X(DeleteFolderAll, "Удалить всё", "Delete all") \
     X(DeleteFolderMoveContentsHere, "Перенести содержимое сюда", "Move contents here") \
@@ -833,12 +832,12 @@
     X(NewBindTitle, "Новый бинд", "New bind") \
     X(EditBindTitle, "Редактирование бинда", "Edit bind") \
     X(EditorPrimaryLaunch, "Основное", "Main") \
-    X(EditorAdvancedLaunch, "Доп. запуск", "Extra launch") \
     X(EditorScenarioTab, "Сценарий", "Scenario") \
     X(EditorMultiInputTitle, "Мульти-ввод", "Multi-input") \
     X(EditorOpenMultiInput, "Мульти-ввод", "Multi-input") \
     X(EditorInputFieldsTab, "Параметры", "Parameters") \
-    X(EditorOpenConditions, "Блокировки", "Blocks") \
+    X(EditorOpenConditions, "Условия", "Conditions") \
+    X(EditorConditionsButtonCount, "Условия (%d)", "Conditions (%d)") \
     X(EditorConditionsNone, "Блокировок: нет", "Blocks: none") \
     X(EditorConditionsCount, "Блокировок: %d", "Blocks: %d") \
     X(EditorBack, "Назад", "Back") \
@@ -846,8 +845,6 @@
     X(EditorNextBind, "Следующий бинд", "Next bind") \
     X(EditorUnsaved, "Несохранённые изменения", "Unsaved changes") \
     X(EditorTriggerHint, "Срабатывает, когда вы отправляете указанную фразу в чат или в виде команды.", "Triggers when you send the specified phrase to chat or as a command.") \
-    X(EditorTriggerToggleHint, "Включить или выключить триггер по тексту.", "Enable or disable the text trigger.") \
-    X(EditorTriggerPatternMode, "Режим шаблона", "Pattern mode") \
     X(EditorTriggerPatternTooltip, "Regex ECMAScript для текстового триггера.\n\nЧастое:\n. — любой символ\n.* — любой текст\n\\d+ — одно или больше чисел\n\\w+ — слово/идентификатор\n^ и $ — начало и конец строки\n(a|b) — один из вариантов\n[abc] — один символ из набора\n\\. — обычная точка\n\nПримеры:\n^[Гг]олова$\n^дом\\d+$\n^(куплю|продам)\\s+\\d+$", "ECMAScript regex for the text trigger.\n\nCommon:\n. — any character\n.* — any text\n\\d+ — one or more digits\n\\w+ — word/identifier\n^ and $ — start and end of line\n(a|b) — one of the alternatives\n[abc] — one character from a set\n\\. — literal dot\n\nExamples:\n^[Hh]ead$\n^house\\d+$\n^(buy|sell)\\s+\\d+$") \
     X(EditorTriggerExample, "Например: Голова, [Гг]олова, ^дом\\d+$", "For example: Head, [Hh]ead, ^house\\d+$") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
@@ -873,6 +870,8 @@
     X(EditorColumnPauseMs, "Пауза (мс)", "Pause (ms)") \
     X(EditorColumnDestination, "Куда", "Destination") \
     X(EditorConfirmationHint, "После активации по триггеру или команде бинд ждёт отдельные клавиши подтверждения и отклонения.", "After trigger or command activation, the bind waits for separate confirm and cancel keys.") \
+    X(EditorConfirmationSettings, "Настройки", "Settings") \
+    X(EditorConfirmationSettingsDisabledTooltip, "Включите подтверждение триггера или команды, чтобы настроить клавиши.", "Enable trigger or command confirmation to configure keys.") \
     X(EditorMultiInputHint, "Каждая непустая строка станет отдельным шагом. Пустые строки игнорируются.", "Each non-empty line becomes a separate step. Empty lines are ignored.") \
     X(Enabled, "Включён", "Enabled") \
     X(Folder, "Папка", "Folder") \
@@ -882,11 +881,12 @@
     X(ChangeHotkey, "Изменить хоткей", "Change hotkey") \
     X(ShowInQuickMenu, "Показывать в быстром меню", "Show in quick menu") \
     X(EditorToggleQuickMenu, "Быстрое меню", "Quick menu") \
-    X(EditorToggleTrigger, "Триггер", "Trigger") \
+    X(EditorQuickMenuTooltip, "Показывать бинд в быстром меню.", "Show this bind in the quick menu.") \
     X(EditorTogglePattern, "Шаблон", "Pattern") \
     X(EditorToggleTextConfirm, "Подтв. триггер", "Confirm trigger") \
     X(EditorToggleCommandConfirm, "Подтв. команда", "Confirm command") \
     X(Repeat, "Повтор", "Repeat") \
+    X(EditorRepeatTooltip, "Зацикливает бинд, пока зажата клавиша активации. Если выключено, запуск по клавише выполняется один раз.", "Repeats the bind while the activation key is held. When disabled, a key activation runs once.") \
     X(RepeatInterval, "Интервал повтора", "Repeat interval") \
     X(AddRow, "+ Строка", "+ Row") \
     X(ColumnSpacer, " ", " ") \

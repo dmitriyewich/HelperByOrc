@@ -61,6 +61,7 @@ public:
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;
+    bool WantsInputRouting() const;
     bool WantsQuickMenuCursor() const;
     bool DescribeMainWindowHotkeyConflict(const std::vector<unsigned int>& keys, std::string& description);
 

@@ -29,6 +29,7 @@ public:
     void SetWindowMessageCallback(WindowMessageCallback callback);
     void SetAuxiliaryUiVisibleCallback(VisibilityCallback callback);
     void SetAuxiliaryInputCaptureCallback(VisibilityCallback callback);
+    void SetAuxiliaryInputRoutingCallback(VisibilityCallback callback);
     void SetInputPipelineGateCallback(GateCallback callback);
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
@@ -83,6 +84,7 @@ private:
     bool ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys);
     bool CanRouteInput() const;
     bool WantsAuxiliaryUiCursor() const;
+    bool WantsAuxiliaryInputRouting() const;
     bool WantsTextInputCapture() const;
     bool IsInputPipelineEnabled() const;
     bool IsKeyboardMessage(UINT message) const;
@@ -104,6 +106,7 @@ private:
     WindowMessageCallback windowMessageCallback_;
     VisibilityCallback auxiliaryUiVisibleCallback_;
     VisibilityCallback auxiliaryInputCaptureCallback_;
+    VisibilityCallback auxiliaryInputRoutingCallback_;
     GateCallback inputPipelineGateCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
