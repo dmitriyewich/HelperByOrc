@@ -9050,38 +9050,55 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     const float destinationColumnWidth = std::ceil(
         ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
     const ImVec2 actionButtonSize(ScaleUi(24.0f), ScaleUi(24.0f));
-    const float actionButtonsSpacing = ScaleUi(4.0f);
-    const float actionButtonsWidth = actionButtonSize.x * 2.0f + actionButtonsSpacing;
+    const float actionButtonsWidth = actionButtonSize.x;
     const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
-    if (editor.draft.messages.empty()) {
-        editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
+    const bool onlyEmptyPlaceholder =
+        editor.draft.messages.size() == 1 && Trim(editor.draft.messages.front().text).empty();
+    const std::size_t visibleMessageCount = onlyEmptyPlaceholder ? 0 : editor.draft.messages.size();
+    if (editor.scenarioMessageFocusIndex >= static_cast<int>(visibleMessageCount)) {
+        editor.scenarioMessageFocusIndex = -1;
     }
+
+    const auto appendScenarioMessage = [&]() -> bool {
+        if (Trim(editor.scenarioAppendText).empty()) {
+            return false;
+        }
+
+        HotkeyMessage message;
+        message.text = editor.scenarioAppendText;
+        if (visibleMessageCount > 0) {
+            const HotkeyMessage& previous = editor.draft.messages[visibleMessageCount - 1];
+            message.intervalMs = std::max(previous.intervalMs, 0);
+            message.method = previous.method;
+        } else if (!editor.draft.messages.empty()) {
+            const HotkeyMessage& previous = editor.draft.messages.back();
+            message.intervalMs = std::max(previous.intervalMs, 0);
+            message.method = previous.method;
+        } else {
+            message.intervalMs = std::max(editor.bulkIntervalMs, 0);
+            message.method = editor.bulkMethod;
+        }
+
+        int newIndex = 0;
+        const bool replacePlaceholder =
+            editor.draft.messages.size() == 1 && Trim(editor.draft.messages.front().text).empty();
+        if (replacePlaceholder) {
+            editor.draft.messages.front() = std::move(message);
+        } else {
+            editor.draft.messages.push_back(std::move(message));
+            newIndex = static_cast<int>(editor.draft.messages.size()) - 1;
+        }
+
+        editor.scenarioAppendText.clear();
+        editor.scenarioMessageFocusIndex = newIndex;
+        return true;
+    };
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("%s", ui.Text(UiText::EditorScenarioHint));
-    ImGui::SameLine();
-    const std::string addStepButton = std::string(ui_icons::Plus) + " " + ui.Text(UiText::EditorAddStep);
-    const std::string multiInputButton = std::string(ui_icons::Bars) + " " + ui.Text(UiText::EditorOpenMultiInput);
-    const float addStepButtonWidth = ScaleUi(96.0f);
-    const float multiInputButtonWidth = ScaleUi(142.0f);
-    const float currentX = ImGui::GetCursorPosX();
-    const float availableX = ImGui::GetContentRegionAvail().x;
-    const float buttonsWidth = addStepButtonWidth + style.ItemSpacing.x + multiInputButtonWidth;
-    if (availableX > buttonsWidth) {
-        ImGui::SetCursorPosX(currentX + availableX - buttonsWidth);
-    }
-    if (ImGui::Button(addStepButton.c_str(), ImVec2(addStepButtonWidth, 0.0f))) {
-        editor.draft.messages.push_back(HotkeyMessage{ "", 0, editor.bulkMethod });
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(multiInputButton.c_str(), ImVec2(multiInputButtonWidth, 0.0f))) {
-        SyncEditorMessagesToMulti();
-        editor.multiInputPopupPending = true;
-    }
     ImGui::Spacing();
 
     int removeIndex = -1;
-    int duplicateIndex = -1;
     int moveSourceIndex = -1;
     int moveTargetIndex = -1;
     const ImVec2 stepsTableOuterSize(
@@ -9107,12 +9124,12 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
             destinationColumnWidth);
         ImGui::TableSetupColumn(
-            UiSettings::Instance().Text(UiText::ColumnActions),
+            "##actions",
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
             actionsColumnWidth);
         ImGui::TableHeadersRow();
 
-        for (std::size_t i = 0; i < editor.draft.messages.size(); ++i) {
+        for (std::size_t i = 0; i < visibleMessageCount; ++i) {
             HotkeyMessage& message = editor.draft.messages[i];
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(i));
@@ -9140,12 +9157,24 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
 
             ImGui::TableSetColumnIndex(1);
             ImGui::SetNextItemWidth(-FLT_MIN);
+            const bool focusMessageText = editor.scenarioMessageFocusIndex == static_cast<int>(i);
+            if (focusMessageText) {
+                ImGui::SetKeyboardFocusHere();
+            }
             InputTextString("##step_text", message.text, 0, 256);
+            if (focusMessageText) {
+                if (ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetID("##step_text"))) {
+                    state->SetSelection(state->TextLen, state->TextLen);
+                    state->CursorFollow = true;
+                    state->CursorAnimReset();
+                }
+                editor.scenarioMessageFocusIndex = -1;
+            }
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
                     if (payload->Delivery && payload->DataSize == sizeof(int)) {
                         const int payloadIndex = *static_cast<const int*>(payload->Data);
-                        if (payloadIndex >= 0 && payloadIndex < static_cast<int>(editor.draft.messages.size())
+                        if (payloadIndex >= 0 && payloadIndex < static_cast<int>(visibleMessageCount)
                             && payloadIndex != static_cast<int>(i)) {
                             moveSourceIndex = payloadIndex;
                             moveTargetIndex = static_cast<int>(i);
@@ -9183,15 +9212,76 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + actionButtonsOffsetY);
             }
             CenterNextItemHorizontally(actionButtonsWidth);
-            if (SmallIconActionButton(ui_icons::Clone, "##step_duplicate", ui.Text(UiText::EditorDuplicateStep), actionButtonSize)) {
-                duplicateIndex = static_cast<int>(i);
-            }
-            ImGui::SameLine(0.0f, actionButtonsSpacing);
             if (SmallIconActionButton(ui_icons::Delete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
                 removeIndex = static_cast<int>(i);
             }
             ImGui::PopID();
         }
+
+        ImGui::TableNextRow();
+        ImGui::PushID("append");
+
+        ImGui::TableSetColumnIndex(0);
+        CenterNextItemHorizontally(dragHandleWidth);
+        ImGui::BeginDisabled();
+        IconOnlyButton(
+            ui_icons::MoveRows,
+            "##step_append_drag",
+            ui.Text(UiText::EditorMoveStep),
+            ImVec2(dragHandleWidth, dragHandleHeight),
+            false);
+        ImGui::EndDisabled();
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (editor.scenarioAppendFocusPending) {
+            ImGui::SetKeyboardFocusHere();
+            editor.scenarioAppendFocusPending = false;
+        }
+        const bool appendChanged = InputTextWithHintString(
+            "##step_append_text",
+            ui.Text(UiText::EditorAppendStepHint),
+            editor.scenarioAppendText,
+            0,
+            256);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::EditorAppendStepTooltip));
+        }
+        if (appendChanged && appendScenarioMessage()) {
+            ImGui::ClearActiveID();
+        }
+
+        ImGui::TableSetColumnIndex(2);
+        char disabledDelayText[1] = "";
+        ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputText(
+            "##step_append_delay",
+            disabledDelayText,
+            IM_ARRAYSIZE(disabledDelayText),
+            ImGuiInputTextFlags_ReadOnly);
+        ImGui::EndDisabled();
+
+        ImGui::TableSetColumnIndex(3);
+        ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##step_append_method", "")) {
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+
+        ImGui::TableSetColumnIndex(4);
+        const float appendButtonOffsetY = std::max(0.0f, std::floor((ImGui::GetFrameHeight() - actionButtonSize.y) * 0.5f));
+        if (appendButtonOffsetY > 0.0f) {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + appendButtonOffsetY);
+        }
+        CenterNextItemHorizontally(actionButtonsWidth);
+        if (SmallIconActionButton(ui_icons::Plus, "##step_append_add", ui.Text(UiText::EditorAppendStepTooltip), actionButtonSize)
+            && !appendScenarioMessage()) {
+            editor.scenarioAppendFocusPending = true;
+        }
+        ImGui::PopID();
+
         ImGui::EndTable();
     }
 
@@ -9199,11 +9289,6 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         HotkeyMessage moved = editor.draft.messages[static_cast<std::size_t>(moveSourceIndex)];
         editor.draft.messages.erase(editor.draft.messages.begin() + moveSourceIndex);
         editor.draft.messages.insert(editor.draft.messages.begin() + moveTargetIndex, std::move(moved));
-    }
-    if (duplicateIndex >= 0 && duplicateIndex < static_cast<int>(editor.draft.messages.size())) {
-        editor.draft.messages.insert(
-            editor.draft.messages.begin() + duplicateIndex + 1,
-            editor.draft.messages[static_cast<std::size_t>(duplicateIndex)]);
     }
     if (removeIndex >= 0 && removeIndex < static_cast<int>(editor.draft.messages.size())) {
         if (editor.draft.messages.size() > 1) {

@@ -848,8 +848,8 @@
     X(EditorTriggerPatternTooltip, "Regex ECMAScript для текстового триггера.\n\nЧастое:\n. — любой символ\n.* — любой текст\n\\d+ — одно или больше чисел\n\\w+ — слово/идентификатор\n^ и $ — начало и конец строки\n(a|b) — один из вариантов\n[abc] — один символ из набора\n\\. — обычная точка\n\nПримеры:\n^[Гг]олова$\n^дом\\d+$\n^(куплю|продам)\\s+\\d+$", "ECMAScript regex for the text trigger.\n\nCommon:\n. — any character\n.* — any text\n\\d+ — one or more digits\n\\w+ — word/identifier\n^ and $ — start and end of line\n(a|b) — one of the alternatives\n[abc] — one character from a set\n\\. — literal dot\n\nExamples:\n^[Hh]ead$\n^house\\d+$\n^(buy|sell)\\s+\\d+$") \
     X(EditorTriggerExample, "Например: Голова, [Гг]олова, ^дом\\d+$", "For example: Head, [Hh]ead, ^house\\d+$") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов.", "Drag the handle on the left to reorder steps.") \
-    X(EditorAddStep, "Шаг", "Step") \
-    X(EditorDuplicateStep, "Дублировать шаг", "Duplicate step") \
+    X(EditorAppendStepHint, "Введите сообщение для нового шага", "Type a message for a new step") \
+    X(EditorAppendStepTooltip, "Введите текст: строка сразу станет новым шагом. Пауза и метод копируются из предыдущей строки.", "Type text: the row immediately becomes a new step. Delay and method are copied from the previous row.") \
     X(EditorMoveStep, "Переместить шаг", "Move step") \
     X(EditorVariables, "Переменные", "Variables") \
     X(EditorVariablesTitle, "Переменные бинда", "Bind variables") \

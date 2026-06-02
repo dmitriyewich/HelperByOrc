@@ -33,6 +33,8 @@ struct State {
     std::vector<std::string> inputButtonsBulkDrafts{};
     std::vector<ButtonsBulkPreviewState> inputButtonsBulkPreviews{};
     std::string multiText{};
+    std::string scenarioAppendText{};
+    int scenarioMessageFocusIndex = -1;
     Tab activeTab = Tab::Scenario;
     PendingAction pendingAction = PendingAction::None;
     bool tabSelectionPending = false;
@@ -44,6 +46,7 @@ struct State {
     bool variablesTabSelectionPending = false;
     bool variablesKeyPickerPopupPending = false;
     bool discardPopupPending = false;
+    bool scenarioAppendFocusPending = false;
     int variablesActiveTab = 0;
     int selectedVariableInputIndex = -1;
     int selectedSimpleTagIndex = -1;
