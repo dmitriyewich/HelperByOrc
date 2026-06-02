@@ -55,7 +55,6 @@ using AddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
 using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
-using ChatAsiInputDirectSendFn = void(__cdecl*)(const char*, std::size_t);
 
 struct ModuleSectionRange {
     std::uintptr_t begin = 0;
@@ -81,7 +80,6 @@ constexpr int kChatEntryCount = 100;
 constexpr std::size_t kChatAsiWriterScanWindow = 0x80;
 constexpr std::size_t kChatAsiSubmitScanWindow = 0x500;
 constexpr std::size_t kChatAsiSubmitBacktrackWindow = 0x400;
-constexpr std::size_t kChatAsiDirectSendScanWindow = 0x80;
 constexpr std::size_t kDefaultSmallStringLimit = 256;
 constexpr std::size_t kDefaultTextLimit = 8192;
 
@@ -1262,134 +1260,6 @@ bool FindChatAsiSubmitForBuffer(
     return false;
 }
 
-bool LooksLikeChatAsiDirectSendFunction(
-    const std::vector<ModuleSectionRange>& sections,
-    std::uintptr_t imageBase,
-    std::uintptr_t imageEnd,
-    std::uintptr_t candidate) {
-    const auto* section = FindSectionForAddress(sections, candidate, true);
-    if (!section) {
-        return false;
-    }
-
-    const std::size_t candidateOffset = static_cast<std::size_t>(candidate - section->begin);
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section->begin);
-    const std::size_t window = std::min<std::size_t>(kChatAsiDirectSendScanWindow, section->end - candidate);
-    bool sawLengthGuard = false;
-    bool sawTextArgLoad = false;
-    bool sawSlashCheck = false;
-    bool sawInternalCall = false;
-    bool sawReturn = false;
-
-    for (std::size_t index = 0; index < window; ++index) {
-        const std::uintptr_t address = candidate + index;
-        const std::uint8_t opcode = bytes[candidateOffset + index];
-
-        if (index + 4 <= window && opcode == 0x83 && bytes[candidateOffset + index + 1] == 0x7D
-            && bytes[candidateOffset + index + 2] == 0x0C && bytes[candidateOffset + index + 3] == 0x00) {
-            sawLengthGuard = true;
-        }
-
-        if (index + 3 <= window && opcode == 0x8B && bytes[candidateOffset + index + 1] == 0x45
-            && bytes[candidateOffset + index + 2] == 0x08) {
-            sawTextArgLoad = true;
-        }
-
-        if (index + 3 <= window && opcode == 0x80 && bytes[candidateOffset + index + 1] == 0x38
-            && bytes[candidateOffset + index + 2] == 0x2F) {
-            sawSlashCheck = true;
-        }
-
-        if (index + 5 <= window && opcode == 0xE8) {
-            const auto target = ResolveRelativeTarget(address);
-            if (IsAddressInModule(target, imageBase, imageEnd)) {
-                sawInternalCall = true;
-            }
-        }
-
-        if (opcode == 0xC3 || opcode == 0xC2) {
-            sawReturn = true;
-            if (sawLengthGuard && sawTextArgLoad && sawSlashCheck && sawInternalCall) {
-                break;
-            }
-        }
-    }
-
-    return sawLengthGuard && sawTextArgLoad && sawSlashCheck && sawInternalCall && sawReturn;
-}
-
-bool FindChatAsiDirectSendForSubmit(
-    const std::vector<ModuleSectionRange>& sections,
-    std::uintptr_t imageBase,
-    std::uintptr_t imageEnd,
-    std::uintptr_t submit,
-    std::uintptr_t& directSend) {
-    directSend = 0;
-
-    const auto* section = FindSectionForAddress(sections, submit, true);
-    if (!section) {
-        return false;
-    }
-
-    const std::size_t submitOffset = static_cast<std::size_t>(submit - section->begin);
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section->begin);
-    const std::size_t window = std::min<std::size_t>(kChatAsiSubmitScanWindow, section->end - submit);
-
-    for (std::size_t index = 0; index < window; ++index) {
-        const std::uintptr_t address = submit + index;
-        const std::uint8_t opcode = bytes[submitOffset + index];
-
-        if (index + 5 <= window && opcode == 0xE8) {
-            const std::uintptr_t target = ResolveRelativeTarget(address);
-            if (IsAddressInModule(target, imageBase, imageEnd)
-                && LooksLikeChatAsiDirectSendFunction(sections, imageBase, imageEnd, target)) {
-                directSend = target;
-                return true;
-            }
-        }
-
-    }
-
-    return false;
-}
-
-bool FindChatAsiDirectSendFunction(
-    const std::vector<ModuleSectionRange>& sections,
-    std::uintptr_t imageBase,
-    std::uintptr_t imageEnd,
-    std::uintptr_t& directSend) {
-    directSend = 0;
-
-    for (const auto& section : sections) {
-        if (!section.executable()) {
-            continue;
-        }
-
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
-        const std::size_t sectionSize = section.end - section.begin;
-
-        for (std::size_t offset = 0; offset + 4 <= sectionSize; ++offset) {
-            if (bytes[offset] != 0x83 || bytes[offset + 1] != 0x7D || bytes[offset + 2] != 0x0C
-                || bytes[offset + 3] != 0x00) {
-                continue;
-            }
-
-            const std::uintptr_t candidate =
-                RecoverFunctionStart(section, section.begin + offset, kChatAsiDirectSendScanWindow);
-            if (candidate == 0) {
-                continue;
-            }
-
-            if (LooksLikeChatAsiDirectSendFunction(sections, imageBase, imageEnd, candidate)) {
-                directSend = candidate;
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 std::uint32_t ReadGamePedFromSampPed(std::uint32_t sampPed, SampApi::Version version) {
     const std::uint32_t gamePedOffset = GetSampPedGamePedOffset(version);
     if (sampPed < 0x10000 || gamePedOffset == 0) {
@@ -1661,16 +1531,6 @@ bool CallChatAsiInputWriter(ChatAsiInputWriterFn fn, const char* text, std::size
 bool CallChatAsiInputSubmit(ChatAsiInputSubmitFn fn, unsigned int mode) {
     __try {
         fn(mode);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
-}
-
-bool CallChatAsiInputDirectSend(ChatAsiInputDirectSendFn fn, const char* text, std::size_t length) {
-    __try {
-        fn(text, length);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
