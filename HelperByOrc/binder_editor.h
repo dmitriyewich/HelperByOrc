@@ -35,6 +35,7 @@ struct State {
     std::string multiText{};
     std::string scenarioAppendText{};
     int scenarioMessageFocusIndex = -1;
+    int scenarioMessageNoSelectFocusIndex = -1;
     Tab activeTab = Tab::Scenario;
     PendingAction pendingAction = PendingAction::None;
     bool tabSelectionPending = false;

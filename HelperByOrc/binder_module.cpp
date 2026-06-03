@@ -849,7 +849,13 @@ std::string SerializeButtonsText(const std::vector<InputButton>& buttons);
 void AppendButtonsBulkLine(std::string& text, std::string_view line);
 std::string BuildButtonsBulkTemplateLine(int index);
 void AppendButtonsBulkTemplateLines(std::string& text, int count);
-bool InputTextString(const char* label, std::string& value, ImGuiInputTextFlags flags = 0, std::size_t minBuffer = 256);
+bool InputTextString(
+    const char* label,
+    std::string& value,
+    ImGuiInputTextFlags flags = 0,
+    std::size_t minBuffer = 256,
+    ImGuiInputTextCallback chain = nullptr,
+    void* chainUserData = nullptr);
 bool InputTextMultilineString(
     const char* label,
     std::string& value,
@@ -1331,14 +1337,61 @@ int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
     return 0;
 }
 
+struct InputTextMoveCaretToEndData {
+    bool applied = false;
+};
+
+void MoveInputTextCaretToEnd(ImGuiID id) {
+    if (ImGuiInputTextState* state = ImGui::GetInputTextState(id)) {
+        state->SetSelection(state->TextLen, state->TextLen);
+        state->SelectedAllMouseLock = false;
+        state->CursorFollow = true;
+        state->CursorAnimReset();
+    }
+}
+
+void PrepareInputTextNoSelectFocus(ImGuiID id, int textLen) {
+    ImGuiContext& g = *GImGui;
+    ImGuiInputTextState& state = g.InputTextState;
+    // SetKeyboardFocusHere() activates InputText through nav and normally selects all text.
+    // Pre-seed the text state so ImGui treats this as preserved focus with the caret at the end.
+    state.ID = id;
+    state.TextLen = std::max(textLen, 0);
+    state.SetSelection(state.TextLen, state.TextLen);
+    state.SelectedAllMouseLock = false;
+    state.CursorFollow = true;
+    state.CursorAnimReset();
+    g.NavActivateFlags |= ImGuiActivateFlags_TryToPreserveState;
+    g.NavNextActivateFlags |= ImGuiActivateFlags_TryToPreserveState;
+}
+
+int MoveCaretToEndInputTextCallback(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag != ImGuiInputTextFlags_CallbackAlways
+        && data->EventFlag != ImGuiInputTextFlags_CallbackCharFilter) {
+        return 0;
+    }
+
+    MoveInputTextCaretToEnd(data->ID);
+    if (auto* userData = static_cast<InputTextMoveCaretToEndData*>(data->UserData)) {
+        userData->applied = true;
+    }
+    return 0;
+}
+
 } // namespace
 
-bool InputTextString(const char* label, std::string& value, ImGuiInputTextFlags flags, std::size_t minBuffer) {
+bool InputTextString(
+    const char* label,
+    std::string& value,
+    ImGuiInputTextFlags flags,
+    std::size_t minBuffer,
+    ImGuiInputTextCallback chain,
+    void* chainUserData) {
     if (value.capacity() < minBuffer) {
         value.reserve(minBuffer);
     }
 
-    ImGuiStringUserData userData{ &value, nullptr, nullptr };
+    ImGuiStringUserData userData{ &value, chain, chainUserData };
     flags |= ImGuiInputTextFlags_CallbackResize;
     return ImGui::InputText(label, value.data(), value.capacity() + 1, flags, ImGuiStringResizeCallback, &userData);
 }
@@ -9058,6 +9111,9 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     if (editor.scenarioMessageFocusIndex >= static_cast<int>(visibleMessageCount)) {
         editor.scenarioMessageFocusIndex = -1;
     }
+    if (editor.scenarioMessageNoSelectFocusIndex >= static_cast<int>(visibleMessageCount)) {
+        editor.scenarioMessageNoSelectFocusIndex = -1;
+    }
 
     const auto appendScenarioMessage = [&]() -> bool {
         if (Trim(editor.scenarioAppendText).empty()) {
@@ -9090,7 +9146,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         }
 
         editor.scenarioAppendText.clear();
-        editor.scenarioMessageFocusIndex = newIndex;
+        editor.scenarioMessageFocusIndex = -1;
+        editor.scenarioMessageNoSelectFocusIndex = newIndex;
         return true;
     };
 
@@ -9157,18 +9214,39 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
 
             ImGui::TableSetColumnIndex(1);
             ImGui::SetNextItemWidth(-FLT_MIN);
-            const bool focusMessageText = editor.scenarioMessageFocusIndex == static_cast<int>(i);
+            const int messageIndex = static_cast<int>(i);
+            const bool noSelectFocusMessageText = editor.scenarioMessageNoSelectFocusIndex == messageIndex;
+            const bool focusMessageText = editor.scenarioMessageFocusIndex == messageIndex || noSelectFocusMessageText;
+            const ImGuiID stepTextId = ImGui::GetID("##step_text");
             if (focusMessageText) {
                 ImGui::SetKeyboardFocusHere();
-            }
-            InputTextString("##step_text", message.text, 0, 256);
-            if (focusMessageText) {
-                if (ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetID("##step_text"))) {
-                    state->SetSelection(state->TextLen, state->TextLen);
-                    state->CursorFollow = true;
-                    state->CursorAnimReset();
+                if (noSelectFocusMessageText) {
+                    PrepareInputTextNoSelectFocus(stepTextId, static_cast<int>(message.text.size()));
                 }
-                editor.scenarioMessageFocusIndex = -1;
+            }
+            InputTextMoveCaretToEndData noSelectFocusData{};
+            const ImGuiInputTextFlags textFlags = noSelectFocusMessageText
+                ? ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCharFilter
+                : 0;
+            InputTextString(
+                "##step_text",
+                message.text,
+                textFlags,
+                256,
+                noSelectFocusMessageText ? MoveCaretToEndInputTextCallback : nullptr,
+                noSelectFocusMessageText ? &noSelectFocusData : nullptr);
+            if (focusMessageText) {
+                if (ImGui::GetInputTextState(stepTextId)) {
+                    if (noSelectFocusMessageText && !noSelectFocusData.applied) {
+                        MoveInputTextCaretToEnd(stepTextId);
+                    }
+                    if (editor.scenarioMessageFocusIndex == messageIndex) {
+                        editor.scenarioMessageFocusIndex = -1;
+                    }
+                    if (editor.scenarioMessageNoSelectFocusIndex == messageIndex) {
+                        editor.scenarioMessageNoSelectFocusIndex = -1;
+                    }
+                }
             }
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
