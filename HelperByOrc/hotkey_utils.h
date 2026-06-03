@@ -73,9 +73,6 @@ private:
 
 struct CapturePopupState {
     bool openPending = false;
-    bool hasAnchor = false;
-    float anchorX = 0.0f;
-    float anchorY = 0.0f;
 };
 
 using CapturePopupApplyCallback = std::function<bool(const std::vector<UINT>& keys)>;

@@ -529,7 +529,6 @@ void hotkeys::ResetCapturePopupState(CapturePopupState& state) {
 
 void hotkeys::OpenCapturePopupCenteredOnCurrentWindow(CapturePopupState& state) {
     state.openPending = true;
-    state.hasAnchor = false;
 }
 
 bool hotkeys::DrawCapturePopupModal(
@@ -547,10 +546,8 @@ bool hotkeys::DrawCapturePopupModal(
     }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const ImVec2 popupCenter = state.hasAnchor
-        ? ImVec2(state.anchorX, state.anchorY)
-        : ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + viewport->Size.y * 0.5f);
-    ImGui::SetNextWindowPos(popupCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    const ImVec2 popupCenter(viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + viewport->Size.y * 0.5f);
+    ImGui::SetNextWindowPos(popupCenter, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal(popupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return false;
     }
