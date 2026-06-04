@@ -1279,8 +1279,13 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
     const bool wantsUiCursor = WantsUiCursor();
-    const bool enteredUiCursor = !lastWantsUiCursor_ && wantsUiCursor;
+    const bool switchedUiSurface = wantsUiCursor
+        && lastWantsUiCursor_
+        && (menuOpen_ != lastInputResetMenuOpen_ || auxiliaryVisible != lastInputResetAuxVisible_);
+    const bool resetMouseInputState = (!lastWantsUiCursor_ && wantsUiCursor) || switchedUiSurface;
     lastWantsUiCursor_ = wantsUiCursor;
+    lastInputResetMenuOpen_ = menuOpen_;
+    lastInputResetAuxVisible_ = auxiliaryVisible;
 
     if (!hasOverlayUi) {
         AdvanceImGuiFrameWithoutUi(device);
@@ -1318,9 +1323,13 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     // без hover (WantCaptureMouse=0), а клики «съедаются».
     if (gameWindow_ != nullptr) {
         ImGuiIO& io = ImGui::GetIO();
-        if (enteredUiCursor && CanRouteInput()) {
+        if (resetMouseInputState && CanRouteInput()) {
             io.ClearInputMouse();
-            debuglog::WriteInfo("[ui] uiCursor 0->1: mouse input state reset");
+            debuglog::WriteInfo(
+                "[ui] uiCursor mouse input state reset: switchedSurface=%d menu=%d aux=%d",
+                switchedUiSurface ? 1 : 0,
+                menuOpen_ ? 1 : 0,
+                auxiliaryVisible ? 1 : 0);
         }
         POINT pt{};
         if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {

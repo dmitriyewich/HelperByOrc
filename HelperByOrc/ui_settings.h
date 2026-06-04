@@ -992,6 +992,8 @@
     X(QuickMenuStyle, "Стиль быстрого меню", "Quick menu style") \
     X(QuickMenuStyleTree, "Стиль 1: дерево", "Style 1: tree") \
     X(QuickMenuStyleCascade, "Стиль 2: каскадное меню", "Style 2: cascaded menu") \
+    X(QuickMenuShowScrollbar, "Показывать полосу прокрутки", "Show scroll bar") \
+    X(QuickMenuShowScrollbarHint, "Скрывает только визуальную полосу справа; прокрутка колесом мыши остаётся рабочей.", "Only hides the visual bar on the right; mouse-wheel scrolling still works.") \
     X(ColumnFolders, "Папки", "Folders") \
     X(ColumnBinds, "Бинды", "Binds")
 

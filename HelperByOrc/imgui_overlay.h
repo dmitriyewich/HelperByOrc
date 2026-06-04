@@ -119,6 +119,8 @@ private:
     bool traceLastAuxVisible_ = false;
     bool traceLastIdleFrame_ = true;
     bool lastWantsUiCursor_ = false;
+    bool lastInputResetMenuOpen_ = false;
+    bool lastInputResetAuxVisible_ = false;
     uint64_t traceLastUiDiagTick_ = 0;
 
     void* endSceneTarget_ = nullptr;
