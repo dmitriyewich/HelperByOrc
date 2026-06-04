@@ -74,6 +74,7 @@ private:
     void AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device);
     void TraceUiRenderAndInputSnapshot(const char* frameTag);
     void RenderFrame(IDirect3DDevice9* device);
+    void SyncOsMouseToImGui() const;
     bool HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lparam) const;
     bool IsMouseMessage(UINT message) const;
     HWND ResolveGameWindow(IDirect3DDevice9* device) const;

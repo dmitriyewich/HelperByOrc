@@ -21,6 +21,7 @@
 #include <imgui_internal.h>
 
 #include <windows.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <array>
@@ -58,6 +59,8 @@ constexpr int kQuickMenuWidth = 214;
 constexpr int kQuickMenuHeight = 277;
 // Hidden fixed quick-menu host window; the visible title is drawn manually over the top border.
 constexpr char kQuickMenuHostWindowId[] = "##helperbyorc_qm_host";
+constexpr int kQuickMenuFocusReassertFrames = 10;
+constexpr uint64_t kQuickMenuInputTraceIntervalMs = 500;
 constexpr int kTextConfirmTimeoutMs = 3000;
 constexpr int kDefaultTextConfirmationWaitTimeoutMs = 60000;
 constexpr int kMinTextConfirmationWaitTimeoutMs = 5000;
@@ -93,6 +96,71 @@ std::string ToLower(std::string_view value) {
 
 bool StartsWith(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+bool IsQuickMenuMouseButtonMessage(UINT message) {
+    switch (message) {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool IsQuickMenuMouseButtonHeld() {
+    return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0
+        || (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0
+        || (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+}
+
+const char* DbgImGuiWindowName(const ImGuiWindow* window) {
+    if (window == nullptr || window->Name == nullptr) {
+        return "(null)";
+    }
+    return window->Name;
+}
+
+void TraceQuickMenuInput(
+    const char* reason,
+    const ImVec2& position,
+    const ImVec2& size,
+    int selectedHotkeyIndex,
+    bool comboHeld,
+    bool closeAfterMouseFrame,
+    bool force = false) {
+    static uint64_t s_lastTraceMs = 0;
+    const uint64_t now = GetTickCount64();
+    if (!force && now - s_lastTraceMs < kQuickMenuInputTraceIntervalMs) {
+        return;
+    }
+    s_lastTraceMs = now;
+
+    const ImGuiContext* context = GImGui;
+    const ImGuiIO& io = ImGui::GetIO();
+    debuglog::WriteInfo(
+        "[ui] quickmenu input reason=%s rect=(%.1f,%.1f %.1fx%.1f) HovWin=\"%s\" ActId=0x%08X HovId=0x%08X "
+        "MouseDown=(%d,%d,%d) MouseClicked0=%d MouseReleased0=%d selected=%d comboHeld=%d closeAfterMouse=%d",
+        reason ? reason : "",
+        position.x,
+        position.y,
+        size.x,
+        size.y,
+        DbgImGuiWindowName(context ? context->HoveredWindow : nullptr),
+        context ? static_cast<unsigned>(context->ActiveId) : 0,
+        context ? static_cast<unsigned>(context->HoveredId) : 0,
+        io.MouseDown[0] ? 1 : 0,
+        io.MouseDown[1] ? 1 : 0,
+        io.MouseDown[2] ? 1 : 0,
+        io.MouseClicked[0] ? 1 : 0,
+        io.MouseReleased[0] ? 1 : 0,
+        selectedHotkeyIndex,
+        comboHeld ? 1 : 0,
+        closeAfterMouseFrame ? 1 : 0);
 }
 
 bool ClearDeprecatedHelperCondition(std::vector<bool>& flags) {
@@ -2258,6 +2326,10 @@ struct BinderModule::Impl {
     bool quickMenuReopenBlocked = false;
     bool quickMenuToggleLatch = false;
     bool quickMenuFocusPending = false;
+    int quickMenuFocusReassertFrames = 0;
+    bool quickMenuMouseEventPending = false;
+    bool quickMenuMouseEventInside = false;
+    bool quickMenuCloseAfterMouseFrame = false;
     ImVec2 quickMenuPos{ 0.0f, 0.0f };
     ImVec2 quickMenuSize{ static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight) };
     std::optional<bool> quickMenuSampCursorActiveAtOpen{};
@@ -4898,6 +4970,11 @@ bool BinderModule::Impl::FolderVisibleInQuickMenu(const FolderNode& folder) cons
 }
 
 void BinderModule::Impl::ResetQuickMenuVisualState() {
+    quickMenuFocusPending = false;
+    quickMenuFocusReassertFrames = 0;
+    quickMenuMouseEventPending = false;
+    quickMenuMouseEventInside = false;
+    quickMenuCloseAfterMouseFrame = false;
 }
 
 void BinderModule::Impl::ResetInputState() {
@@ -5000,8 +5077,10 @@ void BinderModule::Impl::Tick() {
     }
     if (!quickWasOpen && quickMenuOpen) {
         quickMenuFocusPending = true;
+        quickMenuFocusReassertFrames = kQuickMenuFocusReassertFrames;
     } else if (!quickMenuOpen) {
         quickMenuFocusPending = false;
+        quickMenuFocusReassertFrames = 0;
     }
     ProcessHotkeys();
     ProcessRunningBinds();
@@ -5077,7 +5156,6 @@ bool BinderModule::Impl::WantsQuickMenuCursor() const {
 }
 
 bool BinderModule::Impl::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {
-    (void)lparam;
     EnsureInitialized();
 
     const WORD activateState = LOWORD(static_cast<DWORD>(wparam));
@@ -5091,6 +5169,32 @@ bool BinderModule::Impl::OnWindowMessage(UINT message, WPARAM wparam, LPARAM lpa
     if (lostFocus || gainedFocus) {
         ResetInputState();
         return false;
+    }
+
+    if (quickMenuOpen && IsQuickMenuMouseButtonMessage(message)) {
+        const int clientX = GET_X_LPARAM(lparam);
+        const int clientY = GET_Y_LPARAM(lparam);
+        const bool hasQuickMenuRect = quickMenuSize.x > 0.0f && quickMenuSize.y > 0.0f;
+        const bool insideQuickMenu = hasQuickMenuRect
+            && static_cast<float>(clientX) >= quickMenuPos.x
+            && static_cast<float>(clientY) >= quickMenuPos.y
+            && static_cast<float>(clientX) < quickMenuPos.x + quickMenuSize.x
+            && static_cast<float>(clientY) < quickMenuPos.y + quickMenuSize.y;
+
+        quickMenuMouseEventPending = true;
+        quickMenuMouseEventInside = quickMenuMouseEventInside || insideQuickMenu;
+        if (insideQuickMenu) {
+            debuglog::WriteInfo(
+                "[ui] quickmenu mouse msg=%u client=(%d,%d) rect=(%.1f,%.1f %.1fx%.1f) comboHeld=%d",
+                static_cast<unsigned>(message),
+                clientX,
+                clientY,
+                quickMenuPos.x,
+                quickMenuPos.y,
+                quickMenuSize.x,
+                quickMenuSize.y,
+                IsQuickMenuComboPressed() ? 1 : 0);
+        }
     }
 
     bool canceled = false;
@@ -5321,6 +5425,8 @@ void BinderModule::Impl::UpdateQuickMenuState() {
     }
 
     const bool comboHeld = IsQuickMenuComboPressed();
+    const bool mouseButtonHeld = IsQuickMenuMouseButtonHeld();
+    quickMenuCloseAfterMouseFrame = false;
     if (quickMenuReopenBlocked) {
         quickMenuOpen = false;
         if (!comboHeld) {
@@ -5339,7 +5445,14 @@ void BinderModule::Impl::UpdateQuickMenuState() {
             quickMenuToggleLatch = false;
         }
     } else {
-        quickMenuOpen = comboHeld;
+        if (comboHeld) {
+            quickMenuOpen = true;
+        } else if (quickMenuOpen && (quickMenuMouseEventPending || mouseButtonHeld)) {
+            quickMenuOpen = true;
+            quickMenuCloseAfterMouseFrame = !mouseButtonHeld;
+        } else {
+            quickMenuOpen = false;
+        }
     }
 
     if (!quickMenuOpen) {
@@ -12516,9 +12629,10 @@ void BinderModule::Impl::DrawQuickMenu() {
         return visible;
     };
 
+    const bool focusWarmup = quickMenuFocusPending || quickMenuFocusReassertFrames > 0;
     ImGui::SetNextWindowPos(quickMenuPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(quickMenuSize, ImGuiCond_Always);
-    if (quickMenuFocusPending) {
+    if (focusWarmup) {
         ImGui::SetNextWindowFocus();
     }
     const BinderListVisualStyle visual = BinderListStyleTokens();
@@ -12558,17 +12672,32 @@ void BinderModule::Impl::DrawQuickMenu() {
         ImGui::End();
         ImGui::PopStyleColor(kQuickMenuStyleColorCount);
         ImGui::PopStyleVar(kQuickMenuStyleVarCount);
-        if (quickMenuFocusPending) {
+        if (quickMenuFocusReassertFrames > 0) {
+            --quickMenuFocusReassertFrames;
+        }
+        if (quickMenuFocusReassertFrames <= 0) {
             quickMenuFocusPending = false;
         }
         return;
     }
-    if (quickMenuFocusPending) {
+    if (focusWarmup) {
         ImGui::BringWindowToFocusFront(ImGui::GetCurrentWindow());
         syncOsMouseToImGui();
     }
     quickMenuPos = ImGui::GetWindowPos();
     quickMenuSize = ImGui::GetWindowSize();
+    const bool quickMenuWindowHovered =
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    const bool quickMenuWindowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (quickMenuFocusPending && (quickMenuWindowHovered || quickMenuWindowFocused)) {
+        quickMenuFocusPending = false;
+    }
+    if (quickMenuFocusReassertFrames > 0) {
+        --quickMenuFocusReassertFrames;
+    }
+    if (quickMenuFocusReassertFrames <= 0) {
+        quickMenuFocusPending = false;
+    }
 
     DrawQuickMenuTitleBand(UiSettings::Instance().Text(UiText::QuickMenuWindowTitle), visual);
 
@@ -12745,24 +12874,47 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
     ImGui::EndChild();
 
+    const bool closeAfterMouseFrame = quickMenuCloseAfterMouseFrame;
+    const bool mouseEventInside = quickMenuMouseEventInside;
+    const bool comboHeldNow = IsQuickMenuComboPressed();
+    if (mouseEventInside && selectedHotkeyIndex < 0 && (io.MouseClicked[0] || io.MouseReleased[0] || closeAfterMouseFrame)) {
+        TraceQuickMenuInput(
+            closeAfterMouseFrame ? "mouse_frame_no_selection" : "mouse_frame_pending",
+            quickMenuPos,
+            quickMenuSize,
+            selectedHotkeyIndex,
+            comboHeldNow,
+            closeAfterMouseFrame,
+            closeAfterMouseFrame);
+    }
+
     if (persistentOpen && !windowOpen) {
         quickMenuOpen = false;
     }
     ImGui::End();
     ImGui::PopStyleColor(kQuickMenuStyleColorCount);
     ImGui::PopStyleVar(kQuickMenuStyleVarCount);
-    if (quickMenuFocusPending) {
-        quickMenuFocusPending = false;
-    }
 
     if (persistentOpen && !windowOpen) {
+        TraceQuickMenuInput("cancel", quickMenuPos, quickMenuSize, selectedHotkeyIndex, comboHeldNow, false, true);
         closeQuickMenuForSelection();
         return;
     }
     if (selectedHotkeyIndex >= 0) {
+        TraceQuickMenuInput("selected", quickMenuPos, quickMenuSize, selectedHotkeyIndex, comboHeldNow, closeAfterMouseFrame, true);
         closeQuickMenuForSelection();
         TryEnqueueHotkey(selectedHotkeyIndex, 0, "quick_menu", "");
+        return;
     }
+    if (closeAfterMouseFrame) {
+        quickMenuOpen = false;
+        ResetQuickMenuVisualState();
+        return;
+    }
+
+    quickMenuMouseEventPending = false;
+    quickMenuMouseEventInside = false;
+    quickMenuCloseAfterMouseFrame = false;
 }
 
 void BinderModule::Impl::DrawInputDialog() {

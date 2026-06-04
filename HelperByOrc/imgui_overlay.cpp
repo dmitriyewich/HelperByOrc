@@ -205,6 +205,15 @@ bool IsPopupTransitionNoCaptureExpected(const ImGuiIO& io) {
         && !ImGui::IsAnyItemActive();
 }
 
+bool HasMouseButtonDown(const ImGuiIO& io) {
+    for (bool down : io.MouseDown) {
+        if (down) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void TraceWindowAndDpi(HWND hwnd) {
     UINT dpi = 96;
     HMODULE user32 = GetModuleHandleA("user32.dll");
@@ -1166,6 +1175,17 @@ bool ImGuiOverlay::IsInputPipelineEnabled() const {
     return inputPipelineGateCallback_ ? inputPipelineGateCallback_() : true;
 }
 
+void ImGuiOverlay::SyncOsMouseToImGui() const {
+    if (gameWindow_ == nullptr || ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+
+    POINT pt{};
+    if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
+        ImGui::GetIO().AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
+    }
+}
+
 bool ImGuiOverlay::EnsureWndProcHookInstalled() {
     if (originalWndProc_ || !gameWindow_) {
         return originalWndProc_ != nullptr;
@@ -1354,17 +1374,22 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     if (gameWindow_ != nullptr) {
         ImGuiIO& io = ImGui::GetIO();
         if (resetMouseInputState && CanRouteInput()) {
-            io.ClearInputMouse();
-            debuglog::WriteInfo(
-                "[ui] uiCursor mouse input state reset: switchedSurface=%d menu=%d aux=%d",
-                switchedUiSurface ? 1 : 0,
-                menuOpen_ ? 1 : 0,
-                auxiliaryVisible ? 1 : 0);
+            if (!HasMouseButtonDown(io)) {
+                io.ClearInputMouse();
+                debuglog::WriteInfo(
+                    "[ui] uiCursor mouse input state reset: switchedSurface=%d menu=%d aux=%d",
+                    switchedUiSurface ? 1 : 0,
+                    menuOpen_ ? 1 : 0,
+                    auxiliaryVisible ? 1 : 0);
+            } else {
+                debuglog::WriteInfo(
+                    "[ui] uiCursor mouse input reset skipped: mouse button down switchedSurface=%d menu=%d aux=%d",
+                    switchedUiSurface ? 1 : 0,
+                    menuOpen_ ? 1 : 0,
+                    auxiliaryVisible ? 1 : 0);
+            }
         }
-        POINT pt{};
-        if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
-            io.AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
-        }
+        SyncOsMouseToImGui();
     }
 
     if (prepareFrameCallback_) {
@@ -1558,6 +1583,9 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 return TRUE;
             }
 
+            if (wantsUiCursor && self_->IsMouseMessage(message)) {
+                self_->SyncOsMouseToImGui();
+            }
             ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam);
             if (ImGui::GetCurrentContext() != nullptr) {
                 const ImGuiIO& io = ImGui::GetIO();
