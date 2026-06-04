@@ -1097,7 +1097,12 @@ void ModApp::OnProcessAttach(HMODULE module) {
     unwanted_.OnProcessAttach();
     LoadShellState();
 
+    sampRakHooks_.SetSampApi(&sampApi_);
+    arizonaCefDialogs_.SetSampApi(&sampApi_);
+    arizonaCefDialogs_.SetSampRakHooks(&sampRakHooks_);
+    arizonaCefDialogs_.OnProcessAttach();
     tags_.SetSampApi(&sampApi_);
+    tags_.SetArizonaCefDialogs(&arizonaCefDialogs_);
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
@@ -1133,7 +1138,6 @@ void ModApp::OnProcessAttach(HMODULE module) {
         text = tags_.ExpandOutgoingText(text, "chat", text);
         return true;
     });
-    sampRakHooks_.SetSampApi(&sampApi_);
     sampRakHooks_.AddOnSendCommandHandler([this](std::string& text) {
         if (!SampHooks::IsOutgoingInputTransformActive()) {
             text = tags_.ExpandOutgoingText(text, "command", text);
@@ -1258,6 +1262,8 @@ void ModApp::Shutdown() {
     debuglog::WriteInfo("Unwanted messages shutdown done");
     tags_.Shutdown();
     debuglog::WriteInfo("Tags shutdown done");
+    arizonaCefDialogs_.Shutdown();
+    debuglog::WriteInfo("Arizona CEF dialogs shutdown done");
     AppConfig::Instance().Shutdown();
     debuglog::WriteInfo("AppConfig shutdown done");
     sampRakHooks_.Shutdown();
@@ -1433,6 +1439,7 @@ void ModApp::Tick() {
     tags_.Tick();
 
     RefreshSampGate();
+    arizonaCefDialogs_.Tick();
 
     UpdateOverlayCursorMode();
 }

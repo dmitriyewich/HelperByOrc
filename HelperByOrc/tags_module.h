@@ -12,6 +12,7 @@
 class SampApi;
 class BinderModule;
 class NotificationManager;
+class ArizonaCefDialogs;
 
 class TagsModule {
 public:
@@ -61,11 +62,13 @@ public:
     void SetSampApi(SampApi* sampApi);
     void SetBinderModule(BinderModule* binderModule);
     void SetNotificationManager(NotificationManager* notificationManager);
+    void SetArizonaCefDialogs(ArizonaCefDialogs* arizonaCefDialogs);
 
     void PushContext(const EvaluationContext& context) const;
     void PopContext() const;
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
+    bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
     void Tick();
     bool IsMiscHomePage() const;
     void DrawMiscTab();
@@ -155,11 +158,32 @@ private:
         SpecificId,
     };
 
+    enum class DialogTextPickerSource {
+        Samp,
+        Arizona,
+    };
+
     struct PendingDialogWait {
         std::uint64_t runtimeId = 0;
         PendingDialogWaitKind kind = PendingDialogWaitKind::Open;
         std::uint64_t deadlineAtMs = 0;
         int expectedDialogId = -1;
+    };
+
+    enum class PendingArzDialogQueryKind {
+        InputText,
+        ListItem,
+    };
+
+    struct PendingArzDialogQueryWait {
+        std::uint64_t runtimeId = 0;
+        PendingArzDialogQueryKind kind = PendingArzDialogQueryKind::InputText;
+        std::uint64_t deadlineAtMs = 0;
+    };
+
+    struct ReadyArzDialogQuery {
+        std::uint64_t runtimeId = 0;
+        PendingArzDialogQueryKind kind = PendingArzDialogQueryKind::InputText;
     };
 
     struct ClosestPlayerQueryResult {
@@ -174,11 +198,12 @@ private:
     void DrawVariablesPage();
     void RefreshCatalogEntries();
     void OpenDialogItemPicker();
-    void OpenDialogTextPicker();
+    void OpenDialogTextPicker(DialogTextPickerSource source = DialogTextPickerSource::Samp);
     void DrawDialogItemPickerPopup();
     void DrawDialogTextPickerPopup();
     void ProcessPendingKeyHoldWaits();
     void ProcessPendingDialogWaits();
+    void ProcessPendingArzDialogQueryWaits();
     void QueuePendingDialogWait(
         std::uint64_t runtimeId,
         PendingDialogWaitKind kind,
@@ -192,6 +217,13 @@ private:
     void ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) const;
     bool HasPendingDialogWait(std::uint64_t runtimeId) const;
     bool HasPendingKeyHoldWait(std::uint64_t runtimeId) const;
+    void QueuePendingArzDialogQueryWait(
+        std::uint64_t runtimeId,
+        PendingArzDialogQueryKind kind,
+        std::uint64_t deadlineAtMs) const;
+    bool HasPendingArzDialogQueryWait(std::uint64_t runtimeId) const;
+    bool ConsumeReadyArzDialogQuery(std::uint64_t runtimeId, PendingArzDialogQueryKind kind) const;
+    void MarkCurrentDispatchBlocked(std::uint64_t runtimeId) const;
 
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const;
@@ -246,6 +278,23 @@ private:
     std::optional<std::string> ResolveBuiltinDialogWaitOpenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDialogWaitCloseTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDialogGetIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetInputTextTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetListItemTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogIsDialogActiveTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetStyleTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetTitleTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetButton1Tag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetButton2Tag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetDialogTextTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetDialogTextFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetRespondTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogRespondIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogRespondButtonTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogRespondListTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogRespondInputTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickFunctionTag(std::string_view param, const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinRpNickFunctionTag(
         std::string_view param,
@@ -339,6 +388,25 @@ private:
     std::optional<std::string> ResolveBuiltinSaveDialogFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogSetInputTextFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetInputTextFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogCloseWithButtonFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogSetListItemFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogGetListItemFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogSendRespondFunctionTag(
+        std::string_view rawParam,
+        const EvaluationContext& context,
+        int depth) const;
     std::optional<std::string> ResolveBinderActionFunctionTag(
         std::string_view action,
         std::string_view param,
@@ -373,6 +441,7 @@ private:
     SampApi* sampApi_ = nullptr;
     BinderModule* binderModule_ = nullptr;
     NotificationManager* notificationManager_ = nullptr;
+    ArizonaCefDialogs* arizonaCefDialogs_ = nullptr;
     std::string searchQuery_{};
     int selectedTagIndex_ = 0;
     MiscPage currentPage_ = MiscPage::Home;
@@ -382,11 +451,15 @@ private:
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
     mutable std::vector<PendingKeyHoldWait> pendingKeyHoldWaits_{};
+    mutable std::vector<PendingArzDialogQueryWait> pendingArzDialogQueryWaits_{};
+    mutable std::vector<ReadyArzDialogQuery> readyArzDialogQueries_{};
+    mutable std::vector<std::uint64_t> blockedCurrentDispatchRuntimes_{};
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};
     std::string dialogItemPickerSearchQuery_{};
     std::string dialogTextPickerSearchQuery_{};
+    DialogTextPickerSource dialogTextPickerSource_ = DialogTextPickerSource::Samp;
     bool keyPickerHoverTriggered_ = false;
     bool dialogItemPickerOpenPending_ = false;
     bool dialogTextPickerOpenPending_ = false;

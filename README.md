@@ -42,6 +42,7 @@
 - Arizona `_chat.asi` writer/submit для отправки через input чата, открытия и вставки текста с fallback на стандартный SA:MP-путь.
 - Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
 - Теги и пользовательские переменные, включая bind-actions `[bindstart(30)]`, `[bindstart({thisbind})]`, `{thisbind}` и `{thiscategory}` для runtime-контекста текущего bind.
+- Arizona CEF dialog-теги: `[ARZdialogsetinputtext(...)]`, `[ARZdialogclosewithbutton(1)]`, `[ARZdialogsetlistitem(0)]`, `[ARZdialoggetdialogtext(0)]`, `[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]` и getter-переменные `{ARZdialoggetid}`, `{ARZdialoggettitle}`, `{ARZdialoggetrespond}`.
 - Профильный блокнот: папки, поиск, избранное, split preview, Lua-compatible разметка, локальные картинки, импорт/экспорт `.txt`.
 - HUD v2: свободный canvas-конструктор экранных виджетов с элементами `Text`, `Image`, `Shape`, `Line`, `Icon`, `ProgressBar` и `Group`, слоями, drag/resize, snap-сеткой, lock/hide, group/ungroup, undo/redo, пресетами и импортом/экспортом `.helperhud.json`; обычные виджеты рисуются нижним слоем под окнами Helper и не перехватывают ввод.
 - Профили конфигурации: переключение, создание, дублирование, переименование и удаление во вкладке «Настройки».

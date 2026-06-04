@@ -1,6 +1,7 @@
 #include "tags_module.h"
 
 #include "app_config.h"
+#include "arizona_cef_dialogs.h"
 #include "binder_module.h"
 #include "debug_log.h"
 #include "hotkey_utils.h"
@@ -54,6 +55,8 @@ constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
 constexpr wchar_t kHelperScreensRelativePath[] = L"screens";
 constexpr wchar_t kHelperSavedDialogsRelativePath[] = L"saved\\dialogs";
 constexpr std::uint64_t kDialogWaitOpenTimeoutMs = 3000;
+constexpr int kArzDialogQueryDefaultTimeoutMs = 500;
+constexpr int kArzDialogQueryMaxTimeoutMs = 3000;
 constexpr int kRandomMinInt = -2147483647;
 constexpr int kRandomMaxInt = 2147483647;
 thread_local std::vector<TagsModule::OwnedEvaluationContext> g_activeContextStack;
@@ -122,6 +125,16 @@ struct DialogResponseParams {
     std::string_view button{};
     std::string_view item{};
     std::string_view text{};
+};
+
+struct ArzDialogSendRespondParams {
+    bool valid = false;
+    bool hasListPart = false;
+    bool hasInputPart = false;
+    std::string_view id{};
+    std::string_view button{};
+    std::string_view listItem{};
+    std::string_view input{};
 };
 
 bool TryParseSampColorTag(std::string_view text, std::size_t offset, std::size_t& consumed, std::uint32_t* color = nullptr) {
@@ -535,6 +548,85 @@ DialogResponseParams ParseDialogResponseParams(std::string_view rawParam) {
     if (parts.size() >= 3) {
         result.hasTextPart = true;
         result.text = parts[2];
+    }
+    return result;
+}
+
+ArzDialogSendRespondParams ParseArzDialogSendRespondParams(std::string_view rawParam) {
+    ArzDialogSendRespondParams result;
+    std::vector<std::string_view> parts;
+    parts.reserve(4);
+
+    std::size_t partStart = 0;
+    int roundDepth = 0;
+    int squareDepth = 0;
+    int curlyDepth = 0;
+    char quote = '\0';
+    bool escaped = false;
+
+    for (std::size_t i = 0; i < rawParam.size(); ++i) {
+        const char ch = rawParam[i];
+        if (quote != '\0') {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == quote) {
+                quote = '\0';
+            }
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            ++roundDepth;
+            continue;
+        }
+        if (ch == ')' && roundDepth > 0) {
+            --roundDepth;
+            continue;
+        }
+        if (ch == '[') {
+            ++squareDepth;
+            continue;
+        }
+        if (ch == ']' && squareDepth > 0) {
+            --squareDepth;
+            continue;
+        }
+        if (ch == '{') {
+            ++curlyDepth;
+            continue;
+        }
+        if (ch == '}' && curlyDepth > 0) {
+            --curlyDepth;
+            continue;
+        }
+
+        if (ch == ';' && roundDepth == 0 && squareDepth == 0 && curlyDepth == 0 && parts.size() < 3) {
+            parts.push_back(rawParam.substr(partStart, i - partStart));
+            partStart = i + 1;
+        }
+    }
+
+    parts.push_back(rawParam.substr(partStart));
+    if (parts.size() < 2 || parts.size() > 4) {
+        return result;
+    }
+
+    result.valid = true;
+    result.id = parts[0];
+    result.button = parts[1];
+    if (parts.size() >= 3) {
+        result.hasListPart = true;
+        result.listItem = parts[2];
+    }
+    if (parts.size() >= 4) {
+        result.hasInputPart = true;
+        result.input = parts[3];
     }
     return result;
 }
@@ -2713,6 +2805,132 @@ void TagsModule::InitializeRegistry() {
             return module.ResolveBuiltinDialogGetIdTag(context);
         });
 
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetinputtext",
+        "{ARZdialoggetinputtext}",
+        "{ARZdialoggetinputtext}",
+        UiText::TagsBuiltinArzDialogGetInputTextDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetInputTextTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetlistitem",
+        "{ARZdialoggetlistitem}",
+        "{ARZdialoggetlistitem}",
+        UiText::TagsBuiltinArzDialogGetListItemDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetListItemTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialogisdialogactive",
+        "{ARZdialogisdialogactive}",
+        "{ARZdialogisdialogactive}",
+        UiText::TagsBuiltinArzDialogIsActiveDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogIsDialogActiveTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetid",
+        "{ARZdialoggetid}",
+        "{ARZdialoggetid}",
+        UiText::TagsBuiltinArzDialogGetIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetstyle",
+        "{ARZdialoggetstyle}",
+        "{ARZdialoggetstyle}",
+        UiText::TagsBuiltinArzDialogGetStyleDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetStyleTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggettitle",
+        "{ARZdialoggettitle}",
+        "{ARZdialoggettitle}",
+        UiText::TagsBuiltinArzDialogGetTitleDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetTitleTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetbutton1",
+        "{ARZdialoggetbutton1}",
+        "{ARZdialoggetbutton1}",
+        UiText::TagsBuiltinArzDialogGetButton1Description,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetButton1Tag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetbutton2",
+        "{ARZdialoggetbutton2}",
+        "{ARZdialoggetbutton2}",
+        UiText::TagsBuiltinArzDialogGetButton2Description,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetButton2Tag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetdialogtext",
+        "{ARZdialoggetdialogtext}",
+        "{ARZdialoggetdialogtext}",
+        UiText::TagsBuiltinArzDialogGetDialogTextDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetDialogTextTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialoggetrespond",
+        "{ARZdialoggetrespond}",
+        "{ARZdialoggetrespond}",
+        UiText::TagsBuiltinArzDialogGetRespondDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogGetRespondTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialogrespondid",
+        "{ARZdialogrespondid}",
+        "{ARZdialogrespondid}",
+        UiText::TagsBuiltinArzDialogRespondIdDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogRespondIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialogrespondbutton",
+        "{ARZdialogrespondbutton}",
+        "{ARZdialogrespondbutton}",
+        UiText::TagsBuiltinArzDialogRespondButtonDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogRespondButtonTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialogrespondlist",
+        "{ARZdialogrespondlist}",
+        "{ARZdialogrespondlist}",
+        UiText::TagsBuiltinArzDialogRespondListDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogRespondListTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzdialogrespondinput",
+        "{ARZdialogrespondinput}",
+        "{ARZdialogrespondinput}",
+        UiText::TagsBuiltinArzDialogRespondInputDescription,
+        [](const TagsModule& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinArzDialogRespondInputTag(context);
+        });
+
     tagRegistry_.RegisterFunction(
         "nick",
         "[nick(...)]",
@@ -2993,6 +3211,69 @@ void TagsModule::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        "arzdialogsetinputtext",
+        "[ARZdialogsetinputtext(...)]",
+        "[ARZdialogsetinputtext(Привет)]",
+        UiText::TagsBuiltinArzDialogSetInputTextDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogSetInputTextFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialoggetinputtext",
+        "[ARZdialoggetinputtext(...)]",
+        "[ARZdialoggetinputtext(500)]",
+        UiText::TagsBuiltinArzDialogGetInputTextQueryDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogGetInputTextFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialogclosewithbutton",
+        "[ARZdialogclosewithbutton(...)]",
+        "[ARZdialogclosewithbutton(1)]",
+        UiText::TagsBuiltinArzDialogCloseWithButtonDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogCloseWithButtonFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialogsetlistitem",
+        "[ARZdialogsetlistitem(...)]",
+        "[ARZdialogsetlistitem(0)]",
+        UiText::TagsBuiltinArzDialogSetListItemDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogSetListItemFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialoggetlistitem",
+        "[ARZdialoggetlistitem(...)]",
+        "[ARZdialoggetlistitem(500)]",
+        UiText::TagsBuiltinArzDialogGetListItemQueryDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogGetListItemFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialoggetdialogtext",
+        "[ARZdialoggetdialogtext(...)]",
+        "[ARZdialoggetdialogtext(0)]",
+        UiText::TagsBuiltinArzDialogGetDialogTextFunctionDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogGetDialogTextFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialogsendrespond",
+        "[ARZdialogsendrespond(...)]",
+        "[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]",
+        UiText::TagsBuiltinArzDialogSendRespondDescription,
+        [](const TagsModule& module, std::string_view param, const EvaluationContext& context, int depth) {
+            return module.ResolveBuiltinArzDialogSendRespondFunctionTag(param, context, depth);
+        });
+
+    tagRegistry_.RegisterFunction(
         "binddisable",
         "[binddisable(...)]",
         "[binddisable(30)]",
@@ -3117,6 +3398,9 @@ void TagsModule::Shutdown() {
     activeVirtualKeyHolds_.clear();
     pendingBindDelayOverrides_.clear();
     pendingKeyHoldWaits_.clear();
+    pendingArzDialogQueryWaits_.clear();
+    readyArzDialogQueries_.clear();
+    blockedCurrentDispatchRuntimes_.clear();
     pendingDialogWaits_.clear();
     searchQuery_.clear();
     dialogItemPickerSearchQuery_.clear();
@@ -3154,6 +3438,11 @@ void TagsModule::SetBinderModule(BinderModule* binderModule) {
 void TagsModule::SetNotificationManager(NotificationManager* notificationManager) {
     notificationManager_ = notificationManager;
     debuglog::WriteInfo("TagsModule::SetNotificationManager assigned=%d", notificationManager_ ? 1 : 0);
+}
+
+void TagsModule::SetArizonaCefDialogs(ArizonaCefDialogs* arizonaCefDialogs) {
+    arizonaCefDialogs_ = arizonaCefDialogs;
+    debuglog::WriteInfo("TagsModule::SetArizonaCefDialogs assigned=%d", arizonaCefDialogs_ ? 1 : 0);
 }
 
 void TagsModule::NotifyTagError(std::string_view text, double durationMs) const {
@@ -3230,9 +3519,24 @@ std::optional<int> TagsModule::ConsumePendingBindDelayOverride(std::uint64_t run
     return delayMs;
 }
 
+bool TagsModule::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+
+    const auto it = std::find(blockedCurrentDispatchRuntimes_.begin(), blockedCurrentDispatchRuntimes_.end(), runtimeId);
+    if (it == blockedCurrentDispatchRuntimes_.end()) {
+        return false;
+    }
+
+    blockedCurrentDispatchRuntimes_.erase(it);
+    return true;
+}
+
 void TagsModule::Tick() {
     UpdateTargetTracker();
     ProcessPendingDialogWaits();
+    ProcessPendingArzDialogQueryWaits();
     if (!activeVirtualKeyHolds_.empty()) {
         const std::uint64_t now = GetTickCount64();
         for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
@@ -3354,6 +3658,66 @@ bool TagsModule::HasPendingKeyHoldWait(std::uint64_t runtimeId) const {
             [&](const PendingKeyHoldWait& wait) { return wait.runtimeId == runtimeId; });
 }
 
+void TagsModule::QueuePendingArzDialogQueryWait(
+    std::uint64_t runtimeId,
+    PendingArzDialogQueryKind kind,
+    std::uint64_t deadlineAtMs) const {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (auto it = std::find_if(
+            pendingArzDialogQueryWaits_.begin(),
+            pendingArzDialogQueryWaits_.end(),
+            [&](const PendingArzDialogQueryWait& wait) {
+                return wait.runtimeId == runtimeId && wait.kind == kind;
+            });
+        it != pendingArzDialogQueryWaits_.end()) {
+        it->deadlineAtMs = deadlineAtMs;
+        return;
+    }
+
+    pendingArzDialogQueryWaits_.push_back(PendingArzDialogQueryWait{ runtimeId, kind, deadlineAtMs });
+}
+
+bool TagsModule::HasPendingArzDialogQueryWait(std::uint64_t runtimeId) const {
+    return runtimeId != 0
+        && std::any_of(
+            pendingArzDialogQueryWaits_.begin(),
+            pendingArzDialogQueryWaits_.end(),
+            [&](const PendingArzDialogQueryWait& wait) { return wait.runtimeId == runtimeId; });
+}
+
+bool TagsModule::ConsumeReadyArzDialogQuery(std::uint64_t runtimeId, PendingArzDialogQueryKind kind) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+
+    const auto it = std::find_if(
+        readyArzDialogQueries_.begin(),
+        readyArzDialogQueries_.end(),
+        [&](const ReadyArzDialogQuery& ready) {
+            return ready.runtimeId == runtimeId && ready.kind == kind;
+        });
+    if (it == readyArzDialogQueries_.end()) {
+        return false;
+    }
+
+    readyArzDialogQueries_.erase(it);
+    return true;
+}
+
+void TagsModule::MarkCurrentDispatchBlocked(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (std::find(blockedCurrentDispatchRuntimes_.begin(), blockedCurrentDispatchRuntimes_.end(), runtimeId)
+        == blockedCurrentDispatchRuntimes_.end()) {
+        blockedCurrentDispatchRuntimes_.push_back(runtimeId);
+    }
+}
+
 void TagsModule::ProcessPendingKeyHoldWaits() {
     if (pendingKeyHoldWaits_.empty() || !binderModule_) {
         return;
@@ -3380,6 +3744,46 @@ void TagsModule::ProcessPendingKeyHoldWaits() {
             && binderModule_->IsRuntimePaused(runtimeId)
             && !HasPendingKeyHoldWait(runtimeId)
             && !HasPendingDialogWait(runtimeId)) {
+            binderModule_->ResumeRuntime(runtimeId);
+        }
+    }
+}
+
+void TagsModule::ProcessPendingArzDialogQueryWaits() {
+    if (pendingArzDialogQueryWaits_.empty() || !binderModule_) {
+        return;
+    }
+
+    const std::uint64_t now = GetTickCount64();
+    for (auto it = pendingArzDialogQueryWaits_.begin(); it != pendingArzDialogQueryWaits_.end();) {
+        const std::uint64_t runtimeId = it->runtimeId;
+        if (runtimeId == 0 || !binderModule_->IsRuntimeActive(runtimeId)) {
+            it = pendingArzDialogQueryWaits_.erase(it);
+            continue;
+        }
+
+        bool pending = false;
+        if (arizonaCefDialogs_) {
+            pending = it->kind == PendingArzDialogQueryKind::InputText
+                ? arizonaCefDialogs_->HasPendingInputTextQuery()
+                : arizonaCefDialogs_->HasPendingListItemQuery();
+        }
+
+        if (pending && it->deadlineAtMs != 0 && now < it->deadlineAtMs) {
+            if (!binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->PauseRuntime(runtimeId);
+            }
+            ++it;
+            continue;
+        }
+
+        readyArzDialogQueries_.push_back(ReadyArzDialogQuery{ runtimeId, it->kind });
+        it = pendingArzDialogQueryWaits_.erase(it);
+        if (binderModule_->IsRuntimeActive(runtimeId)
+            && binderModule_->IsRuntimePaused(runtimeId)
+            && !HasPendingKeyHoldWait(runtimeId)
+            && !HasPendingDialogWait(runtimeId)
+            && !HasPendingArzDialogQueryWait(runtimeId)) {
             binderModule_->ResumeRuntime(runtimeId);
         }
     }
@@ -4251,6 +4655,112 @@ std::optional<std::string> TagsModule::ResolveBuiltinDialogGetIdTag(const Evalua
     }
 
     return std::to_string(dialogId);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetInputTextTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->CachedInputText() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetListItemTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->CachedListItem() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogIsDialogActiveTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ && arizonaCefDialogs_->IsDialogActive() ? std::string("true") : std::string("false");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetIdTag(const EvaluationContext&) const {
+    if (!arizonaCefDialogs_) {
+        return std::string();
+    }
+    const int id = arizonaCefDialogs_->LastDialogId();
+    return id < 0 ? std::string() : std::to_string(id);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetStyleTag(const EvaluationContext&) const {
+    if (!arizonaCefDialogs_) {
+        return std::string();
+    }
+    const int style = arizonaCefDialogs_->LastDialogStyle();
+    return style < 0 ? std::string() : std::to_string(style);
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetTitleTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogTitle() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetButton1Tag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogButton1() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetButton2Tag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogButton2() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetDialogTextTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogText() : std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetDialogTextFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!arizonaCefDialogs_ || arizonaCefDialogs_->LastDialogId() < 0) {
+        if (context.allowSideEffects && binderModule_) {
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogTextNoCached), 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        if (context.allowSideEffects && binderModule_) {
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogTextEmptyParam), 2800.0);
+        }
+        return std::string();
+    }
+
+    const std::optional<int> index = ParseInteger(rawValue);
+    if (!index.has_value() || *index < 0) {
+        if (context.allowSideEffects && binderModule_) {
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogTextInvalidIndex), 2800.0);
+        }
+        return std::string();
+    }
+
+    const DialogTextItems items = CollectDialogTextItems(arizonaCefDialogs_->LastDialogText());
+    if (*index >= static_cast<int>(items.flat.size())) {
+        if (context.allowSideEffects && binderModule_) {
+            NotifyDialogError(
+                UiSettings::Instance().Format(
+                    UiText::ToastArzDialogTextOutOfRange,
+                    std::to_string(*index).c_str(),
+                    std::to_string(items.flat.empty() ? 0 : static_cast<int>(items.flat.size() - 1)).c_str()),
+                2800.0);
+        }
+        return std::string();
+    }
+
+    return items.flat[static_cast<std::size_t>(*index)].text;
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetRespondTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastRespondJoined() : std::string("-1;-1;-1;");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogRespondIdTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? std::to_string(arizonaCefDialogs_->LastRespondId()) : std::string("-1");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogRespondButtonTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? std::to_string(arizonaCefDialogs_->LastRespondButton()) : std::string("-1");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogRespondListTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? std::to_string(arizonaCefDialogs_->LastRespondList()) : std::string("-1");
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogRespondInputTag(const EvaluationContext&) const {
+    return arizonaCefDialogs_ ? arizonaCefDialogs_->LastRespondInput() : std::string();
 }
 
 std::optional<std::string> TagsModule::ResolveBuiltinNickFunctionTag(
@@ -5220,6 +5730,206 @@ std::optional<std::string> TagsModule::ResolveBuiltinSaveDialogFunctionTag(
     return std::string();
 }
 
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogSetInputTextFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+    if (!arizonaCefDialogs_ || !arizonaCefDialogs_->IsDialogActive()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCefUnavailable), 2800.0);
+        return std::string();
+    }
+
+    if (!arizonaCefDialogs_->SetInputText(Unquote(std::string(param)))) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSetInputFailed), 2800.0);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetInputTextFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!arizonaCefDialogs_) {
+        return std::string();
+    }
+    if (!context.allowSideEffects) {
+        return arizonaCefDialogs_->CachedInputText();
+    }
+
+    if (context.runningBindRuntimeId != 0
+        && ConsumeReadyArzDialogQuery(context.runningBindRuntimeId, PendingArzDialogQueryKind::InputText)) {
+        return arizonaCefDialogs_->CachedInputText();
+    }
+
+    const std::string rawTimeout = Unquote(Trim(param));
+    const std::optional<int> timeoutMs = rawTimeout.empty() ? std::nullopt : ParseInteger(rawTimeout);
+    const int timeout = std::clamp(timeoutMs.value_or(kArzDialogQueryDefaultTimeoutMs), 1, kArzDialogQueryMaxTimeoutMs);
+    const std::string value = arizonaCefDialogs_->QueryInputText(timeout);
+    if (context.runningBindRuntimeId != 0 && arizonaCefDialogs_->HasPendingInputTextQuery()) {
+        QueuePendingArzDialogQueryWait(
+            context.runningBindRuntimeId,
+            PendingArzDialogQueryKind::InputText,
+            GetTickCount64() + static_cast<std::uint64_t>(timeout));
+        MarkCurrentDispatchBlocked(context.runningBindRuntimeId);
+        if (binderModule_) {
+            binderModule_->PauseRuntime(context.runningBindRuntimeId);
+        }
+        return std::string();
+    }
+
+    return value;
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogCloseWithButtonFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+    if (!arizonaCefDialogs_ || !arizonaCefDialogs_->IsDialogActive()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCefUnavailable), 2800.0);
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    const std::optional<int> button = ParseInteger(rawValue);
+    if (!button.has_value() || (*button != 0 && *button != 1)) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCloseInvalidButton), 2800.0);
+        return std::string();
+    }
+
+    if (!arizonaCefDialogs_->CloseWithButton(*button)) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCloseFailed), 2800.0);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogSetListItemFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+    if (!arizonaCefDialogs_ || !arizonaCefDialogs_->IsDialogActive()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCefUnavailable), 2800.0);
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    const std::optional<int> index = ParseInteger(rawValue);
+    if (!index.has_value() || *index < 0) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSetListInvalidIndex), 2800.0);
+        return std::string();
+    }
+
+    if (!arizonaCefDialogs_->SetListItem(*index)) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSetListFailed), 2800.0);
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogGetListItemFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!arizonaCefDialogs_) {
+        return std::string();
+    }
+    if (!context.allowSideEffects) {
+        return arizonaCefDialogs_->CachedListItem();
+    }
+
+    if (context.runningBindRuntimeId != 0
+        && ConsumeReadyArzDialogQuery(context.runningBindRuntimeId, PendingArzDialogQueryKind::ListItem)) {
+        return arizonaCefDialogs_->CachedListItem();
+    }
+
+    const std::string rawTimeout = Unquote(Trim(param));
+    const std::optional<int> timeoutMs = rawTimeout.empty() ? std::nullopt : ParseInteger(rawTimeout);
+    const int timeout = std::clamp(timeoutMs.value_or(kArzDialogQueryDefaultTimeoutMs), 1, kArzDialogQueryMaxTimeoutMs);
+    const std::string value = arizonaCefDialogs_->QueryListItem(timeout);
+    if (context.runningBindRuntimeId != 0 && arizonaCefDialogs_->HasPendingListItemQuery()) {
+        QueuePendingArzDialogQueryWait(
+            context.runningBindRuntimeId,
+            PendingArzDialogQueryKind::ListItem,
+            GetTickCount64() + static_cast<std::uint64_t>(timeout));
+        MarkCurrentDispatchBlocked(context.runningBindRuntimeId);
+        if (binderModule_) {
+            binderModule_->PauseRuntime(context.runningBindRuntimeId);
+        }
+        return std::string();
+    }
+
+    return value;
+}
+
+std::optional<std::string> TagsModule::ResolveBuiltinArzDialogSendRespondFunctionTag(
+    std::string_view rawParam,
+    const EvaluationContext& context,
+    int depth) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+    if (!arizonaCefDialogs_) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondFailed), 3000.0);
+        return std::string();
+    }
+
+    const ArzDialogSendRespondParams parsed = ParseArzDialogSendRespondParams(rawParam);
+    if (!parsed.valid) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondInvalidFormat), 3000.0);
+        return std::string();
+    }
+
+    EvaluationContext dataContext = context;
+    dataContext.allowSideEffects = false;
+
+    const std::string idValue = Unquote(TrimAscii(ExpandTextRecursive(parsed.id, dataContext, depth + 1)));
+    int dialogId = arizonaCefDialogs_->LastDialogId();
+    if (!idValue.empty()) {
+        const std::optional<int> parsedId = ParseInteger(idValue);
+        if (!parsedId.has_value() || *parsedId < 0) {
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondInvalidId), 3000.0);
+            return std::string();
+        }
+        dialogId = *parsedId;
+    }
+    if (dialogId < 0) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondInvalidId), 3000.0);
+        return std::string();
+    }
+
+    const std::string buttonValue = Unquote(TrimAscii(ExpandTextRecursive(parsed.button, dataContext, depth + 1)));
+    const std::optional<int> button = ParseInteger(buttonValue);
+    if (!button.has_value() || (*button != 0 && *button != 1)) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondInvalidButton), 3000.0);
+        return std::string();
+    }
+
+    int listItem = 0;
+    if (parsed.hasListPart) {
+        const std::string listValue = Unquote(TrimAscii(ExpandTextRecursive(parsed.listItem, dataContext, depth + 1)));
+        if (!listValue.empty()) {
+            const std::optional<int> parsedList = ParseInteger(listValue);
+            if (!parsedList.has_value() || *parsedList < -1) {
+                NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondInvalidList), 3000.0);
+                return std::string();
+            }
+            listItem = *parsedList;
+        }
+    }
+
+    std::string inputText;
+    if (parsed.hasInputPart) {
+        inputText = Unquote(TrimAscii(ExpandTextRecursive(parsed.input, dataContext, depth + 1)));
+    }
+
+    if (!arizonaCefDialogs_->SendRespond(dialogId, *button, listItem, inputText)) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSendRespondFailed), 3000.0);
+    }
+    return std::string();
+}
+
 std::optional<std::string> TagsModule::ResolveBinderActionFunctionTag(
     std::string_view action,
     std::string_view param,
@@ -5268,7 +5978,7 @@ std::optional<std::string> TagsModule::ResolveFunctionTag(
     const std::string normalized = ToLower(name);
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, normalized);
         entry && entry->functionResolver) {
-        if (normalized == "ifandor" || normalized == "dialogresponse") {
+        if (normalized == "ifandor" || normalized == "dialogresponse" || normalized == "arzdialogsendrespond") {
             return entry->functionResolver(*this, param, context, depth);
         }
         return entry->functionResolver(*this, ExpandTextRecursive(param, context, depth + 1), context, depth);
@@ -5453,8 +6163,9 @@ void TagsModule::OpenDialogItemPicker() {
     dialogItemPickerOpenPending_ = true;
 }
 
-void TagsModule::OpenDialogTextPicker() {
+void TagsModule::OpenDialogTextPicker(DialogTextPickerSource source) {
     dialogTextPickerSearchQuery_.clear();
+    dialogTextPickerSource_ = source;
     dialogTextPickerOpenPending_ = true;
 }
 
@@ -5578,8 +6289,11 @@ void TagsModule::DrawDialogTextPickerPopup() {
         return;
     }
 
-    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesDialogTextPickerTitle));
-    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesDialogTextPickerIntro));
+    const bool arizonaSource = dialogTextPickerSource_ == DialogTextPickerSource::Arizona;
+    ImGui::TextUnformatted(ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogTextPickerTitle : UiText::MiscVariablesDialogTextPickerTitle));
+    ImGui::TextWrapped(
+        "%s",
+        ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogTextPickerIntro : UiText::MiscVariablesDialogTextPickerIntro));
     ImGui::Separator();
 
     InputTextWithHintString(
@@ -5590,17 +6304,33 @@ void TagsModule::DrawDialogTextPickerPopup() {
         128);
     ImGui::Spacing();
 
-    std::string error;
-    const std::optional<DialogTextItems> items = ReadActiveDialogTextItems(sampApi_, error);
+    std::optional<DialogTextItems> items;
+    std::string caption;
+    if (arizonaSource) {
+        if (arizonaCefDialogs_ && arizonaCefDialogs_->LastDialogId() >= 0) {
+            items = CollectDialogTextItems(arizonaCefDialogs_->LastDialogText());
+            caption = arizonaCefDialogs_->LastDialogTitle();
+        }
+    } else {
+        std::string error;
+        items = ReadActiveDialogTextItems(sampApi_, error);
+        caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
+    }
     if (!items.has_value()) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerNoDialog));
+        ImGui::TextDisabled(
+            "%s",
+            ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogTextPickerNoDialog : UiText::MiscVariablesDialogTextPickerNoDialog));
         ImGui::EndPopup();
         return;
     }
 
-    const std::string caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
     if (!caption.empty()) {
-        ImGui::TextDisabled("%s", ui.Format(UiText::MiscVariablesDialogTextPickerCaptionLabel, caption.c_str()).c_str());
+        ImGui::TextDisabled(
+            "%s",
+            ui.Format(
+                  arizonaSource ? UiText::MiscVariablesArzDialogTextPickerCaptionLabel : UiText::MiscVariablesDialogTextPickerCaptionLabel,
+                  caption.c_str())
+                .c_str());
     }
     ImGui::TextDisabled(
         "%s",
@@ -5620,12 +6350,16 @@ void TagsModule::DrawDialogTextPickerPopup() {
         [](const DialogTextToken& token) {
             return std::to_string(token.index) + " - " + token.text;
         },
-        [](const DialogTextToken& token) {
-            return "[dialogtext(" + std::to_string(token.index) + ")]";
+        [arizonaSource](const DialogTextToken& token) {
+            return std::string(arizonaSource ? "[ARZdialoggetdialogtext(" : "[dialogtext(")
+                + std::to_string(token.index)
+                + ")]";
         });
 
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogTextPickerCopyHint));
+    ImGui::TextDisabled(
+        "%s",
+        ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogTextPickerCopyHint : UiText::MiscVariablesDialogTextPickerCopyHint));
     ImGui::EndPopup();
 }
 
@@ -5802,10 +6536,19 @@ void TagsModule::DrawVariablesPage() {
                 if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "dialogtext") {
                     ImGui::SameLine();
                     if (ImGui::SmallButton(" +##dialogtext_picker")) {
-                        OpenDialogTextPicker();
+                        OpenDialogTextPicker(DialogTextPickerSource::Samp);
                     }
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesDialogTextPickerOpenHint));
+                    }
+                }
+                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "arzdialoggetdialogtext") {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(" +##arzdialogtext_picker")) {
+                        OpenDialogTextPicker(DialogTextPickerSource::Arizona);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesArzDialogTextPickerOpenHint));
                     }
                 }
                 ImGui::TextDisabled("%s", TagKindLabel(selectedTag->kind, ui));

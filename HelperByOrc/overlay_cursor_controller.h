@@ -53,6 +53,8 @@ public:
 private:
     static const char* OwnerName(Owner owner);
     void ReleaseHold(const char* reason);
+    void DeferHelperReleaseForExternal(const Inputs& inputs, std::uint64_t now);
+    void ClearDeferredExternalRelease();
     bool ApplySampCursorMode(int desiredMode, bool desiredEnabled, bool reassert, std::uint64_t now);
     void TraceState(const Inputs& inputs, const Result& result, bool rmbHeld, std::uint64_t now);
 
@@ -61,9 +63,12 @@ private:
     bool cursorEnabled_ = false;
     bool helperModeActive_ = false;
     bool lastUiHold_ = false;
+    bool deferredExternalReleasePending_ = false;
+    bool deferredExternalReleaseFailureLogged_ = false;
     Owner lastOwner_ = Owner::Unavailable;
     std::string lastReason_;
     std::uint64_t lastApplyMs_ = 0;
+    std::uint64_t deferredExternalReleaseCleanupUntilMs_ = 0;
     std::uint64_t lastGateTraceMs_ = 0;
     std::uint64_t lastUnavailableTraceMs_ = 0;
     std::uint64_t lastReassertTraceMs_ = 0;

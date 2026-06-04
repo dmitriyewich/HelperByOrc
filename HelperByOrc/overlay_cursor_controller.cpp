@@ -13,9 +13,22 @@ constexpr std::uint64_t kCursorReassertIntervalMs = 200;
 constexpr std::uint64_t kCursorReassertTraceIntervalMs = 2500;
 constexpr std::uint64_t kCursorTraceIntervalMs = 700;
 constexpr std::uint64_t kCursorUnavailableTraceIntervalMs = 1500;
+constexpr std::uint64_t kDeferredExternalReleaseCleanupWindowMs = 1500;
 
 bool ModeActive(const std::optional<int>& mode) {
     return mode.has_value() && *mode != kSampCursorModeNone;
+}
+
+bool ModeLockCamAndControl(const std::optional<int>& mode) {
+    return mode.has_value() && *mode == kSampCursorModeLockCamAndControl;
+}
+
+bool HasKnownExternalOwner(const OverlayCursorController::Inputs& inputs) {
+    return inputs.chatOpen
+        || inputs.dialogOpen
+        || inputs.externalCursorActive
+        || inputs.cefShown
+        || !inputs.externalOwnerName.empty();
 }
 
 std::string ModeText(const std::optional<int>& mode) {
@@ -56,6 +69,7 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
             cursorEnabled_ = false;
             lastApplyMs_ = now;
         }
+        ClearDeferredExternalRelease();
         if (now - lastGateTraceMs_ >= kCursorUnavailableTraceIntervalMs) {
             lastGateTraceMs_ = now;
             debuglog::WriteInfo("[ui] cursor pipeline gated: waiting for full SA:MP initialization");
@@ -82,6 +96,42 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
     const bool sampUiExternalActive = inputs.chatOpen || inputs.dialogOpen;
     const bool blockingExternalActive = (inputs.externalCursorActive && !sampUiExternalActive)
         || inputs.cefShown;
+    const bool orphanedSampCursorMode = deferredExternalReleasePending_
+        && now <= deferredExternalReleaseCleanupUntilMs_
+        && !helperModeActive_
+        && !helperWants
+        && ModeLockCamAndControl(inputs.sampCursorMode)
+        && !HasKnownExternalOwner(inputs);
+    if (orphanedSampCursorMode) {
+        result.owner = Owner::Game;
+        result.reason = "orphaned-samp-cursor";
+        debuglog::WriteInfo(
+            "[ui] clearing orphaned SAMP cursor mode after external handoff: sampMode=%s osCursor=%d",
+            ModeText(inputs.sampCursorMode).c_str(),
+            inputs.cursorVisible ? 1 : 0);
+        result.sampModeApplied = ApplySampCursorMode(kSampCursorModeNone, false, false, now);
+        if (result.sampModeApplied) {
+            helperModeActive_ = false;
+            ClearDeferredExternalRelease();
+        } else {
+            result.owner = Owner::Unavailable;
+            result.reason = "orphaned-samp-cursor-clear-failed";
+            if (!deferredExternalReleaseFailureLogged_) {
+                deferredExternalReleaseFailureLogged_ = true;
+                debuglog::WriteError("[ui] orphaned SAMP cursor cleanup failed after external handoff");
+            }
+        }
+        TraceState(inputs, result, rmbHeld, now);
+        lastOwner_ = result.owner;
+        lastReason_ = result.reason;
+        return result;
+    }
+    if (deferredExternalReleasePending_
+        && now > deferredExternalReleaseCleanupUntilMs_
+        && !helperModeActive_) {
+        ClearDeferredExternalRelease();
+    }
+
     const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWants;
     const bool externalActive = blockingExternalActive
         || (!helperWants && (sampUiExternalActive || passiveSampCursorOwner));
@@ -91,6 +141,9 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         result.reason = inputs.externalOwnerName.empty() ? "samp-cursor-mode" : inputs.externalOwnerName;
         if (lastUiHold_) {
             ReleaseHold("[ui] ReleaseCapture due to external cursor owner");
+        }
+        if (helperModeActive_) {
+            DeferHelperReleaseForExternal(inputs, now);
         }
         TraceState(inputs, result, rmbHeld, now);
         lastOwner_ = result.owner;
@@ -138,6 +191,9 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         result.sampModeApplied = ApplySampCursorMode(kSampCursorModeNone, false, false, now);
         if (result.sampModeApplied) {
             helperModeActive_ = false;
+            if (deferredExternalReleasePending_) {
+                deferredExternalReleaseCleanupUntilMs_ = now + kDeferredExternalReleaseCleanupWindowMs;
+            }
         }
     }
 
@@ -161,6 +217,7 @@ void OverlayCursorController::Shutdown() {
     cursorMode_ = kSampCursorModeNone;
     cursorEnabled_ = false;
     helperModeActive_ = false;
+    ClearDeferredExternalRelease();
     lastOwner_ = Owner::Unavailable;
     lastReason_.clear();
     lastApplyMs_ = 0;
@@ -187,6 +244,27 @@ void OverlayCursorController::ReleaseHold(const char* reason) {
     if (reason && *reason) {
         debuglog::WriteInfo("%s", reason);
     }
+}
+
+void OverlayCursorController::DeferHelperReleaseForExternal(const Inputs& inputs, std::uint64_t now) {
+    if (!deferredExternalReleasePending_) {
+        debuglog::WriteInfo(
+            "[ui] deferring Helper cursor release while external owner is active: owner=\"%s\" chat=%d dialog=%d cefShown=%d sampMode=%s",
+            inputs.externalOwnerName.empty() ? "<unknown>" : inputs.externalOwnerName.c_str(),
+            inputs.chatOpen ? 1 : 0,
+            inputs.dialogOpen ? 1 : 0,
+            inputs.cefShown ? 1 : 0,
+            ModeText(inputs.sampCursorMode).c_str());
+    }
+    deferredExternalReleasePending_ = true;
+    deferredExternalReleaseFailureLogged_ = false;
+    deferredExternalReleaseCleanupUntilMs_ = now + kDeferredExternalReleaseCleanupWindowMs;
+}
+
+void OverlayCursorController::ClearDeferredExternalRelease() {
+    deferredExternalReleasePending_ = false;
+    deferredExternalReleaseFailureLogged_ = false;
+    deferredExternalReleaseCleanupUntilMs_ = 0;
 }
 
 bool OverlayCursorController::ApplySampCursorMode(int desiredMode, bool desiredEnabled, bool reassert, std::uint64_t now) {

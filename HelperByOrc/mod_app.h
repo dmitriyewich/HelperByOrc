@@ -10,6 +10,7 @@
 
 #include <imgui.h>
 
+#include "arizona_cef_dialogs.h"
 #include "binder_module.h"
 #include "external_cursor_detector.h"
 #include "hud_module.h"
@@ -113,6 +114,7 @@ private:
     SampApi sampApi_{};
     SampHooks sampHooks_{};
     SampRakHooks sampRakHooks_{};
+    ArizonaCefDialogs arizonaCefDialogs_{};
     IncomingMessageRouter incomingMessageRouter_{};
     NotificationManager notifications_{};
     BinderModule binder_{};

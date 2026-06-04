@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@
 namespace {
 
 constexpr std::size_t kMaxLogEntries = 128;
+constexpr std::size_t kMaxQueuedSyntheticIncomingPackets = 16;
 constexpr std::uint8_t kIdTimestamp = 40;
 
 std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffset& offset, SampApi::Version version) {
@@ -74,7 +76,10 @@ Packet* __fastcall SampRakHooks::ReceivePacketDetour(void* self, void* edx) {
         return nullptr;
     }
 
-    Packet* packet = self_->receivePacketOriginal_(self);
+    Packet* packet = self_->PopQueuedIncomingPacket();
+    if (!packet) {
+        packet = self_->receivePacketOriginal_(self);
+    }
     while (packet && packet->data && packet->bitSize > 0) {
         RakNetBitStreamView view(packet->data, packet->bitSize, false);
         if (view.GetNumberOfUnreadBits() < 8) {
@@ -89,15 +94,26 @@ Packet* __fastcall SampRakHooks::ReceivePacketDetour(void* self, void* edx) {
             return packet;
         }
 
-        if (!self_->deallocatePacket_) {
-            return nullptr;
+        self_->DeallocatePacketInternal(self, packet);
+        packet = self_->PopQueuedIncomingPacket();
+        if (!packet) {
+            packet = self_->receivePacketOriginal_(self);
         }
-
-        self_->deallocatePacket_(self, packet);
-        packet = self_->receivePacketOriginal_(self);
     }
 
     return packet;
+}
+
+void __fastcall SampRakHooks::DeallocatePacketDetour(void* self, void* edx, Packet* packet) {
+    UNREFERENCED_PARAMETER(edx);
+
+    if (self_ && self_->FreeSyntheticPacket(packet)) {
+        return;
+    }
+
+    if (self_ && self_->deallocatePacketDetourOriginal_) {
+        self_->deallocatePacketDetourOriginal_(self, packet);
+    }
 }
 
 bool __fastcall SampRakHooks::SendRpcDetour(void* self, void* edx, int* id, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, bool shiftTimestamp) {
@@ -157,7 +173,18 @@ void SampRakHooks::Shutdown() {
     CleanupHooks();
     installed_ = false;
     rakClientInterface_ = 0;
-    deallocatePacket_ = nullptr;
+    deallocatePacketOriginal_ = nullptr;
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        queuedIncomingPackets_.clear();
+        for (Packet* packet : syntheticPackets_) {
+            if (packet) {
+                delete[] packet->data;
+                delete packet;
+            }
+        }
+        syntheticPackets_.clear();
+    }
     statusText_ = "RakNet hooks disabled";
     debuglog::WriteInfo("SampRakHooks::Shutdown done");
 }
@@ -238,6 +265,41 @@ bool SampRakHooks::IsInstalled() const {
     return installed_;
 }
 
+bool SampRakHooks::EmulateIncomingPacket(std::uint8_t packetId, BitStream& payload) {
+    if (!installed_) {
+        debuglog::WriteError("SampRakHooks::EmulateIncomingPacket skipped: hooks are not installed");
+        return false;
+    }
+
+    const int payloadBytesUsed = payload.GetNumberOfBytesUsed();
+    if (payloadBytesUsed < 0) {
+        return false;
+    }
+
+    std::vector<unsigned char> bytes;
+    bytes.reserve(static_cast<std::size_t>(payloadBytesUsed) + 1);
+    bytes.push_back(packetId);
+    if (payloadBytesUsed > 0 && payload.GetData()) {
+        const unsigned char* const data = payload.GetData();
+        bytes.insert(bytes.end(), data, data + payloadBytesUsed);
+    }
+
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        if (queuedIncomingPackets_.size() >= kMaxQueuedSyntheticIncomingPackets) {
+            debuglog::WriteError(
+                "SampRakHooks::EmulateIncomingPacket rejected packet=%u: synthetic queue is full (%llu)",
+                packetId,
+                static_cast<unsigned long long>(queuedIncomingPackets_.size()));
+            return false;
+        }
+        queuedIncomingPackets_.push_back(std::move(bytes));
+    }
+
+    debuglog::WriteInfo("SampRakHooks::EmulateIncomingPacket queued packet=%u payloadBytes=%d", packetId, payloadBytesUsed);
+    return true;
+}
+
 const std::string& SampRakHooks::statusText() const {
     return statusText_;
 }
@@ -283,19 +345,22 @@ bool SampRakHooks::Install() {
 
     const std::uintptr_t sendPacketTarget = reinterpret_cast<std::uintptr_t>(vtable[6]);
     const std::uintptr_t receivePacketTarget = reinterpret_cast<std::uintptr_t>(vtable[8]);
+    const std::uintptr_t deallocatePacketTarget = reinterpret_cast<std::uintptr_t>(vtable[9]);
     const std::uintptr_t sendRpcTarget = reinterpret_cast<std::uintptr_t>(vtable[25]);
-    deallocatePacket_ = reinterpret_cast<DeallocatePacketFn>(vtable[9]);
+    deallocatePacketOriginal_ = reinterpret_cast<DeallocatePacketFn>(vtable[9]);
 
     const std::uintptr_t sampBase = reinterpret_cast<std::uintptr_t>(sampApi_->sampModule());
     debuglog::WriteInfo("SampRakHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
     debuglog::WriteInfo("SampRakHooks: incomingRpcTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(incomingRpcTarget), static_cast<unsigned>(incomingRpcTarget - sampBase));
     debuglog::WriteInfo("SampRakHooks: sendPacketTarget=0x%08X", static_cast<unsigned>(sendPacketTarget));
     debuglog::WriteInfo("SampRakHooks: receivePacketTarget=0x%08X", static_cast<unsigned>(receivePacketTarget));
+    debuglog::WriteInfo("SampRakHooks: deallocatePacketTarget=0x%08X", static_cast<unsigned>(deallocatePacketTarget));
     debuglog::WriteInfo("SampRakHooks: sendRpcTarget=0x%08X", static_cast<unsigned>(sendRpcTarget));
 
     incomingRpcTarget_ = reinterpret_cast<void*>(incomingRpcTarget);
     sendPacketTarget_ = reinterpret_cast<void*>(sendPacketTarget);
     receivePacketTarget_ = reinterpret_cast<void*>(receivePacketTarget);
+    deallocatePacketTarget_ = reinterpret_cast<void*>(deallocatePacketTarget);
     sendRpcTarget_ = reinterpret_cast<void*>(sendRpcTarget);
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
@@ -317,6 +382,10 @@ bool SampRakHooks::Install() {
         return failInstall("MinHook install failed for RakClientInterface::Receive", "SampRakHooks: MinHook install failed for ReceivePacket");
     }
 
+    if (!minhook::CreateAndEnableHook(deallocatePacketTarget_, reinterpret_cast<void*>(&DeallocatePacketDetour), &deallocatePacketDetourOriginal_, "SampRakHooks::DeallocatePacket")) {
+        return failInstall("MinHook install failed for RakClientInterface::DeallocatePacket", "SampRakHooks: MinHook install failed for DeallocatePacket");
+    }
+
     if (!minhook::CreateAndEnableHook(sendRpcTarget_, reinterpret_cast<void*>(&SendRpcDetour), &sendRpcOriginal_, "SampRakHooks::SendRpc")) {
         return failInstall("MinHook install failed for RakClientInterface::RPC(BitStream)", "SampRakHooks: MinHook install failed for SendRpc");
     }
@@ -335,13 +404,94 @@ void SampRakHooks::CleanupHooks() {
     minhook::DisableAndRemoveHook(incomingRpcTarget_, "SampRakHooks::IncomingRpcHandler");
     minhook::DisableAndRemoveHook(sendPacketTarget_, "SampRakHooks::SendPacket");
     minhook::DisableAndRemoveHook(receivePacketTarget_, "SampRakHooks::ReceivePacket");
+    minhook::DisableAndRemoveHook(deallocatePacketTarget_, "SampRakHooks::DeallocatePacket");
     minhook::DisableAndRemoveHook(sendRpcTarget_, "SampRakHooks::SendRpc");
 
     incomingRpcOriginal_ = nullptr;
     sendPacketOriginal_ = nullptr;
     receivePacketOriginal_ = nullptr;
+    deallocatePacketDetourOriginal_ = nullptr;
     sendRpcOriginal_ = nullptr;
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        queuedIncomingPackets_.clear();
+    }
+    deallocatePacketTarget_ = nullptr;
     debuglog::WriteInfo("SampRakHooks::CleanupHooks done");
+}
+
+Packet* SampRakHooks::PopQueuedIncomingPacket() {
+    std::vector<unsigned char> bytes;
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        if (queuedIncomingPackets_.empty()) {
+            return nullptr;
+        }
+        bytes = std::move(queuedIncomingPackets_.front());
+        queuedIncomingPackets_.pop_front();
+    }
+
+    if (bytes.empty()) {
+        return nullptr;
+    }
+
+    auto* data = new (std::nothrow) unsigned char[bytes.size()];
+    auto* packet = new (std::nothrow) Packet{};
+    if (!data || !packet) {
+        delete[] data;
+        delete packet;
+        debuglog::WriteError("SampRakHooks::PopQueuedIncomingPacket failed: allocation failed");
+        return nullptr;
+    }
+
+    std::memcpy(data, bytes.data(), bytes.size());
+    packet->playerIndex = static_cast<PlayerIndex>(-1);
+    packet->playerId = {};
+    packet->length = static_cast<unsigned int>(bytes.size());
+    packet->bitSize = static_cast<unsigned int>(BYTES_TO_BITS(bytes.size()));
+    packet->data = data;
+    packet->deleteData = true;
+
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        syntheticPackets_.insert(packet);
+    }
+
+    return packet;
+}
+
+bool SampRakHooks::FreeSyntheticPacket(Packet* packet) {
+    if (!packet) {
+        return false;
+    }
+
+    {
+        std::lock_guard lock(syntheticPacketsMutex_);
+        const auto it = syntheticPackets_.find(packet);
+        if (it == syntheticPackets_.end()) {
+            return false;
+        }
+        syntheticPackets_.erase(it);
+    }
+
+    delete[] packet->data;
+    delete packet;
+    return true;
+}
+
+void SampRakHooks::DeallocatePacketInternal(void* self, Packet* packet) {
+    if (FreeSyntheticPacket(packet)) {
+        return;
+    }
+
+    if (deallocatePacketDetourOriginal_) {
+        deallocatePacketDetourOriginal_(self, packet);
+        return;
+    }
+
+    if (deallocatePacketOriginal_) {
+        deallocatePacketOriginal_(self, packet);
+    }
 }
 
 bool SampRakHooks::TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const {

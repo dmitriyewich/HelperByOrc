@@ -2138,7 +2138,7 @@ struct BinderModule::Impl {
     bool TryEnqueueHotkey(HotkeyEntry& hotkey, int startDelayMs, std::string_view source, const std::string& sourceText);
     bool TryEnqueueHotkey(int index, int startDelayMs, std::string_view source, const std::string& sourceText);
     void SendExpandedText(const std::string& expandedText, int method);
-    void DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId = 0);
+    bool DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId = 0);
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
     int MoveHotkeysFromFolderPath(const std::vector<std::string>& fromPath, const std::vector<std::string>& toPath);
     int DeleteHotkeysFromFolderPath(const std::vector<std::string>& fromPath);
@@ -5059,6 +5059,7 @@ void BinderModule::Impl::ProcessRunningBinds() {
 
         const HotkeyMessage& message = hotkey.messages[running.messageIndex];
         const std::string finalText = ApplyInputValues(message.text, running.inputValues);
+        bool dispatched = true;
         if (!Trim(finalText).empty()) {
             if (tagsModule) {
                 tagsModule->PushContext(TagsModule::EvaluationContext{
@@ -5069,11 +5070,15 @@ void BinderModule::Impl::ProcessRunningBinds() {
                     true,
                     running.hotkeyRuntimeId,
                 });
-                DoSend(finalText, message.method, currentRuntimeId);
+                dispatched = DoSend(finalText, message.method, currentRuntimeId);
                 tagsModule->PopContext();
             } else {
-                DoSend(finalText, message.method, currentRuntimeId);
+                dispatched = DoSend(finalText, message.method, currentRuntimeId);
             }
+        }
+        if (!dispatched) {
+            ++i;
+            continue;
         }
 
         ++running.messageIndex;
@@ -6807,9 +6812,12 @@ void BinderModule::Impl::SendExpandedText(const std::string& expandedText, int m
     }
 }
 
-void BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId) {
+bool BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId) {
     const bool expandTags = method == 0 || method == 1 || method == 2 || method == 3 || method == 7 || method == 8 || method == 9;
     const std::string expandedText = expandTags && tagsModule ? tagsModule->ExpandText(text) : text;
+    if (tagsModule && sourceRuntimeId != 0 && tagsModule->ConsumeCurrentDispatchBlocked(sourceRuntimeId)) {
+        return false;
+    }
 
     if ((method == 1 || method == 2)
         && !expandedText.empty()
@@ -6825,10 +6833,11 @@ void BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64
                 static_cast<unsigned long long>(expandedText.size()),
                 preview.c_str());
         }
-        return;
+        return true;
     }
 
     SendExpandedText(expandedText, method);
+    return true;
 }
 
 int BinderModule::Impl::RemapHotkeysFolderPrefix(

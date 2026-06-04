@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "external/raknet/RakClient.h"
@@ -74,6 +76,7 @@ public:
     void onSendDialogResponse(SendDialogResponseHandler handler) { AddOnSendDialogResponseHandler(std::move(handler)); }
 
     bool IsInstalled() const;
+    bool EmulateIncomingPacket(std::uint8_t packetId, BitStream& payload);
     const std::string& statusText() const;
     Stats stats() const;
     std::vector<std::string> GetRecentLog() const;
@@ -89,6 +92,9 @@ private:
     void CleanupHooks();
     bool TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const;
     bool HandleIncomingRpc(void* self, unsigned char* data, int length, PlayerID playerId);
+    Packet* PopQueuedIncomingPacket();
+    bool FreeSyntheticPacket(Packet* packet);
+    void DeallocatePacketInternal(void* self, Packet* packet);
     bool HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& view);
     bool HandleIncomingRpcPayload(std::uint8_t rpcId, RakNetBitStreamView& view);
     bool HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStreamView& view) const;
@@ -120,6 +126,7 @@ private:
     static bool __fastcall IncomingRpcHandlerDetour(void* self, void* edx, unsigned char* data, int length, PlayerID playerId);
     static bool __fastcall SendPacketDetour(void* self, void* edx, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel);
     static Packet* __fastcall ReceivePacketDetour(void* self, void* edx);
+    static void __fastcall DeallocatePacketDetour(void* self, void* edx, Packet* packet);
     static bool __fastcall SendRpcDetour(void* self, void* edx, int* id, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, bool shiftTimestamp);
 
     static inline SampRakHooks* self_ = nullptr;
@@ -146,14 +153,19 @@ private:
     std::vector<SendDialogResponseHandler> onSendDialogResponseHandlers_;
 
     std::uintptr_t rakClientInterface_ = 0;
-    DeallocatePacketFn deallocatePacket_ = nullptr;
+    DeallocatePacketFn deallocatePacketOriginal_ = nullptr;
+    mutable std::mutex syntheticPacketsMutex_;
+    std::deque<std::vector<unsigned char>> queuedIncomingPackets_;
+    std::unordered_set<Packet*> syntheticPackets_;
 
     void* incomingRpcTarget_ = nullptr;
     void* sendPacketTarget_ = nullptr;
     void* receivePacketTarget_ = nullptr;
+    void* deallocatePacketTarget_ = nullptr;
     void* sendRpcTarget_ = nullptr;
     IncomingRpcHandlerFn incomingRpcOriginal_ = nullptr;
     SendPacketFn sendPacketOriginal_ = nullptr;
     ReceivePacketFn receivePacketOriginal_ = nullptr;
+    DeallocatePacketFn deallocatePacketDetourOriginal_ = nullptr;
     SendRpcFn sendRpcOriginal_ = nullptr;
 };

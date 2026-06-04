@@ -57,6 +57,9 @@
     <ClCompile Include="app_config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="arizona_cef_dialogs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="binder_editor.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
@@ -173,6 +176,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="app_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="arizona_cef_dialogs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="binder_editor.h">

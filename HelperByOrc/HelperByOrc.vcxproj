@@ -126,6 +126,7 @@
 
   <ItemGroup>
     <ClCompile Include="app_config.cpp" />
+    <ClCompile Include="arizona_cef_dialogs.cpp" />
     <ClCompile Include="binder_editor.cpp" />
     <ClCompile Include="binder_module.cpp" />
     <ClCompile Include="conditions_module.cpp" />
@@ -170,6 +171,7 @@
 
   <ItemGroup>
     <ClInclude Include="app_config.h" />
+    <ClInclude Include="arizona_cef_dialogs.h" />
     <ClInclude Include="binder_editor.h" />
     <ClInclude Include="binder_module.h" />
     <ClInclude Include="binder_types.h" />
