@@ -11899,6 +11899,10 @@ void BinderModule::Impl::DrawTwoPaneFolderPane() {
             DrawTwoPaneFolderNode(*folder, 1, rowIndex, filter);
         }
     }
+
+    // The custom folder tree advances layout with SetCursorScreenPos(); commit
+    // the final position so Dear ImGui does not treat it as boundary growth.
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
 void BinderModule::Impl::DrawTwoPaneBindDirectory() {

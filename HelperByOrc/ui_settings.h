@@ -1038,7 +1038,9 @@ public:
     void SetAutoScaleEnabled(bool enabled);
 
     float ScaleMultiplier() const;
-    void SetScaleMultiplier(float multiplier);
+    float ScaleMultiplierDraft() const;
+    void SetScaleMultiplierDraft(float multiplier);
+    bool CommitScaleMultiplierDraft();
 
     UiLogLevel LogLevel() const;
     void SetLogLevel(UiLogLevel level);
@@ -1066,10 +1068,12 @@ public:
 private:
     void QueueSave() const;
     float ComputeAutoScale(const ImVec2& displaySize) const;
+    static float NormalizeScaleMultiplier(float multiplier);
 
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
+    float scaleMultiplierDraft_ = 1.0f;
     UiLogLevel logLevel_ = UiLogLevel::Info;
     bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};

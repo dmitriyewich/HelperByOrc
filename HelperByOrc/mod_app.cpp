@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -34,6 +35,7 @@ constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
 constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
 constexpr std::string_view kShellSectionName = "shell";
+constexpr char kShellMainWindowName[] = "main_window";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
 
@@ -1026,15 +1028,79 @@ bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD
 
 void ClampWindowRect(const ImVec2& displaySize, ImVec2& position, ImVec2& size, float scale) {
     const float margin = kWindowMargin * scale;
-    const float maxWidth = std::max(360.0f * scale, displaySize.x - margin * 2.0f);
-    const float maxHeight = std::max(280.0f * scale, displaySize.y - margin * 2.0f);
-    const float minWidth = std::min(840.0f * scale, maxWidth);
-    const float minHeight = std::min(560.0f * scale, maxHeight);
+    const float maxWidth = std::max(360.0f, displaySize.x - margin * 2.0f);
+    const float maxHeight = std::max(280.0f, displaySize.y - margin * 2.0f);
+    const float minWidth = std::min(840.0f, maxWidth);
+    const float minHeight = std::min(560.0f, maxHeight);
 
     size.x = std::clamp(size.x, minWidth, maxWidth);
     size.y = std::clamp(size.y, minHeight, maxHeight);
-    position.x = std::clamp(position.x, margin, displaySize.x - size.x - margin);
-    position.y = std::clamp(position.y, margin, displaySize.y - size.y - margin);
+    const float maxPositionX = std::max(margin, displaySize.x - size.x - margin);
+    const float maxPositionY = std::max(margin, displaySize.y - size.y - margin);
+    position.x = std::clamp(position.x, margin, maxPositionX);
+    position.y = std::clamp(position.y, margin, maxPositionY);
+}
+
+bool TryReadFiniteRectNumber(const jsonutil::JsonObject& object, const char* key, float& out) {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return false;
+    }
+
+    const double* number = it->second.TryNumber();
+    if (number == nullptr || !std::isfinite(*number)) {
+        return false;
+    }
+
+    out = static_cast<float>(*number);
+    return std::isfinite(out);
+}
+
+bool IsUsableMainWindowRect(const ImVec2& position, const ImVec2& size) {
+    return std::isfinite(position.x)
+        && std::isfinite(position.y)
+        && std::isfinite(size.x)
+        && std::isfinite(size.y)
+        && size.x >= 360.0f
+        && size.y >= 280.0f;
+}
+
+bool TryReadMainWindowRect(const jsonutil::JsonObject& section, ImVec2& position, ImVec2& size) {
+    const jsonutil::JsonObject* object = jsonutil::JsonObjectOrNull(&section, kShellMainWindowName);
+    if (object == nullptr) {
+        return false;
+    }
+
+    ImVec2 loadedPosition{};
+    ImVec2 loadedSize{};
+    if (!TryReadFiniteRectNumber(*object, "x", loadedPosition.x)
+        || !TryReadFiniteRectNumber(*object, "y", loadedPosition.y)
+        || !TryReadFiniteRectNumber(*object, "w", loadedSize.x)
+        || !TryReadFiniteRectNumber(*object, "h", loadedSize.y)
+        || !IsUsableMainWindowRect(loadedPosition, loadedSize)) {
+        return false;
+    }
+
+    position = loadedPosition;
+    size = loadedSize;
+    return true;
+}
+
+void WriteMainWindowRect(jsonutil::JsonObject& section, const ImVec2& position, const ImVec2& size) {
+    jsonutil::JsonObject object;
+    object["x"] = static_cast<double>(position.x);
+    object["y"] = static_cast<double>(position.y);
+    object["w"] = static_cast<double>(size.x);
+    object["h"] = static_cast<double>(size.y);
+    section[kShellMainWindowName] = jsonutil::JsonValue(std::move(object));
+}
+
+bool SameWindowRect(const ImVec2& leftPosition, const ImVec2& leftSize, const ImVec2& rightPosition, const ImVec2& rightSize) {
+    constexpr float kEpsilon = 0.5f;
+    return std::abs(leftPosition.x - rightPosition.x) < kEpsilon
+        && std::abs(leftPosition.y - rightPosition.y) < kEpsilon
+        && std::abs(leftSize.x - rightSize.x) < kEpsilon
+        && std::abs(leftSize.y - rightSize.y) < kEpsilon;
 }
 
 void DrawLogoZoom(
@@ -1243,6 +1309,7 @@ void ModApp::Shutdown() {
     StopDeferredOverlayThread();
     ::ClipCursor(nullptr);
 
+    SaveShellStateIfDirty();
     sampApi_.Refresh();
     overlayCursor_.Shutdown();
 
@@ -1528,13 +1595,34 @@ void ModApp::ApplyMainStyle(float scale) const {
 void ModApp::LoadShellState() {
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kShellSectionName);
     sidebarCollapsed_ = jsonutil::JsonBoolOr(&section, "sidebar_collapsed", false);
-    debuglog::WriteInfo("Shell state loaded (sidebar_collapsed=%d)", sidebarCollapsed_ ? 1 : 0);
+    mainWindowRectLoaded_ = TryReadMainWindowRect(section, mainWindowPos_, mainWindowSize_);
+    mainWindowRectKnown_ = mainWindowRectLoaded_;
+    mainWindowRectDirty_ = false;
+    mainWindowInitialized_ = false;
+    debuglog::WriteInfo(
+        "Shell state loaded (sidebar_collapsed=%d main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
+        sidebarCollapsed_ ? 1 : 0,
+        mainWindowRectLoaded_ ? 1 : 0,
+        mainWindowPos_.x,
+        mainWindowPos_.y,
+        mainWindowSize_.x,
+        mainWindowSize_.y);
 }
 
-void ModApp::QueueShellStateSave() const {
+void ModApp::QueueShellStateSave() {
     const bool sidebarCollapsed = sidebarCollapsed_;
-    debuglog::WriteInfo("Queue shell state save (sidebar_collapsed=%d)", sidebarCollapsed ? 1 : 0);
-    AppConfig::Instance().QueueMutation([sidebarCollapsed](jsonutil::JsonObject& root) {
+    const bool includeMainWindow = mainWindowRectKnown_ && IsUsableMainWindowRect(mainWindowPos_, mainWindowSize_);
+    const ImVec2 mainWindowPos = mainWindowPos_;
+    const ImVec2 mainWindowSize = mainWindowSize_;
+    debuglog::WriteInfo(
+        "Queue shell state save (sidebar_collapsed=%d main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
+        sidebarCollapsed ? 1 : 0,
+        includeMainWindow ? 1 : 0,
+        mainWindowPos.x,
+        mainWindowPos.y,
+        mainWindowSize.x,
+        mainWindowSize.y);
+    AppConfig::Instance().QueueMutation([sidebarCollapsed, includeMainWindow, mainWindowPos, mainWindowSize](jsonutil::JsonObject& root) {
         jsonutil::JsonObject section;
         const auto existing = root.find(std::string(kShellSectionName));
         if (existing != root.end()) {
@@ -1544,8 +1632,22 @@ void ModApp::QueueShellStateSave() const {
         }
 
         section["sidebar_collapsed"] = sidebarCollapsed;
+        if (includeMainWindow) {
+            WriteMainWindowRect(section, mainWindowPos, mainWindowSize);
+        }
         root[std::string(kShellSectionName)] = jsonutil::JsonValue(std::move(section));
     });
+    if (mainWindowRectDirty_) {
+        mainWindowRectDirty_ = false;
+    }
+}
+
+void ModApp::SaveShellStateIfDirty() {
+    if (!mainWindowRectDirty_) {
+        return;
+    }
+
+    QueueShellStateSave();
 }
 
 void ModApp::ReloadConfigAfterProfileChange() {
@@ -1845,11 +1947,19 @@ void ModApp::DrawSettingsGeneralSection() {
         debuglog::WriteInfo("Settings changed: auto_scale=%d", autoScale ? 1 : 0);
     }
 
-    float scaleMultiplier = ui.ScaleMultiplier();
+    float scaleMultiplierDraft = ui.ScaleMultiplierDraft();
     ImGui::SetNextItemWidth(Scale(300.0f));
-    if (ImGui::SliderFloat(ui.Text(UiText::SettingsScaleMultiplier), &scaleMultiplier, 0.75f, 2.0f, "%.2fx")) {
-        ui.SetScaleMultiplier(scaleMultiplier);
-        debuglog::WriteInfo("Settings changed: scale_multiplier=%.2f", scaleMultiplier);
+    if (ImGui::SliderFloat(
+            ui.Text(UiText::SettingsScaleMultiplier),
+            &scaleMultiplierDraft,
+            0.75f,
+            2.0f,
+            "%.2fx",
+            ImGuiSliderFlags_AlwaysClamp)) {
+        ui.SetScaleMultiplierDraft(scaleMultiplierDraft);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit() && ui.CommitScaleMultiplierDraft()) {
+        debuglog::WriteInfo("Settings changed: scale_multiplier=%.2f", ui.ScaleMultiplier());
     }
 
     ImGui::Text("%s: %.2fx", ui.Text(UiText::SettingsEffectiveScale), ui.CurrentScale());
@@ -2073,6 +2183,11 @@ void ModApp::DrawSettingsProfilesSection() {
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsProfilesIntro));
     ImGui::Spacing();
 
+    const auto flushShellBeforeProfileChange = [&]() {
+        SaveShellStateIfDirty();
+        AppConfig::Instance().ProcessPendingWrites();
+    };
+
     ImGui::SetNextItemWidth(Scale(320.0f));
     if (ImGui::BeginCombo(ui.Text(UiText::SettingsActiveProfile), activeProfileName.c_str())) {
         for (const ConfigProfile& profile : profiles) {
@@ -2083,6 +2198,7 @@ void ModApp::DrawSettingsProfilesSection() {
             }
             if (ImGui::Selectable(label.c_str(), selected)) {
                 std::string error;
+                flushShellBeforeProfileChange();
                 notepad_.FlushPendingEdits();
                 if (config.SwitchProfile(profile.id, &error)) {
                     profileNameBufferProfileId_.clear();
@@ -2119,6 +2235,7 @@ void ModApp::DrawSettingsProfilesSection() {
     if (ImGui::Button(ui.Text(UiText::SettingsProfileCreateEmpty))) {
         if (requireProfileName()) {
             std::string error;
+            flushShellBeforeProfileChange();
             notepad_.FlushPendingEdits();
             if (config.CreateProfile(profileNameBuffer_, false, true, &error)) {
                 profileNameBufferProfileId_.clear();
@@ -2133,6 +2250,7 @@ void ModApp::DrawSettingsProfilesSection() {
     if (ImGui::Button(ui.Text(UiText::SettingsProfileDuplicate))) {
         if (requireProfileName()) {
             std::string error;
+            flushShellBeforeProfileChange();
             notepad_.FlushPendingEdits();
             if (config.DuplicateProfile(activeProfileId, profileNameBuffer_, true, &error)) {
                 profileNameBufferProfileId_.clear();
@@ -2194,6 +2312,7 @@ void ModApp::DrawSettingsProfilesSection() {
         if (ImGui::Button(ui.Text(UiText::Delete))) {
             const std::string previousActiveProfileId = config.ActiveProfileId();
             std::string error;
+            flushShellBeforeProfileChange();
             notepad_.FlushPendingEdits();
             if (config.DeleteProfile(profileDeleteTargetId_, &error)) {
                 profileDeleteTargetId_.clear();
@@ -2377,6 +2496,9 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     const bool showMainWindow = overlay_.IsMenuOpen();
     static bool s_lastShowMainWindow = false;
     if (showMainWindow != s_lastShowMainWindow) {
+        if (!showMainWindow) {
+            SaveShellStateIfDirty();
+        }
         s_lastShowMainWindow = showMainWindow;
         debuglog::WriteInfo("[ui] main window visibility -> %d", showMainWindow ? 1 : 0);
     }
@@ -2392,28 +2514,22 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
 
     if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f) {
         if (!mainWindowInitialized_) {
-            const float margin = kWindowMargin * uiScale;
-            mainWindowSize_.x = std::min(1100.0f * uiScale, io.DisplaySize.x - margin * 2.0f);
-            mainWindowSize_.y = std::min(720.0f * uiScale, io.DisplaySize.y - margin * 2.0f);
-            mainWindowPos_.x = std::max(margin, (io.DisplaySize.x - mainWindowSize_.x) * 0.5f);
-            mainWindowPos_.y = std::max(margin, (io.DisplaySize.y - mainWindowSize_.y) * 0.5f);
-            mainWindowInitialized_ = true;
-            appliedUiScale_ = uiScale;
-        } else {
-            const float scaleDelta = uiScale - appliedUiScale_;
-            if (scaleDelta > 0.001f || scaleDelta < -0.001f) {
-                const float ratio = uiScale / std::max(appliedUiScale_, 0.001f);
-                mainWindowPos_.x *= ratio;
-                mainWindowPos_.y *= ratio;
-                mainWindowSize_.x *= ratio;
-                mainWindowSize_.y *= ratio;
-                appliedUiScale_ = uiScale;
+            if (!mainWindowRectLoaded_) {
+                const float margin = kWindowMargin * uiScale;
+                mainWindowSize_.x = std::min(1100.0f * uiScale, io.DisplaySize.x - margin * 2.0f);
+                mainWindowSize_.y = std::min(720.0f * uiScale, io.DisplaySize.y - margin * 2.0f);
+                mainWindowPos_.x = std::max(margin, (io.DisplaySize.x - mainWindowSize_.x) * 0.5f);
+                mainWindowPos_.y = std::max(margin, (io.DisplaySize.y - mainWindowSize_.y) * 0.5f);
             }
+            mainWindowRectKnown_ = true;
+            mainWindowInitialized_ = true;
         }
 
         ClampWindowRect(io.DisplaySize, mainWindowPos_, mainWindowSize_, uiScale);
     }
 
+    const ImVec2 mainWindowFramePos = mainWindowPos_;
+    const ImVec2 mainWindowFrameSize = mainWindowSize_;
     ImGui::SetNextWindowPos(mainWindowPos_, ImGuiCond_Always);
     ImGui::SetNextWindowSize(mainWindowSize_, ImGuiCond_Always);
 
@@ -2423,8 +2539,15 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         | ImGuiWindowFlags_NoScrollWithMouse;
 
     if (ImGui::Begin("HelperByOrc##main_window", nullptr, windowFlags)) {
-        mainWindowPos_ = ImGui::GetWindowPos();
-        mainWindowSize_ = ImGui::GetWindowSize();
+        const ImVec2 imguiWindowPos = ImGui::GetWindowPos();
+        const ImVec2 imguiWindowSize = ImGui::GetWindowSize();
+        if (!SameWindowRect(mainWindowFramePos, mainWindowFrameSize, imguiWindowPos, imguiWindowSize)
+            && (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Left))) {
+            mainWindowRectDirty_ = true;
+        }
+        mainWindowPos_ = imguiWindowPos;
+        mainWindowSize_ = imguiWindowSize;
+        mainWindowRectKnown_ = true;
 
         ImGuiStyle& style = ImGui::GetStyle();
         const ImVec2 pad = style.WindowPadding;
@@ -2455,8 +2578,12 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
             FormatTabLabelWithIcon(currentTab_).c_str());
 
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
-            mainWindowPos_.x += io.MouseDelta.x;
-            mainWindowPos_.y += io.MouseDelta.y;
+            if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
+                mainWindowPos_.x += io.MouseDelta.x;
+                mainWindowPos_.y += io.MouseDelta.y;
+                mainWindowRectKnown_ = true;
+                mainWindowRectDirty_ = true;
+            }
         }
 
         const char* closeText = "X";
@@ -2482,6 +2609,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
             closeText);
 
         if (closePressed) {
+            SaveShellStateIfDirty();
             overlay_.SetMenuOpen(false);
         }
 
@@ -2561,6 +2689,9 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
 
     ImGui::End();
+    if (mainWindowRectDirty_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        SaveShellStateIfDirty();
+    }
     overlay_.DrawMenuToggleHotkeyCapturePopup();
     binder_.DrawOverlay();
     notifications_.DrawOverlay();

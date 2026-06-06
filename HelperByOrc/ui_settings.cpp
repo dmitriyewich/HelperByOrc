@@ -172,10 +172,8 @@ void UiSettings::Load() {
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kUiSectionName);
     language_ = ParseLanguage(jsonutil::JsonStringOr(&section, "language", "ru"));
     autoScaleEnabled_ = jsonutil::JsonBoolOr(&section, "auto_scale", true);
-    scaleMultiplier_ = std::clamp(
-        jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f),
-        kMinScaleMultiplier,
-        kMaxScaleMultiplier);
+    scaleMultiplier_ = NormalizeScaleMultiplier(jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f));
+    scaleMultiplierDraft_ = scaleMultiplier_;
     logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
@@ -213,14 +211,29 @@ float UiSettings::ScaleMultiplier() const {
     return scaleMultiplier_;
 }
 
-void UiSettings::SetScaleMultiplier(float multiplier) {
-    const float clamped = std::clamp(multiplier, kMinScaleMultiplier, kMaxScaleMultiplier);
-    if (std::abs(scaleMultiplier_ - clamped) < 0.001f) {
+float UiSettings::ScaleMultiplierDraft() const {
+    return scaleMultiplierDraft_;
+}
+
+void UiSettings::SetScaleMultiplierDraft(float multiplier) {
+    const float normalized = NormalizeScaleMultiplier(multiplier);
+    if (std::abs(scaleMultiplierDraft_ - normalized) < 0.001f) {
         return;
     }
 
-    scaleMultiplier_ = clamped;
+    scaleMultiplierDraft_ = normalized;
+}
+
+bool UiSettings::CommitScaleMultiplierDraft() {
+    const float normalized = NormalizeScaleMultiplier(scaleMultiplierDraft_);
+    scaleMultiplierDraft_ = normalized;
+    if (std::abs(scaleMultiplier_ - normalized) < 0.001f) {
+        return false;
+    }
+
+    scaleMultiplier_ = normalized;
     QueueSave();
+    return true;
 }
 
 UiLogLevel UiSettings::LogLevel() const {
@@ -283,6 +296,7 @@ void UiSettings::ResetToDefaults() {
     language_ = UiLanguage::Russian;
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
+    scaleMultiplierDraft_ = scaleMultiplier_;
     QueueSave();
 }
 
@@ -355,4 +369,12 @@ float UiSettings::ComputeAutoScale(const ImVec2& displaySize) const {
     const float widthScale = displaySize.x / kReferenceWidth;
     const float heightScale = displaySize.y / kReferenceHeight;
     return std::clamp(std::min(widthScale, heightScale), kMinAutoScale, kMaxAutoScale);
+}
+
+float UiSettings::NormalizeScaleMultiplier(float multiplier) {
+    if (!std::isfinite(multiplier)) {
+        return 1.0f;
+    }
+
+    return std::clamp(multiplier, kMinScaleMultiplier, kMaxScaleMultiplier);
 }

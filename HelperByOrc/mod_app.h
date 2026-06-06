@@ -60,7 +60,8 @@ private:
     void RenderUi(IDirect3DDevice9* device);
     void ApplyMainStyle(float scale) const;
     void LoadShellState();
-    void QueueShellStateSave() const;
+    void QueueShellStateSave();
+    void SaveShellStateIfDirty();
     void ReloadConfigAfterProfileChange();
     void SetSidebarCollapsed(bool collapsed);
     void EnsureLogoTexture(IDirect3DDevice9* device);
@@ -94,7 +95,9 @@ private:
     bool profileDeletePopupPending_ = false;
     ImVec2 mainWindowPos_{ 60.0f, 60.0f };
     ImVec2 mainWindowSize_{ 1100.0f, 720.0f };
-    float appliedUiScale_ = 1.0f;
+    bool mainWindowRectLoaded_ = false;
+    bool mainWindowRectKnown_ = false;
+    bool mainWindowRectDirty_ = false;
     bool logoLoadAttempted_ = false;
     IDirect3DTexture9* logoTexture_ = nullptr;
     std::uint32_t logoWidth_ = 0;
