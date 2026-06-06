@@ -189,14 +189,15 @@
     X(MiscOpenSectionAction, "Открыть", "Open") \
     X(UnwantedTitle, "Игнорирование сообщений", "Message Ignoring") \
     X(UnwantedEntryDesc, "Глушит входящие и локальные сообщения через CChat и RakNet до попадания в чат и текстовые триггеры.", "Blocks incoming and local messages through CChat and RakNet before chat display and text triggers.") \
-    X(UnwantedIntro, "Правила проверяются синхронно в единой точке. Тип regex использует C++ std::regex ECMAScript по UTF-8 строке; Lua-pattern здесь намеренно не поддерживается.", "Rules are checked synchronously in one place. Regex uses C++ std::regex ECMAScript on UTF-8 strings; Lua patterns are intentionally not supported here.") \
     X(UnwantedEnabled, "Включено", "Enabled") \
     X(UnwantedReload, "Перезагрузить", "Reload") \
     X(UnwantedEnableAll, "Все вкл.", "All on") \
     X(UnwantedDisableAll, "Все выкл.", "All off") \
-    X(UnwantedStats, "Правил: %s | невалидных: %s | заблокировано: %s", "Rules: %s | invalid: %s | blocked: %s") \
+    X(UnwantedStatsCompact, "правил: %s | вкл: %s | ошибок: %s | предупреждений: %s | blocked: %s", "rules: %s | on: %s | errors: %s | warnings: %s | blocked: %s") \
     X(UnwantedLastBlocked, "Последнее: %s, правило %s, текст: %s", "Last: %s, rule %s, text: %s") \
     X(UnwantedLastBlockedEmpty, "Пока нет заблокированных сообщений.", "No blocked messages yet.") \
+    X(UnwantedNewRule, "Новое правило", "New rule") \
+    X(UnwantedTools, "Инструменты", "Tools") \
     X(UnwantedNormalizer, "Нормализация", "Normalizer") \
     X(UnwantedStripColors, "Убрать {RRGGBB}", "Strip {RRGGBB}") \
     X(UnwantedCollapseWhitespace, "Сжать пробелы", "Collapse whitespace") \
@@ -211,22 +212,39 @@
     X(UnwantedRemoveDuplicates, "Дубли", "Duplicates") \
     X(UnwantedSortByType, "По типу", "By type") \
     X(UnwantedSortByText, "По тексту", "By text") \
+    X(UnwantedSearchHint, "Поиск правил", "Search rules") \
+    X(UnwantedFilterAll, "Все", "All") \
+    X(UnwantedFilterEnabled, "Включены", "Enabled") \
+    X(UnwantedFilterDisabled, "Выключены", "Disabled") \
+    X(UnwantedFilterRegex, "Regex", "Regex") \
+    X(UnwantedFilterLiteral, "Literal", "Literal") \
+    X(UnwantedFilterErrors, "Ошибки", "Errors") \
+    X(UnwantedVisibleRulesFormat, "Показано: %s из %s", "Shown: %s of %s") \
+    X(UnwantedBulkActionsFormat, "Выбрано: %s", "Selected: %s") \
     X(UnwantedNoRules, "Правил пока нет.", "No rules yet.") \
+    X(UnwantedNoVisibleRules, "Под фильтр ничего не попало.", "No rules match the filter.") \
     X(UnwantedTypeLiteral, "literal", "literal") \
     X(UnwantedTypeRegex, "regex", "regex") \
     X(UnwantedNoCase, "nocase", "nocase") \
     X(UnwantedWholeWord, "слово", "word") \
+    X(UnwantedNoFlags, "без флагов", "no flags") \
     X(UnwantedInvalidRule, "Ошибка", "Error") \
+    X(UnwantedWarning, "Предупр.", "Warning") \
     X(UnwantedRuleOk, "OK", "OK") \
-    X(UnwantedAddRule, "Добавление", "Add Rule") \
-    X(UnwantedRuleTextHint, "Текст literal или C++ regex", "Literal text or C++ regex") \
+    X(UnwantedNoSelection, "Выберите правило слева или создайте новое.", "Select a rule on the left or create a new one.") \
+    X(UnwantedCreateRuleTitle, "Создание правила", "Create rule") \
+    X(UnwantedEditRuleTitle, "Редактирование правила", "Edit rule") \
+    X(UnwantedRuleEnabled, "Правило включено", "Rule enabled") \
+    X(UnwantedRuleText, "Текст правила", "Rule text") \
     X(UnwantedAddRuleAction, "Добавить", "Add") \
     X(UnwantedTester, "Тестер", "Tester") \
     X(UnwantedTesterHint, "Сообщение для проверки", "Message to test") \
     X(UnwantedTestAction, "Проверить", "Test") \
     X(UnwantedTesterMatched, "Совпало: правило %s, кандидат: %s", "Matched: rule %s, candidate: %s") \
     X(UnwantedTesterNoMatch, "Совпадений нет.", "No match.") \
+    X(UnwantedTesterNormalizedFormat, "После нормализации: %s", "After normalization: %s") \
     X(UnwantedRegexHelper, "Regex-helper", "Regex Helper") \
+    X(UnwantedHelperFlowHint, "Вставьте реальную строку SA:MP, выберите обобщения и добавьте подходящий вариант.", "Paste a real SA:MP line, choose generalizations, then add the right variant.") \
     X(UnwantedHelperInputHint, "Вставьте пример сообщения", "Paste a sample message") \
     X(UnwantedHelperAnchors, "^...$", "^...$") \
     X(UnwantedHelperColors, "цвета", "colors") \
@@ -234,16 +252,19 @@
     X(UnwantedHelperMoney, "деньги", "money") \
     X(UnwantedHelperTime, "время", "time") \
     X(UnwantedHelperNick, "ник", "nick") \
+    X(UnwantedHelperPlayerId, "[id]", "[id]") \
+    X(UnwantedHelperDomain, "domain", "domain") \
     X(UnwantedHelperBracketTag, "[тег]", "[tag]") \
-    X(UnwantedHelperGenerate, "Сгенерировать", "Generate") \
     X(UnwantedHelperExact, "Точный escaped regex", "Exact escaped regex") \
     X(UnwantedHelperGeneralized, "Обобщённый regex", "Generalized regex") \
-    X(UnwantedAddExact, "Добавить точный", "Add exact") \
-    X(UnwantedCopyExact, "Копировать точный", "Copy exact") \
-    X(UnwantedAddGeneralized, "Добавить общий", "Add generalized") \
-    X(UnwantedCopyGeneralized, "Копировать общий", "Copy generalized") \
+    X(UnwantedHelperContains, "Contains regex", "Contains regex") \
+    X(UnwantedUseInDraft, "В черновик", "Use draft") \
+    X(UnwantedCopy, "Копировать", "Copy") \
+    X(UnwantedDeleteSelectedQuestion, "Удалить выбранные правила: %s?", "Delete selected rules: %s?") \
     X(UnwantedErrorTooLong, "Длина больше лимита %s.", "Length exceeds limit %s.") \
     X(UnwantedErrorEmpty, "Пустое правило не выполняется.", "Empty rule is skipped.") \
+    X(UnwantedRegexSafetyBlocked, "Regex заблокирован: обнаружен опасный wildcard/nested pattern.", "Regex blocked: dangerous wildcard/nested pattern detected.") \
+    X(UnwantedRegexSafetyUnanchored, "Regex без ^...$ может срабатывать шире ожидаемого.", "Regex without ^...$ may match more broadly than expected.") \
     X(TagsKindSimple, "Простая", "Simple") \
     X(TagsKindFunction, "Функциональная", "Function") \
     X(TagsBuiltinIdDescription, "Возвращает ваш локальный ID игрока через SampApi::Local_ID().", "Returns your local player ID via SampApi::Local_ID().") \

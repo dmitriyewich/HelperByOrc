@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 
+struct ImVec2;
+
 enum class UnwantedMessageSource {
     CChatAddEntry,
     CChatAddMessage,
@@ -69,6 +71,7 @@ private:
         bool nocase = false;
         bool wholeWord = false;
         std::string error;
+        std::string warning;
         std::optional<std::regex> compiledRegex;
     };
 
@@ -78,6 +81,27 @@ private:
         std::string ruleText;
         std::string candidate;
         UnwantedMessageSource source = UnwantedMessageSource::CChatAddEntry;
+    };
+
+    enum class RuleFilter {
+        All,
+        Enabled,
+        Disabled,
+        Regex,
+        Literal,
+        Errors,
+    };
+
+    struct RuleDraft {
+        bool active = false;
+        bool createMode = false;
+        std::string id;
+        bool enabled = true;
+        RuleType type = RuleType::Literal;
+        std::string text;
+        bool nocase = false;
+        bool wholeWord = false;
+        bool dirty = false;
     };
 
     jsonutil::JsonValue SerializeConfig() const;
@@ -92,15 +116,17 @@ private:
     bool MatchRule(const Rule& rule, std::string_view candidate) const;
     bool MatchLiteral(const Rule& rule, std::string_view candidate) const;
 
-    void DrawToolbar();
-    void DrawNormalizerControls();
-    void DrawRulesList();
-    void DrawAddRule();
-    void DrawTester();
-    void DrawRegexHelper();
-    void DrawStats() const;
+    void DrawHeader(bool& reload);
+    void DrawRulesPane(const ImVec2& size);
+    void DrawInspectorPane(const ImVec2& size);
+    void DrawRulesTable(const std::vector<std::size_t>& visibleIndices);
+    void DrawRuleEditor();
+    void DrawTesterPanel();
+    void DrawRegexHelperWizard();
+    void DrawSettingsPopup();
+    void DrawDeleteConfirmPopup();
 
-    void AddRule(RuleType type, std::string text, bool nocase, bool wholeWord);
+    std::string AddRule(RuleType type, std::string text, bool nocase, bool wholeWord);
     void DeleteRuleByIndex(std::size_t index);
     void DeleteSelectedRules();
     void SetAllRulesEnabled(bool enabled);
@@ -112,9 +138,20 @@ private:
     void SetRuleSelected(std::string_view id, bool selected);
     void ClearSelection();
     void SelectAllRules();
+    void EnsureActiveRule();
+    int FindRuleIndexById(std::string_view id) const;
+    Rule* FindRuleById(std::string_view id);
+    const Rule* FindRuleById(std::string_view id) const;
+    void StartCreateRule(std::string text = {}, RuleType type = RuleType::Literal);
+    void StartEditRule(std::string_view id);
+    bool SaveDraftRule();
+    bool RuleMatchesFilter(const Rule& rule, std::string_view loweredSearch) const;
+    void RegenerateHelperOutput();
 
     std::string GenerateExactRegex(std::string_view sample) const;
     std::string GenerateGeneralizedRegex(std::string_view sample) const;
+    std::string GenerateContainsRegex(std::string_view sample) const;
+    std::string GenerateGeneralizedRegex(std::string_view sample, bool anchors) const;
 
     mutable std::mutex mutex_;
     Settings settings_{};
@@ -122,15 +159,16 @@ private:
     std::uint64_t nextRuleSerial_ = 1;
     bool miscPageOpen_ = false;
     std::set<std::string, std::less<>> selectedRuleIds_{};
+    std::string activeRuleId_{};
+    RuleDraft ruleDraft_{};
+    RuleFilter ruleFilter_ = RuleFilter::All;
+    std::string ruleSearch_{};
+    bool deleteSelectedConfirmOpen_ = false;
 
     std::uint64_t blockedCount_ = 0;
     MatchResult lastBlocked_{};
     MatchResult lastTesterMatch_{};
 
-    std::string newRuleText_{};
-    bool newRuleIsRegex_ = false;
-    bool newRuleNoCase_ = false;
-    bool newRuleWholeWord_ = false;
     std::string testText_{};
     std::string helperSample_{};
     bool helperAnchors_ = true;
@@ -139,7 +177,10 @@ private:
     bool helperMoney_ = true;
     bool helperTime_ = true;
     bool helperNick_ = true;
+    bool helperPlayerId_ = true;
+    bool helperDomain_ = true;
     bool helperBracketTag_ = true;
     std::string helperExact_{};
     std::string helperGeneralized_{};
+    std::string helperContains_{};
 };

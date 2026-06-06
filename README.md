@@ -112,7 +112,7 @@ GTA San Andreas User Files\HelperByOrc\profiles\<profile-id>\hud\images
 
 HUD хранится как `schema_version=2`: каждый виджет является canvas/artboard с локальными элементами и собственной политикой масштаба. Большой редактор открывается кнопкой `Открыть canvas-редактор` во вкладке HUD. Профили HUD v1 мигрируют автоматически: старый inline/linked-note виджет становится одним `TextMarkup`-элементом, условия, позиция, стиль и `refresh_ms` сохраняются максимально близко. Картинки читаются только из профильных папок, URL, абсолютные пути и `..` блокируются. Условия HUD используют общий список блокировок Биндера на уровне виджета и элемента. `refresh_ms=0` обновляет виджет каждый кадр и может снизить FPS.
 
-Секция `unwanted` в `HelperByOrc.json` хранит правила игнорирования сообщений. Старый Lua `unwanted.json` не импортируется; regex-правила пишутся как C++ ECMAScript, не как Lua-pattern.
+Секция `unwanted` в `HelperByOrc.json` хранит правила игнорирования сообщений. Старый Lua `unwanted.json` не импортируется; regex-правила пишутся как C++ ECMAScript, не как Lua-pattern. Экран игнорирования устроен как список правил + инспектор: поиск, фильтры, bulk-действия, tester и Regex-helper с вариантами `exact` / `generalized` / `contains`. Очевидно опасные wildcard/nested regex блокируются до runtime, широкие unanchored-правила помечаются предупреждением.
 
 Если используется `portablegta`, путь к `GTA San Andreas User Files` берётся из игрового portable userfiles-getter.
 
