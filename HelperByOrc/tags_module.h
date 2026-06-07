@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui_settings.h"
+#include "variables_picker_ui.h"
 
 #include <cstdint>
 #include <functional>
@@ -80,8 +81,14 @@ public:
         std::string_view activationSource,
         std::string_view activationText) const;
     const std::vector<CatalogEntry>& CatalogEntries() const;
+    const std::vector<std::pair<std::string, std::string>>& CustomVariables() const;
     const std::vector<VirtualKeyPickerEntry>& VirtualKeyPickerEntries() const;
     static std::string MakeKeyEmulateToken(unsigned int keyCode);
+    void OpenKeyEmulatePicker();
+    void OpenDialogItemPicker();
+    void OpenSampDialogTextPicker();
+    void OpenArizonaDialogTextPicker();
+    void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
 
 private:
     struct TagEntry {
@@ -196,11 +203,15 @@ private:
     void SaveConfig() const;
     void DrawMiscHomePage();
     void DrawVariablesPage();
+    std::vector<variables_picker::Entry> BuildVariablePickerEntries() const;
+    void HandleVariablePickerRequest(const variables_picker::Request& request);
+    bool UpsertCustomVariable(std::string originalName, std::string name, std::string value);
+    bool DeleteCustomVariable(std::string_view name);
+    std::string ValidateCustomVariableName(std::string_view originalName, std::string_view name) const;
     void RefreshCatalogEntries();
-    void OpenDialogItemPicker();
     void OpenDialogTextPicker(DialogTextPickerSource source = DialogTextPickerSource::Samp);
-    void DrawDialogItemPickerPopup();
-    void DrawDialogTextPickerPopup();
+    void DrawDialogItemPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
+    void DrawDialogTextPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void ProcessPendingKeyHoldWaits();
     void ProcessPendingDialogWaits();
     void ProcessPendingArzDialogQueryWaits();
@@ -413,7 +424,6 @@ private:
         const EvaluationContext& context) const;
 
     EvaluationContext ResolveActiveContext(std::string_view defaultSource = {}, std::string_view defaultText = {}) const;
-    void OpenKeyEmulatePicker();
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
     void ResetTargetTracker();
@@ -442,12 +452,11 @@ private:
     BinderModule* binderModule_ = nullptr;
     NotificationManager* notificationManager_ = nullptr;
     ArizonaCefDialogs* arizonaCefDialogs_ = nullptr;
-    std::string searchQuery_{};
-    int selectedTagIndex_ = 0;
     MiscPage currentPage_ = MiscPage::Home;
     TagRegistry tagRegistry_{};
     std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
+    variables_picker::State variablesPickerState_{};
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
     mutable std::vector<PendingKeyHoldWait> pendingKeyHoldWaits_{};
@@ -460,7 +469,6 @@ private:
     std::string dialogItemPickerSearchQuery_{};
     std::string dialogTextPickerSearchQuery_{};
     DialogTextPickerSource dialogTextPickerSource_ = DialogTextPickerSource::Samp;
-    bool keyPickerHoverTriggered_ = false;
     bool dialogItemPickerOpenPending_ = false;
     bool dialogTextPickerOpenPending_ = false;
 };

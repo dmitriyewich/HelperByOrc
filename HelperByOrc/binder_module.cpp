@@ -16,6 +16,7 @@
 #include "text_encoding.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
+#include "variables_picker_ui.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -2609,9 +2610,13 @@ struct BinderModule::Impl {
     bool ValidateEditor(std::vector<std::string>& errors);
     void SaveEditor();
     bool CopyTextToClipboard(std::string_view text, bool showSuccessToast = true);
-    int FirstCatalogIndexForKind(TagsModule::TagKind kind) const;
-    void DrawEditorVariableInputsTab();
-    void DrawEditorVariableCatalogTab(TagsModule::TagKind kind);
+    std::vector<variables_picker::Entry> BuildEditorVariablePickerEntries() const;
+    void HandleEditorVariablePickerRequest(const variables_picker::Request& request);
+    bool InsertTextIntoEditorVariableTarget(std::string_view text);
+    void RememberEditorVariableInsertTarget(
+        binder_editor::State::VariableInsertTarget target,
+        int messageIndex,
+        int cursorByte);
     void DrawEditorVariableKeyPickerPopup();
     void DrawEditorConditionsPopup();
     void DrawEditorVariablesPopup();
@@ -7946,236 +7951,141 @@ bool BinderModule::Impl::CopyTextToClipboard(std::string_view text, bool showSuc
     return true;
 }
 
-int BinderModule::Impl::FirstCatalogIndexForKind(TagsModule::TagKind kind) const {
-    if (!tagsModule) {
-        return -1;
+std::vector<variables_picker::Entry> BinderModule::Impl::BuildEditorVariablePickerEntries() const {
+    UiSettings& ui = UiSettings::Instance();
+    std::vector<variables_picker::Entry> pickerEntries;
+    if (tagsModule) {
+        pickerEntries.reserve(tagsModule->CatalogEntries().size() + tagsModule->CustomVariables().size() + editor.draft.inputs.size());
     }
 
-    const auto& entries = tagsModule->CatalogEntries();
-    for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
-        if (entries[static_cast<std::size_t>(i)].kind == kind) {
-            return i;
-        }
+    for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
+        const HotkeyInput& input = editor.draft.inputs[i];
+        const std::string normalizedKey = NormalizeInputKey(input.key);
+        const std::string indexToken = "{{" + std::to_string(i + 1) + "}}";
+        const std::string primaryToken = normalizedKey.empty() ? indexToken : "{{" + normalizedKey + "}}";
+        const std::string label = input.label.empty() ? std::string(ui.Text(UiText::UnnamedField)) : input.label;
+
+        variables_picker::Entry entry;
+        entry.kind = variables_picker::EntryKind::Parameter;
+        entry.category = variables_picker::Category::Parameters;
+        entry.id = variables_picker::MakeEntryId(variables_picker::EntryKind::Parameter, primaryToken);
+        entry.name = normalizedKey.empty() ? std::to_string(i + 1) : normalizedKey;
+        entry.token = primaryToken;
+        entry.example = !normalizedKey.empty() && primaryToken != indexToken ? indexToken : primaryToken;
+        entry.description = input.hint.empty()
+            ? ui.Format(UiText::InputFieldPlaceholderFormat, entry.name.c_str())
+            : label + "\n" + input.hint;
+        pickerEntries.push_back(std::move(entry));
     }
-    return -1;
+
+    if (!tagsModule) {
+        return pickerEntries;
+    }
+
+    for (const auto& entry : tagsModule->CatalogEntries()) {
+        const variables_picker::EntryKind kind = entry.kind == TagsModule::TagKind::Function
+            ? variables_picker::EntryKind::Function
+            : variables_picker::EntryKind::Simple;
+        variables_picker::Entry pickerEntry;
+        pickerEntry.kind = kind;
+        pickerEntry.category = variables_picker::ClassifyBuiltin(entry.name);
+        pickerEntry.id = variables_picker::MakeEntryId(kind, entry.token);
+        pickerEntry.name = entry.name;
+        pickerEntry.token = entry.token;
+        pickerEntry.example = entry.example;
+        pickerEntry.descriptionText = entry.descriptionText;
+        pickerEntry.action = variables_picker::IsActionBuiltin(entry.name);
+        pickerEntries.push_back(std::move(pickerEntry));
+    }
+
+    for (const auto& [name, value] : tagsModule->CustomVariables()) {
+        variables_picker::Entry entry;
+        entry.kind = variables_picker::EntryKind::Custom;
+        entry.category = variables_picker::Category::Custom;
+        entry.id = variables_picker::MakeEntryId(variables_picker::EntryKind::Custom, name);
+        entry.name = name;
+        entry.token = "{" + name + "}";
+        entry.example = entry.token;
+        entry.value = value;
+        entry.description = value;
+        pickerEntries.push_back(std::move(entry));
+    }
+
+    return pickerEntries;
 }
 
-void BinderModule::Impl::DrawEditorVariableInputsTab() {
-    UiSettings& ui = UiSettings::Instance();
-    if (editor.draft.inputs.empty()) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesEmpty));
-        return;
-    }
-
-    if (editor.selectedVariableInputIndex < 0 || editor.selectedVariableInputIndex >= static_cast<int>(editor.draft.inputs.size())) {
-        editor.selectedVariableInputIndex = 0;
-    }
-
-    if (!ImGui::BeginTable(
-            "##binder_editor_variable_inputs_layout",
-            2,
-            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0.0f, 0.0f))) {
-        return;
-    }
-
-    ImGui::TableSetupColumn("list", ImGuiTableColumnFlags_WidthFixed, ScaleUi(320.0f));
-    ImGui::TableSetupColumn("details", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableNextRow();
-
-    ImGui::TableSetColumnIndex(0);
-    if (ImGui::BeginChild("##binder_editor_variable_inputs_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::InputFieldsListTitle));
-        ImGui::Spacing();
-
-        for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
-            const HotkeyInput& input = editor.draft.inputs[i];
-            const std::string normalizedKey = NormalizeInputKey(input.key);
-            const std::string indexToken = "{{" + std::to_string(i + 1) + "}}";
-            const std::string primaryToken = normalizedKey.empty() ? indexToken : "{{" + normalizedKey + "}}";
-            const std::string label = input.label.empty() ? std::string(ui.Text(UiText::UnnamedField)) : input.label;
-            const std::string rowLabel = primaryToken + "  " + label + "##binder_editor_variable_input_" + std::to_string(i);
-
-            if (ImGui::Selectable(rowLabel.c_str(), editor.selectedVariableInputIndex == static_cast<int>(i))) {
-                editor.selectedVariableInputIndex = static_cast<int>(i);
-            }
-        }
-    }
-    ImGui::EndChild();
-
-    ImGui::TableSetColumnIndex(1);
-    if (ImGui::BeginChild("##binder_editor_variable_inputs_details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-        if (editor.selectedVariableInputIndex < 0
-            || editor.selectedVariableInputIndex >= static_cast<int>(editor.draft.inputs.size())) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
-        } else {
-            const std::size_t inputIndex = static_cast<std::size_t>(editor.selectedVariableInputIndex);
-            const HotkeyInput& input = editor.draft.inputs[inputIndex];
-            const std::string normalizedKey = NormalizeInputKey(input.key);
-            const std::string keyToken = normalizedKey.empty() ? std::string() : "{{" + normalizedKey + "}}";
-            const std::string indexToken = "{{" + std::to_string(inputIndex + 1) + "}}";
-            const std::string primaryToken = keyToken.empty() ? indexToken : keyToken;
-            const std::string label = input.label.empty() ? std::string(ui.Text(UiText::UnnamedField)) : input.label;
-            const bool hasAlternateToken = !keyToken.empty() && keyToken != indexToken;
-
-            ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", label.c_str());
-            if (!input.hint.empty()) {
-                ImGui::Spacing();
-                ImGui::TextWrapped("%s", input.hint.c_str());
-            }
-
-            ImGui::Spacing();
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDescriptionLabel));
-            ImGui::TextWrapped("%s", primaryToken.c_str());
-            if (hasAlternateToken) {
-                ImGui::Spacing();
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesExampleLabel));
-                ImGui::TextWrapped("%s", indexToken.c_str());
-            }
-
-            ImGui::Spacing();
-            if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyToken), ScaleUi(170.0f, 0.0f))) {
-                CopyTextToClipboard(primaryToken);
-            }
-            if (hasAlternateToken) {
-                ImGui::SameLine();
-                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyExample), ScaleUi(170.0f, 0.0f))) {
-                    CopyTextToClipboard(indexToken);
-                }
-            }
-
-            if (keyToken.empty()) {
-                ImGui::Spacing();
-                ImGui::TextDisabled("%s", ui.Text(UiText::ValidationInputKeyRequired));
-            } else {
-                ImGui::Spacing();
-                ImGui::TextDisabled("%s", ui.Format(UiText::InputFieldPlaceholderFormat, normalizedKey.c_str()).c_str());
-                ImGui::TextDisabled("%s", indexToken.c_str());
-            }
-        }
-    }
-    ImGui::EndChild();
-    ImGui::EndTable();
+void BinderModule::Impl::RememberEditorVariableInsertTarget(
+    binder_editor::State::VariableInsertTarget target,
+    int messageIndex,
+    int cursorByte) {
+    editor.variablesInsertTarget = target;
+    editor.variablesInsertMessageIndex = messageIndex;
+    editor.variablesInsertCursorByte = cursorByte;
 }
 
-void BinderModule::Impl::DrawEditorVariableCatalogTab(TagsModule::TagKind kind) {
-    UiSettings& ui = UiSettings::Instance();
-    if (!tagsModule) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
-        return;
-    }
+bool BinderModule::Impl::InsertTextIntoEditorVariableTarget(std::string_view text) {
+    const auto insertAt = [&](std::string& value) {
+        const int clampedCursor = editor.variablesInsertCursorByte < 0
+            ? static_cast<int>(value.size())
+            : std::clamp(editor.variablesInsertCursorByte, 0, static_cast<int>(value.size()));
+        value.insert(static_cast<std::size_t>(clampedCursor), text.data(), text.size());
+        editor.variablesInsertCursorByte = clampedCursor + static_cast<int>(text.size());
+    };
 
-    const auto& entries = tagsModule->CatalogEntries();
-    const std::string query = ToLower(Trim(editor.variablesSearch));
-    std::vector<int> visibleIndices;
-    visibleIndices.reserve(entries.size());
-    for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
-        const auto& entry = entries[static_cast<std::size_t>(i)];
-        if (entry.kind != kind) {
-            continue;
+    switch (editor.variablesInsertTarget) {
+    case binder_editor::State::VariableInsertTarget::ScenarioMessage:
+        if (editor.variablesInsertMessageIndex < 0
+            || editor.variablesInsertMessageIndex >= static_cast<int>(editor.draft.messages.size())) {
+            return false;
         }
+        insertAt(editor.draft.messages[static_cast<std::size_t>(editor.variablesInsertMessageIndex)].text);
+        editor.scenarioMessageNoSelectFocusIndex = editor.variablesInsertMessageIndex;
+        SyncEditorMessagesToMulti();
+        return true;
+    case binder_editor::State::VariableInsertTarget::ScenarioAppend:
+        insertAt(editor.scenarioAppendText);
+        editor.scenarioAppendFocusPending = true;
+        return true;
+    case binder_editor::State::VariableInsertTarget::None:
+    default:
+        return false;
+    }
+}
 
-        const std::string haystack = ToLower(entry.token + " " + ui.Text(entry.descriptionText));
-        if (query.empty() || haystack.find(query) != std::string::npos) {
-            visibleIndices.push_back(i);
+void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picker::Request& request) {
+    switch (request.type) {
+    case variables_picker::RequestType::Copy:
+        CopyTextToClipboard(request.text);
+        break;
+    case variables_picker::RequestType::Insert:
+        if (!InsertTextIntoEditorVariableTarget(request.text)) {
+            CopyTextToClipboard(request.text);
         }
-    }
-
-    int& selectedIndex = kind == TagsModule::TagKind::Simple ? editor.selectedSimpleTagIndex : editor.selectedFunctionTagIndex;
-    if (visibleIndices.empty()) {
-        selectedIndex = -1;
-    } else if (std::find(visibleIndices.begin(), visibleIndices.end(), selectedIndex) == visibleIndices.end()) {
-        selectedIndex = visibleIndices.front();
-    }
-
-    if (!ImGui::BeginTable(
-            "##binder_editor_variable_catalog_layout",
-            2,
-            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0.0f, 0.0f))) {
-        return;
-    }
-
-    ImGui::TableSetupColumn("list", ImGuiTableColumnFlags_WidthFixed, ScaleUi(320.0f));
-    ImGui::TableSetupColumn("details", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableNextRow();
-
-    ImGui::TableSetColumnIndex(0);
-    if (ImGui::BeginChild("##binder_editor_variable_catalog_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-        InputTextWithHintString(
-            "##binder_editor_variable_search",
-            ui.Text(UiText::MiscVariablesSearchHint),
-            editor.variablesSearch,
-            ImGuiInputTextFlags_AutoSelectAll,
-            128);
-        ImGui::Spacing();
-
-        if (ImGui::BeginChild("##binder_editor_variable_catalog_scroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-            if (visibleIndices.empty()) {
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesCatalogEmpty));
-            } else {
-                for (const int index : visibleIndices) {
-                    const auto& entry = entries[static_cast<std::size_t>(index)];
-                    const std::string rowLabel = entry.token + "##binder_editor_variable_catalog_" + std::to_string(index);
-                    if (ImGui::Selectable(rowLabel.c_str(), selectedIndex == index)) {
-                        selectedIndex = index;
-                    }
-                }
-            }
+        break;
+    case variables_picker::RequestType::OpenKeyEmulatePicker:
+        editor.variablesKeyPickerPopupPending = true;
+        break;
+    case variables_picker::RequestType::OpenDialogItemPicker:
+        if (tagsModule) {
+            tagsModule->OpenDialogItemPicker();
         }
-        ImGui::EndChild();
-    }
-    ImGui::EndChild();
-
-    ImGui::TableSetColumnIndex(1);
-    if (ImGui::BeginChild("##binder_editor_variable_catalog_details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-        if (selectedIndex < 0 || selectedIndex >= static_cast<int>(entries.size())) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesInspectorEmpty));
-        } else {
-            const auto& entry = entries[static_cast<std::size_t>(selectedIndex)];
-
-            ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", entry.token.c_str());
-            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "keyemulate") {
-                ImGui::SameLine();
-                if (ImGui::SmallButton(" + ")) {
-                    editor.variablesKeyPickerPopupPending = true;
-                }
-            }
-
-            ImGui::Separator();
-
-            ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDescriptionLabel));
-            ImGui::TextWrapped("%s", ui.Text(entry.descriptionText));
-            ImGui::Spacing();
-
-            if (entry.example != entry.token) {
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesExampleLabel));
-                ImGui::TextWrapped("%s", entry.example.c_str());
-                ImGui::Spacing();
-            }
-
-            if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyToken), ScaleUi(170.0f, 0.0f))) {
-                CopyTextToClipboard(entry.token);
-            }
-            if (entry.example != entry.token) {
-                ImGui::SameLine();
-                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyExample), ScaleUi(170.0f, 0.0f))) {
-                    CopyTextToClipboard(entry.example);
-                }
-            }
-
-            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "paramcmd") {
-                ImGui::Spacing();
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesParamcmdNote));
-            }
-            if (kind == TagsModule::TagKind::Function && std::string_view(entry.name) == "keyemulate") {
-                ImGui::Spacing();
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyEmulateNote));
-            }
+        break;
+    case variables_picker::RequestType::OpenDialogTextPicker:
+        if (tagsModule) {
+            tagsModule->OpenSampDialogTextPicker();
         }
+        break;
+    case variables_picker::RequestType::OpenArizonaDialogTextPicker:
+        if (tagsModule) {
+            tagsModule->OpenArizonaDialogTextPicker();
+        }
+        break;
+    case variables_picker::RequestType::None:
+    case variables_picker::RequestType::SaveCustom:
+    case variables_picker::RequestType::DeleteCustom:
+    default:
+        break;
     }
-    ImGui::EndChild();
-    ImGui::EndTable();
 }
 
 void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
@@ -8211,7 +8121,10 @@ void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
 
             hasMatches = true;
             if (ImGui::Selectable(entry.label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                CopyTextToClipboard(TagsModule::MakeKeyEmulateToken(entry.code));
+                const std::string token = TagsModule::MakeKeyEmulateToken(entry.code);
+                if (!InsertTextIntoEditorVariableTarget(token)) {
+                    CopyTextToClipboard(token);
+                }
                 editor.variablesKeyPickerSearch.clear();
                 ImGui::CloseCurrentPopup();
             }
@@ -8224,7 +8137,7 @@ void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
     ImGui::EndChild();
 
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerCopyHint));
+    ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesKeyPickerInsertHint));
     ImGui::Spacing();
     if (ImGui::Button(ui.Text(UiText::Cancel))) {
         editor.variablesKeyPickerSearch.clear();
@@ -9475,17 +9388,12 @@ void BinderModule::Impl::DrawEditorConditionsPopup() {
 
 void BinderModule::Impl::DrawEditorVariablesPopup() {
     if (editor.variablesPopupPending) {
-        editor.variablesSearch.clear();
-        editor.variablesKeyPickerSearch.clear();
+        editor.variablesPicker.search.clear();
         editor.variablesKeyPickerPopupPending = false;
-        editor.variablesActiveTab = editor.draft.inputs.empty() ? 1 : 0;
-        editor.variablesTabSelectionPending = true;
-        editor.selectedVariableInputIndex = editor.draft.inputs.empty() ? -1 : 0;
-        if (editor.selectedSimpleTagIndex < 0) {
-            editor.selectedSimpleTagIndex = FirstCatalogIndexForKind(TagsModule::TagKind::Simple);
-        }
-        if (editor.selectedFunctionTagIndex < 0) {
-            editor.selectedFunctionTagIndex = FirstCatalogIndexForKind(TagsModule::TagKind::Function);
+        if (!editor.draft.inputs.empty()) {
+            editor.variablesPicker.activeCategory = variables_picker::Category::Parameters;
+        } else if (editor.variablesPicker.activeCategory == variables_picker::Category::Parameters) {
+            editor.variablesPicker.activeCategory = variables_picker::Category::All;
         }
         ImGui::OpenPopup(kEditorVariablesPopupId);
         editor.variablesPopupPending = false;
@@ -9500,55 +9408,32 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     }
 
     const bool closeRequested = !popupOpen;
-    const bool hasInputs = !editor.draft.inputs.empty();
-
-    if (!hasInputs && editor.variablesActiveTab == 0) {
-        editor.variablesActiveTab = 1;
-        editor.variablesTabSelectionPending = true;
-    }
 
     if (editor.variablesKeyPickerPopupPending) {
         ImGui::OpenPopup("##binder_editor_variable_keypicker");
         editor.variablesKeyPickerPopupPending = false;
     }
 
-    ImGui::Separator();
-    if (hasInputs) {
-        ImGui::TextWrapped("%s", ui.Text(UiText::EditorVariablesHint));
-        ImGui::Spacing();
-    }
+    const std::vector<variables_picker::Entry> pickerEntries = BuildEditorVariablePickerEntries();
+    const variables_picker::Request request = variables_picker::Draw(
+        editor.variablesPicker,
+        pickerEntries,
+        variables_picker::Options{
+            variables_picker::Mode::Insert,
+            "binder_editor_variables_picker",
+            editor.variablesInsertTarget != binder_editor::State::VariableInsertTarget::None,
+            false,
+            ImGui::GetContentRegionAvail(),
+        });
+    HandleEditorVariablePickerRequest(request);
 
-    if (ImGui::BeginTabBar("##binder_editor_variables_tabs")) {
-        if (hasInputs) {
-            const ImGuiTabItemFlags parametersFlags =
-                editor.variablesTabSelectionPending && editor.variablesActiveTab == 0 ? ImGuiTabItemFlags_SetSelected : 0;
-            if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesParametersTab), nullptr, parametersFlags)) {
-                editor.variablesActiveTab = 0;
-                DrawEditorVariableInputsTab();
-                ImGui::EndTabItem();
+    if (tagsModule) {
+        tagsModule->DrawVariableHelperPopups([&](std::string_view token) {
+            if (!InsertTextIntoEditorVariableTarget(token)) {
+                CopyTextToClipboard(token);
             }
-        }
-
-        const ImGuiTabItemFlags simpleFlags =
-            editor.variablesTabSelectionPending && editor.variablesActiveTab == 1 ? ImGuiTabItemFlags_SetSelected : 0;
-        if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesSimpleTab), nullptr, simpleFlags)) {
-            editor.variablesActiveTab = 1;
-            DrawEditorVariableCatalogTab(TagsModule::TagKind::Simple);
-            ImGui::EndTabItem();
-        }
-
-        const ImGuiTabItemFlags functionFlags =
-            editor.variablesTabSelectionPending && editor.variablesActiveTab == 2 ? ImGuiTabItemFlags_SetSelected : 0;
-        if (ImGui::BeginTabItem(ui.Text(UiText::EditorVariablesFunctionTab), nullptr, functionFlags)) {
-            editor.variablesActiveTab = 2;
-            DrawEditorVariableCatalogTab(TagsModule::TagKind::Function);
-            ImGui::EndTabItem();
-        }
-
-        editor.variablesTabSelectionPending = false;
-        ImGui::EndTabBar();
+        });
     }
-
     DrawEditorVariableKeyPickerPopup();
     if (closeRequested) {
         editor.variablesKeyPickerSearch.clear();
@@ -9727,6 +9612,16 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
                 256,
                 noSelectFocusMessageText ? MoveCaretToEndInputTextCallback : nullptr,
                 noSelectFocusMessageText ? &noSelectFocusData : nullptr);
+            if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+                int cursorByte = -1;
+                if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(stepTextId)) {
+                    cursorByte = inputState->GetCursorPos();
+                }
+                RememberEditorVariableInsertTarget(
+                    binder_editor::State::VariableInsertTarget::ScenarioMessage,
+                    messageIndex,
+                    cursorByte);
+            }
             if (focusMessageText) {
                 if (ImGui::GetInputTextState(stepTextId)) {
                     if (noSelectFocusMessageText && !noSelectFocusData.applied) {
@@ -9814,6 +9709,17 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             editor.scenarioAppendText,
             0,
             256);
+        if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+            const ImGuiID appendTextId = ImGui::GetID("##step_append_text");
+            int cursorByte = -1;
+            if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(appendTextId)) {
+                cursorByte = inputState->GetCursorPos();
+            }
+            RememberEditorVariableInsertTarget(
+                binder_editor::State::VariableInsertTarget::ScenarioAppend,
+                -1,
+                cursorByte);
+        }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
             ImGui::SetTooltip("%s", ui.Text(UiText::EditorAppendStepTooltip));
         }

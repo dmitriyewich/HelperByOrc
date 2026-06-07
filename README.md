@@ -38,10 +38,10 @@
 - При открытом окне Helper автоматический запуск bind с cursor-условиями блокируется; ручная кнопка запуска в списке Binder игнорирует только cursor-условия.
 - Стабильный cursor ownership для ImGui: главное окно и quick menu берут курсор только на время интерактивного UI, могут работать поверх SA:MP chat/dialog и уступают видимому Arizona CEF или чужому cursor/input owner.
 - Вставка текста в чат и отправка команд через SA:MP-чат; команда bind, отправленная другим bind, запускает локальный bind и не уходит серверу.
-- Таймер подтверждения текстового триггера: `Подтв. триггер` ждёт до профильного лимита из «Настройки -> Биндер» и сбрасывает pending запуск по истечении времени.
+- Таймер подтверждения текстового триггера: `Подтв. триггер` ждёт до профильного лимита из «Настройки -> Биндер», принимает `1/2` без захвата курсора и сбрасывает pending запуск по истечении времени.
 - Arizona `_chat.asi` writer/submit для отправки через input чата, открытия и вставки текста с fallback на стандартный SA:MP-путь.
 - Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
-- Теги и пользовательские переменные, включая bind-actions `[bindstart(30)]`, `[bindstart({thisbind})]`, `{thisbind}` и `{thiscategory}` для runtime-контекста текущего bind.
+- Теги и пользовательские переменные с редактированием во вкладке «Прочее -> Переменные», включая bind-actions `[bindstart(30)]`, `[bindstart({thisbind})]`, `{thisbind}` и `{thiscategory}` для runtime-контекста текущего bind.
 - Arizona CEF dialog-теги: `[ARZdialogsetinputtext(...)]`, `[ARZdialogclosewithbutton(1)]`, `[ARZdialogsetlistitem(0)]`, `[ARZdialoggetdialogtext(0)]`, `[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]` и getter-переменные `{ARZdialoggetid}`, `{ARZdialoggettitle}`, `{ARZdialoggetrespond}`.
 - Профильный блокнот: папки, поиск, избранное, split preview, Lua-compatible разметка, локальные картинки, импорт/экспорт `.txt`.
 - HUD v2: свободный canvas-конструктор экранных виджетов с элементами `Text`, `Image`, `Shape`, `Line`, `Icon`, `ProgressBar` и `Group`, слоями, drag/resize, snap-сеткой, lock/hide, group/ungroup, undo/redo, пресетами и импортом/экспортом `.helperhud.json`; обычные виджеты рисуются нижним слоем под окнами Helper и не перехватывают ввод.

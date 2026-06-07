@@ -185,7 +185,7 @@
     X(MiscShellTitle, "Техническая вкладка", "Technical Tab") \
     X(MiscShellDesc, "Раздел готов для будущих утилит, но сейчас не содержит ни тестовых действий, ни диагностических панелей.", "This section is ready for future utilities, but currently contains no test actions or diagnostic panels.") \
     X(MiscHomeIntro, "Во вкладке собраны отдельные служебные разделы. Нажмите на карточку нужного модуля, чтобы открыть его экран.", "This tab groups standalone utility sections. Click a module card to open its screen.") \
-    X(MiscVariablesEntryDesc, "Открывает каталог встроенных переменных, описание тегов и sandbox-предпросмотр для быстрой проверки.", "Opens the built-in variables catalog, tag descriptions, and a sandbox preview for quick checks.") \
+    X(MiscVariablesEntryDesc, "Открывает рабочий каталог переменных с поиском, категориями, описаниями и пользовательскими переменными.", "Opens the variables picker with search, categories, descriptions, and custom variables.") \
     X(MiscOpenSectionAction, "Открыть", "Open") \
     X(UnwantedTitle, "Игнорирование сообщений", "Message Ignoring") \
     X(UnwantedEntryDesc, "Глушит входящие и локальные сообщения через CChat и RakNet до попадания в чат и текстовые триггеры.", "Blocks incoming and local messages through CChat and RakNet before chat display and text triggers.") \
@@ -375,25 +375,13 @@
     X(TagsBuiltinBindEndedDescription, "Проверяет состояние выбранного bind и возвращает строку:\n- 1 — bind завершён или не активен\n- 0 — bind выполняется, ждёт input/confirmation или стоит на паузе\n\nЭто pure-check: его можно использовать в [ifandor(...)] и условиях без запуска действий.\n\nПримеры:\n- [bindended({thisbind})]\n- [bindended(30)]\n- [bindended(\"fb\" \"\" \"Основные\")]\n- [ifandor([bindended(30)]==1?[bindstart(30)]:Уже выполняется)]\n\nВне runtime-контекста bind возвращает 0.", "Checks the selected bind state and returns a string:\n- 1 — bind has ended or is inactive\n- 0 — bind is running, waiting for input/confirmation, or paused\n\nThis is a pure check: it can be used in [ifandor(...)] and conditions without executing actions.\n\nExamples:\n- [bindended({thisbind})]\n- [bindended(30)]\n- [bindended(\"fb\" \"\" \"Main\")]\n- [ifandor([bindended(30)]==1?[bindstart(30)]:Already running)]\n\nOutside bind runtime context it returns 0.") \
     X(TagsBuiltinBindPopupDescription, "Открывает popup строк выбранного bind для быстрой ручной отправки. Сам bind не запускает и текст не вставляет.\n\nПримеры:\n- [bindpopup(30)]\n- [bindpopup(\"№30 fb\")]\n- [bindpopup(\"fb\" \"Команды/Фрапс\")]\n- [bindpopup(\"fb\" \"\" \"Основные\")]\n\nРаботает только внутри выполняющегося bind и открывает popup после текущей строки. Если bind не найден или selector неоднозначен, будет ошибка.", "Opens the selected bind's lines popup for quick manual sending. It does not start the bind and inserts no text.\n\nExamples:\n- [bindpopup(30)]\n- [bindpopup(\"№30 fb\")]\n- [bindpopup(\"fb\" \"Commands/Fraps\")]\n- [bindpopup(\"fb\" \"\" \"Main\")]\n\nWorks only inside a running bind and opens the popup after the current line. Missing or ambiguous selectors produce an error.") \
     X(MiscVariablesTitle, "Переменные", "Variables") \
-    X(MiscVariablesIntro, "Отдельный модуль переменных живёт в общем HelperByOrc.json и даёт основу для будущего тегового движка. Здесь собраны простые данные игрока, время, lookup-теги и первые функциональные действия.", "The variables module lives in the shared HelperByOrc.json and lays the groundwork for the future tag engine. It already groups simple player data, time tags, lookup tags, and the first functional actions.") \
-    X(MiscVariablesCardTitle, "Каталог переменных", "Variables Catalog") \
-    X(MiscVariablesCardDesc, "Экран показывает встроенные и пользовательские переменные, их тип, описание и быстрый sandbox-предпросмотр без запуска бинда.", "This screen shows built-in and custom variables, their type, description, and a quick sandbox preview without launching a bind.") \
-    X(MiscVariablesBuiltinsLabel, "Встроенных", "Built-ins") \
-    X(MiscVariablesSimpleLabel, "Простых", "Simple") \
-    X(MiscVariablesFunctionLabel, "Функциональных", "Function") \
-    X(MiscVariablesCustomLabel, "Пользовательских", "Custom") \
-    X(MiscVariablesConfigLabel, "Секция конфига", "Config section") \
     X(MiscVariablesCatalogTitle, "Список тегов", "Tag Catalog") \
-    X(MiscVariablesSearchHint, "Поиск по токену или описанию", "Search by token or description") \
     X(MiscVariablesCatalogEmpty, "По запросу ничего не найдено.", "No tags matched the query.") \
     X(MiscVariablesInspectorTitle, "Карточка тега", "Tag Card") \
-    X(MiscVariablesInspectorEmpty, "Выберите тег слева, чтобы увидеть описание и пример.", "Select a tag on the left to view its description and example.") \
     X(MiscVariablesDescriptionLabel, "Описание", "Description") \
     X(MiscVariablesExampleLabel, "Пример", "Example") \
-    X(MiscVariablesCopyToken, "Скопировать токен", "Copy token") \
-    X(MiscVariablesCopyExample, "Скопировать пример", "Copy example") \
     X(MiscVariablesParamcmdNote, "[paramcmd(...)] работает только если бинд был запущен именно командой. Аргументы делятся по пробелам, как в Lua-версии.", "[paramcmd(...)] only works when the bind was launched by a command. Arguments are split by spaces, matching the Lua version.") \
-    X(MiscVariablesKeyEmulateNote, "[keyemulate(...)] выполняет одно нажатие клавиши и возвращает пустую строку. В sandbox и preview он только скрывается из результата без реального нажатия.", "[keyemulate(...)] performs a single key press and returns an empty string. In sandboxes and previews it only disappears from the result without pressing a real key.") \
+    X(MiscVariablesKeyEmulateNote, "[keyemulate(...)] выполняет одно нажатие клавиши во время выполнения bind и возвращает пустую строку.", "[keyemulate(...)] performs one key press while the bind is running and returns an empty string.") \
     X(MiscVariablesKeyPickerOpenHint, "Открыть список виртуальных клавиш и скопировать готовый [keyemulate(...)].", "Open the virtual-key list and copy a ready-made [keyemulate(...)].") \
     X(MiscVariablesKeyPickerTitle, "Подбор клавиши для [keyemulate(...)]", "Pick a key for [keyemulate(...)]") \
     X(MiscVariablesKeyPickerIntro, "Наведите или нажмите на плюсик, затем выберите виртуальную клавишу. Готовая переменная сразу скопируется в буфер обмена.", "Hover or click the plus button, then choose a virtual key. The ready-made variable is copied to the clipboard immediately.") \
@@ -425,16 +413,42 @@
     X(MiscVariablesDialogTextPickerCaptionLabel, "Заголовок диалога: %s", "Dialog caption: %s") \
     X(MiscVariablesDialogTextPickerCountLabel, "Всего токенов: %s", "Total tokens: %s") \
     X(MiscVariablesDialogTextPickerCopyHint, "Щелчок по строке копирует [dialogtext(index)] с выбранным индексом.", "Clicking a row copies [dialogtext(index)] with the selected index.") \
-    X(MiscVariablesPreviewTitle, "Sandbox", "Sandbox") \
-    X(MiscVariablesPreviewHint, "Здесь можно быстро проверить, как строка раскроется через текущий движок переменных.", "Use this sandbox to quickly test how a string expands through the current variables engine.") \
-    X(MiscVariablesTemplateLabel, "Шаблон", "Template") \
-    X(MiscVariablesPreviewLaunchManual, "Обычный запуск", "Regular launch") \
-    X(MiscVariablesPreviewLaunchCommand, "Запуск командой", "Command launch") \
-    X(MiscVariablesPreviewSourceLabel, "Источник запуска", "Launch source") \
-    X(MiscVariablesPreviewBindCommandLabel, "Команда бинда", "Bind command") \
-    X(MiscVariablesPreviewCommandTextLabel, "Введённая команда", "Entered command") \
-    X(MiscVariablesPreviewResultLabel, "Результат", "Result") \
-    X(MiscVariablesPreviewEmpty, "Результат пустой.", "The result is empty.") \
+    X(VariablesSearchHint, "Поиск по токену, описанию или категории", "Search by token, description, or category") \
+    X(VariablesNoMatches, "По фильтрам ничего не найдено.", "No variables matched the filters.") \
+    X(VariablesInspectorEmpty, "Выберите переменную слева.", "Select a variable on the left.") \
+    X(VariablesVisibleCountFormat, "Показано %s из %s", "Showing %s of %s") \
+    X(VariablesCategoryAll, "Все", "All") \
+    X(VariablesCategoryPlayer, "Игрок", "Player") \
+    X(VariablesCategoryTarget, "Цель", "Target") \
+    X(VariablesCategorySampDialog, "Диалог SA:MP", "SA:MP dialog") \
+    X(VariablesCategoryArizona, "Arizona CEF", "Arizona CEF") \
+    X(VariablesCategoryBinder, "Бинд", "Bind") \
+    X(VariablesCategoryText, "Текст/математика", "Text/math") \
+    X(VariablesCategoryActions, "Действия", "Actions") \
+    X(VariablesCategoryCustom, "Пользовательские", "Custom") \
+    X(VariablesCategoryParameters, "Параметры бинда", "Bind parameters") \
+    X(VariablesBadgeSimple, "Простая", "Simple") \
+    X(VariablesBadgeFunction, "Функция", "Function") \
+    X(VariablesBadgeCustom, "Custom", "Custom") \
+    X(VariablesBadgeParameter, "Параметр", "Parameter") \
+    X(VariablesBadgeAction, "Действие", "Action") \
+    X(VariablesInsert, "Вставить", "Insert") \
+    X(VariablesInsertExample, "Вставить пример", "Insert example") \
+    X(VariablesInsertTemplate, "Вставить шаблон", "Insert template") \
+    X(VariablesCopyExample, "Копировать пример", "Copy example") \
+    X(VariablesCopyTemplate, "Копировать шаблон", "Copy template") \
+    X(VariablesNoInsertTarget, "Сначала выберите текстовую строку сценария или поле нового шага.", "Select a scenario text row or the new-step field first.") \
+    X(VariablesNewCustom, "Переменная", "Variable") \
+    X(VariablesCustomCreateTitle, "Новая пользовательская переменная", "New custom variable") \
+    X(VariablesCustomEditTitle, "Редактирование пользовательской переменной", "Edit custom variable") \
+    X(VariablesCustomNameHint, "Имя: латиница, цифры и _, 1-64 символа. Использование: {name}.", "Name: Latin letters, digits, and _, 1-64 characters. Usage: {name}.") \
+    X(VariablesCustomValue, "Значение", "Value") \
+    X(VariablesCustomReadOnlyHint, "Редактирование пользовательских переменных доступно во вкладке Прочее.", "Custom variables can be edited from the Misc tab.") \
+    X(VariablesDeleteCustomQuestion, "Удалить пользовательскую переменную \"%s\"?", "Delete custom variable \"%s\"?") \
+    X(VariablesCustomErrorEmptyName, "Введите имя переменной.", "Enter a variable name.") \
+    X(VariablesCustomErrorBadName, "Имя может содержать только A-Z, a-z, 0-9 и _. Длина: 1-64.", "The name may contain only A-Z, a-z, 0-9, and _. Length: 1-64.") \
+    X(VariablesCustomErrorBuiltinConflict, "Имя конфликтует со встроенной переменной.", "The name conflicts with a built-in variable.") \
+    X(VariablesCustomErrorDuplicate, "Пользовательская переменная с таким именем уже есть.", "A custom variable with this name already exists.") \
     X(NotepadIntro, "Профильный блокнот с папками, разметкой, локальными картинками и live preview.", "Profile-aware notepad with folders, markup, local images, and live preview.") \
     X(NotepadRootName, "Блокнот", "Notepad") \
     X(NotepadNewNote, "Заметка", "Note") \
@@ -918,13 +932,8 @@
     X(EditorVariablesTitle, "Переменные бинда", "Bind variables") \
     X(EditorVariablesHint, "Используйте {{KEY}} или {{1}} в сообщениях, чтобы подставить значения параметров.", "Use {{KEY}} or {{1}} in messages to insert parameter values.") \
     X(EditorVariablesEmpty, "Параметры ещё не настроены.", "No parameters are configured yet.") \
-    X(EditorVariablesParametersTab, "Параметры бинда", "Bind parameters") \
-    X(EditorVariablesSimpleTab, "Обычные", "Simple") \
-    X(EditorVariablesFunctionTab, "Функциональные", "Functional") \
-    X(EditorVariablesInspectorEmpty, "Выберите строку слева, чтобы увидеть варианты копирования.", "Select an item on the left to view copy options.") \
-    X(EditorVariablesParameterClickHint, "Щелчок по строке слева копирует основной плейсхолдер текущего параметра.", "Clicking a row on the left copies the primary placeholder for that parameter.") \
-    X(EditorVariablesSimpleClickHint, "Щелчок по строке слева копирует основу тега.", "Clicking a row on the left copies the tag token.") \
-    X(EditorVariablesFunctionClickHint, "Щелчок по строке слева копирует готовый пример.", "Clicking a row on the left copies the ready-made example.") \
+    X(EditorVariablesKeyPickerInsertHint, "Щелчок по строке вставляет [keyemulate(code)] в выбранное поле сценария. Если поле не выбрано, токен копируется.", "Clicking a row inserts [keyemulate(code)] into the selected scenario field. If no field is selected, the token is copied.") \
+    X(EditorVariablesDialogPickerInsertHint, "Щелчок по строке вставляет токен в выбранное поле сценария. Если поле не выбрано, токен копируется.", "Clicking a row inserts the token into the selected scenario field. If no field is selected, the token is copied.") \
     X(EditorDiscardTitle, "Несохранённые изменения", "Unsaved changes") \
     X(EditorDiscardMessage, "Изменения не сохранены. Продолжить и потерять правки?", "Changes are not saved. Continue and discard them?") \
     X(EditorDiscardAction, "Продолжить", "Continue") \

@@ -91,7 +91,8 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         return result;
     }
 
-    const bool helperWants = inputs.helperWantsInputRouting || inputs.helperWantsCursor;
+    const bool helperWantsCursor = inputs.helperWantsCursor;
+    const bool helperWantsKeyRouting = inputs.helperWantsInputRouting && !helperWantsCursor;
     const bool sampCursorActive = ModeActive(inputs.sampCursorMode);
     const bool sampUiExternalActive = inputs.chatOpen || inputs.dialogOpen;
     const bool blockingExternalActive = (inputs.externalCursorActive && !sampUiExternalActive)
@@ -99,7 +100,7 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
     const bool orphanedSampCursorMode = deferredExternalReleasePending_
         && now <= deferredExternalReleaseCleanupUntilMs_
         && !helperModeActive_
-        && !helperWants
+        && !helperWantsCursor
         && ModeLockCamAndControl(inputs.sampCursorMode)
         && !HasKnownExternalOwner(inputs);
     if (orphanedSampCursorMode) {
@@ -132,13 +133,14 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         ClearDeferredExternalRelease();
     }
 
-    const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWants;
+    const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWantsCursor;
     const bool externalActive = blockingExternalActive
-        || (!helperWants && (sampUiExternalActive || passiveSampCursorOwner));
+        || (!helperWantsCursor && (sampUiExternalActive || passiveSampCursorOwner));
 
     if (externalActive) {
         result.owner = Owner::External;
         result.reason = inputs.externalOwnerName.empty() ? "samp-cursor-mode" : inputs.externalOwnerName;
+        result.routingAllowed = helperWantsKeyRouting;
         if (lastUiHold_) {
             ReleaseHold("[ui] ReleaseCapture due to external cursor owner");
         }
@@ -151,7 +153,7 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         return result;
     }
 
-    if (helperWants) {
+    if (helperWantsCursor) {
         result.owner = Owner::Helper;
         result.reason = inputs.helperWantsInputRouting ? "helper-routing" : "helper-cursor";
 
@@ -176,6 +178,29 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
 
         lastUiHold_ = true;
         result.routingAllowed = true;
+        TraceState(inputs, result, rmbHeld, now);
+        lastOwner_ = result.owner;
+        lastReason_ = result.reason;
+        return result;
+    }
+
+    if (helperWantsKeyRouting) {
+        result.owner = Owner::Helper;
+        result.reason = "helper-key-routing";
+        result.routingAllowed = true;
+        if (lastUiHold_) {
+            ReleaseHold("[ui] ReleaseCapture due to key routing without cursor");
+        }
+        if (helperModeActive_) {
+            result.sampModeApplied = ApplySampCursorMode(kSampCursorModeNone, false, false, now);
+            if (result.sampModeApplied) {
+                helperModeActive_ = false;
+                if (deferredExternalReleasePending_) {
+                    deferredExternalReleaseCleanupUntilMs_ = now + kDeferredExternalReleaseCleanupWindowMs;
+                }
+            }
+        }
+
         TraceState(inputs, result, rmbHeld, now);
         lastOwner_ = result.owner;
         lastReason_ = result.reason;

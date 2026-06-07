@@ -1,6 +1,7 @@
 #pragma once
 
 #include "binder_types.h"
+#include "variables_picker_ui.h"
 
 #include <functional>
 #include <string>
@@ -19,6 +20,12 @@ struct State {
         None = 0,
         Close,
         Navigate,
+    };
+
+    enum class VariableInsertTarget {
+        None = 0,
+        ScenarioMessage,
+        ScenarioAppend,
     };
 
     bool active = false;
@@ -44,16 +51,14 @@ struct State {
     bool variablesPopupPending = false;
     bool multiInputPopupPending = false;
     bool confirmationSettingsPopupPending = false;
-    bool variablesTabSelectionPending = false;
     bool variablesKeyPickerPopupPending = false;
     bool discardPopupPending = false;
     bool scenarioAppendFocusPending = false;
-    int variablesActiveTab = 0;
-    int selectedVariableInputIndex = -1;
-    int selectedSimpleTagIndex = -1;
-    int selectedFunctionTagIndex = -1;
-    std::string variablesSearch{};
+    VariableInsertTarget variablesInsertTarget = VariableInsertTarget::None;
+    int variablesInsertMessageIndex = -1;
+    int variablesInsertCursorByte = -1;
     std::string variablesKeyPickerSearch{};
+    variables_picker::State variablesPicker{};
     HotkeyEntry baseline{};
     HotkeyEntry draft{};
 };

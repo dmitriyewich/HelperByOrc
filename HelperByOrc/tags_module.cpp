@@ -224,17 +224,6 @@ ImVec2 ScaleUi(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
-const char* TagKindLabel(TagsModule::TagKind kind, UiSettings& ui) {
-    return ui.Text(kind == TagsModule::TagKind::Simple ? UiText::TagsKindSimple : UiText::TagsKindFunction);
-}
-
-void DrawStatBlock(const char* label, const std::string& value, const ImVec4& accent) {
-    ImGui::BeginGroup();
-    ImGui::TextColored(accent, "%s", value.c_str());
-    ImGui::TextDisabled("%s", label);
-    ImGui::EndGroup();
-}
-
 ImVec4 LerpColor(const ImVec4& a, const ImVec4& b, float t) {
     return ImVec4(
         a.x + (b.x - a.x) * t,
@@ -300,12 +289,20 @@ bool DrawNavigationCardButton(
     return ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
 }
 
-bool SelectableCopyToken(const std::string& label, const std::string& token, std::string& searchQuery) {
+bool SelectableUseToken(
+    const std::string& label,
+    const std::string& token,
+    std::string& searchQuery,
+    const std::function<void(std::string_view)>& tokenAction = {}) {
     if (!ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
         return false;
     }
 
-    ImGui::SetClipboardText(token.c_str());
+    if (tokenAction) {
+        tokenAction(token);
+    } else {
+        ImGui::SetClipboardText(token.c_str());
+    }
     searchQuery.clear();
     ImGui::CloseCurrentPopup();
     return true;
@@ -320,7 +317,8 @@ void DrawSearchableTokenList(
     std::string& searchQuery,
     SearchFn searchFn,
     LabelFn labelFn,
-    TokenFn tokenFn) {
+    TokenFn tokenFn,
+    const std::function<void(std::string_view)>& tokenAction = {}) {
     bool hasMatches = false;
     if (ImGui::BeginChild(childId, ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
         for (const auto& item : items) {
@@ -329,7 +327,7 @@ void DrawSearchableTokenList(
             }
 
             hasMatches = true;
-            if (SelectableCopyToken(labelFn(item), tokenFn(item), searchQuery)) {
+            if (SelectableUseToken(labelFn(item), tokenFn(item), searchQuery, tokenAction)) {
                 break;
             }
         }
@@ -1960,6 +1958,10 @@ const std::vector<TagsModule::CatalogEntry>& TagsModule::CatalogEntries() const 
     return catalogEntries_;
 }
 
+const std::vector<std::pair<std::string, std::string>>& TagsModule::CustomVariables() const {
+    return customVariables_;
+}
+
 std::string StripDialogColorCodes(std::string_view text) {
     std::string cleaned;
     cleaned.reserve(text.size());
@@ -3381,9 +3383,6 @@ void TagsModule::OnProcessAttach() {
     LoadConfig();
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
-    if (selectedTagIndex_ < 0 || selectedTagIndex_ >= static_cast<int>(tagRegistry_.Entries().size())) {
-        selectedTagIndex_ = 0;
-    }
     debuglog::WriteInfo(
         "TagsModule::OnProcessAttach done tags=%llu customVars=%llu",
         static_cast<unsigned long long>(tagRegistry_.Entries().size()),
@@ -3402,7 +3401,7 @@ void TagsModule::Shutdown() {
     readyArzDialogQueries_.clear();
     blockedCurrentDispatchRuntimes_.clear();
     pendingDialogWaits_.clear();
-    searchQuery_.clear();
+    variablesPickerState_ = {};
     dialogItemPickerSearchQuery_.clear();
     dialogTextPickerSearchQuery_.clear();
     ResetTargetTracker();
@@ -3416,9 +3415,6 @@ void TagsModule::ReloadConfig() {
     Shutdown();
     InitializeRegistry();
     LoadConfig();
-    if (selectedTagIndex_ < 0 || selectedTagIndex_ >= static_cast<int>(tagRegistry_.Entries().size())) {
-        selectedTagIndex_ = 0;
-    }
     debuglog::WriteInfo(
         "TagsModule::ReloadConfig done tags=%llu customVars=%llu",
         static_cast<unsigned long long>(tagRegistry_.Entries().size()),
@@ -6154,7 +6150,6 @@ std::string TagsModule::ExpandOutgoingText(
 
 void TagsModule::OpenKeyEmulatePicker() {
     keyPickerSearchQuery_.clear();
-    keyPickerHoverTriggered_ = true;
     ImGui::OpenPopup("##tags_keyemulate_picker");
 }
 
@@ -6169,14 +6164,25 @@ void TagsModule::OpenDialogTextPicker(DialogTextPickerSource source) {
     dialogTextPickerOpenPending_ = true;
 }
 
+void TagsModule::OpenSampDialogTextPicker() {
+    OpenDialogTextPicker(DialogTextPickerSource::Samp);
+}
+
+void TagsModule::OpenArizonaDialogTextPicker() {
+    OpenDialogTextPicker(DialogTextPickerSource::Arizona);
+}
+
+void TagsModule::DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction) {
+    DrawKeyEmulatePickerPopup();
+    DrawDialogItemPickerPopup(tokenAction);
+    DrawDialogTextPickerPopup(tokenAction);
+}
+
 void TagsModule::DrawKeyEmulatePickerPopup() {
     UiSettings& ui = UiSettings::Instance();
 
     ImGui::SetNextWindowSize(ScaleUi(560.0f, 520.0f), ImGuiCond_Appearing);
     if (!ImGui::BeginPopup("##tags_keyemulate_picker")) {
-        if (!ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
-            keyPickerHoverTriggered_ = false;
-        }
         return;
     }
 
@@ -6206,13 +6212,10 @@ void TagsModule::DrawKeyEmulatePickerPopup() {
     ImGui::Spacing();
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyPickerCopyHint));
 
-    if (!ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
-        keyPickerHoverTriggered_ = false;
-    }
     ImGui::EndPopup();
 }
 
-void TagsModule::DrawDialogItemPickerPopup() {
+void TagsModule::DrawDialogItemPickerPopup(const std::function<void(std::string_view)>& tokenAction) {
     if (dialogItemPickerOpenPending_) {
         ImGui::OpenPopup("##tags_dialogitem_picker");
         dialogItemPickerOpenPending_ = false;
@@ -6270,14 +6273,17 @@ void TagsModule::DrawDialogItemPickerPopup() {
         },
         [](const DialogListItemInfo& item) {
             return "[dialogitem(" + std::to_string(item.index1) + ")]";
-        });
+        },
+        tokenAction);
 
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDialogItemPickerCopyHint));
+    ImGui::TextDisabled(
+        "%s",
+        ui.Text(tokenAction ? UiText::EditorVariablesDialogPickerInsertHint : UiText::MiscVariablesDialogItemPickerCopyHint));
     ImGui::EndPopup();
 }
 
-void TagsModule::DrawDialogTextPickerPopup() {
+void TagsModule::DrawDialogTextPickerPopup(const std::function<void(std::string_view)>& tokenAction) {
     if (dialogTextPickerOpenPending_) {
         ImGui::OpenPopup("##tags_dialogtext_picker");
         dialogTextPickerOpenPending_ = false;
@@ -6354,12 +6360,16 @@ void TagsModule::DrawDialogTextPickerPopup() {
             return std::string(arizonaSource ? "[ARZdialoggetdialogtext(" : "[dialogtext(")
                 + std::to_string(token.index)
                 + ")]";
-        });
+        },
+        tokenAction);
 
     ImGui::Spacing();
     ImGui::TextDisabled(
         "%s",
-        ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogTextPickerCopyHint : UiText::MiscVariablesDialogTextPickerCopyHint));
+        ui.Text(
+            tokenAction
+                ? UiText::EditorVariablesDialogPickerInsertHint
+                : arizonaSource ? UiText::MiscVariablesArzDialogTextPickerCopyHint : UiText::MiscVariablesDialogTextPickerCopyHint));
     ImGui::EndPopup();
 }
 
@@ -6381,6 +6391,169 @@ void TagsModule::DrawMiscHomePage() {
     }
 }
 
+std::vector<variables_picker::Entry> TagsModule::BuildVariablePickerEntries() const {
+    std::vector<variables_picker::Entry> entries;
+    entries.reserve(tagRegistry_.Entries().size() + customVariables_.size());
+
+    for (const TagEntry& tag : tagRegistry_.Entries()) {
+        const variables_picker::EntryKind kind = tag.kind == TagKind::Function
+            ? variables_picker::EntryKind::Function
+            : variables_picker::EntryKind::Simple;
+        const bool action = variables_picker::IsActionBuiltin(tag.name);
+        variables_picker::Entry entry;
+        entry.kind = kind;
+        entry.category = variables_picker::ClassifyBuiltin(tag.name);
+        entry.id = variables_picker::MakeEntryId(kind, tag.token);
+        entry.name = tag.name;
+        entry.token = tag.token;
+        entry.example = tag.example;
+        entry.descriptionText = tag.descriptionText;
+        entry.action = action;
+        entries.push_back(std::move(entry));
+    }
+
+    for (const auto& [name, value] : customVariables_) {
+        variables_picker::Entry entry;
+        entry.kind = variables_picker::EntryKind::Custom;
+        entry.category = variables_picker::Category::Custom;
+        entry.id = variables_picker::MakeEntryId(variables_picker::EntryKind::Custom, name);
+        entry.name = name;
+        entry.token = "{" + name + "}";
+        entry.example = entry.token;
+        entry.value = value;
+        entry.description = value;
+        entries.push_back(std::move(entry));
+    }
+
+    return entries;
+}
+
+std::string TagsModule::ValidateCustomVariableName(std::string_view originalName, std::string_view name) const {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string cleanName = Trim(name);
+    if (cleanName.empty()) {
+        return ui.Text(UiText::VariablesCustomErrorEmptyName);
+    }
+    if (cleanName.size() > 64) {
+        return ui.Text(UiText::VariablesCustomErrorBadName);
+    }
+
+    for (const unsigned char ch : cleanName) {
+        if (std::isalnum(ch) == 0 && ch != '_') {
+            return ui.Text(UiText::VariablesCustomErrorBadName);
+        }
+    }
+
+    const std::string loweredName = ToLower(cleanName);
+    const std::string loweredOriginal = ToLower(Trim(originalName));
+    for (const TagEntry& tag : tagRegistry_.Entries()) {
+        if (ToLower(tag.name) == loweredName) {
+            return ui.Text(UiText::VariablesCustomErrorBuiltinConflict);
+        }
+    }
+
+    for (const auto& [customName, _] : customVariables_) {
+        const std::string loweredCustom = ToLower(customName);
+        if (loweredCustom == loweredName && loweredCustom != loweredOriginal) {
+            return ui.Text(UiText::VariablesCustomErrorDuplicate);
+        }
+    }
+
+    return {};
+}
+
+bool TagsModule::UpsertCustomVariable(std::string originalName, std::string name, std::string value) {
+    name = Trim(name);
+    originalName = Trim(originalName);
+    const std::string error = ValidateCustomVariableName(originalName, name);
+    if (!error.empty()) {
+        variablesPickerState_.customError = error;
+        return false;
+    }
+
+    const std::string loweredOriginal = ToLower(originalName);
+    if (!loweredOriginal.empty()) {
+        customVariables_.erase(
+            std::remove_if(
+                customVariables_.begin(),
+                customVariables_.end(),
+                [&](const auto& item) { return ToLower(item.first) == loweredOriginal; }),
+            customVariables_.end());
+    }
+
+    const std::string loweredName = ToLower(name);
+    auto existing = std::find_if(customVariables_.begin(), customVariables_.end(), [&](const auto& item) {
+        return ToLower(item.first) == loweredName;
+    });
+    if (existing != customVariables_.end()) {
+        existing->first = std::move(name);
+        existing->second = std::move(value);
+    } else {
+        customVariables_.emplace_back(std::move(name), std::move(value));
+    }
+
+    std::sort(customVariables_.begin(), customVariables_.end(), [](const auto& left, const auto& right) {
+        return left.first < right.first;
+    });
+    SaveConfig();
+    return true;
+}
+
+bool TagsModule::DeleteCustomVariable(std::string_view name) {
+    const std::string loweredName = ToLower(Trim(name));
+    const auto oldSize = customVariables_.size();
+    customVariables_.erase(
+        std::remove_if(
+            customVariables_.begin(),
+            customVariables_.end(),
+            [&](const auto& item) { return ToLower(item.first) == loweredName; }),
+        customVariables_.end());
+    if (customVariables_.size() == oldSize) {
+        return false;
+    }
+
+    SaveConfig();
+    return true;
+}
+
+void TagsModule::HandleVariablePickerRequest(const variables_picker::Request& request) {
+    switch (request.type) {
+    case variables_picker::RequestType::Copy:
+        ImGui::SetClipboardText(request.text.c_str());
+        break;
+    case variables_picker::RequestType::OpenKeyEmulatePicker:
+        OpenKeyEmulatePicker();
+        break;
+    case variables_picker::RequestType::OpenDialogItemPicker:
+        OpenDialogItemPicker();
+        break;
+    case variables_picker::RequestType::OpenDialogTextPicker:
+        OpenDialogTextPicker(DialogTextPickerSource::Samp);
+        break;
+    case variables_picker::RequestType::OpenArizonaDialogTextPicker:
+        OpenDialogTextPicker(DialogTextPickerSource::Arizona);
+        break;
+    case variables_picker::RequestType::SaveCustom:
+        if (UpsertCustomVariable(request.text, request.name, request.value)) {
+            const std::string cleanName = Trim(request.name);
+            variablesPickerState_.customDraftOpen = false;
+            variablesPickerState_.customError.clear();
+            variablesPickerState_.selectedId =
+                variables_picker::MakeEntryId(variables_picker::EntryKind::Custom, cleanName);
+        }
+        break;
+    case variables_picker::RequestType::DeleteCustom:
+        if (DeleteCustomVariable(request.name)) {
+            variablesPickerState_.selectedId.clear();
+        }
+        break;
+    case variables_picker::RequestType::None:
+    case variables_picker::RequestType::Insert:
+    default:
+        break;
+    }
+}
+
 void TagsModule::DrawVariablesPage() {
     UiSettings& ui = UiSettings::Instance();
 
@@ -6392,201 +6565,26 @@ void TagsModule::DrawVariablesPage() {
     ImGui::TextDisabled("%s", ui.Text(UiText::TabMisc));
     ImGui::Spacing();
 
-    ImGui::SeparatorText(ui.Text(UiText::MiscVariablesTitle));
-    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesIntro));
+    ImGui::Text("%s", ui.Text(UiText::MiscVariablesTitle));
+    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesEntryDesc));
     ImGui::Spacing();
 
-    if (ImGui::BeginChild("##tags_overview_card", ImVec2(0.0f, ScaleUi(120.0f)), ImGuiChildFlags_FrameStyle)) {
-        ImGui::TextColored(ImVec4(0.97f, 0.83f, 0.46f, 1.0f), "%s", ui.Text(UiText::MiscVariablesCardTitle));
-        ImGui::Spacing();
-        ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesCardDesc));
-        ImGui::Spacing();
-        if (ImGui::BeginTable("##tags_overview_stats", 5, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            DrawStatBlock(
-                ui.Text(UiText::MiscVariablesBuiltinsLabel),
-                std::to_string(tagRegistry_.Entries().size()),
-                ImVec4(0.97f, 0.83f, 0.46f, 1.0f));
-            ImGui::TableSetColumnIndex(1);
-            DrawStatBlock(
-                ui.Text(UiText::MiscVariablesSimpleLabel),
-                std::to_string(tagRegistry_.Count(TagKind::Simple)),
-                ImVec4(0.55f, 0.86f, 0.98f, 1.0f));
-            ImGui::TableSetColumnIndex(2);
-            DrawStatBlock(
-                ui.Text(UiText::MiscVariablesFunctionLabel),
-                std::to_string(tagRegistry_.Count(TagKind::Function)),
-                ImVec4(0.75f, 0.92f, 0.62f, 1.0f));
-            ImGui::TableSetColumnIndex(3);
-            DrawStatBlock(
-                ui.Text(UiText::MiscVariablesCustomLabel),
-                std::to_string(customVariables_.size()),
-                ImVec4(0.88f, 0.70f, 0.96f, 1.0f));
-            ImGui::TableSetColumnIndex(4);
-            DrawStatBlock(
-                ui.Text(UiText::MiscVariablesConfigLabel),
-                std::string(kTagsSectionName),
-                ImVec4(0.92f, 0.92f, 0.92f, 1.0f));
-            ImGui::EndTable();
-        }
-    }
-    ImGui::EndChild();
+    const std::vector<variables_picker::Entry> entries = BuildVariablePickerEntries();
+    const variables_picker::Request request = variables_picker::Draw(
+        variablesPickerState_,
+        entries,
+        variables_picker::Options{
+            variables_picker::Mode::Manage,
+            "misc_variables_picker",
+            false,
+            true,
+            ImGui::GetContentRegionAvail(),
+        });
+    HandleVariablePickerRequest(request);
 
-    ImGui::Spacing();
-    if (ImGui::BeginTable(
-            "##tags_main_layout",
-            2,
-            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0.0f, 0.0f))) {
-        ImGui::TableSetupColumn("catalog", ImGuiTableColumnFlags_WidthStretch, 0.48f);
-        ImGui::TableSetupColumn("inspector", ImGuiTableColumnFlags_WidthStretch, 0.52f);
-        ImGui::TableNextRow();
-
-        ImGui::TableSetColumnIndex(0);
-        if (ImGui::BeginChild("##tags_catalog_card", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-            ImGui::SeparatorText(ui.Text(UiText::MiscVariablesCatalogTitle));
-            InputTextWithHintString(
-                "##tags_search_query",
-                ui.Text(UiText::MiscVariablesSearchHint),
-                searchQuery_,
-                ImGuiInputTextFlags_AutoSelectAll,
-                128);
-            ImGui::Spacing();
-
-            std::vector<int> visibleIndices;
-            const std::string query = ToLower(searchQuery_);
-            const auto& entries = tagRegistry_.Entries();
-            for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
-                const TagEntry& tag = entries[static_cast<std::size_t>(i)];
-                const std::string haystack = ToLower(std::string(tag.token) + " " + ui.Text(tag.descriptionText));
-                if (query.empty() || haystack.find(query) != std::string::npos) {
-                    visibleIndices.push_back(i);
-                }
-            }
-
-            if (ImGui::BeginChild("##tags_catalog_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-                if (visibleIndices.empty()) {
-                    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesCatalogEmpty));
-                } else if (ImGui::BeginTable(
-                               "##tags_catalog_table",
-                               2,
-                               ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_NoSavedSettings,
-                               ImVec2(0.0f, 0.0f))) {
-                    ImGui::TableSetupColumn("kind", ImGuiTableColumnFlags_WidthFixed, ScaleUi(148.0f));
-                    ImGui::TableSetupColumn("token", ImGuiTableColumnFlags_WidthStretch);
-
-                    for (const int index : visibleIndices) {
-                        const TagEntry& tag = entries[static_cast<std::size_t>(index)];
-                        const bool selected = selectedTagIndex_ == index;
-
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::AlignTextToFramePadding();
-                        ImGui::TextDisabled("%s", TagKindLabel(tag.kind, ui));
-
-                        ImGui::TableSetColumnIndex(1);
-                        if (ImGui::Selectable(tag.token.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
-                            selectedTagIndex_ = index;
-                        }
-                        if (ImGui::IsItemHovered() || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                            ImGui::SetTooltip("%s", ui.Text(tag.descriptionText));
-                        }
-                    }
-                    ImGui::EndTable();
-                }
-            }
-            ImGui::EndChild();
-        }
-        ImGui::EndChild();
-
-        ImGui::TableSetColumnIndex(1);
-        if (ImGui::BeginChild("##tags_inspector_card", ImVec2(0.0f, 0.0f), ImGuiChildFlags_FrameStyle)) {
-            ImGui::SeparatorText(ui.Text(UiText::MiscVariablesInspectorTitle));
-            const TagEntry* selectedTag = tagRegistry_.FindByIndex(selectedTagIndex_);
-            if (!selectedTag) {
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesInspectorEmpty));
-            } else {
-                ImGui::TextColored(ImVec4(0.55f, 0.86f, 0.98f, 1.0f), "%s", selectedTag->token.c_str());
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "keyemulate") {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(" + ")) {
-                        OpenKeyEmulatePicker();
-                    }
-
-                    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
-                    if (hovered && !keyPickerHoverTriggered_ && !ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
-                        OpenKeyEmulatePicker();
-                    } else if (!hovered && !ImGui::IsPopupOpen("##tags_keyemulate_picker")) {
-                        keyPickerHoverTriggered_ = false;
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesKeyPickerOpenHint));
-                    }
-                }
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "dialogitem") {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(" +##dialogitem_picker")) {
-                        OpenDialogItemPicker();
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesDialogItemPickerOpenHint));
-                    }
-                }
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "dialogtext") {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(" +##dialogtext_picker")) {
-                        OpenDialogTextPicker(DialogTextPickerSource::Samp);
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesDialogTextPickerOpenHint));
-                    }
-                }
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "arzdialoggetdialogtext") {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(" +##arzdialogtext_picker")) {
-                        OpenDialogTextPicker(DialogTextPickerSource::Arizona);
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s", ui.Text(UiText::MiscVariablesArzDialogTextPickerOpenHint));
-                    }
-                }
-                ImGui::TextDisabled("%s", TagKindLabel(selectedTag->kind, ui));
-                ImGui::Separator();
-
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesDescriptionLabel));
-                ImGui::TextWrapped("%s", ui.Text(selectedTag->descriptionText));
-                ImGui::Spacing();
-
-                ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesExampleLabel));
-                ImGui::TextWrapped("%s", selectedTag->example.c_str());
-                ImGui::Spacing();
-
-                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyToken), ScaleUi(170.0f, 0.0f))) {
-                    ImGui::SetClipboardText(selectedTag->token.c_str());
-                }
-                ImGui::SameLine();
-                if (ImGui::Button(ui.Text(UiText::MiscVariablesCopyExample), ScaleUi(170.0f, 0.0f))) {
-                    ImGui::SetClipboardText(selectedTag->example.c_str());
-                }
-
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "paramcmd") {
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesParamcmdNote));
-                }
-                if (selectedTag->kind == TagKind::Function && std::string_view(selectedTag->name) == "keyemulate") {
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyEmulateNote));
-                }
-            }
-
-            DrawKeyEmulatePickerPopup();
-            DrawDialogItemPickerPopup();
-            DrawDialogTextPickerPopup();
-        }
-        ImGui::EndChild();
-        ImGui::EndTable();
-    }
+    DrawKeyEmulatePickerPopup();
+    DrawDialogItemPickerPopup();
+    DrawDialogTextPickerPopup();
 }
 
 bool TagsModule::IsMiscHomePage() const {
