@@ -777,36 +777,70 @@ void DrawListPane(State& state, const std::vector<Entry>& entries, const std::ve
     EndPanel();
 }
 
-void DrawHelperActions(const Entry& entry, Request& request) {
+struct HelperAction {
+    RequestType requestType = RequestType::None;
+    const char* icon = nullptr;
+    UiText label = UiText::Count;
+    UiText tooltip = UiText::Count;
+};
+
+bool TryGetHelperAction(const Entry& entry, HelperAction& action) {
     if (entry.kind != EntryKind::Function) {
+        return false;
+    }
+
+    RequestType requestType = RequestType::None;
+    const char* icon = ui_icons::Search;
+    UiText label = UiText::Count;
+    UiText tooltip = UiText::Count;
+    if (entry.name == "keyemulate") {
+        requestType = RequestType::OpenKeyEmulatePicker;
+        icon = ui_icons::Keyboard;
+        label = UiText::VariablesPickKey;
+        tooltip = UiText::MiscVariablesKeyPickerOpenHint;
+    } else if (entry.name == "dialogitem") {
+        requestType = RequestType::OpenDialogItemPicker;
+        label = UiText::VariablesPickDialogItem;
+        tooltip = UiText::MiscVariablesDialogItemPickerOpenHint;
+    } else if (entry.name == "dialogtext") {
+        requestType = RequestType::OpenDialogTextPicker;
+        label = UiText::VariablesPickDialogIndex;
+        tooltip = UiText::MiscVariablesDialogTextPickerOpenHint;
+    } else if (entry.name == "arzdialoggetdialogtext") {
+        requestType = RequestType::OpenArizonaDialogTextPicker;
+        label = UiText::VariablesPickDialogIndex;
+        tooltip = UiText::MiscVariablesArzDialogTextPickerOpenHint;
+    }
+
+    if (requestType == RequestType::None) {
+        return false;
+    }
+
+    action.requestType = requestType;
+    action.icon = icon;
+    action.label = label;
+    action.tooltip = tooltip;
+    return true;
+}
+
+void DrawHelperActionButton(const Entry& entry, const VisualStyle& visual, Request& request) {
+    HelperAction action;
+    if (!TryGetHelperAction(entry, action)) {
         return;
     }
 
     UiSettings& ui = UiSettings::Instance();
-    const VisualStyle visual = StyleTokens();
-    RequestType requestType = RequestType::None;
-    const char* tooltip = nullptr;
-    if (entry.name == "keyemulate") {
-        requestType = RequestType::OpenKeyEmulatePicker;
-        tooltip = ui.Text(UiText::MiscVariablesKeyPickerOpenHint);
-    } else if (entry.name == "dialogitem") {
-        requestType = RequestType::OpenDialogItemPicker;
-        tooltip = ui.Text(UiText::MiscVariablesDialogItemPickerOpenHint);
-    } else if (entry.name == "dialogtext") {
-        requestType = RequestType::OpenDialogTextPicker;
-        tooltip = ui.Text(UiText::MiscVariablesDialogTextPickerOpenHint);
-    } else if (entry.name == "arzdialoggetdialogtext") {
-        requestType = RequestType::OpenArizonaDialogTextPicker;
-        tooltip = ui.Text(UiText::MiscVariablesArzDialogTextPickerOpenHint);
-    }
-
-    if (requestType == RequestType::None) {
-        return;
-    }
-
-    ImGui::SameLine();
-    if (FlatIconButton(ui_icons::Plus, "##variables_open_helper", tooltip, ScaleUi(26.0f, 24.0f), visual)) {
-        request.type = requestType;
+    ImGui::Spacing();
+    const float width = std::max(1.0f, std::min(ScaleUi(230.0f), ImGui::GetContentRegionAvail().x));
+    if (TextButton(
+            action.icon,
+            ui.Text(action.label),
+            "##variables_open_helper",
+            ImVec2(width, 0.0f),
+            visual,
+            true,
+            ui.Text(action.tooltip))) {
+        request.type = action.requestType;
     }
 }
 
@@ -898,7 +932,6 @@ void DrawInspectorPane(State& state, const Entry* selected, const Options& optio
     }
 
     ImGui::TextColored(visual.headerText, "%s", selected->token.c_str());
-    DrawHelperActions(*selected, request);
     ImGui::Spacing();
     DrawBadge(CategoryLabel(selected->category, ui), visual.mutedText, visual);
     ImGui::SameLine();
@@ -968,6 +1001,8 @@ void DrawInspectorPane(State& state, const Entry* selected, const Options& optio
             request = MakePrimaryRequest(*selected, options);
         }
     }
+
+    DrawHelperActionButton(*selected, visual, request);
 
     if (selected->kind == EntryKind::Function && selected->name == "paramcmd") {
         ImGui::Spacing();
