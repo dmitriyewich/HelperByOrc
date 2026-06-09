@@ -1329,11 +1329,12 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
     const bool wantsUiCursor = WantsUiCursor();
-    const bool switchedUiSurface = wantsUiCursor
-        && lastWantsUiCursor_
+    const bool wantsInputRouting = WantsInputRouting();
+    const bool switchedUiSurface = wantsInputRouting
+        && lastWantsInputRouting_
         && (menuOpen_ != lastInputResetMenuOpen_ || auxiliaryVisible != lastInputResetAuxVisible_);
-    const bool resetMouseInputState = (!lastWantsUiCursor_ && wantsUiCursor) || switchedUiSurface;
-    lastWantsUiCursor_ = wantsUiCursor;
+    const bool resetMouseInputState = (!lastWantsInputRouting_ && wantsInputRouting) || switchedUiSurface;
+    lastWantsInputRouting_ = wantsInputRouting;
     lastInputResetMenuOpen_ = menuOpen_;
     lastInputResetAuxVisible_ = auxiliaryVisible;
 
@@ -1377,13 +1378,13 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
             if (!HasMouseButtonDown(io)) {
                 io.ClearInputMouse();
                 debuglog::WriteInfo(
-                    "[ui] uiCursor mouse input state reset: switchedSurface=%d menu=%d aux=%d",
+                    "[ui] input routing mouse state reset: switchedSurface=%d menu=%d aux=%d",
                     switchedUiSurface ? 1 : 0,
                     menuOpen_ ? 1 : 0,
                     auxiliaryVisible ? 1 : 0);
             } else {
                 debuglog::WriteInfo(
-                    "[ui] uiCursor mouse input reset skipped: mouse button down switchedSurface=%d menu=%d aux=%d",
+                    "[ui] input routing mouse reset skipped: mouse button down switchedSurface=%d menu=%d aux=%d",
                     switchedUiSurface ? 1 : 0,
                     menuOpen_ ? 1 : 0,
                     auxiliaryVisible ? 1 : 0);
@@ -1583,14 +1584,14 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 return TRUE;
             }
 
-            if (wantsUiCursor && self_->IsMouseMessage(message)) {
+            if (self_->WantsInputRouting() && self_->IsMouseMessage(message)) {
                 self_->SyncOsMouseToImGui();
             }
             ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam);
             if (ImGui::GetCurrentContext() != nullptr) {
                 const ImGuiIO& io = ImGui::GetIO();
                 // Блокируем мышь для игры, пока открыт UI с курсором SA:MP, или пока ImGui явно
-                // просит захват. `FontGlobalScale`/стиль теперь выставляются до `NewFrame`, иначе
+                // просит захват под маршрутизируемой мышью. `FontGlobalScale`/стиль теперь выставляются до `NewFrame`, иначе
                 // WantCaptureMouse расходился с реальной геометрией (ложный WantCapMouse=0).
                 const bool wantsMouseCapture = wantsUiCursor || io.WantCaptureMouse;
                 const bool wantsKeyboardCapture = wantsTextInput || io.WantCaptureKeyboard;

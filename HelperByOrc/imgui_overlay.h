@@ -119,7 +119,7 @@ private:
     bool traceLastMenuOpen_ = false;
     bool traceLastAuxVisible_ = false;
     bool traceLastIdleFrame_ = true;
-    bool lastWantsUiCursor_ = false;
+    bool lastWantsInputRouting_ = false;
     bool lastInputResetMenuOpen_ = false;
     bool lastInputResetAuxVisible_ = false;
     uint64_t traceLastUiDiagTick_ = 0;

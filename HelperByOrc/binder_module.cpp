@@ -2481,7 +2481,7 @@ struct BinderModule::Impl {
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;
     bool WantsInputRouting() const;
-    bool WantsQuickMenuCursor() const;
+    bool IsQuickMenuOpen() const;
     bool OnWindowMessage(UINT message, WPARAM wparam, LPARAM lparam);
     bool ApplyCapturedKeys(const std::vector<UINT>& keys);
     void SyncPressedKeysWithAsyncState();
@@ -5150,13 +5150,14 @@ bool BinderModule::Impl::WantsInputCapture() const {
 }
 
 bool BinderModule::Impl::WantsInputRouting() const {
-    return WantsInputCapture()
+    return quickMenuOpen
+        || WantsInputCapture()
         || std::any_of(hotkeys.begin(), hotkeys.end(), [](const HotkeyEntry& hotkey) {
             return hotkey.waitingTextConfirmation;
         });
 }
 
-bool BinderModule::Impl::WantsQuickMenuCursor() const {
+bool BinderModule::Impl::IsQuickMenuOpen() const {
     return quickMenuOpen;
 }
 
@@ -13358,8 +13359,8 @@ bool BinderModule::WantsInputRouting() const {
     return impl_->WantsInputRouting();
 }
 
-bool BinderModule::WantsQuickMenuCursor() const {
-    return impl_->WantsQuickMenuCursor();
+bool BinderModule::IsQuickMenuOpen() const {
+    return impl_->IsQuickMenuOpen();
 }
 
 bool BinderModule::DescribeMainWindowHotkeyConflict(const std::vector<unsigned int>& keys, std::string& description) {

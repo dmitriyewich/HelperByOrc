@@ -1273,10 +1273,10 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
-        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+        const bool quickMenuOpen = binder_.IsQuickMenuOpen();
         const bool binderWantsRouting = binder_.WantsInputRouting();
-        hud_.SetPlacementInputBlocked(quickMenuActive);
-        if (quickMenuActive || binderWantsRouting) {
+        hud_.SetPlacementInputBlocked(quickMenuOpen);
+        if (quickMenuOpen || binderWantsRouting) {
             return binder_.OnWindowMessage(message, wparam, lparam) || hud_.OnWindowMessage(message, wparam, lparam);
         }
         return hud_.OnWindowMessage(message, wparam, lparam) || binder_.OnWindowMessage(message, wparam, lparam);
@@ -1285,13 +1285,11 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return hud_.WantsOverlayRender() || binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
     });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
-        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
-        hud_.SetPlacementInputBlocked(quickMenuActive);
-        return quickMenuActive || binder_.WantsInputCapture() || hud_.WantsInputCapture();
+        hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
+        return binder_.WantsInputCapture() || hud_.WantsInputCapture();
     });
     overlay_.SetAuxiliaryInputRoutingCallback([this]() {
-        const bool quickMenuActive = binder_.WantsQuickMenuCursor();
-        return quickMenuActive || binder_.WantsInputRouting() || hud_.WantsInputCapture();
+        return binder_.WantsInputRouting() || hud_.WantsInputCapture();
     });
     overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
@@ -1362,11 +1360,15 @@ void ModApp::UpdateOverlayCursorMode() {
 
     sampApi_.Refresh();
     const ExternalCursorSnapshot cursorSnapshot = externalCursorDetector_.Detect(sampApi_, gameHw, fg);
+    const bool quickMenuOpen = binder_.IsQuickMenuOpen();
+    const bool blockingExternalOwner =
+        (cursorSnapshot.externalCursorActive && !cursorSnapshot.chatOpen && !cursorSnapshot.dialogOpen)
+        || cursorSnapshot.cefShown;
 
     OverlayCursorController::Inputs inputs{};
     inputs.sampUiPipelineReady = sampUiPipelineReady_;
     inputs.helperWantsCursor = overlay_.WantsUiCursor();
-    inputs.helperWantsInputRouting = overlay_.WantsInputRouting();
+    inputs.helperWantsInputRouting = overlay_.WantsInputRouting() && !(quickMenuOpen && blockingExternalOwner);
     inputs.sampCursorMode = cursorSnapshot.sampCursorMode;
     inputs.chatOpen = cursorSnapshot.chatOpen;
     inputs.dialogOpen = cursorSnapshot.dialogOpen;
@@ -1502,7 +1504,7 @@ void ModApp::Tick() {
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.SetHelperUiActive(overlay_.IsMenuOpen());
     binder_.Tick();
-    hud_.SetPlacementInputBlocked(binder_.WantsQuickMenuCursor());
+    hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
     tags_.Tick();
 
     RefreshSampGate();
@@ -2502,7 +2504,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         s_lastShowMainWindow = showMainWindow;
         debuglog::WriteInfo("[ui] main window visibility -> %d", showMainWindow ? 1 : 0);
     }
-    const bool quickMenuActive = binder_.WantsQuickMenuCursor();
+    const bool quickMenuActive = binder_.IsQuickMenuOpen();
     hud_.SetPlacementInputBlocked(quickMenuActive);
     hud_.DrawOverlay(device);
     if (!showMainWindow) {
