@@ -1285,8 +1285,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return hud_.WantsOverlayRender() || binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
     });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
-        hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
-        return binder_.WantsInputCapture() || hud_.WantsInputCapture();
+        const bool quickMenuOpen = binder_.IsQuickMenuOpen();
+        hud_.SetPlacementInputBlocked(quickMenuOpen);
+        return quickMenuOpen || binder_.WantsInputCapture() || hud_.WantsInputCapture();
     });
     overlay_.SetAuxiliaryInputRoutingCallback([this]() {
         return binder_.WantsInputRouting() || hud_.WantsInputCapture();
@@ -1368,6 +1369,8 @@ void ModApp::UpdateOverlayCursorMode() {
     OverlayCursorController::Inputs inputs{};
     inputs.sampUiPipelineReady = sampUiPipelineReady_;
     inputs.helperWantsCursor = overlay_.WantsUiCursor();
+    inputs.helperCursorLocksControl =
+        overlay_.IsMenuOpen() || binder_.WantsInputCapture() || hud_.WantsInputCapture();
     inputs.helperWantsInputRouting = overlay_.WantsInputRouting() && !(quickMenuOpen && blockingExternalOwner);
     inputs.sampCursorMode = cursorSnapshot.sampCursorMode;
     inputs.chatOpen = cursorSnapshot.chatOpen;

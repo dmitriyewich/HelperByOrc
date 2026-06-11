@@ -9,6 +9,7 @@ namespace {
 
 constexpr int kSampCursorModeNone = 0;
 constexpr int kSampCursorModeLockCamAndControl = 2;
+constexpr int kSampCursorModeLockCam = 3;
 constexpr std::uint64_t kCursorReassertIntervalMs = 200;
 constexpr std::uint64_t kCursorReassertTraceIntervalMs = 2500;
 constexpr std::uint64_t kCursorTraceIntervalMs = 700;
@@ -19,8 +20,9 @@ bool ModeActive(const std::optional<int>& mode) {
     return mode.has_value() && *mode != kSampCursorModeNone;
 }
 
-bool ModeLockCamAndControl(const std::optional<int>& mode) {
-    return mode.has_value() && *mode == kSampCursorModeLockCamAndControl;
+bool ModeHelperCursor(const std::optional<int>& mode) {
+    return mode.has_value()
+        && (*mode == kSampCursorModeLockCamAndControl || *mode == kSampCursorModeLockCam);
 }
 
 bool HasKnownExternalOwner(const OverlayCursorController::Inputs& inputs) {
@@ -101,7 +103,7 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         && now <= deferredExternalReleaseCleanupUntilMs_
         && !helperModeActive_
         && !helperWantsCursor
-        && ModeLockCamAndControl(inputs.sampCursorMode)
+        && ModeHelperCursor(inputs.sampCursorMode)
         && !HasKnownExternalOwner(inputs);
     if (orphanedSampCursorMode) {
         result.owner = Owner::Game;
@@ -156,15 +158,31 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
     if (helperWantsCursor) {
         result.owner = Owner::Helper;
         result.reason = inputs.helperWantsInputRouting ? "helper-routing" : "helper-cursor";
+        result.routingAllowed = true;
+
+        const bool reuseSampUiCursor =
+            !inputs.helperCursorLocksControl && sampUiExternalActive && sampCursorActive;
+        if (reuseSampUiCursor) {
+            if (lastUiHold_) {
+                ReleaseHold("[ui] ReleaseCapture while reusing SA:MP UI cursor");
+            }
+            TraceState(inputs, result, rmbHeld, now);
+            lastOwner_ = result.owner;
+            lastReason_ = result.reason;
+            return result;
+        }
+
+        const int desiredCursorMode =
+            inputs.helperCursorLocksControl ? kSampCursorModeLockCamAndControl : kSampCursorModeLockCam;
 
         const bool actualModeMatches =
-            !inputs.sampCursorMode.has_value() || *inputs.sampCursorMode == kSampCursorModeLockCamAndControl;
+            !inputs.sampCursorMode.has_value() || *inputs.sampCursorMode == desiredCursorMode;
         const bool desiredSameAsCache =
-            cursorMode_ == kSampCursorModeLockCamAndControl && cursorEnabled_ && helperModeActive_ && actualModeMatches;
+            cursorMode_ == desiredCursorMode && cursorEnabled_ && helperModeActive_ && actualModeMatches;
         const bool shouldReassert = desiredSameAsCache && (now - lastApplyMs_ >= kCursorReassertIntervalMs);
 
         if (!desiredSameAsCache || shouldReassert) {
-            if (!ApplySampCursorMode(kSampCursorModeLockCamAndControl, true, shouldReassert, now)) {
+            if (!ApplySampCursorMode(desiredCursorMode, true, shouldReassert, now)) {
                 result.owner = Owner::Unavailable;
                 result.reason = "set-cursor-mode-failed";
                 TraceState(inputs, result, rmbHeld, now);
@@ -177,7 +195,6 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         }
 
         lastUiHold_ = true;
-        result.routingAllowed = true;
         TraceState(inputs, result, rmbHeld, now);
         lastOwner_ = result.owner;
         lastReason_ = result.reason;
@@ -338,6 +355,7 @@ bool OverlayCursorController::ApplySampCursorMode(int desiredMode, bool desiredE
 
 void OverlayCursorController::TraceState(const Inputs& inputs, const Result& result, bool rmbHeld, std::uint64_t now) {
     const bool changedCore = inputs.helperWantsCursor != traceHelperWantsCursor_
+        || inputs.helperCursorLocksControl != traceHelperCursorLocksControl_
         || inputs.helperWantsInputRouting != traceHelperWantsRouting_
         || inputs.appHasFocus != traceFocus_
         || inputs.chatOpen != traceChatOpen_
@@ -356,6 +374,7 @@ void OverlayCursorController::TraceState(const Inputs& inputs, const Result& res
     }
 
     traceHelperWantsCursor_ = inputs.helperWantsCursor;
+    traceHelperCursorLocksControl_ = inputs.helperCursorLocksControl;
     traceHelperWantsRouting_ = inputs.helperWantsInputRouting;
     traceFocus_ = inputs.appHasFocus;
     traceRmb_ = rmbHeld;
@@ -370,11 +389,12 @@ void OverlayCursorController::TraceState(const Inputs& inputs, const Result& res
     lastCursorTraceMs_ = now;
 
     debuglog::WriteInfo(
-        "[ui] cursor owner=%s reason=%s route=%d helperCur=%d helperRoute=%d chat=%d dialog=%d external=%d extOwner=\"%s\" cefKnown=%d cefCtl=%d cefShown=%d osCursor=%d sampMode=%s helperMode=%d fg=%d rmb=%d gameHw=%p fgHw=%p capHw=%p capOwner=\"%s\" risks=\"%s\"",
+        "[ui] cursor owner=%s reason=%s route=%d helperCur=%d helperLockCtl=%d helperRoute=%d chat=%d dialog=%d external=%d extOwner=\"%s\" cefKnown=%d cefCtl=%d cefShown=%d osCursor=%d sampMode=%s helperMode=%d fg=%d rmb=%d gameHw=%p fgHw=%p capHw=%p capOwner=\"%s\" risks=\"%s\"",
         OwnerName(result.owner),
         result.reason.c_str(),
         result.routingAllowed ? 1 : 0,
         inputs.helperWantsCursor ? 1 : 0,
+        inputs.helperCursorLocksControl ? 1 : 0,
         inputs.helperWantsInputRouting ? 1 : 0,
         inputs.chatOpen ? 1 : 0,
         inputs.dialogOpen ? 1 : 0,

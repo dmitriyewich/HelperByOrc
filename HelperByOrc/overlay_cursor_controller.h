@@ -21,6 +21,7 @@ public:
     struct Inputs {
         bool sampUiPipelineReady = false;
         bool helperWantsCursor = false;
+        bool helperCursorLocksControl = true;
         bool helperWantsInputRouting = false;
         std::optional<int> sampCursorMode{};
         bool chatOpen = false;
@@ -73,6 +74,7 @@ private:
     std::uint64_t lastUnavailableTraceMs_ = 0;
     std::uint64_t lastReassertTraceMs_ = 0;
     bool traceHelperWantsCursor_ = false;
+    bool traceHelperCursorLocksControl_ = true;
     bool traceHelperWantsRouting_ = false;
     bool traceFocus_ = false;
     bool traceRmb_ = false;
