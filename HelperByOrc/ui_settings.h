@@ -27,8 +27,8 @@
     X(HomeInterfaceDesc, "Главное окно, кастомный title bar, логотип из ресурса и анимированное боковое меню уже готовы под дальнейшую разработку.", "The main window, custom title bar, resource logo, and animated sidebar are ready for the next feature work.") \
     X(HomeTabsTitle, "Порядок вкладок", "Tab Layout") \
     X(HomeTabsDesc, "Главная, Биндер, HUD, Прочее, Блокнот, Настройки. Порядок приведён к новому варианту без тестовых экранов.", "Home, Binder, HUD, Misc, Notepad, Settings. The tab order was cleaned up and no longer includes test screens.") \
-    X(HudIntro, "Конструктор экранных виджетов с текстом, картинками, иконками и переменными.", "Screen widget builder with text, images, icons, and variables.") \
     X(HudSearchHint, "Поиск виджетов", "Search widgets") \
+    X(HudWidgets, "Виджеты", "Widgets") \
     X(HudNoWidgets, "Виджетов пока нет. Добавьте пустой виджет или пресет.", "No widgets yet. Add an empty widget or a preset.") \
     X(HudNoSelection, "Выберите виджет слева или создайте новый.", "Select a widget on the left or create a new one.") \
     X(HudAddWidget, "Виджет", "Widget") \
@@ -97,12 +97,16 @@
     X(HudRefreshZeroWarning, "0 мс обновляет виджет каждый кадр. Это может снизить FPS, особенно при тяжёлых тегах или множестве виджетов.", "0 ms refreshes the widget every frame. This can reduce FPS, especially with expensive tags or many widgets.") \
     X(HudPreview, "Предпросмотр", "Preview") \
     X(HudImagesFolder, "Папка картинок", "Images folder") \
-    X(HudOpenCanvasEditor, "Открыть canvas-редактор", "Open canvas editor") \
-    X(HudOpenCanvasEditorHint, "Отдельное большое окно со слоями, canvas и свойствами выбранного HUD-виджета.", "Separate full editor with layers, canvas, and properties for the selected HUD widget.") \
-    X(HudCanvasEditor, "HUD canvas-редактор", "HUD canvas editor") \
-    X(HudCanvas, "Canvas", "Canvas") \
+    X(HudCanvas, "Холст", "Canvas") \
     X(HudLayers, "Слои", "Layers") \
     X(HudProperties, "Свойства", "Properties") \
+    X(HudInspectorMain, "Основное", "Main") \
+    X(HudInspectorData, "Данные", "Data") \
+    X(HudInspectorStyle, "Стиль", "Style") \
+    X(HudInspectorVisibility, "Видимость", "Visibility") \
+    X(HudInspectorAdvanced, "Дополнительно", "Advanced") \
+    X(HudWidgetSection, "Виджет", "Widget") \
+    X(HudElementSection, "Элемент", "Element") \
     X(HudAddElement, "Элемент", "Element") \
     X(HudDuplicateElement, "Дублировать элемент", "Duplicate element") \
     X(HudNoElementSelection, "Выберите слой на canvas или в списке слоёв.", "Select a layer on the canvas or in the layer list.") \
@@ -122,15 +126,21 @@
     X(HudScalePolicyHeight, "По высоте экрана", "Scale with height") \
     X(HudScalePolicyUniform, "Пропорционально", "Uniform scale") \
     X(HudGrid, "Сетка", "Grid") \
-    X(HudSnap, "Snap", "Snap") \
-    X(HudSnapHint, "Snap включён. Alt временно отключает магнит.", "Snap is on. Hold Alt to temporarily disable it.") \
-    X(HudSnapOffHint, "Snap выключен.", "Snap is off.") \
+    X(HudSnap, "Магнит", "Snap") \
+    X(HudSnapHint, "Магнит включён. Alt временно отключает его.", "Snap is on. Hold Alt to temporarily disable it.") \
+    X(HudSnapOffHint, "Магнит выключен.", "Snap is off.") \
+    X(HudCanvasInteractionHint, "Drag — перемещение, 8 ручек — размер, пустая область — рамка выделения, средняя кнопка мыши — pan.", "Drag to move, 8 handles to resize, empty area for marquee, middle mouse button to pan.") \
+    X(HudCanvasSnapThresholdHint, "Магнит к сетке срабатывает только рядом с линией, без рывков на каждом пикселе.", "Grid snap activates only near a grid line, without snapping every pixel.") \
+    X(HudZoomFit, "По размеру", "Fit") \
+    X(HudZoom100, "100%", "100%") \
+    X(HudZoomIn, "+", "+") \
+    X(HudZoomOut, "-", "-") \
     X(HudUndo, "Отменить", "Undo") \
     X(HudRedo, "Повторить", "Redo") \
     X(HudGroup, "Группа", "Group") \
     X(HudUngroup, "Разгрупп.", "Ungroup") \
-    X(HudLocked, "Lock", "Lock") \
-    X(HudHidden, "Hide", "Hide") \
+    X(HudLocked, "Блокировка", "Lock") \
+    X(HudHidden, "Скрыть", "Hide") \
     X(HudOpacity, "Прозрачность", "Opacity") \
     X(HudX, "X", "X") \
     X(HudY, "Y", "Y") \
@@ -144,27 +154,43 @@
     X(HudStrokeColor, "Цвет обводки", "Stroke color") \
     X(HudStrokeAlpha, "Прозрачность обводки", "Stroke opacity") \
     X(HudStrokeSize, "Толщина обводки", "Stroke size") \
-    X(HudOutline, "Outline", "Outline") \
-    X(HudOutlineColor, "Цвет outline", "Outline color") \
-    X(HudOutlineSize, "Толщина outline", "Outline size") \
-    X(HudTint, "Tint", "Tint") \
-    X(HudTintAlpha, "Прозрачность tint", "Tint opacity") \
+    X(HudOutline, "Контур", "Outline") \
+    X(HudOutlineColor, "Цвет контура", "Outline color") \
+    X(HudOutlineSize, "Толщина контура", "Outline size") \
+    X(HudTint, "Тонировка", "Tint") \
+    X(HudTintAlpha, "Прозрачность тонировки", "Tint opacity") \
     X(HudProgressFill, "Цвет прогресса", "Progress color") \
     X(HudProgressFillAlpha, "Прозрачность прогресса", "Progress opacity") \
     X(HudImagePath, "Путь картинки", "Image path") \
+    X(HudInsertImage, "Выбрать картинку", "Choose image") \
+    X(HudImageCopied, "Картинка скопирована в профиль HUD.", "Image was copied into the HUD profile.") \
+    X(HudImageInsertFailed, "Не удалось вставить картинку HUD.", "Failed to insert HUD image.") \
     X(HudImageFitContain, "Contain", "Contain") \
     X(HudImageFitCover, "Cover", "Cover") \
     X(HudImageFitStretch, "Stretch", "Stretch") \
     X(HudUnsafeImagePath, "Разрешены только относительные пути внутри папки картинок HUD. URL, абсолютные пути и .. запрещены.", "Only relative paths inside the HUD images folder are allowed. URLs, absolute paths, and .. are blocked.") \
     X(HudIconName, "Имя иконки", "Icon name") \
-    X(HudExpression, "Expression", "Expression") \
+    X(HudExpression, "Выражение", "Expression") \
     X(HudMin, "Минимум", "Minimum") \
     X(HudMax, "Максимум", "Maximum") \
-    X(HudDefaultValue, "Fallback", "Fallback") \
+    X(HudDefaultValue, "Значение по умолчанию", "Default value") \
     X(HudFontSize, "Размер шрифта", "Font size") \
     X(HudAlignLeft, "Слева", "Left") \
     X(HudAlignCenter, "По центру", "Center") \
     X(HudAlignRight, "Справа", "Right") \
+    X(HudTextMode, "Режим текста", "Text mode") \
+    X(HudTextModePlain, "Простой текст", "Plain text") \
+    X(HudTextModeMarkup, "Разметка", "Markup") \
+    X(HudTextModeNotepad, "Заметка из Блокнота", "Notepad note") \
+    X(HudVariables, "Переменные", "Variables") \
+    X(HudVariablesTitle, "Переменные HUD", "HUD variables") \
+    X(HudMarkupColor, "Цвет", "Color") \
+    X(HudMarkupFont, "Шрифт", "Font") \
+    X(HudMarkupAlign, "Выравн.", "Align") \
+    X(HudMarkupLine, "Линия", "Line") \
+    X(HudMarkupBreak, "Разрыв", "Break") \
+    X(HudMarkupIcon, "Иконка", "Icon") \
+    X(HudMarkupImage, "Картинка", "Image") \
     X(HudInsertTagTime, "{time}", "{time}") \
     X(HudInsertTagHp, "{health}", "{health}") \
     X(HudInsertTagWeapon, "{myweapon}", "{myweapon}") \
@@ -174,13 +200,22 @@
     X(HudImportMissingFormat, "Для импорта положите файл сюда: %s", "Place the import file here: %s") \
     X(HudImportInvalid, "Файл импорта не является HUD v2 preset.", "The import file is not a HUD v2 preset.") \
     X(HudImported, "HUD preset импортирован.", "HUD preset imported.") \
+    X(HudToolbarEdit, "Правка", "Edit") \
+    X(HudToolbarFile, "Файл", "File") \
+    X(HudToolbarView, "Вид", "View") \
+    X(HudMoreActions, "Ещё", "More") \
+    X(HudCanvasSizeFormat, "Холст: %.0f x %.0f", "Canvas: %.0f x %.0f") \
+    X(HudOn, "вкл", "on") \
+    X(HudOff, "выкл", "off") \
+    X(HudZoomPercentFormat, "%d%%", "%d%%") \
+    X(HudCanvasStatusFormat, "Магнит: %s | Сетка: %.0f | Zoom: %s | Drag: перемещение; ручки: размер; средняя кнопка: pan", "Snap: %s | Grid: %.0f | Zoom: %s | Drag to move; handles resize; middle mouse pans") \
     X(HudPresetPlayerStatus, "Статус игрока", "Player status") \
     X(HudPresetVehicle, "Транспорт", "Vehicle") \
     X(HudPresetNoteCard, "Заметка", "Note card") \
     X(HudPresetNoteTitle, "Заметка", "Note") \
     X(HudPresetNoteBody, "Текст HUD-карточки", "HUD card text") \
     X(HudPresetTimer, "Таймер", "Timer") \
-    X(HudPresetDashboard, "Mini dashboard", "Mini dashboard") \
+    X(HudPresetDashboard, "Мини-панель", "Mini dashboard") \
     X(MiscIntro, "Служебные тесты, отладочные кнопки и логи убраны. Оставлена только пустая оболочка раздела.", "Service tests, debug buttons, and logs were removed. Only the empty shell of this section remains.") \
     X(MiscShellTitle, "Техническая вкладка", "Technical Tab") \
     X(MiscShellDesc, "Раздел готов для будущих утилит, но сейчас не содержит ни тестовых действий, ни диагностических панелей.", "This section is ready for future utilities, but currently contains no test actions or diagnostic panels.") \

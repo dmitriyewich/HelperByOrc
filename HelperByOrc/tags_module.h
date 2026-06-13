@@ -89,6 +89,8 @@ public:
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
+    std::vector<variables_picker::Entry> BuildVariablePickerEntriesForInsert() const;
+    void HandleVariablePickerUtilityRequest(const variables_picker::Request& request);
 
 private:
     struct TagEntry {

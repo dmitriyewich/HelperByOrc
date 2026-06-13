@@ -39,11 +39,9 @@ inline constexpr char ToggleOn[] = "\xEF\x88\x85";      // U+F205
 inline constexpr char Clone[] = "\xEF\x89\x8D";         // U+F24D
 inline constexpr char RotateLeft[] = "\xEF\x8B\xAA";    // U+F2EA
 inline constexpr char Delete[] = "\xEF\x8B\xAD";        // U+F2ED
-inline constexpr char MessageDots[] = "\xEF\x92\xA3";   // U+F4A3
 inline constexpr char FileExport[] = "\xEF\x95\xAE";    // U+F56E
 inline constexpr char FileImport[] = "\xEF\x95\xAF";    // U+F56F
 inline constexpr char FolderPlus[] = "\xEF\x99\x9E";    // U+F65E
-inline constexpr char BracketsCurly[] = "\xEF\x9F\xAA"; // U+F7EA
 inline constexpr char House[] = "\xEF\xA0\x8C";         // U+F80C
 
 inline constexpr ImWchar FontAwesomeRanges[] = {
@@ -73,10 +71,8 @@ inline constexpr ImWchar FontAwesomeRanges[] = {
     0xF24D, 0xF24D,
     0xF2EA, 0xF2EA,
     0xF2ED, 0xF2ED,
-    0xF4A3, 0xF4A3,
     0xF56E, 0xF56F,
     0xF65E, 0xF65E,
-    0xF7EA, 0xF7EA,
     0xF80C, 0xF80C,
     0,
 };

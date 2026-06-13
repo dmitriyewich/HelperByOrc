@@ -7,6 +7,7 @@
 #include "ui_settings.h"
 
 #include <d3dx9tex.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cctype>
@@ -21,6 +22,17 @@
 namespace {
 
 namespace fs = std::filesystem;
+
+float CurrentWindowFontScale() {
+    if (ImGuiWindow* window = ImGui::GetCurrentWindow()) {
+        return window->FontWindowScale;
+    }
+    return 1.0f;
+}
+
+float FontDirectiveScale(const MarkupRenderer::DrawOptions& options) {
+    return std::max(0.01f, options.fontDirectiveScale);
+}
 
 struct ParsedImage {
     std::string source{};
@@ -696,15 +708,19 @@ struct MarkupRenderer::Impl {
         return ImVec2(std::max(ScaleUi(16.0f), width), std::max(ScaleUi(16.0f), height));
     }
 
-    float CalcSegmentWidth(const RichSegment& segment, IDirect3DDevice9* device, const fs::path& imageRoot) {
+    float CalcSegmentWidth(
+        const RichSegment& segment,
+        IDirect3DDevice9* device,
+        const fs::path& imageRoot,
+        const MarkupRenderer::DrawOptions& options) {
         if (segment.image) {
             const ImVec2 size = ResolveImageRenderSize(*segment.image, device, imageRoot);
             return segment.image->hasPosition ? ScaleUi(static_cast<float>(segment.image->posX)) + size.x : size.x;
         }
         std::string text = SegmentPlainText(segment);
-        const float previousScale = 1.0f;
+        const float previousScale = CurrentWindowFontScale();
         if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(segment.fontSize / 16.0f);
+            ImGui::SetWindowFontScale(static_cast<float>(segment.fontSize) * FontDirectiveScale(options) / 16.0f);
         }
         const float width = ImGui::CalcTextSize(text.c_str()).x;
         if (segment.fontSize > 0) {
@@ -713,14 +729,18 @@ struct MarkupRenderer::Impl {
         return width;
     }
 
-    float CalcLineWidth(const std::vector<RichSegment>& segments, IDirect3DDevice9* device, const fs::path& imageRoot) {
+    float CalcLineWidth(
+        const std::vector<RichSegment>& segments,
+        IDirect3DDevice9* device,
+        const fs::path& imageRoot,
+        const MarkupRenderer::DrawOptions& options) {
         float width = 0.0f;
         bool hasVisibleSegment = false;
         for (const RichSegment& segment : segments) {
             if (segment.isHr) {
                 continue;
             }
-            const float segmentWidth = CalcSegmentWidth(segment, device, imageRoot);
+            const float segmentWidth = CalcSegmentWidth(segment, device, imageRoot, options);
             if (segmentWidth <= 0.0f && !segment.image && TrimAscii(SegmentPlainText(segment)).empty()) {
                 continue;
             }
@@ -778,9 +798,9 @@ struct MarkupRenderer::Impl {
         ImVec4 textColor = segment.hasColor ? segment.color : ImGui::GetStyleColorVec4(ImGuiCol_Text);
         textColor.w *= segment.alpha;
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-        const float previousScale = 1.0f;
+        const float previousScale = CurrentWindowFontScale();
         if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(segment.fontSize / 16.0f);
+            ImGui::SetWindowFontScale(static_cast<float>(segment.fontSize) * FontDirectiveScale(options) / 16.0f);
         }
 
         ImVec2 drawnSize{};
@@ -827,8 +847,8 @@ struct MarkupRenderer::Impl {
         const float lineStartX = ImGui::GetCursorPosX();
         const float lineStartY = ImGui::GetCursorPosY();
         const float avail = ImGui::GetContentRegionAvail().x;
-        const float lineWidth = CalcLineWidth(segments, device, imageRoot);
-        float maxHeight = ImGui::GetTextLineHeightWithSpacing();
+        const float lineWidth = CalcLineWidth(segments, device, imageRoot, options);
+        float maxHeight = 0.0f;
         bool hasDrawn = false;
 
         for (std::size_t i = 0; i < segments.size(); ++i) {
@@ -859,19 +879,22 @@ struct MarkupRenderer::Impl {
             }
             ImGui::SetCursorPosX(std::max(lineStartX, targetX));
             const ImVec2 drawnSize = DrawSegment(segment, device, imageRoot, contentOrigin, options);
-            maxHeight = std::max(maxHeight, drawnSize.y + ImGui::GetStyle().ItemSpacing.y);
+            maxHeight = std::max(maxHeight, drawnSize.y);
             hasDrawn = true;
         }
 
         if (!hasDrawn) {
             ImGui::TextUnformatted("");
+            maxHeight = ImGui::GetItemRectSize().y;
         }
         const float currentY = ImGui::GetCursorPosY();
-        const float targetY = lineStartY + maxHeight;
-        if (targetY > currentY) {
-            ImGui::Dummy(ImVec2(0.0f, targetY - currentY));
+        const float targetY = lineStartY + maxHeight + ImGui::GetStyle().ItemSpacing.y;
+        const float advanceY = targetY - currentY;
+        if (advanceY > ImGui::GetStyle().ItemSpacing.y) {
+            ImGui::Dummy(ImVec2(0.0f, advanceY - ImGui::GetStyle().ItemSpacing.y));
         }
         for (int i = 0; i < segments.front().extraBreaks; ++i) {
+            ImGui::SetCursorPosX(lineStartX);
             ImGui::TextUnformatted("");
         }
     }
@@ -882,8 +905,10 @@ struct MarkupRenderer::Impl {
         const fs::path& imageRoot,
         const MarkupRenderer::DrawOptions& options) {
         const ImVec2 contentOrigin = ImGui::GetCursorScreenPos();
+        const float lineStartX = ImGui::GetCursorPosX();
         const auto lines = ParseRichText(text);
         for (const std::vector<RichSegment>& line : lines) {
+            ImGui::SetCursorPosX(lineStartX);
             DrawRichLine(line, device, imageRoot, contentOrigin, options);
         }
     }

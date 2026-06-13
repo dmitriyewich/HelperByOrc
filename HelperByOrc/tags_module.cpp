@@ -6554,6 +6554,14 @@ void TagsModule::HandleVariablePickerRequest(const variables_picker::Request& re
     }
 }
 
+std::vector<variables_picker::Entry> TagsModule::BuildVariablePickerEntriesForInsert() const {
+    return BuildVariablePickerEntries();
+}
+
+void TagsModule::HandleVariablePickerUtilityRequest(const variables_picker::Request& request) {
+    HandleVariablePickerRequest(request);
+}
+
 void TagsModule::DrawVariablesPage() {
     UiSettings& ui = UiSettings::Instance();
 

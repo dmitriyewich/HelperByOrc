@@ -10,6 +10,7 @@
 #include "tags_module.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
+#include "variables_picker_ui.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -18,10 +19,12 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <commdlg.h>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <set>
 #include <shellapi.h>
@@ -92,6 +95,55 @@ enum class TextAlign {
     Left,
     Center,
     Right,
+};
+
+enum class HudInspectorTab {
+    Main,
+    Data,
+    Style,
+    Visibility,
+    Advanced,
+};
+
+enum class HudCompactPanelTab {
+    Widgets,
+    Layers,
+    Inspector,
+};
+
+enum class HudInsertTarget {
+    None,
+    Text,
+    Markup,
+    ImagePath,
+    ProgressExpression,
+};
+
+enum class HudTextMode {
+    Plain,
+    Markup,
+    Notepad,
+};
+
+enum class ResizeHandle {
+    TopLeft,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+};
+
+enum class CanvasInteractionMode {
+    Idle,
+    HoverElement,
+    HoverHandle,
+    Dragging,
+    Resizing,
+    MarqueeSelecting,
+    Panning,
 };
 
 struct HudVisibility {
@@ -182,6 +234,50 @@ struct HudWidget {
     std::vector<HudElement> elements{};
 
     std::uint64_t nextRefreshAtMs = 0;
+};
+
+struct CanvasElementSnapshot {
+    std::string id{};
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+struct CanvasHitResult {
+    std::string elementId{};
+    std::optional<ResizeHandle> handle{};
+
+    bool HasElement() const {
+        return !elementId.empty();
+    }
+
+    bool HasHandle() const {
+        return handle.has_value() && HasElement();
+    }
+};
+
+struct HudEditorVisualStyle {
+    ImVec4 panelBg{};
+    ImVec4 panelBorder{};
+    ImVec4 headerText{};
+    ImVec4 mutedText{};
+    ImVec4 faintText{};
+    ImVec4 rowHover{};
+    ImVec4 rowSelected{};
+    ImVec4 rowSelectedHover{};
+    ImVec4 rowAlt{};
+    ImVec4 separator{};
+    ImVec4 accent{};
+    ImVec4 danger{};
+    ImVec4 toolbarBg{};
+    ImVec4 canvasBg{};
+    ImVec4 canvasBorder{};
+    ImVec4 gridMajor{};
+    ImVec4 gridMinor{};
+    ImVec4 buttonBg{};
+    ImVec4 buttonHover{};
+    ImVec4 buttonActive{};
 };
 
 struct ImGuiStringUserData {
@@ -354,14 +450,442 @@ bool InputTextMultilineString(
         &userData);
 }
 
+std::string PathToUtf8(const fs::path& path) {
+    return MarkupRenderer::WideToUtf8(path.wstring());
+}
+
+std::wstring BuildDialogFilter(std::initializer_list<std::pair<UiText, const wchar_t*>> entries) {
+    std::wstring filter;
+    for (const auto& [labelId, pattern] : entries) {
+        filter += MarkupRenderer::Utf8ToWide(UiSettings::Instance().Text(labelId));
+        filter.push_back(L'\0');
+        filter += pattern;
+        filter.push_back(L'\0');
+    }
+    filter.push_back(L'\0');
+    return filter;
+}
+
+std::string SanitizeFileStem(std::string_view value, std::string_view fallback) {
+    std::wstring wide = MarkupRenderer::Utf8ToWide(value);
+    std::wstring output;
+    output.reserve(wide.size());
+    for (wchar_t ch : wide) {
+        const bool invalid = ch < 32
+            || ch == L'\\'
+            || ch == L'/'
+            || ch == L':'
+            || ch == L'*'
+            || ch == L'?'
+            || ch == L'"'
+            || ch == L'<'
+            || ch == L'>'
+            || ch == L'|';
+        output.push_back(invalid ? L'_' : ch);
+    }
+    while (!output.empty() && (output.back() == L'.' || output.back() == L' ')) {
+        output.pop_back();
+    }
+    if (output.empty()) {
+        return std::string(fallback);
+    }
+    return MarkupRenderer::WideToUtf8(output);
+}
+
 ImVec4 WithAlpha(ImVec4 color, float alpha) {
     color.w *= std::clamp(alpha, 0.0f, 1.0f);
     return color;
 }
 
+ImVec4 BlendColor(const ImVec4& a, const ImVec4& b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    return ImVec4(
+        a.x + (b.x - a.x) * t,
+        a.y + (b.y - a.y) * t,
+        a.z + (b.z - a.z) * t,
+        a.w + (b.w - a.w) * t);
+}
+
 ImU32 ColorU32(ImVec4 color, float alphaMultiplier = 1.0f) {
     color.w *= std::clamp(alphaMultiplier, 0.0f, 1.0f);
     return ImGui::ColorConvertFloat4ToU32(color);
+}
+
+HudEditorVisualStyle HudEditorStyleTokens() {
+    const ImVec4* colors = ImGui::GetStyle().Colors;
+    const ImVec4& windowBg = colors[ImGuiCol_WindowBg];
+    const ImVec4& childBg = colors[ImGuiCol_ChildBg];
+    const ImVec4& frameBg = colors[ImGuiCol_FrameBg];
+    const ImVec4& frameBgHovered = colors[ImGuiCol_FrameBgHovered];
+    const ImVec4& frameBgActive = colors[ImGuiCol_FrameBgActive];
+    const ImVec4& button = colors[ImGuiCol_Button];
+    const ImVec4& buttonHovered = colors[ImGuiCol_ButtonHovered];
+    const ImVec4& buttonActive = colors[ImGuiCol_ButtonActive];
+    const ImVec4& headerHovered = colors[ImGuiCol_HeaderHovered];
+    const ImVec4& headerActive = colors[ImGuiCol_HeaderActive];
+    const ImVec4& text = colors[ImGuiCol_Text];
+    const ImVec4& textDisabled = colors[ImGuiCol_TextDisabled];
+    const ImVec4& border = colors[ImGuiCol_Border];
+
+    HudEditorVisualStyle style;
+    style.panelBg = WithAlpha(BlendColor(childBg, windowBg, 0.16f), childBg.w);
+    style.panelBorder = WithAlpha(border, 0.40f);
+    style.headerText = text;
+    style.mutedText = WithAlpha(BlendColor(textDisabled, text, 0.30f), 0.92f);
+    style.faintText = WithAlpha(textDisabled, 0.78f);
+    style.rowHover = WithAlpha(headerHovered, 0.20f);
+    style.rowSelected = WithAlpha(headerActive, 0.30f);
+    style.rowSelectedHover = WithAlpha(headerActive, 0.38f);
+    style.rowAlt = WithAlpha(text, 0.026f);
+    style.separator = WithAlpha(border, 0.18f);
+    style.accent = WithAlpha(buttonActive, 0.96f);
+    style.danger = WithAlpha(BlendColor(text, buttonHovered, 0.24f), 0.94f);
+    style.toolbarBg = WithAlpha(BlendColor(childBg, windowBg, 0.08f), 0.98f);
+    style.canvasBg = WithAlpha(BlendColor(windowBg, frameBg, 0.22f), 0.98f);
+    style.canvasBorder = WithAlpha(border, 0.26f);
+    style.gridMajor = WithAlpha(BlendColor(buttonActive, text, 0.10f), 0.22f);
+    style.gridMinor = WithAlpha(BlendColor(textDisabled, frameBg, 0.35f), 0.18f);
+    style.buttonBg = WithAlpha(button, 0.94f);
+    style.buttonHover = buttonHovered;
+    style.buttonActive = buttonActive;
+    return style;
+}
+
+bool IsUtf8ContinuationByte(unsigned char value) {
+    return (value & 0xC0) == 0x80;
+}
+
+bool DecodeFirstUtf8Codepoint(std::string_view text, ImWchar& outCodepoint) {
+    if (text.empty()) {
+        return false;
+    }
+
+    const unsigned char first = static_cast<unsigned char>(text[0]);
+    if (first < 0x80) {
+        outCodepoint = first;
+        return true;
+    }
+
+    if ((first & 0xE0) == 0xC0 && text.size() >= 2) {
+        const unsigned char second = static_cast<unsigned char>(text[1]);
+        if (!IsUtf8ContinuationByte(second)) {
+            return false;
+        }
+        outCodepoint = static_cast<ImWchar>(((first & 0x1F) << 6) | (second & 0x3F));
+        return true;
+    }
+
+    if ((first & 0xF0) == 0xE0 && text.size() >= 3) {
+        const unsigned char second = static_cast<unsigned char>(text[1]);
+        const unsigned char third = static_cast<unsigned char>(text[2]);
+        if (!IsUtf8ContinuationByte(second) || !IsUtf8ContinuationByte(third)) {
+            return false;
+        }
+        outCodepoint = static_cast<ImWchar>(((first & 0x0F) << 12) | ((second & 0x3F) << 6) | (third & 0x3F));
+        return true;
+    }
+
+    if ((first & 0xF8) == 0xF0 && text.size() >= 4) {
+        const unsigned char second = static_cast<unsigned char>(text[1]);
+        const unsigned char third = static_cast<unsigned char>(text[2]);
+        const unsigned char fourth = static_cast<unsigned char>(text[3]);
+        if (!IsUtf8ContinuationByte(second) || !IsUtf8ContinuationByte(third) || !IsUtf8ContinuationByte(fourth)) {
+            return false;
+        }
+        outCodepoint = static_cast<ImWchar>(
+            ((first & 0x07) << 18) | ((second & 0x3F) << 12) | ((third & 0x3F) << 6) | (fourth & 0x3F));
+        return true;
+    }
+
+    return false;
+}
+
+std::string Utf8TrimLastChar(std::string_view value) {
+    if (value.empty()) {
+        return {};
+    }
+
+    std::size_t size = value.size();
+    while (size > 0) {
+        --size;
+        const unsigned char ch = static_cast<unsigned char>(value[size]);
+        if ((ch & 0xC0) != 0x80) {
+            break;
+        }
+    }
+    return std::string(value.substr(0, size));
+}
+
+std::string EllipsizeText(std::string_view text, float maxWidth) {
+    if (maxWidth <= 0.0f) {
+        return {};
+    }
+
+    std::string result(text);
+    if (result.empty() || ImGui::CalcTextSize(result.c_str()).x <= maxWidth) {
+        return result;
+    }
+
+    constexpr char kEllipsis[] = "...";
+    const float ellipsisWidth = ImGui::CalcTextSize(kEllipsis).x;
+    if (ellipsisWidth >= maxWidth) {
+        return kEllipsis;
+    }
+
+    while (!result.empty()) {
+        result = Utf8TrimLastChar(result);
+        const std::string candidate = result + kEllipsis;
+        if (candidate.empty() || ImGui::CalcTextSize(candidate.c_str()).x <= maxWidth) {
+            return candidate;
+        }
+    }
+
+    return kEllipsis;
+}
+
+bool TryCalcIconMetrics(const char* icon, ImFont* font, float fontSize, ImVec2& glyphSize, ImVec2& glyphCenter) {
+    if (!icon || !font || fontSize <= 0.0f) {
+        return false;
+    }
+
+    ImWchar iconCodepoint = 0;
+    if (!DecodeFirstUtf8Codepoint(icon, iconCodepoint)) {
+        return false;
+    }
+
+    ImFontBaked* bakedFont = font->GetFontBaked(fontSize);
+    if (!bakedFont) {
+        return false;
+    }
+
+    const ImFontGlyph* glyph = bakedFont->FindGlyphNoFallback(iconCodepoint);
+    if (!glyph) {
+        return false;
+    }
+
+    const float glyphScale = fontSize / std::max(1.0f, bakedFont->Size);
+    glyphSize = ImVec2((glyph->X1 - glyph->X0) * glyphScale, (glyph->Y1 - glyph->Y0) * glyphScale);
+    glyphCenter = ImVec2((glyph->X0 + glyph->X1) * glyphScale * 0.5f, (glyph->Y0 + glyph->Y1) * glyphScale * 0.5f);
+    return true;
+}
+
+void DrawCenteredIconGlyph(ImDrawList* drawList, const char* icon, const ImRect& rect, ImU32 color, float preferredFontSize = 0.0f) {
+    if (!drawList || !icon || icon[0] == '\0') {
+        return;
+    }
+
+    ImFont* font = ImGui::GetFont();
+    float fontSize = preferredFontSize > 0.0f ? preferredFontSize : ImGui::GetFontSize();
+    fontSize = std::max(1.0f, fontSize);
+
+    ImVec2 glyphSize{};
+    ImVec2 glyphCenter{};
+    bool hasGlyphMetrics = TryCalcIconMetrics(icon, font, fontSize, glyphSize, glyphCenter);
+    if (hasGlyphMetrics) {
+        const float padding = std::max(1.0f, std::floor(rect.GetHeight() * 0.12f));
+        const ImVec2 maxGlyphSize(
+            std::max(1.0f, rect.GetWidth() - padding * 2.0f),
+            std::max(1.0f, rect.GetHeight() - padding * 2.0f));
+        const float fitScale = std::min(
+            1.0f,
+            std::min(maxGlyphSize.x / std::max(1.0f, glyphSize.x), maxGlyphSize.y / std::max(1.0f, glyphSize.y)));
+        if (fitScale < 1.0f) {
+            fontSize = std::max(1.0f, std::floor(fontSize * fitScale));
+            hasGlyphMetrics = TryCalcIconMetrics(icon, font, fontSize, glyphSize, glyphCenter);
+        }
+    }
+
+    ImVec2 iconPos{};
+    if (hasGlyphMetrics) {
+        const ImVec2 rectCenter(rect.Min.x + rect.GetWidth() * 0.5f, rect.Min.y + rect.GetHeight() * 0.5f);
+        iconPos.x = std::floor(rectCenter.x - glyphCenter.x + 0.5f);
+        iconPos.y = std::floor(rectCenter.y - glyphCenter.y + 0.5f);
+    } else {
+        const ImVec2 iconSize = font ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, icon) : ImGui::CalcTextSize(icon);
+        iconPos.x = std::floor(rect.Min.x + (rect.GetWidth() - iconSize.x) * 0.5f + 0.5f);
+        iconPos.y = std::floor(rect.Min.y + (rect.GetHeight() - iconSize.y) * 0.5f + 0.5f);
+    }
+
+    const ImVec4 clipRect(rect.Min.x, rect.Min.y, rect.Max.x, rect.Max.y);
+    drawList->AddText(font, fontSize, iconPos, color, icon, nullptr, 0.0f, &clipRect);
+}
+
+void DrawHudPanelBackground(const ImVec2& size, const HudEditorVisualStyle& visual) {
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImRect rect(pos, ImVec2(pos.x + std::max(1.0f, size.x), pos.y + std::max(1.0f, size.y)));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const float rounding = ScaleUi(7.0f);
+    drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBg), rounding);
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, 0, ScaleUi(1.0f));
+}
+
+bool BeginHudPanel(const char* id, const ImVec2& size, const HudEditorVisualStyle& visual, ImGuiWindowFlags flags = 0) {
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    ImVec2 visualSize = size;
+    if (visualSize.x == 0.0f) {
+        visualSize.x = avail.x;
+    }
+    if (visualSize.y == 0.0f) {
+        visualSize.y = avail.y;
+    }
+    DrawHudPanelBackground(visualSize, visual);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 7.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+    return ImGui::BeginChild(id, size, ImGuiChildFlags_None, flags | ImGuiWindowFlags_NoBackground);
+}
+
+void EndHudPanel() {
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
+void DrawHudRowBackground(ImDrawList* drawList, const ImRect& rowRect, int rowIndex, bool selected, bool hovered, const HudEditorVisualStyle& visual) {
+    const ImVec4 bg = selected
+        ? (hovered ? visual.rowSelectedHover : visual.rowSelected)
+        : (hovered ? visual.rowHover : WithAlpha(visual.rowAlt, rowIndex % 2 != 0 ? visual.rowAlt.w : 0.0f));
+    if (bg.w > 0.0f) {
+        drawList->AddRectFilled(rowRect.Min, rowRect.Max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
+    }
+
+    if (selected) {
+        const ImRect accentRect(
+            ImVec2(rowRect.Min.x + ScaleUi(2.0f), rowRect.Min.y + ScaleUi(5.0f)),
+            ImVec2(rowRect.Min.x + ScaleUi(4.0f), rowRect.Max.y - ScaleUi(5.0f)));
+        drawList->AddRectFilled(accentRect.Min, accentRect.Max, ImGui::GetColorU32(visual.accent), ScaleUi(2.0f));
+    } else {
+        drawList->AddLine(
+            ImVec2(rowRect.Min.x + ScaleUi(6.0f), rowRect.Max.y),
+            ImVec2(rowRect.Max.x - ScaleUi(6.0f), rowRect.Max.y),
+            ImGui::GetColorU32(visual.separator));
+    }
+}
+
+bool HudFlatIconButton(
+    const char* icon,
+    const char* id,
+    const char* tooltip,
+    const ImVec2& size,
+    const HudEditorVisualStyle& visual,
+    ImVec4 iconColor = ImVec4(0.0f, 0.0f, 0.0f, -1.0f),
+    bool enabled = true) {
+    const bool clickedRaw = ImGui::InvisibleButton(id, size);
+    const bool clicked = enabled && clickedRaw;
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    const bool held = enabled && ImGui::IsItemActive();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    if ((hovered && enabled) || held) {
+        const ImVec4 bg = held ? visual.buttonActive : visual.buttonHover;
+        drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
+        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+    }
+
+    if (iconColor.w < 0.0f) {
+        iconColor = !enabled ? visual.faintText : hovered || held ? visual.headerText : visual.mutedText;
+    }
+    DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(iconColor));
+
+    if (tooltip && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    return clicked;
+}
+
+float HudTextActionButtonWidth(const char* icon, const char* label) {
+    const float iconReserve = icon && icon[0] != '\0' ? ScaleUi(20.0f) : 0.0f;
+    const float iconGap = iconReserve > 0.0f ? ScaleUi(5.0f) : 0.0f;
+    return std::ceil(ScaleUi(10.0f) + iconReserve + iconGap + ImGui::CalcTextSize(label ? label : "").x + ScaleUi(10.0f));
+}
+
+bool HudTextActionButton(
+    const char* icon,
+    const char* label,
+    const char* id,
+    const char* tooltip,
+    const ImVec2& size,
+    const HudEditorVisualStyle& visual,
+    bool enabled = true,
+    bool primary = false) {
+    const bool clickedRaw = ImGui::InvisibleButton(id, size);
+    const bool clicked = enabled && clickedRaw;
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    const bool held = enabled && ImGui::IsItemActive();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    ImVec4 bg = primary ? WithAlpha(visual.accent, 0.86f) : visual.buttonBg;
+    if (!enabled) {
+        bg = WithAlpha(visual.buttonBg, 0.38f);
+    } else if (held) {
+        bg = visual.buttonActive;
+    } else if (hovered) {
+        bg = visual.buttonHover;
+    }
+    drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
+    drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, primary ? 0.42f : 0.26f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+
+    const ImVec4 textColor = enabled ? visual.headerText : visual.faintText;
+    const float padX = ScaleUi(10.0f);
+    const float iconW = icon && icon[0] != '\0' ? ScaleUi(20.0f) : 0.0f;
+    const float iconGap = iconW > 0.0f ? ScaleUi(5.0f) : 0.0f;
+    float x = min.x + padX;
+    if (iconW > 0.0f) {
+        DrawCenteredIconGlyph(
+            drawList,
+            icon,
+            ImRect(ImVec2(x, min.y), ImVec2(x + iconW, max.y)),
+            ImGui::GetColorU32(textColor),
+            std::floor(ImGui::GetFontSize() * 0.90f));
+        x += iconW + iconGap;
+    }
+
+    const char* text = label ? label : "";
+    const ImVec2 textSize = ImGui::CalcTextSize(text);
+    const float textY = min.y + std::floor(std::max(0.0f, (size.y - textSize.y) * 0.5f));
+    const ImVec4 clip(min.x, min.y, max.x, max.y);
+    drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, textY), ImGui::GetColorU32(textColor), text, nullptr, 0.0f, &clip);
+
+    if (tooltip && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    return clicked;
+}
+
+bool DrawHudSearchBox(const char* id, const char* hint, std::string& value, const HudEditorVisualStyle& visual) {
+    const float gap = ScaleUi(4.0f);
+    const float clearSide = ImGui::GetFrameHeight();
+    const bool hasClear = !value.empty();
+    const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float inputWidth = hasClear ? std::max(ScaleUi(48.0f), availableWidth - clearSide - gap) : availableWidth;
+    const std::string searchHint = std::string(ui_icons::Search) + " " + (hint ? hint : "");
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ScaleUi(6.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, ScaleUi(1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(8.0f, 3.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, visual.buttonBg);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, visual.buttonHover);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, visual.buttonActive);
+    ImGui::PushStyleColor(ImGuiCol_Border, WithAlpha(visual.panelBorder, 0.24f));
+    ImGui::SetNextItemWidth(inputWidth);
+    bool changed = InputTextWithHintString(id, searchHint.c_str(), value, ImGuiInputTextFlags_AutoSelectAll, 128);
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(3);
+
+    if (hasClear) {
+        ImGui::SameLine(0.0f, gap);
+        const std::string clearId = std::string(id ? id : "##search") + "_clear";
+        if (HudFlatIconButton(ui_icons::Xmark, clearId.c_str(), UiSettings::Instance().Text(UiText::BinderClearSearch), ImVec2(clearSide, clearSide), visual)) {
+            value.clear();
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 std::string ColorToHex(const ImVec4& color) {
@@ -893,6 +1417,45 @@ std::string ResolveIconGlyph(std::string_view name) {
     return ui_icons::Star;
 }
 
+const char* ElementTypeIcon(ElementType type) {
+    switch (type) {
+    case ElementType::Text:
+    case ElementType::TextMarkup:
+        return ui_icons::Comment;
+    case ElementType::Image:
+        return ui_icons::Image;
+    case ElementType::Shape:
+    case ElementType::Group:
+        return ui_icons::Cubes;
+    case ElementType::Line:
+        return ui_icons::MoveRows;
+    case ElementType::Icon:
+        return ui_icons::Star;
+    case ElementType::ProgressBar:
+        return ui_icons::Sliders;
+    }
+    return ui_icons::Sliders;
+}
+
+HudTextMode TextModeForElement(const HudElement& element) {
+    if (element.type == ElementType::TextMarkup) {
+        return element.data.sourceMode == SourceMode::NotepadNote ? HudTextMode::Notepad : HudTextMode::Markup;
+    }
+    return HudTextMode::Plain;
+}
+
+const char* TextModeLabel(HudTextMode mode, UiSettings& ui) {
+    switch (mode) {
+    case HudTextMode::Markup:
+        return ui.Text(UiText::HudTextModeMarkup);
+    case HudTextMode::Notepad:
+        return ui.Text(UiText::HudTextModeNotepad);
+    case HudTextMode::Plain:
+    default:
+        return ui.Text(UiText::HudTextModePlain);
+    }
+}
+
 } // namespace
 
 struct HudModule::Impl {
@@ -911,23 +1474,60 @@ struct HudModule::Impl {
     bool placementMode = false;
     std::string placementWidgetId;
     bool placementInputBlocked = false;
-    bool editorOpen = false;
     bool conditionsPopupPending = false;
     bool elementConditionsPopupPending = false;
     bool deprecatedHelperVisibilityMigrated = false;
     bool configMigratedToV2 = false;
     bool snapEnabled = true;
     float gridSize = 8.0f;
+    bool canvasFitZoom = true;
+    float canvasZoom = 1.0f;
+    HudInspectorTab inspectorTab = HudInspectorTab::Main;
+    HudCompactPanelTab compactPanelTab = HudCompactPanelTab::Widgets;
+    HudInsertTarget activeInsertTarget = HudInsertTarget::None;
+    bool variablesPopupPending = false;
+    variables_picker::State variablesPickerState{};
     std::vector<std::string> undoStack;
     std::vector<std::string> redoStack;
     std::string frameSnapshot;
     bool frameUndoUsed = false;
-    bool dragUndoCaptured = false;
-    std::string activeDragElementId;
     std::string inlineEditElementId;
+    CanvasInteractionMode canvasMode = CanvasInteractionMode::Idle;
+    std::string canvasActiveElementId;
+    std::string canvasHoverElementId;
+    std::optional<ResizeHandle> canvasActiveHandle{};
+    std::optional<ResizeHandle> canvasHoverHandle{};
+    ImVec2 canvasGestureStartScreen{};
+    ImVec2 canvasGestureStartPan{};
+    ImVec2 canvasPan{};
+    ImRect canvasMarqueeRect{};
+    std::vector<CanvasElementSnapshot> canvasGestureSnapshots;
+    bool canvasGestureMoved = false;
+    bool canvasGestureUndoCaptured = false;
+    bool canvasGestureAdditive = false;
+    int canvasGestureButton = 0;
 
     void OnProcessAttach(HMODULE moduleHandle) {
         module = moduleHandle;
+    }
+
+    void ResetCanvasInteraction(bool resetView = false) {
+        canvasMode = CanvasInteractionMode::Idle;
+        canvasActiveElementId.clear();
+        canvasHoverElementId.clear();
+        canvasActiveHandle.reset();
+        canvasHoverHandle.reset();
+        canvasGestureStartScreen = ImVec2(0.0f, 0.0f);
+        canvasGestureStartPan = ImVec2(0.0f, 0.0f);
+        canvasMarqueeRect = ImRect();
+        canvasGestureSnapshots.clear();
+        canvasGestureMoved = false;
+        canvasGestureUndoCaptured = false;
+        canvasGestureAdditive = false;
+        canvasGestureButton = 0;
+        if (resetView) {
+            canvasPan = ImVec2(0.0f, 0.0f);
+        }
     }
 
     void Shutdown() {
@@ -938,7 +1538,14 @@ struct HudModule::Impl {
         configLoaded = false;
         placementMode = false;
         placementWidgetId.clear();
-        editorOpen = false;
+        canvasFitZoom = true;
+        canvasZoom = 1.0f;
+        ResetCanvasInteraction(true);
+        inspectorTab = HudInspectorTab::Main;
+        compactPanelTab = HudCompactPanelTab::Widgets;
+        activeInsertTarget = HudInsertTarget::None;
+        variablesPopupPending = false;
+        variablesPickerState = {};
         undoStack.clear();
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
@@ -956,6 +1563,14 @@ struct HudModule::Impl {
         placementMode = false;
         placementWidgetId.clear();
         inlineEditElementId.clear();
+        canvasFitZoom = true;
+        canvasZoom = 1.0f;
+        ResetCanvasInteraction(true);
+        inspectorTab = HudInspectorTab::Main;
+        compactPanelTab = HudCompactPanelTab::Widgets;
+        activeInsertTarget = HudInsertTarget::None;
+        variablesPopupPending = false;
+        variablesPickerState = {};
         undoStack.clear();
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
@@ -1005,6 +1620,61 @@ struct HudModule::Impl {
         if (error) {
             debuglog::WriteError("[hud] failed to create export directory: %ls error=%d", HudExportDirectory().c_str(), error.value());
         }
+    }
+
+    std::optional<fs::path> OpenFileDialog(UiText titleId, const std::wstring& filter) const {
+        wchar_t fileName[MAX_PATH]{};
+        const std::wstring title = MarkupRenderer::Utf8ToWide(UiSettings::Instance().Text(titleId));
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = nullptr;
+        ofn.lpstrFile = fileName;
+        ofn.nMaxFile = static_cast<DWORD>(std::size(fileName));
+        ofn.lpstrFilter = filter.c_str();
+        ofn.lpstrTitle = title.c_str();
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
+        if (!GetOpenFileNameW(&ofn)) {
+            return std::nullopt;
+        }
+        return fs::path(fileName);
+    }
+
+    fs::path MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
+        fs::path candidate = directory / desiredName.filename();
+        const fs::path stem = candidate.stem();
+        const fs::path ext = candidate.extension();
+        int suffix = 1;
+        while (fs::exists(candidate)) {
+            candidate = directory / (stem.wstring() + L"_" + std::to_wstring(suffix++) + ext.wstring());
+        }
+        return candidate;
+    }
+
+    std::optional<std::string> CopyImageIntoHudProfile() {
+        const auto source = OpenFileDialog(
+            UiText::HudInsertImage,
+            BuildDialogFilter({
+                { UiText::NotepadImageFilesFilter, L"*.png;*.jpg;*.jpeg;*.bmp;*.gif" },
+                { UiText::NotepadAllFilesFilter, L"*.*" },
+            }));
+        if (!source.has_value()) {
+            return std::nullopt;
+        }
+
+        EnsureAssetDirectories();
+        const std::string sanitized = SanitizeFileStem(PathToUtf8(source->stem()), "image");
+        const fs::path desiredName = fs::path(MarkupRenderer::Utf8ToWide(sanitized)).replace_extension(source->extension());
+        const fs::path target = MakeUniquePath(HudImagesDirectory(), desiredName);
+        std::error_code copyError;
+        fs::copy_file(*source, target, fs::copy_options::none, copyError);
+        if (copyError) {
+            statusMessage = UiSettings::Instance().Text(UiText::HudImageInsertFailed);
+            debuglog::WriteError("[hud] image copy failed source=%ls target=%ls error=%d", source->c_str(), target.c_str(), copyError.value());
+            return std::nullopt;
+        }
+
+        statusMessage = UiSettings::Instance().Text(UiText::HudImageCopied);
+        return PathToUtf8(target.filename());
     }
 
     HudWidget* FindWidget(std::string_view id) {
@@ -1706,6 +2376,7 @@ struct HudModule::Impl {
     void LoadFromSection(const jsonutil::JsonObject& section, bool saveMigrations) {
         widgets.clear();
         selectedElementIds.clear();
+        ResetCanvasInteraction(false);
         deprecatedHelperVisibilityMigrated = false;
         configMigratedToV2 = false;
 
@@ -2046,18 +2717,34 @@ struct HudModule::Impl {
             DrawShape(ImGui::GetWindowDrawList(), element, rect, scale, false);
         }
 
-        ImGui::PushClipRect(rect.Min, rect.Max, true);
+        const ImVec2 previousCursor = ImGui::GetCursorScreenPos();
+        const ImVec2 elementSize(std::max(1.0f, rect.GetWidth()), std::max(1.0f, rect.GetHeight()));
+        constexpr ImGuiWindowFlags kMarkupWindowFlags =
+            ImGuiWindowFlags_NoDecoration
+            | ImGuiWindowFlags_NoSavedSettings
+            | ImGuiWindowFlags_NoInputs
+            | ImGuiWindowFlags_NoBackground
+            | ImGuiWindowFlags_NoScrollWithMouse;
+
+        ImGui::PushID(element.id.c_str());
         ImGui::SetCursorScreenPos(rect.Min);
         ImGui::PushStyleColor(ImGuiCol_Text, WithAlpha(element.style.text, element.style.textAlpha * element.opacity));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        const float previousScale = 1.0f;
-        ImGui::SetWindowFontScale(std::max(0.1f, static_cast<float>(element.data.fontSize) * scale / 16.0f));
-        renderer.DrawText(element.cachedText, device, ImageRootForElement(element), MarkupRenderer::DrawOptions{ false });
-        ImGui::SetWindowFontScale(previousScale);
+        if (ImGui::BeginChild("##hud_markup_rect", elementSize, ImGuiChildFlags_None, kMarkupWindowFlags)) {
+            ImGuiWindow* markupWindow = ImGui::GetCurrentWindow();
+            const float previousScale = markupWindow ? markupWindow->FontWindowScale : 1.0f;
+            ImGui::SetWindowFontScale(std::max(0.1f, static_cast<float>(element.data.fontSize) * scale / 16.0f));
+            MarkupRenderer::DrawOptions options{};
+            options.wrapText = false;
+            options.fontDirectiveScale = scale;
+            renderer.DrawText(element.cachedText, device, ImageRootForElement(element), options);
+            ImGui::SetWindowFontScale(previousScale);
+        }
+        ImGui::EndChild();
         ImGui::PopStyleVar();
-        ImGui::PopStyleColor(2);
-        ImGui::PopClipRect();
+        ImGui::PopStyleColor();
+        ImGui::PopID();
+        ImGui::SetCursorScreenPos(previousCursor);
     }
 
     void DrawImageElement(ImDrawList* drawList, HudElement& element, IDirect3DDevice9* device, const ImRect& rect) {
@@ -2407,35 +3094,30 @@ struct HudModule::Impl {
         return changed;
     }
 
-    bool DrawOpenCanvasEditorButton(bool fullWidth) {
+    void DrawAddElementMenu(const char* popupId) {
         UiSettings& ui = UiSettings::Instance();
-        const std::string label = std::string(ui_icons::Edit) + " " + ui.Text(UiText::HudOpenCanvasEditor);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.36f, 0.58f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.47f, 0.72f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.30f, 0.50f, 1.0f));
-        const bool clicked = ImGui::Button(label.c_str(), fullWidth ? ImVec2(ImGui::GetContentRegionAvail().x, 0.0f) : ImVec2(0.0f, 0.0f));
-        ImGui::PopStyleColor(3);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-            ImGui::SetTooltip("%s", ui.Text(UiText::HudOpenCanvasEditorHint));
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
         }
-        if (clicked) {
-            editorOpen = true;
+        constexpr ElementType types[] = {
+            ElementType::Text,
+            ElementType::Image,
+            ElementType::Shape,
+            ElementType::Line,
+            ElementType::Icon,
+            ElementType::ProgressBar,
+        };
+        for (ElementType type : types) {
+            if (ImGui::MenuItem(ui.Text(ElementTypeLabelId(type)))) {
+                AddElement(type);
+            }
         }
-        return clicked;
+        ImGui::EndPopup();
     }
 
-    void DrawToolbar() {
+    void DrawPresetMenu(const char* popupId) {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::Button((std::string(ui_icons::Plus) + " " + ui.Text(UiText::HudAddWidget)).c_str())) {
-            AddWidget(MakeDefaultWidget());
-        }
-        ImGui::SameLine();
-        DrawOpenCanvasEditorButton(false);
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudPresets)).c_str())) {
-            ImGui::OpenPopup("##hud_presets");
-        }
-        if (ImGui::BeginPopup("##hud_presets")) {
+        if (ImGui::BeginPopup(popupId)) {
             if (ImGui::MenuItem(ui.Text(UiText::HudPresetWeapon))) AddWidget(MakeWeaponPreset());
             if (ImGui::MenuItem(ui.Text(UiText::HudPresetFreeText))) AddWidget(MakeFreeTextPreset());
             if (ImGui::MenuItem(ui.Text(UiText::HudPresetPlayerStatus))) AddWidget(MakePlayerStatusPreset());
@@ -2445,120 +3127,285 @@ struct HudModule::Impl {
             if (ImGui::MenuItem(ui.Text(UiText::HudPresetDashboard))) AddWidget(MakeDashboardPreset());
             ImGui::EndPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::Clone) + " " + ui.Text(UiText::HudDuplicateWidget)).c_str())) {
-            DuplicateSelectedWidget();
+    }
+
+    void DuplicateToolbarTarget() {
+        if (!selectedElementIds.empty()) {
+            DuplicateSelectedElements();
+            return;
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::Delete) + " " + ui.Text(UiText::Delete)).c_str())) {
-            DeleteSelectedWidget();
+        DuplicateSelectedWidget();
+    }
+
+    void DeleteToolbarTarget() {
+        if (!selectedElementIds.empty()) {
+            DeleteSelectedElements();
+            return;
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::FileExport) + " " + ui.Text(UiText::HudExport)).c_str())) {
+        DeleteSelectedWidget();
+    }
+
+    void DrawEditMenu(const char* popupId) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudDuplicateWidget))) {
+            DuplicateToolbarTarget();
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+            DeleteToolbarTarget();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(ui.Text(UiText::HudUndo), nullptr, false, !undoStack.empty())) {
+            Undo();
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudRedo), nullptr, false, !redoStack.empty())) {
+            Redo();
+        }
+        ImGui::EndPopup();
+    }
+
+    void DrawFileMenu(const char* popupId) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudExport), nullptr, false, SelectedWidget() != nullptr)) {
             ExportSelectedWidget();
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::FileImport) + " " + ui.Text(UiText::HudImport)).c_str())) {
+        if (ImGui::MenuItem(ui.Text(UiText::HudImport))) {
             ImportWidget();
         }
+        ImGui::EndPopup();
+    }
+
+    void DrawViewMenu(const char* popupId) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
+        }
+        if (ImGui::Checkbox(ui.Text(UiText::HudSnap), &snapEnabled)) {
+            MarkChanged();
+        }
+        ImGui::SetNextItemWidth(ScaleUi(120.0f));
+        if (ImGui::DragFloat(ui.Text(UiText::HudGrid), &gridSize, 1.0f, 1.0f, 64.0f, "%.0f")) {
+            MarkChanged();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(ui.Text(UiText::HudZoomFit))) {
+            canvasFitZoom = true;
+            canvasPan = ImVec2(0.0f, 0.0f);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudZoom100))) {
+            canvasFitZoom = false;
+            canvasZoom = 1.0f;
+            canvasPan = ImVec2(0.0f, 0.0f);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudZoomOut))) {
+            canvasFitZoom = false;
+            canvasZoom = std::max(0.10f, canvasZoom - 0.10f);
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::HudZoomIn))) {
+            canvasFitZoom = false;
+            canvasZoom = std::min(4.0f, canvasZoom + 0.10f);
+        }
+        ImGui::EndPopup();
+    }
+
+    void DrawToolbar() {
+        UiSettings& ui = UiSettings::Instance();
+        HudWidget* widget = SelectedWidget();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        const float headerHeight = ImGui::GetFrameHeight() * 2.0f + ScaleUi(22.0f);
+        if (!BeginHudPanel("hud_editor_topbar", ImVec2(0.0f, headerHeight), visual)) {
+            EndHudPanel();
+            return;
+        }
+
+        const ImVec2 headerPos = ImGui::GetCursorScreenPos();
+        const float headerWidth = ImGui::GetContentRegionAvail().x;
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(
+            headerPos,
+            ImVec2(headerPos.x + headerWidth, headerPos.y + ImGui::GetFrameHeight()),
+            ImGui::GetColorU32(visual.toolbarBg),
+            ScaleUi(5.0f));
+
+        ImGui::TextColored(visual.headerText, "%s", ui.Text(UiText::TabHud));
+        if (widget) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", widget->enabled ? ui.Text(UiText::HudOn) : ui.Text(UiText::HudOff));
+            ImGui::SameLine();
+            const std::string widgetName = EllipsizeText(widget->name, std::max(ScaleUi(80.0f), headerWidth * 0.30f));
+            ImGui::TextUnformatted(widgetName.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", ui.Format(UiText::HudCanvasSizeFormat, widget->canvasWidth, widget->canvasHeight).c_str());
+        } else {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", ui.Text(UiText::HudNoSelection));
+        }
+        if (!statusMessage.empty()) {
+            const std::string status = EllipsizeText(statusMessage, std::max(ScaleUi(80.0f), headerWidth * 0.34f));
+            const float statusWidth = ImGui::CalcTextSize(status.c_str()).x;
+            const float statusX = headerPos.x + headerWidth - statusWidth - ScaleUi(4.0f);
+            if (statusX > ImGui::GetCursorScreenPos().x + ScaleUi(16.0f)) {
+                ImGui::SameLine();
+                ImGui::SetCursorScreenPos(ImVec2(statusX, ImGui::GetCursorScreenPos().y));
+                ImGui::TextDisabled("%s", status.c_str());
+            }
+        }
+
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ScaleUi(7.0f));
+        const float buttonH = ImGui::GetFrameHeight();
+        const float gap = ScaleUi(5.0f);
+        const bool compact = ImGui::GetContentRegionAvail().x < ScaleUi(760.0f);
+        auto drawButton = [&](const char* icon, UiText labelId, const char* id, bool enabled, bool primary = false) {
+            const char* label = ui.Text(labelId);
+            const float width = HudTextActionButtonWidth(icon, label);
+            const bool clicked = HudTextActionButton(icon, label, id, nullptr, ImVec2(width, buttonH), visual, enabled, primary);
+            ImGui::SameLine(0.0f, gap);
+            return clicked;
+        };
+
+        if (drawButton(ui_icons::Plus, UiText::HudAddWidget, "##hud_add_widget_top", true, true)) {
+            AddWidget(MakeDefaultWidget());
+        }
+        if (drawButton(ui_icons::Plus, UiText::HudAddElement, "##hud_add_element_top", widget != nullptr, false)) {
+            ImGui::OpenPopup("##hud_add_element_top_popup");
+        }
+        DrawAddElementMenu("##hud_add_element_top_popup");
+        if (drawButton(ui_icons::Sliders, UiText::HudPresets, "##hud_presets_top", true, false)) {
+            ImGui::OpenPopup("##hud_presets_top_popup");
+        }
+        DrawPresetMenu("##hud_presets_top_popup");
+        if (drawButton(ui_icons::Edit, UiText::HudToolbarEdit, "##hud_edit_menu_top", widget != nullptr, false)) {
+            ImGui::OpenPopup("##hud_edit_menu_top_popup");
+        }
+        DrawEditMenu("##hud_edit_menu_top_popup");
+        if (drawButton(ui_icons::FileExport, UiText::HudToolbarFile, "##hud_file_menu_top", true, false)) {
+            ImGui::OpenPopup("##hud_file_menu_top_popup");
+        }
+        DrawFileMenu("##hud_file_menu_top_popup");
+        if (drawButton(ui_icons::Sliders, UiText::HudToolbarView, "##hud_view_menu_top", true, false)) {
+            ImGui::OpenPopup("##hud_view_menu_top_popup");
+        }
+        DrawViewMenu("##hud_view_menu_top_popup");
+
+        if (!compact) {
+            if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoomFit), "##hud_zoom_fit_top", nullptr, ImVec2(ScaleUi(44.0f), buttonH), visual)) {
+                canvasFitZoom = true;
+                canvasPan = ImVec2(0.0f, 0.0f);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoom100), "##hud_zoom_100_top", nullptr, ImVec2(ScaleUi(50.0f), buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = 1.0f;
+                canvasPan = ImVec2(0.0f, 0.0f);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (HudFlatIconButton(ui_icons::AngleDown, "##hud_zoom_out_top", ui.Text(UiText::HudZoomOut), ImVec2(buttonH, buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = std::max(0.10f, canvasZoom - 0.10f);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (HudFlatIconButton(ui_icons::AngleUp, "##hud_zoom_in_top", ui.Text(UiText::HudZoomIn), ImVec2(buttonH, buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = std::min(4.0f, canvasZoom + 0.10f);
+            }
+        }
+        EndHudPanel();
     }
 
     void DrawWidgetList(float height = 0.0f) {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::BeginChild("hud_widget_panel", ImVec2(0.0f, height), ImGuiChildFlags_None)) {
-            const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::HudSearchHint);
-            InputTextWithHintString("##hud_search", searchHint.c_str(), searchQuery, 0, 128);
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (BeginHudPanel("hud_widget_panel", ImVec2(0.0f, height), visual)) {
+            const float headerH = ImGui::GetFrameHeight();
+            const ImVec2 headerMin = ImGui::GetCursorScreenPos();
+            const float headerW = ImGui::GetContentRegionAvail().x;
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddText(headerMin, ImGui::GetColorU32(visual.headerText), ui.Text(UiText::HudWidgets));
+            const std::string countText = std::to_string(widgets.size());
+            const ImVec2 countSize = ImGui::CalcTextSize(countText.c_str());
+            const ImRect countRect(
+                ImVec2(headerMin.x + headerW - countSize.x - ScaleUi(13.0f), headerMin.y + ScaleUi(3.0f)),
+                ImVec2(headerMin.x + headerW, headerMin.y + headerH - ScaleUi(3.0f)));
+            drawList->AddRectFilled(countRect.Min, countRect.Max, ImGui::GetColorU32(WithAlpha(visual.buttonHover, 0.34f)), ScaleUi(8.0f));
+            drawList->AddText(ImVec2(countRect.Min.x + ScaleUi(6.0f), headerMin.y + ScaleUi(4.0f)), ImGui::GetColorU32(visual.mutedText), countText.c_str());
+            ImGui::Dummy(ImVec2(headerW, headerH));
+
+            DrawHudSearchBox("##hud_search", ui.Text(UiText::HudSearchHint), searchQuery, visual);
             ImGui::Spacing();
 
-            if (ImGui::BeginChild("hud_widget_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-                if (widgets.empty()) {
-                    ImGui::TextWrapped("%s", ui.Text(UiText::HudNoWidgets));
-                } else {
-                    const std::string needle = LowerAscii(searchQuery);
-                    for (HudWidget& widget : widgets) {
-                        if (!needle.empty() && LowerAscii(widget.name).find(needle) == std::string::npos) {
-                            continue;
-                        }
-                        ImGui::PushID(widget.id.c_str());
-                        const bool selected = widget.id == selectedWidgetId;
-                        const std::string label = std::string(widget.enabled ? ui_icons::ToggleOn : ui_icons::ToggleOff)
-                            + " " + widget.name;
-                        if (ImGui::Selectable(label.c_str(), selected)) {
-                            selectedWidgetId = widget.id;
-                            selectedElementIds.clear();
-                            MarkChanged();
-                        }
-                        ImGui::PopID();
-                    }
+            if (widgets.empty()) {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoWidgets));
+                const float buttonH = ImGui::GetFrameHeight();
+                const char* label = ui.Text(UiText::HudAddWidget);
+                if (HudTextActionButton(ui_icons::Plus, label, "##hud_add_widget_empty", nullptr, ImVec2(HudTextActionButtonWidth(ui_icons::Plus, label), buttonH), visual, true, true)) {
+                    AddWidget(MakeDefaultWidget());
                 }
+            } else if (ImGui::BeginChild("hud_widget_rows", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+                drawList = ImGui::GetWindowDrawList();
+                const std::string needle = LowerAscii(searchQuery);
+                int rowIndex = 0;
+                const float rowH = ScaleUi(42.0f);
+                const float iconSide = ScaleUi(26.0f);
+                const float gap = ScaleUi(7.0f);
+                for (HudWidget& widget : widgets) {
+                    if (!needle.empty() && LowerAscii(widget.name).find(needle) == std::string::npos) {
+                        continue;
+                    }
+                    ImGui::PushID(widget.id.c_str());
+                    const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+                    const float rowW = ImGui::GetContentRegionAvail().x;
+                    const ImRect rowRect(rowMin, ImVec2(rowMin.x + rowW, rowMin.y + rowH));
+                    const bool selected = widget.id == selectedWidgetId;
+                    const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
+                    DrawHudRowBackground(drawList, rowRect, rowIndex, selected, hovered, visual);
+
+                    ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x + ScaleUi(6.0f), rowRect.Min.y + ScaleUi(8.0f)));
+                    const ImVec4 toggleColor = widget.enabled ? visual.accent : visual.faintText;
+                    if (HudFlatIconButton(widget.enabled ? ui_icons::ToggleOn : ui_icons::ToggleOff, "##widget_enabled", ui.Text(UiText::Enabled), ImVec2(iconSide, iconSide), visual, toggleColor)) {
+                        widget.enabled = !widget.enabled;
+                        MarkChanged();
+                    }
+
+                    const float textX = rowRect.Min.x + ScaleUi(6.0f) + iconSide + gap;
+                    const float textMaxW = std::max(1.0f, rowRect.Max.x - textX - ScaleUi(8.0f));
+                    ImGui::SetCursorScreenPos(ImVec2(textX, rowRect.Min.y));
+                    if (ImGui::InvisibleButton("##widget_select", ImVec2(textMaxW, rowH))) {
+                        selectedWidgetId = widget.id;
+                        selectedElementIds.clear();
+                        ResetCanvasInteraction(true);
+                        MarkChanged();
+                    }
+
+                    const std::string title = EllipsizeText(widget.name, textMaxW);
+                    const std::string meta = EllipsizeText(
+                        ui.Format(UiText::HudCanvasSizeFormat, widget.canvasWidth, widget.canvasHeight),
+                        textMaxW);
+                    drawList->AddText(
+                        ImVec2(textX, rowRect.Min.y + ScaleUi(6.0f)),
+                        ImGui::GetColorU32(selected ? visual.headerText : visual.mutedText),
+                        title.c_str());
+                    drawList->AddText(
+                        ImVec2(textX, rowRect.Min.y + ScaleUi(23.0f)),
+                        ImGui::GetColorU32(visual.faintText),
+                        meta.c_str());
+                    ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
+                    ImGui::PopID();
+                    ++rowIndex;
+                }
+                ImGui::EndChild();
             }
-            ImGui::EndChild();
         }
-        ImGui::EndChild();
-    }
-
-    void DrawWidgetProperties(HudWidget& widget) {
-        UiSettings& ui = UiSettings::Instance();
-        ImGui::PushID(widget.id.c_str());
-        ImGui::PushID("widget_properties");
-        bool changed = false;
-        changed |= ImGui::Checkbox(ui.Text(UiText::Enabled), &widget.enabled);
-        changed |= InputTextString("##widget_name", widget.name, 0, 128);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", ui.Text(UiText::Name));
-        ImGui::SeparatorText(ui.Text(UiText::HudCanvas));
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudCanvasWidth), &widget.canvasWidth, 1.0f, 16.0f, 2000.0f, "%.0f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudCanvasHeight), &widget.canvasHeight, 1.0f, 16.0f, 2000.0f, "%.0f");
-        ImGui::TextDisabled("%s", ui.Text(UiText::HudScalePolicy));
-        changed |= DrawScalePolicyCombo(widget);
-
-        ImGui::SeparatorText(ui.Text(UiText::HudPosition));
-        ImGui::TextDisabled("%s", ui.Text(UiText::HudAnchor));
-        changed |= DrawAnchorCombo(widget);
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudOffsetX), &widget.position.offsetX, 1.0f, -kVirtualWidth, kVirtualWidth, "%.0f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudOffsetY), &widget.position.offsetY, 1.0f, -kVirtualHeight, kVirtualHeight, "%.0f");
-        if (ImGui::Button(ui.Text(UiText::HudPlaceOnScreen))) {
-            placementMode = true;
-            placementWidgetId = widget.id;
-        }
-        if (placementMode && placementWidgetId == widget.id) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.35f, 0.78f, 1.0f, 1.0f), "%s", ui.Text(UiText::HudPlacementActive));
-        }
-
-        ImGui::SeparatorText(ui.Text(UiText::HudVisibility));
-        NormalizeConditionFlags(widget.visibility.conditions);
-        const std::string conditionsButton = std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions);
-        if (ImGui::Button(conditionsButton.c_str())) {
-            conditionsPopupPending = true;
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", HasSelectedCondition(widget.visibility.conditions) ? ui.Text(UiText::Enabled) : ui.Text(UiText::HotkeyNotSet));
-        changed |= DrawConditionFlagsPopup(
-            "##hud_widget_conditions_popup",
-            conditionsPopupPending,
-            UiText::HudVisibilityConditions,
-            widget.visibility.conditions,
-            &widget.visibility.conditionsCombine);
-        if (ImGui::InputInt(ui.Text(UiText::HudRefreshMs), &widget.refreshMs, 50, 100)) {
-            widget.nextRefreshAtMs = 0;
-            changed = true;
-        }
-        widget.refreshMs = std::max(0, widget.refreshMs);
-        if (widget.refreshMs == 0) {
-            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudRefreshZeroWarning));
-        }
-        if (changed) {
-            MarkChanged();
-        }
-        ImGui::PopID();
-        ImGui::PopID();
+        EndHudPanel();
     }
 
     void DrawStyleProperties(HudElement& element) {
         UiSettings& ui = UiSettings::Instance();
         bool changed = false;
-        ImGui::SeparatorText(ui.Text(UiText::HudStyle));
         changed |= ImGui::Checkbox(ui.Text(UiText::HudFill), &element.style.fillEnabled);
         changed |= ImGui::ColorEdit3(ui.Text(UiText::HudFillColor), &element.style.fill.x, ImGuiColorEditFlags_NoInputs);
         changed |= ImGui::SliderFloat(ui.Text(UiText::HudFillAlpha), &element.style.fillAlpha, 0.0f, 1.0f, "%.2f");
@@ -2590,34 +3437,275 @@ struct HudModule::Impl {
         }
     }
 
+    void ApplyTextMode(HudElement& element, HudTextMode mode) {
+        const HudTextMode oldMode = TextModeForElement(element);
+        if (oldMode == mode) {
+            return;
+        }
+
+        switch (mode) {
+        case HudTextMode::Plain:
+            element.type = ElementType::Text;
+            element.data.sourceMode = SourceMode::Inline;
+            break;
+        case HudTextMode::Markup:
+            element.type = ElementType::TextMarkup;
+            element.data.sourceMode = SourceMode::Inline;
+            break;
+        case HudTextMode::Notepad:
+            element.type = ElementType::TextMarkup;
+            element.data.sourceMode = SourceMode::NotepadNote;
+            break;
+        }
+        element.cachedText.clear();
+        MarkChanged();
+    }
+
+    bool DrawTextModeCombo(HudElement& element) {
+        UiSettings& ui = UiSettings::Instance();
+        HudTextMode mode = TextModeForElement(element);
+        bool changed = false;
+        if (ImGui::BeginCombo("##hud_text_mode", TextModeLabel(mode, ui))) {
+            constexpr HudTextMode modes[] = {
+                HudTextMode::Plain,
+                HudTextMode::Markup,
+                HudTextMode::Notepad,
+            };
+            for (HudTextMode candidate : modes) {
+                const bool selected = mode == candidate;
+                if (ImGui::Selectable(TextModeLabel(candidate, ui), selected)) {
+                    ApplyTextMode(element, candidate);
+                    mode = candidate;
+                    changed = true;
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    }
+
+    void AppendToActiveInsertTarget(std::string_view text) {
+        HudWidget* widget = SelectedWidget();
+        if (!widget || activeInsertTarget == HudInsertTarget::None) {
+            ImGui::SetClipboardText(std::string(text).c_str());
+            return;
+        }
+        HudElement* element = PrimarySelectedElement(*widget);
+        if (!element) {
+            ImGui::SetClipboardText(std::string(text).c_str());
+            return;
+        }
+
+        switch (activeInsertTarget) {
+        case HudInsertTarget::Text:
+        case HudInsertTarget::Markup:
+            element->data.text += text;
+            break;
+        case HudInsertTarget::ImagePath:
+            element->data.imagePath += text;
+            break;
+        case HudInsertTarget::ProgressExpression:
+            element->data.expression += text;
+            break;
+        case HudInsertTarget::None:
+        default:
+            return;
+        }
+        MarkChanged();
+    }
+
+    void OpenVariablesPopup(HudInsertTarget target) {
+        activeInsertTarget = target;
+        variablesPopupPending = true;
+    }
+
+    void DrawVariablesButton(HudInsertTarget target) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        const char* label = ui.Text(UiText::HudVariables);
+        if (HudTextActionButton(
+                ui_icons::Tags,
+                label,
+                "##hud_variables_button",
+                nullptr,
+                ImVec2(std::min(HudTextActionButtonWidth(ui_icons::Tags, label), ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()),
+                visual)) {
+            OpenVariablesPopup(target);
+        }
+    }
+
+    std::vector<variables_picker::Entry> BuildHudVariableEntries() const {
+        if (!tagsModule) {
+            return {};
+        }
+        std::vector<variables_picker::Entry> entries = tagsModule->BuildVariablePickerEntriesForInsert();
+        entries.erase(
+            std::remove_if(entries.begin(), entries.end(), [](const variables_picker::Entry& entry) {
+                return entry.action;
+            }),
+            entries.end());
+        return entries;
+    }
+
+    void HandleHudVariablePickerRequest(const variables_picker::Request& request) {
+        if (!tagsModule) {
+            return;
+        }
+        switch (request.type) {
+        case variables_picker::RequestType::Insert:
+            AppendToActiveInsertTarget(request.text);
+            break;
+        case variables_picker::RequestType::Copy:
+            ImGui::SetClipboardText(request.text.c_str());
+            break;
+        case variables_picker::RequestType::OpenKeyEmulatePicker:
+        case variables_picker::RequestType::OpenDialogItemPicker:
+        case variables_picker::RequestType::OpenDialogTextPicker:
+        case variables_picker::RequestType::OpenArizonaDialogTextPicker:
+            tagsModule->HandleVariablePickerUtilityRequest(request);
+            break;
+        case variables_picker::RequestType::None:
+        case variables_picker::RequestType::SaveCustom:
+        case variables_picker::RequestType::DeleteCustom:
+        default:
+            break;
+        }
+    }
+
+    void DrawVariablesPopup() {
+        if (!tagsModule) {
+            return;
+        }
+        if (variablesPopupPending) {
+            variablesPickerState.search.clear();
+            ImGui::OpenPopup("##hud_variables_popup");
+            variablesPopupPending = false;
+        }
+
+        bool open = true;
+        const std::string title = std::string(UiSettings::Instance().Text(UiText::HudVariablesTitle)) + "##hud_variables_popup";
+        ImGui::SetNextWindowSize(ScaleUi(900.0f, 620.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(title.c_str(), &open, ImGuiWindowFlags_NoSavedSettings)) {
+            return;
+        }
+
+        const std::vector<variables_picker::Entry> entries = BuildHudVariableEntries();
+        const variables_picker::Request request = variables_picker::Draw(
+            variablesPickerState,
+            entries,
+            variables_picker::Options{
+                variables_picker::Mode::Insert,
+                "hud_variables_picker",
+                activeInsertTarget != HudInsertTarget::None,
+                false,
+                ImGui::GetContentRegionAvail(),
+            });
+        HandleHudVariablePickerRequest(request);
+
+        tagsModule->DrawVariableHelperPopups([&](std::string_view token) {
+            AppendToActiveInsertTarget(token);
+        });
+
+        if (!open) {
+            activeInsertTarget = HudInsertTarget::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    bool DrawMarkupToolButton(const char* label, std::string_view insertion, HudElement& element) {
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (!HudTextActionButton(nullptr, label, label, nullptr, ImVec2(HudTextActionButtonWidth(nullptr, label), ImGui::GetFrameHeight()), visual)) {
+            return false;
+        }
+        element.data.text += insertion;
+        MarkChanged();
+        return true;
+    }
+
+    void DrawMarkupToolbar(HudElement& element) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (HudTextActionButton(
+                nullptr,
+                ui.Text(UiText::HudMarkupColor),
+                "##hud_markup_color",
+                nullptr,
+                ImVec2(HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudMarkupColor)), ImGui::GetFrameHeight()),
+                visual)) {
+            element.data.text += "{FFFFFF}";
+            MarkChanged();
+        }
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##hud_markup_font", ui.Text(UiText::HudMarkupFont))) {
+            constexpr int sizes[] = { 12, 14, 16, 18, 30 };
+            for (int size : sizes) {
+                const std::string label = "#font" + std::to_string(size);
+                if (ImGui::Selectable(label.c_str())) {
+                    element.data.text += label;
+                    MarkChanged();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##hud_markup_align", ui.Text(UiText::HudMarkupAlign))) {
+            if (ImGui::Selectable("#left")) {
+                element.data.text += "#left ";
+                MarkChanged();
+            }
+            if (ImGui::Selectable("#center")) {
+                element.data.text += "#center ";
+                MarkChanged();
+            }
+            if (ImGui::Selectable("#right")) {
+                element.data.text += "#right ";
+                MarkChanged();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        DrawMarkupToolButton(ui.Text(UiText::HudMarkupLine), "\n#hr\n", element);
+        ImGui::SameLine();
+        DrawMarkupToolButton(ui.Text(UiText::HudMarkupBreak), "\n#br\n", element);
+        ImGui::SameLine();
+        DrawMarkupToolButton(ui.Text(UiText::HudMarkupIcon), "#iconstar ", element);
+        ImGui::SameLine();
+        if (HudTextActionButton(
+                nullptr,
+                ui.Text(UiText::HudMarkupImage),
+                "##hud_markup_image",
+                nullptr,
+                ImVec2(HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudMarkupImage)), ImGui::GetFrameHeight()),
+                visual)) {
+            if (const std::optional<std::string> image = CopyImageIntoHudProfile()) {
+                element.data.text += "#img(" + *image + ")\n";
+                MarkChanged();
+            }
+        }
+        ImGui::SameLine();
+        DrawVariablesButton(HudInsertTarget::Markup);
+    }
+
     void DrawElementDataProperties(HudElement& element) {
         UiSettings& ui = UiSettings::Instance();
         bool changed = false;
-        ImGui::SeparatorText(ui.Text(UiText::HudSource));
         if (element.type == ElementType::Text) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
+            DrawTextModeCombo(element);
+            ImGui::Spacing();
             changed |= InputTextMultilineString("##hud_element_text", element.data.text, ScaleUi(0.0f, 110.0f));
-            if (ImGui::Button(ui.Text(UiText::HudInsertTagTime))) {
-                element.data.text += "{time}";
-                changed = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::HudInsertTagHp))) {
-                element.data.text += "{health}";
-                changed = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::HudInsertTagWeapon))) {
-                element.data.text += "{myweapon}";
-                changed = true;
-            }
+            DrawVariablesButton(HudInsertTarget::Text);
         } else if (element.type == ElementType::TextMarkup) {
-            int sourceMode = element.data.sourceMode == SourceMode::NotepadNote ? 1 : 0;
-            const char* sourceItems[] = { ui.Text(UiText::HudSourceInline), ui.Text(UiText::HudSourceNotepad) };
-            if (ImGui::Combo("##hud_source_mode", &sourceMode, sourceItems, IM_ARRAYSIZE(sourceItems))) {
-                element.data.sourceMode = sourceMode == 1 ? SourceMode::NotepadNote : SourceMode::Inline;
-                changed = true;
-            }
+            ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
+            DrawTextModeCombo(element);
+            ImGui::Spacing();
             if (element.data.sourceMode == SourceMode::Inline) {
+                DrawMarkupToolbar(element);
+                ImGui::Spacing();
                 changed |= InputTextMultilineString("##hud_markup_text", element.data.text, ScaleUi(0.0f, 120.0f));
                 if (ContainsHudActionTag(element.data.text)) {
                     ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudActionTagsDisabled));
@@ -2655,6 +3743,14 @@ struct HudModule::Impl {
             changed |= InputTextString("##hud_image_path", element.data.imagePath, 0, 256);
             ImGui::SameLine();
             ImGui::TextDisabled("%s", ui.Text(UiText::HudImagePath));
+            if (ImGui::Button((std::string(ui_icons::Image) + " " + ui.Text(UiText::HudInsertImage)).c_str())) {
+                if (const std::optional<std::string> image = CopyImageIntoHudProfile()) {
+                    element.data.imagePath = *image;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            DrawVariablesButton(HudInsertTarget::ImagePath);
             changed |= DrawImageFitCombo(element);
             if (!MarkupRenderer::IsSafeRelativeAssetPath(element.data.imagePath)) {
                 ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudUnsafeImagePath));
@@ -2667,9 +3763,7 @@ struct HudModule::Impl {
             changed |= InputTextString("##hud_expression", element.data.expression, 0, 256);
             ImGui::SameLine();
             ImGui::TextDisabled("%s", ui.Text(UiText::HudExpression));
-            changed |= ImGui::DragFloat(ui.Text(UiText::HudMin), &element.data.minValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
-            changed |= ImGui::DragFloat(ui.Text(UiText::HudMax), &element.data.maxValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
-            changed |= ImGui::DragFloat(ui.Text(UiText::HudDefaultValue), &element.data.defaultValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
+            DrawVariablesButton(HudInsertTarget::ProgressExpression);
         }
         if (element.type == ElementType::Text || element.type == ElementType::TextMarkup || element.type == ElementType::Icon) {
             changed |= ImGui::SliderInt(ui.Text(UiText::HudFontSize), &element.data.fontSize, 8, 96);
@@ -2680,7 +3774,38 @@ struct HudModule::Impl {
         }
     }
 
-    void DrawElementProperties(HudWidget& widget) {
+    void DrawWidgetMainInspector(HudWidget& widget) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        bool changed = false;
+        ImGui::PushID(widget.id.c_str());
+        ImGui::PushID("widget_main");
+        ImGui::TextColored(visual.mutedText, "%s", ui.Text(UiText::HudWidgetSection));
+        changed |= ImGui::Checkbox(ui.Text(UiText::Enabled), &widget.enabled);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        changed |= InputTextString(ui.Text(UiText::Name), widget.name, 0, 128);
+        const float placeWidth = HudTextActionButtonWidth(ui_icons::Compass, ui.Text(UiText::HudPlaceOnScreen));
+        if (HudTextActionButton(
+                ui_icons::Compass,
+                ui.Text(UiText::HudPlaceOnScreen),
+                "##hud_place_on_screen",
+                nullptr,
+                ImVec2(std::min(placeWidth, ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()),
+                visual)) {
+            placementMode = true;
+            placementWidgetId = widget.id;
+        }
+        if (placementMode && placementWidgetId == widget.id) {
+            ImGui::TextColored(ImVec4(0.35f, 0.78f, 1.0f, 1.0f), "%s", ui.Text(UiText::HudPlacementActive));
+        }
+        if (changed) {
+            MarkChanged();
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+    }
+
+    void DrawElementMainInspector(HudWidget& widget) {
         UiSettings& ui = UiSettings::Instance();
         HudElement* element = PrimarySelectedElement(widget);
         if (!element) {
@@ -2690,131 +3815,666 @@ struct HudModule::Impl {
 
         bool changed = false;
         ImGui::PushID(element->id.c_str());
-        ImGui::PushID("element_properties");
-        changed |= InputTextString("##element_name", element->name, 0, 128);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", ui.Text(UiText::Name));
-        ImGui::TextDisabled("%s", ui.Text(ElementTypeLabelId(element->type)));
+        ImGui::PushID("element_main");
+        ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudElementSection));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        changed |= InputTextString(ui.Text(UiText::Name), element->name, 0, 128);
+        const HudTextMode textMode = TextModeForElement(*element);
+        if (element->type == ElementType::Text || element->type == ElementType::TextMarkup) {
+            ImGui::TextDisabled("%s", TextModeLabel(textMode, ui));
+        } else {
+            ImGui::TextDisabled("%s", ui.Text(ElementTypeLabelId(element->type)));
+        }
         changed |= ImGui::Checkbox(ui.Text(UiText::HudLocked), &element->locked);
         ImGui::SameLine();
         changed |= ImGui::Checkbox(ui.Text(UiText::HudHidden), &element->hidden);
         changed |= ImGui::SliderFloat(ui.Text(UiText::HudOpacity), &element->opacity, 0.0f, 1.0f, "%.2f");
+
+        const float itemWidth = std::max(ScaleUi(70.0f), (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+        ImGui::PushItemWidth(itemWidth);
         changed |= ImGui::DragFloat(ui.Text(UiText::HudX), &element->x, 1.0f, -4000.0f, 4000.0f, "%.0f");
+        ImGui::SameLine();
         changed |= ImGui::DragFloat(ui.Text(UiText::HudY), &element->y, 1.0f, -4000.0f, 4000.0f, "%.0f");
         changed |= ImGui::DragFloat(ui.Text(UiText::HudW), &element->width, 1.0f, 1.0f, 4000.0f, "%.0f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudH), &element->height, 1.0f, 0.0f, 4000.0f, "%.0f");
-        changed |= ImGui::InputInt(ui.Text(UiText::HudZOrder), &element->z);
+        ImGui::SameLine();
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudH), &element->height, 1.0f, 1.0f, 4000.0f, "%.0f");
+        ImGui::PopItemWidth();
 
         if (changed) {
             MarkChanged();
         }
+        ImGui::PopID();
+        ImGui::PopID();
+    }
 
-        ImGui::SeparatorText(ui.Text(UiText::HudVisibility));
-        NormalizeConditionFlags(element->visibility.conditions);
-        if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions)).c_str())) {
-            elementConditionsPopupPending = true;
+    void DrawVisibilityInspector(HudWidget& widget) {
+        UiSettings& ui = UiSettings::Instance();
+        bool changed = false;
+        ImGui::PushID(widget.id.c_str());
+        ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudWidgetSection));
+        NormalizeConditionFlags(widget.visibility.conditions);
+        const std::string conditionsButton = std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions);
+        if (ImGui::Button(conditionsButton.c_str())) {
+            conditionsPopupPending = true;
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", HasSelectedCondition(element->visibility.conditions) ? ui.Text(UiText::Enabled) : ui.Text(UiText::HotkeyNotSet));
-        if (DrawConditionFlagsPopup(
-            "##hud_element_conditions_popup",
-            elementConditionsPopupPending,
+        ImGui::TextDisabled("%s", HasSelectedCondition(widget.visibility.conditions) ? ui.Text(UiText::Enabled) : ui.Text(UiText::HotkeyNotSet));
+        changed |= DrawConditionFlagsPopup(
+            "##hud_widget_conditions_popup_tab",
+            conditionsPopupPending,
             UiText::HudVisibilityConditions,
-            element->visibility.conditions,
-            &element->visibility.conditionsCombine)) {
-            MarkChanged();
+            widget.visibility.conditions,
+            &widget.visibility.conditionsCombine);
+        if (ImGui::InputInt(ui.Text(UiText::HudRefreshMs), &widget.refreshMs, 50, 100)) {
+            widget.nextRefreshAtMs = 0;
+            changed = true;
+        }
+        widget.refreshMs = std::max(0, widget.refreshMs);
+        if (widget.refreshMs == 0) {
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudRefreshZeroWarning));
+        }
+        ImGui::PopID();
+
+        HudElement* element = PrimarySelectedElement(widget);
+        if (element) {
+            ImGui::Spacing();
+            ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudElementSection));
+            ImGui::PushID(element->id.c_str());
+            NormalizeConditionFlags(element->visibility.conditions);
+            if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions)).c_str())) {
+                elementConditionsPopupPending = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", HasSelectedCondition(element->visibility.conditions) ? ui.Text(UiText::Enabled) : ui.Text(UiText::HotkeyNotSet));
+            if (DrawConditionFlagsPopup(
+                    "##hud_element_conditions_popup_tab",
+                    elementConditionsPopupPending,
+                    UiText::HudVisibilityConditions,
+                    element->visibility.conditions,
+                    &element->visibility.conditionsCombine)) {
+                changed = true;
+            }
+            ImGui::PopID();
         }
 
-        DrawElementDataProperties(*element);
-        DrawStyleProperties(*element);
+        if (changed) {
+            MarkChanged();
+        }
+    }
+
+    void DrawAdvancedInspector(HudWidget& widget) {
+        UiSettings& ui = UiSettings::Instance();
+        bool changed = false;
+        ImGui::PushID(widget.id.c_str());
+        ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudCanvas));
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudCanvasWidth), &widget.canvasWidth, 1.0f, 16.0f, 2000.0f, "%.0f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudCanvasHeight), &widget.canvasHeight, 1.0f, 16.0f, 2000.0f, "%.0f");
+        ImGui::TextDisabled("%s", ui.Text(UiText::HudScalePolicy));
+        changed |= DrawScalePolicyCombo(widget);
+
+        ImGui::SeparatorText(ui.Text(UiText::HudPosition));
+        ImGui::TextDisabled("%s", ui.Text(UiText::HudAnchor));
+        changed |= DrawAnchorCombo(widget);
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudOffsetX), &widget.position.offsetX, 1.0f, -kVirtualWidth, kVirtualWidth, "%.0f");
+        changed |= ImGui::DragFloat(ui.Text(UiText::HudOffsetY), &widget.position.offsetY, 1.0f, -kVirtualHeight, kVirtualHeight, "%.0f");
         ImGui::PopID();
-        ImGui::PopID();
+
+        HudElement* element = PrimarySelectedElement(widget);
+        if (element) {
+            ImGui::Spacing();
+            ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudElementSection));
+            ImGui::PushID(element->id.c_str());
+            changed |= ImGui::InputInt(ui.Text(UiText::HudZOrder), &element->z);
+            if (element->type == ElementType::ProgressBar) {
+                changed |= ImGui::DragFloat(ui.Text(UiText::HudMin), &element->data.minValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
+                changed |= ImGui::DragFloat(ui.Text(UiText::HudMax), &element->data.maxValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
+                changed |= ImGui::DragFloat(ui.Text(UiText::HudDefaultValue), &element->data.defaultValue, 1.0f, -100000.0f, 100000.0f, "%.1f");
+            }
+            ImGui::PopID();
+        }
+
+        if (changed) {
+            MarkChanged();
+        }
+    }
+
+    void DrawInspector(HudWidget& widget) {
+        UiSettings& ui = UiSettings::Instance();
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(8.0f, 5.0f));
+        if (ImGui::CollapsingHeader(ui.Text(UiText::HudInspectorMain), ImGuiTreeNodeFlags_DefaultOpen)) {
+            inspectorTab = HudInspectorTab::Main;
+            DrawWidgetMainInspector(widget);
+            ImGui::Separator();
+            DrawElementMainInspector(widget);
+        }
+
+        HudElement* element = PrimarySelectedElement(widget);
+        const std::string dataHeader = element
+            ? std::string(ui.Text(ElementTypeLabelId(element->type))) + "##hud_data_section"
+            : std::string(ui.Text(UiText::HudInspectorData)) + "##hud_data_section";
+        if (ImGui::CollapsingHeader(dataHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            inspectorTab = HudInspectorTab::Data;
+            if (element) {
+                DrawElementDataProperties(*element);
+            } else {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoElementSelection));
+            }
+        }
+
+        if (ImGui::CollapsingHeader(ui.Text(UiText::HudInspectorStyle), ImGuiTreeNodeFlags_DefaultOpen)) {
+            inspectorTab = HudInspectorTab::Style;
+            if (element) {
+                DrawStyleProperties(*element);
+            } else {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoElementSelection));
+            }
+        }
+
+        if (ImGui::CollapsingHeader(ui.Text(UiText::HudInspectorVisibility), ImGuiTreeNodeFlags_DefaultOpen)) {
+            inspectorTab = HudInspectorTab::Visibility;
+            DrawVisibilityInspector(widget);
+        }
+
+        if (ImGui::CollapsingHeader(ui.Text(UiText::HudInspectorAdvanced))) {
+            inspectorTab = HudInspectorTab::Advanced;
+            DrawAdvancedInspector(widget);
+        }
+        ImGui::PopStyleVar();
+    }
+
+    void ReorderElementBefore(HudWidget& widget, std::string_view draggedId, std::string_view targetId) {
+        if (draggedId.empty() || targetId.empty() || draggedId == targetId) {
+            return;
+        }
+
+        std::vector<std::string> order;
+        for (HudElement* element : ElementsByZ(widget, true)) {
+            if (element->id != draggedId) {
+                order.push_back(element->id);
+            }
+        }
+        const auto targetIt = std::find(order.begin(), order.end(), targetId);
+        if (targetIt == order.end()) {
+            return;
+        }
+        order.insert(targetIt, std::string(draggedId));
+        const int count = static_cast<int>(order.size());
+        for (int i = 0; i < count; ++i) {
+            if (HudElement* element = FindElement(widget, order[static_cast<std::size_t>(i)])) {
+                element->z = count - i - 1;
+            }
+        }
+        MarkChanged();
     }
 
     void DrawLayers(HudWidget& widget, float height = 0.0f) {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::BeginChild("hud_layers_panel", ImVec2(0.0f, height), ImGuiChildFlags_None)) {
-            ImGui::SeparatorText(ui.Text(UiText::HudLayers));
-            if (ImGui::Button((std::string(ui_icons::Plus) + " " + ui.Text(UiText::HudAddElement)).c_str())) {
-                ImGui::OpenPopup("##hud_add_element");
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (BeginHudPanel("hud_layers_panel", ImVec2(0.0f, height), visual)) {
+            const float headerH = ImGui::GetFrameHeight();
+            const ImVec2 headerMin = ImGui::GetCursorScreenPos();
+            const float headerW = ImGui::GetContentRegionAvail().x;
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddText(headerMin, ImGui::GetColorU32(visual.headerText), ui.Text(UiText::HudLayers));
+
+            const float buttonSide = headerH;
+            ImGui::SetCursorScreenPos(ImVec2(headerMin.x + headerW - buttonSide * 2.0f - ScaleUi(4.0f), headerMin.y));
+            if (HudFlatIconButton(ui_icons::Plus, "##hud_add_element_layers", ui.Text(UiText::HudAddElement), ImVec2(buttonSide, buttonSide), visual, visual.headerText)) {
+                ImGui::OpenPopup("##hud_add_element_layers_popup");
             }
-            if (ImGui::BeginPopup("##hud_add_element")) {
-                constexpr ElementType types[] = {
-                    ElementType::Text,
-                    ElementType::TextMarkup,
-                    ElementType::Image,
-                    ElementType::Shape,
-                    ElementType::Line,
-                    ElementType::Icon,
-                    ElementType::ProgressBar,
-                };
-                for (ElementType type : types) {
-                    if (ImGui::MenuItem(ui.Text(ElementTypeLabelId(type)))) {
-                        AddElement(type);
-                    }
+            DrawAddElementMenu("##hud_add_element_layers_popup");
+            ImGui::SameLine(0.0f, ScaleUi(4.0f));
+            if (HudFlatIconButton(ui_icons::Sliders, "##hud_layers_more", ui.Text(UiText::HudMoreActions), ImVec2(buttonSide, buttonSide), visual)) {
+                ImGui::OpenPopup("##hud_layers_more_popup");
+            }
+            if (ImGui::BeginPopup("##hud_layers_more_popup")) {
+                if (ImGui::MenuItem(ui.Text(UiText::HudGroup), nullptr, false, selectedElementIds.size() >= 2)) {
+                    GroupSelectedElements();
+                }
+                if (ImGui::MenuItem(ui.Text(UiText::HudUngroup), nullptr, false, !selectedElementIds.empty())) {
+                    UngroupSelectedElements();
                 }
                 ImGui::EndPopup();
             }
-            ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::HudGroup))) {
-                GroupSelectedElements();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::HudUngroup))) {
-                UngroupSelectedElements();
-            }
+            ImGui::SetCursorScreenPos(ImVec2(headerMin.x, headerMin.y + headerH + ScaleUi(5.0f)));
 
-            if (ImGui::BeginChild("hud_layers_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+            if (widget.elements.empty()) {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoElementSelection));
+            } else if (ImGui::BeginChild("hud_layers_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+                drawList = ImGui::GetWindowDrawList();
+                int rowIndex = 0;
+                const float rowH = ScaleUi(32.0f);
+                const float iconSide = ScaleUi(24.0f);
+                const float gap = ScaleUi(5.0f);
                 for (HudElement* element : ElementsByZ(widget, true)) {
                     ImGui::PushID(element->id.c_str());
+                    const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+                    const float rowW = ImGui::GetContentRegionAvail().x;
+                    const ImRect rowRect(rowMin, ImVec2(rowMin.x + rowW, rowMin.y + rowH));
                     const bool selected = IsElementSelected(element->id);
-                    const std::string prefix = std::string(element->hidden ? ui_icons::ToggleOff : ui_icons::ToggleOn)
-                        + (element->locked ? std::string(" ") + ui_icons::Keyboard : "");
-                    const std::string parentHint = element->parentId.empty() ? "" : "  ";
-                    const std::string label = prefix + " " + parentHint + element->name + "##layer";
-                    if (ImGui::Selectable(label.c_str(), selected)) {
+                    const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
+                    DrawHudRowBackground(drawList, rowRect, rowIndex, selected, hovered, visual);
+
+                    float x = rowRect.Min.x + ScaleUi(5.0f);
+                    ImGui::SetCursorScreenPos(ImVec2(x, rowRect.Min.y + ScaleUi(4.0f)));
+                    const ImVec4 visibilityColor = element->hidden ? visual.faintText : visual.accent;
+                    if (HudFlatIconButton(element->hidden ? ui_icons::ToggleOff : ui_icons::ToggleOn, "##layer_visible", ui.Text(UiText::HudHidden), ImVec2(iconSide, iconSide), visual, visibilityColor)) {
+                        element->hidden = !element->hidden;
+                        MarkChanged();
+                    }
+                    x += iconSide + gap;
+
+                    ImGui::SetCursorScreenPos(ImVec2(x, rowRect.Min.y + ScaleUi(4.0f)));
+                    const ImVec4 lockColor = element->locked ? visual.accent : visual.faintText;
+                    if (HudFlatIconButton(ui_icons::Keyboard, "##layer_locked", ui.Text(UiText::HudLocked), ImVec2(iconSide, iconSide), visual, lockColor)) {
+                        element->locked = !element->locked;
+                        MarkChanged();
+                    }
+                    x += iconSide + gap;
+
+                    const float typeW = ScaleUi(22.0f);
+                    DrawCenteredIconGlyph(
+                        drawList,
+                        ElementTypeIcon(element->type),
+                        ImRect(ImVec2(x, rowRect.Min.y), ImVec2(x + typeW, rowRect.Max.y)),
+                        ImGui::GetColorU32(element->hidden ? visual.faintText : visual.mutedText),
+                        std::floor(ImGui::GetFontSize() * 0.92f));
+                    x += typeW + gap + (element->parentId.empty() ? 0.0f : ScaleUi(12.0f));
+
+                    const float labelW = std::max(1.0f, rowRect.Max.x - x - ScaleUi(7.0f));
+                    ImGui::SetCursorScreenPos(ImVec2(x, rowRect.Min.y));
+                    if (ImGui::InvisibleButton("##layer_select", ImVec2(labelW, rowH))) {
                         SelectElement(element->id, ImGui::GetIO().KeyCtrl);
                     }
+                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        ImGui::SetDragDropPayload("HBO_HUD_ELEMENT", element->id.c_str(), element->id.size() + 1);
+                        ImGui::TextUnformatted(element->name.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HBO_HUD_ELEMENT")) {
+                            const char* draggedId = static_cast<const char*>(payload->Data);
+                            ReorderElementBefore(widget, draggedId ? draggedId : "", element->id);
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (ImGui::BeginPopupContextItem("##hud_layer_context")) {
+                        if (ImGui::MenuItem(ui.Text(UiText::HudDuplicateElement))) {
+                            selectedElementIds = { element->id };
+                            DuplicateSelectedElements();
+                        }
+                        if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+                            selectedElementIds = { element->id };
+                            DeleteSelectedElements();
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    const std::string label = EllipsizeText(element->name, labelW);
+                    drawList->AddText(
+                        ImVec2(x, rowRect.Min.y + std::floor((rowH - ImGui::GetTextLineHeight()) * 0.5f)),
+                        ImGui::GetColorU32(element->hidden ? visual.faintText : selected ? visual.headerText : visual.mutedText),
+                        label.c_str());
+                    ImGui::SetCursorScreenPos(ImVec2(rowRect.Min.x, rowRect.Max.y));
                     ImGui::PopID();
+                    ++rowIndex;
                 }
+                ImGui::EndChild();
             }
-            ImGui::EndChild();
         }
-        ImGui::EndChild();
+        EndHudPanel();
     }
 
-    float SnapValue(float value) const {
+    ImRect ElementHitRect(const ImRect& rect) const {
+        ImRect hit = rect;
+        const float minSize = ScaleUi(16.0f);
+        if (hit.GetWidth() < minSize) {
+            const float center = (hit.Min.x + hit.Max.x) * 0.5f;
+            hit.Min.x = center - minSize * 0.5f;
+            hit.Max.x = center + minSize * 0.5f;
+        }
+        if (hit.GetHeight() < minSize) {
+            const float center = (hit.Min.y + hit.Max.y) * 0.5f;
+            hit.Min.y = center - minSize * 0.5f;
+            hit.Max.y = center + minSize * 0.5f;
+        }
+        return hit;
+    }
+
+    float SnapValueWithThreshold(float value, float scale) const {
         if (!snapEnabled || ImGui::GetIO().KeyAlt || gridSize <= 0.0f) {
             return value;
         }
-        return std::round(value / gridSize) * gridSize;
+        const float snapped = std::round(value / gridSize) * gridSize;
+        const float thresholdPx = ScaleUi(6.0f);
+        return std::abs(snapped - value) * std::max(0.001f, scale) <= thresholdPx ? snapped : value;
     }
 
-    void MoveElementAndChildren(HudWidget& widget, HudElement& element, float dx, float dy) {
-        element.x = SnapValue(element.x + dx);
-        element.y = SnapValue(element.y + dy);
-        if (element.type != ElementType::Group) {
-            return;
+    void MarkCanvasGestureChanged() {
+        if (!canvasGestureUndoCaptured) {
+            PushUndoSnapshot(frameSnapshot.empty() ? Snapshot() : frameSnapshot);
+            canvasGestureUndoCaptured = true;
+            frameUndoUsed = true;
         }
-        for (HudElement& child : widget.elements) {
-            if (child.parentId == element.id) {
-                child.x = SnapValue(child.x + dx);
-                child.y = SnapValue(child.y + dy);
+        for (HudWidget& widget : widgets) {
+            widget.nextRefreshAtMs = 0;
+        }
+        QueueSave();
+    }
+
+    ImRect ResizeHandleRect(const ImRect& rect, ResizeHandle handle, float size) const {
+        const ImVec2 center = ResizeHandlePos(rect, handle);
+        const float half = size * 0.5f;
+        return ImRect(ImVec2(center.x - half, center.y - half), ImVec2(center.x + half, center.y + half));
+    }
+
+    ImGuiMouseCursor CursorForHandle(ResizeHandle handle) const {
+        switch (handle) {
+        case ResizeHandle::TopLeft:
+        case ResizeHandle::BottomRight:
+            return ImGuiMouseCursor_ResizeNWSE;
+        case ResizeHandle::TopRight:
+        case ResizeHandle::BottomLeft:
+            return ImGuiMouseCursor_ResizeNESW;
+        case ResizeHandle::Left:
+        case ResizeHandle::Right:
+            return ImGuiMouseCursor_ResizeEW;
+        case ResizeHandle::Top:
+        case ResizeHandle::Bottom:
+            return ImGuiMouseCursor_ResizeNS;
+        }
+        return ImGuiMouseCursor_Arrow;
+    }
+
+    CanvasHitResult HitTestResizeHandles(HudWidget& widget, const ImVec2& mouse, const ImVec2& origin, float scale) {
+        HudElement* element = PrimarySelectedElement(widget);
+        if (!element || !ElementVisible(*element)) {
+            return {};
+        }
+        constexpr ResizeHandle handles[] = {
+            ResizeHandle::TopLeft,
+            ResizeHandle::Top,
+            ResizeHandle::TopRight,
+            ResizeHandle::Right,
+            ResizeHandle::BottomRight,
+            ResizeHandle::Bottom,
+            ResizeHandle::BottomLeft,
+            ResizeHandle::Left,
+        };
+        const ImRect rect = ElementRect(*element, origin, scale);
+        const float hitSize = ScaleUi(24.0f);
+        std::optional<ResizeHandle> bestHandle;
+        float bestDistanceSq = FLT_MAX;
+        for (ResizeHandle handle : handles) {
+            if (ResizeHandleRect(rect, handle, hitSize).Contains(mouse)) {
+                const ImVec2 center = ResizeHandlePos(rect, handle);
+                const float dx = mouse.x - center.x;
+                const float dy = mouse.y - center.y;
+                const float distanceSq = dx * dx + dy * dy;
+                if (distanceSq < bestDistanceSq) {
+                    bestDistanceSq = distanceSq;
+                    bestHandle = handle;
+                }
             }
         }
+        return bestHandle ? CanvasHitResult{ element->id, bestHandle } : CanvasHitResult{};
     }
 
-    void DrawEditorGrid(ImDrawList* drawList, const ImRect& rect, float scale) const {
+    CanvasHitResult HitTestElementBody(HudWidget& widget, const ImVec2& mouse, const ImVec2& origin, float scale) {
+        for (HudElement* element : ElementsByZ(widget, true)) {
+            if (!ElementVisible(*element)) {
+                continue;
+            }
+            if (ElementHitRect(ElementRect(*element, origin, scale)).Contains(mouse)) {
+                return CanvasHitResult{ element->id, std::nullopt };
+            }
+        }
+        return {};
+    }
+
+    CanvasHitResult HitTestCanvas(HudWidget& widget, const ImVec2& mouse, const ImVec2& origin, float scale) {
+        if (CanvasHitResult handle = HitTestResizeHandles(widget, mouse, origin, scale); handle.HasHandle()) {
+            return handle;
+        }
+        return HitTestElementBody(widget, mouse, origin, scale);
+    }
+
+    CanvasElementSnapshot SnapshotElementRect(const HudElement& element) const {
+        return CanvasElementSnapshot{ element.id, element.x, element.y, element.width, element.height };
+    }
+
+    std::vector<CanvasElementSnapshot> CaptureDragSnapshots(HudWidget& widget) {
+        std::vector<CanvasElementSnapshot> snapshots;
+        std::set<std::string> captured;
+        auto capture = [&](HudElement& element) {
+            if (captured.insert(element.id).second) {
+                snapshots.push_back(SnapshotElementRect(element));
+            }
+        };
+        for (const std::string& id : selectedElementIds) {
+            HudElement* element = FindElement(widget, id);
+            if (!element || element->locked) {
+                continue;
+            }
+            capture(*element);
+            if (element->type == ElementType::Group) {
+                for (HudElement& child : widget.elements) {
+                    if (child.parentId == element->id && !child.locked) {
+                        capture(child);
+                    }
+                }
+            }
+        }
+        return snapshots;
+    }
+
+    const CanvasElementSnapshot* FindGestureSnapshot(std::string_view id) const {
+        const auto it = std::find_if(canvasGestureSnapshots.begin(), canvasGestureSnapshots.end(), [&](const CanvasElementSnapshot& snapshot) {
+            return snapshot.id == id;
+        });
+        return it == canvasGestureSnapshots.end() ? nullptr : &(*it);
+    }
+
+    void BeginCanvasDrag(HudWidget& widget, std::string_view elementId) {
+        canvasMode = CanvasInteractionMode::Dragging;
+        canvasActiveElementId = std::string(elementId);
+        canvasActiveHandle.reset();
+        canvasGestureStartScreen = ImGui::GetIO().MousePos;
+        canvasGestureSnapshots = CaptureDragSnapshots(widget);
+        canvasGestureMoved = false;
+        canvasGestureUndoCaptured = false;
+        canvasGestureButton = 0;
+    }
+
+    void BeginCanvasResize(HudWidget& widget, std::string_view elementId, ResizeHandle handle) {
+        HudElement* element = FindElement(widget, elementId);
+        if (!element || element->locked) {
+            return;
+        }
+        canvasMode = CanvasInteractionMode::Resizing;
+        canvasActiveElementId = std::string(elementId);
+        canvasActiveHandle = handle;
+        canvasGestureStartScreen = ImGui::GetIO().MousePos;
+        canvasGestureSnapshots = { SnapshotElementRect(*element) };
+        canvasGestureMoved = false;
+        canvasGestureUndoCaptured = false;
+        canvasGestureButton = 0;
+    }
+
+    void BeginCanvasMarquee(bool additive) {
+        canvasMode = CanvasInteractionMode::MarqueeSelecting;
+        canvasActiveElementId.clear();
+        canvasActiveHandle.reset();
+        canvasGestureStartScreen = ImGui::GetIO().MousePos;
+        canvasMarqueeRect = ImRect(canvasGestureStartScreen, canvasGestureStartScreen);
+        canvasGestureMoved = false;
+        canvasGestureUndoCaptured = false;
+        canvasGestureAdditive = additive;
+        canvasGestureButton = 0;
+    }
+
+    void BeginCanvasPan(int button) {
+        canvasMode = CanvasInteractionMode::Panning;
+        canvasActiveElementId.clear();
+        canvasActiveHandle.reset();
+        canvasGestureStartScreen = ImGui::GetIO().MousePos;
+        canvasGestureStartPan = canvasPan;
+        canvasGestureMoved = false;
+        canvasGestureButton = button;
+    }
+
+    void EndCanvasGesture() {
+        canvasMode = CanvasInteractionMode::Idle;
+        canvasActiveElementId.clear();
+        canvasActiveHandle.reset();
+        canvasGestureSnapshots.clear();
+        canvasGestureMoved = false;
+        canvasGestureUndoCaptured = false;
+        canvasGestureAdditive = false;
+        canvasGestureButton = 0;
+        canvasMarqueeRect = ImRect();
+    }
+
+    void ApplyCanvasDrag(HudWidget& widget, const ImVec2& mouse, float scale) {
+        if (canvasGestureSnapshots.empty()) {
+            return;
+        }
+        const ImVec2 rawDelta(
+            (mouse.x - canvasGestureStartScreen.x) / std::max(0.001f, scale),
+            (mouse.y - canvasGestureStartScreen.y) / std::max(0.001f, scale));
+        float effectiveDx = rawDelta.x;
+        float effectiveDy = rawDelta.y;
+        if (const CanvasElementSnapshot* anchor = FindGestureSnapshot(canvasActiveElementId)) {
+            effectiveDx = SnapValueWithThreshold(anchor->x + rawDelta.x, scale) - anchor->x;
+            effectiveDy = SnapValueWithThreshold(anchor->y + rawDelta.y, scale) - anchor->y;
+        }
+        bool changed = false;
+        for (const CanvasElementSnapshot& snapshot : canvasGestureSnapshots) {
+            HudElement* element = FindElement(widget, snapshot.id);
+            if (!element || element->locked) {
+                continue;
+            }
+            const float nextX = snapshot.x + effectiveDx;
+            const float nextY = snapshot.y + effectiveDy;
+            if (element->x != nextX || element->y != nextY) {
+                element->x = nextX;
+                element->y = nextY;
+                changed = true;
+            }
+        }
+        if (changed) {
+            canvasGestureMoved = true;
+            MarkCanvasGestureChanged();
+        }
+    }
+
+    void ApplyCanvasResize(HudWidget& widget, const ImVec2& mouse, float scale) {
+        if (!canvasActiveHandle || canvasGestureSnapshots.empty()) {
+            return;
+        }
+        HudElement* element = FindElement(widget, canvasActiveElementId);
+        if (!element || element->locked) {
+            return;
+        }
+        const CanvasElementSnapshot& start = canvasGestureSnapshots.front();
+        const ImVec2 delta(
+            (mouse.x - canvasGestureStartScreen.x) / std::max(0.001f, scale),
+            (mouse.y - canvasGestureStartScreen.y) / std::max(0.001f, scale));
+        const ResizeHandle handle = *canvasActiveHandle;
+        const float fixedLeft = start.x;
+        const float fixedTop = start.y;
+        const float fixedRight = start.x + start.width;
+        const float fixedBottom = start.y + start.height;
+        const bool moveLeft = handle == ResizeHandle::TopLeft || handle == ResizeHandle::Left || handle == ResizeHandle::BottomLeft;
+        const bool moveRight = handle == ResizeHandle::TopRight || handle == ResizeHandle::Right || handle == ResizeHandle::BottomRight;
+        const bool moveTop = handle == ResizeHandle::TopLeft || handle == ResizeHandle::Top || handle == ResizeHandle::TopRight;
+        const bool moveBottom = handle == ResizeHandle::BottomLeft || handle == ResizeHandle::Bottom || handle == ResizeHandle::BottomRight;
+
+        float nextLeft = fixedLeft;
+        float nextTop = fixedTop;
+        float nextRight = fixedRight;
+        float nextBottom = fixedBottom;
+        if (moveLeft) {
+            nextLeft = SnapValueWithThreshold(fixedLeft + delta.x, scale);
+        } else if (moveRight) {
+            nextRight = SnapValueWithThreshold(fixedRight + delta.x, scale);
+        }
+        if (moveTop) {
+            nextTop = SnapValueWithThreshold(fixedTop + delta.y, scale);
+        } else if (moveBottom) {
+            nextBottom = SnapValueWithThreshold(fixedBottom + delta.y, scale);
+        }
+
+        if (nextRight - nextLeft < 1.0f) {
+            if (moveLeft) {
+                nextLeft = fixedRight - 1.0f;
+            } else {
+                nextRight = fixedLeft + 1.0f;
+            }
+        }
+        if (nextBottom - nextTop < 1.0f) {
+            if (moveTop) {
+                nextTop = fixedBottom - 1.0f;
+            } else {
+                nextBottom = fixedTop + 1.0f;
+            }
+        }
+        const float nextW = nextRight - nextLeft;
+        const float nextH = nextBottom - nextTop;
+        if (element->x != nextLeft || element->y != nextTop || element->width != nextW || element->height != nextH) {
+            element->x = nextLeft;
+            element->y = nextTop;
+            element->width = nextW;
+            element->height = nextH;
+            canvasGestureMoved = true;
+            MarkCanvasGestureChanged();
+        }
+    }
+
+    void ApplyCanvasMarqueeSelection(HudWidget& widget, const ImRect& marquee, const ImVec2& origin, float scale, bool additive) {
+        std::vector<std::string> nextSelection = additive ? selectedElementIds : std::vector<std::string>{};
+        auto alreadySelected = [&](std::string_view id) {
+            return std::find(nextSelection.begin(), nextSelection.end(), id) != nextSelection.end();
+        };
+        for (HudElement* element : ElementsByZ(widget)) {
+            if (!ElementVisible(*element)) {
+                continue;
+            }
+            if (marquee.Overlaps(ElementRect(*element, origin, scale)) && !alreadySelected(element->id)) {
+                nextSelection.push_back(element->id);
+            }
+        }
+        selectedElementIds = std::move(nextSelection);
+    }
+
+    ImVec2 ResizeHandlePos(const ImRect& rect, ResizeHandle handle) const {
+        const float midX = (rect.Min.x + rect.Max.x) * 0.5f;
+        const float midY = (rect.Min.y + rect.Max.y) * 0.5f;
+        switch (handle) {
+        case ResizeHandle::TopLeft: return rect.Min;
+        case ResizeHandle::Top: return ImVec2(midX, rect.Min.y);
+        case ResizeHandle::TopRight: return ImVec2(rect.Max.x, rect.Min.y);
+        case ResizeHandle::Right: return ImVec2(rect.Max.x, midY);
+        case ResizeHandle::BottomRight: return rect.Max;
+        case ResizeHandle::Bottom: return ImVec2(midX, rect.Max.y);
+        case ResizeHandle::BottomLeft: return ImVec2(rect.Min.x, rect.Max.y);
+        case ResizeHandle::Left: return ImVec2(rect.Min.x, midY);
+        }
+        return rect.Max;
+    }
+
+    void DrawEditorGrid(ImDrawList* drawList, const ImRect& rect, float scale, const HudEditorVisualStyle& visual) const {
         const float grid = std::max(1.0f, gridSize * scale);
-        const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.38f, 0.45f, 0.20f));
+        const ImU32 color = ImGui::GetColorU32(visual.gridMinor);
         for (float x = rect.Min.x; x <= rect.Max.x; x += grid) {
             drawList->AddLine(ImVec2(x, rect.Min.y), ImVec2(x, rect.Max.y), color);
         }
         for (float y = rect.Min.y; y <= rect.Max.y; y += grid) {
             drawList->AddLine(ImVec2(rect.Min.x, y), ImVec2(rect.Max.x, y), color);
         }
-        drawList->AddLine(ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Min.y), ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Max.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.26f)));
-        drawList->AddLine(ImVec2(rect.Min.x, rect.Min.y + rect.GetHeight() * 0.5f), ImVec2(rect.Max.x, rect.Min.y + rect.GetHeight() * 0.5f), ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.26f)));
+        const ImU32 majorColor = ImGui::GetColorU32(visual.gridMajor);
+        drawList->AddLine(ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Min.y), ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Max.y), majorColor);
+        drawList->AddLine(ImVec2(rect.Min.x, rect.Min.y + rect.GetHeight() * 0.5f), ImVec2(rect.Max.x, rect.Min.y + rect.GetHeight() * 0.5f), majorColor);
     }
 
     void DrawInlineTextEdit(HudElement& element, const ImRect& rect) {
@@ -2833,30 +4493,140 @@ struct HudModule::Impl {
 
     void DrawEditorCanvas(HudWidget& widget, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
         const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 areaMin = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            areaMin,
+            ImVec2(areaMin.x + std::max(1.0f, avail.x), areaMin.y + std::max(1.0f, avail.y)),
+            ImGui::GetColorU32(WithAlpha(visual.canvasBg, 0.36f)),
+            ScaleUi(6.0f));
         const float padding = ScaleUi(32.0f);
         const float fitScale = std::max(
             0.10f,
             std::min(
                 (avail.x - padding * 2.0f) / std::max(1.0f, widget.canvasWidth),
                 (avail.y - padding * 2.0f) / std::max(1.0f, widget.canvasHeight)));
-        const float scale = std::min(4.0f, fitScale);
+        const float scale = canvasFitZoom ? std::min(4.0f, fitScale) : std::clamp(canvasZoom, 0.10f, 4.0f);
         const ImVec2 canvasSize(widget.canvasWidth * scale, widget.canvasHeight * scale);
         const ImVec2 origin(
-            ImGui::GetCursorScreenPos().x + std::max(0.0f, (avail.x - canvasSize.x) * 0.5f),
-            ImGui::GetCursorScreenPos().y + std::max(0.0f, (avail.y - canvasSize.y) * 0.5f));
+            ImGui::GetCursorScreenPos().x + std::max(0.0f, (avail.x - canvasSize.x) * 0.5f) + canvasPan.x,
+            ImGui::GetCursorScreenPos().y + std::max(0.0f, (avail.y - canvasSize.y) * 0.5f) + canvasPan.y);
         const ImRect canvasRect(origin, ImVec2(origin.x + canvasSize.x, origin.y + canvasSize.y));
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->AddRectFilled(canvasRect.Min, canvasRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.04f, 0.045f, 0.055f, 0.92f)), ScaleUi(2.0f));
-        DrawEditorGrid(drawList, canvasRect, scale);
+        drawList->AddRectFilled(canvasRect.Min, canvasRect.Max, ImGui::GetColorU32(visual.canvasBg), ScaleUi(2.0f));
+        drawList->AddRect(canvasRect.Min, canvasRect.Max, ImGui::GetColorU32(visual.canvasBorder), ScaleUi(2.0f), 0, ScaleUi(1.0f));
+        DrawEditorGrid(drawList, canvasRect, scale, visual);
 
-        ImGui::SetCursorScreenPos(canvasRect.Min);
-        ImGui::InvisibleButton("##hud_editor_canvas_background", canvasRect.GetSize());
-        if (ImGui::IsItemClicked() && !ImGui::GetIO().KeyCtrl) {
-            selectedElementIds.clear();
+        const float inputPadding = ScaleUi(14.0f);
+        const ImRect canvasInputRect(
+            ImVec2(canvasRect.Min.x - inputPadding, canvasRect.Min.y - inputPadding),
+            ImVec2(canvasRect.Max.x + inputPadding, canvasRect.Max.y + inputPadding));
+
+        ImGui::SetCursorScreenPos(canvasInputRect.Min);
+        ImGui::InvisibleButton(
+            "##hud_editor_canvas_surface",
+            canvasInputRect.GetSize(),
+            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+        ImGuiIO& io = ImGui::GetIO();
+        const bool mouseInCanvas = canvasRect.Contains(io.MousePos);
+        const bool mouseInCanvasInput = canvasInputRect.Contains(io.MousePos);
+        const bool surfaceHovered = ImGui::IsItemHovered() || mouseInCanvasInput;
+
+        CanvasHitResult hover = surfaceHovered ? HitTestCanvas(widget, io.MousePos, origin, scale) : CanvasHitResult{};
+        canvasHoverElementId = hover.elementId;
+        canvasHoverHandle = hover.handle;
+        if (canvasMode == CanvasInteractionMode::Idle
+            || canvasMode == CanvasInteractionMode::HoverElement
+            || canvasMode == CanvasInteractionMode::HoverHandle) {
+            canvasMode = hover.HasHandle()
+                ? CanvasInteractionMode::HoverHandle
+                : (hover.HasElement() ? CanvasInteractionMode::HoverElement : CanvasInteractionMode::Idle);
+        }
+
+        const bool canvasInputAllowed = !io.WantTextInput;
+        if (canvasInputAllowed) {
+            if (canvasMode == CanvasInteractionMode::Dragging) {
+                if (ImGui::IsMouseDown(0)) {
+                    ApplyCanvasDrag(widget, io.MousePos, scale);
+                } else {
+                    EndCanvasGesture();
+                }
+            } else if (canvasMode == CanvasInteractionMode::Resizing) {
+                if (ImGui::IsMouseDown(0)) {
+                    ApplyCanvasResize(widget, io.MousePos, scale);
+                } else {
+                    EndCanvasGesture();
+                }
+            } else if (canvasMode == CanvasInteractionMode::MarqueeSelecting) {
+                if (ImGui::IsMouseDown(0)) {
+                    canvasGestureMoved = canvasGestureMoved || ImGui::IsMouseDragging(0, ScaleUi(2.0f));
+                    canvasMarqueeRect = ImRect(
+                        ImVec2(std::min(canvasGestureStartScreen.x, io.MousePos.x), std::min(canvasGestureStartScreen.y, io.MousePos.y)),
+                        ImVec2(std::max(canvasGestureStartScreen.x, io.MousePos.x), std::max(canvasGestureStartScreen.y, io.MousePos.y)));
+                    if (canvasGestureMoved) {
+                        ApplyCanvasMarqueeSelection(widget, canvasMarqueeRect, origin, scale, canvasGestureAdditive);
+                    }
+                } else {
+                    EndCanvasGesture();
+                }
+            } else if (canvasMode == CanvasInteractionMode::Panning) {
+                if (ImGui::IsMouseDown(canvasGestureButton)) {
+                    canvasPan = ImVec2(
+                        canvasGestureStartPan.x + io.MousePos.x - canvasGestureStartScreen.x,
+                        canvasGestureStartPan.y + io.MousePos.y - canvasGestureStartScreen.y);
+                    canvasGestureMoved = true;
+                } else {
+                    EndCanvasGesture();
+                }
+            } else if (surfaceHovered) {
+                if (ImGui::IsMouseClicked(2)) {
+                    BeginCanvasPan(2);
+                } else if (ImGui::IsMouseClicked(0)) {
+                    if (hover.HasHandle()) {
+                        if (HudElement* element = FindElement(widget, hover.elementId); element && !element->locked) {
+                            BeginCanvasResize(widget, hover.elementId, *hover.handle);
+                        }
+                    } else if (hover.HasElement()) {
+                        HudElement* element = FindElement(widget, hover.elementId);
+                        const bool additive = io.KeyCtrl;
+                        SelectElement(hover.elementId, additive);
+                        if (element && ImGui::IsMouseDoubleClicked(0) && element->type == ElementType::Text) {
+                            inlineEditElementId = element->id;
+                        }
+                        if (!additive && element && !element->locked && IsElementSelected(element->id)) {
+                            BeginCanvasDrag(widget, element->id);
+                        }
+                    } else if (mouseInCanvas) {
+                        if (!io.KeyCtrl) {
+                            selectedElementIds.clear();
+                        }
+                        BeginCanvasMarquee(io.KeyCtrl);
+                    }
+                }
+            }
+
+            if (canvasMode == CanvasInteractionMode::Panning) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            } else if (canvasMode == CanvasInteractionMode::Resizing && canvasActiveHandle) {
+                ImGui::SetMouseCursor(CursorForHandle(*canvasActiveHandle));
+            } else if (hover.HasHandle()) {
+                const HudElement* element = FindElement(widget, hover.elementId);
+                ImGui::SetMouseCursor(element && element->locked ? ImGuiMouseCursor_NotAllowed : CursorForHandle(*hover.handle));
+            } else if (canvasMode == CanvasInteractionMode::Dragging || hover.HasElement()) {
+                const HudElement* element = hover.HasElement() ? FindElement(widget, hover.elementId) : FindElement(widget, canvasActiveElementId);
+                ImGui::SetMouseCursor(element && element->locked ? ImGuiMouseCursor_NotAllowed : ImGuiMouseCursor_ResizeAll);
+            }
         }
 
         DrawCanvas(widget, device, origin, scale, true);
+
+        if (!hover.HasHandle() && hover.HasElement() && !IsElementSelected(hover.elementId)) {
+            if (const HudElement* element = FindElement(widget, hover.elementId)) {
+                const ImRect rect = ElementRect(*element, origin, scale);
+                drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.95f, 0.78f, 0.32f, 0.95f)), 0.0f, 0, ScaleUi(1.0f));
+            }
+        }
 
         for (HudElement* element : ElementsByZ(widget, true)) {
             if (element->hidden) {
@@ -2864,234 +4634,207 @@ struct HudModule::Impl {
             }
             const ImRect rect = ElementRect(*element, origin, scale);
             ImGui::PushID(element->id.c_str());
-            ImGui::SetCursorScreenPos(rect.Min);
-            ImGui::InvisibleButton("##hud_element_hit", rect.GetSize());
-            if (ImGui::IsItemClicked()) {
-                SelectElement(element->id, ImGui::GetIO().KeyCtrl);
-                if (ImGui::IsMouseDoubleClicked(0) && element->type == ElementType::Text) {
-                    inlineEditElementId = element->id;
-                }
-            }
-            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0) && !element->locked) {
-                if (!dragUndoCaptured || activeDragElementId != element->id) {
-                    PushUndoSnapshot(Snapshot());
-                    dragUndoCaptured = true;
-                    activeDragElementId = element->id;
-                }
-                const ImVec2 delta = ImGui::GetIO().MouseDelta;
-                MoveElementAndChildren(widget, *element, delta.x / scale, delta.y / scale);
-                QueueSave();
-            }
-            if (ImGui::IsItemDeactivated()) {
-                dragUndoCaptured = false;
-                activeDragElementId.clear();
-            }
-
             const bool selected = IsElementSelected(element->id);
             if (selected) {
                 drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 1.0f)), 0.0f, 0, ScaleUi(1.5f));
-                const float handle = ScaleUi(9.0f);
-                const ImRect handleRect(ImVec2(rect.Max.x - handle, rect.Max.y - handle), rect.Max);
-                drawList->AddRectFilled(handleRect.Min, handleRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 1.0f)), ScaleUi(2.0f));
-                ImGui::SetCursorScreenPos(handleRect.Min);
-                ImGui::InvisibleButton("##hud_resize_handle", handleRect.GetSize());
-                if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0) && !element->locked) {
-                    if (!dragUndoCaptured || activeDragElementId != element->id + "_resize") {
-                        PushUndoSnapshot(Snapshot());
-                        dragUndoCaptured = true;
-                        activeDragElementId = element->id + "_resize";
+                const bool primary = !selectedElementIds.empty() && selectedElementIds.back() == element->id;
+                if (primary) {
+                    constexpr ResizeHandle handles[] = {
+                        ResizeHandle::TopLeft,
+                        ResizeHandle::Top,
+                        ResizeHandle::TopRight,
+                        ResizeHandle::Right,
+                        ResizeHandle::BottomRight,
+                        ResizeHandle::Bottom,
+                        ResizeHandle::BottomLeft,
+                        ResizeHandle::Left,
+                    };
+                    const float handleSize = ScaleUi(12.0f);
+                    for (ResizeHandle handle : handles) {
+                        const ImRect handleRect = ResizeHandleRect(rect, handle, handleSize);
+                        const bool hot = canvasHoverElementId == element->id && canvasHoverHandle && *canvasHoverHandle == handle;
+                        const ImVec4 color = element->locked
+                            ? ImVec4(0.45f, 0.48f, 0.55f, 1.0f)
+                            : (hot ? ImVec4(0.95f, 0.78f, 0.32f, 1.0f) : ImVec4(0.35f, 0.78f, 1.0f, 1.0f));
+                        drawList->AddRectFilled(handleRect.Min, handleRect.Max, ImGui::ColorConvertFloat4ToU32(color), ScaleUi(2.0f));
                     }
-                    const ImVec2 delta = ImGui::GetIO().MouseDelta;
-                    element->width = std::max(1.0f, SnapValue(element->width + delta.x / scale));
-                    element->height = std::max(0.0f, SnapValue(element->height + delta.y / scale));
-                    QueueSave();
                 }
                 DrawInlineTextEdit(*element, rect);
             }
             ImGui::PopID();
         }
 
-        ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, canvasRect.Max.y + ScaleUi(8.0f)));
-        ImGui::TextDisabled("%s", snapEnabled ? ui.Text(UiText::HudSnapHint) : ui.Text(UiText::HudSnapOffHint));
+        if (canvasMode == CanvasInteractionMode::MarqueeSelecting && canvasGestureMoved) {
+            drawList->AddRectFilled(canvasMarqueeRect.Min, canvasMarqueeRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.12f)));
+            drawList->AddRect(canvasMarqueeRect.Min, canvasMarqueeRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.85f)), 0.0f, 0, ScaleUi(1.0f));
+        }
+
+        const std::string zoomLabel = canvasFitZoom
+            ? ui.Text(UiText::HudZoomFit)
+            : ui.Format(UiText::HudZoomPercentFormat, static_cast<int>(std::lround(scale * 100.0f)));
+        const std::string status = ui.Format(
+            UiText::HudCanvasStatusFormat,
+            snapEnabled ? ui.Text(UiText::HudOn) : ui.Text(UiText::HudOff),
+            gridSize,
+            zoomLabel.c_str());
+        const float statusY = std::min(canvasRect.Max.y + ScaleUi(8.0f), areaMin.y + avail.y - ImGui::GetTextLineHeight() - ScaleUi(2.0f));
+        ImGui::SetCursorScreenPos(ImVec2(areaMin.x + ScaleUi(6.0f), statusY));
+        ImGui::TextDisabled("%s", EllipsizeText(status, std::max(1.0f, avail.x - ScaleUi(12.0f))).c_str());
     }
 
-    void DrawCanvasEditorWindow(IDirect3DDevice9* device) {
-        if (!editorOpen) {
-            return;
+    bool DrawCompactPanelTabButton(HudCompactPanelTab tab, UiText labelId, const HudEditorVisualStyle& visual, float width) {
+        const bool active = compactPanelTab == tab;
+        const bool clicked = HudTextActionButton(
+            nullptr,
+            UiSettings::Instance().Text(labelId),
+            ("##hud_compact_tab_" + std::to_string(static_cast<int>(tab))).c_str(),
+            nullptr,
+            ImVec2(width, ImGui::GetFrameHeight()),
+            visual,
+            true,
+            active);
+        if (clicked) {
+            compactPanelTab = tab;
         }
+        return clicked;
+    }
+
+    void DrawEditorWorkspace(IDirect3DDevice9* device) {
         HudWidget* widget = SelectedWidget();
-        if (!widget) {
-            return;
-        }
         UiSettings& ui = UiSettings::Instance();
-        ImGui::SetNextWindowSize(ScaleUi(1180.0f, 720.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin(ui.Text(UiText::HudCanvasEditor), &editorOpen, ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::End();
-            return;
-        }
-
-        BeginEditorFrame();
-        if (ImGui::Button(ui.Text(UiText::HudUndo))) {
-            Undo();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::HudRedo))) {
-            Redo();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::HudDuplicateElement))) {
-            DuplicateSelectedElements();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::Delete))) {
-            DeleteSelectedElements();
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox(ui.Text(UiText::HudSnap), &snapEnabled)) {
-            MarkChanged();
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ScaleUi(92.0f));
-        if (ImGui::DragFloat(ui.Text(UiText::HudGrid), &gridSize, 1.0f, 1.0f, 64.0f, "%.0f")) {
-            MarkChanged();
-        }
-
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         const ImGuiStyle& style = ImGui::GetStyle();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
         const float gapX = style.ItemSpacing.x;
-        const float minLeftWidth = ScaleUi(220.0f);
-        const float maxLeftWidth = ScaleUi(320.0f);
-        const float minRightWidth = ScaleUi(300.0f);
-        const float maxRightWidth = ScaleUi(390.0f);
-        const float minCenterWidth = ScaleUi(360.0f);
-        float leftWidth = std::clamp(avail.x * 0.18f, minLeftWidth, maxLeftWidth);
-        float rightWidth = std::clamp(avail.x * 0.24f, minRightWidth, maxRightWidth);
-        float centerWidth = avail.x - leftWidth - rightWidth - gapX * 2.0f;
-        if (centerWidth < minCenterWidth) {
-            float deficit = minCenterWidth - centerWidth;
-            const float shrinkRight = std::min(std::max(0.0f, rightWidth - minRightWidth), deficit);
-            rightWidth -= shrinkRight;
-            deficit -= shrinkRight;
-            const float shrinkLeft = std::min(std::max(0.0f, leftWidth - minLeftWidth), deficit);
-            leftWidth -= shrinkLeft;
-            centerWidth = std::max(ScaleUi(240.0f), avail.x - leftWidth - rightWidth - gapX * 2.0f);
-        }
 
-        if (ImGui::BeginChild("hud_editor_left", ImVec2(leftWidth, avail.y), false)) {
-            const float leftHeight = ImGui::GetContentRegionAvail().y;
-            const float minWidgetHeight = ScaleUi(130.0f);
-            const float minLayerHeight = ScaleUi(150.0f);
-            float widgetPanelHeight = leftHeight * 0.58f;
-            if (leftHeight > minWidgetHeight + minLayerHeight + style.ItemSpacing.y) {
-                widgetPanelHeight = std::clamp(
-                    widgetPanelHeight,
-                    minWidgetHeight,
-                    leftHeight - minLayerHeight - style.ItemSpacing.y);
-            } else {
-                widgetPanelHeight = std::max(ScaleUi(80.0f), leftHeight * 0.52f);
+        if (avail.x < ScaleUi(920.0f)) {
+            const float canvasHeight = widget
+                ? std::clamp(avail.y * 0.58f, ScaleUi(240.0f), std::max(ScaleUi(240.0f), avail.y - ScaleUi(190.0f)))
+                : 0.0f;
+            if (widget && BeginHudPanel("hud_editor_canvas_narrow", ImVec2(0.0f, canvasHeight), visual)) {
+                DrawEditorCanvas(*widget, device);
+            } else if (!widget && BeginHudPanel("hud_editor_empty_narrow", ImVec2(0.0f, std::clamp(avail.y * 0.40f, ScaleUi(160.0f), ScaleUi(260.0f))), visual)) {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
             }
-            DrawWidgetList(widgetPanelHeight);
-            DrawLayers(*widget);
-        }
-        ImGui::EndChild();
-        ImGui::SameLine();
-        if (ImGui::BeginChild("hud_editor_center", ImVec2(centerWidth, avail.y), true)) {
-            DrawEditorCanvas(*widget, device);
-        }
-        ImGui::EndChild();
-        ImGui::SameLine();
-        if (ImGui::BeginChild("hud_editor_right", ImVec2(rightWidth, avail.y), false)) {
-            ImGui::SeparatorText(ui.Text(UiText::HudProperties));
-            DrawWidgetProperties(*widget);
-            ImGui::Separator();
-            DrawElementProperties(*widget);
-        }
-        ImGui::EndChild();
-        ImGui::End();
-    }
+            EndHudPanel();
+            ImGui::Spacing();
 
-    void DrawSelectedEditor(IDirect3DDevice9* device) {
-        HudWidget* widget = SelectedWidget();
-        UiSettings& ui = UiSettings::Instance();
-        if (!widget) {
-            ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
+            const float tabGap = ScaleUi(5.0f);
+            const float tabWidth = std::max(ScaleUi(82.0f), (ImGui::GetContentRegionAvail().x - tabGap * 2.0f) / 3.0f);
+            DrawCompactPanelTabButton(HudCompactPanelTab::Widgets, UiText::HudWidgets, visual, tabWidth);
+            ImGui::SameLine(0.0f, tabGap);
+            DrawCompactPanelTabButton(HudCompactPanelTab::Layers, UiText::HudLayers, visual, tabWidth);
+            ImGui::SameLine(0.0f, tabGap);
+            DrawCompactPanelTabButton(HudCompactPanelTab::Inspector, UiText::HudProperties, visual, tabWidth);
+            ImGui::Spacing();
+
+            if (!widget && compactPanelTab != HudCompactPanelTab::Widgets) {
+                compactPanelTab = HudCompactPanelTab::Widgets;
+            }
+            switch (compactPanelTab) {
+            case HudCompactPanelTab::Layers:
+                if (widget) {
+                    DrawLayers(*widget);
+                }
+                break;
+            case HudCompactPanelTab::Inspector:
+                if (widget) {
+                    if (BeginHudPanel("hud_editor_inspector_narrow", ImVec2(0.0f, 0.0f), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+                        DrawInspector(*widget);
+                    }
+                    EndHudPanel();
+                }
+                break;
+            case HudCompactPanelTab::Widgets:
+            default:
+                DrawWidgetList();
+                break;
+            }
             return;
         }
 
-        BeginEditorFrame();
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const bool vertical = avail.x < ScaleUi(760.0f);
-        if (vertical) {
-            DrawOpenCanvasEditorButton(true);
-            ImGui::Spacing();
-            DrawWidgetProperties(*widget);
-            ImGui::SeparatorText(ui.Text(UiText::HudPreview));
-            const float previewHeight = std::clamp(
-                ImGui::GetContentRegionAvail().y * 0.48f,
-                ScaleUi(160.0f),
-                ScaleUi(360.0f));
-            if (ImGui::BeginChild("hud_small_preview", ImVec2(0.0f, previewHeight), ImGuiChildFlags_Borders)) {
-                DrawEditorCanvas(*widget, device);
+        if (avail.x < ScaleUi(1180.0f)) {
+            const float leftWidth = std::clamp(avail.x * 0.25f, ScaleUi(220.0f), ScaleUi(250.0f));
+            const float mainWidth = std::max(ScaleUi(360.0f), avail.x - leftWidth - gapX);
+            if (ImGui::BeginChild("hud_editor_left_medium", ImVec2(leftWidth, avail.y), false, ImGuiWindowFlags_NoBackground)) {
+                const float leftHeight = ImGui::GetContentRegionAvail().y;
+                const float widgetPanelHeight = widget ? std::clamp(leftHeight * 0.42f, ScaleUi(130.0f), std::max(ScaleUi(130.0f), leftHeight - ScaleUi(160.0f))) : 0.0f;
+                DrawWidgetList(widget ? widgetPanelHeight : 0.0f);
+                if (widget) {
+                    DrawLayers(*widget);
+                }
             }
             ImGui::EndChild();
-        } else {
-            const float leftWidth = std::max(ScaleUi(330.0f), avail.x * 0.45f);
-            if (ImGui::BeginChild("hud_widget_properties", ImVec2(leftWidth, 0.0f), false)) {
-                DrawOpenCanvasEditorButton(true);
+            ImGui::SameLine(0.0f, gapX);
+            if (ImGui::BeginChild("hud_editor_main_medium", ImVec2(mainWidth, avail.y), false, ImGuiWindowFlags_NoBackground)) {
+                const float canvasHeight = widget
+                    ? std::clamp(ImGui::GetContentRegionAvail().y * 0.62f, ScaleUi(260.0f), std::max(ScaleUi(260.0f), ImGui::GetContentRegionAvail().y - ScaleUi(210.0f)))
+                    : ScaleUi(220.0f);
+                if (BeginHudPanel("hud_editor_canvas_medium", ImVec2(0.0f, canvasHeight), visual)) {
+                    if (widget) {
+                        DrawEditorCanvas(*widget, device);
+                    } else {
+                        ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
+                    }
+                }
+                EndHudPanel();
                 ImGui::Spacing();
-                DrawWidgetProperties(*widget);
+                if (widget && BeginHudPanel("hud_editor_inspector_medium", ImVec2(0.0f, 0.0f), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+                    DrawInspector(*widget);
+                }
+                if (widget) {
+                    EndHudPanel();
+                }
             }
             ImGui::EndChild();
-            ImGui::SameLine();
-            if (ImGui::BeginChild("hud_preview_column", ImVec2(0.0f, 0.0f), false)) {
-                ImGui::SeparatorText(ui.Text(UiText::HudPreview));
-                DrawEditorCanvas(*widget, device);
-            }
-            ImGui::EndChild();
+            return;
         }
+
+        const float leftWidth = std::clamp(avail.x * 0.20f, ScaleUi(250.0f), ScaleUi(300.0f));
+        const float rightWidth = std::clamp(avail.x * 0.24f, ScaleUi(330.0f), ScaleUi(390.0f));
+        const float centerWidth = std::max(ScaleUi(420.0f), avail.x - leftWidth - rightWidth - gapX * 2.0f);
+
+        if (ImGui::BeginChild("hud_editor_left", ImVec2(leftWidth, avail.y), false, ImGuiWindowFlags_NoBackground)) {
+            const float leftHeight = ImGui::GetContentRegionAvail().y;
+            float widgetPanelHeight = 0.0f;
+            if (widget) {
+                const float minWidgetPanelHeight = ScaleUi(135.0f);
+                const float maxWidgetPanelHeight = std::max(minWidgetPanelHeight, leftHeight - ScaleUi(185.0f));
+                widgetPanelHeight = std::clamp(leftHeight * 0.46f, minWidgetPanelHeight, maxWidgetPanelHeight);
+            }
+            DrawWidgetList(widget ? widgetPanelHeight : 0.0f);
+            if (widget) {
+                DrawLayers(*widget);
+            }
+        }
+        ImGui::EndChild();
+        ImGui::SameLine(0.0f, gapX);
+        if (BeginHudPanel("hud_editor_center", ImVec2(centerWidth, avail.y), visual)) {
+            if (widget) {
+                DrawEditorCanvas(*widget, device);
+            } else {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
+            }
+        }
+        EndHudPanel();
+        ImGui::SameLine(0.0f, gapX);
+        if (BeginHudPanel("hud_editor_right", ImVec2(rightWidth, avail.y), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            if (widget) {
+                DrawInspector(*widget);
+            } else {
+                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
+            }
+        }
+        EndHudPanel();
     }
 
     void DrawMainTab(IDirect3DDevice9* device) {
         EnsureLoaded();
-        UiSettings& ui = UiSettings::Instance();
         BeginEditorFrame();
-        ImGui::SeparatorText(ui.Text(UiText::TabHud));
-        ImGui::TextWrapped("%s", ui.Text(UiText::HudIntro));
         DrawToolbar();
-        if (!statusMessage.empty()) {
-            ImGui::TextDisabled("%s", statusMessage.c_str());
-        }
         ImGui::Spacing();
-
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const bool vertical = avail.x < ScaleUi(820.0f);
-        if (vertical) {
-            float listHeight = std::clamp(avail.y * 0.32f, ScaleUi(150.0f), ScaleUi(300.0f));
-            if (avail.y < ScaleUi(420.0f)) {
-                listHeight = std::max(ScaleUi(110.0f), avail.y * 0.42f);
-            }
-            if (ImGui::BeginChild("hud_list_top", ImVec2(0.0f, listHeight), false)) {
-                DrawWidgetList();
-            }
-            ImGui::EndChild();
-            ImGui::Separator();
-            if (ImGui::BeginChild("hud_editor_bottom", ImVec2(0.0f, 0.0f), false)) {
-                DrawSelectedEditor(device);
-            }
-            ImGui::EndChild();
-        } else {
-            const float listWidth = ScaleUi(280.0f);
-            if (ImGui::BeginChild("hud_list_left", ImVec2(listWidth, 0.0f), false)) {
-                DrawWidgetList();
-            }
-            ImGui::EndChild();
-            ImGui::SameLine();
-            if (ImGui::BeginChild("hud_editor_right", ImVec2(0.0f, 0.0f), false)) {
-                DrawSelectedEditor(device);
-            }
-            ImGui::EndChild();
-        }
-        DrawCanvasEditorWindow(device);
+        DrawEditorWorkspace(device);
+        DrawVariablesPopup();
     }
 
     void ExportSelectedWidget() {

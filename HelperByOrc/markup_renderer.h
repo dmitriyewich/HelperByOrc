@@ -12,6 +12,7 @@ class MarkupRenderer {
 public:
     struct DrawOptions {
         bool wrapText = true;
+        float fontDirectiveScale = 1.0f;
     };
 
     struct ImageTexture {
