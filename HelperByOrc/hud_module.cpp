@@ -3,6 +3,8 @@
 #include "app_config.h"
 #include "conditions_module.h"
 #include "debug_log.h"
+#include "icon_picker_ui.h"
+#include "icon_registry.h"
 #include "json_utils.h"
 #include "markup_renderer.h"
 #include "notepad_module.h"
@@ -1260,7 +1262,10 @@ HudElementData DeserializeData(const jsonutil::JsonObject* object) {
     data.noteId = jsonutil::JsonStringOr(object, "note_id", data.noteId);
     data.imagePath = jsonutil::JsonStringOr(object, "image_path", data.imagePath);
     data.imageFit = ImageFitFromString(jsonutil::JsonStringOr(object, "image_fit", ImageFitToString(data.imageFit)));
-    data.icon = jsonutil::JsonStringOr(object, "icon", data.icon);
+    data.icon = icon_registry::NormalizeIconId(jsonutil::JsonStringOr(object, "icon", data.icon));
+    if (data.icon.empty()) {
+        data.icon = "star";
+    }
     data.expression = jsonutil::JsonStringOr(object, "expression", data.expression);
     data.minValue = jsonutil::JsonNumberOr(object, "min", data.minValue);
     data.maxValue = jsonutil::JsonNumberOr(object, "max", data.maxValue);
@@ -1398,22 +1403,10 @@ float EvaluateNumberExpression(std::string_view expression, float fallback) {
     return fallback;
 }
 
-std::string ResolveIconGlyph(std::string_view name) {
-    const std::string normalized = LowerAscii(name);
-    if (normalized == "bars") return ui_icons::Bars;
-    if (normalized == "book" || normalized == "note" || normalized == "file") return ui_icons::Book;
-    if (normalized == "car") return ui_icons::Cubes;
-    if (normalized == "check") return ui_icons::Check;
-    if (normalized == "compass") return ui_icons::Compass;
-    if (normalized == "copy") return ui_icons::Copy;
-    if (normalized == "folder") return ui_icons::Folder;
-    if (normalized == "gun" || normalized == "weapon") return ui_icons::Bolt;
-    if (normalized == "image") return ui_icons::Image;
-    if (normalized == "save") return ui_icons::SaveDisk;
-    if (normalized == "star") return ui_icons::Star;
-    if (normalized == "user") return ui_icons::Tags;
-    if (normalized == "wrench") return ui_icons::Sliders;
-    if (normalized == "terminal") return ui_icons::Terminal;
+std::string ResolveHudIconGlyph(std::string_view name) {
+    if (std::string glyph = icon_registry::ResolveGlyph(name); !glyph.empty()) {
+        return glyph;
+    }
     return ui_icons::Star;
 }
 
@@ -1487,6 +1480,7 @@ struct HudModule::Impl {
     HudInsertTarget activeInsertTarget = HudInsertTarget::None;
     bool variablesPopupPending = false;
     variables_picker::State variablesPickerState{};
+    icon_picker::State iconPickerState{};
     std::vector<std::string> undoStack;
     std::vector<std::string> redoStack;
     std::string frameSnapshot;
@@ -1546,6 +1540,7 @@ struct HudModule::Impl {
         activeInsertTarget = HudInsertTarget::None;
         variablesPopupPending = false;
         variablesPickerState = {};
+        iconPickerState = {};
         undoStack.clear();
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
@@ -1571,6 +1566,7 @@ struct HudModule::Impl {
         activeInsertTarget = HudInsertTarget::None;
         variablesPopupPending = false;
         variablesPickerState = {};
+        iconPickerState = {};
         undoStack.clear();
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
@@ -2806,7 +2802,7 @@ struct HudModule::Impl {
     }
 
     void DrawIconElement(ImDrawList* drawList, const HudElement& element, const ImRect& rect, float scale) const {
-        const std::string icon = ResolveIconGlyph(element.data.icon);
+        const std::string icon = ResolveHudIconGlyph(element.data.icon);
         ImFont* font = ImGui::GetFont();
         const float fontSize = std::min(rect.GetHeight(), std::max(1.0f, static_cast<float>(element.data.fontSize) * scale));
         const ImVec2 size = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, icon.c_str());
@@ -3672,7 +3668,21 @@ struct HudModule::Impl {
         ImGui::SameLine();
         DrawMarkupToolButton(ui.Text(UiText::HudMarkupBreak), "\n#br\n", element);
         ImGui::SameLine();
-        DrawMarkupToolButton(ui.Text(UiText::HudMarkupIcon), "#iconstar ", element);
+        const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##hud_markup_icon_picker";
+        if (HudTextActionButton(
+                ui_icons::Star,
+                ui.Text(UiText::HudMarkupIcon),
+                "##hud_markup_icon",
+                nullptr,
+                ImVec2(HudTextActionButtonWidth(ui_icons::Star, ui.Text(UiText::HudMarkupIcon)), ImGui::GetFrameHeight()),
+                visual)) {
+            icon_picker::OpenPopup(iconPickerPopup.c_str());
+        }
+        std::string selectedIconId;
+        if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
+            element.data.text += icon_picker::MarkupToken(selectedIconId) + " ";
+            MarkChanged();
+        }
         ImGui::SameLine();
         if (HudTextActionButton(
                 nullptr,
@@ -3759,6 +3769,16 @@ struct HudModule::Impl {
             changed |= InputTextString("##hud_icon_name", element.data.icon, 0, 64);
             ImGui::SameLine();
             ImGui::TextDisabled("%s", ui.Text(UiText::HudIconName));
+            ImGui::SameLine();
+            const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##hud_element_icon_picker";
+            if (ImGui::Button((std::string(ResolveHudIconGlyph(element.data.icon)) + " " + ui.Text(UiText::IconPickerSelect)).c_str())) {
+                icon_picker::OpenPopup(iconPickerPopup.c_str());
+            }
+            std::string selectedIconId;
+            if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
+                element.data.icon = icon_registry::NormalizeIconId(selectedIconId);
+                changed = true;
+            }
         } else if (element.type == ElementType::ProgressBar) {
             changed |= InputTextString("##hud_expression", element.data.expression, 0, 256);
             ImGui::SameLine();

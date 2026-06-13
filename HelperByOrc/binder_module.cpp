@@ -6,6 +6,8 @@
 #include "conditions_module.h"
 #include "debug_log.h"
 #include "hotkey_utils.h"
+#include "icon_picker_ui.h"
+#include "icon_registry.h"
 #include "incoming_message_router.h"
 #include "json_utils.h"
 #include "notification_manager.h"
@@ -36,7 +38,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -72,6 +73,45 @@ constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
 constexpr char kDialogSelectionLocalChatColorTag[] = "{E2C063}";
 constexpr char kBindDragPayload[] = "BINDER_HOTKEY_INDEX";
 constexpr char kFolderDragPayload[] = "BINDER_FOLDER_ID";
+
+std::uint32_t MakeRandomSeed(std::uintptr_t salt) {
+    const std::uint64_t wideSalt = static_cast<std::uint64_t>(salt);
+    std::uint32_t seed = static_cast<std::uint32_t>(GetTickCount());
+    seed ^= static_cast<std::uint32_t>(wideSalt);
+    seed ^= static_cast<std::uint32_t>(wideSalt >> 32);
+    return seed != 0 ? seed : 0xA341316Cu;
+}
+
+std::uint32_t& BinderRandomState() {
+    static std::uint32_t state = MakeRandomSeed(reinterpret_cast<std::uintptr_t>(&BinderRandomState));
+    return state;
+}
+
+std::uint32_t NextRandomU32() {
+    std::uint32_t& state = BinderRandomState();
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+std::uint32_t RandomBounded(std::uint32_t bound) {
+    if (bound == 0) {
+        return 0;
+    }
+
+    const std::uint32_t threshold = (0u - bound) % bound;
+    for (;;) {
+        const std::uint32_t value = NextRandomU32();
+        if (value >= threshold) {
+            return value % bound;
+        }
+    }
+}
+
+std::size_t RandomIndex(std::size_t size) {
+    return static_cast<std::size_t>(RandomBounded(static_cast<std::uint32_t>(size)));
+}
 
 std::string Trim(std::string_view value) {
     std::size_t begin = 0;
@@ -667,6 +707,7 @@ struct ExplorerListLayout {
 struct FolderNode {
     int id = 0;
     std::string name;
+    std::string iconId;
     FolderNode* parent = nullptr;
     std::vector<std::unique_ptr<FolderNode>> children;
     std::vector<ExplorerItem> items;
@@ -687,6 +728,24 @@ struct BinderCategory {
     std::vector<std::string> lastOpenFolderPath;
     std::vector<std::vector<std::string>> navigationBackStack;
 };
+
+std::string FolderIconGlyph(const FolderNode& folder) {
+    if (!folder.iconId.empty()) {
+        if (std::string glyph = icon_registry::ResolveGlyph(folder.iconId); !glyph.empty()) {
+            return glyph;
+        }
+    }
+    return ui_icons::Folder;
+}
+
+std::string BindIconGlyph(const HotkeyEntry& hotkey) {
+    if (!hotkey.iconId.empty()) {
+        if (std::string glyph = icon_registry::ResolveGlyph(hotkey.iconId); !glyph.empty()) {
+            return glyph;
+        }
+    }
+    return ui_icons::Keyboard;
+}
 
 struct OutgoingGuard {
     std::string kind;
@@ -2269,6 +2328,7 @@ struct BinderModule::Impl {
     std::optional<FolderMoveUndo> folderMoveUndo_{};
 
     binder_editor::State editor{};
+    icon_picker::State iconPickerState{};
 
     enum class FolderInlineEditMode {
         None = 0,
@@ -2288,6 +2348,8 @@ struct BinderModule::Impl {
     bool folderDeletePopupPending = false;
     FolderNode* folderConditionsTarget = nullptr;
     bool folderConditionsPopupPending = false;
+    FolderNode* folderIconTarget = nullptr;
+    bool folderIconPopupPending = false;
     std::string categoryRenameTargetId{};
     std::string categoryRenameBuffer{};
     bool categoryRenamePopupPending = false;
@@ -2961,6 +3023,8 @@ void BinderModule::Impl::SelectCategory(std::string_view categoryId) {
     folderDeletePopupPending = false;
     folderConditionsTarget = nullptr;
     folderConditionsPopupPending = false;
+    folderIconTarget = nullptr;
+    folderIconPopupPending = false;
     moveFolderTarget = -1;
     moveFolderPopupPending = false;
     activeCategoryId = std::string(categoryId);
@@ -3473,6 +3537,7 @@ BinderCategory BinderModule::Impl::DeserializeCategory(const JsonObject& object)
 JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     JsonObject object;
     object["name"] = folder.name;
+    object["icon_id"] = folder.iconId;
     object["quick_menu"] = folder.quickMenu;
     object["conditions"] = SerializeBoolArray(folder.conditions);
     object["conditions_combine"] = ConditionCombineModeId(folder.conditionsCombine);
@@ -3497,6 +3562,7 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
     if (folder->name.empty()) {
         folder->name = UiSettings::Instance().Text(UiText::BinderDefaultFolder);
     }
+    folder->iconId = icon_registry::NormalizeIconId(jsonutil::JsonStringOr(&object, "icon_id", ""));
     folder->quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", true);
     const JsonArray* conditionsArray = jsonutil::JsonArrayOrNull(&object, "conditions");
     if (!conditionsArray) {
@@ -3572,6 +3638,7 @@ std::vector<ExplorerItem> BinderModule::Impl::DeserializeExplorerItems(const Jso
 JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     JsonObject object;
     object["label"] = hotkey.label;
+    object["icon_id"] = hotkey.iconId;
     object["keys"] = SerializeUintArray(hotkey.keys);
     object["hotkey_mode"] = HotkeyModeId(hotkey.hotkeyMode);
     object["conditions"] = SerializeBoolArray(hotkey.conditions);
@@ -3644,6 +3711,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
 HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
     HotkeyEntry hotkey = MakeDefaultHotkey();
     hotkey.label = jsonutil::JsonStringOr(&object, "label", hotkey.label);
+    hotkey.iconId = icon_registry::NormalizeIconId(jsonutil::JsonStringOr(&object, "icon_id", ""));
     hotkey.hotkeyMode = NormalizeHotkeyMode(jsonutil::JsonStringOr(&object, "hotkey_mode", "modifier_trigger"));
     hotkey.keys = ::hotkeys::NormalizeCombo(
         DeserializeUintArray(jsonutil::JsonArrayOrNull(&object, "keys")), hotkey.hotkeyMode);
@@ -5109,6 +5177,9 @@ void BinderModule::Impl::Shutdown() {
     folderDeletePopupPending = false;
     folderConditionsTarget = nullptr;
     folderConditionsPopupPending = false;
+    folderIconTarget = nullptr;
+    folderIconPopupPending = false;
+    iconPickerState = {};
     bindDeleteTarget = -1;
     bindDeletePopupPending = false;
     moveBindTarget = -1;
@@ -6133,9 +6204,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
             return result;
         }
 
-        static std::mt19937 rng(std::random_device{}());
-        std::uniform_int_distribution<std::size_t> distribution(0, pool.size() - 1);
-        const int chosen = pool[distribution(rng)];
+        const int chosen = pool[RandomIndex(pool.size())];
         if (TryEnqueueHotkey(chosen, 0, "bind_tag", std::string(actionName))) {
             result.success = true;
             result.affected = 1;
@@ -8593,6 +8662,24 @@ void BinderModule::Impl::DrawCategoryPopups() {
 }
 
 void BinderModule::Impl::DrawFolderPopups() {
+    UiSettings& ui = UiSettings::Instance();
+
+    const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##binder_folder_icon_picker";
+    if (folderIconPopupPending) {
+        icon_picker::OpenPopup(iconPickerPopup.c_str());
+        folderIconPopupPending = false;
+    }
+    std::string selectedIconId;
+    if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
+        if (folderIconTarget) {
+            folderIconTarget->iconId = icon_registry::NormalizeIconId(selectedIconId);
+            SaveConfig();
+        }
+    }
+    if (!ImGui::IsPopupOpen(iconPickerPopup.c_str())) {
+        folderIconTarget = nullptr;
+    }
+
     if (folderConditionsTarget) {
         if (DrawConditionFlagsPopup(
                 "##binder_folder_conditions",
@@ -8642,6 +8729,10 @@ void BinderModule::Impl::DrawFolderPopups() {
             if (folderConditionsTarget && IsUnderOrEqual(folderDeleteTarget, folderConditionsTarget)) {
                 folderConditionsTarget = nullptr;
                 folderConditionsPopupPending = false;
+            }
+            if (folderIconTarget && IsUnderOrEqual(folderDeleteTarget, folderIconTarget)) {
+                folderIconTarget = nullptr;
+                folderIconPopupPending = false;
             }
             if ((folderInlineEdit.target && IsUnderOrEqual(folderDeleteTarget, folderInlineEdit.target))
                 || (folderInlineEdit.parent && IsUnderOrEqual(folderDeleteTarget, folderInlineEdit.parent))) {
@@ -9934,7 +10025,7 @@ void BinderModule::Impl::DrawExplorerBreadcrumb() {
         }
         crumbs.push_back(BreadcrumbCrumb{
             folder,
-            std::string(ui_icons::Folder) + " " + folder->name,
+            FolderIconGlyph(*folder) + " " + folder->name,
             folder == currentFolder,
             false,
         });
@@ -10331,9 +10422,10 @@ void BinderModule::Impl::DrawExplorerFolderRow(
 
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
     ImVec4 iconColor = selected || hovered ? visual.headerText : visual.mutedText;
+    const std::string folderIcon = FolderIconGlyph(folder);
     DrawCenteredIconGlyph(
         drawList,
-        ui_icons::Folder,
+        folderIcon.c_str(),
         ImRect(ImVec2(layout.iconX, rowRect.Min.y), ImVec2(layout.iconX + layout.iconW, rowRect.Max.y)),
         ImGui::GetColorU32(iconColor));
 
@@ -10395,6 +10487,11 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
             SelectExplorerFolder(&folder);
             BeginInlineRenameFolder(&folder);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem(ui.Text(UiText::IconPickerTitle))) {
+            folderIconTarget = &folder;
+            folderIconPopupPending = true;
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem(ui.Text(UiText::EditorOpenConditions))) {
@@ -10508,9 +10605,10 @@ void BinderModule::Impl::DrawExplorerBindRow(
             iconColor.w = hotkey.enabled ? 1.0f : 0.78f;
         }
     }
+    const std::string bindIcon = BindIconGlyph(hotkey);
     DrawCenteredIconGlyph(
         drawList,
-        ui_icons::Keyboard,
+        bindIcon.c_str(),
         ImRect(ImVec2(layout.iconX, rowRect.Min.y), ImVec2(layout.iconX + layout.iconW, rowRect.Max.y)),
         ImGui::GetColorU32(iconColor));
 
@@ -10976,7 +11074,8 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
                     bindSearch.clear();
                 }
             } else if (result.item.kind == ExplorerItemKind::Folder) {
-                const std::string label = std::string(ui_icons::Folder) + " " + result.item.key;
+                FolderNode* resultFolder = findResultFolder(result);
+                const std::string label = (resultFolder ? FolderIconGlyph(*resultFolder) : std::string(ui_icons::Folder)) + " " + result.item.key;
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAvailWidth | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     SelectCategory(result.categoryId);
@@ -11002,7 +11101,7 @@ void BinderModule::Impl::DrawExplorerSearchResults() {
             } else {
                 const int index = FindHotkeyIndexByOrderId(result.item.key);
                 const std::string label = index >= 0
-                    ? std::string(ui_icons::Keyboard) + " " + hotkeys[static_cast<std::size_t>(index)].label
+                    ? BindIconGlyph(hotkeys[static_cast<std::size_t>(index)]) + " " + hotkeys[static_cast<std::size_t>(index)].label
                     : std::string(ui_icons::Keyboard);
                 if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAvailWidth | ImGuiSelectableFlags_AllowDoubleClick)
                     && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && index >= 0) {
@@ -11679,9 +11778,10 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
         const ImRect iconRect(
             ImVec2(rowRect.Min.x + indent + arrowW, rowRect.Min.y),
             ImVec2(rowRect.Min.x + indent + arrowW + iconW, rowRect.Max.y));
+        const std::string folderIcon = FolderIconGlyph(folder);
         DrawCenteredIconGlyph(
             drawList,
-            ui_icons::Folder,
+            folderIcon.c_str(),
             iconRect,
             ImGui::GetColorU32(selected ? BinderListStyleTokens().headerText : BinderListStyleTokens().mutedText));
 
@@ -11735,6 +11835,11 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
             }
             if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
                 BeginInlineRenameFolder(&folder);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::IconPickerTitle))) {
+                folderIconTarget = &folder;
+                folderIconPopupPending = true;
                 ImGui::CloseCurrentPopup();
             }
             if (ImGui::MenuItem(ui.Text(UiText::EditorOpenConditions))) {
@@ -12524,7 +12629,7 @@ void BinderModule::Impl::DrawQuickMenu() {
 
     const auto hotkeyVisibleLabel = [&](const int index) {
         const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        return std::string(ui_icons::Keyboard) + " "
+        return BindIconGlyph(hotkey) + " "
             + BuildBindDisplayLabel(hotkey);
     };
 
@@ -12726,7 +12831,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
             const float labelMaxWidth = std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ScaleUi(8.0f));
             const std::string label = labelWithId(
-                EllipsizeText(std::string(ui_icons::Folder) + " " + child->name, labelMaxWidth),
+                EllipsizeText(FolderIconGlyph(*child) + " " + child->name, labelMaxWidth),
                 "qm_folder_",
                 path);
             if (ImGui::BeginMenu(label.c_str())) {
@@ -12757,7 +12862,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
             const float labelMaxWidth = std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ScaleUi(4.0f));
             const std::string label = labelWithId(
-                EllipsizeText(std::string(ui_icons::Folder) + " " + child->name, labelMaxWidth),
+                EllipsizeText(FolderIconGlyph(*child) + " " + child->name, labelMaxWidth),
                 "qm_tree_folder_",
                 path);
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;

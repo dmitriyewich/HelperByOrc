@@ -134,6 +134,8 @@
     <ClCompile Include="external_cursor_detector.cpp" />
     <ClCompile Include="hotkey_utils.cpp" />
     <ClCompile Include="hud_module.cpp" />
+    <ClCompile Include="icon_picker_ui.cpp" />
+    <ClCompile Include="icon_registry.cpp" />
     <ClCompile Include="incoming_message_router.cpp" />
     <ClCompile Include="imgui_overlay.cpp" />
     <ClCompile Include="json_utils.cpp" />
@@ -181,6 +183,9 @@
     <ClInclude Include="external_cursor_detector.h" />
     <ClInclude Include="feature_flags.h" />
     <ClInclude Include="font_awesome7_data.h" />
+    <ClInclude Include="icon_picker_ui.h" />
+    <ClInclude Include="icon_registry.h" />
+    <ClInclude Include="icon_registry_data.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imgui_internal.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_dx9.h" />

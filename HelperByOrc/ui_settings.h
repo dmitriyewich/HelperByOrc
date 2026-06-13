@@ -190,6 +190,24 @@
     X(HudMarkupLine, "Линия", "Line") \
     X(HudMarkupBreak, "Разрыв", "Break") \
     X(HudMarkupIcon, "Иконка", "Icon") \
+    X(IconPickerTitle, "Выбор иконки", "Choose icon") \
+    X(IconPickerSearchHint, "Поиск иконок", "Search icons") \
+    X(IconPickerAllCategories, "Все", "All") \
+    X(IconPickerRecent, "Недавние", "Recent") \
+    X(IconPickerNoMatches, "Ничего не найдено.", "No icons found.") \
+    X(IconPickerStyleSolid, "Solid", "Solid") \
+    X(IconPickerStyleBrand, "Brands", "Brands") \
+    X(IconPickerCategoryGeneral, "Общие", "General") \
+    X(IconPickerCategoryBrands, "Бренды", "Brands") \
+    X(IconPickerCategoryTransport, "Транспорт", "Transport") \
+    X(IconPickerCategoryGame, "Игра", "Game") \
+    X(IconPickerCategoryDocuments, "Документы", "Documents") \
+    X(IconPickerCategoryCommunication, "Чат", "Communication") \
+    X(IconPickerCategoryStatus, "Статус", "Status") \
+    X(IconPickerCategoryMoney, "Деньги", "Money") \
+    X(IconPickerCategorySettings, "Настройки", "Settings") \
+    X(IconPickerCategoryPeople, "Люди", "People") \
+    X(IconPickerSelect, "Выбрать", "Select") \
     X(HudMarkupImage, "Картинка", "Image") \
     X(HudInsertTagTime, "{time}", "{time}") \
     X(HudInsertTagHp, "{health}", "{health}") \

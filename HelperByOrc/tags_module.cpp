@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <cwctype>
@@ -39,7 +40,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <random>
 #include <vector>
 
 namespace {
@@ -629,9 +629,50 @@ ArzDialogSendRespondParams ParseArzDialogSendRespondParams(std::string_view rawP
     return result;
 }
 
-std::mt19937& TagRandomEngine() {
-    static std::mt19937 rng(std::random_device{}());
-    return rng;
+std::uint32_t MakeRandomSeed(std::uintptr_t salt) {
+    const std::uint64_t wideSalt = static_cast<std::uint64_t>(salt);
+    std::uint32_t seed = static_cast<std::uint32_t>(std::time(nullptr));
+    seed ^= static_cast<std::uint32_t>(std::clock()) * 0x9E3779B9u;
+    seed ^= static_cast<std::uint32_t>(wideSalt);
+    seed ^= static_cast<std::uint32_t>(wideSalt >> 32);
+    return seed != 0 ? seed : 0xA341316Cu;
+}
+
+std::uint32_t& TagRandomState() {
+    static std::uint32_t state = MakeRandomSeed(reinterpret_cast<std::uintptr_t>(&TagRandomState));
+    return state;
+}
+
+std::uint32_t NextRandomU32() {
+    std::uint32_t& state = TagRandomState();
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+std::uint32_t RandomBounded(std::uint32_t bound) {
+    if (bound == 0) {
+        return 0;
+    }
+
+    const std::uint32_t threshold = (0u - bound) % bound;
+    for (;;) {
+        const std::uint32_t value = NextRandomU32();
+        if (value >= threshold) {
+            return value % bound;
+        }
+    }
+}
+
+std::size_t RandomIndex(std::size_t size) {
+    return static_cast<std::size_t>(RandomBounded(static_cast<std::uint32_t>(size)));
+}
+
+int RandomIntInclusive(int minValue, int maxValue) {
+    const auto span = static_cast<std::uint32_t>(
+        static_cast<std::int64_t>(maxValue) - static_cast<std::int64_t>(minValue) + 1);
+    return static_cast<int>(static_cast<std::int64_t>(minValue) + RandomBounded(span));
 }
 
 std::optional<std::int64_t> ParseTimeOffsetSeconds(std::string_view rawParam) {
@@ -5127,19 +5168,16 @@ std::optional<std::string> TagsModule::ResolveBuiltinRandomFunctionTag(
     const EvaluationContext&) const {
     const std::vector<std::string_view> rawOptions = SplitTopLevelDelimitedParts(param, ';');
     if (rawOptions.size() > 1) {
-        std::uniform_int_distribution<std::size_t> distribution(0, rawOptions.size() - 1);
-        return Unquote(Trim(rawOptions[distribution(TagRandomEngine())]));
+        return Unquote(Trim(rawOptions[RandomIndex(rawOptions.size())]));
     }
 
     const std::string rawValue = Unquote(Trim(param));
     if (rawValue.empty()) {
-        std::uniform_int_distribution<int> distribution(kRandomMinInt, kRandomMaxInt);
-        return std::to_string(distribution(TagRandomEngine()));
+        return std::to_string(RandomIntInclusive(kRandomMinInt, kRandomMaxInt));
     }
 
     if (const std::optional<std::pair<int, int>> range = ParseRandomIntegerRange(rawValue); range.has_value()) {
-        std::uniform_int_distribution<int> distribution(range->first, range->second);
-        return std::to_string(distribution(TagRandomEngine()));
+        return std::to_string(RandomIntInclusive(range->first, range->second));
     }
 
     if (const std::optional<int> parsed = ParseInteger(rawValue); parsed.has_value()) {
@@ -5153,8 +5191,7 @@ std::optional<std::string> TagsModule::ResolveBuiltinRandomFunctionTag(
             std::swap(minValue, maxValue);
         }
 
-        std::uniform_int_distribution<int> distribution(minValue, maxValue);
-        return std::to_string(distribution(TagRandomEngine()));
+        return std::to_string(RandomIntInclusive(minValue, maxValue));
     }
 
     return rawValue;

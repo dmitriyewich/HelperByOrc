@@ -62,6 +62,7 @@ struct CommandConfirmation {
 
 struct HotkeyEntry {
     std::string label;
+    std::string iconId;
     std::vector<UINT> keys;
     HotkeyMode hotkeyMode = HotkeyMode::ModifierTrigger;
     std::vector<HotkeyMessage> messages;

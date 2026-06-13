@@ -3,7 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include "ui_icons.h"
+#include "icon_registry.h"
 #include "ui_settings.h"
 
 #include <d3dx9tex.h>
@@ -288,31 +288,36 @@ std::optional<ParsedImage> ParseImagePrefix(std::string_view text, std::size_t& 
     return std::nullopt;
 }
 
-std::string ResolveIconGlyph(std::string_view name) {
-    const std::string normalized = LowerUtf8(name);
-    static const std::map<std::string, const char*> iconsByName = {
-        { "bars", ui_icons::Bars },
-        { "book", ui_icons::Book },
-        { "car", ui_icons::Cubes },
-        { "check", ui_icons::Check },
-        { "compass", ui_icons::Compass },
-        { "copy", ui_icons::Copy },
-        { "file", ui_icons::Book },
-        { "folder", ui_icons::Folder },
-        { "gun", ui_icons::Bolt },
-        { "image", ui_icons::Image },
-        { "note", ui_icons::Book },
-        { "save", ui_icons::SaveDisk },
-        { "star", ui_icons::Star },
-        { "user", ui_icons::Tags },
-        { "weapon", ui_icons::Bolt },
-        { "wrench", ui_icons::Sliders },
-    };
-    const auto it = iconsByName.find(normalized);
-    if (it != iconsByName.end()) {
-        return it->second;
+std::string ResolveMarkupIconGlyph(std::string_view name) {
+    if (std::string glyph = icon_registry::ResolveGlyph(name); !glyph.empty()) {
+        return glyph;
     }
     return "[" + UpperUtf8(name) + "]";
+}
+
+std::optional<std::string> ParseIconFunction(std::string_view text, std::size_t& consumed) {
+    const std::string lowered = LowerUtf8(text);
+    if (lowered.rfind("#icon(", 0) != 0) {
+        return std::nullopt;
+    }
+
+    int depth = 0;
+    for (std::size_t i = 6; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == '(') {
+            ++depth;
+        } else if (ch == ')') {
+            if (depth == 0) {
+                if (!HasDirectiveBoundary(text, i + 1)) {
+                    return std::nullopt;
+                }
+                consumed = i + 1;
+                return ResolveMarkupIconGlyph(std::string_view(text).substr(6, i - 6));
+            }
+            --depth;
+        }
+    }
+    return std::nullopt;
 }
 
 RichSegment ParseRichSegment(std::string_view rawLine) {
@@ -368,6 +373,9 @@ RichSegment ParseRichSegment(std::string_view rawLine) {
         } else if (std::optional<ParsedImage> image = ParseImagePrefix(rest, consumed)) {
             segment.image = std::move(*image);
             consumedAny = true;
+        } else if (std::optional<std::string> icon = ParseIconFunction(rest, consumed)) {
+            segment.icon = std::move(*icon);
+            consumedAny = true;
         }
 
         if (!consumedAny) {
@@ -395,11 +403,12 @@ RichSegment ParseRichSegment(std::string_view rawLine) {
                 }
             } else if (lowered.rfind("#icon", 0) == 0) {
                 std::size_t pos = 5;
-                while (pos < lowered.size() && (std::isalnum(static_cast<unsigned char>(lowered[pos])) != 0 || lowered[pos] == '_')) {
+                while (pos < lowered.size()
+                    && (std::isalnum(static_cast<unsigned char>(lowered[pos])) != 0 || lowered[pos] == '_' || lowered[pos] == '-' || lowered[pos] == ':')) {
                     ++pos;
                 }
                 if (pos > 5 && HasDirectiveBoundary(rest, pos)) {
-                    segment.icon = ResolveIconGlyph(lowered.substr(5, pos - 5));
+                    segment.icon = ResolveMarkupIconGlyph(lowered.substr(5, pos - 5));
                     consumed = pos;
                     consumedAny = true;
                 }

@@ -2176,8 +2176,17 @@ void ModApp::DrawSettingsProfilesSection() {
         activeProfileId = activeProfileIt->id;
     }
 
+    const auto profileDisplayName = [](const ConfigProfile& profile) {
+        return profile.name.empty() ? profile.id : profile.name;
+    };
+
+    std::unordered_map<std::string, int> profileNameCounts;
+    for (const ConfigProfile& profile : profiles) {
+        ++profileNameCounts[profileDisplayName(profile)];
+    }
+
     const std::string activeProfileName =
-        activeProfileIt == profiles.end() ? std::string() : activeProfileIt->name;
+        activeProfileIt == profiles.end() ? std::string() : profileDisplayName(*activeProfileIt);
     if (profileNameBufferProfileId_ != activeProfileId) {
         profileNameBuffer_ = activeProfileName;
         profileNameBufferProfileId_ = activeProfileId;
@@ -2197,10 +2206,11 @@ void ModApp::DrawSettingsProfilesSection() {
     if (ImGui::BeginCombo(ui.Text(UiText::SettingsActiveProfile), activeProfileName.c_str())) {
         for (const ConfigProfile& profile : profiles) {
             const bool selected = profile.id == activeProfileId;
-            std::string label = profile.name;
-            if (label.empty()) {
-                label = profile.id;
+            std::string label = profileDisplayName(profile);
+            if (profileNameCounts[label] > 1) {
+                label += " (" + profile.id + ")";
             }
+            ImGui::PushID(profile.id.c_str());
             if (ImGui::Selectable(label.c_str(), selected)) {
                 std::string error;
                 flushShellBeforeProfileChange();
@@ -2218,6 +2228,7 @@ void ModApp::DrawSettingsProfilesSection() {
             if (selected) {
                 ImGui::SetItemDefaultFocus();
             }
+            ImGui::PopID();
         }
         ImGui::EndCombo();
     }

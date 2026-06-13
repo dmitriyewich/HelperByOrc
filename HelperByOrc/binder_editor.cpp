@@ -1,5 +1,6 @@
 #include "binder_editor.h"
 
+#include "icon_registry.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 
@@ -38,6 +39,15 @@ float ScaleUi(float value) {
 
 ImVec2 ScaleUi(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
+}
+
+std::string ResolveBindIconGlyph(std::string_view iconId) {
+    if (!iconId.empty()) {
+        if (std::string glyph = icon_registry::ResolveGlyph(iconId); !glyph.empty()) {
+            return glyph;
+        }
+    }
+    return ui_icons::Keyboard;
 }
 
 struct ImGuiStringUserData {
@@ -248,6 +258,30 @@ void DrawCenteredIconGlyph(ImDrawList* drawList, const char* icon, const ImRect&
     drawList->AddText(font, fontSize, iconPos, color, icon, nullptr, 0.0f, &clipRect);
 }
 
+bool IconButton(const char* icon, const char* id, const char* tooltip, const ImVec2& size) {
+    const bool clicked = ImGui::InvisibleButton(id, size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->AddRectFilled(
+        min,
+        max,
+        ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
+        style.FrameRounding);
+    if (style.FrameBorderSize > 0.0f) {
+        drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, 0, style.FrameBorderSize);
+    }
+    DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(ImGuiCol_Text));
+    if (tooltip && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    return clicked;
+}
+
 bool IconToggleButton(const char* icon, const char* id, const char* tooltip, bool& value) {
     const ImVec2 size(ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
     const bool clicked = ImGui::InvisibleButton(id, size);
@@ -445,6 +479,16 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
             ImGui::SetKeyboardFocusHere();
             editor.focusNamePending = false;
         }
+        const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##binder_editor_icon_picker";
+        const std::string bindIcon = ResolveBindIconGlyph(editor.draft.iconId);
+        if (IconButton(bindIcon.c_str(), "##binder_editor_icon", ui.Text(UiText::IconPickerTitle), ImVec2(frameHeight, frameHeight))) {
+            icon_picker::OpenPopup(iconPickerPopup.c_str());
+        }
+        std::string selectedIconId;
+        if (icon_picker::DrawPopup(editor.iconPicker, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
+            editor.draft.iconId = icon_registry::NormalizeIconId(selectedIconId);
+        }
+        ImGui::SameLine(0.0f, ScaleUi(6.0f));
         ImGui::SetNextItemWidth(-FLT_MIN);
         InputTextString("##binder_editor_name", editor.draft.label, ImGuiInputTextFlags_AutoSelectAll, 160);
 

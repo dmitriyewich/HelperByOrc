@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "debug_log.h"
+#include "icon_picker_ui.h"
 #include "json_utils.h"
 #include "markup_renderer.h"
 #include "tags_module.h"
@@ -494,6 +495,7 @@ struct NotepadModule::Impl {
     std::string modalTarget;
     std::string statusMessage;
     MarkupRenderer renderer;
+    icon_picker::State iconPickerState{};
     std::uint64_t idCounter = 0;
 
     void OnProcessAttach(HMODULE moduleHandle) {
@@ -511,6 +513,7 @@ struct NotepadModule::Impl {
         folders.clear();
         notes.clear();
         order.clear();
+        iconPickerState = {};
     }
 
     void ReloadConfig() {
@@ -525,6 +528,7 @@ struct NotepadModule::Impl {
         editing = false;
         editDirty = false;
         editBuffer.clear();
+        iconPickerState = {};
     }
 
     void FlushPendingEdits() {
@@ -1725,6 +1729,15 @@ struct NotepadModule::Impl {
             InsertImageFromDialog();
         }
         ImGui::SameLine();
+        const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##notepad_icon_picker";
+        if (ImGui::Button((std::string(ui_icons::Star) + " " + ui.Text(UiText::HudMarkupIcon)).c_str())) {
+            icon_picker::OpenPopup(iconPickerPopup.c_str());
+        }
+        std::string selectedIconId;
+        if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
+            InsertTextAtCursor(icon_picker::MarkupToken(selectedIconId) + " ");
+        }
+        ImGui::SameLine();
         if (ImGui::Button(ui.Text(UiText::NotepadMarkupHelp))) {
             ImGui::OpenPopup("notepad_markup_help");
         }
@@ -1770,7 +1783,7 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted("{FF0000} text");
         ImGui::TextUnformatted("#center text");
         ImGui::TextUnformatted("#color00ff00 #bg202020 text");
-        ImGui::TextUnformatted("#font18 #iconcompass text");
+        ImGui::TextUnformatted("#font18 #icon(compass) text");
         ImGui::TextUnformatted("#img(example.png, size(320,180))");
         ImGui::TextUnformatted("#bullet text");
         ImGui::TextUnformatted("#hr");

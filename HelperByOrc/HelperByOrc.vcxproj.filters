@@ -81,6 +81,12 @@
     <ClCompile Include="hud_module.cpp">
       <Filter>Source Files\HUD</Filter>
     </ClCompile>
+    <ClCompile Include="icon_picker_ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="icon_registry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="imgui_overlay.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -206,6 +212,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="font_awesome7_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="icon_picker_ui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="icon_registry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="icon_registry_data.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="hotkey_utils.h">

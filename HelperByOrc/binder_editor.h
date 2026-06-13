@@ -1,6 +1,7 @@
 #pragma once
 
 #include "binder_types.h"
+#include "icon_picker_ui.h"
 #include "variables_picker_ui.h"
 
 #include <functional>
@@ -59,6 +60,7 @@ struct State {
     int variablesInsertCursorByte = -1;
     std::string variablesKeyPickerSearch{};
     variables_picker::State variablesPicker{};
+    icon_picker::State iconPicker{};
     HotkeyEntry baseline{};
     HotkeyEntry draft{};
 };

@@ -2,6 +2,7 @@
 
 #include "debug_log.h"
 #include "font_awesome7_data.h"
+#include "icon_registry.h"
 #include "minhook_utils.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
@@ -321,17 +322,29 @@ bool MergeFontAwesomeIcons(ImGuiIO& io) {
     iconConfig.MergeMode = true;
     iconConfig.PixelSnapH = true;
 
-    ImFont* icons = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
-        FontAwesome7Data::kSolidCompressedBase85,
+    ImFont* solidIcons = io.Fonts->AddFontFromMemoryCompressedTTF(
+        FontAwesome7Data::kSolidCompressedData,
+        static_cast<int>(FontAwesome7Data::kSolidCompressedSize),
         kOverlayFontSize,
         &iconConfig,
-        ui_icons::FontAwesomeRanges);
-    if (!icons) {
-        debuglog::WriteError("Failed to merge Font Awesome 7 icon font");
+        icon_registry::SolidRanges());
+    if (!solidIcons) {
+        debuglog::WriteError("Failed to merge Font Awesome 7 solid icon font");
         return false;
     }
 
-    debuglog::WriteInfo("Merged Font Awesome 7 icon font");
+    ImFont* brandsIcons = io.Fonts->AddFontFromMemoryCompressedTTF(
+        FontAwesome7Data::kBrandsCompressedData,
+        static_cast<int>(FontAwesome7Data::kBrandsCompressedSize),
+        kOverlayFontSize,
+        &iconConfig,
+        icon_registry::BrandsRanges());
+    if (!brandsIcons) {
+        debuglog::WriteError("Failed to merge Font Awesome 7 brands icon font");
+        return false;
+    }
+
+    debuglog::WriteInfo("Merged Font Awesome 7 solid and brands icon fonts");
     return true;
 }
 
