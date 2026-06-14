@@ -589,14 +589,26 @@ bool ImGuiOverlay::WantsInputRouting() const {
 }
 
 void ImGuiOverlay::SetInputRoutingAllowed(bool allowed) {
-    if (inputRoutingAllowed_ == allowed) {
+    SetInputDecision(allowed, drawHelperCursor_);
+}
+
+void ImGuiOverlay::SetInputDecision(bool routingAllowed, bool drawHelperCursor) {
+    const bool effectiveDrawHelperCursor = routingAllowed && drawHelperCursor;
+    if (inputRoutingAllowed_ == routingAllowed && drawHelperCursor_ == effectiveDrawHelperCursor) {
         return;
     }
 
-    inputRoutingAllowed_ = allowed;
-    debuglog::WriteInfo("[ui] input routing allowed: %s", allowed ? "yes" : "no");
-    if (!allowed) {
+    inputRoutingAllowed_ = routingAllowed;
+    drawHelperCursor_ = effectiveDrawHelperCursor;
+    debuglog::WriteInfo(
+        "[ui] input routing decision: route=%s drawHelperCursor=%s",
+        routingAllowed ? "yes" : "no",
+        drawHelperCursor_ ? "yes" : "no");
+    if (!routingAllowed) {
         ApplyInputCaptureState(false);
+        if (ImGui::GetCurrentContext() != nullptr) {
+            ImGui::GetIO().MouseDrawCursor = false;
+        }
     }
 }
 
@@ -1029,6 +1041,9 @@ void ImGuiOverlay::CleanupImGui() {
 
     debuglog::WriteInfo("[ui] CleanupImGui begin");
 
+    ImGui::GetIO().MouseDrawCursor = false;
+    inputRoutingAllowed_ = false;
+    drawHelperCursor_ = false;
     RestoreWindowProc();
     ImGui_ImplDX9_Shutdown();
     ImGui_ImplWin32_Shutdown();
@@ -1249,7 +1264,7 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
         traceLastAuxVisible_ = auxVisible;
         traceLastIdleFrame_ = idle;
         debuglog::WriteInfo(
-            "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
+            "[ui] RenderFrame %s: idle=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d drawCur=%d wantUi=%d wantAuxCur=%d wantTextCap=%d",
             frameTag,
             idle ? 1 : 0,
             menuOpen_ ? 1 : 0,
@@ -1257,6 +1272,7 @@ void ImGuiOverlay::TraceUiRenderAndInputSnapshot(const char* frameTag) {
             WantsInputRouting() ? 1 : 0,
             inputRoutingAllowed_ ? 1 : 0,
             CanRouteInput() ? 1 : 0,
+            drawHelperCursor_ ? 1 : 0,
             WantsUiCursor() ? 1 : 0,
             WantsAuxiliaryUiCursor() ? 1 : 0,
             WantsTextInputCapture() ? 1 : 0);
@@ -1405,6 +1421,11 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         }
         SyncOsMouseToImGui();
     }
+    const bool drawHelperCursorThisFrame = drawHelperCursor_ && wantsUiCursor && CanRouteInput();
+    ImGui::GetIO().MouseDrawCursor = drawHelperCursorThisFrame;
+    if (drawHelperCursorThisFrame) {
+        ::SetCursor(nullptr);
+    }
 
     if (prepareFrameCallback_) {
         prepareFrameCallback_(device);
@@ -1422,11 +1443,11 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
     UpdateInputCaptureState();
 
-    // Единый видимый курсор: всегда используем игровой SA:MP cursor mode.
-    // ImGui по-прежнему получает mouse input, но не рисует второй курсор поверх игрового.
+    // Helper draws its own software cursor only while it owns mouse routing.
+    // SA:MP cursor mode is now only a game-control lock, not the Helper UI cursor.
     {
         ImGuiIO& ioFrame = ImGui::GetIO();
-        ioFrame.MouseDrawCursor = false;
+        ioFrame.MouseDrawCursor = drawHelperCursorThisFrame;
     }
 
     ImGui::EndFrame();
@@ -1603,9 +1624,8 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam);
             if (ImGui::GetCurrentContext() != nullptr) {
                 const ImGuiIO& io = ImGui::GetIO();
-                // Блокируем мышь для игры, пока открыт UI с курсором SA:MP, или пока ImGui явно
-                // просит захват под маршрутизируемой мышью. `FontGlobalScale`/стиль теперь выставляются до `NewFrame`, иначе
-                // WantCaptureMouse расходился с реальной геометрией (ложный WantCapMouse=0).
+                // Swallow mouse for the game while Helper owns a cursor surface, even if ImGui hover/capture
+                // temporarily drops for one frame. Quick menu also has its own geometry hit-test.
                 const bool wantsMouseCapture = wantsUiCursor || io.WantCaptureMouse;
                 const bool wantsKeyboardCapture = wantsTextInput || io.WantCaptureKeyboard;
                 TraceWheelMessage(message, wparam, wantsUiCursor, io);
@@ -1637,13 +1657,26 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 if (wantsMouseCapture && self_->IsMouseMessage(message)) {
                     return TRUE;
                 }
+                if (message == WM_SETCURSOR && self_->drawHelperCursor_) {
+                    ::SetCursor(nullptr);
+                    static uint64_t s_lastSetCursorTraceMs = 0;
+                    const uint64_t now = GetTickCount64();
+                    if (now - s_lastSetCursorTraceMs >= kSetCursorTraceIntervalMs) {
+                        s_lastSetCursorTraceMs = now;
+                        debuglog::WriteInfo(
+                            "[ui] WM_SETCURSOR hidden for Helper software cursor (WantCapMouse=%d, wantText=%d)",
+                            io.WantCaptureMouse ? 1 : 0,
+                            wantsTextInput ? 1 : 0);
+                    }
+                    return TRUE;
+                }
                 if (message == WM_SETCURSOR && wantsUiCursor) {
                     static uint64_t s_lastSetCursorTraceMs = 0;
                     const uint64_t now = GetTickCount64();
                     if (now - s_lastSetCursorTraceMs >= kSetCursorTraceIntervalMs) {
                         s_lastSetCursorTraceMs = now;
                         debuglog::WriteInfo(
-                            "[ui] WM_SETCURSOR pass-through with UI cursor (WantCapMouse=%d, wantText=%d)",
+                            "[ui] WM_SETCURSOR pass-through without Helper software cursor (WantCapMouse=%d, wantText=%d)",
                             io.WantCaptureMouse ? 1 : 0,
                             wantsTextInput ? 1 : 0);
                     }
@@ -1668,6 +1701,8 @@ void ImGuiOverlay::Shutdown() {
     debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown begin");
     shuttingDown_ = true;
     menuOpen_ = false;
+    inputRoutingAllowed_ = false;
+    drawHelperCursor_ = false;
     CancelMenuToggleHotkeyCapture();
     ApplyInputCaptureState(false);
 

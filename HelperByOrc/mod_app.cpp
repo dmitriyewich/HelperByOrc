@@ -1362,16 +1362,73 @@ void ModApp::UpdateOverlayCursorMode() {
     sampApi_.Refresh();
     const ExternalCursorSnapshot cursorSnapshot = externalCursorDetector_.Detect(sampApi_, gameHw, fg);
     const bool quickMenuOpen = binder_.IsQuickMenuOpen();
-    const bool blockingExternalOwner =
-        (cursorSnapshot.externalCursorActive && !cursorSnapshot.chatOpen && !cursorSnapshot.dialogOpen)
-        || cursorSnapshot.cefShown;
+    const bool binderInputCapture = binder_.WantsInputCapture();
+    const bool binderKeyRouting = binder_.WantsInputRouting() && !quickMenuOpen && !binderInputCapture;
+    const bool hudInputCapture = hud_.WantsInputCapture();
 
     OverlayCursorController::Inputs inputs{};
     inputs.sampUiPipelineReady = sampUiPipelineReady_;
-    inputs.helperWantsCursor = overlay_.WantsUiCursor();
-    inputs.helperCursorLocksControl =
-        overlay_.IsMenuOpen() || binder_.WantsInputCapture() || hud_.WantsInputCapture();
-    inputs.helperWantsInputRouting = overlay_.WantsInputRouting() && !(quickMenuOpen && blockingExternalOwner);
+    constexpr int kSampCursorModeNone = 0;
+    constexpr int kSampCursorModeLockCamAndControl = 2;
+    constexpr int kSampCursorModeLockCamNoCursor = 4;
+    const auto addSurface = [&inputs](
+                                OverlayCursorController::SurfaceId id,
+                                bool visible,
+                                bool wantsMouse,
+                                bool wantsKeyboard,
+                                bool locksGameControl,
+                                int sampCursorMode,
+                                int priority) {
+        inputs.surfaces.push_back({ id, visible, wantsMouse, wantsKeyboard, locksGameControl, sampCursorMode, priority });
+    };
+    addSurface(
+        OverlayCursorController::SurfaceId::MainMenu,
+        overlay_.IsMenuOpen(),
+        true,
+        true,
+        true,
+        kSampCursorModeLockCamAndControl,
+        100);
+    addSurface(
+        OverlayCursorController::SurfaceId::Modal,
+        binderInputCapture,
+        true,
+        true,
+        true,
+        kSampCursorModeLockCamAndControl,
+        90);
+    addSurface(
+        OverlayCursorController::SurfaceId::HudPlacement,
+        hudInputCapture,
+        true,
+        true,
+        true,
+        kSampCursorModeLockCamAndControl,
+        80);
+    addSurface(
+        OverlayCursorController::SurfaceId::QuickMenu,
+        quickMenuOpen,
+        true,
+        false,
+        false,
+        kSampCursorModeLockCamNoCursor,
+        70);
+    addSurface(
+        OverlayCursorController::SurfaceId::Modal,
+        binderKeyRouting,
+        false,
+        true,
+        false,
+        kSampCursorModeNone,
+        60);
+    addSurface(
+        OverlayCursorController::SurfaceId::Notifications,
+        notifications_.WantsOverlayRender(),
+        false,
+        false,
+        false,
+        kSampCursorModeNone,
+        10);
     inputs.sampCursorMode = cursorSnapshot.sampCursorMode;
     inputs.chatOpen = cursorSnapshot.chatOpen;
     inputs.dialogOpen = cursorSnapshot.dialogOpen;
@@ -1388,7 +1445,7 @@ void ModApp::UpdateOverlayCursorMode() {
     inputs.gameWindow = gameHw;
     inputs.foregroundWindow = fg;
     const OverlayCursorController::Result result = overlayCursor_.Apply(inputs);
-    overlay_.SetInputRoutingAllowed(result.routingAllowed);
+    overlay_.SetInputDecision(result.routingAllowed, result.drawHelperCursor);
 }
 
 DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {

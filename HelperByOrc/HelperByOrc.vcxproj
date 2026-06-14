@@ -127,8 +127,19 @@
   <ItemGroup>
     <ClCompile Include="app_config.cpp" />
     <ClCompile Include="arizona_cef_dialogs.cpp" />
+    <ClCompile Include="binder_config.cpp" />
     <ClCompile Include="binder_editor.cpp" />
+    <ClCompile Include="binder_editor_ui.cpp" />
+    <ClCompile Include="binder_explorer_ui.cpp" />
+    <ClCompile Include="binder_input_dialog.cpp" />
+    <ClCompile Include="binder_main_ui.cpp" />
+    <ClCompile Include="binder_model.cpp" />
     <ClCompile Include="binder_module.cpp" />
+    <ClCompile Include="binder_quick_menu.cpp" />
+    <ClCompile Include="binder_runtime.cpp" />
+    <ClCompile Include="binder_tag_actions.cpp" />
+    <ClCompile Include="binder_two_pane_ui.cpp" />
+    <ClCompile Include="binder_ui_common.cpp" />
     <ClCompile Include="conditions_module.cpp" />
     <ClCompile Include="debug_log.cpp" />
     <ClCompile Include="external_cursor_detector.cpp" />
@@ -177,7 +188,9 @@
     <ClInclude Include="arizona_cef_dialogs.h" />
     <ClInclude Include="binder_editor.h" />
     <ClInclude Include="binder_module.h" />
+    <ClInclude Include="binder_module_impl.h" />
     <ClInclude Include="binder_types.h" />
+    <ClInclude Include="binder_ui_common.h" />
     <ClInclude Include="conditions_module.h" />
     <ClInclude Include="debug_log.h" />
     <ClInclude Include="external_cursor_detector.h" />

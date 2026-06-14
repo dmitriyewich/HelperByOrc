@@ -55,14 +55,28 @@ struct RichSegment {
     int fontSize = 0;
     float indent = 0.0f;
     std::string icon{};
+    bool isIcon = false;
     bool bullet = false;
     bool sameLine = false;
     bool inlineContinuation = false;
     bool isHr = false;
+    bool shadow = false;
+    bool outline = false;
     int extraBreaks = 0;
     enum class Align { Left, Center, Right } align = Align::Left;
     enum class Transform { None, Upper, Lower } transform = Transform::None;
     std::optional<ParsedImage> image{};
+};
+
+struct InlineStyle {
+    ImVec4 color{};
+    ImVec4 bgColor{};
+    bool hasColor = false;
+    bool hasBgColor = false;
+    float alpha = 1.0f;
+    int fontSize = 0;
+    bool shadow = false;
+    bool outline = false;
 };
 
 struct TextureCacheEntry {
@@ -185,6 +199,63 @@ bool HasDirectiveBoundary(std::string_view text, std::size_t consumed) {
     }
     const char ch = text[consumed];
     return std::isspace(static_cast<unsigned char>(ch)) != 0 || ch == '#';
+}
+
+void TrimTrailingAsciiWhitespace(std::string& value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0) {
+        value.pop_back();
+    }
+}
+
+void SkipLeadingAsciiWhitespace(std::string_view& text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+        text.remove_prefix(1);
+    }
+}
+
+bool ReadDirectiveInt(
+    std::string_view lowered,
+    std::size_t prefixLen,
+    bool allowNegative,
+    std::size_t& consumed,
+    int& value) {
+    std::string digits;
+    std::size_t pos = prefixLen;
+    if (allowNegative && pos < lowered.size() && lowered[pos] == '-') {
+        digits.push_back('-');
+        ++pos;
+    }
+    while (pos < lowered.size() && std::isdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
+        digits.push_back(lowered[pos++]);
+    }
+    if (digits.empty() || digits == "-") {
+        return false;
+    }
+    consumed = pos;
+    value = std::atoi(digits.c_str());
+    return true;
+}
+
+void ApplyStyle(RichSegment& segment, const InlineStyle& style) {
+    segment.color = style.color;
+    segment.bgColor = style.bgColor;
+    segment.hasColor = style.hasColor;
+    segment.hasBgColor = style.hasBgColor;
+    segment.alpha = style.alpha;
+    segment.fontSize = style.fontSize;
+    segment.shadow = style.shadow;
+    segment.outline = style.outline;
+}
+
+void ResetInlineStyle(InlineStyle& style) {
+    style.color = {};
+    style.bgColor = {};
+    style.hasColor = false;
+    style.hasBgColor = false;
+    style.alpha = 1.0f;
+    style.fontSize = 0;
+    style.shadow = false;
+    style.outline = false;
 }
 
 std::vector<std::string> SplitDirectiveArgs(std::string_view raw) {
@@ -320,267 +391,361 @@ std::optional<std::string> ParseIconFunction(std::string_view text, std::size_t&
     return std::nullopt;
 }
 
-RichSegment ParseRichSegment(std::string_view rawLine) {
-    RichSegment segment;
+std::optional<ImVec4> ParseInlineColorMarker(std::string_view text) {
+    if (text.size() < 8 || text.front() != '{' || text[7] != '}') {
+        return std::nullopt;
+    }
+    return ParseColorHex(text.substr(1, 6));
+}
+
+bool IsSupportedFontSize(int size) {
+    return size == 12 || size == 14 || size == 16 || size == 18 || size == 30;
+}
+
+bool TryConsumeCompactIcon(std::string_view text, std::size_t& consumed, std::string& glyph) {
+    const std::string lowered = LowerUtf8(text);
+    if (lowered.rfind("#icon", 0) != 0) {
+        return false;
+    }
+    std::size_t pos = 5;
+    while (pos < lowered.size()
+        && (std::isalnum(static_cast<unsigned char>(lowered[pos])) != 0 || lowered[pos] == '_' || lowered[pos] == '-' || lowered[pos] == ':')) {
+        ++pos;
+    }
+    if (pos <= 5 || !HasDirectiveBoundary(text, pos)) {
+        return false;
+    }
+    consumed = pos;
+    glyph = ResolveMarkupIconGlyph(lowered.substr(5, pos - 5));
+    return true;
+}
+
+bool TryConsumeInlineDirective(
+    std::string_view text,
+    InlineStyle& style,
+    std::size_t& consumed,
+    std::string& iconGlyph) {
+    consumed = 0;
+    iconGlyph.clear();
+
+    if (const std::optional<ImVec4> color = ParseInlineColorMarker(text)) {
+        style.color = *color;
+        style.hasColor = true;
+        consumed = 8;
+        return true;
+    }
+
+    if (std::optional<std::string> icon = ParseIconFunction(text, consumed)) {
+        iconGlyph = std::move(*icon);
+        return true;
+    }
+    if (TryConsumeCompactIcon(text, consumed, iconGlyph)) {
+        return true;
+    }
+
+    const std::string lowered = LowerUtf8(text);
+    int value = 0;
+    if (lowered.rfind("#font", 0) == 0) {
+        if (ReadDirectiveInt(lowered, 5, false, consumed, value)
+            && IsSupportedFontSize(value)
+            && HasDirectiveBoundary(text, consumed)) {
+            style.fontSize = value;
+            return true;
+        }
+        if (HasDirectiveBoundary(text, 5)) {
+            style.fontSize = 0;
+            consumed = 5;
+            return true;
+        }
+    } else if (lowered.rfind("#small", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        style.fontSize = 12;
+        consumed = 6;
+        return true;
+    } else if (lowered.rfind("#big", 0) == 0 && HasDirectiveBoundary(text, 4)) {
+        style.fontSize = 18;
+        consumed = 4;
+        return true;
+    } else if (lowered.rfind("#color", 0) == 0 && lowered.size() >= 12) {
+        if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(6, 6));
+            color && HasDirectiveBoundary(text, 12)) {
+            style.color = *color;
+            style.hasColor = true;
+            consumed = 12;
+            return true;
+        }
+    } else if (lowered.rfind("#bg", 0) == 0) {
+        if (lowered.size() >= 9) {
+            if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6));
+                color && HasDirectiveBoundary(text, 9)) {
+                style.bgColor = *color;
+                style.hasBgColor = true;
+                consumed = 9;
+                return true;
+            }
+        }
+        if (HasDirectiveBoundary(text, 3)) {
+            style.bgColor = {};
+            style.hasBgColor = false;
+            consumed = 3;
+            return true;
+        }
+    } else if (lowered.rfind("#alpha", 0) == 0) {
+        if (ReadDirectiveInt(lowered, 6, false, consumed, value) && HasDirectiveBoundary(text, consumed)) {
+            style.alpha = std::clamp(value, 0, 100) / 100.0f;
+            return true;
+        }
+        if (HasDirectiveBoundary(text, 6)) {
+            style.alpha = 1.0f;
+            consumed = 6;
+            return true;
+        }
+    } else if (lowered.rfind("#reset", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        ResetInlineStyle(style);
+        consumed = 6;
+        return true;
+    } else if (lowered.rfind("#shadow", 0) == 0 && HasDirectiveBoundary(text, 7)) {
+        style.shadow = true;
+        consumed = 7;
+        return true;
+    } else if (lowered.rfind("#outline", 0) == 0 && HasDirectiveBoundary(text, 8)) {
+        style.outline = true;
+        consumed = 8;
+        return true;
+    }
+
+    return false;
+}
+
+bool IsInlineDirective(std::string_view text) {
+    InlineStyle style;
+    std::size_t consumed = 0;
+    std::string iconGlyph;
+    return TryConsumeInlineDirective(text, style, consumed, iconGlyph);
+}
+
+RichSegment MakeInlineRun(const RichSegment& lineMeta, const InlineStyle& style, bool firstRun) {
+    RichSegment run = lineMeta;
+    run.text.clear();
+    run.icon.clear();
+    run.image.reset();
+    run.isIcon = false;
+    run.isHr = false;
+    run.inlineContinuation = !firstRun;
+    ApplyStyle(run, style);
+    if (!firstRun) {
+        run.bullet = false;
+        run.sameLine = false;
+        run.align = RichSegment::Align::Left;
+        run.indent = 0.0f;
+        run.extraBreaks = 0;
+    }
+    return run;
+}
+
+void AppendTextRun(
+    std::vector<RichSegment>& runs,
+    const RichSegment& lineMeta,
+    const InlineStyle& style,
+    std::string text) {
+    if (text.empty()) {
+        return;
+    }
+    if (lineMeta.transform == RichSegment::Transform::Upper) {
+        text = UpperUtf8(text);
+    } else if (lineMeta.transform == RichSegment::Transform::Lower) {
+        text = LowerUtf8(text);
+    }
+
+    const bool previousWasIcon = !runs.empty() && runs.back().isIcon;
+    RichSegment run = MakeInlineRun(lineMeta, style, runs.empty());
+    run.text = std::move(text);
+    run.inlineContinuation = !runs.empty() && !previousWasIcon;
+    runs.push_back(std::move(run));
+}
+
+void AppendIconRun(
+    std::vector<RichSegment>& runs,
+    const RichSegment& lineMeta,
+    const InlineStyle& style,
+    std::string glyph) {
+    if (!runs.empty() && !runs.back().isIcon && !runs.back().image && !runs.back().isHr) {
+        TrimTrailingAsciiWhitespace(runs.back().text);
+    }
+
+    RichSegment run = MakeInlineRun(lineMeta, style, runs.empty());
+    run.icon = std::move(glyph);
+    run.isIcon = true;
+    run.inlineContinuation = false;
+    runs.push_back(std::move(run));
+}
+
+bool TryConsumeLineDirective(std::string_view text, RichSegment& lineMeta, std::size_t& consumed) {
+    consumed = 0;
+    const std::string lowered = LowerUtf8(text);
+    int value = 0;
+    if (lowered.rfind("#sameline", 0) == 0 && HasDirectiveBoundary(text, 9)) {
+        lineMeta.sameLine = true;
+        consumed = 9;
+        return true;
+    }
+    if (lowered.rfind("#right", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        lineMeta.align = RichSegment::Align::Right;
+        consumed = 6;
+        return true;
+    }
+    if (lowered.rfind("#center", 0) == 0 && HasDirectiveBoundary(text, 7)) {
+        lineMeta.align = RichSegment::Align::Center;
+        consumed = 7;
+        return true;
+    }
+    if (lowered.rfind("#left", 0) == 0 && HasDirectiveBoundary(text, 5)) {
+        lineMeta.align = RichSegment::Align::Left;
+        consumed = 5;
+        return true;
+    }
+    if (lowered.rfind("#bullet", 0) == 0 && HasDirectiveBoundary(text, 7)) {
+        lineMeta.bullet = true;
+        consumed = 7;
+        return true;
+    }
+    if (lowered.rfind("#upper", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        lineMeta.transform = RichSegment::Transform::Upper;
+        consumed = 6;
+        return true;
+    }
+    if (lowered.rfind("#lower", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        lineMeta.transform = RichSegment::Transform::Lower;
+        consumed = 6;
+        return true;
+    }
+    if (lowered.rfind("#indent", 0) == 0
+        && ReadDirectiveInt(lowered, 7, true, consumed, value)
+        && HasDirectiveBoundary(text, consumed)) {
+        lineMeta.indent += ScaleUi(static_cast<float>(value));
+        return true;
+    }
+    if (lowered.rfind("#pad", 0) == 0
+        && ReadDirectiveInt(lowered, 4, true, consumed, value)
+        && HasDirectiveBoundary(text, consumed)) {
+        lineMeta.indent += ScaleUi(static_cast<float>(value));
+        return true;
+    }
+    if (lowered.rfind("#tab", 0) == 0) {
+        if (!ReadDirectiveInt(lowered, 4, false, consumed, value)) {
+            consumed = 4;
+            value = 1;
+        }
+        if (HasDirectiveBoundary(text, consumed)) {
+            lineMeta.indent += ScaleUi(static_cast<float>(std::max(1, value) * 32));
+            return true;
+        }
+    }
+    if (lowered.rfind("#br", 0) == 0) {
+        if (!ReadDirectiveInt(lowered, 3, false, consumed, value)) {
+            consumed = 3;
+            value = 1;
+        }
+        if (HasDirectiveBoundary(text, consumed)) {
+            lineMeta.extraBreaks += std::max(1, value);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool TryConsumeBlockDirective(std::string_view text, RichSegment& block, std::size_t& consumed) {
+    consumed = 0;
+    if (std::optional<ParsedImage> image = ParseImagePrefix(text, consumed)) {
+        block.image = std::move(*image);
+        return true;
+    }
+
+    const std::string lowered = LowerUtf8(text);
+    if (lowered.rfind("#hr", 0) != 0) {
+        return false;
+    }
+
+    std::size_t pos = 3;
+    while (pos < lowered.size() && std::isxdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
+        ++pos;
+    }
+    if (!HasDirectiveBoundary(text, pos)) {
+        return false;
+    }
+
+    block.isHr = true;
+    if (pos == 9) {
+        if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6))) {
+            block.hrColor = *color;
+            block.hasHrColor = true;
+        }
+    }
+    consumed = pos;
+    return true;
+}
+
+std::size_t FindNextInlineDirective(std::string_view text) {
+    for (std::size_t pos = 1; pos < text.size(); ++pos) {
+        if ((text[pos] == '#' || text[pos] == '{') && IsInlineDirective(text.substr(pos))) {
+            return pos;
+        }
+    }
+    return text.size();
+}
+
+std::vector<RichSegment> ParseRichLine(std::string_view rawLine) {
     std::string original(rawLine);
     std::size_t nonSpace = 0;
     while (nonSpace < original.size() && std::isspace(static_cast<unsigned char>(original[nonSpace])) != 0) {
         ++nonSpace;
     }
-    std::string leading = original.substr(0, nonSpace);
-    std::string rest = original.substr(nonSpace);
-    bool usedDirective = false;
+
+    const std::string leading = original.substr(0, nonSpace);
+    std::string_view rest(original.data() + nonSpace, original.size() - nonSpace);
+    RichSegment lineMeta;
+    InlineStyle style;
+    std::vector<RichSegment> runs;
+    bool usedDirectiveBeforeText = false;
 
     while (!rest.empty()) {
-        bool consumedAny = false;
         std::size_t consumed = 0;
-        const std::string lowered = LowerUtf8(rest);
-        if (rest.size() >= 8 && rest.front() == '{' && rest[7] == '}') {
-            if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(rest).substr(1, 6))) {
-                segment.color = *color;
-                segment.hasColor = true;
-                consumedAny = true;
-                consumed = 8;
+        RichSegment block = lineMeta;
+        if (runs.empty() && TryConsumeLineDirective(rest, lineMeta, consumed)) {
+            usedDirectiveBeforeText = true;
+            rest.remove_prefix(consumed);
+            SkipLeadingAsciiWhitespace(rest);
+            continue;
+        }
+        if (runs.empty() && TryConsumeBlockDirective(rest, block, consumed)) {
+            runs.push_back(std::move(block));
+            return runs;
+        }
+
+        std::string iconGlyph;
+        if (TryConsumeInlineDirective(rest, style, consumed, iconGlyph)) {
+            usedDirectiveBeforeText = true;
+            if (!iconGlyph.empty()) {
+                AppendIconRun(runs, lineMeta, style, std::move(iconGlyph));
             }
-        } else if (lowered.rfind("#sameline", 0) == 0 && HasDirectiveBoundary(rest, 9)) {
-            segment.sameLine = true;
-            consumedAny = true;
-            consumed = 9;
-        } else if (lowered.rfind("#right", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
-            segment.align = RichSegment::Align::Right;
-            consumedAny = true;
-            consumed = 6;
-        } else if (lowered.rfind("#center", 0) == 0 && HasDirectiveBoundary(rest, 7)) {
-            segment.align = RichSegment::Align::Center;
-            consumedAny = true;
-            consumed = 7;
-        } else if (lowered.rfind("#left", 0) == 0 && HasDirectiveBoundary(rest, 5)) {
-            segment.align = RichSegment::Align::Left;
-            consumedAny = true;
-            consumed = 5;
-        } else if (lowered.rfind("#bullet", 0) == 0 && HasDirectiveBoundary(rest, 7)) {
-            segment.bullet = true;
-            consumedAny = true;
-            consumed = 7;
-        } else if (lowered.rfind("#upper", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
-            segment.transform = RichSegment::Transform::Upper;
-            consumedAny = true;
-            consumed = 6;
-        } else if (lowered.rfind("#lower", 0) == 0 && HasDirectiveBoundary(rest, 6)) {
-            segment.transform = RichSegment::Transform::Lower;
-            consumedAny = true;
-            consumed = 6;
-        } else if (std::optional<ParsedImage> image = ParseImagePrefix(rest, consumed)) {
-            segment.image = std::move(*image);
-            consumedAny = true;
-        } else if (std::optional<std::string> icon = ParseIconFunction(rest, consumed)) {
-            segment.icon = std::move(*icon);
-            consumedAny = true;
-        }
-
-        if (!consumedAny) {
-            std::string digits;
-            auto readDigits = [&](std::size_t prefixLen, bool allowNegative = false) -> std::string {
-                std::string out;
-                std::size_t pos = prefixLen;
-                if (allowNegative && pos < lowered.size() && lowered[pos] == '-') {
-                    out.push_back('-');
-                    ++pos;
-                }
-                while (pos < lowered.size() && std::isdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
-                    out.push_back(lowered[pos++]);
-                }
-                consumed = pos;
-                return out;
-            };
-
-            if (lowered.rfind("#font", 0) == 0) {
-                digits = readDigits(5);
-                const int size = digits.empty() ? 0 : std::atoi(digits.c_str());
-                if ((size == 12 || size == 14 || size == 16 || size == 18 || size == 30) && HasDirectiveBoundary(rest, consumed)) {
-                    segment.fontSize = size;
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#icon", 0) == 0) {
-                std::size_t pos = 5;
-                while (pos < lowered.size()
-                    && (std::isalnum(static_cast<unsigned char>(lowered[pos])) != 0 || lowered[pos] == '_' || lowered[pos] == '-' || lowered[pos] == ':')) {
-                    ++pos;
-                }
-                if (pos > 5 && HasDirectiveBoundary(rest, pos)) {
-                    segment.icon = ResolveMarkupIconGlyph(lowered.substr(5, pos - 5));
-                    consumed = pos;
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#color", 0) == 0 && lowered.size() >= 12) {
-                if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(6, 6));
-                    color && HasDirectiveBoundary(rest, 12)) {
-                    segment.color = *color;
-                    segment.hasColor = true;
-                    consumed = 12;
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#bg", 0) == 0 && lowered.size() >= 9) {
-                if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6));
-                    color && HasDirectiveBoundary(rest, 9)) {
-                    segment.bgColor = *color;
-                    segment.hasBgColor = true;
-                    consumed = 9;
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#alpha", 0) == 0) {
-                digits = readDigits(6);
-                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
-                    segment.alpha = std::clamp(std::atoi(digits.c_str()), 0, 100) / 100.0f;
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#indent", 0) == 0) {
-                digits = readDigits(7, true);
-                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
-                    segment.indent += ScaleUi(static_cast<float>(std::atoi(digits.c_str())));
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#pad", 0) == 0) {
-                digits = readDigits(4, true);
-                if (!digits.empty() && HasDirectiveBoundary(rest, consumed)) {
-                    segment.indent += ScaleUi(static_cast<float>(std::atoi(digits.c_str())));
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#tab", 0) == 0) {
-                digits = readDigits(4);
-                if (HasDirectiveBoundary(rest, consumed)) {
-                    segment.indent += ScaleUi(static_cast<float>(std::max(1, std::atoi(digits.empty() ? "1" : digits.c_str())) * 32));
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#br", 0) == 0) {
-                digits = readDigits(3);
-                if (HasDirectiveBoundary(rest, consumed)) {
-                    segment.extraBreaks += std::max(1, std::atoi(digits.empty() ? "1" : digits.c_str()));
-                    consumedAny = true;
-                }
-            } else if (lowered.rfind("#hr", 0) == 0) {
-                std::size_t pos = 3;
-                while (pos < lowered.size() && std::isxdigit(static_cast<unsigned char>(lowered[pos])) != 0) {
-                    ++pos;
-                }
-                if (HasDirectiveBoundary(rest, pos)) {
-                    segment.isHr = true;
-                    if (pos == 9) {
-                        if (const std::optional<ImVec4> color = ParseColorHex(std::string_view(lowered).substr(3, 6))) {
-                            segment.hrColor = *color;
-                            segment.hasHrColor = true;
-                        }
-                    }
-                    consumed = pos;
-                    consumedAny = true;
-                }
-            }
-        }
-
-        if (!consumedAny) {
-            break;
-        }
-        usedDirective = true;
-        rest.erase(0, consumed);
-        while (!rest.empty() && std::isspace(static_cast<unsigned char>(rest.front())) != 0) {
-            rest.erase(rest.begin());
-        }
-    }
-
-    segment.text = usedDirective ? rest : leading + rest;
-    if (segment.transform == RichSegment::Transform::Upper) {
-        segment.text = UpperUtf8(segment.text);
-    } else if (segment.transform == RichSegment::Transform::Lower) {
-        segment.text = LowerUtf8(segment.text);
-    }
-    return segment;
-}
-
-std::optional<ImVec4> ParseInlineColorMarker(std::string_view text, std::size_t pos) {
-    if (pos + 8 > text.size() || text[pos] != '{' || text[pos + 7] != '}') {
-        return std::nullopt;
-    }
-    return ParseColorHex(text.substr(pos + 1, 6));
-}
-
-RichSegment MakeInlineColorPiece(
-    const RichSegment& source,
-    std::string text,
-    const ImVec4& color,
-    bool hasColor,
-    bool firstPiece) {
-    RichSegment piece = source;
-    piece.text = std::move(text);
-    piece.color = color;
-    piece.hasColor = hasColor;
-    piece.image.reset();
-    piece.isHr = false;
-    piece.inlineContinuation = !firstPiece;
-    if (!firstPiece) {
-        piece.icon.clear();
-        piece.bullet = false;
-        piece.sameLine = false;
-        piece.align = RichSegment::Align::Left;
-        piece.indent = 0.0f;
-        piece.extraBreaks = 0;
-    }
-    return piece;
-}
-
-std::vector<RichSegment> SplitSegmentByInlineColors(const RichSegment& segment) {
-    if (segment.image || segment.isHr || segment.text.empty()) {
-        return { segment };
-    }
-
-    std::vector<RichSegment> parts;
-    ImVec4 currentColor = segment.color;
-    bool currentHasColor = segment.hasColor;
-    std::size_t textStart = 0;
-    bool sawColorMarker = false;
-
-    for (std::size_t pos = 0; pos < segment.text.size();) {
-        const std::optional<ImVec4> color = ParseInlineColorMarker(segment.text, pos);
-        if (!color) {
-            ++pos;
+            rest.remove_prefix(consumed);
+            SkipLeadingAsciiWhitespace(rest);
             continue;
         }
 
-        sawColorMarker = true;
-        if (pos > textStart) {
-            parts.push_back(MakeInlineColorPiece(
-                segment,
-                segment.text.substr(textStart, pos - textStart),
-                currentColor,
-                currentHasColor,
-                parts.empty()));
+        const std::size_t literalLen = FindNextInlineDirective(rest);
+        std::string literal(rest.substr(0, literalLen));
+        if (!usedDirectiveBeforeText && runs.empty()) {
+            literal = leading + literal;
         }
-        currentColor = *color;
-        currentHasColor = true;
-        pos += 8;
-        textStart = pos;
+        AppendTextRun(runs, lineMeta, style, std::move(literal));
+        rest.remove_prefix(literalLen);
     }
 
-    if (!sawColorMarker) {
-        return { segment };
+    if (runs.empty()) {
+        RichSegment empty = MakeInlineRun(lineMeta, style, true);
+        runs.push_back(std::move(empty));
     }
-
-    if (textStart < segment.text.size()) {
-        parts.push_back(MakeInlineColorPiece(
-            segment,
-            segment.text.substr(textStart),
-            currentColor,
-            currentHasColor,
-            parts.empty()));
-    }
-
-    if (parts.empty()) {
-        RichSegment empty = segment;
-        empty.text.clear();
-        empty.color = currentColor;
-        empty.hasColor = currentHasColor;
-        return { std::move(empty) };
-    }
-    return parts;
+    return runs;
 }
 
 std::vector<std::vector<RichSegment>> ParseRichText(std::string_view text) {
@@ -588,9 +753,9 @@ std::vector<std::vector<RichSegment>> ParseRichText(std::string_view text) {
     std::stringstream stream{ std::string(text) };
     std::string line;
     while (std::getline(stream, line)) {
-        RichSegment segment = ParseRichSegment(line);
-        std::vector<RichSegment> segments = SplitSegmentByInlineColors(segment);
-        if (segment.sameLine && !result.empty()) {
+        std::vector<RichSegment> segments = ParseRichLine(line);
+        const bool sameLine = !segments.empty() && segments.front().sameLine;
+        if (sameLine && !result.empty()) {
             for (RichSegment& item : segments) {
                 result.back().push_back(std::move(item));
             }
@@ -608,9 +773,9 @@ std::string SegmentPlainText(const RichSegment& segment) {
     if (segment.image || segment.isHr) {
         return {};
     }
-    std::string text = segment.text;
+    std::string text = segment.isIcon ? segment.icon : segment.text;
     if (!segment.icon.empty()) {
-        text = segment.icon + (text.empty() ? "" : " " + text);
+        text = segment.icon + (text.empty() || segment.isIcon ? "" : " " + text);
     }
     if (segment.bullet) {
         text = "- " + text;
@@ -828,6 +993,25 @@ struct MarkupRenderer::Impl {
                     ImGui::GetColorU32(bg),
                     ScaleUi(3.0f));
             }
+            if ((segment.shadow || segment.outline) && !text.empty()) {
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                ImFont* font = ImGui::GetFont();
+                const float fontSize = ImGui::GetFontSize();
+                const float wrapWidth = options.wrapText ? ImGui::GetContentRegionAvail().x : 0.0f;
+                const float outlineOffset = std::max(1.0f, ScaleUi(1.0f));
+                const ImU32 outlineColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, textColor.w * 0.65f));
+                const ImU32 shadowColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, textColor.w * 0.55f));
+                if (segment.outline) {
+                    drawList->AddText(font, fontSize, ImVec2(start.x - outlineOffset, start.y), outlineColor, text.c_str(), nullptr, wrapWidth);
+                    drawList->AddText(font, fontSize, ImVec2(start.x + outlineOffset, start.y), outlineColor, text.c_str(), nullptr, wrapWidth);
+                    drawList->AddText(font, fontSize, ImVec2(start.x, start.y - outlineOffset), outlineColor, text.c_str(), nullptr, wrapWidth);
+                    drawList->AddText(font, fontSize, ImVec2(start.x, start.y + outlineOffset), outlineColor, text.c_str(), nullptr, wrapWidth);
+                }
+                if (segment.shadow) {
+                    const float shadowOffset = std::max(1.0f, ScaleUi(1.25f));
+                    drawList->AddText(font, fontSize, ImVec2(start.x + shadowOffset, start.y + shadowOffset), shadowColor, text.c_str(), nullptr, wrapWidth);
+                }
+            }
             if (options.wrapText) {
                 ImGui::TextWrapped("%s", text.c_str());
             } else {
@@ -969,7 +1153,7 @@ bool MarkupRenderer::HasVisibleContent(std::string_view text) {
 }
 
 std::string MarkupRenderer::StripMarkupLine(std::string_view line) {
-    const std::vector<RichSegment> segments = SplitSegmentByInlineColors(ParseRichSegment(line));
+    const std::vector<RichSegment> segments = ParseRichLine(line);
     std::string output;
     for (const RichSegment& segment : segments) {
         output += SegmentPlainText(segment);

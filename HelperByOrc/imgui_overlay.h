@@ -43,6 +43,7 @@ public:
     bool WantsUiCursor() const;
     bool WantsInputRouting() const;
     void SetInputRoutingAllowed(bool allowed);
+    void SetInputDecision(bool routingAllowed, bool drawHelperCursor);
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
@@ -113,6 +114,7 @@ private:
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
     bool inputCaptureActive_ = false;
     bool inputRoutingAllowed_ = false;
+    bool drawHelperCursor_ = false;
     hotkeys::Capture menuToggleHotkeyCapture_{};
     hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
 

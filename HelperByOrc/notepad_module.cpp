@@ -1783,7 +1783,9 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted("{FF0000} text");
         ImGui::TextUnformatted("#center text");
         ImGui::TextUnformatted("#color00ff00 #bg202020 text");
-        ImGui::TextUnformatted("#font18 #icon(compass) text");
+        ImGui::TextUnformatted("#font18 #icon(star) #icon(car) text");
+        ImGui::TextUnformatted("text #font18 big #font normal");
+        ImGui::TextUnformatted("#shadow #outline HUD text #reset plain");
         ImGui::TextUnformatted("#img(example.png, size(320,180))");
         ImGui::TextUnformatted("#bullet text");
         ImGui::TextUnformatted("#hr");

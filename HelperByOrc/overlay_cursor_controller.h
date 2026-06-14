@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 class SampApi;
 
@@ -15,14 +16,33 @@ public:
         Unavailable,
         Game,
         Helper,
-        External,
+        SampChat,
+        SampDialog,
+        ArizonaCef,
+        Foreign,
+    };
+
+    enum class SurfaceId {
+        MainMenu,
+        QuickMenu,
+        HudPlacement,
+        Modal,
+        Notifications,
+    };
+
+    struct OverlaySurfaceRequest {
+        SurfaceId id = SurfaceId::MainMenu;
+        bool visible = false;
+        bool wantsMouse = false;
+        bool wantsKeyboard = false;
+        bool locksGameControl = false;
+        int sampCursorMode = 0;
+        int priority = 0;
     };
 
     struct Inputs {
         bool sampUiPipelineReady = false;
-        bool helperWantsCursor = false;
-        bool helperCursorLocksControl = true;
-        bool helperWantsInputRouting = false;
+        std::vector<OverlaySurfaceRequest> surfaces;
         std::optional<int> sampCursorMode{};
         bool chatOpen = false;
         bool dialogOpen = false;
@@ -40,12 +60,16 @@ public:
         HWND foregroundWindow = nullptr;
     };
 
-    struct Result {
+    struct OverlayInputDecision {
         Owner owner = Owner::Unavailable;
         bool routingAllowed = false;
+        bool drawHelperCursor = false;
         bool sampModeApplied = false;
+        int sampCursorMode = 0;
+        std::string activeSurface;
         std::string reason;
     };
+    using Result = OverlayInputDecision;
 
     void SetSampApi(SampApi* sampApi);
     Result Apply(const Inputs& inputs);
@@ -53,6 +77,7 @@ public:
 
 private:
     static const char* OwnerName(Owner owner);
+    static const char* SurfaceName(SurfaceId id);
     void ReleaseHold(const char* reason);
     void DeferHelperReleaseForExternal(const Inputs& inputs, std::uint64_t now);
     void ClearDeferredExternalRelease();
@@ -73,9 +98,11 @@ private:
     std::uint64_t lastGateTraceMs_ = 0;
     std::uint64_t lastUnavailableTraceMs_ = 0;
     std::uint64_t lastReassertTraceMs_ = 0;
-    bool traceHelperWantsCursor_ = false;
-    bool traceHelperCursorLocksControl_ = true;
+    std::string traceActiveSurface_;
+    bool traceDrawHelperCursor_ = false;
+    bool traceHelperLocksControl_ = false;
     bool traceHelperWantsRouting_ = false;
+    int traceHelperSampCursorMode_ = 0;
     bool traceFocus_ = false;
     bool traceRmb_ = false;
     bool traceChatOpen_ = false;

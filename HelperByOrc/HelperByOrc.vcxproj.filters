@@ -60,10 +60,43 @@
     <ClCompile Include="arizona_cef_dialogs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="binder_config.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_editor.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
+    <ClCompile Include="binder_editor_ui.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_explorer_ui.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_input_dialog.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_main_ui.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_model.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_module.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_quick_menu.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_runtime.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_tag_actions.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_two_pane_ui.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
+    <ClCompile Include="binder_ui_common.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
     <ClCompile Include="conditions_module.cpp">
@@ -196,7 +229,13 @@
     <ClInclude Include="binder_module.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
+    <ClInclude Include="binder_module_impl.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
     <ClInclude Include="binder_types.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
+    <ClInclude Include="binder_ui_common.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
     <ClInclude Include="conditions_module.h">

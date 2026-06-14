@@ -284,6 +284,8 @@ struct HudEditorVisualStyle {
 
 struct ImGuiStringUserData {
     std::string* value = nullptr;
+    int* cursorPos = nullptr;
+    bool* cursorValid = nullptr;
 };
 
 std::uint64_t TickNow() {
@@ -392,6 +394,12 @@ int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
         userData->value->resize(static_cast<std::size_t>(data->BufTextLen));
         data->Buf = userData->value->data();
     }
+    if (userData->cursorPos) {
+        *userData->cursorPos = data->CursorPos;
+        if (userData->cursorValid) {
+            *userData->cursorValid = true;
+        }
+    }
     return 0;
 }
 
@@ -437,11 +445,16 @@ bool InputTextMultilineString(
     const char* label,
     std::string& value,
     const ImVec2& size,
-    ImGuiInputTextFlags flags = 0) {
+    ImGuiInputTextFlags flags = 0,
+    int* cursorPos = nullptr,
+    bool* cursorValid = nullptr) {
     if (value.capacity() < 4096) {
         value.reserve(4096);
     }
-    ImGuiStringUserData userData{ &value };
+    ImGuiStringUserData userData{ &value, cursorPos, cursorValid };
+    if (cursorPos) {
+        flags |= ImGuiInputTextFlags_CallbackAlways;
+    }
     return ImGui::InputTextMultiline(
         label,
         value.data(),
@@ -1478,6 +1491,12 @@ struct HudModule::Impl {
     HudInspectorTab inspectorTab = HudInspectorTab::Main;
     HudCompactPanelTab compactPanelTab = HudCompactPanelTab::Widgets;
     HudInsertTarget activeInsertTarget = HudInsertTarget::None;
+    int textInsertCursor = 0;
+    int markupInsertCursor = 0;
+    bool textInsertCursorValid = false;
+    bool markupInsertCursorValid = false;
+    std::string textInsertElementId;
+    std::string markupInsertElementId;
     bool variablesPopupPending = false;
     variables_picker::State variablesPickerState{};
     icon_picker::State iconPickerState{};
@@ -3483,9 +3502,39 @@ struct HudModule::Impl {
         return changed;
     }
 
-    void AppendToActiveInsertTarget(std::string_view text) {
+    void InsertIntoString(std::string& value, int& cursor, bool cursorValid, std::string_view text) {
+        const std::string insertion(text);
+        if (!cursorValid) {
+            value += insertion;
+            cursor = static_cast<int>(value.size());
+            return;
+        }
+        const int safeCursor = std::clamp(cursor, 0, static_cast<int>(value.size()));
+        value.insert(static_cast<std::size_t>(safeCursor), insertion);
+        cursor = safeCursor + static_cast<int>(insertion.size());
+    }
+
+    bool TryInsertTextTarget(HudElement& element, HudInsertTarget target, std::string_view text) {
+        if (target == HudInsertTarget::Text) {
+            const bool cursorValid = textInsertCursorValid && textInsertElementId == element.id;
+            InsertIntoString(element.data.text, textInsertCursor, cursorValid, text);
+            textInsertCursorValid = true;
+            textInsertElementId = element.id;
+            return true;
+        }
+        if (target == HudInsertTarget::Markup) {
+            const bool cursorValid = markupInsertCursorValid && markupInsertElementId == element.id;
+            InsertIntoString(element.data.text, markupInsertCursor, cursorValid, text);
+            markupInsertCursorValid = true;
+            markupInsertElementId = element.id;
+            return true;
+        }
+        return false;
+    }
+
+    void AppendToInsertTarget(HudInsertTarget target, std::string_view text) {
         HudWidget* widget = SelectedWidget();
-        if (!widget || activeInsertTarget == HudInsertTarget::None) {
+        if (!widget || target == HudInsertTarget::None) {
             ImGui::SetClipboardText(std::string(text).c_str());
             return;
         }
@@ -3495,7 +3544,12 @@ struct HudModule::Impl {
             return;
         }
 
-        switch (activeInsertTarget) {
+        if (TryInsertTextTarget(*element, target, text)) {
+            MarkChanged();
+            return;
+        }
+
+        switch (target) {
         case HudInsertTarget::Text:
         case HudInsertTarget::Markup:
             element->data.text += text;
@@ -3511,6 +3565,15 @@ struct HudModule::Impl {
             return;
         }
         MarkChanged();
+    }
+
+    void AppendToActiveInsertTarget(std::string_view text) {
+        AppendToInsertTarget(activeInsertTarget, text);
+    }
+
+    void InsertIntoMarkupTarget(std::string_view text) {
+        activeInsertTarget = HudInsertTarget::Markup;
+        AppendToInsertTarget(HudInsertTarget::Markup, text);
     }
 
     void OpenVariablesPopup(HudInsertTarget target) {
@@ -3612,17 +3675,16 @@ struct HudModule::Impl {
         ImGui::EndPopup();
     }
 
-    bool DrawMarkupToolButton(const char* label, std::string_view insertion, HudElement& element) {
+    bool DrawMarkupToolButton(const char* label, std::string_view insertion) {
         const HudEditorVisualStyle visual = HudEditorStyleTokens();
         if (!HudTextActionButton(nullptr, label, label, nullptr, ImVec2(HudTextActionButtonWidth(nullptr, label), ImGui::GetFrameHeight()), visual)) {
             return false;
         }
-        element.data.text += insertion;
-        MarkChanged();
+        InsertIntoMarkupTarget(insertion);
         return true;
     }
 
-    void DrawMarkupToolbar(HudElement& element) {
+    void DrawMarkupToolbar() {
         UiSettings& ui = UiSettings::Instance();
         const HudEditorVisualStyle visual = HudEditorStyleTokens();
         if (HudTextActionButton(
@@ -3632,8 +3694,7 @@ struct HudModule::Impl {
                 nullptr,
                 ImVec2(HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudMarkupColor)), ImGui::GetFrameHeight()),
                 visual)) {
-            element.data.text += "{FFFFFF}";
-            MarkChanged();
+            InsertIntoMarkupTarget("{FFFFFF}");
         }
         ImGui::SameLine();
         if (ImGui::BeginCombo("##hud_markup_font", ui.Text(UiText::HudMarkupFont))) {
@@ -3641,8 +3702,7 @@ struct HudModule::Impl {
             for (int size : sizes) {
                 const std::string label = "#font" + std::to_string(size);
                 if (ImGui::Selectable(label.c_str())) {
-                    element.data.text += label;
-                    MarkChanged();
+                    InsertIntoMarkupTarget(label);
                 }
             }
             ImGui::EndCombo();
@@ -3650,23 +3710,20 @@ struct HudModule::Impl {
         ImGui::SameLine();
         if (ImGui::BeginCombo("##hud_markup_align", ui.Text(UiText::HudMarkupAlign))) {
             if (ImGui::Selectable("#left")) {
-                element.data.text += "#left ";
-                MarkChanged();
+                InsertIntoMarkupTarget("#left ");
             }
             if (ImGui::Selectable("#center")) {
-                element.data.text += "#center ";
-                MarkChanged();
+                InsertIntoMarkupTarget("#center ");
             }
             if (ImGui::Selectable("#right")) {
-                element.data.text += "#right ";
-                MarkChanged();
+                InsertIntoMarkupTarget("#right ");
             }
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        DrawMarkupToolButton(ui.Text(UiText::HudMarkupLine), "\n#hr\n", element);
+        DrawMarkupToolButton(ui.Text(UiText::HudMarkupLine), "\n#hr\n");
         ImGui::SameLine();
-        DrawMarkupToolButton(ui.Text(UiText::HudMarkupBreak), "\n#br\n", element);
+        DrawMarkupToolButton(ui.Text(UiText::HudMarkupBreak), "\n#br\n");
         ImGui::SameLine();
         const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##hud_markup_icon_picker";
         if (HudTextActionButton(
@@ -3680,8 +3737,7 @@ struct HudModule::Impl {
         }
         std::string selectedIconId;
         if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
-            element.data.text += icon_picker::MarkupToken(selectedIconId) + " ";
-            MarkChanged();
+            InsertIntoMarkupTarget(icon_picker::MarkupToken(selectedIconId) + " ");
         }
         ImGui::SameLine();
         if (HudTextActionButton(
@@ -3692,8 +3748,7 @@ struct HudModule::Impl {
                 ImVec2(HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudMarkupImage)), ImGui::GetFrameHeight()),
                 visual)) {
             if (const std::optional<std::string> image = CopyImageIntoHudProfile()) {
-                element.data.text += "#img(" + *image + ")\n";
-                MarkChanged();
+                InsertIntoMarkupTarget("#img(" + *image + ")\n");
             }
         }
         ImGui::SameLine();
@@ -3707,16 +3762,36 @@ struct HudModule::Impl {
             ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
             DrawTextModeCombo(element);
             ImGui::Spacing();
-            changed |= InputTextMultilineString("##hud_element_text", element.data.text, ScaleUi(0.0f, 110.0f));
+            changed |= InputTextMultilineString(
+                "##hud_element_text",
+                element.data.text,
+                ScaleUi(0.0f, 110.0f),
+                0,
+                &textInsertCursor,
+                &textInsertCursorValid);
+            if (ImGui::IsItemActive()) {
+                activeInsertTarget = HudInsertTarget::Text;
+                textInsertElementId = element.id;
+            }
             DrawVariablesButton(HudInsertTarget::Text);
         } else if (element.type == ElementType::TextMarkup) {
             ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
             DrawTextModeCombo(element);
             ImGui::Spacing();
             if (element.data.sourceMode == SourceMode::Inline) {
-                DrawMarkupToolbar(element);
+                DrawMarkupToolbar();
                 ImGui::Spacing();
-                changed |= InputTextMultilineString("##hud_markup_text", element.data.text, ScaleUi(0.0f, 120.0f));
+                changed |= InputTextMultilineString(
+                    "##hud_markup_text",
+                    element.data.text,
+                    ScaleUi(0.0f, 120.0f),
+                    0,
+                    &markupInsertCursor,
+                    &markupInsertCursorValid);
+                if (ImGui::IsItemActive()) {
+                    activeInsertTarget = HudInsertTarget::Markup;
+                    markupInsertElementId = element.id;
+                }
                 if (ContainsHudActionTag(element.data.text)) {
                     ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudActionTagsDisabled));
                 }
