@@ -159,6 +159,30 @@
     <ClCompile Include="tags_module.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="tags_variables_ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_resolvers_actions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_resolvers_dialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_resolvers_game.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_runtime.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_expander.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_registry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_module_impl_core.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="text_encoding.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -317,6 +341,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="tags_module.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tags_module_detail.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tags_module_impl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_encoding.h">

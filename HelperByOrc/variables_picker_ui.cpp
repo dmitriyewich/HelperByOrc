@@ -536,23 +536,24 @@ Request MakeCopyRequest(std::string text) {
     return request;
 }
 
-Request MakeInsertRequest(std::string text) {
+Request MakeInsertRequest(std::string text, bool closePopupAfterAction) {
     Request request;
     request.type = RequestType::Insert;
+    request.closePopupAfterAction = closePopupAfterAction;
     request.text = std::move(text);
     return request;
 }
 
 Request MakePrimaryRequest(const Entry& entry, const Options& options) {
     if (options.mode == Mode::Insert) {
-        return MakeInsertRequest(PrimaryText(entry));
+        return MakeInsertRequest(PrimaryText(entry), options.closeOnInsert);
     }
     return MakeCopyRequest(PrimaryText(entry));
 }
 
 Request MakeTemplateRequest(const Entry& entry, const Options& options) {
     if (options.mode == Mode::Insert) {
-        return MakeInsertRequest(TemplateText(entry));
+        return MakeInsertRequest(TemplateText(entry), options.closeOnInsert);
     }
     return MakeCopyRequest(TemplateText(entry));
 }

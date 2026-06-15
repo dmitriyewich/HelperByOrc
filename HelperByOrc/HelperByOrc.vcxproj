@@ -161,6 +161,14 @@
     <ClCompile Include="samp_hooks.cpp" />
     <ClCompile Include="samp_rak_hooks.cpp" />
     <ClCompile Include="tags_module.cpp" />
+    <ClCompile Include="tags_variables_ui.cpp" />
+    <ClCompile Include="tags_resolvers_actions.cpp" />
+    <ClCompile Include="tags_resolvers_dialog.cpp" />
+    <ClCompile Include="tags_resolvers_game.cpp" />
+    <ClCompile Include="tags_runtime.cpp" />
+    <ClCompile Include="tags_expander.cpp" />
+    <ClCompile Include="tags_registry.cpp" />
+    <ClCompile Include="tags_module_impl_core.cpp" />
     <ClCompile Include="text_encoding.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
@@ -226,6 +234,8 @@
     <ClInclude Include="samp_hooks.h" />
     <ClInclude Include="samp_rak_hooks.h" />
     <ClInclude Include="tags_module.h" />
+    <ClInclude Include="tags_module_detail.h" />
+    <ClInclude Include="tags_module_impl.h" />
     <ClInclude Include="text_encoding.h" />
     <ClInclude Include="ui_icons.h" />
     <ClInclude Include="ui_settings.h" />

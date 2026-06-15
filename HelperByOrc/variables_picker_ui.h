@@ -78,11 +78,13 @@ struct Options {
     const char* id = "variables_picker";
     bool allowInsert = false;
     bool allowCustomEdit = false;
+    bool closeOnInsert = false;
     ImVec2 size = ImVec2(0.0f, 0.0f);
 };
 
 struct Request {
     RequestType type = RequestType::None;
+    bool closePopupAfterAction = false;
     std::string text{};
     std::string name{};
     std::string value{};

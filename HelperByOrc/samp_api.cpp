@@ -42,7 +42,7 @@ using GetNameFn = const char*(__thiscall*)(void*, unsigned short);
 using GetEditboxTextFn = char*(__thiscall*)(void*);
 using SetEditboxTextFn = void(__thiscall*)(void*, char*, int);
 using SetPageSizeFn = void(__thiscall*)(void*, int);
-using IdFindFn = int(__thiscall*)(void*, const void*);
+using IdFindFn = std::uint16_t(__thiscall*)(void*, const void*);
 using PlayerPoolIsConnectedFn = bool(__thiscall*)(void*, unsigned short);
 using ListBoxGetSelectedIndexFn = int(__thiscall*)(void*, int);
 using ListBoxGetItemFn = const char*(__thiscall*)(void*, int);
@@ -82,6 +82,8 @@ constexpr std::size_t kChatAsiSubmitScanWindow = 0x500;
 constexpr std::size_t kChatAsiSubmitBacktrackWindow = 0x400;
 constexpr std::size_t kDefaultSmallStringLimit = 256;
 constexpr std::size_t kDefaultTextLimit = 8192;
+constexpr int kMaxSampPlayerId = 1003;
+constexpr std::uint16_t kInvalidSampPlayerId = 0xFFFF;
 
 constexpr const char* kSampGlobalNames[] = {
     "sampAddChatMessage",
@@ -1467,13 +1469,13 @@ bool CallRakSend(
     }
 }
 
-bool CallIdFind(IdFindFn fn, void* pool, const void* ped, int& out) {
+bool CallIdFind(IdFindFn fn, void* pool, const void* ped, std::uint16_t& out) {
     __try {
         out = fn(pool, ped);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        out = 65535;
+        out = kInvalidSampPlayerId;
         return false;
     }
 }

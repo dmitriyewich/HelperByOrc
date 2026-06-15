@@ -2467,7 +2467,7 @@ struct BinderModule::Impl {
         binder_editor::State::VariableInsertTarget target,
         int messageIndex,
         int cursorByte);
-    void DrawEditorVariableKeyPickerPopup();
+    bool DrawEditorVariableKeyPickerPopup();
     void DrawEditorConditionsPopup();
     void DrawEditorVariablesPopup();
     void DrawEditorDiscardPopup();

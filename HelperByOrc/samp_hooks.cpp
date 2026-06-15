@@ -5,6 +5,8 @@
 #include "samp_api.h"
 #include "text_encoding.h"
 
+#include <CPad.h>
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +16,7 @@ namespace {
 
 constexpr std::size_t kMaxLogEntries = 64;
 constexpr std::uintptr_t kDamageManagerApplyDamageAddress = 0x6C24B0;
+constexpr std::uintptr_t kPadUpdateMouseAddress = 0x53F3C0;
 
 struct OutgoingInputTransformScope {
     OutgoingInputTransformScope() {
@@ -24,6 +27,56 @@ struct OutgoingInputTransformScope {
         SampHooks::PopOutgoingInputTransform();
     }
 };
+
+bool HasMouseButtonMask(std::uint8_t mask, SampHooks::MouseButtonMask bit) {
+    return (mask & static_cast<std::uint8_t>(bit)) != 0;
+}
+
+void ClearMouseControllerButtons(CMouseControllerState& state, std::uint8_t mask) {
+    if (HasMouseButtonMask(mask, SampHooks::MouseButtonLeft)) {
+        state.lmb = 0;
+    }
+    if (HasMouseButtonMask(mask, SampHooks::MouseButtonRight)) {
+        state.rmb = 0;
+    }
+    if (HasMouseButtonMask(mask, SampHooks::MouseButtonMiddle)) {
+        state.mmb = 0;
+    }
+}
+
+void ClearControllerButtons(CControllerState& state, std::uint8_t mask) {
+    if (HasMouseButtonMask(mask, SampHooks::MouseButtonLeft)) {
+        state.ButtonCircle = 0;
+    }
+    if (HasMouseButtonMask(mask, SampHooks::MouseButtonRight)) {
+        state.RightShoulder1 = 0;
+    }
+}
+
+void ClearPadMouseButtons(CPad* pad, std::uint8_t mask) {
+    if (mask == 0) {
+        return;
+    }
+
+    ClearMouseControllerButtons(CPad::PCTempMouseControllerState, mask);
+    ClearMouseControllerButtons(CPad::NewMouseControllerState, mask);
+    ClearMouseControllerButtons(CPad::OldMouseControllerState, mask);
+
+    const auto clearPad = [mask](CPad* target) {
+        if (!target) {
+            return;
+        }
+        ClearControllerButtons(target->NewState, mask);
+        ClearControllerButtons(target->OldState, mask);
+        ClearControllerButtons(target->PCTempMouseState, mask);
+    };
+
+    clearPad(pad);
+    CPad* playerPad = CPad::GetPad(0);
+    if (playerPad != pad) {
+        clearPad(playerPad);
+    }
+}
 
 } // namespace
 
@@ -232,6 +285,21 @@ bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std
         : false;
 }
 
+void __fastcall SampHooks::PadUpdateMouseDetour(CPad* pad, void* edx) {
+    UNREFERENCED_PARAMETER(edx);
+
+    if (SampHooks::self_ && SampHooks::self_->padUpdateMouseOriginal_) {
+        SampHooks::self_->padUpdateMouseOriginal_(pad);
+    }
+
+    if (!SampHooks::self_ || !SampHooks::self_->installed_ || !SampHooks::self_->mouseButtonBlockCallback_) {
+        return;
+    }
+
+    const std::uint8_t mask = SampHooks::self_->mouseButtonBlockCallback_();
+    ClearPadMouseButtons(pad, mask);
+}
+
 void SampHooks::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     self_ = this;
@@ -241,6 +309,11 @@ void SampHooks::SetSampApi(SampApi* sampApi) {
 void SampHooks::SetHotkeyBlockCallback(HotkeyBlockCallback callback) {
     hotkeyBlockCallback_ = std::move(callback);
     debuglog::WriteInfo("SampHooks::SetHotkeyBlockCallback assigned=%d", hotkeyBlockCallback_ ? 1 : 0);
+}
+
+void SampHooks::SetMouseButtonBlockCallback(MouseButtonBlockCallback callback) {
+    mouseButtonBlockCallback_ = std::move(callback);
+    debuglog::WriteInfo("SampHooks::SetMouseButtonBlockCallback assigned=%d", mouseButtonBlockCallback_ ? 1 : 0);
 }
 
 void SampHooks::SetApplyDamageProtectionEnabled(bool enabled) {
@@ -354,6 +427,7 @@ bool SampHooks::Install() {
     const std::uintptr_t hotkeyDispatcherTarget = sampBase + SampApi::main_offsets.HotkeyDispatcher.Get(version);
     const std::uintptr_t inputHotkeyHandlerTarget = sampBase + SampApi::main_offsets.InputHotkeyHandler.Get(version);
     const std::uintptr_t damageTarget = kDamageManagerApplyDamageAddress;
+    const std::uintptr_t padUpdateMouseTarget = kPadUpdateMouseAddress;
 
     debuglog::WriteInfo("SampHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
     debuglog::WriteInfo("SampHooks: addEntryTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addEntryTarget), static_cast<unsigned>(addEntryTarget - sampBase));
@@ -366,6 +440,7 @@ bool SampHooks::Install() {
     debuglog::WriteInfo("SampHooks: hotkeyDispatcherTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(hotkeyDispatcherTarget), static_cast<unsigned>(hotkeyDispatcherTarget - sampBase));
     debuglog::WriteInfo("SampHooks: inputHotkeyHandlerTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputHotkeyHandlerTarget), static_cast<unsigned>(inputHotkeyHandlerTarget - sampBase));
     debuglog::WriteInfo("SampHooks: damageTarget=0x%08X", static_cast<unsigned>(damageTarget));
+    debuglog::WriteInfo("SampHooks: padUpdateMouseTarget=0x%08X", static_cast<unsigned>(padUpdateMouseTarget));
 
     if (addEntryTarget == sampBase || addMessageTarget == sampBase || addChatMessageTarget == sampBase
         || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
@@ -386,6 +461,7 @@ bool SampHooks::Install() {
     hotkeyDispatcherTarget_ = reinterpret_cast<void*>(hotkeyDispatcherTarget);
     inputHotkeyHandlerTarget_ = reinterpret_cast<void*>(inputHotkeyHandlerTarget);
     applyDamageTarget_ = reinterpret_cast<void*>(damageTarget);
+    padUpdateMouseTarget_ = reinterpret_cast<void*>(padUpdateMouseTarget);
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
         statusText_ = statusText;
@@ -434,6 +510,12 @@ bool SampHooks::Install() {
         return failInstall("MinHook install failed for CDamageManager_ApplyDamage", "SampHooks: MinHook install failed for CDamageManager_ApplyDamage");
     }
 
+    if (!minhook::CreateAndEnableHook(padUpdateMouseTarget_, reinterpret_cast<void*>(&PadUpdateMouseDetour), &padUpdateMouseOriginal_, "SampHooks::CPad_UpdateMouse")) {
+        debuglog::WriteError("SampHooks: quick menu mouse suppression unavailable: MinHook install failed for CPad::UpdateMouse");
+        padUpdateMouseTarget_ = nullptr;
+        padUpdateMouseOriginal_ = nullptr;
+    }
+
     installed_ = true;
     statusText_ = "hooks installed";
     debuglog::WriteInfo("SampHooks: installed for SAMP version %s", sampApi_->currentVersionName());
@@ -453,6 +535,7 @@ void SampHooks::CleanupHooks() {
     minhook::DisableAndRemoveHook(hotkeyDispatcherTarget_, "SampHooks::HotkeyDispatcher");
     minhook::DisableAndRemoveHook(inputHotkeyHandlerTarget_, "SampHooks::InputHotkeyHandler");
     minhook::DisableAndRemoveHook(applyDamageTarget_, "SampHooks::CDamageManager_ApplyDamage");
+    minhook::DisableAndRemoveHook(padUpdateMouseTarget_, "SampHooks::CPad_UpdateMouse");
 
     chatAddEntryOriginal_ = nullptr;
     chatAddMessageOriginal_ = nullptr;
@@ -464,6 +547,7 @@ void SampHooks::CleanupHooks() {
     hotkeyDispatcherOriginal_ = nullptr;
     inputHotkeyHandlerOriginal_ = nullptr;
     applyDamageOriginal_ = nullptr;
+    padUpdateMouseOriginal_ = nullptr;
     debuglog::WriteInfo("SampHooks::CleanupHooks done");
 }
 

@@ -7,6 +7,7 @@
 #include <vector>
 
 class SampApi;
+class CPad;
 
 class SampHooks {
 public:
@@ -21,9 +22,16 @@ public:
     using SendCommandHandler = std::function<bool(std::string&)>;
     using SendChatHandler = std::function<bool(std::string&)>;
     using HotkeyBlockCallback = std::function<bool()>;
+    enum MouseButtonMask : std::uint8_t {
+        MouseButtonLeft = 1u << 0,
+        MouseButtonRight = 1u << 1,
+        MouseButtonMiddle = 1u << 2,
+    };
+    using MouseButtonBlockCallback = std::function<std::uint8_t()>;
 
     void SetSampApi(SampApi* sampApi);
     void SetHotkeyBlockCallback(HotkeyBlockCallback callback);
+    void SetMouseButtonBlockCallback(MouseButtonBlockCallback callback);
     void Refresh();
     void Shutdown();
 
@@ -53,6 +61,7 @@ private:
     using HotkeyDispatcherFn = int(__cdecl*)(int);
     using InputHotkeyHandlerFn = int(__cdecl*)(int);
     using ApplyDamageFn = bool(__thiscall*)(std::uintptr_t, std::uintptr_t, int, float, float);
+    using CPadUpdateMouseFn = void(__thiscall*)(CPad*);
 
     bool Install();
     void CleanupHooks();
@@ -68,6 +77,7 @@ private:
     static int __cdecl HotkeyDispatcherDetour(int key);
     static int __cdecl InputHotkeyHandlerDetour(int key);
     static bool __fastcall ApplyDamageDetour(std::uintptr_t self, void* edx, std::uintptr_t car, int component, float intensity, float arg3);
+    static void __fastcall PadUpdateMouseDetour(CPad* pad, void* edx);
 
     static inline SampHooks* self_ = nullptr;
     static inline thread_local int outgoingInputTransformDepth_ = 0;
@@ -83,6 +93,7 @@ private:
     std::vector<SendCommandHandler> onSendCommandHandlers_;
     std::vector<SendChatHandler> onSendChatHandlers_;
     HotkeyBlockCallback hotkeyBlockCallback_;
+    MouseButtonBlockCallback mouseButtonBlockCallback_;
     bool applyDamageProtectionEnabled_ = true;
 
     void* chatAddEntryTarget_ = nullptr;
@@ -95,6 +106,7 @@ private:
     void* hotkeyDispatcherTarget_ = nullptr;
     void* inputHotkeyHandlerTarget_ = nullptr;
     void* applyDamageTarget_ = nullptr;
+    void* padUpdateMouseTarget_ = nullptr;
     ChatAddEntryFn chatAddEntryOriginal_ = nullptr;
     ChatAddMessageFn chatAddMessageOriginal_ = nullptr;
     ChatAddChatMessageFn chatAddChatMessageOriginal_ = nullptr;
@@ -105,4 +117,5 @@ private:
     HotkeyDispatcherFn hotkeyDispatcherOriginal_ = nullptr;
     InputHotkeyHandlerFn inputHotkeyHandlerOriginal_ = nullptr;
     ApplyDamageFn applyDamageOriginal_ = nullptr;
+    CPadUpdateMouseFn padUpdateMouseOriginal_ = nullptr;
 };

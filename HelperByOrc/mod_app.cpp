@@ -38,6 +38,11 @@ constexpr std::string_view kShellSectionName = "shell";
 constexpr char kShellMainWindowName[] = "main_window";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
+constexpr int kQuickMenuMouseSuppressionReleaseFrames = 2;
+constexpr std::uint8_t kQuickMenuSuppressibleMouseButtons =
+    static_cast<std::uint8_t>(SampHooks::MouseButtonLeft)
+    | static_cast<std::uint8_t>(SampHooks::MouseButtonRight)
+    | static_cast<std::uint8_t>(SampHooks::MouseButtonMiddle);
 
 namespace fs = std::filesystem;
 
@@ -71,6 +76,41 @@ const std::array<SettingsSectionDefinition, 7> kSettingsSections = {{
     { UiSettingsSection::Hotkeys, UiText::SettingsSectionHotkeys },
     { UiSettingsSection::Diagnostics, UiText::SettingsSectionDiagnostics },
 }};
+
+std::uint8_t MouseButtonMaskFromWindowMessage(UINT message, WPARAM wparam) {
+    UNREFERENCED_PARAMETER(wparam);
+
+    switch (message) {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
+    case WM_LBUTTONUP:
+        return static_cast<std::uint8_t>(SampHooks::MouseButtonLeft);
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONDBLCLK:
+    case WM_RBUTTONUP:
+        return static_cast<std::uint8_t>(SampHooks::MouseButtonRight);
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONDBLCLK:
+    case WM_MBUTTONUP:
+        return static_cast<std::uint8_t>(SampHooks::MouseButtonMiddle);
+    default:
+        return 0;
+    }
+}
+
+std::uint8_t HeldMouseButtonMask() {
+    std::uint8_t mask = 0;
+    if ((::GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) {
+        mask |= static_cast<std::uint8_t>(SampHooks::MouseButtonLeft);
+    }
+    if ((::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) {
+        mask |= static_cast<std::uint8_t>(SampHooks::MouseButtonRight);
+    }
+    if ((::GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0) {
+        mask |= static_cast<std::uint8_t>(SampHooks::MouseButtonMiddle);
+    }
+    return mask;
+}
 
 std::string WideToUtf8(const std::wstring& text) {
     if (text.empty()) {
@@ -1176,6 +1216,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     sampHooks_.SetHotkeyBlockCallback([this]() {
         return overlay_.IsTextInputActive();
     });
+    sampHooks_.SetMouseButtonBlockCallback([this]() {
+        return CurrentQuickMenuMouseSuppressionMask();
+    });
     sampHooks_.AddChatMessageFilter([this](
                                         SampHooks::ChatMessageSource source,
                                         int type,
@@ -1275,6 +1318,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
         const bool quickMenuOpen = binder_.IsQuickMenuOpen();
         const bool binderWantsRouting = binder_.WantsInputRouting();
+        if (quickMenuOpen) {
+            MarkQuickMenuMouseButtonsForSuppression(message, wparam);
+        }
         hud_.SetPlacementInputBlocked(quickMenuOpen);
         if (quickMenuOpen || binderWantsRouting) {
             return binder_.OnWindowMessage(message, wparam, lparam) || hud_.OnWindowMessage(message, wparam, lparam);
@@ -1351,6 +1397,60 @@ void ModApp::Shutdown() {
 void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
     (void)captured;
     UpdateOverlayCursorMode();
+}
+
+void ModApp::MarkQuickMenuMouseButtonsForSuppression(UINT message, WPARAM wparam) {
+    const std::uint8_t mask = MouseButtonMaskFromWindowMessage(message, wparam);
+    if (mask == 0) {
+        return;
+    }
+
+    const std::uint32_t previous = quickMenuMouseSuppressionMask_.fetch_or(mask, std::memory_order_relaxed);
+    quickMenuMouseSuppressionReleaseFrames_ = kQuickMenuMouseSuppressionReleaseFrames;
+    if ((previous & mask) != mask) {
+        debuglog::WriteInfo(
+            "[ui] quickmenu game mouse suppression armed mask=0x%02X msg=%u",
+            static_cast<unsigned>(previous | mask),
+            static_cast<unsigned>(message));
+    }
+}
+
+void ModApp::UpdateQuickMenuMouseSuppression() {
+    std::uint32_t mask = quickMenuMouseSuppressionMask_.load(std::memory_order_relaxed);
+    const std::uint8_t heldMask = HeldMouseButtonMask();
+
+    if (binder_.IsQuickMenuOpen()) {
+        mask |= heldMask & kQuickMenuSuppressibleMouseButtons;
+    }
+
+    if (mask == 0) {
+        quickMenuMouseSuppressionReleaseFrames_ = 0;
+        return;
+    }
+
+    const std::uint32_t heldTrackedMask = mask & heldMask;
+    if (heldTrackedMask != 0) {
+        quickMenuMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
+        quickMenuMouseSuppressionReleaseFrames_ = kQuickMenuMouseSuppressionReleaseFrames;
+        return;
+    }
+
+    if (quickMenuMouseSuppressionReleaseFrames_ > 0) {
+        --quickMenuMouseSuppressionReleaseFrames_;
+        quickMenuMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
+        return;
+    }
+
+    quickMenuMouseSuppressionMask_.store(0, std::memory_order_relaxed);
+    debuglog::WriteInfo("[ui] quickmenu game mouse suppression cleared mask=0x%02X", static_cast<unsigned>(mask));
+}
+
+std::uint8_t ModApp::CurrentQuickMenuMouseSuppressionMask() const {
+    std::uint32_t mask = quickMenuMouseSuppressionMask_.load(std::memory_order_relaxed);
+    if (binder_.IsQuickMenuOpen()) {
+        mask |= HeldMouseButtonMask() & kQuickMenuSuppressibleMouseButtons;
+    }
+    return static_cast<std::uint8_t>(mask & kQuickMenuSuppressibleMouseButtons);
 }
 
 void ModApp::UpdateOverlayCursorMode() {
@@ -1564,6 +1664,7 @@ void ModApp::Tick() {
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.SetHelperUiActive(overlay_.IsMenuOpen());
     binder_.Tick();
+    UpdateQuickMenuMouseSuppression();
     hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
     tags_.Tick();
 

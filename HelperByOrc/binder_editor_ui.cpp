@@ -522,17 +522,18 @@ void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picke
     }
 }
 
-void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
+bool BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
     if (!tagsModule) {
-        return;
+        return false;
     }
 
     UiSettings& ui = UiSettings::Instance();
     ImGui::SetNextWindowSize(ScaleUi(560.0f, 520.0f), ImGuiCond_Appearing);
     if (!ImGui::BeginPopup("##binder_editor_variable_keypicker")) {
-        return;
+        return false;
     }
 
+    bool closeParentPopup = false;
     ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesKeyPickerTitle));
     ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesKeyPickerIntro));
     ImGui::Separator();
@@ -560,6 +561,7 @@ void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
                     CopyTextToClipboard(token);
                 }
                 editor.variablesKeyPickerSearch.clear();
+                closeParentPopup = true;
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -579,6 +581,7 @@ void BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
     }
 
     ImGui::EndPopup();
+    return closeParentPopup;
 }
 
 void BinderModule::Impl::DrawInputEditor() {
@@ -1245,7 +1248,7 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
         return;
     }
 
-    const bool closeRequested = !popupOpen;
+    bool closeRequested = !popupOpen;
 
     if (editor.variablesKeyPickerPopupPending) {
         ImGui::OpenPopup("##binder_editor_variable_keypicker");
@@ -1261,18 +1264,21 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
             "binder_editor_variables_picker",
             editor.variablesInsertTarget != binder_editor::State::VariableInsertTarget::None,
             false,
+            true,
             ImGui::GetContentRegionAvail(),
         });
     HandleEditorVariablePickerRequest(request);
+    closeRequested |= request.closePopupAfterAction;
 
     if (tagsModule) {
         tagsModule->DrawVariableHelperPopups([&](std::string_view token) {
             if (!InsertTextIntoEditorVariableTarget(token)) {
                 CopyTextToClipboard(token);
             }
+            closeRequested = true;
         });
     }
-    DrawEditorVariableKeyPickerPopup();
+    closeRequested |= DrawEditorVariableKeyPickerPopup();
     if (closeRequested) {
         editor.variablesKeyPickerSearch.clear();
         ImGui::CloseCurrentPopup();

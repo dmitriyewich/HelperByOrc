@@ -3651,6 +3651,7 @@ struct HudModule::Impl {
             return;
         }
 
+        bool closeRequested = !open;
         const std::vector<variables_picker::Entry> entries = BuildHudVariableEntries();
         const variables_picker::Request request = variables_picker::Draw(
             variablesPickerState,
@@ -3660,15 +3661,18 @@ struct HudModule::Impl {
                 "hud_variables_picker",
                 activeInsertTarget != HudInsertTarget::None,
                 false,
+                true,
                 ImGui::GetContentRegionAvail(),
             });
         HandleHudVariablePickerRequest(request);
+        closeRequested |= request.closePopupAfterAction;
 
         tagsModule->DrawVariableHelperPopups([&](std::string_view token) {
             AppendToActiveInsertTarget(token);
+            closeRequested = true;
         });
 
-        if (!open) {
+        if (closeRequested) {
             activeInsertTarget = HudInsertTarget::None;
             ImGui::CloseCurrentPopup();
         }
