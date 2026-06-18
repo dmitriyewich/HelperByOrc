@@ -24,6 +24,7 @@ public:
     void OnProcessAttach(HMODULE module);
     void Shutdown();
     void ReloadConfig();
+    void FlushPendingSaves();
     void ReleaseDeviceResources();
     void SetTagsModule(TagsModule* tagsModule);
     void SetNotepadModule(NotepadModule* notepadModule);

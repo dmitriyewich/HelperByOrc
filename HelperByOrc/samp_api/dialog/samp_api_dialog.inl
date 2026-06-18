@@ -67,7 +67,6 @@ SampApi::DialogPosition SampApi::getCurrentDialogPosition() {
 }
 
 bool SampApi::Set_CursorMode(int mode, bool enabled) {
-    debuglog::WriteInfo("SampApi::Set_CursorMode request mode=%d enabled=%d", mode, enabled ? 1 : 0);
     if (!ValidateCursorModeFunction()) {
         SetError(cursorModeValidationError_.empty()
                 ? "SetCursorMode validation failed"
@@ -88,7 +87,6 @@ bool SampApi::Set_CursorMode(int mode, bool enabled) {
         return false;
     }
 
-    debuglog::WriteInfo("SampApi::Set_CursorMode ok mode=%d enabled=%d", mode, enabled ? 1 : 0);
     ClearError();
     return true;
 }

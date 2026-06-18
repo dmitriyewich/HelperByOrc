@@ -50,9 +50,9 @@ private:
 
     void HandleOverlayInputCaptureChanged(bool captured);
     void UpdateOverlayCursorMode();
-    void MarkQuickMenuMouseButtonsForSuppression(UINT message, WPARAM wparam);
-    void UpdateQuickMenuMouseSuppression();
-    std::uint8_t CurrentQuickMenuMouseSuppressionMask() const;
+    void MarkHelperMouseButtonsForSuppression(UINT message, WPARAM wparam);
+    void UpdateHelperMouseSuppression();
+    std::uint8_t CurrentHelperMouseSuppressionMask() const;
     static DWORD WINAPI DeferredOverlayThreadProc(LPVOID param);
     void StartDeferredOverlayThread();
     void StopDeferredOverlayThread();
@@ -116,8 +116,8 @@ private:
     HANDLE deferredOverlayThread_ = nullptr;
     std::atomic_bool deferredOverlayThreadStop_{ false };
     std::atomic_bool overlayAttachRequested_{ false };
-    std::atomic_uint32_t quickMenuMouseSuppressionMask_{ 0 };
-    int quickMenuMouseSuppressionReleaseFrames_ = 0;
+    std::atomic_uint32_t helperMouseSuppressionMask_{ 0 };
+    int helperMouseSuppressionReleaseFrames_ = 0;
     bool minHookInitialized_ = false;
     SampApi sampApi_{};
     SampHooks sampHooks_{};

@@ -63,6 +63,25 @@ OverlayCursorController::Owner ResolveExternalOwner(const OverlayCursorControlle
     return OverlayCursorController::Owner::Foreign;
 }
 
+std::string ResolveUnderlayOwner(const OverlayCursorController::Inputs& inputs, bool passiveSampCursorOwner) {
+    if (inputs.chatOpen || inputs.externalOwnerName == "samp-chat") {
+        return "samp-chat";
+    }
+    if (inputs.dialogOpen || inputs.externalOwnerName == "samp-dialog") {
+        return "samp-dialog";
+    }
+    if (inputs.cefShown || inputs.cefControlled || inputs.externalOwnerName == "arizona-cef-visible") {
+        return "cef";
+    }
+    if (inputs.externalCursorActive || passiveSampCursorOwner) {
+        return inputs.externalOwnerName.empty() ? "foreign" : inputs.externalOwnerName;
+    }
+    if (inputs.riskModules.find("moonloader:") != std::string::npos) {
+        return "mimgui";
+    }
+    return {};
+}
+
 std::string ModeText(const std::optional<int>& mode) {
     if (!mode.has_value()) {
         return "n/a";
@@ -136,6 +155,12 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
     const bool sampUiExternalActive = inputs.chatOpen || inputs.dialogOpen;
     const bool blockingExternalActive = (inputs.externalCursorActive && !sampUiExternalActive)
         || inputs.cefShown;
+    const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWantsInputRouting;
+    const bool externalActive = sampUiExternalActive
+        || blockingExternalActive
+        || passiveSampCursorOwner;
+    result.underlayOwner = ResolveUnderlayOwner(inputs, passiveSampCursorOwner);
+
     const bool orphanedSampCursorMode = deferredExternalReleasePending_
         && now <= deferredExternalReleaseCleanupUntilMs_
         && !helperModeActive_
@@ -172,38 +197,17 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         ClearDeferredExternalRelease();
     }
 
-    const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWantsInputRouting;
-    const bool externalActive = sampUiExternalActive
-        || blockingExternalActive
-        || passiveSampCursorOwner;
-
-    if (externalActive) {
-        result.owner = ResolveExternalOwner(inputs);
-        result.reason = inputs.externalOwnerName.empty() ? "samp-cursor-mode" : inputs.externalOwnerName;
-        result.routingAllowed = false;
-        result.drawHelperCursor = false;
-        if (lastUiHold_) {
-            ReleaseHold("[ui] ReleaseCapture due to external cursor owner");
-        }
-        if (helperModeActive_) {
-            DeferHelperReleaseForExternal(inputs, now);
-        }
-        TraceState(inputs, result, rmbHeld, now);
-        lastOwner_ = result.owner;
-        lastReason_ = result.reason;
-        return result;
-    }
-
     if (helperWantsInputRouting) {
         result.owner = Owner::Helper;
         result.reason = helperWantsKeyboard || helperWantsCursor ? "helper-routing" : "helper-surface";
         result.routingAllowed = true;
         result.drawHelperCursor = helperWantsCursor;
+        result.swallowMouse = helperWantsCursor;
         if (!helperWantsCursor && lastUiHold_) {
             ReleaseHold("[ui] ReleaseCapture due to key routing without cursor");
         }
 
-        if (helperWantsSampCursorMode) {
+        if (helperWantsSampCursorMode && !externalActive) {
             const int desiredCursorMode =
                 helperSampCursorMode != kSampCursorModeNone ? helperSampCursorMode : kSampCursorModeLockCamAndControl;
             result.sampCursorMode = desiredCursorMode;
@@ -215,19 +219,18 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
             const bool shouldReassert = desiredSameAsCache && (now - lastApplyMs_ >= kCursorReassertIntervalMs);
 
             if (!desiredSameAsCache || shouldReassert) {
-                if (!ApplySampCursorMode(desiredCursorMode, true, shouldReassert, now)) {
-                    result.owner = Owner::Unavailable;
-                    result.routingAllowed = false;
-                    result.drawHelperCursor = false;
-                    result.reason = "set-cursor-mode-failed";
-                    TraceState(inputs, result, rmbHeld, now);
-                    lastOwner_ = result.owner;
-                    lastReason_ = result.reason;
-                    return result;
+                if (ApplySampCursorMode(desiredCursorMode, true, shouldReassert, now)) {
+                    result.sampModeApplied = true;
+                    helperModeActive_ = true;
+                } else {
+                    result.reason = "helper-routing-cursor-mode-failed";
                 }
-                result.sampModeApplied = true;
-                helperModeActive_ = true;
             }
+        } else if (externalActive) {
+            result.reason = helperWantsKeyboard || helperWantsCursor
+                ? "helper-routing-external-underlay"
+                : "helper-surface-external-underlay";
+            result.sampCursorMode = inputs.sampCursorMode.value_or(kSampCursorModeNone);
         } else if (helperModeActive_) {
             result.sampModeApplied = ApplySampCursorMode(kSampCursorModeNone, false, false, now);
             if (result.sampModeApplied) {
@@ -239,6 +242,24 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
         }
 
         lastUiHold_ = helperWantsCursor;
+        TraceState(inputs, result, rmbHeld, now);
+        lastOwner_ = result.owner;
+        lastReason_ = result.reason;
+        return result;
+    }
+
+    if (externalActive) {
+        result.owner = ResolveExternalOwner(inputs);
+        result.reason = inputs.externalOwnerName.empty() ? "samp-cursor-mode" : inputs.externalOwnerName;
+        result.routingAllowed = false;
+        result.drawHelperCursor = false;
+        result.swallowMouse = false;
+        if (lastUiHold_) {
+            ReleaseHold("[ui] ReleaseCapture due to external cursor owner");
+        }
+        if (helperModeActive_) {
+            DeferHelperReleaseForExternal(inputs, now);
+        }
         TraceState(inputs, result, rmbHeld, now);
         lastOwner_ = result.owner;
         lastReason_ = result.reason;
@@ -416,9 +437,9 @@ void OverlayCursorController::TraceState(const Inputs& inputs, const Result& res
         || inputs.externalCursorActive != traceExternalActive_
         || inputs.cefControlled != traceCefControlled_
         || inputs.cefShown != traceCefShown_
-        || inputs.cursorVisible != traceCursorVisible_
-        || inputs.captureWindow != traceCaptureWindow_
+        || result.swallowMouse != traceSwallowMouse_
         || result.owner != traceOwner_
+        || result.underlayOwner != traceUnderlayOwner_
         || result.reason != lastReason_;
     const bool changedRmbOnly = !changedCore && (rmbHeld != traceRmb_);
     const bool allowRmbSpamSafeTrace = changedRmbOnly && (now - lastCursorTraceMs_ >= kCursorTraceIntervalMs);
@@ -438,22 +459,26 @@ void OverlayCursorController::TraceState(const Inputs& inputs, const Result& res
     traceExternalActive_ = inputs.externalCursorActive;
     traceCefControlled_ = inputs.cefControlled;
     traceCefShown_ = inputs.cefShown;
+    traceSwallowMouse_ = result.swallowMouse;
     traceCursorVisible_ = inputs.cursorVisible;
     traceCaptureWindow_ = inputs.captureWindow;
     traceOwner_ = result.owner;
+    traceUnderlayOwner_ = result.underlayOwner;
     lastCursorTraceMs_ = now;
 
     debuglog::WriteInfo(
-        "[ui] cursor owner=%s reason=%s surface=\"%s\" route=%d drawCur=%d helperCur=%d helperLockCtl=%d helperRoute=%d helperSampMode=%d chat=%d dialog=%d external=%d extOwner=\"%s\" cefKnown=%d cefCtl=%d cefShown=%d osCursor=%d sampMode=%s helperMode=%d fg=%d rmb=%d gameHw=%p fgHw=%p capHw=%p capOwner=\"%s\" risks=\"%s\"",
+        "[ui] cursor owner=%s reason=%s surface=\"%s\" route=%d swallowMouse=%d drawCur=%d helperCur=%d helperLockCtl=%d helperRoute=%d helperSampMode=%d underlay=\"%s\" chat=%d dialog=%d external=%d extOwner=\"%s\" cefKnown=%d cefCtl=%d cefShown=%d osCursor=%d sampMode=%s helperMode=%d fg=%d rmb=%d gameHw=%p fgHw=%p capHw=%p capOwner=\"%s\" risks=\"%s\"",
         OwnerName(result.owner),
         result.reason.c_str(),
         activeSurfaceName.c_str(),
         result.routingAllowed ? 1 : 0,
+        result.swallowMouse ? 1 : 0,
         result.drawHelperCursor ? 1 : 0,
         helperWantsCursor ? 1 : 0,
         helperLocksControl ? 1 : 0,
         helperWantsRouting ? 1 : 0,
         helperSampCursorMode,
+        result.underlayOwner.c_str(),
         inputs.chatOpen ? 1 : 0,
         inputs.dialogOpen ? 1 : 0,
         inputs.externalCursorActive ? 1 : 0,

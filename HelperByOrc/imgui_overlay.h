@@ -5,6 +5,9 @@
 
 #include <d3d9.h>
 
+#include <imgui.h>
+
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -42,8 +45,10 @@ public:
     bool IsTextInputActive() const;
     bool WantsUiCursor() const;
     bool WantsInputRouting() const;
+    bool ShouldSwallowMouseInput() const;
+    bool ShouldSwallowMouseMessage(UINT message, LPARAM lparam) const;
     void SetInputRoutingAllowed(bool allowed);
-    void SetInputDecision(bool routingAllowed, bool drawHelperCursor);
+    void SetInputDecision(bool routingAllowed, bool drawHelperCursor, bool swallowMouse);
     std::string MenuToggleHotkeyText() const;
     void BeginMenuToggleHotkeyCapture();
     bool IsMenuToggleHotkeyCaptureActive() const;
@@ -56,6 +61,10 @@ private:
     using EndSceneFn = HRESULT(__stdcall*)(IDirect3DDevice9*);
     using PresentFn = HRESULT(__stdcall*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
     using ResetFn = HRESULT(__stdcall*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+    struct HelperWindowHitRect {
+        ImVec2 min{};
+        ImVec2 max{};
+    };
 
     static DWORD WINAPI InitializeThread(LPVOID param);
     static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
@@ -75,7 +84,13 @@ private:
     void AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device);
     void TraceUiRenderAndInputSnapshot(const char* frameTag);
     void RenderFrame(IDirect3DDevice9* device);
+    void RefreshHelperWindowHitRects();
     void SyncOsMouseToImGui() const;
+    bool MouseMessageClientPos(UINT message, LPARAM lparam, ImVec2& outPos) const;
+    bool IsPointInsideHelperWindow(const ImVec2& point) const;
+    bool HasMouseSwallowLatch() const;
+    void UpdateMouseSwallowLatch(UINT message, WPARAM wparam, bool swallowed);
+    LRESULT CallPreviousWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) const;
     bool HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lparam) const;
     bool IsMouseMessage(UINT message) const;
     HWND ResolveGameWindow(IDirect3DDevice9* device) const;
@@ -90,7 +105,7 @@ private:
     bool WantsTextInputCapture() const;
     bool IsInputPipelineEnabled() const;
     bool IsKeyboardMessage(UINT message) const;
-    bool EnsureWndProcHookInstalled();
+    bool EnsureWndProcHookInstalled(bool forceTop);
 
     static inline ImGuiOverlay* self_ = nullptr;
 
@@ -102,6 +117,7 @@ private:
     bool menuToggleWasDown_ = false;
     HWND gameWindow_ = nullptr;
     WNDPROC originalWndProc_ = nullptr;
+    WNDPROC fallbackWndProc_ = nullptr;
     RenderCallback renderCallback_;
     PrepareFrameCallback prepareFrameCallback_;
     UpdateCallback updateCallback_;
@@ -115,8 +131,14 @@ private:
     bool inputCaptureActive_ = false;
     bool inputRoutingAllowed_ = false;
     bool drawHelperCursor_ = false;
+    bool inputSwallowMouse_ = false;
+    bool helperWindowHitTestReady_ = false;
+    std::uint32_t mouseSwallowLatchMask_ = 0;
+    std::size_t traceHelperWindowRectCount_ = 0;
+    bool traceHelperWindowHitTestReady_ = false;
     hotkeys::Capture menuToggleHotkeyCapture_{};
     hotkeys::CapturePopupState menuToggleHotkeyCapturePopup_{};
+    std::vector<HelperWindowHitRect> helperWindowHitRects_{};
 
     bool traceLastMenuOpen_ = false;
     bool traceLastAuxVisible_ = false;
@@ -124,6 +146,7 @@ private:
     bool lastWantsInputRouting_ = false;
     bool lastInputResetMenuOpen_ = false;
     bool lastInputResetAuxVisible_ = false;
+    bool slowFrameSeen_ = false;
     uint64_t traceLastUiDiagTick_ = 0;
 
     void* endSceneTarget_ = nullptr;

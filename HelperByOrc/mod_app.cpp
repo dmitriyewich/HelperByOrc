@@ -33,13 +33,13 @@ constexpr float kSidebarCollapsedWidth = 50.0f;
 constexpr float kLogoExpandedSize = 128.0f;
 constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
-constexpr uint64_t kUiScaleTraceIntervalMs = 2000;
+constexpr bool kHelperMouseSuppressionTraceEnabled = false;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr char kShellMainWindowName[] = "main_window";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
 constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
-constexpr int kQuickMenuMouseSuppressionReleaseFrames = 2;
-constexpr std::uint8_t kQuickMenuSuppressibleMouseButtons =
+constexpr int kHelperMouseSuppressionReleaseFrames = 2;
+constexpr std::uint8_t kHelperSuppressibleMouseButtons =
     static_cast<std::uint8_t>(SampHooks::MouseButtonLeft)
     | static_cast<std::uint8_t>(SampHooks::MouseButtonRight)
     | static_cast<std::uint8_t>(SampHooks::MouseButtonMiddle);
@@ -1217,7 +1217,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return overlay_.IsTextInputActive();
     });
     sampHooks_.SetMouseButtonBlockCallback([this]() {
-        return CurrentQuickMenuMouseSuppressionMask();
+        return CurrentHelperMouseSuppressionMask();
     });
     sampHooks_.AddChatMessageFilter([this](
                                         SampHooks::ChatMessageSource source,
@@ -1318,8 +1318,8 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
         const bool quickMenuOpen = binder_.IsQuickMenuOpen();
         const bool binderWantsRouting = binder_.WantsInputRouting();
-        if (quickMenuOpen) {
-            MarkQuickMenuMouseButtonsForSuppression(message, wparam);
+        if (overlay_.ShouldSwallowMouseMessage(message, lparam)) {
+            MarkHelperMouseButtonsForSuppression(message, wparam);
         }
         hud_.SetPlacementInputBlocked(quickMenuOpen);
         if (quickMenuOpen || binderWantsRouting) {
@@ -1399,58 +1399,53 @@ void ModApp::HandleOverlayInputCaptureChanged(bool captured) {
     UpdateOverlayCursorMode();
 }
 
-void ModApp::MarkQuickMenuMouseButtonsForSuppression(UINT message, WPARAM wparam) {
+void ModApp::MarkHelperMouseButtonsForSuppression(UINT message, WPARAM wparam) {
     const std::uint8_t mask = MouseButtonMaskFromWindowMessage(message, wparam);
     if (mask == 0) {
         return;
     }
 
-    const std::uint32_t previous = quickMenuMouseSuppressionMask_.fetch_or(mask, std::memory_order_relaxed);
-    quickMenuMouseSuppressionReleaseFrames_ = kQuickMenuMouseSuppressionReleaseFrames;
-    if ((previous & mask) != mask) {
+    const std::uint32_t previous = helperMouseSuppressionMask_.fetch_or(mask, std::memory_order_relaxed);
+    helperMouseSuppressionReleaseFrames_ = kHelperMouseSuppressionReleaseFrames;
+    if (kHelperMouseSuppressionTraceEnabled && (previous & mask) != mask) {
         debuglog::WriteInfo(
-            "[ui] quickmenu game mouse suppression armed mask=0x%02X msg=%u",
+            "[ui] helper game mouse suppression armed mask=0x%02X msg=%u",
             static_cast<unsigned>(previous | mask),
             static_cast<unsigned>(message));
     }
 }
 
-void ModApp::UpdateQuickMenuMouseSuppression() {
-    std::uint32_t mask = quickMenuMouseSuppressionMask_.load(std::memory_order_relaxed);
+void ModApp::UpdateHelperMouseSuppression() {
+    std::uint32_t mask = helperMouseSuppressionMask_.load(std::memory_order_relaxed);
     const std::uint8_t heldMask = HeldMouseButtonMask();
 
-    if (binder_.IsQuickMenuOpen()) {
-        mask |= heldMask & kQuickMenuSuppressibleMouseButtons;
-    }
-
     if (mask == 0) {
-        quickMenuMouseSuppressionReleaseFrames_ = 0;
+        helperMouseSuppressionReleaseFrames_ = 0;
         return;
     }
 
     const std::uint32_t heldTrackedMask = mask & heldMask;
     if (heldTrackedMask != 0) {
-        quickMenuMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
-        quickMenuMouseSuppressionReleaseFrames_ = kQuickMenuMouseSuppressionReleaseFrames;
+        helperMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
+        helperMouseSuppressionReleaseFrames_ = kHelperMouseSuppressionReleaseFrames;
         return;
     }
 
-    if (quickMenuMouseSuppressionReleaseFrames_ > 0) {
-        --quickMenuMouseSuppressionReleaseFrames_;
-        quickMenuMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
+    if (helperMouseSuppressionReleaseFrames_ > 0) {
+        --helperMouseSuppressionReleaseFrames_;
+        helperMouseSuppressionMask_.store(mask, std::memory_order_relaxed);
         return;
     }
 
-    quickMenuMouseSuppressionMask_.store(0, std::memory_order_relaxed);
-    debuglog::WriteInfo("[ui] quickmenu game mouse suppression cleared mask=0x%02X", static_cast<unsigned>(mask));
+    helperMouseSuppressionMask_.store(0, std::memory_order_relaxed);
+    if (kHelperMouseSuppressionTraceEnabled) {
+        debuglog::WriteInfo("[ui] helper game mouse suppression cleared mask=0x%02X", static_cast<unsigned>(mask));
+    }
 }
 
-std::uint8_t ModApp::CurrentQuickMenuMouseSuppressionMask() const {
-    std::uint32_t mask = quickMenuMouseSuppressionMask_.load(std::memory_order_relaxed);
-    if (binder_.IsQuickMenuOpen()) {
-        mask |= HeldMouseButtonMask() & kQuickMenuSuppressibleMouseButtons;
-    }
-    return static_cast<std::uint8_t>(mask & kQuickMenuSuppressibleMouseButtons);
+std::uint8_t ModApp::CurrentHelperMouseSuppressionMask() const {
+    const std::uint32_t mask = helperMouseSuppressionMask_.load(std::memory_order_relaxed);
+    return static_cast<std::uint8_t>(mask & kHelperSuppressibleMouseButtons);
 }
 
 void ModApp::UpdateOverlayCursorMode() {
@@ -1545,7 +1540,7 @@ void ModApp::UpdateOverlayCursorMode() {
     inputs.gameWindow = gameHw;
     inputs.foregroundWindow = fg;
     const OverlayCursorController::Result result = overlayCursor_.Apply(inputs);
-    overlay_.SetInputDecision(result.routingAllowed, result.drawHelperCursor);
+    overlay_.SetInputDecision(result.routingAllowed, result.drawHelperCursor, result.swallowMouse);
 }
 
 DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
@@ -1608,13 +1603,13 @@ bool ModApp::RefreshSampGate() {
         return sampUiPipelineReady_;
     }
 
-    debuglog::WriteInfo("[probe] Refresh begin ts=%llums", static_cast<unsigned long long>(now));
     sampApi_.Refresh();
     const bool readyBeforeHooks = sampApi_.isSAMPInitilizeLua();
     sampHooks_.Refresh();
     sampRakHooks_.Refresh();
     const bool readyAfterHooks = sampApi_.isSAMPInitilizeLua();
-    if (!readyAfterHooks || readyBeforeHooks != readyAfterHooks || sampUiPipelineReady_ != readyAfterHooks) {
+    const bool gateChanged = readyBeforeHooks != readyAfterHooks || sampUiPipelineReady_ != readyAfterHooks;
+    if (!readyAfterHooks || gateChanged) {
         sampApi_.LogReadinessDiagnostics("tick");
     }
     if (!readyAfterHooks && now >= nextRuntimeModuleSnapshotAtMs_) {
@@ -1647,13 +1642,15 @@ bool ModApp::RefreshSampGate() {
             static_cast<unsigned long long>(GetTickCount64()));
     }
     sampUiPipelineReady_ = readyAfterHooks;
-    debuglog::WriteInfo(
-        "[probe] Refresh end ts=%llums sampReady(beforeHooks=%d afterHooks=%d) module=%d supported=%d",
-        static_cast<unsigned long long>(GetTickCount64()),
-        readyBeforeHooks ? 1 : 0,
-        readyAfterHooks ? 1 : 0,
-        sampApi_.sampModule() ? 1 : 0,
-        sampApi_.isSupportedVersion() ? 1 : 0);
+    if (gateChanged) {
+        debuglog::WriteInfo(
+            "[probe] Refresh state ts=%llums sampReady(beforeHooks=%d afterHooks=%d) module=%d supported=%d",
+            static_cast<unsigned long long>(GetTickCount64()),
+            readyBeforeHooks ? 1 : 0,
+            readyAfterHooks ? 1 : 0,
+            sampApi_.sampModule() ? 1 : 0,
+            sampApi_.isSupportedVersion() ? 1 : 0);
+    }
     nextSampRefreshAtMs_ = now + 1000;
     return readyAfterHooks;
 }
@@ -1664,7 +1661,7 @@ void ModApp::Tick() {
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.SetHelperUiActive(overlay_.IsMenuOpen());
     binder_.Tick();
-    UpdateQuickMenuMouseSuppression();
+    UpdateHelperMouseSuppression();
     hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
     tags_.Tick();
 
@@ -2357,6 +2354,7 @@ void ModApp::DrawSettingsProfilesSection() {
 
     const auto flushShellBeforeProfileChange = [&]() {
         SaveShellStateIfDirty();
+        hud_.FlushPendingSaves();
         AppConfig::Instance().ProcessPendingWrites();
     };
 
@@ -2647,11 +2645,12 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = UiSettings::Instance().UpdateScale(io.DisplaySize);
     static float s_lastLoggedScale = 0.0f;
-    static uint64_t s_lastScaleTraceMs = 0;
-    const uint64_t now = GetTickCount64();
-    if (std::abs(uiScale - s_lastLoggedScale) > 0.001f || now - s_lastScaleTraceMs >= kUiScaleTraceIntervalMs) {
+    static ImVec2 s_lastLoggedDisplay{};
+    if (std::abs(uiScale - s_lastLoggedScale) > 0.001f
+        || std::abs(io.DisplaySize.x - s_lastLoggedDisplay.x) > 0.5f
+        || std::abs(io.DisplaySize.y - s_lastLoggedDisplay.y) > 0.5f) {
         s_lastLoggedScale = uiScale;
-        s_lastScaleTraceMs = now;
+        s_lastLoggedDisplay = io.DisplaySize;
         debuglog::WriteInfo(
             "[ui] frame prep scale=%.3f display=(%.1f,%.1f)",
             uiScale,

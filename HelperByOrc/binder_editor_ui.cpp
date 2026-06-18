@@ -306,6 +306,7 @@ void BinderModule::Impl::SaveEditor() {
     saved.command = Trim(saved.command);
     saved.textTrigger.text = Trim(saved.textTrigger.text);
     binder_editor::NormalizeDraftForSave(saved);
+    saved.textTrigger.InvalidateRuntimeCache();
     saved.conditions.resize(static_cast<std::size_t>(ConditionId::Count), false);
     saved.conditionsCombine = ConditionCombineMode::RequireAny;
     saved.comboActive = false;

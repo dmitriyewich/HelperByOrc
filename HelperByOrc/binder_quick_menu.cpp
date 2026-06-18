@@ -438,23 +438,65 @@ void BinderModule::Impl::DrawQuickMenu() {
             shortcut.c_str());
     };
 
-    const auto drawCascadeHotkey = [&](const int index, const char* idPrefix) {
+    const auto drawQuickMenuRowSeparator = [&]() {
+        ImGuiWindow* window = ImGui::GetCurrentWindowRead();
+        if (window == nullptr || window->SkipItems) {
+            return;
+        }
+
+        const ImVec2 cursor = ImGui::GetCursorScreenPos();
+        const float left = std::max(cursor.x + ScaleUi(22.0f), window->WorkRect.Min.x + ScaleUi(18.0f));
+        const float right = window->WorkRect.Max.x - ScaleUi(7.0f);
+        if (right <= left + ScaleUi(8.0f)) {
+            return;
+        }
+
+        const float gap = std::max(ScaleUi(2.0f), ImGui::GetStyle().ItemSpacing.y);
+        const float y = std::floor(cursor.y - gap * 0.5f) + 0.5f;
+        window->DrawList->AddLine(
+            ImVec2(left, y),
+            ImVec2(right, y),
+            ImGui::GetColorU32(WithAlpha(visual.separator, 0.56f)),
+            std::max(1.0f, ScaleUi(1.0f)));
+    };
+
+    constexpr float kCascadePopupLabelMaxWidth = 320.0f;
+    constexpr float kCascadePopupShortcutMaxWidth = 132.0f;
+
+    const auto cascadePopupLabelMaxWidth = [&]() {
+        return std::max(ScaleUi(96.0f), ScaleUi(kCascadePopupLabelMaxWidth));
+    };
+
+    const auto cascadePopupShortcut = [&](const std::string& shortcut) {
+        return shortcut.empty()
+            ? std::string()
+            : EllipsizeText(shortcut, std::max(ScaleUi(48.0f), ScaleUi(kCascadePopupShortcutMaxWidth)));
+    };
+
+    const auto drawCascadeHotkey = [&](const int index, const char* idPrefix, const int depth) {
         const std::string shortcut = hotkeyShortcut(index);
         const float availableWidth = std::max(ScaleUi(32.0f), ImGui::GetContentRegionAvail().x);
         const float shortcutReserve = shortcut.empty() ? 0.0f : ImGui::CalcTextSize(shortcut.c_str()).x + ScaleUi(20.0f);
-        const float labelMaxWidth = std::max(ScaleUi(24.0f), availableWidth - shortcutReserve);
+        const float labelMaxWidth = depth == 0
+            ? std::max(ScaleUi(24.0f), availableWidth - shortcutReserve)
+            : cascadePopupLabelMaxWidth();
         const float rightX = ImGui::GetCursorScreenPos().x + availableWidth;
         const std::string label = labelWithId(
             EllipsizeText(hotkeyVisibleLabel(index), labelMaxWidth),
             idPrefix,
             std::to_string(index));
-        const bool activated = ImGui::MenuItem(label.c_str(), nullptr, false, true);
+        const std::string popupShortcut = depth == 0 ? std::string() : cascadePopupShortcut(shortcut);
+        const bool activated = depth == 0
+            ? ImGui::MenuItem(label.c_str(), nullptr, false, true)
+            : ImGui::MenuItem(label.c_str(), popupShortcut.empty() ? nullptr : popupShortcut.c_str(), false, true);
         recordQuickMenuHit(index);
         if (activated) {
             selectedHotkeyIndex = index;
             return;
         }
-        drawShortcutInLastItem(shortcut, rightX);
+        if (depth == 0) {
+            drawShortcutInLastItem(shortcut, rightX);
+        }
     };
 
     const auto drawTreeHotkey = [&](const int index, const char* idPrefix) {
@@ -475,8 +517,16 @@ void BinderModule::Impl::DrawQuickMenu() {
         drawShortcutInLastItem(shortcut, rightX);
     };
 
-    const auto drawCascadeDirectory = [&](auto&& self, const BinderCategory& category, FolderNode* folder, const char* idPrefix) -> void {
+    const auto drawCascadeDirectory = [&](auto&& self, const BinderCategory& category, FolderNode* folder, const char* idPrefix, const int depth) -> void {
         const std::vector<ExplorerItem>& items = folder ? folder->items : category.rootItems;
+        bool rowDrawn = false;
+        const auto drawSeparatorBeforeRow = [&]() {
+            if (rowDrawn) {
+                drawQuickMenuRowSeparator();
+            }
+            rowDrawn = true;
+        };
+
         for (const ExplorerItem& item : items) {
             if (selectedHotkeyIndex >= 0) {
                 return;
@@ -484,7 +534,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             if (item.kind == ExplorerItemKind::Bind) {
                 const int index = FindHotkeyIndexByOrderId(item.key);
                 if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
-                    drawCascadeHotkey(index, idPrefix);
+                    drawSeparatorBeforeRow();
+                    drawCascadeHotkey(index, idPrefix, depth);
                 }
                 continue;
             }
@@ -493,21 +544,32 @@ void BinderModule::Impl::DrawQuickMenu() {
             if (!child || !FolderVisibleInQuickMenu(*child) || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
                 continue;
             }
+            drawSeparatorBeforeRow();
             const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
-            const float labelMaxWidth = std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ScaleUi(8.0f));
+            const float labelMaxWidth = depth == 0
+                ? std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ScaleUi(8.0f))
+                : cascadePopupLabelMaxWidth();
             const std::string label = labelWithId(
                 EllipsizeText(FolderIconGlyph(*child) + " " + child->name, labelMaxWidth),
                 "qm_folder_",
                 path);
             if (ImGui::BeginMenu(label.c_str())) {
-                self(self, category, child, "qm_bind_");
+                self(self, category, child, "qm_bind_", depth + 1);
                 ImGui::EndMenu();
             }
         }
     };
 
+    bool treeRowDrawn = false;
     const auto drawTreeDirectory = [&](auto&& self, const BinderCategory& category, FolderNode* folder, int depth) -> void {
         const std::vector<ExplorerItem>& items = folder ? folder->items : category.rootItems;
+        const auto drawSeparatorBeforeRow = [&]() {
+            if (treeRowDrawn) {
+                drawQuickMenuRowSeparator();
+            }
+            treeRowDrawn = true;
+        };
+
         for (const ExplorerItem& item : items) {
             if (selectedHotkeyIndex >= 0) {
                 return;
@@ -515,6 +577,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             if (item.kind == ExplorerItemKind::Bind) {
                 const int index = FindHotkeyIndexByOrderId(item.key);
                 if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
+                    drawSeparatorBeforeRow();
                     drawTreeHotkey(index, "qm_tree_bind_");
                 }
                 continue;
@@ -524,6 +587,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             if (!child || !FolderVisibleInQuickMenu(*child) || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
                 continue;
             }
+            drawSeparatorBeforeRow();
             const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
             const float labelMaxWidth = std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ScaleUi(4.0f));
             const std::string label = labelWithId(
@@ -548,7 +612,7 @@ void BinderModule::Impl::DrawQuickMenu() {
     const ImVec2 contentSize(0.0f, std::max(1.0f, ImGui::GetContentRegionAvail().y));
     if (ImGui::BeginChild("##quick_menu_content", contentSize, ImGuiChildFlags_None, contentFlags)) {
         if (quickMenuStyle == QuickMenuStyle::Cascade) {
-            drawCascadeDirectory(drawCascadeDirectory, *activeCategory, nullptr, "qm_root_bind_");
+            drawCascadeDirectory(drawCascadeDirectory, *activeCategory, nullptr, "qm_root_bind_", 0);
         } else {
             drawTreeDirectory(drawTreeDirectory, *activeCategory, nullptr, 0);
         }

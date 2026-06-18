@@ -37,7 +37,7 @@
 - Единая модель блокировок для запуска биндов, показа в быстром меню, отображения папок и HUD-виджетов: отмеченное условие блокирует действие, если стало активным.
 - Расширенные условия: прямые и обратные состояния SA:MP/Windows-курсора, чата, видимости чата, диалога, TAB, подключения к серверу, GTA-меню, игрового HUD, прикреплённой камеры, воды/воздуха, место водителя/пассажира, двигатель/сирена и тип текущего транспорта без прицепов.
 - При открытом окне Helper автоматический запуск bind с cursor-условиями блокируется; ручная кнопка запуска в списке Binder игнорирует только cursor-условия.
-- Стабильный cursor/input ownership для ImGui: Helper рисует собственный software cursor, а SA:MP cursor mode используется только для блокировки управления игры; quick menu при открытии центрирует курсор, блокирует только камеру через `CURSOR_LOCKCAM_NOCURSOR`, выбирает пункты ручным hit-test по геометрии и уступает SA:MP chat/dialog, Arizona CEF и чужому cursor/input owner.
+- Стабильный cursor/input ownership для ImGui: Helper рисует собственный software cursor, а SA:MP cursor mode использует только для блокировки управления игры; quick menu при открытии центрирует курсор, блокирует камеру через `CURSOR_LOCKCAM_NOCURSOR`, выбирает пункты ручным hit-test по геометрии, остаётся кликабельным поверх SA:MP chat/dialog/Arizona CEF и пропускает мышь вне окон Helper в игру или внешний интерфейс.
 - Вставка текста в чат и отправка команд через SA:MP-чат; команда bind, отправленная другим bind, запускает локальный bind и не уходит серверу.
 - Таймер подтверждения текстового триггера: `Подтв. триггер` ждёт до профильного лимита из «Настройки -> Биндер», принимает `1/2` без захвата курсора и сбрасывает pending запуск по истечении времени.
 - Arizona `_chat.asi` writer/submit для отправки через input чата, открытия и вставки текста с fallback на стандартный SA:MP-путь.
@@ -150,7 +150,7 @@ HelperByOrc\Release\HelperByOrc.asi
 - `[bootstrap]` - ранний старт и shutdown;
 - `[probe]`, `[probe][stuck]`, `[samp][diag]` - готовность SA:MP;
 - `[samp][file]`, `[samp][cursor]` - fingerprint `samp.dll` и validation `SetCursorMode`;
-- `[ui] cursor owner=... route=...` - кто сейчас владеет курсором и разрешён ли routing ввода в ImGui;
+- `[ui] cursor owner=... route=... swallowMouse=... underlay=...` - кто сейчас владеет курсором, разрешён ли routing ввода в ImGui и какой внешний интерфейс лежит под Helper;
 - `[ui][d3d]` - D3D9 hook policy и overlay;
 - `[diag][appcompat]` - Compatibility Mode, `apphelp.dll`, `AcLayers.dll`;
 - transfer-owner строки - кто уже пропатчил SA:MP-функции до плагина.

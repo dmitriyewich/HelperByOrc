@@ -458,6 +458,7 @@ HotkeyEntry BinderModule::Impl::DeserializeHotkey(const JsonObject& object) {
         hotkey.textTrigger.text = jsonutil::JsonStringOr(trigger, "text", "");
         hotkey.textTrigger.enabled = jsonutil::JsonBoolOr(trigger, "enabled", false);
         hotkey.textTrigger.pattern = jsonutil::JsonBoolOr(trigger, "pattern", false);
+        hotkey.textTrigger.InvalidateRuntimeCache();
     }
 
     if (const JsonObject* confirmation = jsonutil::JsonObjectOrNull(&object, "text_confirmation")) {

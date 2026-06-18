@@ -236,6 +236,10 @@ struct HudWidget {
     std::vector<HudElement> elements{};
 
     std::uint64_t nextRefreshAtMs = 0;
+    std::vector<HudElement*> elementsByZAscCache{};
+    std::vector<HudElement*> elementsByZDescCache{};
+    bool elementsByZAscDirty = true;
+    bool elementsByZDescDirty = true;
 };
 
 struct CanvasElementSnapshot {
@@ -1518,6 +1522,7 @@ struct HudModule::Impl {
     bool canvasGestureMoved = false;
     bool canvasGestureUndoCaptured = false;
     bool canvasGestureAdditive = false;
+    bool canvasGestureSavePending = false;
     int canvasGestureButton = 0;
 
     void OnProcessAttach(HMODULE moduleHandle) {
@@ -1537,6 +1542,7 @@ struct HudModule::Impl {
         canvasGestureMoved = false;
         canvasGestureUndoCaptured = false;
         canvasGestureAdditive = false;
+        canvasGestureSavePending = false;
         canvasGestureButton = 0;
         if (resetView) {
             canvasPan = ImVec2(0.0f, 0.0f);
@@ -1544,6 +1550,7 @@ struct HudModule::Impl {
     }
 
     void Shutdown() {
+        FlushPendingSaves();
         ReleaseDeviceResources();
         widgets.clear();
         selectedWidgetId.clear();
@@ -1590,6 +1597,14 @@ struct HudModule::Impl {
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
         configMigratedToV2 = false;
+    }
+
+    void FlushPendingSaves() {
+        if (!canvasGestureSavePending) {
+            return;
+        }
+        QueueSave();
+        canvasGestureSavePending = false;
     }
 
     void ReleaseDeviceResources() {
@@ -2422,6 +2437,7 @@ struct HudModule::Impl {
             debuglog::WriteInfo("[hud] migrated config to schema v2 widgets=%zu", widgets.size());
             QueueSave();
         }
+        InvalidateAllElementOrderCaches();
     }
 
     void LoadConfig() {
@@ -2469,6 +2485,7 @@ struct HudModule::Impl {
         for (HudWidget& widget : widgets) {
             widget.nextRefreshAtMs = 0;
         }
+        InvalidateAllElementOrderCaches();
         QueueSave();
     }
 
@@ -2881,15 +2898,37 @@ struct HudModule::Impl {
         }
     }
 
-    std::vector<HudElement*> ElementsByZ(HudWidget& widget, bool descending = false) {
-        std::vector<HudElement*> result;
-        result.reserve(widget.elements.size());
-        for (HudElement& element : widget.elements) {
-            result.push_back(&element);
+    void InvalidateElementOrderCache(HudWidget& widget) const {
+        widget.elementsByZAscCache.clear();
+        widget.elementsByZDescCache.clear();
+        widget.elementsByZAscDirty = true;
+        widget.elementsByZDescDirty = true;
+    }
+
+    void InvalidateAllElementOrderCaches() {
+        for (HudWidget& widget : widgets) {
+            InvalidateElementOrderCache(widget);
         }
-        std::sort(result.begin(), result.end(), [&](const HudElement* left, const HudElement* right) {
-            return descending ? left->z > right->z : left->z < right->z;
-        });
+    }
+
+    std::vector<HudElement*> ElementsByZ(HudWidget& widget, bool descending = false) {
+        std::vector<HudElement*>* cache = descending ? &widget.elementsByZDescCache : &widget.elementsByZAscCache;
+        bool* dirty = descending ? &widget.elementsByZDescDirty : &widget.elementsByZAscDirty;
+        if (*dirty || cache->size() != widget.elements.size()) {
+            cache->clear();
+            cache->reserve(widget.elements.size());
+            for (HudElement& element : widget.elements) {
+                cache->push_back(&element);
+            }
+            std::sort(cache->begin(), cache->end(), [&](const HudElement* left, const HudElement* right) {
+                return descending ? left->z > right->z : left->z < right->z;
+            });
+            *dirty = false;
+        }
+
+        std::vector<HudElement*> result;
+        result.reserve(cache->size());
+        result.insert(result.end(), cache->begin(), cache->end());
         return result;
     }
 
@@ -4258,7 +4297,7 @@ struct HudModule::Impl {
         for (HudWidget& widget : widgets) {
             widget.nextRefreshAtMs = 0;
         }
-        QueueSave();
+        canvasGestureSavePending = true;
     }
 
     ImRect ResizeHandleRect(const ImRect& rect, ResizeHandle handle, float size) const {
@@ -4423,6 +4462,7 @@ struct HudModule::Impl {
     }
 
     void EndCanvasGesture() {
+        FlushPendingSaves();
         canvasMode = CanvasInteractionMode::Idle;
         canvasActiveElementId.clear();
         canvasActiveHandle.reset();
@@ -4430,6 +4470,7 @@ struct HudModule::Impl {
         canvasGestureMoved = false;
         canvasGestureUndoCaptured = false;
         canvasGestureAdditive = false;
+        canvasGestureSavePending = false;
         canvasGestureButton = 0;
         canvasMarqueeRect = ImRect();
     }
@@ -5009,6 +5050,10 @@ void HudModule::Shutdown() {
 
 void HudModule::ReloadConfig() {
     impl_->ReloadConfig();
+}
+
+void HudModule::FlushPendingSaves() {
+    impl_->FlushPendingSaves();
 }
 
 void HudModule::ReleaseDeviceResources() {

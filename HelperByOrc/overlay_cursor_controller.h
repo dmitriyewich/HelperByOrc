@@ -64,9 +64,11 @@ public:
         Owner owner = Owner::Unavailable;
         bool routingAllowed = false;
         bool drawHelperCursor = false;
+        bool swallowMouse = false;
         bool sampModeApplied = false;
         int sampCursorMode = 0;
         std::string activeSurface;
+        std::string underlayOwner;
         std::string reason;
     };
     using Result = OverlayInputDecision;
@@ -110,8 +112,10 @@ private:
     bool traceExternalActive_ = false;
     bool traceCefControlled_ = false;
     bool traceCefShown_ = false;
+    bool traceSwallowMouse_ = false;
     bool traceCursorVisible_ = false;
     HWND traceCaptureWindow_ = nullptr;
     Owner traceOwner_ = Owner::Unavailable;
+    std::string traceUnderlayOwner_;
     std::uint64_t lastCursorTraceMs_ = 0;
 };

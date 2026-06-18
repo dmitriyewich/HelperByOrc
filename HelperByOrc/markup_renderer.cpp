@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <optional>
@@ -67,6 +68,31 @@ struct RichSegment {
     enum class Transform { None, Upper, Lower } transform = Transform::None;
     std::optional<ParsedImage> image{};
 };
+
+struct ParsedTextCacheKey {
+    std::string text;
+    std::wstring imageRoot;
+    bool wrapText = true;
+    int fontDirectiveScale = 100;
+    int wrapWidth = 0;
+    int uiScale = 100;
+};
+
+bool operator==(const ParsedTextCacheKey& left, const ParsedTextCacheKey& right) {
+    return left.text == right.text
+        && left.imageRoot == right.imageRoot
+        && left.wrapText == right.wrapText
+        && left.fontDirectiveScale == right.fontDirectiveScale
+        && left.wrapWidth == right.wrapWidth
+        && left.uiScale == right.uiScale;
+}
+
+int QuantizeLayoutFloat(float value) {
+    if (!std::isfinite(value)) {
+        return 0;
+    }
+    return static_cast<int>(std::lround(value * 100.0f));
+}
 
 struct InlineStyle {
     ImVec4 color{};
@@ -787,6 +813,8 @@ std::string SegmentPlainText(const RichSegment& segment) {
 
 struct MarkupRenderer::Impl {
     std::map<std::wstring, TextureCacheEntry> textureCache;
+    std::optional<ParsedTextCacheKey> parsedTextCacheKey;
+    std::vector<std::vector<RichSegment>> parsedTextCache;
 
     void ReleaseDeviceResources() {
         for (auto& [_, entry] : textureCache) {
@@ -854,6 +882,25 @@ struct MarkupRenderer::Impl {
         out.width = texture->width;
         out.height = texture->height;
         return true;
+    }
+
+    const std::vector<std::vector<RichSegment>>& ParsedLines(
+        std::string_view text,
+        const fs::path& imageRoot,
+        const MarkupRenderer::DrawOptions& options) {
+        ParsedTextCacheKey key{};
+        key.text = std::string(text);
+        key.imageRoot = imageRoot.wstring();
+        key.wrapText = options.wrapText;
+        key.fontDirectiveScale = QuantizeLayoutFloat(FontDirectiveScale(options));
+        key.wrapWidth = options.wrapText ? QuantizeLayoutFloat(ImGui::GetContentRegionAvail().x) : 0;
+        key.uiScale = QuantizeLayoutFloat(ScaleUi(1.0f));
+
+        if (!parsedTextCacheKey || !(*parsedTextCacheKey == key)) {
+            parsedTextCache = ParseRichText(text);
+            parsedTextCacheKey = std::move(key);
+        }
+        return parsedTextCache;
     }
 
     ImVec2 ResolveImageRenderSize(const ParsedImage& image, IDirect3DDevice9* device, const fs::path& imageRoot) {
@@ -1099,7 +1146,7 @@ struct MarkupRenderer::Impl {
         const MarkupRenderer::DrawOptions& options) {
         const ImVec2 contentOrigin = ImGui::GetCursorScreenPos();
         const float lineStartX = ImGui::GetCursorPosX();
-        const auto lines = ParseRichText(text);
+        const auto& lines = ParsedLines(text, imageRoot, options);
         for (const std::vector<RichSegment>& line : lines) {
             ImGui::SetCursorPosX(lineStartX);
             DrawRichLine(line, device, imageRoot, contentOrigin, options);

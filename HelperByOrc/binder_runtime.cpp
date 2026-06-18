@@ -1,5 +1,34 @@
 #include "binder_module_impl.h"
 
+namespace {
+
+void EnsureTextTriggerRuntimeCache(TextTrigger& trigger) {
+    if (trigger.runtimeCacheReady
+        && trigger.runtimeCacheText == trigger.text
+        && trigger.runtimeCachePattern == trigger.pattern) {
+        return;
+    }
+
+    trigger.runtimeCacheText = trigger.text;
+    trigger.runtimeCachePattern = trigger.pattern;
+    trigger.runtimeCacheReady = true;
+    trigger.runtimeRegexInvalid = false;
+    trigger.runtimeNormalizedText = NormalizeTriggerText(trigger.text);
+    trigger.runtimeRegex.reset();
+
+    if (!trigger.pattern || trigger.runtimeNormalizedText.empty()) {
+        return;
+    }
+
+    try {
+        trigger.runtimeRegex.emplace(trigger.text);
+    } catch (const std::exception&) {
+        trigger.runtimeRegexInvalid = true;
+    }
+}
+
+} // namespace
+
 void BinderModule::Impl::EnsureInitialized() {
     if (configLoaded) {
         ConnectHooks();
@@ -1302,14 +1331,15 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
     return handled;
 }
 
-bool BinderModule::Impl::MatchTextTrigger(const std::string& source, const HotkeyEntry& hotkey) {
-    const TextTrigger& trigger = hotkey.textTrigger;
+bool BinderModule::Impl::MatchTextTrigger(const std::string& source, HotkeyEntry& hotkey) {
+    TextTrigger& trigger = hotkey.textTrigger;
     if (!trigger.enabled || Trim(trigger.text).empty()) {
         return false;
     }
 
+    EnsureTextTriggerRuntimeCache(trigger);
     const std::string normalizedSource = NormalizeTriggerText(source);
-    const std::string normalizedTarget = NormalizeTriggerText(trigger.text);
+    const std::string& normalizedTarget = trigger.runtimeNormalizedText;
     if (normalizedTarget.empty()) {
         return false;
     }
@@ -1318,13 +1348,13 @@ bool BinderModule::Impl::MatchTextTrigger(const std::string& source, const Hotke
         return normalizedSource == normalizedTarget;
     }
 
-    try {
-        if (std::regex_search(normalizedSource, std::regex(trigger.text))) {
-            return true;
-        }
-    } catch (const std::exception&) {
+    if (trigger.runtimeRegex) {
+        return std::regex_search(normalizedSource, *trigger.runtimeRegex) || normalizedSource == normalizedTarget;
+    }
+    if (trigger.runtimeRegexInvalid) {
         return normalizedSource == normalizedTarget;
     }
+
     return normalizedSource == normalizedTarget;
 }
 

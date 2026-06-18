@@ -6,6 +6,8 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <optional>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -46,6 +48,22 @@ struct TextTrigger {
     std::string text;
     bool enabled = false;
     bool pattern = false;
+
+    std::string runtimeCacheText;
+    bool runtimeCachePattern = false;
+    bool runtimeCacheReady = false;
+    bool runtimeRegexInvalid = false;
+    std::string runtimeNormalizedText;
+    std::optional<std::regex> runtimeRegex;
+
+    void InvalidateRuntimeCache() {
+        runtimeCacheText.clear();
+        runtimeCachePattern = false;
+        runtimeCacheReady = false;
+        runtimeRegexInvalid = false;
+        runtimeNormalizedText.clear();
+        runtimeRegex.reset();
+    }
 };
 
 struct TextConfirmation {

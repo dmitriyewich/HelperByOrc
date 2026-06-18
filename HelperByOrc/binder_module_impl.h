@@ -2402,7 +2402,7 @@ struct BinderModule::Impl {
     void OnIncomingMessage(const IncomingMessageEvent& message);
     void ExpireTextConfirmations();
     bool ActivatePendingTextConfirmations(UINT keyCode);
-    bool MatchTextTrigger(const std::string& source, const HotkeyEntry& hotkey);
+    bool MatchTextTrigger(const std::string& source, HotkeyEntry& hotkey);
     bool TryDispatchTextTriggerMatch(
         int index,
         HotkeyEntry& hotkey,
