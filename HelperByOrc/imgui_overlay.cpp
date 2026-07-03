@@ -225,6 +225,158 @@ void TraceRenderPathCounters(const char* sourceTag, bool rendered) {
     }
 }
 
+double PerfNowMs() {
+    static const double s_invFrequencyMs = [] {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            return 0.0;
+        }
+        return 1000.0 / static_cast<double>(frequency.QuadPart);
+    }();
+
+    if (s_invFrequencyMs <= 0.0) {
+        return static_cast<double>(GetTickCount64());
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+struct UiFramePerf {
+    bool fullUi = false;
+    bool drawSkipped = false;
+    double stateBackupMs = 0.0;
+    double backendNewFrameMs = 0.0;
+    double prepareFrameMs = 0.0;
+    double renderUiMs = 0.0;
+    double imguiRenderMs = 0.0;
+    double renderDrawMs = 0.0;
+    double stateRestoreMs = 0.0;
+    double totalMs = 0.0;
+    int windows = 0;
+    int vertices = 0;
+    int indices = 0;
+    int cmdLists = 0;
+};
+
+void CaptureDrawDataStats(UiFramePerf& perf, ImDrawData* drawData) {
+    if (GImGui != nullptr) {
+        perf.windows = GImGui->Windows.Size;
+    }
+    if (!drawData) {
+        return;
+    }
+    perf.vertices = drawData->TotalVtxCount;
+    perf.indices = drawData->TotalIdxCount;
+    perf.cmdLists = drawData->CmdListsCount;
+}
+
+void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
+    static uint64_t s_windowStartMs = 0;
+    static unsigned s_fullFrames = 0;
+    static unsigned s_idleFrames = 0;
+    static unsigned s_slowFrames = 0;
+    static unsigned s_drawSkippedFrames = 0;
+    static double s_fullTotalMs = 0.0;
+    static double s_idleTotalMs = 0.0;
+    static double s_maxFullMs = 0.0;
+    static double s_maxIdleMs = 0.0;
+    static double s_maxStateBackupMs = 0.0;
+    static double s_maxBackendNewFrameMs = 0.0;
+    static double s_maxPrepareFrameMs = 0.0;
+    static double s_maxRenderUiMs = 0.0;
+    static double s_maxImGuiRenderMs = 0.0;
+    static double s_maxRenderDrawMs = 0.0;
+    static double s_maxStateRestoreMs = 0.0;
+    static int s_maxWindows = 0;
+    static int s_maxVertices = 0;
+    static int s_maxIndices = 0;
+    static int s_maxCmdLists = 0;
+
+    const uint64_t now = GetTickCount64();
+    if (s_windowStartMs == 0) {
+        s_windowStartMs = now;
+    }
+
+    if (perf.fullUi) {
+        ++s_fullFrames;
+        s_fullTotalMs += perf.totalMs;
+        s_maxFullMs = std::max(s_maxFullMs, perf.totalMs);
+    } else {
+        ++s_idleFrames;
+        s_idleTotalMs += perf.totalMs;
+        s_maxIdleMs = std::max(s_maxIdleMs, perf.totalMs);
+    }
+    if (slow) {
+        ++s_slowFrames;
+    }
+    if (perf.drawSkipped) {
+        ++s_drawSkippedFrames;
+    }
+
+    s_maxStateBackupMs = std::max(s_maxStateBackupMs, perf.stateBackupMs);
+    s_maxBackendNewFrameMs = std::max(s_maxBackendNewFrameMs, perf.backendNewFrameMs);
+    s_maxPrepareFrameMs = std::max(s_maxPrepareFrameMs, perf.prepareFrameMs);
+    s_maxRenderUiMs = std::max(s_maxRenderUiMs, perf.renderUiMs);
+    s_maxImGuiRenderMs = std::max(s_maxImGuiRenderMs, perf.imguiRenderMs);
+    s_maxRenderDrawMs = std::max(s_maxRenderDrawMs, perf.renderDrawMs);
+    s_maxStateRestoreMs = std::max(s_maxStateRestoreMs, perf.stateRestoreMs);
+    s_maxWindows = std::max(s_maxWindows, perf.windows);
+    s_maxVertices = std::max(s_maxVertices, perf.vertices);
+    s_maxIndices = std::max(s_maxIndices, perf.indices);
+    s_maxCmdLists = std::max(s_maxCmdLists, perf.cmdLists);
+
+    if (now - s_windowStartMs < kRenderStatsTraceIntervalMs) {
+        return;
+    }
+
+    if (s_fullFrames > 0 || s_slowFrames > 0) {
+        debuglog::WriteInfo(
+            "[ui][perf] 5s full=%u idle=%u slow=%u drawSkip=%u avgFull=%.2fms maxFull=%.2fms avgIdle=%.2fms maxIdle=%.2fms maxState=%.2fms maxNew=%.2fms maxPrep=%.2fms maxUi=%.2fms maxRender=%.2fms maxDraw=%.2fms maxRestore=%.2fms maxWin=%d maxVtx=%d maxIdx=%d maxCmdLists=%d",
+            s_fullFrames,
+            s_idleFrames,
+            s_slowFrames,
+            s_drawSkippedFrames,
+            s_fullFrames > 0 ? s_fullTotalMs / static_cast<double>(s_fullFrames) : 0.0,
+            s_maxFullMs,
+            s_idleFrames > 0 ? s_idleTotalMs / static_cast<double>(s_idleFrames) : 0.0,
+            s_maxIdleMs,
+            s_maxStateBackupMs,
+            s_maxBackendNewFrameMs,
+            s_maxPrepareFrameMs,
+            s_maxRenderUiMs,
+            s_maxImGuiRenderMs,
+            s_maxRenderDrawMs,
+            s_maxStateRestoreMs,
+            s_maxWindows,
+            s_maxVertices,
+            s_maxIndices,
+            s_maxCmdLists);
+    }
+
+    s_windowStartMs = now;
+    s_fullFrames = 0;
+    s_idleFrames = 0;
+    s_slowFrames = 0;
+    s_drawSkippedFrames = 0;
+    s_fullTotalMs = 0.0;
+    s_idleTotalMs = 0.0;
+    s_maxFullMs = 0.0;
+    s_maxIdleMs = 0.0;
+    s_maxStateBackupMs = 0.0;
+    s_maxBackendNewFrameMs = 0.0;
+    s_maxPrepareFrameMs = 0.0;
+    s_maxRenderUiMs = 0.0;
+    s_maxImGuiRenderMs = 0.0;
+    s_maxRenderDrawMs = 0.0;
+    s_maxStateRestoreMs = 0.0;
+    s_maxWindows = 0;
+    s_maxVertices = 0;
+    s_maxIndices = 0;
+    s_maxCmdLists = 0;
+}
+
 bool IsPopupTransitionNoCaptureExpected(const ImGuiIO& io) {
     if (GImGui == nullptr) {
         return false;
@@ -1639,19 +1791,48 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
     ImGui::GetIO().MouseDrawCursor = false;
     ApplyInputCaptureState(false);
 
-    const uint64_t beginMs = GetTickCount64();
+    UiFramePerf perf{};
+    const double beginMs = PerfNowMs();
+    double stageBeginMs = beginMs;
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    perf.backendNewFrameMs = PerfNowMs() - stageBeginMs;
     if (prepareFrameCallback_) {
+        stageBeginMs = PerfNowMs();
         prepareFrameCallback_(device);
+        perf.prepareFrameMs = PerfNowMs() - stageBeginMs;
     }
+    stageBeginMs = PerfNowMs();
     ImGui::NewFrame();
+    perf.backendNewFrameMs += PerfNowMs() - stageBeginMs;
+    stageBeginMs = PerfNowMs();
     ImGui::EndFrame();
     ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-    const uint64_t elapsedMs = GetTickCount64() - beginMs;
-    if (elapsedMs >= kSlowFrameTraceThresholdMs) {
-        debuglog::WriteInfo("[ui] idle frame slow: %llums", static_cast<unsigned long long>(elapsedMs));
+    perf.imguiRenderMs = PerfNowMs() - stageBeginMs;
+    ImDrawData* drawData = ImGui::GetDrawData();
+    CaptureDrawDataStats(perf, drawData);
+    if (drawData && drawData->TotalVtxCount > 0) {
+        stageBeginMs = PerfNowMs();
+        ImGui_ImplDX9_RenderDrawData(drawData);
+        perf.renderDrawMs = PerfNowMs() - stageBeginMs;
+    } else {
+        perf.drawSkipped = true;
+    }
+    perf.totalMs = PerfNowMs() - beginMs;
+    const bool slow = perf.totalMs >= static_cast<double>(kSlowFrameTraceThresholdMs);
+    AccumulateUiFramePerf(perf, slow);
+    if (slow) {
+        debuglog::WriteInfo(
+            "[ui][perf] idle slow total=%.2fms new=%.2fms prep=%.2fms render=%.2fms draw=%.2fms drawSkip=%d win=%d vtx=%d idx=%d",
+            perf.totalMs,
+            perf.backendNewFrameMs,
+            perf.prepareFrameMs,
+            perf.imguiRenderMs,
+            perf.renderDrawMs,
+            perf.drawSkipped ? 1 : 0,
+            perf.windows,
+            perf.vertices,
+            perf.indices);
     }
 }
 
@@ -1683,7 +1864,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         return;
     }
 
-    const uint64_t beginMs = GetTickCount64();
+    UiFramePerf perf{};
+    perf.fullUi = true;
+    const double beginMs = PerfNowMs();
+    double stageBeginMs = beginMs;
     TraceUiRenderAndInputSnapshot("full_ui");
 
     IDirect3DStateBlock9* stateBlock = nullptr;
@@ -1704,9 +1888,12 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     device->GetVertexDeclaration(&vertexDeclaration);
     device->GetVertexShader(&vertexShader);
+    perf.stateBackupMs = PerfNowMs() - stageBeginMs;
 
+    stageBeginMs = PerfNowMs();
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    perf.backendNewFrameMs = PerfNowMs() - stageBeginMs;
 
     // До NewFrame(): выровнять MousePos с реальным курсором в клиентских координатах окна игры.
     // ImGui Win32 иногда оставляет координаты без OS-fallback (фокус на дочернем HWND, MouseTrackedArea),
@@ -1739,18 +1926,24 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     if (prepareFrameCallback_) {
+        stageBeginMs = PerfNowMs();
         prepareFrameCallback_(device);
+        perf.prepareFrameMs = PerfNowMs() - stageBeginMs;
     }
 
+    stageBeginMs = PerfNowMs();
     ImGui::NewFrame();
     if (wantsUiCursor && CanRouteInput()) {
         // При активном overlay-курcоре хотим стабильный mouse-capture и на следующем кадре тоже,
         // чтобы исключить кратковременные провалы WantCaptureMouse=0 между WndProc/NewFrame.
         ImGui::SetNextFrameWantCaptureMouse(true);
     }
+    perf.backendNewFrameMs += PerfNowMs() - stageBeginMs;
 
     if (renderCallback_) {
+        stageBeginMs = PerfNowMs();
         renderCallback_(device);
+        perf.renderUiMs = PerfNowMs() - stageBeginMs;
     }
     RefreshHelperWindowHitRects();
     UpdateInputCaptureState();
@@ -1762,12 +1955,23 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         ioFrame.MouseDrawCursor = drawHelperCursorThisFrame;
     }
 
+    stageBeginMs = PerfNowMs();
     ImGui::EndFrame();
     ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    perf.imguiRenderMs = PerfNowMs() - stageBeginMs;
+    ImDrawData* drawData = ImGui::GetDrawData();
+    CaptureDrawDataStats(perf, drawData);
+    if (drawData && drawData->TotalVtxCount > 0) {
+        stageBeginMs = PerfNowMs();
+        ImGui_ImplDX9_RenderDrawData(drawData);
+        perf.renderDrawMs = PerfNowMs() - stageBeginMs;
+    } else {
+        perf.drawSkipped = true;
+    }
 
     TraceUiRenderAndInputSnapshot("after_present_ui");
 
+    stageBeginMs = PerfNowMs();
     if (vertexShader) {
         device->SetVertexShader(vertexShader);
         vertexShader->Release();
@@ -1782,14 +1986,29 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         stateBlock->Apply();
         stateBlock->Release();
     }
-    const uint64_t elapsedMs = GetTickCount64() - beginMs;
-    if (elapsedMs >= kSlowFrameTraceThresholdMs) {
+    perf.stateRestoreMs = PerfNowMs() - stageBeginMs;
+    perf.totalMs = PerfNowMs() - beginMs;
+    const bool slow = perf.totalMs >= static_cast<double>(kSlowFrameTraceThresholdMs);
+    AccumulateUiFramePerf(perf, slow);
+    if (slow) {
         const bool firstSlowFrame = !slowFrameSeen_;
         slowFrameSeen_ = true;
         debuglog::WriteInfo(
-            "[ui] full_ui frame slow: %llums first=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d swallowMouse=%d drawCur=%d helperRectsReady=%d helperRects=%zu resetMouse=%d switchedSurface=%d",
-            static_cast<unsigned long long>(elapsedMs),
+            "[ui][perf] full_ui slow total=%.2fms first=%d state=%.2fms new=%.2fms prep=%.2fms ui=%.2fms render=%.2fms draw=%.2fms restore=%.2fms drawSkip=%d win=%d vtx=%d idx=%d cmdLists=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d swallowMouse=%d drawCur=%d helperRectsReady=%d helperRects=%zu resetMouse=%d switchedSurface=%d",
+            perf.totalMs,
             firstSlowFrame ? 1 : 0,
+            perf.stateBackupMs,
+            perf.backendNewFrameMs,
+            perf.prepareFrameMs,
+            perf.renderUiMs,
+            perf.imguiRenderMs,
+            perf.renderDrawMs,
+            perf.stateRestoreMs,
+            perf.drawSkipped ? 1 : 0,
+            perf.windows,
+            perf.vertices,
+            perf.indices,
+            perf.cmdLists,
             menuOpen_ ? 1 : 0,
             auxiliaryVisible ? 1 : 0,
             wantsInputRouting ? 1 : 0,
@@ -1939,11 +2158,13 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
             if (mouseMessage) {
                 self_->UpdateMouseSwallowLatch(message, wparam, swallowMouseMessage);
             }
-            if (message != WM_MOUSEMOVE) {
-                debuglog::WriteInfo(
-                    "[ui] binder swallowed msg=%u wParam=%p",
-                    static_cast<unsigned>(message),
-                    reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)));
+            if constexpr (kVerboseUiTraceEnabled) {
+                if (message != WM_MOUSEMOVE) {
+                    debuglog::WriteInfo(
+                        "[ui] binder swallowed msg=%u wParam=%p",
+                        static_cast<unsigned>(message),
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)));
+                }
             }
             return TRUE;
         }
@@ -1971,20 +2192,22 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
                 TraceWheelMessage(message, wparam, wantsUiCursor, io);
                 if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN
                     || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP) {
-                    const bool eatMouse = mouseMessage && swallowMouseMessage;
-                    const int clientX = GET_X_LPARAM(lparam);
-                    const int clientY = GET_Y_LPARAM(lparam);
-                    debuglog::WriteInfo(
-                        "[ui] wnd btn msg=%u client=(%d,%d) swallowed=%d helperHit=%d latch=0x%X wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
-                        static_cast<unsigned>(message),
-                        clientX,
-                        clientY,
-                        eatMouse ? 1 : 0,
-                        swallowMouseMessage ? 1 : 0,
-                        static_cast<unsigned>(self_->mouseSwallowLatchMask_),
-                        wantsUiCursor ? 1 : 0,
-                        io.WantCaptureMouse ? 1 : 0,
-                        wantsTextInput ? 1 : 0);
+                    if constexpr (kVerboseUiTraceEnabled) {
+                        const bool eatMouse = mouseMessage && swallowMouseMessage;
+                        const int clientX = GET_X_LPARAM(lparam);
+                        const int clientY = GET_Y_LPARAM(lparam);
+                        debuglog::WriteInfo(
+                            "[ui] wnd btn msg=%u client=(%d,%d) swallowed=%d helperHit=%d latch=0x%X wantsUiCur=%d WantCapMouse=%d wantTxt=%d",
+                            static_cast<unsigned>(message),
+                            clientX,
+                            clientY,
+                            eatMouse ? 1 : 0,
+                            swallowMouseMessage ? 1 : 0,
+                            static_cast<unsigned>(self_->mouseSwallowLatchMask_),
+                            wantsUiCursor ? 1 : 0,
+                            io.WantCaptureMouse ? 1 : 0,
+                            wantsTextInput ? 1 : 0);
+                    }
                     // UI курсор есть, а ImGui не просит мышь — типичный «тусклый» кадр; снимок внутреннего состояния.
                     static uint64_t s_lastAnomalyMs = 0;
                     const uint64_t nowBtn = GetTickCount64();

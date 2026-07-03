@@ -219,6 +219,8 @@ struct HudElement {
 
     std::string cachedText{};
     std::string cachedImagePath{};
+    std::string cachedIconName{};
+    std::string cachedIconGlyph{};
     float cachedNumber = 0.0f;
     bool noteMissing = false;
 };
@@ -2720,7 +2722,7 @@ struct HudModule::Impl {
         const float fontSize = std::max(1.0f, static_cast<float>(element.data.fontSize) * scale);
         const float lineHeight = fontSize * 1.18f;
         const ImVec4 clip(rect.Min.x, rect.Min.y, rect.Max.x, rect.Max.y);
-        std::string text = element.cachedText;
+        const std::string& text = element.cachedText;
         std::size_t start = 0;
         float y = rect.Min.y;
         while (start <= text.size() && y < rect.Max.y) {
@@ -2837,8 +2839,12 @@ struct HudModule::Impl {
             std::max(1.0f, element.style.strokeSize * scale));
     }
 
-    void DrawIconElement(ImDrawList* drawList, const HudElement& element, const ImRect& rect, float scale) const {
-        const std::string icon = ResolveHudIconGlyph(element.data.icon);
+    void DrawIconElement(ImDrawList* drawList, HudElement& element, const ImRect& rect, float scale) const {
+        if (element.cachedIconName != element.data.icon || element.cachedIconGlyph.empty()) {
+            element.cachedIconName = element.data.icon;
+            element.cachedIconGlyph = ResolveHudIconGlyph(element.data.icon);
+        }
+        const std::string& icon = element.cachedIconGlyph;
         ImFont* font = ImGui::GetFont();
         const float fontSize = std::min(rect.GetHeight(), std::max(1.0f, static_cast<float>(element.data.fontSize) * scale));
         const ImVec2 size = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, icon.c_str());
@@ -2911,7 +2917,7 @@ struct HudModule::Impl {
         }
     }
 
-    std::vector<HudElement*> ElementsByZ(HudWidget& widget, bool descending = false) {
+    const std::vector<HudElement*>& ElementsByZ(HudWidget& widget, bool descending = false) {
         std::vector<HudElement*>* cache = descending ? &widget.elementsByZDescCache : &widget.elementsByZAscCache;
         bool* dirty = descending ? &widget.elementsByZDescDirty : &widget.elementsByZAscDirty;
         if (*dirty || cache->size() != widget.elements.size()) {
@@ -2926,10 +2932,12 @@ struct HudModule::Impl {
             *dirty = false;
         }
 
-        std::vector<HudElement*> result;
-        result.reserve(cache->size());
-        result.insert(result.end(), cache->begin(), cache->end());
-        return result;
+        return *cache;
+    }
+
+    std::vector<HudElement*> ElementsByZSnapshot(HudWidget& widget, bool descending = false) {
+        const std::vector<HudElement*>& cache = ElementsByZ(widget, descending);
+        return std::vector<HudElement*>(cache.begin(), cache.end());
     }
 
     void DrawCanvas(HudWidget& widget, IDirect3DDevice9* device, const ImVec2& origin, float scale, bool editor) {
@@ -4184,7 +4192,7 @@ struct HudModule::Impl {
                 const float rowH = ScaleUi(32.0f);
                 const float iconSide = ScaleUi(24.0f);
                 const float gap = ScaleUi(5.0f);
-                for (HudElement* element : ElementsByZ(widget, true)) {
+                for (HudElement* element : ElementsByZSnapshot(widget, true)) {
                     ImGui::PushID(element->id.c_str());
                     const ImVec2 rowMin = ImGui::GetCursorScreenPos();
                     const float rowW = ImGui::GetContentRegionAvail().x;

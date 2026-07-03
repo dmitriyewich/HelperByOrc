@@ -4,6 +4,8 @@
 
 #include <imgui.h>
 
+#include <array>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -71,6 +73,14 @@ struct State {
     std::string customValue{};
     std::string customError{};
     bool customDeleteConfirmOpen = false;
+
+    std::vector<int> visibleCache{};
+    std::string visibleSearchCache{};
+    Category visibleCategoryCache = Category::All;
+    UiLanguage visibleLanguageCache = UiLanguage::Russian;
+    std::size_t visibleEntriesHash = 0;
+    std::array<int, 10> categoryCountsCache{};
+    std::size_t categoryCountsEntriesHash = 0;
 };
 
 struct Options {

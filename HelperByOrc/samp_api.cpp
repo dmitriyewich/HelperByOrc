@@ -2,6 +2,7 @@
 
 #include "debug_log.h"
 #include "feature_flags.h"
+#include "module_signature_scanner.h"
 #include "text_encoding.h"
 
 #include <sampapi/0.3.7-R1/CRemotePlayer.h>
@@ -830,6 +831,21 @@ std::uintptr_t FindAsciiStringLiteral(
     }
 
     return 0;
+}
+
+std::uintptr_t FindRuntimeAsciiStringLiteral(HMODULE module, std::string_view value) {
+    if (module == nullptr || value.empty()) {
+        return 0;
+    }
+
+    std::vector<module_signature_scanner::PatternByte> pattern;
+    pattern.reserve(value.size() + 1);
+    for (const unsigned char ch : value) {
+        pattern.push_back(module_signature_scanner::PatternByte{ ch, false });
+    }
+    pattern.push_back(module_signature_scanner::PatternByte{ 0, false });
+
+    return module_signature_scanner::FindPattern(module, pattern);
 }
 
 std::vector<std::uintptr_t> FindPushImmediateRefs(

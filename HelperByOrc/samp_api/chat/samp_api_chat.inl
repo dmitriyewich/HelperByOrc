@@ -949,7 +949,16 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         return false;
     }
 
-    const std::uintptr_t inputLabel = FindAsciiStringLiteral(sections, "###input");
+    std::uintptr_t inputLabel = FindAsciiStringLiteral(sections, "###input");
+    if (inputLabel == 0) {
+        inputLabel = FindRuntimeAsciiStringLiteral(module, "###input");
+        if (inputLabel != 0) {
+            debuglog::WriteInfo(
+                "SampApi::_chat.asi input discovery used runtime scan for ###input label=0x%08X",
+                static_cast<unsigned int>(inputLabel));
+        }
+    }
+
     if (inputLabel == 0) {
         debuglog::WriteError("SampApi::_chat.asi input discovery failed: ###input was not found");
         return false;

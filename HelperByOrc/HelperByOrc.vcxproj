@@ -152,6 +152,7 @@
     <ClCompile Include="json_utils.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="markup_renderer.cpp" />
+    <ClCompile Include="module_signature_scanner.cpp" />
     <ClCompile Include="mod_app.cpp" />
     <ClCompile Include="notification_manager.cpp" />
     <ClCompile Include="notepad_module.cpp" />
@@ -220,6 +221,7 @@
     <ClInclude Include="json_utils.h" />
     <ClInclude Include="markup_renderer.h" />
     <ClInclude Include="minhook_utils.h" />
+    <ClInclude Include="module_signature_scanner.h" />
     <ClInclude Include="mod_app.h" />
     <ClInclude Include="notification_manager.h" />
     <ClInclude Include="notepad_module.h" />

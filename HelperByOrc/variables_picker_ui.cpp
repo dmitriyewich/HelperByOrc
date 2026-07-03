@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cmath>
 #include <cfloat>
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -40,6 +41,64 @@ struct VisualStyle {
     ImVec4 warn{};
     ImVec4 danger{};
 };
+
+constexpr std::size_t kVariablesCategoryCount = 10;
+
+constexpr std::size_t FnvPrimeValue() {
+    if constexpr (sizeof(std::size_t) == 8) {
+        return 1099511628211ull;
+    } else {
+        return 16777619u;
+    }
+}
+
+constexpr std::size_t FnvOffsetValue() {
+    if constexpr (sizeof(std::size_t) == 8) {
+        return 1469598103934665603ull;
+    } else {
+        return 2166136261u;
+    }
+}
+
+std::size_t HashCombine(std::size_t hash, std::string_view value) {
+    constexpr std::size_t kFnvPrime = FnvPrimeValue();
+    for (const unsigned char ch : value) {
+        hash ^= static_cast<std::size_t>(ch);
+        hash *= kFnvPrime;
+    }
+    return hash;
+}
+
+std::size_t HashCombine(std::size_t hash, std::size_t value) {
+    constexpr std::size_t kFnvPrime = FnvPrimeValue();
+    for (std::size_t i = 0; i < sizeof(value); ++i) {
+        hash ^= static_cast<std::size_t>((value >> (i * 8)) & 0xFFu);
+        hash *= kFnvPrime;
+    }
+    return hash;
+}
+
+std::size_t EntriesHash(const std::vector<Entry>& entries) {
+    std::size_t hash = FnvOffsetValue();
+    hash = HashCombine(hash, entries.size());
+    for (const Entry& entry : entries) {
+        hash = HashCombine(hash, static_cast<std::size_t>(entry.kind));
+        hash = HashCombine(hash, static_cast<std::size_t>(entry.category));
+        hash = HashCombine(hash, entry.id);
+        hash = HashCombine(hash, entry.name);
+        hash = HashCombine(hash, entry.token);
+        hash = HashCombine(hash, entry.example);
+        hash = HashCombine(hash, static_cast<std::size_t>(entry.descriptionText));
+        hash = HashCombine(hash, entry.description);
+        hash = HashCombine(hash, entry.value);
+        hash = HashCombine(hash, entry.action ? 1u : 0u);
+    }
+    return hash;
+}
+
+std::size_t CategoryIndex(Category category) {
+    return static_cast<std::size_t>(category);
+}
 
 float ScaleUi(float value) {
     return UiSettings::Instance().Scale(value);
@@ -502,27 +561,49 @@ bool EntryMatchesSearch(const Entry& entry, std::string_view loweredQuery, UiSet
     return ToLowerAscii(haystack).find(loweredQuery) != std::string::npos;
 }
 
-std::vector<int> BuildVisibleIndices(const std::vector<Entry>& entries, const State& state, UiSettings& ui) {
+const std::vector<int>& VisibleIndices(const std::vector<Entry>& entries, State& state, UiSettings& ui, std::size_t entriesHash) {
     const std::string query = ToLowerAscii(TrimAscii(state.search));
-    std::vector<int> visible;
-    visible.reserve(entries.size());
+    if (state.visibleEntriesHash == entriesHash
+        && state.visibleSearchCache == query
+        && state.visibleCategoryCache == state.activeCategory
+        && state.visibleLanguageCache == ui.Language()) {
+        return state.visibleCache;
+    }
+
+    state.visibleEntriesHash = entriesHash;
+    state.visibleSearchCache = query;
+    state.visibleCategoryCache = state.activeCategory;
+    state.visibleLanguageCache = ui.Language();
+    state.visibleCache.clear();
+    state.visibleCache.reserve(entries.size());
     for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
         const Entry& entry = entries[static_cast<std::size_t>(i)];
         if (EntryMatchesCategory(entry, state.activeCategory) && EntryMatchesSearch(entry, query, ui)) {
-            visible.push_back(i);
+            state.visibleCache.push_back(i);
         }
     }
-    return visible;
+    return state.visibleCache;
 }
 
-int CountCategory(const std::vector<Entry>& entries, Category category) {
-    if (category == Category::All) {
-        return static_cast<int>(entries.size());
+int CountCategory(const std::vector<Entry>& entries, State& state, Category category, std::size_t entriesHash) {
+    if (state.categoryCountsEntriesHash != entriesHash) {
+        state.categoryCountsCache.fill(0);
+        state.categoryCountsCache[CategoryIndex(Category::All)] = static_cast<int>(entries.size());
+        for (const Entry& entry : entries) {
+            const std::size_t index = CategoryIndex(entry.category);
+            if (index < kVariablesCategoryCount) {
+                ++state.categoryCountsCache[index];
+            }
+        }
+        state.categoryCountsEntriesHash = entriesHash;
     }
 
-    return static_cast<int>(std::count_if(entries.begin(), entries.end(), [&](const Entry& entry) {
-        return EntryMatchesCategory(entry, category);
-    }));
+    if (category == Category::All) {
+        return state.categoryCountsCache[CategoryIndex(Category::All)];
+    }
+
+    const std::size_t index = CategoryIndex(category);
+    return index < kVariablesCategoryCount ? state.categoryCountsCache[index] : 0;
 }
 
 std::string CategoryChipLabel(Category category, int count, UiSettings& ui) {
@@ -576,7 +657,13 @@ bool DrawCategoryChip(Category category, int count, State& state, const VisualSt
     return clicked;
 }
 
-void DrawCommandBar(State& state, const std::vector<Entry>& entries, const Options& options, const std::vector<int>& visible, Request& request) {
+void DrawCommandBar(
+    State& state,
+    const std::vector<Entry>& entries,
+    const Options& options,
+    const std::vector<int>& visible,
+    std::size_t entriesHash,
+    Request& request) {
     UiSettings& ui = UiSettings::Instance();
     const VisualStyle visual = StyleTokens();
     const float panelHeight = options.allowCustomEdit ? ScaleUi(96.0f) : ScaleUi(70.0f);
@@ -632,7 +719,7 @@ void DrawCommandBar(State& state, const std::vector<Entry>& entries, const Optio
     const float startX = ImGui::GetCursorPosX();
     const float wrapX = ImGui::GetContentRegionAvail().x;
     for (Category category : categories) {
-        const int count = CountCategory(entries, category);
+        const int count = CountCategory(entries, state, category, entriesHash);
         if (category == Category::Parameters && count == 0) {
             continue;
         }
@@ -768,9 +855,13 @@ void DrawListPane(State& state, const std::vector<Entry>& entries, const std::ve
         if (visible.empty()) {
             ImGui::TextDisabled("%s", ui.Text(UiText::VariablesNoMatches));
         } else {
-            int rowIndex = 0;
-            for (const int index : visible) {
-                DrawEntryRow(state, entries, index, rowIndex++, options, request);
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(visible.size()), ScaleUi(50.0f));
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const int index = visible[static_cast<std::size_t>(row)];
+                    DrawEntryRow(state, entries, index, row, options, request);
+                }
             }
         }
     }
@@ -1150,7 +1241,8 @@ const char* CategoryLabel(Category category, UiSettings& ui) {
 Request Draw(State& state, const std::vector<Entry>& entries, const Options& options) {
     UiSettings& ui = UiSettings::Instance();
     Request request;
-    const std::vector<int> visible = BuildVisibleIndices(entries, state, ui);
+    const std::size_t entriesHash = EntriesHash(entries);
+    const std::vector<int>& visible = VisibleIndices(entries, state, ui, entriesHash);
     EnsureSelection(state, entries, visible);
 
     ImGui::PushID(options.id);
@@ -1158,7 +1250,7 @@ Request Draw(State& state, const std::vector<Entry>& entries, const Options& opt
     const float commandHeight = options.allowCustomEdit ? ScaleUi(102.0f) : ScaleUi(76.0f);
     const float gap = ScaleUi(8.0f);
     const ImVec2 commandSize(size.x, commandHeight);
-    DrawCommandBar(state, entries, options, visible, request);
+    DrawCommandBar(state, entries, options, visible, entriesHash, request);
     ImGui::Dummy(ImVec2(0.0f, gap));
 
     const float bodyHeight = std::max(ScaleUi(220.0f), size.y - commandSize.y - gap);

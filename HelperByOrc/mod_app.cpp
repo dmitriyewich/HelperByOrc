@@ -1672,6 +1672,15 @@ void ModApp::Tick() {
 }
 
 void ModApp::ApplyMainStyle(float scale) const {
+    static ImGuiContext* s_appliedContext = nullptr;
+    static float s_appliedScale = -1.0f;
+    ImGuiContext* currentContext = ImGui::GetCurrentContext();
+    if (s_appliedContext == currentContext && std::abs(s_appliedScale - scale) <= 0.0005f) {
+        return;
+    }
+    s_appliedContext = currentContext;
+    s_appliedScale = scale;
+
     ImGuiStyle& style = ImGui::GetStyle();
     ImGui::StyleColorsDark();
     ImVec4* colors = style.Colors;
