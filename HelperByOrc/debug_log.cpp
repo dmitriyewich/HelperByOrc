@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string_view>
 
 namespace debuglog {
@@ -10,6 +11,7 @@ namespace {
 
 HMODULE g_module = nullptr;
 Level g_level = Level::Info;
+std::mutex g_mutex;
 
 bool IsErrorLike(std::string_view message) {
     return message.find("FAILED") != std::string_view::npos
@@ -32,6 +34,7 @@ void WriteInternal(Level level, bool force, const char* format, va_list args) {
     char message[4096]{};
     std::vsnprintf(message, sizeof(message), format, args);
 
+    std::lock_guard lock(g_mutex);
     if (!force && !ShouldWrite(level)) {
         return;
     }
@@ -68,18 +71,22 @@ void WriteInternal(Level level, bool force, const char* format, va_list args) {
 } // namespace
 
 void Initialize(HMODULE module) {
+    std::lock_guard lock(g_mutex);
     g_module = module;
 }
 
 void Shutdown() {
+    std::lock_guard lock(g_mutex);
     g_module = nullptr;
 }
 
 void SetLevel(Level level) {
+    std::lock_guard lock(g_mutex);
     g_level = level;
 }
 
 Level GetLevel() {
+    std::lock_guard lock(g_mutex);
     return g_level;
 }
 

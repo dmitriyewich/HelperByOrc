@@ -5,12 +5,14 @@
 
 #include "json_utils.h"
 
+#include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 struct ConfigProfile {
@@ -47,6 +49,7 @@ public:
     bool RenameProfile(std::string_view profileId, std::string_view name, std::string* error = nullptr);
     bool DeleteProfile(std::string_view profileId, std::string* error = nullptr);
     void ProcessPendingWrites();
+    void FlushPendingWrites();
 
 private:
     void LoadProfilesLocked(HMODULE module);
@@ -54,7 +57,11 @@ private:
     void RefreshProfileStateLocked();
     void EnsureLoadedLocked();
     bool ProcessPendingWritesOnce();
-    bool WriteSnapshot(const jsonutil::JsonObject& snapshot) const;
+    bool WriteSnapshot(const jsonutil::JsonObject& snapshot);
+    void StartSnapshotWriter();
+    void StopSnapshotWriter();
+    void FlushSnapshotWriter();
+    void SnapshotWriterLoop();
 
     std::filesystem::path configPath_{};
     std::filesystem::path profilesRoot_{};
@@ -64,5 +71,18 @@ private:
     mutable std::mutex mutex_{};
     bool loaded_ = false;
     jsonutil::JsonObject root_{};
+    std::string lastSerializedSnapshot_{};
+    std::string queuedSerializedSnapshot_{};
     std::deque<Mutation> pendingMutations_{};
+
+    std::mutex writerMutex_{};
+    std::condition_variable writerCv_{};
+    std::condition_variable writerIdleCv_{};
+    std::thread writerThread_{};
+    bool writerStop_ = false;
+    bool writerBusy_ = false;
+    bool writerHasPending_ = false;
+    std::filesystem::path writerPendingPath_{};
+    std::string writerPendingOutput_{};
+    double writerPendingSerializeMs_ = 0.0;
 };

@@ -243,9 +243,35 @@ double PerfNowMs() {
     return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
 }
 
+constexpr std::size_t kFrameSurfaceCount = 6;
+
+std::size_t FrameSurfaceIndex(ImGuiOverlay::FrameSurface surface) {
+    const auto index = static_cast<std::size_t>(surface);
+    return index < kFrameSurfaceCount ? index : static_cast<std::size_t>(ImGuiOverlay::FrameSurface::Auxiliary);
+}
+
+const char* FrameSurfaceName(ImGuiOverlay::FrameSurface surface) {
+    switch (surface) {
+    case ImGuiOverlay::FrameSurface::Idle:
+        return "idle";
+    case ImGuiOverlay::FrameSurface::HudOnly:
+        return "hud_only";
+    case ImGuiOverlay::FrameSurface::QuickMenu:
+        return "quick_menu";
+    case ImGuiOverlay::FrameSurface::MainMenu:
+        return "main_menu";
+    case ImGuiOverlay::FrameSurface::Mixed:
+        return "mixed";
+    case ImGuiOverlay::FrameSurface::Auxiliary:
+    default:
+        return "auxiliary";
+    }
+}
+
 struct UiFramePerf {
     bool fullUi = false;
     bool drawSkipped = false;
+    ImGuiOverlay::FrameSurface surface = ImGuiOverlay::FrameSurface::Idle;
     double stateBackupMs = 0.0;
     double backendNewFrameMs = 0.0;
     double prepareFrameMs = 0.0;
@@ -293,6 +319,7 @@ void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
     static int s_maxVertices = 0;
     static int s_maxIndices = 0;
     static int s_maxCmdLists = 0;
+    static unsigned s_surfaceFrames[kFrameSurfaceCount] = {};
 
     const uint64_t now = GetTickCount64();
     if (s_windowStartMs == 0) {
@@ -314,6 +341,7 @@ void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
     if (perf.drawSkipped) {
         ++s_drawSkippedFrames;
     }
+    ++s_surfaceFrames[FrameSurfaceIndex(perf.surface)];
 
     s_maxStateBackupMs = std::max(s_maxStateBackupMs, perf.stateBackupMs);
     s_maxBackendNewFrameMs = std::max(s_maxBackendNewFrameMs, perf.backendNewFrameMs);
@@ -333,11 +361,17 @@ void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
 
     if (s_fullFrames > 0 || s_slowFrames > 0) {
         debuglog::WriteInfo(
-            "[ui][perf] 5s full=%u idle=%u slow=%u drawSkip=%u avgFull=%.2fms maxFull=%.2fms avgIdle=%.2fms maxIdle=%.2fms maxState=%.2fms maxNew=%.2fms maxPrep=%.2fms maxUi=%.2fms maxRender=%.2fms maxDraw=%.2fms maxRestore=%.2fms maxWin=%d maxVtx=%d maxIdx=%d maxCmdLists=%d",
+            "[ui][perf] 5s full=%u idle=%u slow=%u drawSkip=%u surfaceIdle=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avgFull=%.2fms maxFull=%.2fms avgIdle=%.2fms maxIdle=%.2fms maxState=%.2fms maxNew=%.2fms maxPrep=%.2fms maxUi=%.2fms maxRender=%.2fms maxDraw=%.2fms maxRestore=%.2fms maxWin=%d maxVtx=%d maxIdx=%d maxCmdLists=%d",
             s_fullFrames,
             s_idleFrames,
             s_slowFrames,
             s_drawSkippedFrames,
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::Idle)],
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::HudOnly)],
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::QuickMenu)],
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::MainMenu)],
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::Mixed)],
+            s_surfaceFrames[FrameSurfaceIndex(ImGuiOverlay::FrameSurface::Auxiliary)],
             s_fullFrames > 0 ? s_fullTotalMs / static_cast<double>(s_fullFrames) : 0.0,
             s_maxFullMs,
             s_idleFrames > 0 ? s_idleTotalMs / static_cast<double>(s_idleFrames) : 0.0,
@@ -375,6 +409,9 @@ void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
     s_maxVertices = 0;
     s_maxIndices = 0;
     s_maxCmdLists = 0;
+    for (unsigned& frames : s_surfaceFrames) {
+        frames = 0;
+    }
 }
 
 bool IsPopupTransitionNoCaptureExpected(const ImGuiIO& io) {
@@ -785,6 +822,10 @@ void ImGuiOverlay::SetAuxiliaryInputCaptureCallback(VisibilityCallback callback)
 
 void ImGuiOverlay::SetAuxiliaryInputRoutingCallback(VisibilityCallback callback) {
     auxiliaryInputRoutingCallback_ = std::move(callback);
+}
+
+void ImGuiOverlay::SetFrameSurfaceCallback(FrameSurfaceCallback callback) {
+    frameSurfaceCallback_ = std::move(callback);
 }
 
 void ImGuiOverlay::SetInputPipelineGateCallback(GateCallback callback) {
@@ -1470,6 +1511,19 @@ bool ImGuiOverlay::IsAuxiliaryUiVisible() const {
     return auxiliaryUiVisibleCallback_ ? auxiliaryUiVisibleCallback_() : false;
 }
 
+ImGuiOverlay::FrameSurface ImGuiOverlay::CurrentFrameSurface(bool hasOverlayUi, bool auxiliaryVisible) const {
+    if (!hasOverlayUi) {
+        return FrameSurface::Idle;
+    }
+    if (frameSurfaceCallback_) {
+        return frameSurfaceCallback_();
+    }
+    if (menuOpen_) {
+        return auxiliaryVisible ? FrameSurface::Mixed : FrameSurface::MainMenu;
+    }
+    return auxiliaryVisible ? FrameSurface::Auxiliary : FrameSurface::Idle;
+}
+
 bool ImGuiOverlay::CanRouteInput() const {
     return inputRoutingAllowed_ && WantsInputRouting();
 }
@@ -1792,6 +1846,7 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
     ApplyInputCaptureState(false);
 
     UiFramePerf perf{};
+    perf.surface = ImGuiOverlay::FrameSurface::Idle;
     const double beginMs = PerfNowMs();
     double stageBeginMs = beginMs;
     ImGui_ImplDX9_NewFrame();
@@ -1847,6 +1902,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
+    const FrameSurface frameSurface = CurrentFrameSurface(hasOverlayUi, auxiliaryVisible);
     const bool wantsUiCursor = WantsUiCursor();
     const bool wantsInputRouting = WantsInputRouting();
     const bool switchedUiSurface = wantsInputRouting
@@ -1866,9 +1922,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     UiFramePerf perf{};
     perf.fullUi = true;
+    perf.surface = frameSurface;
     const double beginMs = PerfNowMs();
     double stageBeginMs = beginMs;
-    TraceUiRenderAndInputSnapshot("full_ui");
+    TraceUiRenderAndInputSnapshot(FrameSurfaceName(frameSurface));
 
     IDirect3DStateBlock9* stateBlock = nullptr;
     IDirect3DVertexDeclaration9* vertexDeclaration = nullptr;
@@ -1994,7 +2051,8 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
         const bool firstSlowFrame = !slowFrameSeen_;
         slowFrameSeen_ = true;
         debuglog::WriteInfo(
-            "[ui][perf] full_ui slow total=%.2fms first=%d state=%.2fms new=%.2fms prep=%.2fms ui=%.2fms render=%.2fms draw=%.2fms restore=%.2fms drawSkip=%d win=%d vtx=%d idx=%d cmdLists=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d swallowMouse=%d drawCur=%d helperRectsReady=%d helperRects=%zu resetMouse=%d switchedSurface=%d",
+            "[ui][perf] %s slow total=%.2fms first=%d state=%.2fms new=%.2fms prep=%.2fms ui=%.2fms render=%.2fms draw=%.2fms restore=%.2fms drawSkip=%d win=%d vtx=%d idx=%d cmdLists=%d menu=%d aux=%d wantRoute=%d routeAllowed=%d canRoute=%d swallowMouse=%d drawCur=%d helperRectsReady=%d helperRects=%zu resetMouse=%d switchedSurface=%d",
+            FrameSurfaceName(frameSurface),
             perf.totalMs,
             firstSlowFrame ? 1 : 0,
             perf.stateBackupMs,
@@ -2305,6 +2363,7 @@ void ImGuiOverlay::Shutdown() {
 
     menuToggleWasDown_ = false;
     inputCaptureChangedCallback_ = nullptr;
+    frameSurfaceCallback_ = nullptr;
     slowFrameSeen_ = false;
     self_ = nullptr;
     debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown done");

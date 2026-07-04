@@ -94,6 +94,24 @@ struct RowItem {
     std::string label{};
 };
 
+struct RenderedNoteCache {
+    std::string noteId{};
+    std::uint64_t updatedAt = 0;
+    bool applyTags = false;
+    const TagsModule* tagsModule = nullptr;
+    std::string source{};
+    std::string rendered{};
+    bool valid = false;
+};
+
+struct RenderedEditCache {
+    bool applyTags = false;
+    const TagsModule* tagsModule = nullptr;
+    std::string source{};
+    std::string rendered{};
+    bool valid = false;
+};
+
 struct ImGuiStringUserData {
     std::string* value = nullptr;
     int* cursor = nullptr;
@@ -110,6 +128,24 @@ float ScaleUi(float value) {
 
 ImVec2 ScaleUi(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
+}
+
+double NotepadPerfNowMs() {
+    static const double s_invFrequencyMs = [] {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            return 0.0;
+        }
+        return 1000.0 / static_cast<double>(frequency.QuadPart);
+    }();
+
+    if (s_invFrequencyMs <= 0.0) {
+        return static_cast<double>(GetTickCount64());
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
 }
 
 std::string TrimAscii(std::string_view value) {
@@ -496,6 +532,9 @@ struct NotepadModule::Impl {
     std::string statusMessage;
     MarkupRenderer renderer;
     icon_picker::State iconPickerState{};
+    RenderedNoteCache renderedNoteCache{};
+    RenderedEditCache renderedEditCache{};
+    RenderStats lastRenderStats{};
     std::uint64_t idCounter = 0;
 
     void OnProcessAttach(HMODULE moduleHandle) {
@@ -514,6 +553,9 @@ struct NotepadModule::Impl {
         notes.clear();
         order.clear();
         iconPickerState = {};
+        renderedNoteCache = {};
+        renderedEditCache = {};
+        lastRenderStats = {};
     }
 
     void ReloadConfig() {
@@ -529,6 +571,9 @@ struct NotepadModule::Impl {
         editDirty = false;
         editBuffer.clear();
         iconPickerState = {};
+        renderedNoteCache = {};
+        renderedEditCache = {};
+        lastRenderStats = {};
     }
 
     void FlushPendingEdits() {
@@ -682,6 +727,8 @@ struct NotepadModule::Impl {
         editing = false;
         editDirty = false;
         editBuffer.clear();
+        renderedNoteCache = {};
+        renderedEditCache = {};
         EnsureAssetDirectories();
 
         const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kNotepadSectionName);
@@ -1233,16 +1280,79 @@ struct NotepadModule::Impl {
         return result;
     }
 
-    std::string RenderedText(const NoteEntry& note) const {
+    const std::string& RenderedText(const NoteEntry& note) {
         if (!applyTags || !tagsModule) {
+            ++lastRenderStats.previewCacheHits;
+            lastRenderStats.renderedBytes = note.text.size();
             return note.text;
         }
-        return tagsModule->ExpandText(note.text);
+        if (renderedNoteCache.valid
+            && renderedNoteCache.noteId == note.id
+            && renderedNoteCache.updatedAt == note.updatedAt
+            && renderedNoteCache.applyTags == applyTags
+            && renderedNoteCache.tagsModule == tagsModule
+            && renderedNoteCache.source == note.text) {
+            ++lastRenderStats.previewCacheHits;
+            lastRenderStats.renderedBytes = renderedNoteCache.rendered.size();
+            return renderedNoteCache.rendered;
+        }
+
+        const double beginMs = NotepadPerfNowMs();
+        renderedNoteCache.noteId = note.id;
+        renderedNoteCache.updatedAt = note.updatedAt;
+        renderedNoteCache.applyTags = applyTags;
+        renderedNoteCache.tagsModule = tagsModule;
+        renderedNoteCache.source = note.text;
+        renderedNoteCache.rendered = tagsModule->ExpandText(note.text);
+        renderedNoteCache.valid = true;
+        lastRenderStats.tagsMs += NotepadPerfNowMs() - beginMs;
+        lastRenderStats.renderedBytes = renderedNoteCache.rendered.size();
+        ++lastRenderStats.previewCacheMisses;
+        return renderedNoteCache.rendered;
+    }
+
+    const std::string& RenderedEditText() {
+        if (!applyTags || !tagsModule) {
+            ++lastRenderStats.previewCacheHits;
+            lastRenderStats.renderedBytes = editBuffer.size();
+            return editBuffer;
+        }
+        if (renderedEditCache.valid
+            && renderedEditCache.applyTags == applyTags
+            && renderedEditCache.tagsModule == tagsModule
+            && renderedEditCache.source == editBuffer) {
+            ++lastRenderStats.previewCacheHits;
+            lastRenderStats.renderedBytes = renderedEditCache.rendered.size();
+            return renderedEditCache.rendered;
+        }
+
+        const double beginMs = NotepadPerfNowMs();
+        renderedEditCache.applyTags = applyTags;
+        renderedEditCache.tagsModule = tagsModule;
+        renderedEditCache.source = editBuffer;
+        renderedEditCache.rendered = tagsModule->ExpandText(editBuffer);
+        renderedEditCache.valid = true;
+        lastRenderStats.tagsMs += NotepadPerfNowMs() - beginMs;
+        lastRenderStats.renderedBytes = renderedEditCache.rendered.size();
+        ++lastRenderStats.previewCacheMisses;
+        return renderedEditCache.rendered;
     }
 
     void DrawMainTab(IDirect3DDevice9* device) {
+        const double totalBeginMs = NotepadPerfNowMs();
+        lastRenderStats = {};
+        double stageBeginMs = totalBeginMs;
         EnsureLoaded();
+        lastRenderStats.loadMs = NotepadPerfNowMs() - stageBeginMs;
+        lastRenderStats.folders = static_cast<int>(folders.size());
+        lastRenderStats.notes = static_cast<int>(notes.size());
+        lastRenderStats.editing = editing;
+        lastRenderStats.copyLineMode = copyLineMode;
+        lastRenderStats.applyTags = applyTags;
+
+        stageBeginMs = NotepadPerfNowMs();
         HandleKeyboardShortcuts();
+        lastRenderStats.shortcutsMs = NotepadPerfNowMs() - stageBeginMs;
 
         UiSettings& ui = UiSettings::Instance();
         ImGui::SeparatorText(ui.Text(UiText::TabNotepad));
@@ -1256,30 +1366,41 @@ struct NotepadModule::Impl {
         if (narrow) {
             const float navHeight = std::clamp(avail.y * 0.34f, ScaleUi(210.0f), ScaleUi(300.0f));
             if (ImGui::BeginChild("notepad_left_top", ImVec2(0.0f, navHeight), ImGuiChildFlags_None)) {
+                stageBeginMs = NotepadPerfNowMs();
                 DrawLeftPanel();
+                lastRenderStats.leftPanelMs += NotepadPerfNowMs() - stageBeginMs;
             }
             ImGui::EndChild();
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
             if (ImGui::BeginChild("notepad_right_bottom", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                stageBeginMs = NotepadPerfNowMs();
                 DrawRightPanel(device);
+                lastRenderStats.rightPanelMs += NotepadPerfNowMs() - stageBeginMs;
             }
             ImGui::EndChild();
         } else {
             const float leftWidth = std::clamp(avail.x * 0.30f, ScaleUi(260.0f), ScaleUi(340.0f));
             if (ImGui::BeginChild("notepad_left", ImVec2(leftWidth, 0.0f), ImGuiChildFlags_None)) {
+                stageBeginMs = NotepadPerfNowMs();
                 DrawLeftPanel();
+                lastRenderStats.leftPanelMs += NotepadPerfNowMs() - stageBeginMs;
             }
             ImGui::EndChild();
             ImGui::SameLine(0.0f, ScaleUi(10.0f));
             if (ImGui::BeginChild("notepad_right", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+                stageBeginMs = NotepadPerfNowMs();
                 DrawRightPanel(device);
+                lastRenderStats.rightPanelMs += NotepadPerfNowMs() - stageBeginMs;
             }
             ImGui::EndChild();
         }
 
+        stageBeginMs = NotepadPerfNowMs();
         DrawModals();
+        lastRenderStats.modalsMs = NotepadPerfNowMs() - stageBeginMs;
+        lastRenderStats.totalMs = NotepadPerfNowMs() - totalBeginMs;
     }
 
     void HandleKeyboardShortcuts() {
@@ -1683,16 +1804,19 @@ struct NotepadModule::Impl {
         }
         ImGui::Spacing();
         if (ImGui::BeginChild("notepad_preview_read", ImVec2(0.0f, 0.0f), false)) {
+            const double previewBeginMs = NotepadPerfNowMs();
             if (copyLineMode) {
                 DrawCopyLines(RenderedText(note));
             } else {
                 DrawPreviewText(RenderedText(note), device);
             }
+            lastRenderStats.readPreviewMs += NotepadPerfNowMs() - previewBeginMs;
         }
         ImGui::EndChild();
     }
 
     void DrawCopyLines(const std::string& text) {
+        const double beginMs = NotepadPerfNowMs();
         std::stringstream stream{ text };
         std::string line;
         int index = 0;
@@ -1708,6 +1832,7 @@ struct NotepadModule::Impl {
             }
             ImGui::PopID();
         }
+        lastRenderStats.copyLinesMs += NotepadPerfNowMs() - beginMs;
     }
 
     void DrawEditor(NoteEntry& note, IDirect3DDevice9* device) {
@@ -1752,7 +1877,9 @@ struct NotepadModule::Impl {
             }
             ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
             if (ImGui::BeginChild("notepad_preview_edit_vertical", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-                DrawPreviewText(applyTags && tagsModule ? tagsModule->ExpandText(editBuffer) : editBuffer, device);
+                const double previewBeginMs = NotepadPerfNowMs();
+                DrawPreviewText(RenderedEditText(), device);
+                lastRenderStats.editPreviewMs += NotepadPerfNowMs() - previewBeginMs;
             }
             ImGui::EndChild();
         } else {
@@ -1767,7 +1894,9 @@ struct NotepadModule::Impl {
             ImGui::SameLine();
             if (ImGui::BeginChild("notepad_preview_edit", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
                 ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
-                DrawPreviewText(applyTags && tagsModule ? tagsModule->ExpandText(editBuffer) : editBuffer, device);
+                const double previewBeginMs = NotepadPerfNowMs();
+                DrawPreviewText(RenderedEditText(), device);
+                lastRenderStats.editPreviewMs += NotepadPerfNowMs() - previewBeginMs;
             }
             ImGui::EndChild();
         }
@@ -1794,7 +1923,9 @@ struct NotepadModule::Impl {
     }
 
     void DrawPreviewText(const std::string& text, IDirect3DDevice9* device) {
+        const double beginMs = NotepadPerfNowMs();
         renderer.DrawText(text, device, ImagesDirectory());
+        lastRenderStats.drawPreviewMs += NotepadPerfNowMs() - beginMs;
     }
 
     void OpenRenameNoteModal(std::string_view id) {
@@ -2088,6 +2219,10 @@ void NotepadModule::SetTagsModule(TagsModule* tagsModule) {
 
 void NotepadModule::DrawMainTab(IDirect3DDevice9* device) {
     impl_->DrawMainTab(device);
+}
+
+NotepadModule::RenderStats NotepadModule::LastRenderStats() const {
+    return impl_->lastRenderStats;
 }
 
 bool NotepadModule::TryGetNote(std::string_view id, NoteContent& out) {

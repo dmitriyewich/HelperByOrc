@@ -52,6 +52,24 @@ constexpr int kUndoLimit = 50;
 constexpr float kVirtualWidth = 1920.0f;
 constexpr float kVirtualHeight = 1080.0f;
 
+double HudPerfNowMs() {
+    static const double s_invFrequencyMs = [] {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            return 0.0;
+        }
+        return 1000.0 / static_cast<double>(frequency.QuadPart);
+    }();
+
+    if (s_invFrequencyMs <= 0.0) {
+        return static_cast<double>(GetTickCount64());
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
 enum class SourceMode {
     Inline,
     NotepadNote,
@@ -221,7 +239,10 @@ struct HudElement {
     std::string cachedImagePath{};
     std::string cachedIconName{};
     std::string cachedIconGlyph{};
+    std::string cachedStaticSource{};
+    ElementType cachedStaticType = ElementType::Text;
     float cachedNumber = 0.0f;
+    bool cachedStaticValueReady = false;
     bool noteMissing = false;
 };
 
@@ -389,6 +410,10 @@ bool ContainsHudActionTag(std::string_view text) {
         }
     }
     return false;
+}
+
+bool MightContainHudTag(std::string_view text) {
+    return text.find('{') != std::string_view::npos || text.find('[') != std::string_view::npos;
 }
 
 int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
@@ -1482,6 +1507,8 @@ struct HudModule::Impl {
     std::string searchQuery;
     std::string statusMessage;
     MarkupRenderer renderer;
+    OverlayStats lastOverlayStats{};
+    EditorStats lastEditorStats{};
     std::uint64_t idCounter = 0;
     bool placementMode = false;
     std::string placementWidgetId;
@@ -1573,6 +1600,8 @@ struct HudModule::Impl {
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
         configMigratedToV2 = false;
+        lastOverlayStats = {};
+        lastEditorStats = {};
     }
 
     void ReloadConfig() {
@@ -1599,6 +1628,8 @@ struct HudModule::Impl {
         redoStack.clear();
         deprecatedHelperVisibilityMigrated = false;
         configMigratedToV2 = false;
+        lastOverlayStats = {};
+        lastEditorStats = {};
     }
 
     void FlushPendingSaves() {
@@ -2054,6 +2085,8 @@ struct HudModule::Impl {
             element.id = GenerateId("hud_el");
             element.cachedText.clear();
             element.cachedImagePath.clear();
+            element.cachedStaticSource.clear();
+            element.cachedStaticValueReady = false;
         }
         selectedWidgetId = copy.id;
         selectedElementIds.clear();
@@ -2124,6 +2157,8 @@ struct HudModule::Impl {
                 copy.z = NextZ(*widget) + static_cast<int>(copies.size());
                 copy.cachedText.clear();
                 copy.cachedImagePath.clear();
+                copy.cachedStaticSource.clear();
+                copy.cachedStaticValueReady = false;
                 newSelection.push_back(copy.id);
                 copies.push_back(std::move(copy));
             }
@@ -2558,21 +2593,101 @@ struct HudModule::Impl {
         return tagsModule ? tagsModule->ExpandHudText(std::string(source)) : std::string(source);
     }
 
+    bool StaticCacheHit(const HudElement& element, std::string_view source) const {
+        return element.cachedStaticValueReady
+            && element.cachedStaticType == element.type
+            && element.cachedStaticSource.size() == source.size()
+            && std::equal(source.begin(), source.end(), element.cachedStaticSource.begin());
+    }
+
+    void StoreStaticCache(HudElement& element, std::string_view source) const {
+        element.cachedStaticType = element.type;
+        element.cachedStaticSource.assign(source.begin(), source.end());
+        element.cachedStaticValueReady = true;
+    }
+
+    void ClearStaticCache(HudElement& element) const {
+        element.cachedStaticValueReady = false;
+        element.cachedStaticSource.clear();
+    }
+
+    bool TryUseStaticTextCache(HudElement& element, std::string_view source) {
+        if (MightContainHudTag(source)) {
+            ClearStaticCache(element);
+            return false;
+        }
+        if (StaticCacheHit(element, source)) {
+            ++lastOverlayStats.staticRefreshSkips;
+            return true;
+        }
+        element.cachedText.assign(source.begin(), source.end());
+        StoreStaticCache(element, source);
+        return true;
+    }
+
+    bool TryUseStaticImagePathCache(HudElement& element, std::string_view source) {
+        if (MightContainHudTag(source)) {
+            ClearStaticCache(element);
+            return false;
+        }
+        if (StaticCacheHit(element, source)) {
+            ++lastOverlayStats.staticRefreshSkips;
+            return true;
+        }
+        element.cachedImagePath.assign(source.begin(), source.end());
+        StoreStaticCache(element, source);
+        return true;
+    }
+
+    bool TryUseStaticNumberCache(HudElement& element, std::string_view source) {
+        if (MightContainHudTag(source)) {
+            ClearStaticCache(element);
+            return false;
+        }
+        if (StaticCacheHit(element, source)) {
+            ++lastOverlayStats.staticRefreshSkips;
+            return true;
+        }
+        element.cachedText.assign(source.begin(), source.end());
+        element.cachedNumber = EvaluateNumberExpression(element.cachedText, element.data.defaultValue);
+        StoreStaticCache(element, source);
+        return true;
+    }
+
     void RefreshWidgetCache(HudWidget& widget) {
         const std::uint64_t now = TickNow();
         if (now < widget.nextRefreshAtMs) {
             return;
         }
 
+        ++lastOverlayStats.refreshedWidgets;
         for (HudElement& element : widget.elements) {
             if (element.type == ElementType::Text) {
+                if (TryUseStaticTextCache(element, element.data.text)) {
+                    continue;
+                }
+                ++lastOverlayStats.expandedElements;
                 element.cachedText = ExpandText(element.data.text);
             } else if (element.type == ElementType::TextMarkup) {
                 fs::path imageRoot;
-                element.cachedText = ExpandText(SourceText(element, imageRoot));
+                const std::string source = SourceText(element, imageRoot);
+                if (element.data.sourceMode == SourceMode::Inline && TryUseStaticTextCache(element, source)) {
+                    continue;
+                }
+                ClearStaticCache(element);
+                ++lastOverlayStats.expandedElements;
+                element.cachedText = ExpandText(source);
             } else if (element.type == ElementType::Image) {
+                if (TryUseStaticImagePathCache(element, element.data.imagePath)) {
+                    continue;
+                }
+                ++lastOverlayStats.expandedElements;
                 element.cachedImagePath = ExpandText(element.data.imagePath);
             } else if (element.type == ElementType::ProgressBar) {
+                if (TryUseStaticNumberCache(element, element.data.expression)) {
+                    continue;
+                }
+                ++lastOverlayStats.expandedElements;
                 const std::string expression = ExpandText(element.data.expression);
                 element.cachedText = expression;
                 element.cachedNumber = EvaluateNumberExpression(expression, element.data.defaultValue);
@@ -2872,9 +2987,9 @@ struct HudModule::Impl {
             element.style.rounding * scale);
     }
 
-    void DrawElement(HudElement& element, IDirect3DDevice9* device, const ImVec2& origin, float scale, bool editor) {
+    bool DrawElement(HudElement& element, IDirect3DDevice9* device, const ImVec2& origin, float scale, bool editor) {
         if (!ElementVisible(element)) {
-            return;
+            return false;
         }
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImRect rect = ElementRect(element, origin, scale);
@@ -2902,6 +3017,7 @@ struct HudModule::Impl {
             DrawProgressElement(drawList, element, rect, scale);
             break;
         }
+        return true;
     }
 
     void InvalidateElementOrderCache(HudWidget& widget) const {
@@ -2943,7 +3059,10 @@ struct HudModule::Impl {
     void DrawCanvas(HudWidget& widget, IDirect3DDevice9* device, const ImVec2& origin, float scale, bool editor) {
         RefreshWidgetCache(widget);
         for (HudElement* element : ElementsByZ(widget)) {
-            DrawElement(*element, device, origin, scale, editor);
+            ++lastOverlayStats.elements;
+            if (DrawElement(*element, device, origin, scale, editor)) {
+                ++lastOverlayStats.visibleElements;
+            }
         }
     }
 
@@ -2951,6 +3070,7 @@ struct HudModule::Impl {
         if (!WidgetVisible(widget)) {
             return;
         }
+        ++lastOverlayStats.visibleWidgets;
 
         ImGuiIO& io = ImGui::GetIO();
         const ImVec2 displaySize = io.DisplaySize;
@@ -3004,7 +3124,15 @@ struct HudModule::Impl {
 
     void DrawOverlay(IDirect3DDevice9* device) {
         EnsureLoaded();
+        lastOverlayStats = {};
+        lastOverlayStats.widgets = static_cast<int>(widgets.size());
         for (HudWidget& widget : widgets) {
+            if (widget.enabled) {
+                ++lastOverlayStats.enabledWidgets;
+                if (widget.refreshMs <= 0) {
+                    ++lastOverlayStats.refreshEveryFrameWidgets;
+                }
+            }
             DrawWidgetOverlay(widget, device);
         }
     }
@@ -3520,6 +3648,8 @@ struct HudModule::Impl {
             break;
         }
         element.cachedText.clear();
+        element.cachedStaticSource.clear();
+        element.cachedStaticValueReady = false;
         MarkChanged();
     }
 
@@ -4847,6 +4977,30 @@ struct HudModule::Impl {
         return clicked;
     }
 
+    void DrawWidgetListMeasured(float height = 0.0f) {
+        const double beginMs = HudPerfNowMs();
+        DrawWidgetList(height);
+        lastEditorStats.widgetListMs += HudPerfNowMs() - beginMs;
+    }
+
+    void DrawLayersMeasured(HudWidget& widget, float height = 0.0f) {
+        const double beginMs = HudPerfNowMs();
+        DrawLayers(widget, height);
+        lastEditorStats.layersMs += HudPerfNowMs() - beginMs;
+    }
+
+    void DrawEditorCanvasMeasured(HudWidget& widget, IDirect3DDevice9* device) {
+        const double beginMs = HudPerfNowMs();
+        DrawEditorCanvas(widget, device);
+        lastEditorStats.canvasMs += HudPerfNowMs() - beginMs;
+    }
+
+    void DrawInspectorMeasured(HudWidget& widget) {
+        const double beginMs = HudPerfNowMs();
+        DrawInspector(widget);
+        lastEditorStats.inspectorMs += HudPerfNowMs() - beginMs;
+    }
+
     void DrawEditorWorkspace(IDirect3DDevice9* device) {
         HudWidget* widget = SelectedWidget();
         UiSettings& ui = UiSettings::Instance();
@@ -4860,7 +5014,7 @@ struct HudModule::Impl {
                 ? std::clamp(avail.y * 0.58f, ScaleUi(240.0f), std::max(ScaleUi(240.0f), avail.y - ScaleUi(190.0f)))
                 : 0.0f;
             if (widget && BeginHudPanel("hud_editor_canvas_narrow", ImVec2(0.0f, canvasHeight), visual)) {
-                DrawEditorCanvas(*widget, device);
+                DrawEditorCanvasMeasured(*widget, device);
             } else if (!widget && BeginHudPanel("hud_editor_empty_narrow", ImVec2(0.0f, std::clamp(avail.y * 0.40f, ScaleUi(160.0f), ScaleUi(260.0f))), visual)) {
                 ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
             }
@@ -4882,20 +5036,20 @@ struct HudModule::Impl {
             switch (compactPanelTab) {
             case HudCompactPanelTab::Layers:
                 if (widget) {
-                    DrawLayers(*widget);
+                    DrawLayersMeasured(*widget);
                 }
                 break;
             case HudCompactPanelTab::Inspector:
                 if (widget) {
                     if (BeginHudPanel("hud_editor_inspector_narrow", ImVec2(0.0f, 0.0f), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-                        DrawInspector(*widget);
+                        DrawInspectorMeasured(*widget);
                     }
                     EndHudPanel();
                 }
                 break;
             case HudCompactPanelTab::Widgets:
             default:
-                DrawWidgetList();
+                DrawWidgetListMeasured();
                 break;
             }
             return;
@@ -4907,9 +5061,9 @@ struct HudModule::Impl {
             if (ImGui::BeginChild("hud_editor_left_medium", ImVec2(leftWidth, avail.y), false, ImGuiWindowFlags_NoBackground)) {
                 const float leftHeight = ImGui::GetContentRegionAvail().y;
                 const float widgetPanelHeight = widget ? std::clamp(leftHeight * 0.42f, ScaleUi(130.0f), std::max(ScaleUi(130.0f), leftHeight - ScaleUi(160.0f))) : 0.0f;
-                DrawWidgetList(widget ? widgetPanelHeight : 0.0f);
+                DrawWidgetListMeasured(widget ? widgetPanelHeight : 0.0f);
                 if (widget) {
-                    DrawLayers(*widget);
+                    DrawLayersMeasured(*widget);
                 }
             }
             ImGui::EndChild();
@@ -4920,7 +5074,7 @@ struct HudModule::Impl {
                     : ScaleUi(220.0f);
                 if (BeginHudPanel("hud_editor_canvas_medium", ImVec2(0.0f, canvasHeight), visual)) {
                     if (widget) {
-                        DrawEditorCanvas(*widget, device);
+                        DrawEditorCanvasMeasured(*widget, device);
                     } else {
                         ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
                     }
@@ -4928,7 +5082,7 @@ struct HudModule::Impl {
                 EndHudPanel();
                 ImGui::Spacing();
                 if (widget && BeginHudPanel("hud_editor_inspector_medium", ImVec2(0.0f, 0.0f), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-                    DrawInspector(*widget);
+                    DrawInspectorMeasured(*widget);
                 }
                 if (widget) {
                     EndHudPanel();
@@ -4950,16 +5104,16 @@ struct HudModule::Impl {
                 const float maxWidgetPanelHeight = std::max(minWidgetPanelHeight, leftHeight - ScaleUi(185.0f));
                 widgetPanelHeight = std::clamp(leftHeight * 0.46f, minWidgetPanelHeight, maxWidgetPanelHeight);
             }
-            DrawWidgetList(widget ? widgetPanelHeight : 0.0f);
+            DrawWidgetListMeasured(widget ? widgetPanelHeight : 0.0f);
             if (widget) {
-                DrawLayers(*widget);
+                DrawLayersMeasured(*widget);
             }
         }
         ImGui::EndChild();
         ImGui::SameLine(0.0f, gapX);
         if (BeginHudPanel("hud_editor_center", ImVec2(centerWidth, avail.y), visual)) {
             if (widget) {
-                DrawEditorCanvas(*widget, device);
+                DrawEditorCanvasMeasured(*widget, device);
             } else {
                 ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
             }
@@ -4968,7 +5122,7 @@ struct HudModule::Impl {
         ImGui::SameLine(0.0f, gapX);
         if (BeginHudPanel("hud_editor_right", ImVec2(rightWidth, avail.y), visual, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
             if (widget) {
-                DrawInspector(*widget);
+                DrawInspectorMeasured(*widget);
             } else {
                 ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
             }
@@ -4977,12 +5131,35 @@ struct HudModule::Impl {
     }
 
     void DrawMainTab(IDirect3DDevice9* device) {
+        const double totalBeginMs = HudPerfNowMs();
+        lastEditorStats = {};
+
+        double stageBeginMs = totalBeginMs;
         EnsureLoaded();
+        lastEditorStats.loadMs = HudPerfNowMs() - stageBeginMs;
+        lastEditorStats.widgets = static_cast<int>(widgets.size());
+        for (const HudWidget& widget : widgets) {
+            lastEditorStats.elements += static_cast<int>(widget.elements.size());
+        }
+        lastEditorStats.selectedElements = static_cast<int>(selectedElementIds.size());
+
+        stageBeginMs = HudPerfNowMs();
         BeginEditorFrame();
+        lastEditorStats.beginFrameMs = HudPerfNowMs() - stageBeginMs;
+
+        stageBeginMs = HudPerfNowMs();
         DrawToolbar();
+        lastEditorStats.toolbarMs = HudPerfNowMs() - stageBeginMs;
+
         ImGui::Spacing();
+        stageBeginMs = HudPerfNowMs();
         DrawEditorWorkspace(device);
+        lastEditorStats.workspaceMs = HudPerfNowMs() - stageBeginMs;
+
+        stageBeginMs = HudPerfNowMs();
         DrawVariablesPopup();
+        lastEditorStats.variablesPopupMs = HudPerfNowMs() - stageBeginMs;
+        lastEditorStats.totalMs = HudPerfNowMs() - totalBeginMs;
     }
 
     void ExportSelectedWidget() {
@@ -5090,6 +5267,14 @@ void HudModule::DrawMainTab(IDirect3DDevice9* device) {
 
 void HudModule::DrawOverlay(IDirect3DDevice9* device) {
     impl_->DrawOverlay(device);
+}
+
+HudModule::OverlayStats HudModule::LastOverlayStats() const {
+    return impl_->lastOverlayStats;
+}
+
+HudModule::EditorStats HudModule::LastEditorStats() const {
+    return impl_->lastEditorStats;
 }
 
 bool HudModule::WantsOverlayRender() {

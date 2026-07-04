@@ -59,6 +59,7 @@ private:
     void RequestOverlayAttachOnce(const char* reason);
     bool RefreshSampGate();
     void Tick();
+    ImGuiOverlay::FrameSurface CurrentOverlayFrameSurface();
     void PrepareUiForImGuiNewFrame(IDirect3DDevice9* device);
     void RenderUi(IDirect3DDevice9* device);
     void ApplyMainStyle(float scale) const;

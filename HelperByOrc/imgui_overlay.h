@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -16,12 +17,22 @@
 
 class ImGuiOverlay {
 public:
+    enum class FrameSurface : std::uint8_t {
+        Idle = 0,
+        HudOnly,
+        QuickMenu,
+        MainMenu,
+        Mixed,
+        Auxiliary,
+    };
+
     using RenderCallback = std::function<void(IDirect3DDevice9*)>;
     /// Вызывается после `ImGui_ImplWin32_NewFrame`, до `ImGui::NewFrame` (масштаб IO, стили и т.п.).
     using PrepareFrameCallback = std::function<void(IDirect3DDevice9*)>;
     using UpdateCallback = std::function<void()>;
     using WindowMessageCallback = std::function<bool(UINT, WPARAM, LPARAM)>;
     using VisibilityCallback = std::function<bool()>;
+    using FrameSurfaceCallback = std::function<FrameSurface()>;
     using GateCallback = std::function<bool()>;
     using InputCaptureChangedCallback = std::function<void(bool)>;
     using HotkeyConflictCallback = std::function<bool(const std::vector<unsigned int>& keys, std::string& description)>;
@@ -33,6 +44,7 @@ public:
     void SetAuxiliaryUiVisibleCallback(VisibilityCallback callback);
     void SetAuxiliaryInputCaptureCallback(VisibilityCallback callback);
     void SetAuxiliaryInputRoutingCallback(VisibilityCallback callback);
+    void SetFrameSurfaceCallback(FrameSurfaceCallback callback);
     void SetInputPipelineGateCallback(GateCallback callback);
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
@@ -96,6 +108,7 @@ private:
     HWND ResolveGameWindow(IDirect3DDevice9* device) const;
     bool IsPrimaryRenderTarget(IDirect3DDevice9* device) const;
     bool IsAuxiliaryUiVisible() const;
+    FrameSurface CurrentFrameSurface(bool hasOverlayUi, bool auxiliaryVisible) const;
     bool IsMenuToggleComboDown() const;
     bool CanApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys, std::string* description = nullptr) const;
     bool ApplyMenuToggleHotkeyCapture(const std::vector<unsigned int>& keys);
@@ -125,6 +138,7 @@ private:
     VisibilityCallback auxiliaryUiVisibleCallback_;
     VisibilityCallback auxiliaryInputCaptureCallback_;
     VisibilityCallback auxiliaryInputRoutingCallback_;
+    FrameSurfaceCallback frameSurfaceCallback_;
     GateCallback inputPipelineGateCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;

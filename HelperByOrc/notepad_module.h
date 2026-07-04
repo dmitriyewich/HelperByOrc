@@ -28,6 +28,28 @@ public:
         std::string text{};
     };
 
+    struct RenderStats {
+        int folders = 0;
+        int notes = 0;
+        bool editing = false;
+        bool copyLineMode = false;
+        bool applyTags = false;
+        std::size_t renderedBytes = 0;
+        int previewCacheHits = 0;
+        int previewCacheMisses = 0;
+        double totalMs = 0.0;
+        double loadMs = 0.0;
+        double shortcutsMs = 0.0;
+        double leftPanelMs = 0.0;
+        double rightPanelMs = 0.0;
+        double readPreviewMs = 0.0;
+        double editPreviewMs = 0.0;
+        double copyLinesMs = 0.0;
+        double tagsMs = 0.0;
+        double drawPreviewMs = 0.0;
+        double modalsMs = 0.0;
+    };
+
     NotepadModule();
     ~NotepadModule();
 
@@ -43,6 +65,7 @@ public:
     void ReleaseDeviceResources();
     void SetTagsModule(TagsModule* tagsModule);
     void DrawMainTab(IDirect3DDevice9* device);
+    RenderStats LastRenderStats() const;
     bool TryGetNote(std::string_view id, NoteContent& out);
     std::vector<NoteSummary> NoteSummaries();
     std::filesystem::path ImagesDirectoryPath();

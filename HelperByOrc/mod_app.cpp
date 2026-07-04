@@ -43,6 +43,9 @@ constexpr std::uint8_t kHelperSuppressibleMouseButtons =
     static_cast<std::uint8_t>(SampHooks::MouseButtonLeft)
     | static_cast<std::uint8_t>(SampHooks::MouseButtonRight)
     | static_cast<std::uint8_t>(SampHooks::MouseButtonMiddle);
+constexpr std::uint64_t kUiModulePerfTraceIntervalMs = 5000;
+constexpr std::uint64_t kUiModuleSlowTraceIntervalMs = 1000;
+constexpr double kUiModuleSlowFrameMs = 8.0;
 
 namespace fs = std::filesystem;
 
@@ -57,6 +60,315 @@ struct SettingsSectionDefinition {
     UiSettingsSection section;
     UiText label;
 };
+
+double UiPerfNowMs() {
+    static const double s_invFrequencyMs = [] {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            return 0.0;
+        }
+        return 1000.0 / static_cast<double>(frequency.QuadPart);
+    }();
+
+    if (s_invFrequencyMs <= 0.0) {
+        return static_cast<double>(GetTickCount64());
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+const char* FrameSurfaceName(ImGuiOverlay::FrameSurface surface) {
+    switch (surface) {
+    case ImGuiOverlay::FrameSurface::Idle:
+        return "idle";
+    case ImGuiOverlay::FrameSurface::HudOnly:
+        return "hud_only";
+    case ImGuiOverlay::FrameSurface::QuickMenu:
+        return "quick_menu";
+    case ImGuiOverlay::FrameSurface::MainMenu:
+        return "main_menu";
+    case ImGuiOverlay::FrameSurface::Mixed:
+        return "mixed";
+    case ImGuiOverlay::FrameSurface::Auxiliary:
+    default:
+        return "auxiliary";
+    }
+}
+
+struct RenderUiPerf {
+    ImGuiOverlay::FrameSurface surface = ImGuiOverlay::FrameSurface::Idle;
+    HudModule::OverlayStats hudStats{};
+    HudModule::EditorStats hudEditorStats{};
+    NotepadModule::RenderStats notepadStats{};
+    bool menuOpen = false;
+    int tab = -1;
+    double hudOverlayMs = 0.0;
+    double mainWindowShellMs = 0.0;
+    double activeTabMs = 0.0;
+    double binderOverlayMs = 0.0;
+    double notificationsMs = 0.0;
+    double configWritesMs = 0.0;
+    double totalMs = 0.0;
+};
+
+void MaxHudStats(HudModule::OverlayStats& target, const HudModule::OverlayStats& source) {
+    target.widgets = std::max(target.widgets, source.widgets);
+    target.enabledWidgets = std::max(target.enabledWidgets, source.enabledWidgets);
+    target.visibleWidgets = std::max(target.visibleWidgets, source.visibleWidgets);
+    target.refreshEveryFrameWidgets = std::max(target.refreshEveryFrameWidgets, source.refreshEveryFrameWidgets);
+    target.elements = std::max(target.elements, source.elements);
+    target.visibleElements = std::max(target.visibleElements, source.visibleElements);
+    target.refreshedWidgets = std::max(target.refreshedWidgets, source.refreshedWidgets);
+    target.expandedElements = std::max(target.expandedElements, source.expandedElements);
+    target.staticRefreshSkips = std::max(target.staticRefreshSkips, source.staticRefreshSkips);
+}
+
+void MaxNotepadStats(NotepadModule::RenderStats& target, const NotepadModule::RenderStats& source) {
+    target.folders = std::max(target.folders, source.folders);
+    target.notes = std::max(target.notes, source.notes);
+    target.editing = target.editing || source.editing;
+    target.copyLineMode = target.copyLineMode || source.copyLineMode;
+    target.applyTags = target.applyTags || source.applyTags;
+    target.renderedBytes = std::max(target.renderedBytes, source.renderedBytes);
+    target.previewCacheHits = std::max(target.previewCacheHits, source.previewCacheHits);
+    target.previewCacheMisses = std::max(target.previewCacheMisses, source.previewCacheMisses);
+    target.totalMs = std::max(target.totalMs, source.totalMs);
+    target.loadMs = std::max(target.loadMs, source.loadMs);
+    target.shortcutsMs = std::max(target.shortcutsMs, source.shortcutsMs);
+    target.leftPanelMs = std::max(target.leftPanelMs, source.leftPanelMs);
+    target.rightPanelMs = std::max(target.rightPanelMs, source.rightPanelMs);
+    target.readPreviewMs = std::max(target.readPreviewMs, source.readPreviewMs);
+    target.editPreviewMs = std::max(target.editPreviewMs, source.editPreviewMs);
+    target.copyLinesMs = std::max(target.copyLinesMs, source.copyLinesMs);
+    target.tagsMs = std::max(target.tagsMs, source.tagsMs);
+    target.drawPreviewMs = std::max(target.drawPreviewMs, source.drawPreviewMs);
+    target.modalsMs = std::max(target.modalsMs, source.modalsMs);
+}
+
+void MaxHudEditorStats(HudModule::EditorStats& target, const HudModule::EditorStats& source) {
+    target.widgets = std::max(target.widgets, source.widgets);
+    target.elements = std::max(target.elements, source.elements);
+    target.selectedElements = std::max(target.selectedElements, source.selectedElements);
+    target.totalMs = std::max(target.totalMs, source.totalMs);
+    target.loadMs = std::max(target.loadMs, source.loadMs);
+    target.beginFrameMs = std::max(target.beginFrameMs, source.beginFrameMs);
+    target.toolbarMs = std::max(target.toolbarMs, source.toolbarMs);
+    target.workspaceMs = std::max(target.workspaceMs, source.workspaceMs);
+    target.widgetListMs = std::max(target.widgetListMs, source.widgetListMs);
+    target.layersMs = std::max(target.layersMs, source.layersMs);
+    target.canvasMs = std::max(target.canvasMs, source.canvasMs);
+    target.inspectorMs = std::max(target.inspectorMs, source.inspectorMs);
+    target.variablesPopupMs = std::max(target.variablesPopupMs, source.variablesPopupMs);
+}
+
+void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
+    static std::uint64_t s_windowStartMs = 0;
+    static std::uint64_t s_lastSlowTraceMs = 0;
+    static unsigned s_frames = 0;
+    static unsigned s_menuFrames = 0;
+    static unsigned s_slowFrames = 0;
+    static unsigned s_surfaceHudOnly = 0;
+    static unsigned s_surfaceQuickMenu = 0;
+    static unsigned s_surfaceMainMenu = 0;
+    static unsigned s_surfaceMixed = 0;
+    static unsigned s_surfaceAuxiliary = 0;
+    static double s_totalMs = 0.0;
+    static double s_maxTotalMs = 0.0;
+    static double s_maxHudOverlayMs = 0.0;
+    static double s_maxShellMs = 0.0;
+    static double s_maxActiveTabMs = 0.0;
+    static double s_maxBinderOverlayMs = 0.0;
+    static double s_maxNotificationsMs = 0.0;
+    static double s_maxConfigWritesMs = 0.0;
+    static int s_maxActiveTab = -1;
+    static HudModule::OverlayStats s_maxHudStats{};
+    static HudModule::EditorStats s_maxHudEditorStats{};
+    static NotepadModule::RenderStats s_maxNotepadStats{};
+
+    const std::uint64_t now = GetTickCount64();
+    if (s_windowStartMs == 0) {
+        s_windowStartMs = now;
+    }
+
+    ++s_frames;
+    s_totalMs += perf.totalMs;
+    if (perf.menuOpen) {
+        ++s_menuFrames;
+    }
+    if (perf.totalMs >= kUiModuleSlowFrameMs) {
+        ++s_slowFrames;
+        if (now - s_lastSlowTraceMs >= kUiModuleSlowTraceIntervalMs) {
+            s_lastSlowTraceMs = now;
+            debuglog::WriteInfo(
+                "[ui][perf][modules] slow total=%.2fms surface=%s menu=%d tab=%d hud=%.2fms shell=%.2fms tabMs=%.2fms binder=%.2fms notifications=%.2fms config=%.2fms hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heTotal=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npTotal=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+                perf.totalMs,
+                FrameSurfaceName(perf.surface),
+                perf.menuOpen ? 1 : 0,
+                perf.tab,
+                perf.hudOverlayMs,
+                perf.mainWindowShellMs,
+                perf.activeTabMs,
+                perf.binderOverlayMs,
+                perf.notificationsMs,
+                perf.configWritesMs,
+                perf.hudStats.widgets,
+                perf.hudStats.enabledWidgets,
+                perf.hudStats.visibleWidgets,
+                perf.hudStats.refreshEveryFrameWidgets,
+                perf.hudStats.elements,
+                perf.hudStats.visibleElements,
+                perf.hudStats.refreshedWidgets,
+                perf.hudStats.expandedElements,
+                perf.hudStats.staticRefreshSkips,
+                perf.hudEditorStats.totalMs,
+                perf.hudEditorStats.toolbarMs,
+                perf.hudEditorStats.workspaceMs,
+                perf.hudEditorStats.widgetListMs,
+                perf.hudEditorStats.layersMs,
+                perf.hudEditorStats.canvasMs,
+                perf.hudEditorStats.inspectorMs,
+                perf.hudEditorStats.variablesPopupMs,
+                perf.hudEditorStats.widgets,
+                perf.hudEditorStats.elements,
+                perf.hudEditorStats.selectedElements,
+                perf.notepadStats.totalMs,
+                perf.notepadStats.loadMs,
+                perf.notepadStats.shortcutsMs,
+                perf.notepadStats.leftPanelMs,
+                perf.notepadStats.rightPanelMs,
+                perf.notepadStats.readPreviewMs,
+                perf.notepadStats.editPreviewMs,
+                perf.notepadStats.copyLinesMs,
+                perf.notepadStats.tagsMs,
+                perf.notepadStats.drawPreviewMs,
+                perf.notepadStats.modalsMs,
+                perf.notepadStats.notes,
+                perf.notepadStats.renderedBytes,
+                perf.notepadStats.previewCacheHits,
+                perf.notepadStats.previewCacheMisses,
+                perf.notepadStats.editing ? 1 : 0);
+        }
+    }
+
+    switch (perf.surface) {
+    case ImGuiOverlay::FrameSurface::HudOnly:
+        ++s_surfaceHudOnly;
+        break;
+    case ImGuiOverlay::FrameSurface::QuickMenu:
+        ++s_surfaceQuickMenu;
+        break;
+    case ImGuiOverlay::FrameSurface::MainMenu:
+        ++s_surfaceMainMenu;
+        break;
+    case ImGuiOverlay::FrameSurface::Mixed:
+        ++s_surfaceMixed;
+        break;
+    case ImGuiOverlay::FrameSurface::Auxiliary:
+        ++s_surfaceAuxiliary;
+        break;
+    case ImGuiOverlay::FrameSurface::Idle:
+    default:
+        break;
+    }
+
+    if (perf.totalMs > s_maxTotalMs) {
+        s_maxTotalMs = perf.totalMs;
+        s_maxActiveTab = perf.tab;
+    }
+    s_maxHudOverlayMs = std::max(s_maxHudOverlayMs, perf.hudOverlayMs);
+    s_maxShellMs = std::max(s_maxShellMs, perf.mainWindowShellMs);
+    s_maxActiveTabMs = std::max(s_maxActiveTabMs, perf.activeTabMs);
+    s_maxBinderOverlayMs = std::max(s_maxBinderOverlayMs, perf.binderOverlayMs);
+    s_maxNotificationsMs = std::max(s_maxNotificationsMs, perf.notificationsMs);
+    s_maxConfigWritesMs = std::max(s_maxConfigWritesMs, perf.configWritesMs);
+    MaxHudStats(s_maxHudStats, perf.hudStats);
+    MaxHudEditorStats(s_maxHudEditorStats, perf.hudEditorStats);
+    MaxNotepadStats(s_maxNotepadStats, perf.notepadStats);
+
+    if (now - s_windowStartMs < kUiModulePerfTraceIntervalMs) {
+        return;
+    }
+
+    debuglog::WriteInfo(
+        "[ui][perf][modules] 5s frames=%u menu=%u slow=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avg=%.2fms max=%.2fms maxHud=%.2fms maxShell=%.2fms maxTab=%.2fms maxBinder=%.2fms maxNotifications=%.2fms maxConfig=%.2fms maxTabId=%d hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heMax=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npMax=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+        s_frames,
+        s_menuFrames,
+        s_slowFrames,
+        s_surfaceHudOnly,
+        s_surfaceQuickMenu,
+        s_surfaceMainMenu,
+        s_surfaceMixed,
+        s_surfaceAuxiliary,
+        s_frames > 0 ? s_totalMs / static_cast<double>(s_frames) : 0.0,
+        s_maxTotalMs,
+        s_maxHudOverlayMs,
+        s_maxShellMs,
+        s_maxActiveTabMs,
+        s_maxBinderOverlayMs,
+        s_maxNotificationsMs,
+        s_maxConfigWritesMs,
+        s_maxActiveTab,
+        s_maxHudStats.widgets,
+        s_maxHudStats.enabledWidgets,
+        s_maxHudStats.visibleWidgets,
+        s_maxHudStats.refreshEveryFrameWidgets,
+        s_maxHudStats.elements,
+        s_maxHudStats.visibleElements,
+        s_maxHudStats.refreshedWidgets,
+        s_maxHudStats.expandedElements,
+        s_maxHudStats.staticRefreshSkips,
+        s_maxHudEditorStats.totalMs,
+        s_maxHudEditorStats.toolbarMs,
+        s_maxHudEditorStats.workspaceMs,
+        s_maxHudEditorStats.widgetListMs,
+        s_maxHudEditorStats.layersMs,
+        s_maxHudEditorStats.canvasMs,
+        s_maxHudEditorStats.inspectorMs,
+        s_maxHudEditorStats.variablesPopupMs,
+        s_maxHudEditorStats.widgets,
+        s_maxHudEditorStats.elements,
+        s_maxHudEditorStats.selectedElements,
+        s_maxNotepadStats.totalMs,
+        s_maxNotepadStats.loadMs,
+        s_maxNotepadStats.shortcutsMs,
+        s_maxNotepadStats.leftPanelMs,
+        s_maxNotepadStats.rightPanelMs,
+        s_maxNotepadStats.readPreviewMs,
+        s_maxNotepadStats.editPreviewMs,
+        s_maxNotepadStats.copyLinesMs,
+        s_maxNotepadStats.tagsMs,
+        s_maxNotepadStats.drawPreviewMs,
+        s_maxNotepadStats.modalsMs,
+        s_maxNotepadStats.notes,
+        s_maxNotepadStats.renderedBytes,
+        s_maxNotepadStats.previewCacheHits,
+        s_maxNotepadStats.previewCacheMisses,
+        s_maxNotepadStats.editing ? 1 : 0);
+
+    s_windowStartMs = now;
+    s_frames = 0;
+    s_menuFrames = 0;
+    s_slowFrames = 0;
+    s_surfaceHudOnly = 0;
+    s_surfaceQuickMenu = 0;
+    s_surfaceMainMenu = 0;
+    s_surfaceMixed = 0;
+    s_surfaceAuxiliary = 0;
+    s_totalMs = 0.0;
+    s_maxTotalMs = 0.0;
+    s_maxHudOverlayMs = 0.0;
+    s_maxShellMs = 0.0;
+    s_maxActiveTabMs = 0.0;
+    s_maxBinderOverlayMs = 0.0;
+    s_maxNotificationsMs = 0.0;
+    s_maxConfigWritesMs = 0.0;
+    s_maxActiveTab = -1;
+    s_maxHudStats = {};
+    s_maxHudEditorStats = {};
+    s_maxNotepadStats = {};
+}
 
 const std::array<TabDefinition, 6> kTabs = {{
     { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, ui_icons::House },
@@ -1315,6 +1627,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetPrepareFrameCallback([this](IDirect3DDevice9* device) { PrepareUiForImGuiNewFrame(device); });
     overlay_.SetRenderCallback([this](IDirect3DDevice9* device) { RenderUi(device); });
     overlay_.SetUpdateCallback([this]() { Tick(); });
+    overlay_.SetFrameSurfaceCallback([this]() { return CurrentOverlayFrameSurface(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
         const bool quickMenuOpen = binder_.IsQuickMenuOpen();
         const bool binderWantsRouting = binder_.WantsInputRouting();
@@ -1669,6 +1982,36 @@ void ModApp::Tick() {
     arizonaCefDialogs_.Tick();
 
     UpdateOverlayCursorMode();
+}
+
+ImGuiOverlay::FrameSurface ModApp::CurrentOverlayFrameSurface() {
+    const bool menuOpen = overlay_.IsMenuOpen();
+    const bool quickMenuOpen = binder_.IsQuickMenuOpen();
+    const bool hudVisible = hud_.WantsOverlayRender();
+    const bool notificationVisible = notifications_.WantsOverlayRender();
+    const bool binderOverlayVisible = binder_.WantsOverlayRender();
+    const bool otherAuxVisible = notificationVisible || (binderOverlayVisible && !quickMenuOpen);
+    const int visibleSurfaces = (menuOpen ? 1 : 0)
+        + (quickMenuOpen ? 1 : 0)
+        + (hudVisible ? 1 : 0)
+        + (otherAuxVisible ? 1 : 0);
+
+    if (visibleSurfaces <= 0) {
+        return ImGuiOverlay::FrameSurface::Idle;
+    }
+    if (visibleSurfaces > 1) {
+        return ImGuiOverlay::FrameSurface::Mixed;
+    }
+    if (menuOpen) {
+        return ImGuiOverlay::FrameSurface::MainMenu;
+    }
+    if (quickMenuOpen) {
+        return ImGuiOverlay::FrameSurface::QuickMenu;
+    }
+    if (hudVisible) {
+        return ImGuiOverlay::FrameSurface::HudOnly;
+    }
+    return ImGuiOverlay::FrameSurface::Auxiliary;
 }
 
 void ModApp::ApplyMainStyle(float scale) const {
@@ -2651,8 +2994,11 @@ void ModApp::DrawSettingsTab() {
 }
 
 void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
+    const double beginMs = UiPerfNowMs();
+    double stageBeginMs = beginMs;
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = UiSettings::Instance().UpdateScale(io.DisplaySize);
+    const double scaleMs = UiPerfNowMs() - stageBeginMs;
     static float s_lastLoggedScale = 0.0f;
     static ImVec2 s_lastLoggedDisplay{};
     if (std::abs(uiScale - s_lastLoggedScale) > 0.001f
@@ -2666,16 +3012,43 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
             io.DisplaySize.x,
             io.DisplaySize.y);
     }
+    stageBeginMs = UiPerfNowMs();
     io.FontGlobalScale = uiScale;
     ApplyMainStyle(uiScale);
+    const double styleMs = UiPerfNowMs() - stageBeginMs;
+    stageBeginMs = UiPerfNowMs();
     EnsureLogoTexture(device);
+    const double logoMs = UiPerfNowMs() - stageBeginMs;
+    const double totalMs = UiPerfNowMs() - beginMs;
+    static bool s_firstPreparePerfLogged = false;
+    if (!s_firstPreparePerfLogged || totalMs >= kUiModuleSlowFrameMs || logoMs >= 4.0) {
+        debuglog::WriteInfo(
+            "[ui][perf][prepare] total=%.2fms scale=%.2fms style=%.2fms logo=%.2fms first=%d logoAttempted=%d logoLoaded=%d display=(%.1f,%.1f)",
+            totalMs,
+            scaleMs,
+            styleMs,
+            logoMs,
+            s_firstPreparePerfLogged ? 0 : 1,
+            logoLoadAttempted_ ? 1 : 0,
+            logoTexture_ ? 1 : 0,
+            io.DisplaySize.x,
+            io.DisplaySize.y);
+        s_firstPreparePerfLogged = true;
+    }
 }
 
 void ModApp::RenderUi(IDirect3DDevice9* device) {
+    const double renderBeginMs = UiPerfNowMs();
+    RenderUiPerf perf{};
+    perf.surface = CurrentOverlayFrameSurface();
+
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = io.FontGlobalScale;
 
     const bool showMainWindow = overlay_.IsMenuOpen();
+    perf.menuOpen = showMainWindow;
+    perf.tab = showMainWindow ? static_cast<int>(currentTab_) : -1;
+
     static bool s_lastShowMainWindow = false;
     if (showMainWindow != s_lastShowMainWindow) {
         if (!showMainWindow) {
@@ -2686,11 +3059,33 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
     const bool quickMenuActive = binder_.IsQuickMenuOpen();
     hud_.SetPlacementInputBlocked(quickMenuActive);
+
+    double stageBeginMs = UiPerfNowMs();
     hud_.DrawOverlay(device);
+    perf.hudOverlayMs = UiPerfNowMs() - stageBeginMs;
+    perf.hudStats = hud_.LastOverlayStats();
+
     if (!showMainWindow) {
+        stageBeginMs = UiPerfNowMs();
         binder_.DrawOverlay();
+        perf.binderOverlayMs = UiPerfNowMs() - stageBeginMs;
+
+        stageBeginMs = UiPerfNowMs();
         notifications_.DrawOverlay();
+        perf.notificationsMs = UiPerfNowMs() - stageBeginMs;
+
+        stageBeginMs = UiPerfNowMs();
         AppConfig::Instance().ProcessPendingWrites();
+        perf.configWritesMs = UiPerfNowMs() - stageBeginMs;
+        perf.totalMs = UiPerfNowMs() - renderBeginMs;
+        perf.mainWindowShellMs = std::max(
+            0.0,
+            perf.totalMs
+                - perf.hudOverlayMs
+                - perf.binderOverlayMs
+                - perf.notificationsMs
+                - perf.configWritesMs);
+        AccumulateRenderUiPerf(perf);
         return;
     }
 
@@ -2846,6 +3241,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
 
         ImGui::SameLine();
         if (ImGui::BeginChild("main_content", ImVec2(0.0f, 0.0f), kBorderedChildFlags)) {
+            stageBeginMs = UiPerfNowMs();
             switch (currentTab_) {
             case MainTab::Home:
                 DrawHomeTab();
@@ -2855,17 +3251,20 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
                 break;
             case MainTab::Hud:
                 DrawHudTab(device);
+                perf.hudEditorStats = hud_.LastEditorStats();
                 break;
             case MainTab::Misc:
                 DrawMiscTab();
                 break;
             case MainTab::Notepad:
                 DrawNotepadTab(device);
+                perf.notepadStats = notepad_.LastRenderStats();
                 break;
             case MainTab::Settings:
                 DrawSettingsTab();
                 break;
             }
+            perf.activeTabMs = UiPerfNowMs() - stageBeginMs;
         }
         ImGui::EndChild();
     }
@@ -2875,7 +3274,26 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         SaveShellStateIfDirty();
     }
     overlay_.DrawMenuToggleHotkeyCapturePopup();
+
+    stageBeginMs = UiPerfNowMs();
     binder_.DrawOverlay();
+    perf.binderOverlayMs = UiPerfNowMs() - stageBeginMs;
+
+    stageBeginMs = UiPerfNowMs();
     notifications_.DrawOverlay();
+    perf.notificationsMs = UiPerfNowMs() - stageBeginMs;
+
+    stageBeginMs = UiPerfNowMs();
     AppConfig::Instance().ProcessPendingWrites();
+    perf.configWritesMs = UiPerfNowMs() - stageBeginMs;
+    perf.totalMs = UiPerfNowMs() - renderBeginMs;
+    perf.mainWindowShellMs = std::max(
+        0.0,
+        perf.totalMs
+            - perf.hudOverlayMs
+            - perf.activeTabMs
+            - perf.binderOverlayMs
+            - perf.notificationsMs
+            - perf.configWritesMs);
+    AccumulateRenderUiPerf(perf);
 }
