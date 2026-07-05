@@ -12,6 +12,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -25,6 +26,16 @@ namespace {
 constexpr std::string_view kUnwantedSectionName = "unwanted";
 constexpr int kUnwantedSchemaVersion = 1;
 constexpr int kMaxConfigPatternLength = 65535;
+constexpr std::uint64_t kPerfTelemetryWindowMs = 5000;
+
+double UnwantedPerfNowMs() {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::uint64_t UnwantedPerfTickMs() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 struct ImGuiStringUserData {
     std::string* value = nullptr;
@@ -813,19 +824,103 @@ void UnwantedMessagesModule::ReloadConfig() {
 }
 
 bool UnwantedMessagesModule::ShouldBlock(const UnwantedMessageContext& context) {
-    std::lock_guard lock(mutex_);
-    if (!settings_.enabled || context.text.empty()) {
-        return false;
+    std::optional<PerfLogSnapshot> perfLog;
+    bool blocked = false;
+
+    {
+        std::lock_guard lock(mutex_);
+        if (!settings_.enabled || context.text.empty()) {
+            return false;
+        }
+
+        const double beginMs = UnwantedPerfNowMs();
+        const std::vector<std::string> candidates = BuildCandidates(context);
+        std::size_t enabledRules = 0;
+        std::size_t regexRules = 0;
+        for (const Rule& rule : rules_) {
+            if (!rule.enabled || !rule.error.empty()) {
+                continue;
+            }
+
+            ++enabledRules;
+            if (rule.type == RuleType::Regex) {
+                ++regexRules;
+            }
+        }
+
+        MatchResult result;
+        blocked = MatchCandidates(candidates, context.source, &result);
+        if (blocked) {
+            ++blockedCount_;
+            lastBlocked_ = std::move(result);
+        }
+
+        const double elapsedMs = UnwantedPerfNowMs() - beginMs;
+        perfLog = AccumulatePerfStats(elapsedMs, candidates.size(), enabledRules, regexRules, blocked);
     }
 
-    MatchResult result;
-    if (!MatchCandidates(BuildCandidates(context), context.source, &result)) {
-        return false;
+    if (perfLog) {
+        debuglog::WriteInfo(
+            "[unwanted][perf] window=%llums messages=%llu blocked=%llu candidates=%llu maxCandidates=%zu rules=%zu regexRules=%zu ruleChecksUpper=%llu avg=%.3fms max=%.3fms",
+            static_cast<unsigned long long>(perfLog->windowMs),
+            static_cast<unsigned long long>(perfLog->messages),
+            static_cast<unsigned long long>(perfLog->blocked),
+            static_cast<unsigned long long>(perfLog->candidates),
+            perfLog->maxCandidates,
+            perfLog->maxRules,
+            perfLog->maxRegexRules,
+            static_cast<unsigned long long>(perfLog->ruleChecks),
+            perfLog->avgMs,
+            perfLog->maxMs);
     }
 
-    ++blockedCount_;
-    lastBlocked_ = std::move(result);
-    return true;
+    return blocked;
+}
+
+std::optional<UnwantedMessagesModule::PerfLogSnapshot> UnwantedMessagesModule::AccumulatePerfStats(
+    double elapsedMs,
+    std::size_t candidateCount,
+    std::size_t enabledRules,
+    std::size_t regexRules,
+    bool blocked) {
+    const std::uint64_t nowMs = UnwantedPerfTickMs();
+    if (perfStats_.windowStartMs == 0) {
+        perfStats_.windowStartMs = nowMs;
+    }
+
+    ++perfStats_.messages;
+    if (blocked) {
+        ++perfStats_.blocked;
+    }
+    perfStats_.candidates += static_cast<std::uint64_t>(candidateCount);
+    perfStats_.ruleChecks += static_cast<std::uint64_t>(candidateCount) * static_cast<std::uint64_t>(enabledRules);
+    perfStats_.totalMs += elapsedMs;
+    perfStats_.maxMs = std::max(perfStats_.maxMs, elapsedMs);
+    perfStats_.maxCandidates = std::max(perfStats_.maxCandidates, candidateCount);
+    perfStats_.maxRules = std::max(perfStats_.maxRules, enabledRules);
+    perfStats_.maxRegexRules = std::max(perfStats_.maxRegexRules, regexRules);
+
+    const std::uint64_t windowMs = nowMs - perfStats_.windowStartMs;
+    if (windowMs < kPerfTelemetryWindowMs) {
+        return std::nullopt;
+    }
+
+    PerfLogSnapshot snapshot{};
+    snapshot.windowMs = windowMs;
+    snapshot.messages = perfStats_.messages;
+    snapshot.blocked = perfStats_.blocked;
+    snapshot.candidates = perfStats_.candidates;
+    snapshot.ruleChecks = perfStats_.ruleChecks;
+    snapshot.avgMs = perfStats_.messages > 0
+        ? perfStats_.totalMs / static_cast<double>(perfStats_.messages)
+        : 0.0;
+    snapshot.maxMs = perfStats_.maxMs;
+    snapshot.maxCandidates = perfStats_.maxCandidates;
+    snapshot.maxRules = perfStats_.maxRules;
+    snapshot.maxRegexRules = perfStats_.maxRegexRules;
+
+    perfStats_ = {};
+    return snapshot;
 }
 
 bool UnwantedMessagesModule::IsMiscPageOpen() const {

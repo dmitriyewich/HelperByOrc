@@ -70,7 +70,10 @@ jsonutil::JsonObject MakeDefaultConfigRoot() {
     return root;
 }
 
-std::optional<jsonutil::JsonObject> ReadJsonObjectFile(const fs::path& path, std::string* error = nullptr) {
+std::optional<jsonutil::JsonObject> ReadJsonObjectFile(
+    const fs::path& path,
+    std::string* error = nullptr,
+    std::string* persistedContent = nullptr) {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
         if (error) {
@@ -88,6 +91,10 @@ std::optional<jsonutil::JsonObject> ReadJsonObjectFile(const fs::path& path, std
             *error = parseError.empty() ? "invalid JSON object" : parseError;
         }
         return std::nullopt;
+    }
+
+    if (persistedContent) {
+        *persistedContent = content;
     }
 
     return *object;
@@ -307,7 +314,6 @@ void AppConfig::OnProcessAttach(HMODULE module) {
     loaded_ = false;
     root_.clear();
     lastSerializedSnapshot_.clear();
-    queuedSerializedSnapshot_.clear();
     pendingMutations_.clear();
     debuglog::WriteInfo(
         "AppConfig::OnProcessAttach profile=%s path=%ls profiles=%ls",
@@ -413,7 +419,6 @@ bool AppConfig::SwitchProfile(std::string_view profileId, std::string* error) {
     loaded_ = false;
     root_.clear();
     lastSerializedSnapshot_.clear();
-    queuedSerializedSnapshot_.clear();
     pendingMutations_.clear();
     debuglog::WriteInfo("[profiles] switched active profile to id=%s path=%ls", activeProfileId_.c_str(), configPath_.c_str());
     return true;
@@ -454,7 +459,6 @@ bool AppConfig::CreateProfile(std::string_view name, bool copyCurrentConfig, boo
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
-        queuedSerializedSnapshot_.clear();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -521,7 +525,6 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
-        queuedSerializedSnapshot_.clear();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -617,7 +620,6 @@ bool AppConfig::DeleteProfile(std::string_view profileId, std::string* error) {
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
-        queuedSerializedSnapshot_.clear();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -767,7 +769,6 @@ void AppConfig::EnsureLoadedLocked() {
     loaded_ = true;
     root_.clear();
     lastSerializedSnapshot_.clear();
-    queuedSerializedSnapshot_.clear();
     root_["schema_version"] = kConfigSchemaVersion;
 
     if (configPath_.empty() || !fs::exists(configPath_)) {
@@ -775,7 +776,8 @@ void AppConfig::EnsureLoadedLocked() {
     }
 
     std::string error;
-    const std::optional<jsonutil::JsonObject> rootObject = ReadJsonObjectFile(configPath_, &error);
+    std::string persistedContent;
+    const std::optional<jsonutil::JsonObject> rootObject = ReadJsonObjectFile(configPath_, &error, &persistedContent);
     if (!rootObject) {
         debuglog::WriteError("AppConfig: invalid config, using defaults: %s", error.c_str());
         return;
@@ -783,11 +785,12 @@ void AppConfig::EnsureLoadedLocked() {
 
     root_ = *rootObject;
     root_["schema_version"] = kConfigSchemaVersion;
-    jsonutil::WriteJson(jsonutil::JsonValue(root_), lastSerializedSnapshot_, 0);
+    lastSerializedSnapshot_ = std::move(persistedContent);
     debuglog::WriteInfo("AppConfig loaded from disk: %ls", configPath_.c_str());
 }
 
 bool AppConfig::ProcessPendingWritesOnce() {
+    fs::path targetPath;
     jsonutil::JsonObject snapshot;
 
     {
@@ -806,61 +809,29 @@ bool AppConfig::ProcessPendingWritesOnce() {
         }
 
         root_["schema_version"] = kConfigSchemaVersion;
+        targetPath = configPath_;
         snapshot = root_;
     }
 
-    WriteSnapshot(snapshot);
+    WriteSnapshot(std::move(targetPath), std::move(snapshot));
     return true;
 }
 
-bool AppConfig::WriteSnapshot(const jsonutil::JsonObject& snapshot) {
-    const double beginMs = ConfigPerfNowMs();
-    std::string output;
-    jsonutil::WriteJson(jsonutil::JsonValue(snapshot), output, 0);
-    const double serializeMs = ConfigPerfNowMs() - beginMs;
-
-    fs::path targetPath;
-    bool skipUnchanged = false;
-    {
-        std::lock_guard lock(mutex_);
-        targetPath = configPath_;
-        if (targetPath.empty()) {
-            debuglog::WriteError("AppConfig: write skipped, config path is empty");
-            return false;
-        }
-
-        const bool matchesQueuedSnapshot = !queuedSerializedSnapshot_.empty() && output == queuedSerializedSnapshot_;
-        const bool matchesPersistedSnapshot = queuedSerializedSnapshot_.empty() && output == lastSerializedSnapshot_;
-        skipUnchanged = matchesQueuedSnapshot || matchesPersistedSnapshot;
-        if (!skipUnchanged) {
-            queuedSerializedSnapshot_ = output;
-        }
+bool AppConfig::WriteSnapshot(fs::path targetPath, jsonutil::JsonObject snapshot) {
+    if (targetPath.empty()) {
+        debuglog::WriteError("AppConfig: write skipped, config path is empty");
+        return false;
     }
 
-    if (skipUnchanged) {
-        debuglog::WriteInfo(
-            "AppConfig snapshot skipped unchanged: %ls serialize=%.2fms bytes=%zu",
-            targetPath.c_str(),
-            serializeMs,
-            output.size());
-        return true;
-    }
-
-    const std::size_t bytes = output.size();
     StartSnapshotWriter();
     {
         std::lock_guard writerLock(writerMutex_);
         writerPendingPath_ = targetPath;
-        writerPendingOutput_ = std::move(output);
-        writerPendingSerializeMs_ = serializeMs;
+        writerPendingSnapshot_ = std::move(snapshot);
         writerHasPending_ = true;
     }
     writerCv_.notify_one();
-    debuglog::WriteInfo(
-        "AppConfig snapshot queued: %ls serialize=%.2fms bytes=%zu",
-        targetPath.c_str(),
-        serializeMs,
-        bytes);
+    debuglog::WriteInfo("AppConfig snapshot queued for async serialize: %ls", targetPath.c_str());
     return true;
 }
 
@@ -892,8 +863,7 @@ void AppConfig::StopSnapshotWriter() {
     writerBusy_ = false;
     writerHasPending_ = false;
     writerPendingPath_.clear();
-    writerPendingOutput_.clear();
-    writerPendingSerializeMs_ = 0.0;
+    writerPendingSnapshot_.clear();
 }
 
 void AppConfig::FlushSnapshotWriter() {
@@ -911,6 +881,7 @@ void AppConfig::FlushSnapshotWriter() {
 void AppConfig::SnapshotWriterLoop() {
     for (;;) {
         fs::path targetPath;
+        jsonutil::JsonObject snapshot;
         std::string output;
         double serializeMs = 0.0;
 
@@ -924,12 +895,36 @@ void AppConfig::SnapshotWriterLoop() {
             }
 
             targetPath = std::move(writerPendingPath_);
-            output = std::move(writerPendingOutput_);
-            serializeMs = writerPendingSerializeMs_;
+            snapshot = std::move(writerPendingSnapshot_);
             writerPendingPath_.clear();
-            writerPendingSerializeMs_ = 0.0;
+            writerPendingSnapshot_.clear();
             writerHasPending_ = false;
             writerBusy_ = true;
+        }
+
+        const double serializeBeginMs = ConfigPerfNowMs();
+        jsonutil::WriteJson(jsonutil::JsonValue(snapshot), output, 0);
+        serializeMs = ConfigPerfNowMs() - serializeBeginMs;
+
+        bool skipUnchanged = false;
+        {
+            std::lock_guard lock(mutex_);
+            skipUnchanged = output == lastSerializedSnapshot_;
+        }
+
+        if (skipUnchanged) {
+            debuglog::WriteInfo(
+                "AppConfig snapshot skipped unchanged async: %ls serialize=%.2fms bytes=%zu",
+                targetPath.c_str(),
+                serializeMs,
+                output.size());
+
+            {
+                std::lock_guard writerLock(writerMutex_);
+                writerBusy_ = false;
+            }
+            writerIdleCv_.notify_all();
+            continue;
         }
 
         const double writeBeginMs = ConfigPerfNowMs();
@@ -939,9 +934,6 @@ void AppConfig::SnapshotWriterLoop() {
             {
                 std::lock_guard lock(mutex_);
                 lastSerializedSnapshot_ = output;
-                if (queuedSerializedSnapshot_ == output) {
-                    queuedSerializedSnapshot_.clear();
-                }
             }
             debuglog::WriteInfo(
                 "AppConfig snapshot saved async: %ls serialize=%.2fms write=%.2fms bytes=%zu",
@@ -950,12 +942,6 @@ void AppConfig::SnapshotWriterLoop() {
                 writeMs,
                 output.size());
         } else {
-            {
-                std::lock_guard lock(mutex_);
-                if (queuedSerializedSnapshot_ == output) {
-                    queuedSerializedSnapshot_.clear();
-                }
-            }
             debuglog::WriteError("AppConfig: failed to save snapshot async: %ls", targetPath.c_str());
         }
 

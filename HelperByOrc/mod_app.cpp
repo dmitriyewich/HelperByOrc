@@ -2994,6 +2994,7 @@ void ModApp::DrawSettingsTab() {
 }
 
 void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
+    (void)device;
     const double beginMs = UiPerfNowMs();
     double stageBeginMs = beginMs;
     ImGuiIO& io = ImGui::GetIO();
@@ -3016,9 +3017,7 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     io.FontGlobalScale = uiScale;
     ApplyMainStyle(uiScale);
     const double styleMs = UiPerfNowMs() - stageBeginMs;
-    stageBeginMs = UiPerfNowMs();
-    EnsureLogoTexture(device);
-    const double logoMs = UiPerfNowMs() - stageBeginMs;
+    const double logoMs = 0.0;
     const double totalMs = UiPerfNowMs() - beginMs;
     static bool s_firstPreparePerfLogged = false;
     if (!s_firstPreparePerfLogged || totalMs >= kUiModuleSlowFrameMs || logoMs >= 4.0) {
@@ -3116,6 +3115,8 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         | ImGuiWindowFlags_NoScrollWithMouse;
 
     if (ImGui::Begin("HelperByOrc##main_window", nullptr, windowFlags)) {
+        EnsureLogoTexture(device);
+
         const ImVec2 imguiWindowPos = ImGui::GetWindowPos();
         const ImVec2 imguiWindowSize = ImGui::GetWindowSize();
         if (!SameWindowRect(mainWindowFramePos, mainWindowFrameSize, imguiWindowPos, imguiWindowSize)

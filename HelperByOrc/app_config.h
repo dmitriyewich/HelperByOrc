@@ -57,7 +57,7 @@ private:
     void RefreshProfileStateLocked();
     void EnsureLoadedLocked();
     bool ProcessPendingWritesOnce();
-    bool WriteSnapshot(const jsonutil::JsonObject& snapshot);
+    bool WriteSnapshot(std::filesystem::path targetPath, jsonutil::JsonObject snapshot);
     void StartSnapshotWriter();
     void StopSnapshotWriter();
     void FlushSnapshotWriter();
@@ -72,7 +72,6 @@ private:
     bool loaded_ = false;
     jsonutil::JsonObject root_{};
     std::string lastSerializedSnapshot_{};
-    std::string queuedSerializedSnapshot_{};
     std::deque<Mutation> pendingMutations_{};
 
     std::mutex writerMutex_{};
@@ -83,6 +82,5 @@ private:
     bool writerBusy_ = false;
     bool writerHasPending_ = false;
     std::filesystem::path writerPendingPath_{};
-    std::string writerPendingOutput_{};
-    double writerPendingSerializeMs_ = 0.0;
+    jsonutil::JsonObject writerPendingSnapshot_{};
 };

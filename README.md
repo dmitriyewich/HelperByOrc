@@ -151,8 +151,9 @@ HelperByOrc\Release\HelperByOrc.asi
 - `[probe]`, `[probe][stuck]`, `[samp][diag]` - готовность SA:MP;
 - `[samp][file]`, `[samp][cursor]` - fingerprint `samp.dll` и validation `SetCursorMode`;
 - `[ui] cursor owner=... route=... swallowMouse=... underlay=...` - кто сейчас владеет курсором, разрешён ли routing ввода в ImGui и какой внешний интерфейс лежит под Helper;
-- `[ui][perf]`, `[ui][perf][modules]`, `[ui][perf][prepare]` - медленные кадры ImGui, разбивка по HUD/Binder/Notepad/активной вкладке, draw stats и first-frame prepare/logo timing;
-- `AppConfig snapshot queued`, `AppConfig snapshot saved async`, `AppConfig snapshot skipped unchanged` - очередь, физическая запись и пропуск неизменившегося профильного `HelperByOrc.json`;
+- `[ui][perf]`, `[ui][perf][modules]`, `[ui][perf][prepare]` - медленные кадры ImGui, разбивка по HUD/Binder/Notepad/активной вкладке, draw stats и first-frame prepare timing;
+- `AppConfig snapshot queued for async serialize`, `AppConfig snapshot saved async`, `AppConfig snapshot skipped unchanged async` - очередь, фоновые сериализация/запись и пропуск неизменившегося профильного `HelperByOrc.json`;
+- `[unwanted][perf]` - агрегированное время проверки правил игнорирования сообщений за окно: сообщения, кандидаты, regex rules, blocked, avg/max;
 - `[ui][d3d]` - D3D9 hook policy и overlay;
 - `[diag][appcompat]` - Compatibility Mode, `apphelp.dll`, `AcLayers.dll`;
 - transfer-owner строки - кто уже пропатчил SA:MP-функции до плагина.

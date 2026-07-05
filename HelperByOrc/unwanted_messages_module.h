@@ -83,6 +83,32 @@ private:
         UnwantedMessageSource source = UnwantedMessageSource::CChatAddEntry;
     };
 
+    struct PerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::uint64_t messages = 0;
+        std::uint64_t blocked = 0;
+        std::uint64_t candidates = 0;
+        std::uint64_t ruleChecks = 0;
+        double totalMs = 0.0;
+        double maxMs = 0.0;
+        std::size_t maxCandidates = 0;
+        std::size_t maxRules = 0;
+        std::size_t maxRegexRules = 0;
+    };
+
+    struct PerfLogSnapshot {
+        std::uint64_t windowMs = 0;
+        std::uint64_t messages = 0;
+        std::uint64_t blocked = 0;
+        std::uint64_t candidates = 0;
+        std::uint64_t ruleChecks = 0;
+        double avgMs = 0.0;
+        double maxMs = 0.0;
+        std::size_t maxCandidates = 0;
+        std::size_t maxRules = 0;
+        std::size_t maxRegexRules = 0;
+    };
+
     enum class RuleFilter {
         All,
         Enabled,
@@ -115,6 +141,12 @@ private:
     bool MatchCandidates(const std::vector<std::string>& candidates, UnwantedMessageSource source, MatchResult* result) const;
     bool MatchRule(const Rule& rule, std::string_view candidate) const;
     bool MatchLiteral(const Rule& rule, std::string_view candidate) const;
+    std::optional<PerfLogSnapshot> AccumulatePerfStats(
+        double elapsedMs,
+        std::size_t candidateCount,
+        std::size_t enabledRules,
+        std::size_t regexRules,
+        bool blocked);
 
     void DrawHeader(bool& reload);
     void DrawRulesPane(const ImVec2& size);
@@ -168,6 +200,7 @@ private:
     std::uint64_t blockedCount_ = 0;
     MatchResult lastBlocked_{};
     MatchResult lastTesterMatch_{};
+    PerfStats perfStats_{};
 
     std::string testText_{};
     std::string helperSample_{};
