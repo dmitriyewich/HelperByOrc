@@ -2398,7 +2398,7 @@ struct BinderModule::Impl {
         const std::string& sourceText,
         bool waitForResolution);
     bool OnOutgoingCommand(const std::string& text);
-    void OnOutgoingChat(const std::string& text);
+    bool OnOutgoingChat(const std::string& text);
     void OnIncomingMessage(const IncomingMessageEvent& message);
     void ExpireTextConfirmations();
     bool ActivatePendingTextConfirmations(UINT keyCode);

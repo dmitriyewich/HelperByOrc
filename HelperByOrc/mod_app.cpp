@@ -370,8 +370,7 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
     s_maxNotepadStats = {};
 }
 
-const std::array<TabDefinition, 6> kTabs = {{
-    { MainTab::Home, UiText::TabHome, UiText::TabHomeCompact, ui_icons::House },
+const std::array<TabDefinition, 5> kTabs = {{
     { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, ui_icons::Keyboard },
     { MainTab::Hud, UiText::TabHud, UiText::TabHudCompact, ui_icons::Sliders },
     { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, ui_icons::Cubes },
@@ -2315,35 +2314,6 @@ MainTab ModApp::DrawAnimatedMenu(float width) {
     return currentTab_;
 }
 
-void ModApp::DrawSectionCard(const char* id, const char* title, const char* description, const ImVec4& accent) const {
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::GetStyle().Colors[ImGuiCol_ChildBg]);
-    if (ImGui::BeginChild(id, ImVec2(0.0f, Scale(86.0f)), ImGuiChildFlags_FrameStyle)) {
-        ImGui::TextColored(accent, "%s", title);
-        ImGui::Spacing();
-        ImGui::TextWrapped("%s", description);
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-}
-
-void ModApp::DrawHomeTab() const {
-    const UiSettings& ui = UiSettings::Instance();
-    ImGui::SeparatorText(ui.Text(UiText::TabHome));
-    ImGui::TextWrapped("%s", ui.Text(UiText::HomeIntro));
-    ImGui::Spacing();
-
-    DrawSectionCard(
-        "home_shell",
-        ui.Text(UiText::HomeInterfaceTitle),
-        ui.Text(UiText::HomeInterfaceDesc),
-        ImVec4(0.75f, 0.90f, 1.0f, 1.0f));
-    DrawSectionCard(
-        "home_tabs",
-        ui.Text(UiText::HomeTabsTitle),
-        ui.Text(UiText::HomeTabsDesc),
-        ImVec4(0.60f, 1.0f, 0.72f, 1.0f));
-}
-
 void ModApp::DrawBinderTab() const {
     const_cast<BinderModule&>(binder_).DrawMainTab();
 }
@@ -3244,9 +3214,6 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         if (ImGui::BeginChild("main_content", ImVec2(0.0f, 0.0f), kBorderedChildFlags)) {
             stageBeginMs = UiPerfNowMs();
             switch (currentTab_) {
-            case MainTab::Home:
-                DrawHomeTab();
-                break;
             case MainTab::Binder:
                 DrawBinderTab();
                 break;

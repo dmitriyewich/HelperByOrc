@@ -26,8 +26,7 @@
 #include "unwanted_messages_module.h"
 
 enum class MainTab : std::uint8_t {
-    Home = 0,
-    Binder,
+    Binder = 0,
     Hud,
     Misc,
     Notepad,
@@ -71,8 +70,6 @@ private:
     void EnsureLogoTexture(IDirect3DDevice9* device);
     void ReleaseUiResources();
     MainTab DrawAnimatedMenu(float width);
-    void DrawSectionCard(const char* id, const char* title, const char* description, const ImVec4& accent) const;
-    void DrawHomeTab() const;
     void DrawBinderTab() const;
     void DrawHudTab(IDirect3DDevice9* device);
     void DrawMiscTab();
@@ -88,8 +85,8 @@ private:
 
     HMODULE module_ = nullptr;
     ImGuiOverlay overlay_;
-    MainTab currentTab_ = MainTab::Home;
-    std::array<MenuAnimationState, 6> menuAnimations_{};
+    MainTab currentTab_ = MainTab::Binder;
+    std::array<MenuAnimationState, 5> menuAnimations_{};
     bool sidebarCollapsed_ = false;
     bool mainWindowInitialized_ = false;
     std::string profileNameBuffer_{};

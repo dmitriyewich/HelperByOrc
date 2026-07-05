@@ -89,8 +89,8 @@ void BinderModule::Impl::ConnectHooks() {
             return !handled;
         });
         sampRakHooks->AddOnSendChatHandler([this](std::string& text) {
-            OnOutgoingChat(ToUtf8ForDisplay(text));
-            return true;
+            const bool handled = OnOutgoingChat(ToUtf8ForDisplay(text));
+            return !handled;
         });
         rakHooksBound = true;
     }
@@ -1054,17 +1054,15 @@ std::string BinderModule::Impl::NormalizeActivationText(std::string_view text) c
 }
 
 bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::string_view command) const {
-    const auto normalizeCommand = [&](std::string_view value) {
-        std::string normalized = NormalizeActivationText(value);
-        if (!normalized.empty() && normalized.front() != '/') {
-            normalized.insert(normalized.begin(), '/');
-        }
-        return normalized;
-    };
-
-    const std::string normalizedInput = normalizeCommand(input);
-    const std::string normalizedCommand = normalizeCommand(command);
+    std::string normalizedInput = NormalizeActivationText(input);
+    std::string normalizedCommand = NormalizeActivationText(command);
     if (normalizedInput.empty() || normalizedCommand.empty()) {
+        return false;
+    }
+
+    const bool inputIsSlashCommand = normalizedInput.front() == '/';
+    const bool commandIsSlashCommand = normalizedCommand.front() == '/';
+    if (inputIsSlashCommand != commandIsSlashCommand) {
         return false;
     }
 
@@ -1126,10 +1124,7 @@ bool BinderModule::Impl::QueueCommandDispatchFromRunningBind(
     std::uint64_t sourceRuntimeId,
     int method) {
     std::string normalizedCommand = NormalizeActivationText(command);
-    if (!normalizedCommand.empty() && normalizedCommand.front() != '/') {
-        normalizedCommand.insert(normalizedCommand.begin(), '/');
-    }
-    if (sourceRuntimeId == 0 || normalizedCommand.empty() || normalizedCommand.front() != '/') {
+    if (sourceRuntimeId == 0 || normalizedCommand.empty()) {
         return false;
     }
     if (!HasCommandTriggerCandidate(normalizedCommand, static_cast<double>(GetTickCount64()))) {
@@ -1205,18 +1200,22 @@ bool BinderModule::Impl::OnOutgoingCommand(const std::string& text) {
     return handled;
 }
 
-void BinderModule::Impl::OnOutgoingChat(const std::string& text) {
+bool BinderModule::Impl::OnOutgoingChat(const std::string& text) {
     const std::string normalized = NormalizeActivationText(text);
     if (normalized.empty() || ConsumeOutgoingGuard("chat", normalized)) {
-        return;
+        return false;
     }
     if (!normalized.empty() && normalized.front() == '/') {
-        return;
+        return false;
+    }
+    if (DispatchCommandTrigger(normalized, 0)) {
+        return true;
     }
     const bool handled = OnTextTriggerEvent(normalized, "outgoing_chat");
     if (handled) {
         RegisterIncomingChatEchoGuard(normalized);
     }
+    return false;
 }
 
 void BinderModule::Impl::OnIncomingMessage(const IncomingMessageEvent& message) {
@@ -1568,8 +1567,6 @@ bool BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64
     }
 
     if ((method == 1 || method == 2)
-        && !expandedText.empty()
-        && expandedText.front() == '/'
         && QueueCommandDispatchFromRunningBind(expandedText, sourceRuntimeId, method)) {
         if (method == 2) {
             constexpr std::size_t kMaxPreviewLength = 96;

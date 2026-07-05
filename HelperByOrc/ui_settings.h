@@ -10,23 +10,16 @@
     X(AppBrandCompact, "H", "H") \
     X(LanguageRussian, "Русский", "Russian") \
     X(LanguageEnglish, "English", "English") \
-    X(TabHome, "Главная", "Home") \
     X(TabBinder, "Биндер", "Binder") \
     X(TabHud, "HUD", "HUD") \
     X(TabMisc, "Прочее", "Misc") \
     X(TabNotepad, "Блокнот", "Notepad") \
     X(TabSettings, "Настройки", "Settings") \
-    X(TabHomeCompact, "ГЛ", "HM") \
     X(TabBinderCompact, "БН", "BD") \
     X(TabHudCompact, "HUD", "HUD") \
     X(TabMiscCompact, "ПР", "MS") \
     X(TabNotepadCompact, "БЛ", "NP") \
     X(TabSettingsCompact, "НС", "ST") \
-    X(HomeIntro, "Оставлена чистая оболочка интерфейса: окно, логотип, боковое меню и вкладки без тестовых инструментов и служебных логов.", "The base interface shell is in place: window, logo, sidebar, and tabs without test tools or debug clutter.") \
-    X(HomeInterfaceTitle, "Основа интерфейса", "Interface Foundation") \
-    X(HomeInterfaceDesc, "Главное окно, кастомный title bar, логотип из ресурса и анимированное боковое меню уже готовы под дальнейшую разработку.", "The main window, custom title bar, resource logo, and animated sidebar are ready for the next feature work.") \
-    X(HomeTabsTitle, "Порядок вкладок", "Tab Layout") \
-    X(HomeTabsDesc, "Главная, Биндер, HUD, Прочее, Блокнот, Настройки. Порядок приведён к новому варианту без тестовых экранов.", "Home, Binder, HUD, Misc, Notepad, Settings. The tab order was cleaned up and no longer includes test screens.") \
     X(HudSearchHint, "Поиск виджетов", "Search widgets") \
     X(HudWidgets, "Виджеты", "Widgets") \
     X(HudNoWidgets, "Виджетов пока нет. Добавьте пустой виджет или пресет.", "No widgets yet. Add an empty widget or a preset.") \

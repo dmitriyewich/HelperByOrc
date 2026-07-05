@@ -1989,12 +1989,13 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
 
     stageBeginMs = PerfNowMs();
-    ImGui::NewFrame();
     if (wantsUiCursor && CanRouteInput()) {
-        // При активном overlay-курcоре хотим стабильный mouse-capture и на следующем кадре тоже,
-        // чтобы исключить кратковременные провалы WantCaptureMouse=0 между WndProc/NewFrame.
+        // SetNextFrameWantCaptureMouse is consumed by NewFrame(), so set it before
+        // the frame starts. Otherwise the first overlay frame can keep
+        // WantCaptureMouse=0 while the Helper cursor is already routing input.
         ImGui::SetNextFrameWantCaptureMouse(true);
     }
+    ImGui::NewFrame();
     perf.backendNewFrameMs += PerfNowMs() - stageBeginMs;
 
     if (renderCallback_) {
