@@ -1,10 +1,8 @@
 #include "imgui_overlay.h"
 
 #include "debug_log.h"
-#include "font_awesome7_data.h"
-#include "icon_registry.h"
 #include "minhook_utils.h"
-#include "ui_icons.h"
+#include "ui_fonts.h"
 #include "ui_settings.h"
 
 #include <imgui.h>
@@ -25,7 +23,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT mes
 namespace {
 
 constexpr char kDummyWindowClassName[] = "HelperByOrcDummyWindow";
-constexpr float kOverlayFontSize = 18.0f;
 
 enum class UiDebugProfile {
     ProductionDebug,
@@ -573,7 +570,7 @@ void DbgTraceImGuiInternalState(const char* reason) {
     const ImGuiWindow* wheel = g.WheelingWindow;
 
     debuglog::WriteInfo(
-        "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScale=%.3f WantCapM=%d WantCapK=%d "
+        "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScaleMain=%.3f legacyIoScale=%.3f WantCapM=%d WantCapK=%d "
         "NavWin=\"%s\" HovWin=\"%s\" HovUnderMove=\"%s\" MoveWin=\"%s\" WheelWin=\"%s\" "
         "popAny=%d OpenPop=%d BeginPop=%d ActId=0x%08X HovId=0x%08X NavId=0x%08X NavHighlightUnderNav=%d",
         reason,
@@ -582,6 +579,7 @@ void DbgTraceImGuiInternalState(const char* reason) {
         mouseValid ? 1 : 0,
         io.DisplaySize.x,
         io.DisplaySize.y,
+        ImGui::GetStyle().FontScaleMain,
         io.FontGlobalScale,
         io.WantCaptureMouse ? 1 : 0,
         io.WantCaptureKeyboard ? 1 : 0,
@@ -597,66 +595,6 @@ void DbgTraceImGuiInternalState(const char* reason) {
         static_cast<unsigned>(g.HoveredId),
         static_cast<unsigned>(g.NavId),
         g.NavHighlightItemUnderNav ? 1 : 0);
-}
-
-bool MergeFontAwesomeIcons(ImGuiIO& io) {
-    ImFontConfig iconConfig{};
-    iconConfig.MergeMode = true;
-    iconConfig.PixelSnapH = true;
-
-    ImFont* solidIcons = io.Fonts->AddFontFromMemoryCompressedTTF(
-        FontAwesome7Data::kSolidCompressedData,
-        static_cast<int>(FontAwesome7Data::kSolidCompressedSize),
-        kOverlayFontSize,
-        &iconConfig,
-        icon_registry::SolidRanges());
-    if (!solidIcons) {
-        debuglog::WriteError("Failed to merge Font Awesome 7 solid icon font");
-        return false;
-    }
-
-    ImFont* brandsIcons = io.Fonts->AddFontFromMemoryCompressedTTF(
-        FontAwesome7Data::kBrandsCompressedData,
-        static_cast<int>(FontAwesome7Data::kBrandsCompressedSize),
-        kOverlayFontSize,
-        &iconConfig,
-        icon_registry::BrandsRanges());
-    if (!brandsIcons) {
-        debuglog::WriteError("Failed to merge Font Awesome 7 brands icon font");
-        return false;
-    }
-
-    debuglog::WriteInfo("Merged Font Awesome 7 solid and brands icon fonts");
-    return true;
-}
-
-ImFont* LoadOverlayFont(ImGuiIO& io) {
-    static constexpr const char* kFontCandidates[] = {
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        "C:\\Windows\\Fonts\\tahoma.ttf",
-        "C:\\Windows\\Fonts\\arial.ttf",
-    };
-
-    const ImWchar* glyphRanges = io.Fonts->GetGlyphRangesCyrillic();
-    for (const char* path : kFontCandidates) {
-        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
-            continue;
-        }
-
-        ImFont* font = io.Fonts->AddFontFromFileTTF(path, kOverlayFontSize, nullptr, glyphRanges);
-        if (font) {
-            debuglog::WriteInfo("Loaded ImGui font: %s", path);
-            MergeFontAwesomeIcons(io);
-            return font;
-        }
-    }
-
-    debuglog::WriteError("Failed to load a Cyrillic-capable ImGui font, using default font");
-    ImFontConfig fallbackConfig{};
-    fallbackConfig.SizePixels = kOverlayFontSize;
-    ImFont* fallbackFont = io.Fonts->AddFontDefault(&fallbackConfig);
-    MergeFontAwesomeIcons(io);
-    return fallbackFont;
 }
 
 } // namespace
@@ -1298,7 +1236,8 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
     io.MouseDrawCursor = false;
-    io.FontDefault = LoadOverlayFont(io);
+    ui_fonts::ApplySettings(UiSettings::Instance().FontFamily(), UiSettings::Instance().FontSize());
+    io.FontDefault = ui_fonts::LoadDefaultFont(io);
 
     ImGui::StyleColorsDark();
 
@@ -1553,6 +1492,26 @@ void ImGuiOverlay::SyncOsMouseToImGui() const {
     if (::GetCursorPos(&pt) != 0 && ::ScreenToClient(gameWindow_, &pt) != 0) {
         ImGui::GetIO().AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
     }
+}
+
+void ImGuiOverlay::ReloadPendingFontsIfNeeded() {
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+
+    ui_fonts::ApplySettings(UiSettings::Instance().FontFamily(), UiSettings::Instance().FontSize());
+    if (!ui_fonts::HasPendingFontAtlasReload()) {
+        return;
+    }
+
+    const double beginMs = PerfNowMs();
+    ImGui_ImplDX9_InvalidateDeviceObjects();
+    const bool reloaded = ui_fonts::ReloadPendingFontAtlas();
+    ImGui_ImplDX9_CreateDeviceObjects();
+    debuglog::WriteInfo(
+        "[ui][font] reload safe-point reloaded=%d elapsed=%.2fms",
+        reloaded ? 1 : 0,
+        PerfNowMs() - beginMs);
 }
 
 bool ImGuiOverlay::MouseMessageClientPos(UINT message, LPARAM lparam, ImVec2& outPos) const {
@@ -1873,6 +1832,7 @@ void ImGuiOverlay::AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device) {
     } else {
         perf.drawSkipped = true;
     }
+    ui_fonts::LogAtlasDiagnosticsOnce();
     perf.totalMs = PerfNowMs() - beginMs;
     const bool slow = perf.totalMs >= static_cast<double>(kSlowFrameTraceThresholdMs);
     AccumulateUiFramePerf(perf, slow);
@@ -1900,6 +1860,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     if (IsInputPipelineEnabled()) {
         EnsureWndProcHookInstalled(WantsInputRouting());
     }
+    ReloadPendingFontsIfNeeded();
 
     const bool hasOverlayUi = menuOpen_ || auxiliaryVisible;
     const FrameSurface frameSurface = CurrentFrameSurface(hasOverlayUi, auxiliaryVisible);
@@ -2026,6 +1987,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     } else {
         perf.drawSkipped = true;
     }
+    ui_fonts::LogAtlasDiagnosticsOnce();
 
     TraceUiRenderAndInputSnapshot("after_present_ui");
 

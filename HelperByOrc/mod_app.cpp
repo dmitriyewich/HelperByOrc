@@ -5,6 +5,7 @@
 #include "feature_flags.h"
 #include "minhook_utils.h"
 #include "resource.h"
+#include "ui_fonts.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 
@@ -2053,8 +2054,8 @@ void ModApp::ApplyMainStyle(float scale) const {
     style.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
     style.SeparatorTextPadding = ImVec2(8.0f * scale, style.FramePadding.y);
 
-    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.92f, 0.97f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.36f, 0.39f, 0.46f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.96f, 0.97f, 1.00f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.58f, 0.62f, 0.70f, 1.00f);
     colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.12f, 0.15f, 1.00f);
     colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.14f, 0.18f, 0.98f);
     colors[ImGuiCol_PopupBg] = ImVec4(0.14f, 0.16f, 0.20f, 0.97f);
@@ -2448,6 +2449,41 @@ void ModApp::DrawSettingsGeneralSection() {
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsScaleHint));
     ImGui::Spacing();
 
+    ImGui::SeparatorText(ui.Text(UiText::SettingsUiFont));
+    int fontFamilyIndex = ui_fonts::FontFamilyIndex(ui.FontFamily());
+    ImGui::SetNextItemWidth(Scale(260.0f));
+    if (ImGui::BeginCombo(ui.Text(UiText::SettingsFontFamily), ui_fonts::FontFamilyLabel(ui.FontFamily()))) {
+        for (std::size_t index = 0; index < ui_fonts::FontFamilyCount(); ++index) {
+            const ui_fonts::FontFamily family = ui_fonts::FontFamilyAt(index);
+            const bool selected = fontFamilyIndex == static_cast<int>(index);
+            if (ImGui::Selectable(ui_fonts::FontFamilyLabel(family), selected)) {
+                fontFamilyIndex = static_cast<int>(index);
+                ui.SetFontFamily(family);
+                debuglog::WriteInfo("Settings changed: font_family=%s", ui_fonts::FontFamilyId(family));
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    float fontSize = ui.FontSize();
+    ImGui::SetNextItemWidth(Scale(300.0f));
+    if (ImGui::SliderFloat(
+            ui.Text(UiText::SettingsFontSize),
+            &fontSize,
+            ui_fonts::kMinFontSize,
+            ui_fonts::kMaxFontSize,
+            "%.0f px",
+            ImGuiSliderFlags_AlwaysClamp)) {
+        ui.SetFontSize(fontSize);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        debuglog::WriteInfo("Settings changed: font_size=%.0f", ui.FontSize());
+    }
+    ImGui::Spacing();
+
     if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {
         ui.ResetToDefaults();
         debuglog::WriteInfo("Interface settings reset to defaults");
@@ -2530,6 +2566,7 @@ void ModApp::DrawSettingsNotificationsSection() {
         { NotificationGroup::SampDialogErrors, UiText::SettingsNotificationsGroupSampDialogErrors },
         { NotificationGroup::Success, UiText::SettingsNotificationsGroupSuccess },
         { NotificationGroup::Confirmation, UiText::SettingsNotificationsGroupConfirmation },
+        { NotificationGroup::BinderEvents, UiText::SettingsNotificationsGroupBinderEvents },
     };
     if (ImGui::BeginTable(
             "##settings_notification_groups",
@@ -2984,8 +3021,10 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
             io.DisplaySize.y);
     }
     stageBeginMs = UiPerfNowMs();
-    io.FontGlobalScale = uiScale;
     ApplyMainStyle(uiScale);
+    ui_fonts::ApplySettings(UiSettings::Instance().FontFamily(), UiSettings::Instance().FontSize());
+    ImGui::GetStyle().FontScaleMain = uiScale;
+    io.FontGlobalScale = 1.0f;
     const double styleMs = UiPerfNowMs() - stageBeginMs;
     const double logoMs = 0.0;
     const double totalMs = UiPerfNowMs() - beginMs;
@@ -3012,7 +3051,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     perf.surface = CurrentOverlayFrameSurface();
 
     ImGuiIO& io = ImGui::GetIO();
-    const float uiScale = io.FontGlobalScale;
+    const float uiScale = UiSettings::Instance().CurrentScale();
 
     const bool showMainWindow = overlay_.IsMenuOpen();
     perf.menuOpen = showMainWindow;

@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "icon_registry.h"
+#include "ui_fonts.h"
 #include "ui_settings.h"
 
 #include <d3dx9tex.h>
@@ -23,13 +24,6 @@
 namespace {
 
 namespace fs = std::filesystem;
-
-float CurrentWindowFontScale() {
-    if (ImGuiWindow* window = ImGui::GetCurrentWindow()) {
-        return window->FontWindowScale;
-    }
-    return 1.0f;
-}
 
 float FontDirectiveScale(const MarkupRenderer::DrawOptions& options) {
     return std::max(0.01f, options.fontDirectiveScale);
@@ -939,14 +933,9 @@ struct MarkupRenderer::Impl {
             return segment.image->hasPosition ? ScaleUi(static_cast<float>(segment.image->posX)) + size.x : size.x;
         }
         std::string text = SegmentPlainText(segment);
-        const float previousScale = CurrentWindowFontScale();
-        if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(static_cast<float>(segment.fontSize) * FontDirectiveScale(options) / 16.0f);
-        }
+        const ui_fonts::ScopedFontSize fontScope(
+            segment.fontSize > 0 ? static_cast<float>(segment.fontSize) * FontDirectiveScale(options) : 0.0f);
         const float width = ImGui::CalcTextSize(text.c_str()).x;
-        if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(previousScale);
-        }
         return width;
     }
 
@@ -1019,17 +1008,16 @@ struct MarkupRenderer::Impl {
         ImVec4 textColor = segment.hasColor ? segment.color : ImGui::GetStyleColorVec4(ImGuiCol_Text);
         textColor.w *= segment.alpha;
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-        const float previousScale = CurrentWindowFontScale();
-        if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(static_cast<float>(segment.fontSize) * FontDirectiveScale(options) / 16.0f);
-        }
+        const ui_fonts::ScopedFontSize fontScope(
+            segment.fontSize > 0 ? static_cast<float>(segment.fontSize) * FontDirectiveScale(options) : 0.0f);
 
         ImVec2 drawnSize{};
         if (segment.image) {
             drawnSize = DrawImageSegment(*segment.image, device, imageRoot, contentOrigin);
         } else {
             const std::string text = SegmentPlainText(segment);
-            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const ImVec2 start = ui_fonts::SnapPixel(ImGui::GetCursorScreenPos());
+            ImGui::SetCursorScreenPos(start);
             const ImVec2 textSize = ImGui::CalcTextSize(text.empty() ? " " : text.c_str());
             if (segment.hasBgColor && !text.empty()) {
                 ImVec4 bg = segment.bgColor;
@@ -1045,7 +1033,7 @@ struct MarkupRenderer::Impl {
                 ImFont* font = ImGui::GetFont();
                 const float fontSize = ImGui::GetFontSize();
                 const float wrapWidth = options.wrapText ? ImGui::GetContentRegionAvail().x : 0.0f;
-                const float outlineOffset = std::max(1.0f, ScaleUi(1.0f));
+                const float outlineOffset = ui_fonts::RoundFontSize(std::max(1.0f, ScaleUi(1.0f)));
                 const ImU32 outlineColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, textColor.w * 0.65f));
                 const ImU32 shadowColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, textColor.w * 0.55f));
                 if (segment.outline) {
@@ -1055,7 +1043,7 @@ struct MarkupRenderer::Impl {
                     drawList->AddText(font, fontSize, ImVec2(start.x, start.y + outlineOffset), outlineColor, text.c_str(), nullptr, wrapWidth);
                 }
                 if (segment.shadow) {
-                    const float shadowOffset = std::max(1.0f, ScaleUi(1.25f));
+                    const float shadowOffset = ui_fonts::RoundFontSize(std::max(1.0f, ScaleUi(1.25f)));
                     drawList->AddText(font, fontSize, ImVec2(start.x + shadowOffset, start.y + shadowOffset), shadowColor, text.c_str(), nullptr, wrapWidth);
                 }
             }
@@ -1067,9 +1055,6 @@ struct MarkupRenderer::Impl {
             drawnSize = ImGui::GetItemRectSize();
         }
 
-        if (segment.fontSize > 0) {
-            ImGui::SetWindowFontScale(previousScale);
-        }
         ImGui::PopStyleColor();
         return drawnSize;
     }

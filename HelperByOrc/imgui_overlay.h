@@ -94,6 +94,7 @@ private:
     void UpdateInputCaptureState();
     void ApplyInputCaptureState(bool captured);
     void AdvanceImGuiFrameWithoutUi(IDirect3DDevice9* device);
+    void ReloadPendingFontsIfNeeded();
     void TraceUiRenderAndInputSnapshot(const char* frameTag);
     void RenderFrame(IDirect3DDevice9* device);
     void RefreshHelperWindowHitRects();

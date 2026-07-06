@@ -113,6 +113,8 @@ const char* GroupId(NotificationGroup group) {
         return "success";
     case NotificationGroup::Confirmation:
         return "confirmation";
+    case NotificationGroup::BinderEvents:
+        return "events";
     case NotificationGroup::Validation:
         return "validation";
     case NotificationGroup::BinderErrors:
@@ -213,6 +215,7 @@ void NotificationManager::LoadConfig() {
     const jsonutil::JsonValue rawSection = AppConfig::Instance().ReadSection(kNotificationsSectionName);
     const jsonutil::JsonObject* section = rawSection.TryObject();
     bool removeLegacyValidationGroup = false;
+    bool missingPersistedGroup = false;
 
     if (section) {
         loaded.enabled = jsonutil::JsonBoolOr(section, "enabled", loaded.enabled);
@@ -234,11 +237,16 @@ void NotificationManager::LoadConfig() {
                     removeLegacyValidationGroup = groups->find(GroupId(group)) != groups->end();
                     continue;
                 }
+                if (groups->find(GroupId(group)) == groups->end()) {
+                    missingPersistedGroup = true;
+                }
                 loaded.groups[NotificationGroupIndex(group)] = jsonutil::JsonBoolOr(
                     groups,
                     GroupId(group),
                     loaded.groups[NotificationGroupIndex(group)]);
             }
+        } else {
+            missingPersistedGroup = true;
         }
     }
 
@@ -246,7 +254,7 @@ void NotificationManager::LoadConfig() {
     entries_.clear();
     lastEmittedAt_.clear();
 
-    if (!section || removeLegacyValidationGroup || !SettingsEqual(loaded, settings_)) {
+    if (!section || removeLegacyValidationGroup || missingPersistedGroup || !SettingsEqual(loaded, settings_)) {
         QueueSave();
     }
 

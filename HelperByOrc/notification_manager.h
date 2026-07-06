@@ -21,6 +21,7 @@ enum class NotificationGroup : int {
     SampDialogErrors,
     Success,
     Confirmation,
+    BinderEvents,
     // Internal, always-on popup group for editor/input validation feedback.
     Validation,
 };
@@ -42,7 +43,7 @@ enum class NotificationPosition : int {
     BottomRight,
 };
 
-constexpr std::size_t kNotificationGroupCount = 6;
+constexpr std::size_t kNotificationGroupCount = 7;
 
 std::size_t NotificationGroupIndex(NotificationGroup group);
 

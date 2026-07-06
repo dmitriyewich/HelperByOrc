@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui_fonts.h"
+
 #include <imgui.h>
 
 #include <string>
@@ -572,12 +574,13 @@
     X(SettingsNotificationsChannel, "Канал", "Channel") \
     X(SettingsNotificationsChannelPopup, "Окно", "Popup") \
     X(SettingsNotificationsChannelLog, "Лог", "Log") \
-    X(SettingsNotificationsGroups, "События", "Events") \
+    X(SettingsNotificationsGroups, "Группы уведомлений", "Notification groups") \
     X(SettingsNotificationsGroupBinderErrors, "Ошибки биндов и отправки", "Bind and send errors") \
     X(SettingsNotificationsGroupTagErrors, "Ошибки тегов", "Tag errors") \
     X(SettingsNotificationsGroupSampDialogErrors, "Ошибки диалогов SA:MP", "SA:MP dialog errors") \
     X(SettingsNotificationsGroupSuccess, "Успешные действия", "Successful actions") \
     X(SettingsNotificationsGroupConfirmation, "Подтверждения и отмены", "Confirmations and cancels") \
+    X(SettingsNotificationsGroupBinderEvents, "События", "Events") \
     X(SettingsNotificationsPosition, "Позиция", "Position") \
     X(SettingsNotificationsPositionTopLeft, "Сверху слева", "Top left") \
     X(SettingsNotificationsPositionTopCenter, "Сверху по центру", "Top center") \
@@ -609,6 +612,9 @@
     X(SettingsAutoScale, "Автомасштаб под разрешение", "Auto scale for resolution") \
     X(SettingsScaleMultiplier, "Пользовательский множитель", "Custom multiplier") \
     X(SettingsEffectiveScale, "Итоговый масштаб", "Effective scale") \
+    X(SettingsUiFont, "Шрифт интерфейса", "Interface font") \
+    X(SettingsFontFamily, "Семейство", "Family") \
+    X(SettingsFontSize, "Размер", "Size") \
     X(SettingsResetDefaults, "Сбросить интерфейс", "Reset interface") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsLogPath, "Файл журнала", "Log file") \
@@ -752,6 +758,8 @@
     X(SendUnknown, "Неизвестно", "Unknown") \
     X(ToastBindConfirmExpired, "%s: подтверждение бинда истекло: %s", "%s: bind confirmation expired: %s") \
     X(ToastBindCanceled, "%s: бинд отменён: %s", "%s: bind canceled: %s") \
+    X(ToastBindPaused, "Бинд поставлен на паузу: %s", "Bind paused: %s") \
+    X(ToastBindResumed, "Бинд продолжен: %s", "Bind resumed: %s") \
     X(ToastConditionBlocked, "Бинд заблокирован: %s", "Bind blocked: %s") \
     X(ToastFinishActiveInput, "Сначала завершите активный ввод.", "Finish the active input first.") \
     X(ToastSendLocalFailed, "Не удалось добавить сообщение в чат SA:MP.", "Failed to add a message to the SA:MP chat.") \
@@ -1121,6 +1129,11 @@ public:
     void SetScaleMultiplierDraft(float multiplier);
     bool CommitScaleMultiplierDraft();
 
+    ui_fonts::FontFamily FontFamily() const;
+    void SetFontFamily(ui_fonts::FontFamily family);
+    float FontSize() const;
+    void SetFontSize(float fontSize);
+
     UiLogLevel LogLevel() const;
     void SetLogLevel(UiLogLevel level);
     bool ApplyDamageProtectionEnabled() const;
@@ -1153,6 +1166,8 @@ private:
     bool autoScaleEnabled_ = true;
     float scaleMultiplier_ = 1.0f;
     float scaleMultiplierDraft_ = 1.0f;
+    ui_fonts::FontFamily fontFamily_ = ui_fonts::FontFamily::Tahoma;
+    float fontSize_ = ui_fonts::kDefaultFontSize;
     UiLogLevel logLevel_ = UiLogLevel::Info;
     bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};

@@ -2318,6 +2318,8 @@ struct BinderModule::Impl {
     ConditionRuntimeContext MakeConditionContext(bool quickMenuContext = false) const;
     bool IsSilentActivationSource(std::string_view source) const;
     bool IsManualActivationSource(std::string_view source) const;
+    bool CanToggleRunningHotkeyActivation(std::string_view source) const;
+    bool ShouldNotifyRunningHotkeyToggle(std::string_view source) const;
     bool ShouldBlockHelperCursorActivation(const HotkeyEntry& hotkey, std::string_view source) const;
     bool ConditionsBlockHotkeyStart(
         const HotkeyEntry& hotkey,
@@ -2366,6 +2368,7 @@ struct BinderModule::Impl {
     const RunningBind* FindRunningBindForHotkey(int index) const;
     bool IsHotkeyRunning(int index) const;
     bool IsHotkeyPaused(int index) const;
+    bool TryToggleRunningHotkeyActivation(int index, std::string_view source, double now);
     bool PauseHotkey(int index);
     bool ResumeHotkey(int index);
     bool StopHotkey(int index);
@@ -2390,7 +2393,7 @@ struct BinderModule::Impl {
     std::string NormalizeActivationText(std::string_view text) const;
     bool MatchesActivationCommand(std::string_view input, std::string_view command) const;
     bool HasCommandTriggerCandidate(const std::string& normalizedCommand, double now) const;
-    bool DispatchCommandTrigger(const std::string& normalizedCommand, int startDelayMs);
+    bool DispatchCommandTrigger(const std::string& normalizedCommand, int startDelayMs, bool allowRunningToggle = true);
     bool QueueCommandDispatchFromRunningBind(const std::string& normalizedCommand, std::uint64_t sourceRuntimeId, int method);
     bool TryBeginPendingConfirmation(
         HotkeyEntry& hotkey,

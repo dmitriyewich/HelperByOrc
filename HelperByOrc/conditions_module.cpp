@@ -663,7 +663,7 @@ bool DrawConditionFlagsPopup(
         popupPending = false;
     }
 
-    const float scale = std::max(0.5f, ImGui::GetIO().FontGlobalScale);
+    const float scale = std::max(0.5f, UiSettings::Instance().CurrentScale());
     ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 440.0f * scale), ImGuiCond_Always);
     if (!ImGui::BeginPopup(popupId, ImGuiWindowFlags_NoResize)) {
         return false;

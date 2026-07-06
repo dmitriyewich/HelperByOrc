@@ -174,6 +174,8 @@ void UiSettings::Load() {
     autoScaleEnabled_ = jsonutil::JsonBoolOr(&section, "auto_scale", true);
     scaleMultiplier_ = NormalizeScaleMultiplier(jsonutil::JsonNumberOr<float>(&section, "scale_multiplier", 1.0f));
     scaleMultiplierDraft_ = scaleMultiplier_;
+    fontFamily_ = ui_fonts::ParseFontFamily(jsonutil::JsonStringOr(&section, "font_family", ui_fonts::FontFamilyId(ui_fonts::FontFamily::Tahoma)));
+    fontSize_ = ui_fonts::NormalizeFontSize(jsonutil::JsonNumberOr<float>(&section, "font_size", ui_fonts::kDefaultFontSize));
     logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
@@ -234,6 +236,33 @@ bool UiSettings::CommitScaleMultiplierDraft() {
     scaleMultiplier_ = normalized;
     QueueSave();
     return true;
+}
+
+ui_fonts::FontFamily UiSettings::FontFamily() const {
+    return fontFamily_;
+}
+
+void UiSettings::SetFontFamily(ui_fonts::FontFamily family) {
+    if (fontFamily_ == family) {
+        return;
+    }
+
+    fontFamily_ = family;
+    QueueSave();
+}
+
+float UiSettings::FontSize() const {
+    return fontSize_;
+}
+
+void UiSettings::SetFontSize(float fontSize) {
+    const float normalized = ui_fonts::NormalizeFontSize(fontSize);
+    if (std::abs(fontSize_ - normalized) < 0.5f) {
+        return;
+    }
+
+    fontSize_ = normalized;
+    QueueSave();
 }
 
 UiLogLevel UiSettings::LogLevel() const {
@@ -297,6 +326,8 @@ void UiSettings::ResetToDefaults() {
     autoScaleEnabled_ = true;
     scaleMultiplier_ = 1.0f;
     scaleMultiplierDraft_ = scaleMultiplier_;
+    fontFamily_ = ui_fonts::FontFamily::Tahoma;
+    fontSize_ = ui_fonts::kDefaultFontSize;
     QueueSave();
 }
 
@@ -354,6 +385,8 @@ void UiSettings::QueueSave() const {
     section["language"] = LanguageId(language_);
     section["auto_scale"] = autoScaleEnabled_;
     section["scale_multiplier"] = static_cast<double>(scaleMultiplier_);
+    section["font_family"] = ui_fonts::FontFamilyId(fontFamily_);
+    section["font_size"] = static_cast<double>(fontSize_);
     section["log_level"] = LogLevelId(logLevel_);
     section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);

@@ -171,6 +171,7 @@
     <ClCompile Include="tags_registry.cpp" />
     <ClCompile Include="tags_module_impl_core.cpp" />
     <ClCompile Include="text_encoding.cpp" />
+    <ClCompile Include="ui_fonts.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
     <ClCompile Include="user_files_path.cpp" />
@@ -239,6 +240,7 @@
     <ClInclude Include="tags_module_detail.h" />
     <ClInclude Include="tags_module_impl.h" />
     <ClInclude Include="text_encoding.h" />
+    <ClInclude Include="ui_fonts.h" />
     <ClInclude Include="ui_icons.h" />
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="unwanted_messages_module.h" />

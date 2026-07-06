@@ -189,6 +189,9 @@
     <ClCompile Include="text_encoding.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ui_fonts.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ui_settings.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -356,6 +359,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_encoding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ui_fonts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_settings.h">

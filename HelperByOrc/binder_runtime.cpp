@@ -150,6 +150,19 @@ bool BinderModule::Impl::IsManualActivationSource(std::string_view source) const
     return source == "manual";
 }
 
+bool BinderModule::Impl::CanToggleRunningHotkeyActivation(std::string_view source) const {
+    return source != "incoming_server";
+}
+
+bool BinderModule::Impl::ShouldNotifyRunningHotkeyToggle(std::string_view source) const {
+    return source == "hotkey"
+        || source == "manual"
+        || source == "quick_menu"
+        || source == "command"
+        || source == "outgoing_chat"
+        || source == "outgoing_command";
+}
+
 bool BinderModule::Impl::ShouldBlockHelperCursorActivation(const HotkeyEntry& hotkey, std::string_view source) const {
     return helperUiActive_ && !IsManualActivationSource(source) && HasCursorCondition(hotkey.conditions);
 }
@@ -631,10 +644,19 @@ void BinderModule::Impl::ProcessHotkeys() {
         const bool comboNow = ::hotkeys::ComboMatch(pressedKeys, hotkey.keys, hotkey.hotkeyMode);
         if (hotkey.repeatMode) {
             if (comboNow) {
+                const bool freshPress = hotkey.lastRepeatPressed.empty()
+                    || !::hotkeys::ComboMatch(hotkey.lastRepeatPressed, hotkey.keys, hotkey.hotkeyMode);
+                if (IsHotkeyRunning(static_cast<int>(i))) {
+                    if (freshPress) {
+                        TryEnqueueHotkey(static_cast<int>(i), 0, "hotkey", "");
+                        hotkey.lastActivatedAtMs = now;
+                    }
+                    hotkey.lastRepeatPressed = pressedKeys;
+                    continue;
+                }
+
                 const int interval = std::max(hotkey.repeatIntervalMs, kMinMessageIntervalMs);
-                if (hotkey.lastRepeatPressed.empty()
-                    || !::hotkeys::ComboMatch(hotkey.lastRepeatPressed, hotkey.keys, hotkey.hotkeyMode)
-                    || now >= hotkey.lastActivatedAtMs + interval) {
+                if (freshPress || now >= hotkey.lastActivatedAtMs + interval) {
                     TryEnqueueHotkey(static_cast<int>(i), 0, "hotkey", "");
                     hotkey.lastActivatedAtMs = now;
                     hotkey.lastRepeatPressed = pressedKeys;
@@ -764,6 +786,53 @@ bool BinderModule::Impl::IsHotkeyPaused(int index) const {
         return running->paused;
     }
     return false;
+}
+
+bool BinderModule::Impl::TryToggleRunningHotkeyActivation(int index, std::string_view source, double now) {
+    if (!CanToggleRunningHotkeyActivation(source) || index < 0 || index >= static_cast<int>(hotkeys.size())) {
+        return false;
+    }
+
+    HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
+        return false;
+    }
+
+    RunningBind* running = FindRunningBindForHotkey(index);
+    if (!running) {
+        return false;
+    }
+
+    if (now < hotkey.debounceUntilMs) {
+        return true;
+    }
+
+    const bool resume = running->paused;
+    const bool changed = resume ? ResumeHotkey(index) : PauseHotkey(index);
+    hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
+    if (!changed) {
+        return true;
+    }
+
+    const std::string label = BuildBindDisplayLabel(hotkey);
+    debuglog::WriteInfo(
+        "[binder] bind %s by activation source=%.*s runtime=%llu label=%s",
+        resume ? "resumed" : "paused",
+        static_cast<int>(source.size()),
+        source.data(),
+        static_cast<unsigned long long>(hotkey.runtimeId),
+        label.c_str());
+
+    if (ShouldNotifyRunningHotkeyToggle(source)) {
+        UiSettings& ui = UiSettings::Instance();
+        Notify(
+            NotificationGroup::BinderEvents,
+            resume ? NotificationSeverity::Success : NotificationSeverity::Info,
+            ui.Format(resume ? UiText::ToastBindResumed : UiText::ToastBindPaused, label.c_str()),
+            1800.0);
+    }
+
+    return true;
 }
 
 bool BinderModule::Impl::PauseHotkey(int index) {
@@ -905,7 +974,7 @@ void BinderModule::Impl::ExecutePendingCommandDispatches(std::uint64_t sourceRun
     }
 
     for (const PendingCommandDispatch& pending : localDispatches) {
-        if (!DispatchCommandTrigger(pending.command, kNestedBindStartDelayMs)) {
+        if (!DispatchCommandTrigger(pending.command, kNestedBindStartDelayMs, false)) {
             SendExpandedText(pending.command, pending.method);
         }
     }
@@ -1091,7 +1160,10 @@ bool BinderModule::Impl::HasCommandTriggerCandidate(const std::string& normalize
     return false;
 }
 
-bool BinderModule::Impl::DispatchCommandTrigger(const std::string& normalizedCommand, int startDelayMs) {
+bool BinderModule::Impl::DispatchCommandTrigger(
+    const std::string& normalizedCommand,
+    int startDelayMs,
+    bool allowRunningToggle) {
     const double now = static_cast<double>(GetTickCount64());
     bool handled = false;
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
@@ -1100,6 +1172,10 @@ bool BinderModule::Impl::DispatchCommandTrigger(const std::string& normalizedCom
             continue;
         }
         if (!MatchesActivationCommand(normalizedCommand, hotkey.command)) {
+            continue;
+        }
+        if (allowRunningToggle && TryToggleRunningHotkeyActivation(static_cast<int>(i), "command", now)) {
+            handled = true;
             continue;
         }
         if (IsHotkeyRunning(static_cast<int>(i))) {
@@ -1363,6 +1439,13 @@ bool BinderModule::Impl::TryDispatchTextTriggerMatch(
     const std::string& sourceText,
     std::string_view sourceKind,
     double now) {
+    if (TryToggleRunningHotkeyActivation(index, sourceKind, now)) {
+        return true;
+    }
+    if (IsHotkeyRunning(index)) {
+        return false;
+    }
+
     if (now < hotkey.debounceUntilMs) {
         return false;
     }
@@ -1412,6 +1495,11 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+    const double now = static_cast<double>(GetTickCount64());
+    if (TryToggleRunningHotkeyActivation(index, source, now)) {
+        return true;
+    }
+
     const bool isRunning = IsHotkeyRunning(index);
     if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation || isRunning) {
         return false;

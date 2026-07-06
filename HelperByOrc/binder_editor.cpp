@@ -1,6 +1,7 @@
 #include "binder_editor.h"
 
 #include "icon_registry.h"
+#include "ui_fonts.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 
@@ -753,10 +754,12 @@ void DrawInline(State& editor, const ShellActions& actions) {
             }
             const float headerBreadcrumbY = std::max(headerTitleTopY + ScaleUi(15.0f), ImGui::GetCursorPosY() - ScaleUi(6.0f));
             ImGui::SetCursorPos(ImVec2(headerTitleStartX, headerBreadcrumbY));
-            ImGui::SetWindowFontScale(0.75f);
-            const std::string headerBreadcrumb = EllipsizeText(breadcrumb, std::max(0.0f, ImGui::GetContentRegionAvail().x * 2.0f));
-            ImGui::TextDisabled("%s", headerBreadcrumb.c_str());
-            ImGui::SetWindowFontScale(1.0f);
+            std::string headerBreadcrumb;
+            {
+                const ui_fonts::ScopedFontSize fontScope(ui_fonts::FontSizeForScale(0.75f));
+                headerBreadcrumb = EllipsizeText(breadcrumb, std::max(0.0f, ImGui::GetContentRegionAvail().x * 2.0f));
+                ImGui::TextDisabled("%s", headerBreadcrumb.c_str());
+            }
             if (headerBreadcrumb != breadcrumb && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                 ImGui::SetTooltip("%s", breadcrumb.c_str());
             }

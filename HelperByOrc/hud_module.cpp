@@ -10,6 +10,7 @@
 #include "notepad_module.h"
 #include "samp_api.h"
 #include "tags_module.h"
+#include "ui_fonts.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 #include "variables_picker_ui.h"
@@ -2791,10 +2792,14 @@ struct HudModule::Impl {
         ImVec2 pos,
         ImFont* font,
         float fontSize,
+        float scale,
         const ImVec4& clip) const {
         const ImU32 textColor = ColorU32(element.style.text, element.style.textAlpha * element.opacity);
+        pos = ui_fonts::SnapPixel(pos);
         if (element.style.shadowEnabled) {
-            const ImVec2 offset(element.style.shadowOffsetX, element.style.shadowOffsetY);
+            const ImVec2 offset(
+                ui_fonts::SnapPixel(element.style.shadowOffsetX * scale),
+                ui_fonts::SnapPixel(element.style.shadowOffsetY * scale));
             drawList->AddText(
                 font,
                 fontSize,
@@ -2806,7 +2811,7 @@ struct HudModule::Impl {
                 &clip);
         }
         if (element.style.outlineEnabled && element.style.outlineSize > 0.0f) {
-            const float outline = std::max(1.0f, element.style.outlineSize);
+            const float outline = ui_fonts::RoundFontSize(std::max(1.0f, element.style.outlineSize * scale));
             const ImU32 outlineColor = ColorU32(element.style.outline, element.style.outlineAlpha * element.opacity);
             constexpr std::array<ImVec2, 8> kOffsets = {
                 ImVec2(-1.0f, -1.0f), ImVec2(0.0f, -1.0f), ImVec2(1.0f, -1.0f),
@@ -2834,12 +2839,12 @@ struct HudModule::Impl {
             DrawShape(drawList, element, rect, scale, false);
         }
         ImFont* font = ImGui::GetFont();
-        const float fontSize = std::max(1.0f, static_cast<float>(element.data.fontSize) * scale);
-        const float lineHeight = fontSize * 1.18f;
+        const float fontSize = ui_fonts::RoundFontSize(std::max(1.0f, static_cast<float>(element.data.fontSize) * scale));
+        const float lineHeight = ui_fonts::RoundFontSize(fontSize * 1.18f);
         const ImVec4 clip(rect.Min.x, rect.Min.y, rect.Max.x, rect.Max.y);
         const std::string& text = element.cachedText;
         std::size_t start = 0;
-        float y = rect.Min.y;
+        float y = ui_fonts::SnapPixel(rect.Min.y);
         while (start <= text.size() && y < rect.Max.y) {
             const std::size_t newline = text.find('\n', start);
             const std::size_t end = newline == std::string::npos ? text.size() : newline;
@@ -2852,7 +2857,7 @@ struct HudModule::Impl {
             } else if (element.data.align == TextAlign::Right) {
                 x = rect.Max.x - textSize.x;
             }
-            DrawTextLine(drawList, element, rect, begin, finish, ImVec2(x, y), font, fontSize, clip);
+            DrawTextLine(drawList, element, rect, begin, finish, ImVec2(ui_fonts::SnapPixel(x), y), font, fontSize, scale, clip);
             if (newline == std::string::npos) {
                 break;
             }
@@ -2876,18 +2881,15 @@ struct HudModule::Impl {
             | ImGuiWindowFlags_NoScrollWithMouse;
 
         ImGui::PushID(element.id.c_str());
-        ImGui::SetCursorScreenPos(rect.Min);
+        ImGui::SetCursorScreenPos(ui_fonts::SnapPixel(rect.Min));
         ImGui::PushStyleColor(ImGuiCol_Text, WithAlpha(element.style.text, element.style.textAlpha * element.opacity));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         if (ImGui::BeginChild("##hud_markup_rect", elementSize, ImGuiChildFlags_None, kMarkupWindowFlags)) {
-            ImGuiWindow* markupWindow = ImGui::GetCurrentWindow();
-            const float previousScale = markupWindow ? markupWindow->FontWindowScale : 1.0f;
-            ImGui::SetWindowFontScale(std::max(0.1f, static_cast<float>(element.data.fontSize) * scale / 16.0f));
+            const ui_fonts::ScopedFontSize fontScope(std::max(1.0f, static_cast<float>(element.data.fontSize) * scale));
             MarkupRenderer::DrawOptions options{};
             options.wrapText = false;
             options.fontDirectiveScale = scale;
             renderer.DrawText(element.cachedText, device, ImageRootForElement(element), options);
-            ImGui::SetWindowFontScale(previousScale);
         }
         ImGui::EndChild();
         ImGui::PopStyleVar();
