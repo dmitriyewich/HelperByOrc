@@ -1257,17 +1257,16 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     }
 
     const std::vector<variables_picker::Entry> pickerEntries = BuildEditorVariablePickerEntries();
-    const variables_picker::Request request = variables_picker::Draw(
-        editor.variablesPicker,
-        pickerEntries,
-        variables_picker::Options{
-            variables_picker::Mode::Insert,
-            "binder_editor_variables_picker",
-            editor.variablesInsertTarget != binder_editor::State::VariableInsertTarget::None,
-            false,
-            true,
-            ImGui::GetContentRegionAvail(),
-        });
+    variables_picker::Options pickerOptions{
+        variables_picker::Mode::Insert,
+        "binder_editor_variables_picker",
+        editor.variablesInsertTarget != binder_editor::State::VariableInsertTarget::None,
+        false,
+        true,
+        ImGui::GetContentRegionAvail(),
+    };
+    pickerOptions.allowCopyInInsert = true;
+    const variables_picker::Request request = variables_picker::Draw(editor.variablesPicker, pickerEntries, pickerOptions);
     HandleEditorVariablePickerRequest(request);
     closeRequested |= request.closePopupAfterAction;
 

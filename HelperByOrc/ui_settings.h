@@ -481,6 +481,7 @@
     X(VariablesBadgeParameter, "Параметр", "Parameter") \
     X(VariablesBadgeAction, "Действие", "Action") \
     X(VariablesInsert, "Вставить", "Insert") \
+    X(VariablesCopy, "Скопировать", "Copy") \
     X(VariablesInsertExample, "Вставить пример", "Insert example") \
     X(VariablesInsertTemplate, "Вставить шаблон", "Insert template") \
     X(VariablesCopyExample, "Копировать пример", "Copy example") \

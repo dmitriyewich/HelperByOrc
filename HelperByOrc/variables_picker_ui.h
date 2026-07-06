@@ -90,6 +90,7 @@ struct Options {
     bool allowCustomEdit = false;
     bool closeOnInsert = false;
     ImVec2 size = ImVec2(0.0f, 0.0f);
+    bool allowCopyInInsert = false;
 };
 
 struct Request {

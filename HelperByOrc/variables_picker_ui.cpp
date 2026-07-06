@@ -639,6 +639,14 @@ Request MakeTemplateRequest(const Entry& entry, const Options& options) {
     return MakeCopyRequest(TemplateText(entry));
 }
 
+Request MakePrimaryCopyRequest(const Entry& entry) {
+    return MakeCopyRequest(PrimaryText(entry));
+}
+
+Request MakeTemplateCopyRequest(const Entry& entry) {
+    return MakeCopyRequest(TemplateText(entry));
+}
+
 bool DrawCategoryChip(Category category, int count, State& state, const VisualStyle& visual, UiSettings& ui) {
     const std::string label = CategoryChipLabel(category, count, ui);
     const bool active = state.activeCategory == category;
@@ -1049,48 +1057,127 @@ void DrawInspectorPane(State& state, const Entry* selected, const Options& optio
     ImGui::Spacing();
     const bool insertMode = options.mode == Mode::Insert;
     const bool primaryEnabled = !insertMode || options.allowInsert;
-    const char* primaryLabel = nullptr;
+    const bool copyInInsertMode = insertMode && options.allowCopyInInsert;
+    const auto drawInsertCopyPair = [&](const char* insertLabel, const char* copyLabel, const char* idSuffix, bool useTemplateText) {
+        const std::string insertId = std::string("##variables_insert_") + idSuffix;
+        const std::string copyId = std::string("##variables_copy_") + idSuffix;
+        if (TextButton(
+                ui_icons::Plus,
+                insertLabel,
+                insertId.c_str(),
+                ScaleUi(170.0f, 0.0f),
+                visual,
+                primaryEnabled,
+                primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
+            request = useTemplateText ? MakeTemplateRequest(*selected, options) : MakePrimaryRequest(*selected, options);
+        }
+        ImGui::SameLine();
+        if (TextButton(
+                ui_icons::Copy,
+                copyLabel,
+                copyId.c_str(),
+                ScaleUi(170.0f, 0.0f),
+                visual)) {
+            request = useTemplateText ? MakeTemplateCopyRequest(*selected) : MakePrimaryCopyRequest(*selected);
+        }
+    };
+
     if (insertMode) {
-        primaryLabel = selected->kind == EntryKind::Function ? ui.Text(UiText::VariablesInsertExample) : ui.Text(UiText::VariablesInsert);
+        const char* insertLabel = selected->kind == EntryKind::Function ? ui.Text(UiText::VariablesInsertExample) : ui.Text(UiText::VariablesInsert);
+        if (copyInInsertMode) {
+            drawInsertCopyPair(
+                insertLabel,
+                selected->kind == EntryKind::Function ? ui.Text(UiText::VariablesCopyExample) : ui.Text(UiText::VariablesCopy),
+                "primary_action",
+                false);
+        } else if (TextButton(
+                       ui_icons::Plus,
+                       insertLabel,
+                       "##variables_primary_action",
+                       ScaleUi(170.0f, 0.0f),
+                       visual,
+                       primaryEnabled,
+                       primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
+            request = MakePrimaryRequest(*selected, options);
+        }
     } else {
-        primaryLabel = selected->kind == EntryKind::Function ? ui.Text(UiText::VariablesCopyExample) : ui.Text(UiText::UnwantedCopy);
-    }
-    if (TextButton(
-            insertMode ? ui_icons::Plus : ui_icons::Copy,
-            primaryLabel,
-            "##variables_primary_action",
-            ScaleUi(170.0f, 0.0f),
-            visual,
-            primaryEnabled,
-            primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
-        request = MakePrimaryRequest(*selected, options);
+        const char* primaryLabel = selected->kind == EntryKind::Function ? ui.Text(UiText::VariablesCopyExample) : ui.Text(UiText::UnwantedCopy);
+        if (TextButton(
+                ui_icons::Copy,
+                primaryLabel,
+                "##variables_primary_action",
+                ScaleUi(170.0f, 0.0f),
+                visual)) {
+            request = MakePrimaryRequest(*selected, options);
+        }
     }
 
     const std::string templ = TemplateText(*selected);
     if (!templ.empty() && templ != PrimaryText(*selected)) {
-        ImGui::SameLine();
-        const char* templateLabel = insertMode ? ui.Text(UiText::VariablesInsertTemplate) : ui.Text(UiText::VariablesCopyTemplate);
-        if (TextButton(
-                insertMode ? ui_icons::Plus : ui_icons::Copy,
-                templateLabel,
-                "##variables_template_action",
-                ScaleUi(170.0f, 0.0f),
-                visual,
-                primaryEnabled,
-                primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
-            request = MakeTemplateRequest(*selected, options);
+        if (insertMode) {
+            if (copyInInsertMode) {
+                ImGui::Spacing();
+                drawInsertCopyPair(
+                    ui.Text(UiText::VariablesInsertTemplate),
+                    ui.Text(UiText::VariablesCopyTemplate),
+                    "template_action",
+                    true);
+            } else {
+                ImGui::SameLine();
+                if (TextButton(
+                        ui_icons::Plus,
+                        ui.Text(UiText::VariablesInsertTemplate),
+                        "##variables_template_action",
+                        ScaleUi(170.0f, 0.0f),
+                        visual,
+                        primaryEnabled,
+                        primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
+                    request = MakeTemplateRequest(*selected, options);
+                }
+            }
+        } else {
+            ImGui::SameLine();
+            if (TextButton(
+                    ui_icons::Copy,
+                    ui.Text(UiText::VariablesCopyTemplate),
+                    "##variables_template_action",
+                    ScaleUi(170.0f, 0.0f),
+                    visual)) {
+                request = MakeTemplateRequest(*selected, options);
+            }
         }
     } else if (selected->kind == EntryKind::Function && selected->example == selected->token) {
-        ImGui::SameLine();
-        if (TextButton(
-                insertMode ? ui_icons::Plus : ui_icons::Copy,
-                insertMode ? ui.Text(UiText::VariablesInsertTemplate) : ui.Text(UiText::VariablesCopyTemplate),
-                "##variables_same_template_action",
-                ScaleUi(170.0f, 0.0f),
-                visual,
-                primaryEnabled,
-                primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
-            request = MakePrimaryRequest(*selected, options);
+        if (insertMode) {
+            if (copyInInsertMode) {
+                ImGui::Spacing();
+                drawInsertCopyPair(
+                    ui.Text(UiText::VariablesInsertTemplate),
+                    ui.Text(UiText::VariablesCopyTemplate),
+                    "same_template_action",
+                    false);
+            } else {
+                ImGui::SameLine();
+                if (TextButton(
+                        ui_icons::Plus,
+                        ui.Text(UiText::VariablesInsertTemplate),
+                        "##variables_same_template_action",
+                        ScaleUi(170.0f, 0.0f),
+                        visual,
+                        primaryEnabled,
+                        primaryEnabled ? nullptr : ui.Text(UiText::VariablesNoInsertTarget))) {
+                    request = MakePrimaryRequest(*selected, options);
+                }
+            }
+        } else {
+            ImGui::SameLine();
+            if (TextButton(
+                    ui_icons::Copy,
+                    ui.Text(UiText::VariablesCopyTemplate),
+                    "##variables_same_template_action",
+                    ScaleUi(170.0f, 0.0f),
+                    visual)) {
+                request = MakePrimaryRequest(*selected, options);
+            }
         }
     }
 
