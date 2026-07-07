@@ -23,6 +23,206 @@ int BinderModule::Impl::FolderOrderIndex(FolderNode* folder) const {
     return -1;
 }
 
+void BinderModule::Impl::SetTwoPaneActivePane(const TwoPaneActivePane pane) {
+    twoPaneActivePane = pane;
+}
+
+void BinderModule::Impl::CollectTwoPaneVisibleFolderNodes(
+    FolderNode& folder,
+    const std::string& filter,
+    std::vector<FolderNode*>& out) {
+    if (!TwoPaneFolderMatchesFilter(folder, filter)) {
+        return;
+    }
+
+    out.push_back(&folder);
+
+    const bool searchActive = !filter.empty();
+    if (!searchActive && !folder.open) {
+        return;
+    }
+
+    for (auto& child : folder.children) {
+        if (child) {
+            CollectTwoPaneVisibleFolderNodes(*child, filter, out);
+        }
+    }
+}
+
+std::vector<FolderNode*> BinderModule::Impl::CollectTwoPaneVisibleFolders(const std::string& filter) {
+    std::vector<FolderNode*> folders;
+    folders.push_back(nullptr);
+    for (auto& folder : ActiveFolders()) {
+        if (folder) {
+            CollectTwoPaneVisibleFolderNodes(*folder, filter, folders);
+        }
+    }
+    return folders;
+}
+
+std::vector<int> BinderModule::Impl::CollectTwoPaneVisibleBindIndices(const std::string& filter) {
+    NormalizeExplorerOrders();
+
+    std::vector<int> indices;
+    const std::vector<ExplorerItem>& items = ItemsForFolder(currentFolder);
+    const std::vector<std::string> folderPath = CurrentFolderPath();
+    const std::string& categoryId = ActiveCategory().id;
+
+    for (const ExplorerItem& item : items) {
+        if (item.kind != ExplorerItemKind::Bind) {
+            continue;
+        }
+
+        const int hotkeyIndex = FindHotkeyIndexByOrderId(item.key);
+        if (hotkeyIndex < 0 || hotkeyIndex >= static_cast<int>(hotkeys.size())) {
+            continue;
+        }
+
+        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(hotkeyIndex)];
+        if (hotkey.categoryId != categoryId || hotkey.folderPath != folderPath || !TwoPaneBindMatchesFilter(hotkey, filter)) {
+            continue;
+        }
+
+        indices.push_back(hotkeyIndex);
+    }
+
+    return indices;
+}
+
+void BinderModule::Impl::MoveTwoPaneFolderSelection(const int delta, const std::string& filter) {
+    if (delta == 0) {
+        return;
+    }
+
+    std::vector<FolderNode*> folders = CollectTwoPaneVisibleFolders(filter);
+    if (folders.empty()) {
+        return;
+    }
+
+    auto it = std::find(folders.begin(), folders.end(), currentFolder);
+    int index = it == folders.end()
+        ? (delta > 0 ? 0 : static_cast<int>(folders.size()) - 1)
+        : static_cast<int>(std::distance(folders.begin(), it));
+    index = std::clamp(index + (it == folders.end() ? 0 : delta), 0, static_cast<int>(folders.size()) - 1);
+
+    OpenFolder(folders[static_cast<std::size_t>(index)], false);
+}
+
+void BinderModule::Impl::MoveTwoPaneBindSelection(const int delta, const std::string& filter) {
+    if (delta == 0) {
+        return;
+    }
+
+    const std::vector<int> indices = CollectTwoPaneVisibleBindIndices(filter);
+    if (indices.empty()) {
+        if (explorerSelection.kind == ExplorerSelectionKind::Bind) {
+            ClearExplorerSelection();
+        }
+        return;
+    }
+
+    const int selectedIndex = explorerSelection.kind == ExplorerSelectionKind::Bind
+        ? FindHotkeyIndexByOrderId(explorerSelection.bindOrderId)
+        : selectedBindIndex;
+    auto it = std::find(indices.begin(), indices.end(), selectedIndex);
+    int index = it == indices.end()
+        ? (delta > 0 ? 0 : static_cast<int>(indices.size()) - 1)
+        : static_cast<int>(std::distance(indices.begin(), it));
+    index = std::clamp(index + (it == indices.end() ? 0 : delta), 0, static_cast<int>(indices.size()) - 1);
+
+    SelectExplorerBind(indices[static_cast<std::size_t>(index)], true);
+}
+
+void BinderModule::Impl::DrawTwoPaneFolderKeyboardShortcuts() {
+    if (folderInlineEdit.mode != FolderInlineEditMode::None) {
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !twoPaneFolderSearch.empty()) {
+        twoPaneFolderSearch.clear();
+        ImGui::ClearActiveID();
+        return;
+    }
+
+    if (ImGui::GetActiveID() != 0) {
+        return;
+    }
+
+    const std::string filter = ToLower(Trim(twoPaneFolderSearch));
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) {
+        MoveTwoPaneFolderSelection(-1, filter);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) {
+        MoveTwoPaneFolderSelection(1, filter);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (currentFolder && !currentFolder->open) {
+            currentFolder->open = true;
+            SaveConfig();
+        }
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
+        NavigateUp();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+        if (CanDeleteFolder(currentFolder)) {
+            folderDeleteTarget = currentFolder;
+            folderDeletePopupPending = true;
+        }
+    } else if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+        if (currentFolder) {
+            BeginInlineRenameFolder(currentFolder);
+        }
+    }
+}
+
+void BinderModule::Impl::DrawTwoPaneBindKeyboardShortcuts() {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !twoPaneBindSearch.empty()) {
+        twoPaneBindSearch.clear();
+        ImGui::ClearActiveID();
+        return;
+    }
+
+    if (ImGui::GetActiveID() != 0) {
+        return;
+    }
+
+    const std::string filter = ToLower(Trim(twoPaneBindSearch));
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) {
+        MoveTwoPaneBindSelection(-1, filter);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) {
+        MoveTwoPaneBindSelection(1, filter);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        const std::vector<int> indices = CollectTwoPaneVisibleBindIndices(filter);
+        const int bindIndex = explorerSelection.kind == ExplorerSelectionKind::Bind
+            ? FindHotkeyIndexByOrderId(explorerSelection.bindOrderId)
+            : selectedBindIndex;
+        if (std::find(indices.begin(), indices.end(), bindIndex) != indices.end()) {
+            StartEditing(bindIndex, false);
+        }
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
+        NavigateUp();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+        const std::vector<int> indices = CollectTwoPaneVisibleBindIndices(filter);
+        const int bindIndex = explorerSelection.kind == ExplorerSelectionKind::Bind
+            ? FindHotkeyIndexByOrderId(explorerSelection.bindOrderId)
+            : selectedBindIndex;
+        if (std::find(indices.begin(), indices.end(), bindIndex) != indices.end()) {
+            bindDeleteTarget = bindIndex;
+            bindDeletePopupPending = true;
+        }
+    }
+}
+
+void BinderModule::Impl::DrawTwoPaneKeyboardShortcuts(const bool focused) {
+    if (!focused) {
+        return;
+    }
+
+    if (twoPaneActivePane == TwoPaneActivePane::Folders) {
+        DrawTwoPaneFolderKeyboardShortcuts();
+        return;
+    }
+
+    DrawTwoPaneBindKeyboardShortcuts();
+}
+
 bool BinderModule::Impl::TwoPaneFolderMatchesFilter(const FolderNode& folder, std::string_view filter) const {
     if (filter.empty()) {
         return true;
@@ -660,15 +860,28 @@ void BinderModule::Impl::DrawTwoPaneBinder() {
     leftWidth = std::clamp(leftWidth, ScaleUi(140.0f), maxUsableLeft);
     const float rightWidth = std::max(1.0f, availableWidth - leftWidth - gap);
 
+    bool foldersFocused = false;
+    bool bindsFocused = false;
     if (BeginTwoPanePanel("##binder_two_pane_folders", ImVec2(leftWidth, availableHeight))) {
         DrawTwoPaneFolderPane();
+        foldersFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        if (foldersFocused) {
+            SetTwoPaneActivePane(TwoPaneActivePane::Folders);
+        }
     }
     EndTwoPanePanel();
     ImGui::SameLine(0.0f, gap);
     if (BeginTwoPanePanel("##binder_two_pane_binds", ImVec2(rightWidth, availableHeight))) {
         DrawTwoPaneBindPane();
+        bindsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        if (bindsFocused) {
+            SetTwoPaneActivePane(TwoPaneActivePane::Binds);
+        }
     }
     EndTwoPanePanel();
 
+    DrawTwoPaneKeyboardShortcuts(foldersFocused || bindsFocused);
     DrawBindDeletePopup();
 }

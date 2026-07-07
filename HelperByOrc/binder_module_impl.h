@@ -586,6 +586,11 @@ enum class BindListStyle {
     TwoPane = 1,
 };
 
+enum class TwoPaneActivePane {
+    Folders = 0,
+    Binds = 1,
+};
+
 inline std::string BuildBindDisplayLabel(const HotkeyEntry& hotkey) {
     std::string label = Trim(hotkey.label);
     if (!label.empty()) {
@@ -2167,6 +2172,7 @@ struct BinderModule::Impl {
     QuickMenuStyle quickMenuStyle = QuickMenuStyle::Cascade;
     bool quickMenuShowScrollbar = true;
     BindListStyle bindListStyle = BindListStyle::Explorer;
+    TwoPaneActivePane twoPaneActivePane = TwoPaneActivePane::Binds;
     int textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     bool quickMenuOpen = false;
     std::string quickMenuActiveCategoryId{};
@@ -2496,6 +2502,15 @@ struct BinderModule::Impl {
     void DrawTwoPaneBindDirectory();
     bool TwoPaneBindMatchesFilter(const HotkeyEntry& hotkey, std::string_view filter) const;
     int FolderOrderIndex(FolderNode* folder) const;
+    void SetTwoPaneActivePane(TwoPaneActivePane pane);
+    void DrawTwoPaneKeyboardShortcuts(bool focused);
+    void DrawTwoPaneFolderKeyboardShortcuts();
+    void DrawTwoPaneBindKeyboardShortcuts();
+    void MoveTwoPaneFolderSelection(int delta, const std::string& filter);
+    void MoveTwoPaneBindSelection(int delta, const std::string& filter);
+    std::vector<FolderNode*> CollectTwoPaneVisibleFolders(const std::string& filter);
+    void CollectTwoPaneVisibleFolderNodes(FolderNode& folder, const std::string& filter, std::vector<FolderNode*>& out);
+    std::vector<int> CollectTwoPaneVisibleBindIndices(const std::string& filter);
     void DrawBindDeletePopup();
     void DrawExplorerToolbar();
     void DrawExplorerSearchResults();

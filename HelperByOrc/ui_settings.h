@@ -576,11 +576,11 @@
     X(SettingsHotkeysHelpNotepad, "Блокнот", "Notepad") \
     X(SettingsHotkeysHelpHud, "HUD", "HUD") \
     X(SettingsHotkeysActionClearSearch, "Очистить поиск.", "Clear search.") \
-    X(SettingsHotkeysActionMoveSelection, "Двигать выделение.", "Move selection.") \
-    X(SettingsHotkeysActionOpenSelected, "Открыть редактор бинда или папку.", "Open the bind editor or folder.") \
+    X(SettingsHotkeysActionMoveSelection, "Двигать выделение в активной панели.", "Move selection in the active pane.") \
+    X(SettingsHotkeysActionOpenSelected, "Открыть выбранный бинд или папку.", "Open the selected bind or folder.") \
     X(SettingsHotkeysActionNavigateUp, "Перейти на папку выше.", "Go to the parent folder.") \
-    X(SettingsHotkeysActionDeleteSelected, "Удалить выбранный бинд или папку.", "Delete the selected bind or folder.") \
-    X(SettingsHotkeysActionRenameFolder, "Переименовать выбранную папку.", "Rename the selected folder.") \
+    X(SettingsHotkeysActionDeleteSelected, "Удалить выбранный бинд или папку активной панели.", "Delete the selected bind or folder in the active pane.") \
+    X(SettingsHotkeysActionRenameFolder, "Переименовать выбранную папку активной панели.", "Rename the selected folder in the active pane.") \
     X(SettingsHotkeysActionInlineFolderSaveCancel, "Сохранить или отменить имя папки.", "Save or cancel the folder name.") \
     X(SettingsHotkeysActionFocusSearch, "Фокус в поиск.", "Focus search.") \
     X(SettingsHotkeysActionLaunchInputDialog, "Запустить с введёнными параметрами.", "Launch with the entered parameters.") \
