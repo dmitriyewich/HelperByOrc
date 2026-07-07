@@ -525,6 +525,8 @@ std::string TagsModule::Impl::ResolveLastTargetNick(const EvaluationContext& con
 void TagsModule::Impl::ResetTargetTracker() {
     targetTracker_ = TargetTrackerState{};
     closestPlayerCache_.valid = false;
+    myCarSnapshotCache_.valid = false;
+    myCarSnapshotPerfStats_ = MyCarSnapshotPerfStats{};
 }
 
 TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers(const EvaluationContext& context) const {

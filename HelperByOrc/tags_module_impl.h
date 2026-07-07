@@ -100,6 +100,21 @@ public:
         Variables,
     };
 
+    enum class MyCarOccupantScope {
+        Players,
+        Passengers,
+        AllPlayers,
+        AllPassengers,
+    };
+
+    enum class MyCarOccupantField {
+        Id,
+        Name,
+        Surname,
+        Nick,
+        RpNick,
+    };
+
     struct ActiveVirtualKeyHold {
         unsigned int keyCode = 0;
         std::uint64_t pressAtMs = 0;
@@ -175,6 +190,51 @@ public:
         bool valid = false;
     };
 
+    struct MyCarSnapshotOccupant {
+        int id = -1;
+        bool passenger = false;
+        bool localPlayer = false;
+        bool nickResolved = false;
+        std::string nick{};
+        std::string name{};
+        std::string surname{};
+        std::string rpNick{};
+    };
+
+    struct MyCarSnapshotCache {
+        std::vector<MyCarSnapshotOccupant> occupants{};
+        std::string health{};
+        std::string speed{};
+        std::uint64_t updatedAtMs = 0;
+        std::uint64_t lastSlowLogAtMs = 0;
+        std::uintptr_t localPed = 0;
+        std::uintptr_t vehicle = 0;
+        int localId = -1;
+        bool valid = false;
+        bool hasVehicle = false;
+        bool sampReady = false;
+        bool occupantsResolved = false;
+    };
+
+    struct MyCarSnapshotPerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::uint64_t requests = 0;
+        std::uint64_t cacheHits = 0;
+        std::uint64_t rebuilds = 0;
+        std::uint64_t occupantRequests = 0;
+        std::uint64_t occupantRebuilds = 0;
+        std::uint64_t noVehicle = 0;
+        std::uint64_t noSamp = 0;
+        std::uint64_t totalRebuildMs = 0;
+        std::uint64_t maxRebuildMs = 0;
+        std::size_t maxOccupants = 0;
+        std::uint64_t nameRequests = 0;
+        std::uint64_t nameCacheHits = 0;
+        std::uint64_t nameResolved = 0;
+        std::uint64_t totalNameMs = 0;
+        std::uint64_t maxNameMs = 0;
+    };
+
     void InitializeRegistry();
     void LoadConfig();
     void SaveConfig() const;
@@ -248,6 +308,12 @@ public:
     std::optional<std::string> ResolveBuiltinMyYTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyZTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyPosTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarOccupantsTag(
+        MyCarOccupantScope scope,
+        MyCarOccupantField field,
+        const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyWeaponTag(const EvaluationContext& context) const;
@@ -413,6 +479,17 @@ public:
     void UpdateTargetTracker();
     void ResetTargetTracker();
     ClosestPlayerQueryResult QueryClosestPlayers(const EvaluationContext& context) const;
+    MyCarSnapshotCache& QueryMyCarSnapshot(const EvaluationContext& context, bool requireOccupants) const;
+    void ResolveMyCarOccupantNames(MyCarSnapshotCache& snapshot, const EvaluationContext& context) const;
+    void RecordMyCarSnapshotPerf(
+        bool cacheHit,
+        bool requireOccupants,
+        bool hasVehicle,
+        bool sampReady,
+        std::size_t occupants,
+        std::uint64_t elapsedMs) const;
+    void RecordMyCarNameResolvePerf(std::size_t requested, std::size_t resolved, std::uint64_t elapsedMs) const;
+    void MaybeLogMyCarPerf(std::uint64_t nowMs) const;
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;
@@ -450,6 +527,8 @@ private:
     mutable std::vector<ReadyArzDialogQuery> readyArzDialogQueries_{};
     mutable std::vector<std::uint64_t> blockedCurrentDispatchRuntimes_{};
     mutable ClosestPlayerCache closestPlayerCache_{};
+    mutable MyCarSnapshotCache myCarSnapshotCache_{};
+    mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};

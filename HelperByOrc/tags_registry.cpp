@@ -324,6 +324,74 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "mycarhealth",
+        "{mycarhealth}",
+        "{mycarhealth}",
+        UiText::TagsBuiltinMyCarHealthDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyCarHealthTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mycarspeed",
+        "{mycarspeed}",
+        "{mycarspeed}",
+        UiText::TagsBuiltinMyCarSpeedDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyCarSpeedTag(context);
+        });
+
+    const auto registerMyCarOccupantTag = [this](
+                                             std::string name,
+                                             UiText description,
+                                             MyCarOccupantScope scope,
+                                             MyCarOccupantField field) {
+        const std::string token = "{" + name + "}";
+        tagRegistry_.RegisterSimple(
+            std::move(name),
+            token,
+            token,
+            description,
+            [scope, field](const Impl& module, const EvaluationContext& context) {
+                return module.ResolveBuiltinMyCarOccupantsTag(scope, field, context);
+            });
+    };
+
+    struct MyCarOccupantTagDef {
+        const char* name = nullptr;
+        UiText description = UiText::Count;
+        MyCarOccupantScope scope = MyCarOccupantScope::Players;
+        MyCarOccupantField field = MyCarOccupantField::Id;
+    };
+
+    const MyCarOccupantTagDef myCarOccupantTags[] = {
+        {"mycarplayersid", UiText::TagsBuiltinMyCarPlayersIdDescription, MyCarOccupantScope::Players, MyCarOccupantField::Id},
+        {"mycarplayersname", UiText::TagsBuiltinMyCarPlayersNameDescription, MyCarOccupantScope::Players, MyCarOccupantField::Name},
+        {"mycarplayerssurname", UiText::TagsBuiltinMyCarPlayersSurnameDescription, MyCarOccupantScope::Players, MyCarOccupantField::Surname},
+        {"mycarplayersnick", UiText::TagsBuiltinMyCarPlayersNickDescription, MyCarOccupantScope::Players, MyCarOccupantField::Nick},
+        {"mycarplayersrpnick", UiText::TagsBuiltinMyCarPlayersRpNickDescription, MyCarOccupantScope::Players, MyCarOccupantField::RpNick},
+        {"mycarpassengersid", UiText::TagsBuiltinMyCarPassengersIdDescription, MyCarOccupantScope::Passengers, MyCarOccupantField::Id},
+        {"mycarpassengersname", UiText::TagsBuiltinMyCarPassengersNameDescription, MyCarOccupantScope::Passengers, MyCarOccupantField::Name},
+        {"mycarpassengerssurname", UiText::TagsBuiltinMyCarPassengersSurnameDescription, MyCarOccupantScope::Passengers, MyCarOccupantField::Surname},
+        {"mycarpassengersnick", UiText::TagsBuiltinMyCarPassengersNickDescription, MyCarOccupantScope::Passengers, MyCarOccupantField::Nick},
+        {"mycarpassengersrpnick", UiText::TagsBuiltinMyCarPassengersRpNickDescription, MyCarOccupantScope::Passengers, MyCarOccupantField::RpNick},
+        {"mycarallplayersid", UiText::TagsBuiltinMyCarAllPlayersIdDescription, MyCarOccupantScope::AllPlayers, MyCarOccupantField::Id},
+        {"mycarallplayersname", UiText::TagsBuiltinMyCarAllPlayersNameDescription, MyCarOccupantScope::AllPlayers, MyCarOccupantField::Name},
+        {"mycarallplayerssurname", UiText::TagsBuiltinMyCarAllPlayersSurnameDescription, MyCarOccupantScope::AllPlayers, MyCarOccupantField::Surname},
+        {"mycarallplayersnick", UiText::TagsBuiltinMyCarAllPlayersNickDescription, MyCarOccupantScope::AllPlayers, MyCarOccupantField::Nick},
+        {"mycarallplayersrpnick", UiText::TagsBuiltinMyCarAllPlayersRpNickDescription, MyCarOccupantScope::AllPlayers, MyCarOccupantField::RpNick},
+        {"mycarallpassengersid", UiText::TagsBuiltinMyCarAllPassengersIdDescription, MyCarOccupantScope::AllPassengers, MyCarOccupantField::Id},
+        {"mycarallpassengersname", UiText::TagsBuiltinMyCarAllPassengersNameDescription, MyCarOccupantScope::AllPassengers, MyCarOccupantField::Name},
+        {"mycarallpassengerssurname", UiText::TagsBuiltinMyCarAllPassengersSurnameDescription, MyCarOccupantScope::AllPassengers, MyCarOccupantField::Surname},
+        {"mycarallpassengersnick", UiText::TagsBuiltinMyCarAllPassengersNickDescription, MyCarOccupantScope::AllPassengers, MyCarOccupantField::Nick},
+        {"mycarallpassengersrpnick", UiText::TagsBuiltinMyCarAllPassengersRpNickDescription, MyCarOccupantScope::AllPassengers, MyCarOccupantField::RpNick},
+    };
+
+    for (const MyCarOccupantTagDef& tag : myCarOccupantTags) {
+        registerMyCarOccupantTag(tag.name, tag.description, tag.scope, tag.field);
+    }
+
+    tagRegistry_.RegisterSimple(
         "date",
         "{date}",
         "{date}",

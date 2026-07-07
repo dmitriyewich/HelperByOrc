@@ -6,8 +6,21 @@
 #include <locale>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 namespace {
+struct LocalVehicleContext {
+    CPed* playerPed = nullptr;
+    CVehicle* vehicle = nullptr;
+};
+
+struct MyCarOccupant {
+    CPed* ped = nullptr;
+    int id = -1;
+    bool passenger = false;
+    bool localPlayer = false;
+};
+
 std::optional<CVector> ResolveLocalPlayerPosition() {
     const CPlayerPed* const playerPed = FindPlayerPed();
     if (!playerPed) {
@@ -31,6 +44,304 @@ std::string FormatCoordinateValue(float value) {
     stream << std::fixed << std::setprecision(2) << value;
     return stream.str();
 }
+
+std::optional<LocalVehicleContext> ResolveLocalVehicleContext() {
+    CPed* const playerPed = FindPlayerPed();
+    if (!playerPed) {
+        return std::nullopt;
+    }
+
+    if (CVehicle* const vehicle = FindPlayerVehicle(-1, false); IsVehiclePointerValid(vehicle)) {
+        return LocalVehicleContext{playerPed, vehicle};
+    }
+
+    if (IsVehiclePointerValid(playerPed->m_pVehicle)) {
+        return LocalVehicleContext{playerPed, playerPed->m_pVehicle};
+    }
+
+    return std::nullopt;
+}
+
+std::optional<int> ResolveSampIdForOccupant(SampApi& sampApi, CPed* ped, const CPed* localPed) {
+    if (!ped || !IsPedPointerValid(ped)) {
+        return std::nullopt;
+    }
+
+    if (ped == localPed) {
+        const int localId = sampApi.Local_ID();
+        if (localId >= 0 && sampApi.IsConnected(localId)) {
+            return localId;
+        }
+    }
+
+    const auto [resolved, id] = sampApi.getPedID(ped);
+    if (!resolved || id < 0 || id > 1003 || !sampApi.IsConnected(id)) {
+        return std::nullopt;
+    }
+    return id;
+}
+
+std::vector<MyCarOccupant> CollectMyCarOccupants(SampApi& sampApi, const LocalVehicleContext& vehicleContext) {
+    std::vector<MyCarOccupant> occupants;
+    occupants.reserve(9);
+
+    const auto appendOccupant = [&](CPed* ped, bool passenger) {
+        if (!ped) {
+            return;
+        }
+        if (std::find_if(occupants.begin(), occupants.end(), [ped](const MyCarOccupant& occupant) {
+                return occupant.ped == ped;
+            }) != occupants.end()) {
+            return;
+        }
+
+        const std::optional<int> id = ResolveSampIdForOccupant(sampApi, ped, vehicleContext.playerPed);
+        if (!id.has_value()) {
+            return;
+        }
+        occupants.push_back(MyCarOccupant{
+            ped,
+            *id,
+            passenger,
+            ped == vehicleContext.playerPed,
+        });
+    };
+
+    appendOccupant(vehicleContext.vehicle->m_pDriver, false);
+    for (CPed* const passenger : vehicleContext.vehicle->m_apPassengers) {
+        appendOccupant(passenger, true);
+    }
+
+    return occupants;
+}
+
+std::optional<float> ResolveVehicleSpeedKmh(const CVehicle& vehicle) {
+    const CVector speed = vehicle.m_vecMoveSpeed;
+    const float magnitude = std::sqrt(speed.x * speed.x + speed.y * speed.y + speed.z * speed.z);
+    if (!std::isfinite(magnitude)) {
+        return std::nullopt;
+    }
+    return magnitude * 180.0f;
+}
+}
+
+TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
+    const EvaluationContext& context,
+    bool requireOccupants) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    const bool sampReady = sampApi && sampApi->sampModule() && sampApi->isSupportedVersion();
+    const int localId = sampReady ? sampApi->Local_ID() : -1;
+
+    const std::optional<LocalVehicleContext> vehicleContext = ResolveLocalVehicleContext();
+    const std::uintptr_t localPedAddress =
+        vehicleContext ? reinterpret_cast<std::uintptr_t>(vehicleContext->playerPed) : 0;
+    const std::uintptr_t vehicleAddress =
+        vehicleContext ? reinterpret_cast<std::uintptr_t>(vehicleContext->vehicle) : 0;
+    const std::uint64_t now = GetTickCount64();
+
+    if (myCarSnapshotCache_.valid
+        && myCarSnapshotCache_.localPed == localPedAddress
+        && myCarSnapshotCache_.vehicle == vehicleAddress
+        && myCarSnapshotCache_.localId == localId
+        && myCarSnapshotCache_.sampReady == sampReady
+        && (!requireOccupants || myCarSnapshotCache_.occupantsResolved)
+        && now >= myCarSnapshotCache_.updatedAtMs
+        && now - myCarSnapshotCache_.updatedAtMs <= kMyCarSnapshotCacheTtlMs) {
+        RecordMyCarSnapshotPerf(
+            true,
+            requireOccupants,
+            myCarSnapshotCache_.hasVehicle,
+            myCarSnapshotCache_.sampReady,
+            myCarSnapshotCache_.occupants.size(),
+            0);
+        return myCarSnapshotCache_;
+    }
+
+    const std::uint64_t queryStartedAtMs = now;
+    MyCarSnapshotCache snapshot;
+    snapshot.lastSlowLogAtMs = myCarSnapshotCache_.lastSlowLogAtMs;
+    snapshot.localPed = localPedAddress;
+    snapshot.vehicle = vehicleAddress;
+    snapshot.localId = localId;
+    snapshot.sampReady = sampReady;
+    snapshot.valid = true;
+    snapshot.occupantsResolved = requireOccupants;
+
+    if (vehicleContext) {
+        snapshot.hasVehicle = true;
+        snapshot.health = FormatWholeStatValue(vehicleContext->vehicle->m_fHealth);
+
+        const std::optional<float> speed = ResolveVehicleSpeedKmh(*vehicleContext->vehicle);
+        snapshot.speed = speed.has_value() ? FormatWholeStatValue(*speed) : std::string();
+
+        if (requireOccupants && sampReady && localId >= 0) {
+            const std::vector<MyCarOccupant> occupants = CollectMyCarOccupants(*sampApi, *vehicleContext);
+            snapshot.occupants.reserve(occupants.size());
+            for (const MyCarOccupant& occupant : occupants) {
+                snapshot.occupants.push_back(MyCarSnapshotOccupant{
+                    occupant.id,
+                    occupant.passenger,
+                    occupant.localPlayer,
+                });
+            }
+        }
+    }
+
+    snapshot.updatedAtMs = GetTickCount64();
+    const std::uint64_t elapsedMs = snapshot.updatedAtMs - queryStartedAtMs;
+    if (elapsedMs >= kMyCarSnapshotSlowQueryLogMs
+        && (snapshot.lastSlowLogAtMs == 0
+            || snapshot.updatedAtMs - snapshot.lastSlowLogAtMs >= kMyCarSnapshotSlowQueryLogThrottleMs)) {
+        snapshot.lastSlowLogAtMs = snapshot.updatedAtMs;
+        debuglog::WriteInfo(
+            "[tags][mycar] slow snapshot elapsed=%llums vehicle=%d occupants=%zu resolved=%d",
+            static_cast<unsigned long long>(elapsedMs),
+            snapshot.hasVehicle ? 1 : 0,
+            snapshot.occupants.size(),
+            snapshot.occupantsResolved ? 1 : 0);
+    }
+
+    RecordMyCarSnapshotPerf(
+        false,
+        requireOccupants,
+        snapshot.hasVehicle,
+        snapshot.sampReady,
+        snapshot.occupants.size(),
+        elapsedMs);
+
+    myCarSnapshotCache_ = std::move(snapshot);
+    return myCarSnapshotCache_;
+}
+
+void TagsModule::Impl::ResolveMyCarOccupantNames(
+    MyCarSnapshotCache& snapshot,
+    const EvaluationContext& context) const {
+    const std::uint64_t startedAtMs = GetTickCount64();
+    const std::size_t requested = snapshot.occupants.size();
+    std::size_t resolved = 0;
+
+    for (MyCarSnapshotOccupant& occupant : snapshot.occupants) {
+        if (occupant.nickResolved) {
+            continue;
+        }
+
+        occupant.nick = ResolvePlayerNickById(occupant.id, context);
+        occupant.name = ExtractName(occupant.nick);
+        occupant.surname = ExtractSurname(occupant.nick);
+        occupant.rpNick = MakeRpNick(occupant.nick);
+        occupant.nickResolved = true;
+        ++resolved;
+    }
+
+    RecordMyCarNameResolvePerf(requested, resolved, GetTickCount64() - startedAtMs);
+}
+
+void TagsModule::Impl::RecordMyCarSnapshotPerf(
+    bool cacheHit,
+    bool requireOccupants,
+    bool hasVehicle,
+    bool sampReady,
+    std::size_t occupants,
+    std::uint64_t elapsedMs) const {
+    const std::uint64_t now = GetTickCount64();
+    MyCarSnapshotPerfStats& stats = myCarSnapshotPerfStats_;
+    if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
+        stats.windowStartMs = now;
+    }
+
+    ++stats.requests;
+    if (cacheHit) {
+        ++stats.cacheHits;
+    } else {
+        ++stats.rebuilds;
+        stats.totalRebuildMs += elapsedMs;
+        stats.maxRebuildMs = std::max(stats.maxRebuildMs, elapsedMs);
+        if (requireOccupants) {
+            ++stats.occupantRebuilds;
+        }
+    }
+
+    if (requireOccupants) {
+        ++stats.occupantRequests;
+        if (!sampReady) {
+            ++stats.noSamp;
+        }
+    }
+    if (!hasVehicle) {
+        ++stats.noVehicle;
+    }
+    stats.maxOccupants = std::max(stats.maxOccupants, occupants);
+
+    MaybeLogMyCarPerf(now);
+}
+
+void TagsModule::Impl::RecordMyCarNameResolvePerf(
+    std::size_t requested,
+    std::size_t resolved,
+    std::uint64_t elapsedMs) const {
+    const std::uint64_t now = GetTickCount64();
+    MyCarSnapshotPerfStats& stats = myCarSnapshotPerfStats_;
+    if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
+        stats.windowStartMs = now;
+    }
+
+    stats.nameRequests += requested;
+    stats.nameResolved += resolved;
+    stats.nameCacheHits += requested >= resolved ? requested - resolved : 0;
+    stats.totalNameMs += elapsedMs;
+    stats.maxNameMs = std::max(stats.maxNameMs, elapsedMs);
+
+    MaybeLogMyCarPerf(now);
+}
+
+void TagsModule::Impl::MaybeLogMyCarPerf(std::uint64_t nowMs) const {
+    MyCarSnapshotPerfStats& stats = myCarSnapshotPerfStats_;
+    if (stats.windowStartMs == 0 || nowMs < stats.windowStartMs) {
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const std::uint64_t windowMs = nowMs - stats.windowStartMs;
+    if (windowMs < kMyCarPerfTelemetryWindowMs) {
+        return;
+    }
+
+    if (stats.requests == 0 && stats.nameRequests == 0) {
+        stats = MyCarSnapshotPerfStats{};
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const double avgRebuildMs =
+        stats.rebuilds > 0 ? static_cast<double>(stats.totalRebuildMs) / static_cast<double>(stats.rebuilds) : 0.0;
+    const double avgNameMs =
+        stats.nameRequests > 0
+            ? static_cast<double>(stats.totalNameMs) / static_cast<double>(stats.nameRequests)
+            : 0.0;
+
+    debuglog::WriteInfo(
+        "[tags][mycar][perf] window=%llums requests=%llu hits=%llu rebuilds=%llu occupantReq=%llu "
+        "occupantRebuilds=%llu noVehicle=%llu noSamp=%llu avgRebuild=%.2fms maxRebuild=%llums "
+        "maxOccupants=%zu nameReq=%llu nameCached=%llu nameResolved=%llu avgName=%.2fms maxName=%llums",
+        static_cast<unsigned long long>(windowMs),
+        static_cast<unsigned long long>(stats.requests),
+        static_cast<unsigned long long>(stats.cacheHits),
+        static_cast<unsigned long long>(stats.rebuilds),
+        static_cast<unsigned long long>(stats.occupantRequests),
+        static_cast<unsigned long long>(stats.occupantRebuilds),
+        static_cast<unsigned long long>(stats.noVehicle),
+        static_cast<unsigned long long>(stats.noSamp),
+        avgRebuildMs,
+        static_cast<unsigned long long>(stats.maxRebuildMs),
+        stats.maxOccupants,
+        static_cast<unsigned long long>(stats.nameRequests),
+        static_cast<unsigned long long>(stats.nameCacheHits),
+        static_cast<unsigned long long>(stats.nameResolved),
+        avgNameMs,
+        static_cast<unsigned long long>(stats.maxNameMs));
+
+    stats = MyCarSnapshotPerfStats{};
+    stats.windowStartMs = nowMs;
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinIdTag(const EvaluationContext& context) const {
@@ -264,6 +575,95 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyPosTag(const Evalua
         + FormatCoordinateValue(position->y)
         + ", "
         + FormatCoordinateValue(position->z);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const {
+    const MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, false);
+    if (!snapshot.hasVehicle) {
+        return std::string();
+    }
+    return snapshot.health;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const {
+    const MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, false);
+    if (!snapshot.hasVehicle) {
+        return std::string();
+    }
+    return snapshot.speed;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarOccupantsTag(
+    MyCarOccupantScope scope,
+    MyCarOccupantField field,
+    const EvaluationContext& context) const {
+    MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, true);
+    std::vector<std::string> values;
+    values.reserve(snapshot.occupants.size());
+    const auto shouldIncludeOccupant = [scope](const MyCarSnapshotOccupant& occupant) {
+        switch (scope) {
+        case MyCarOccupantScope::Players:
+            return !occupant.localPlayer;
+        case MyCarOccupantScope::Passengers:
+            return occupant.passenger && !occupant.localPlayer;
+        case MyCarOccupantScope::AllPlayers:
+            return true;
+        case MyCarOccupantScope::AllPassengers:
+            return occupant.passenger;
+        default:
+            return false;
+        }
+    };
+
+    if (!snapshot.hasVehicle || !snapshot.sampReady) {
+        return std::string();
+    }
+
+    if (field != MyCarOccupantField::Id) {
+        ResolveMyCarOccupantNames(snapshot, context);
+    }
+
+    for (const MyCarSnapshotOccupant& occupant : snapshot.occupants) {
+        if (!shouldIncludeOccupant(occupant)) {
+            continue;
+        }
+
+        std::string value;
+        if (field == MyCarOccupantField::Id) {
+            value = std::to_string(occupant.id);
+        } else {
+            switch (field) {
+            case MyCarOccupantField::Name:
+                value = occupant.name;
+                break;
+            case MyCarOccupantField::Surname:
+                value = occupant.surname;
+                break;
+            case MyCarOccupantField::Nick:
+                value = occupant.nick;
+                break;
+            case MyCarOccupantField::RpNick:
+                value = occupant.rpNick;
+                break;
+            default:
+                value.clear();
+                break;
+            }
+        }
+
+        if (!value.empty()) {
+            values.push_back(std::move(value));
+        }
+    }
+
+    std::string result;
+    for (const std::string& value : values) {
+        if (!result.empty()) {
+            result += ", ";
+        }
+        result += value;
+    }
+    return result;
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDateTag(const EvaluationContext&) const {
