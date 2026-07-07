@@ -279,6 +279,51 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "ping",
+        "{ping}",
+        "{ping}",
+        UiText::TagsBuiltinPingDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinPingTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myx",
+        "{myX}",
+        "{myX}",
+        UiText::TagsBuiltinMyXDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyXTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myy",
+        "{myY}",
+        "{myY}",
+        UiText::TagsBuiltinMyYDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyYTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myz",
+        "{myZ}",
+        "{myZ}",
+        UiText::TagsBuiltinMyZDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyZTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mypos",
+        "{mypos}",
+        "{mypos}",
+        UiText::TagsBuiltinMyPosDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyPosTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "date",
         "{date}",
         "{date}",
@@ -699,6 +744,15 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinHealthFunctionDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinHealthFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "ping",
+        "[ping(...)]",
+        "[ping(15)]",
+        UiText::TagsBuiltinPingFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinPingFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(

@@ -1,6 +1,38 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include <cmath>
+#include <iomanip>
+#include <locale>
+#include <optional>
+#include <sstream>
+
+namespace {
+std::optional<CVector> ResolveLocalPlayerPosition() {
+    const CPlayerPed* const playerPed = FindPlayerPed();
+    if (!playerPed) {
+        return std::nullopt;
+    }
+
+    const CVector position = playerPed->GetPosition();
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+        return std::nullopt;
+    }
+    return position;
+}
+
+std::string FormatCoordinateValue(float value) {
+    if (std::fabs(value) < 0.005f) {
+        value = 0.0f;
+    }
+
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(2) << value;
+    return stream.str();
+}
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinIdTag(const EvaluationContext& context) const {
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
@@ -180,6 +212,58 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinHealthTag(const Evalu
         return std::string("0");
     }
     return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinPingTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const int localId = sampApi->Local_ID();
+    if (localId < 0) {
+        return std::string();
+    }
+
+    const std::optional<int> ping = sampApi->GetPlayerPing(localId);
+    return ping.has_value() ? std::to_string(*ping) : std::string();
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyXTag(const EvaluationContext&) const {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return std::string();
+    }
+    return FormatCoordinateValue(position->x);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyYTag(const EvaluationContext&) const {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return std::string();
+    }
+    return FormatCoordinateValue(position->y);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyZTag(const EvaluationContext&) const {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return std::string();
+    }
+    return FormatCoordinateValue(position->z);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyPosTag(const EvaluationContext&) const {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return std::string();
+    }
+
+    return FormatCoordinateValue(position->x)
+        + ", "
+        + FormatCoordinateValue(position->y)
+        + ", "
+        + FormatCoordinateValue(position->z);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDateTag(const EvaluationContext&) const {
@@ -489,6 +573,31 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinHealthFunctionTag(
         return std::string();
     }
     return FormatWholeStatValue(stats.health);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinPingFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::string selector = Unquote(Trim(param));
+    if (selector.empty()) {
+        return std::string();
+    }
+
+    std::optional<int> id = ParseInteger(selector);
+    if (!id.has_value()) {
+        id = sampApi->GetIDByName(selector);
+    }
+    if (!id.has_value()) {
+        return std::string();
+    }
+
+    const std::optional<int> ping = sampApi->GetPlayerPing(*id);
+    return ping.has_value() ? std::to_string(*ping) : std::string();
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinSkinFunctionTag(

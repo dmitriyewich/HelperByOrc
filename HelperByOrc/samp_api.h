@@ -110,6 +110,8 @@ public:
         VersionedOffset SAMP_COLOR_OFFSET;
         VersionedOffset ID_Find;
         VersionedOffset CPlayerPool_IsConnected;
+        VersionedOffset CPlayerPool_GetPing;
+        VersionedOffset CPlayerPool_GetLocalPlayerPing;
         VersionedOffset IDcar_Find;
         VersionedOffset SAMP_PREMOTEPLAYER_OFFSET;
         VersionedOffset SAMP_REMOTEPLAYERDATA_OFFSET;
@@ -211,6 +213,7 @@ public:
     std::string GetNameID(int id);
     std::optional<int> GetIDByName(std::string_view name);
     bool IsConnected(int id);
+    std::optional<int> GetPlayerPing(int id);
 
     std::uintptr_t pDialog_func();
     bool sampSetCurrentDialogEditboxTextFix(std::string_view newString, bool alreadyDecoded = false);

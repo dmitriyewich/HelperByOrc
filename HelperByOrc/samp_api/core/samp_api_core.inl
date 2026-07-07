@@ -60,6 +60,8 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x00216378, 0x00216380, 0x00151578, 0x00151578, 0x001516A0, 0x001516A0, 0x00151828, 0x0018F6C0 }, // SAMP_COLOR_OFFSET
     { 0x00010420, 0x000104C0, 0x00013570, 0x00013570, 0x00013890, 0x000138C0, 0x000138C0, 0x000137C0 }, // ID_Find
     { 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0 }, // CPlayerPool_IsConnected
+    { 0x0006A1C0, 0x0006A280, 0x0006E110, 0x0006E110, 0x0006E840, 0x0006E880, 0x0006E880, 0x0006E2B0 }, // CPlayerPool_GetPing
+    { 0x0006A200, 0x0006A2C0, 0x0006E150, 0x0006E150, 0x0006E880, 0x0006E8C0, 0x0006E8C0, 0x0006E2F0 }, // CPlayerPool_GetLocalPlayerPing
     { 0x0001B0A0, 0x0001B180, 0x0001E440, 0x0001E440, 0x0001EB40, 0x0001EB90, 0x0001EB90, 0x0001E650 }, // IDcar_Find
     { 0x0000002E, 0x00000026, 0x00000004, 0x00000004, 0x0000002E, 0x00001F8A, 0x00001F8A, 0x00000026 }, // SAMP_PREMOTEPLAYER_OFFSET
     { 0x00000000, 0x0000000C, 0x00000000, 0x00000000, 0x00000010, 0x00000010, 0x00000010, 0x00000008 }, // SAMP_REMOTEPLAYERDATA_OFFSET
@@ -489,6 +491,54 @@ bool SampApi::IsConnected(int id) {
 
     CallPlayerPoolIsConnected(isConnected, reinterpret_cast<void*>(pool), static_cast<unsigned short>(id), connected);
     return connected;
+}
+
+std::optional<int> SampApi::GetPlayerPing(int id) {
+    if (id < 0 || id > 1003 || !isSupportedVersion()) {
+        return std::nullopt;
+    }
+
+    std::uint32_t pool = 0;
+    if (!ResolvePedPool(pool) || pool == 0) {
+        return std::nullopt;
+    }
+
+    int ping = 0;
+    const int localId = Local_ID();
+    if (localId >= 0 && id == localId) {
+        const auto address = GetAddress(main_offsets.CPlayerPool_GetLocalPlayerPing);
+        if (address == 0) {
+            return std::nullopt;
+        }
+
+        const auto getLocalPing = reinterpret_cast<PlayerPoolGetLocalPingFn>(address);
+        if (!CallPlayerPoolGetLocalPing(getLocalPing, reinterpret_cast<void*>(pool), ping)) {
+            return std::nullopt;
+        }
+        if (ping < 0) {
+            return std::nullopt;
+        }
+        return ping;
+    }
+
+    if (!IsConnected(id)) {
+        return std::nullopt;
+    }
+
+    const auto address = GetAddress(main_offsets.CPlayerPool_GetPing);
+    if (address == 0) {
+        return std::nullopt;
+    }
+
+    const auto getPing = reinterpret_cast<PlayerPoolGetPingFn>(address);
+    if (!CallPlayerPoolGetPing(getPing, reinterpret_cast<void*>(pool), static_cast<unsigned short>(id), ping)) {
+        return std::nullopt;
+    }
+
+    if (ping < 0) {
+        return std::nullopt;
+    }
+    return ping;
 }
 
 std::optional<std::uint32_t> SampApi::GetPlayerColor(int id) {

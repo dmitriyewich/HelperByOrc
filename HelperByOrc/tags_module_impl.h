@@ -243,6 +243,11 @@ public:
     std::optional<std::string> ResolveBuiltinClosestSurnameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinArmourTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinPingTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyXTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyYTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyZTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyPosTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDateTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMySkinTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyWeaponTag(const EvaluationContext& context) const;
@@ -309,6 +314,9 @@ public:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinPingFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSkinFunctionTag(

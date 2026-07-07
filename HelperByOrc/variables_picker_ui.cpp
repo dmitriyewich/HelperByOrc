@@ -1290,9 +1290,10 @@ Category ClassifyBuiltin(std::string_view name) {
     }
     if (lower == "id" || lower == "nick" || lower == "rpnick" || lower == "nickrp" || lower == "name"
         || lower == "surname" || lower == "armour" || lower == "health" || lower == "myskin"
+        || lower == "myx" || lower == "myy" || lower == "myz" || lower == "mypos"
         || lower == "myweapon" || lower == "myweaponid" || lower == "myweaponclip" || lower == "mymoney"
         || lower == "fps" || lower == "getvehtype" || lower == "car" || lower == "carhealth"
-        || lower == "skin" || lower == "nickcolor") {
+        || lower == "skin" || lower == "ping" || lower == "nickcolor") {
         return Category::Player;
     }
     return Category::Text;
