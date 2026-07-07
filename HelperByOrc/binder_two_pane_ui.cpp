@@ -1,5 +1,13 @@
 #include "binder_module_impl.h"
 
+namespace {
+
+int TwoPaneVisualFolderDepth(const int depth) {
+    return std::max(depth - 1, 0);
+}
+
+} // namespace
+
 int BinderModule::Impl::FolderOrderIndex(FolderNode* folder) const {
     if (!folder) {
         return -1;
@@ -65,13 +73,15 @@ void BinderModule::Impl::DrawTwoPaneFolderInlineEditRow(FolderNode* parent, cons
 
     DrawBinderListRowBackground(drawList, rowRect, rowIndex, true, false);
 
-    const float indent = ScaleUi(16.0f) * static_cast<float>(std::max(depth, 0));
+    const int visualDepth = TwoPaneVisualFolderDepth(depth);
+    const float indent = ScaleUi(16.0f) * static_cast<float>(visualDepth);
+    const float arrowW = ScaleUi(18.0f);
     const float iconW = ScaleUi(22.0f);
     const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));
     const ImVec2 buttonSize(buttonSide, buttonSide);
     const float buttonGap = ScaleUi(4.0f);
     const float actionGroupWidth = buttonSide * 2.0f + buttonGap;
-    const float inputX = rowRect.Min.x + indent + iconW + ScaleUi(4.0f);
+    const float inputX = rowRect.Min.x + indent + arrowW + iconW + ScaleUi(4.0f);
     const float inputY = rowRect.Min.y + std::floor(std::max(0.0f, (rowHeight - ImGui::GetFrameHeight()) * 0.5f));
     const float inputMaxX = std::max(inputX + ScaleUi(48.0f), rowRect.Max.x - actionGroupWidth - ScaleUi(10.0f));
     const float inputWidth = std::max(ScaleUi(48.0f), inputMaxX - inputX);
@@ -80,8 +90,8 @@ void BinderModule::Impl::DrawTwoPaneFolderInlineEditRow(FolderNode* parent, cons
         drawList,
         ui_icons::Folder,
         ImRect(
-            ImVec2(rowRect.Min.x + indent, rowRect.Min.y),
-            ImVec2(rowRect.Min.x + indent + iconW, rowRect.Max.y)),
+            ImVec2(rowRect.Min.x + indent + arrowW, rowRect.Min.y),
+            ImVec2(rowRect.Min.x + indent + arrowW + iconW, rowRect.Max.y)),
         ImGui::GetColorU32(BinderListStyleTokens().headerText));
 
     ImGui::PushID(parent ? parent->id : 0);
@@ -235,7 +245,8 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
 
         DrawBinderListRowBackground(drawList, rowRect, rowIndex, selected, hovered);
 
-        const float indent = ScaleUi(16.0f) * static_cast<float>(std::max(depth, 0));
+        const int visualDepth = TwoPaneVisualFolderDepth(depth);
+        const float indent = ScaleUi(16.0f) * static_cast<float>(visualDepth);
         const float arrowW = ScaleUi(18.0f);
         const float iconW = ScaleUi(22.0f);
         const float buttonSide = std::ceil(ImGui::GetFrameHeight() - ScaleUi(1.0f));

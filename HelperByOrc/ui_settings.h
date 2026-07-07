@@ -569,6 +569,33 @@
     X(SettingsBinderTextConfirmationTimeoutSec, "Таймер подтверждения триггера, сек", "Trigger confirmation timeout, sec") \
     X(SettingsBinderTextConfirmationTimeoutHint, "Если бинд ждёт подтверждение по текстовому триггеру дольше этого времени, ожидание сбрасывается и бинд не запускается. Диапазон: 5-600 секунд.", "If a bind waits for text-trigger confirmation longer than this value, the pending confirmation is cleared and the bind is not started. Range: 5-600 seconds.") \
     X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \
+    X(SettingsHotkeysHelpTitle, "Справка по клавишам", "Key reference") \
+    X(SettingsHotkeysHelpBindList, "Список биндов", "Bind list") \
+    X(SettingsHotkeysHelpInputDialog, "Окно заполнения параметров", "Parameter input window") \
+    X(SettingsHotkeysHelpCapture, "Захват комбинации", "Combination capture") \
+    X(SettingsHotkeysHelpNotepad, "Блокнот", "Notepad") \
+    X(SettingsHotkeysHelpHud, "HUD", "HUD") \
+    X(SettingsHotkeysActionClearSearch, "Очистить поиск.", "Clear search.") \
+    X(SettingsHotkeysActionMoveSelection, "Двигать выделение.", "Move selection.") \
+    X(SettingsHotkeysActionOpenSelected, "Открыть редактор бинда или папку.", "Open the bind editor or folder.") \
+    X(SettingsHotkeysActionNavigateUp, "Перейти на папку выше.", "Go to the parent folder.") \
+    X(SettingsHotkeysActionDeleteSelected, "Удалить выбранный бинд или папку.", "Delete the selected bind or folder.") \
+    X(SettingsHotkeysActionRenameFolder, "Переименовать выбранную папку.", "Rename the selected folder.") \
+    X(SettingsHotkeysActionInlineFolderSaveCancel, "Сохранить или отменить имя папки.", "Save or cancel the folder name.") \
+    X(SettingsHotkeysActionFocusSearch, "Фокус в поиск.", "Focus search.") \
+    X(SettingsHotkeysActionLaunchInputDialog, "Запустить с введёнными параметрами.", "Launch with the entered parameters.") \
+    X(SettingsHotkeysActionCancelInputDialog, "Отменить ввод параметров.", "Cancel parameter input.") \
+    X(SettingsHotkeysActionSaveCapture, "Сохранить комбинацию.", "Save the combination.") \
+    X(SettingsHotkeysActionClearCapture, "Очистить комбинацию.", "Clear the combination.") \
+    X(SettingsHotkeysActionCancelCapture, "Отменить захват.", "Cancel capture.") \
+    X(SettingsHotkeysActionCaptureMouse, "Кнопки мыши захватываются через кнопку \"Мышь\".", "Mouse buttons are captured through the \"Mouse\" button.") \
+    X(SettingsHotkeysActionNotepadSaveEdit, "Сохранить заметку и выйти из редактирования.", "Save the note and leave editing.") \
+    X(SettingsHotkeysActionNotepadDelete, "Удалить выбранную заметку или папку.", "Delete the selected note or folder.") \
+    X(SettingsHotkeysActionNotepadRename, "Переименовать выбранную заметку или папку.", "Rename the selected note or folder.") \
+    X(SettingsHotkeysActionNotepadCancelEdit, "Отменить активное редактирование.", "Cancel active editing.") \
+    X(SettingsHotkeysActionNotepadOpenFolder, "Открыть выбранную папку.", "Open the selected folder.") \
+    X(SettingsHotkeysActionNotepadModalSaveCancel, "Сохранить или закрыть модальное окно.", "Save or close the modal window.") \
+    X(SettingsHotkeysActionHudExitEdit, "Выйти из размещения или inline-редактирования текста.", "Leave placement or inline text editing.") \
     X(SettingsQuickMenuIntro, "Как открывается быстрое меню биндов.", "How the binder quick menu opens.") \
     X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
     X(SettingsNotificationsEnabled, "Включить системные уведомления", "Enable system notifications") \

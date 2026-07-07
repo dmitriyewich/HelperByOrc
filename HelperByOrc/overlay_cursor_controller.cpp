@@ -155,6 +155,7 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
     const bool sampUiExternalActive = inputs.chatOpen || inputs.dialogOpen;
     const bool blockingExternalActive = (inputs.externalCursorActive && !sampUiExternalActive)
         || inputs.cefShown;
+    const bool helperCanOwnSampCursorMode = helperWantsSampCursorMode && !sampUiExternalActive;
     const bool passiveSampCursorOwner = sampCursorActive && !helperModeActive_ && !helperWantsInputRouting;
     const bool externalActive = sampUiExternalActive
         || blockingExternalActive
@@ -207,7 +208,12 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
             ReleaseHold("[ui] ReleaseCapture due to key routing without cursor");
         }
 
-        if (helperWantsSampCursorMode && !externalActive) {
+        if (helperCanOwnSampCursorMode) {
+            if (externalActive) {
+                result.reason = helperWantsKeyboard || helperWantsCursor
+                    ? "helper-routing-external-underlay"
+                    : "helper-surface-external-underlay";
+            }
             const int desiredCursorMode =
                 helperSampCursorMode != kSampCursorModeNone ? helperSampCursorMode : kSampCursorModeLockCamAndControl;
             result.sampCursorMode = desiredCursorMode;
@@ -258,7 +264,17 @@ OverlayCursorController::Result OverlayCursorController::Apply(const Inputs& inp
             ReleaseHold("[ui] ReleaseCapture due to external cursor owner");
         }
         if (helperModeActive_) {
-            DeferHelperReleaseForExternal(inputs, now);
+            if (!sampUiExternalActive) {
+                result.sampModeApplied = ApplySampCursorMode(kSampCursorModeNone, false, false, now);
+                if (result.sampModeApplied) {
+                    helperModeActive_ = false;
+                    ClearDeferredExternalRelease();
+                } else {
+                    DeferHelperReleaseForExternal(inputs, now);
+                }
+            } else {
+                DeferHelperReleaseForExternal(inputs, now);
+            }
         }
         TraceState(inputs, result, rmbHeld, now);
         lastOwner_ = result.owner;

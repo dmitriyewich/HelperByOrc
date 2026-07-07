@@ -1314,6 +1314,79 @@ void DrawSummaryCell(const char* label, const std::string& value) {
     ImGui::TextWrapped("%s", value.empty() ? "-" : value.c_str());
 }
 
+struct SettingsHotkeyHelpRow {
+    const char* keys[3]{};
+    int keyCount = 0;
+    UiText action = UiText::Count;
+};
+
+void DrawSettingsHotkeyChip(const char* label) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 textSize = ImGui::CalcTextSize(label);
+    const ImVec2 padding = ScaleVec(7.0f, 2.0f);
+    const ImVec2 size(
+        std::ceil(textSize.x + padding.x * 2.0f),
+        std::max(std::ceil(textSize.y + padding.y * 2.0f), Scale(22.0f)));
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 max(pos.x + size.x, pos.y + size.y);
+    const float rounding = std::max(Scale(3.0f), style.FrameRounding * 0.65f);
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->AddRectFilled(pos, max, ImGui::GetColorU32(ImGuiCol_FrameBg, 0.78f), rounding);
+    drawList->AddRect(pos, max, ImGui::GetColorU32(ImGuiCol_Border, 0.62f), rounding);
+    drawList->AddText(
+        ImVec2(pos.x + padding.x, pos.y + (size.y - textSize.y) * 0.5f),
+        ImGui::GetColorU32(ImGuiCol_Text),
+        label);
+    ImGui::Dummy(size);
+}
+
+void DrawSettingsHotkeyChips(const SettingsHotkeyHelpRow& row) {
+    if (row.keyCount <= 0) {
+        return;
+    }
+
+    for (int i = 0; i < row.keyCount; ++i) {
+        if (i > 0) {
+            ImGui::SameLine(0.0f, Scale(5.0f));
+            ImGui::TextDisabled("/");
+            ImGui::SameLine(0.0f, Scale(5.0f));
+        }
+        DrawSettingsHotkeyChip(row.keys[i]);
+    }
+}
+
+void DrawSettingsHotkeyHelpGroup(UiText titleId, const SettingsHotkeyHelpRow* rows, int rowCount) {
+    UiSettings& ui = UiSettings::Instance();
+    const float availableWidth = ImGui::GetContentRegionAvail().x;
+    const float keyColumnWidth = std::min(Scale(260.0f), std::max(Scale(160.0f), availableWidth * 0.40f));
+
+    ImGui::PushID(static_cast<int>(titleId));
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(titleId));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ScaleVec(0.0f, 3.0f));
+    if (ImGui::BeginTable(
+            "##settings_hotkey_help_rows",
+            2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, keyColumnWidth);
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+
+        for (int i = 0; i < rowCount; ++i) {
+            const SettingsHotkeyHelpRow& row = rows[i];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            DrawSettingsHotkeyChips(row);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextWrapped("%s", ui.Text(row.action));
+        }
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopID();
+}
+
 void DrawDiagnosticValue(const char* label, const std::string& value) {
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
@@ -2525,6 +2598,47 @@ void ModApp::DrawSettingsHotkeysSection() {
         }
         ImGui::EndTable();
     }
+
+    static constexpr SettingsHotkeyHelpRow kBindListRows[] = {
+        { { "Esc" }, 1, UiText::SettingsHotkeysActionClearSearch },
+        { { "Up", "Down" }, 2, UiText::SettingsHotkeysActionMoveSelection },
+        { { "Enter" }, 1, UiText::SettingsHotkeysActionOpenSelected },
+        { { "Backspace" }, 1, UiText::SettingsHotkeysActionNavigateUp },
+        { { "Delete" }, 1, UiText::SettingsHotkeysActionDeleteSelected },
+        { { "F2" }, 1, UiText::SettingsHotkeysActionRenameFolder },
+        { { "Enter", "Esc" }, 2, UiText::SettingsHotkeysActionInlineFolderSaveCancel },
+    };
+    static constexpr SettingsHotkeyHelpRow kInputDialogRows[] = {
+        { { "Ctrl+F" }, 1, UiText::SettingsHotkeysActionFocusSearch },
+        { { "Ctrl+Enter" }, 1, UiText::SettingsHotkeysActionLaunchInputDialog },
+        { { "Ctrl+NumpadEnter" }, 1, UiText::SettingsHotkeysActionLaunchInputDialog },
+        { { "Esc" }, 1, UiText::SettingsHotkeysActionCancelInputDialog },
+    };
+    static constexpr SettingsHotkeyHelpRow kCaptureRows[] = {
+        { { "Enter" }, 1, UiText::SettingsHotkeysActionSaveCapture },
+        { { "Backspace" }, 1, UiText::SettingsHotkeysActionClearCapture },
+        { { "Esc" }, 1, UiText::SettingsHotkeysActionCancelCapture },
+        { {}, 0, UiText::SettingsHotkeysActionCaptureMouse },
+    };
+    static constexpr SettingsHotkeyHelpRow kNotepadRows[] = {
+        { { "Ctrl+S" }, 1, UiText::SettingsHotkeysActionNotepadSaveEdit },
+        { { "Delete" }, 1, UiText::SettingsHotkeysActionNotepadDelete },
+        { { "F2" }, 1, UiText::SettingsHotkeysActionNotepadRename },
+        { { "Esc" }, 1, UiText::SettingsHotkeysActionNotepadCancelEdit },
+        { { "Enter" }, 1, UiText::SettingsHotkeysActionNotepadOpenFolder },
+        { { "Enter", "Esc" }, 2, UiText::SettingsHotkeysActionNotepadModalSaveCancel },
+    };
+    static constexpr SettingsHotkeyHelpRow kHudRows[] = {
+        { { "Esc" }, 1, UiText::SettingsHotkeysActionHudExitEdit },
+    };
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsHotkeysHelpTitle));
+    DrawSettingsHotkeyHelpGroup(UiText::SettingsHotkeysHelpBindList, kBindListRows, IM_ARRAYSIZE(kBindListRows));
+    DrawSettingsHotkeyHelpGroup(UiText::SettingsHotkeysHelpInputDialog, kInputDialogRows, IM_ARRAYSIZE(kInputDialogRows));
+    DrawSettingsHotkeyHelpGroup(UiText::SettingsHotkeysHelpCapture, kCaptureRows, IM_ARRAYSIZE(kCaptureRows));
+    DrawSettingsHotkeyHelpGroup(UiText::SettingsHotkeysHelpNotepad, kNotepadRows, IM_ARRAYSIZE(kNotepadRows));
+    DrawSettingsHotkeyHelpGroup(UiText::SettingsHotkeysHelpHud, kHudRows, IM_ARRAYSIZE(kHudRows));
 }
 
 void ModApp::DrawSettingsNotificationsSection() {
