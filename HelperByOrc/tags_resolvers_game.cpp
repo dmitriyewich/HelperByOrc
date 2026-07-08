@@ -35,6 +35,25 @@ std::optional<CVector> ResolveLocalPlayerPosition() {
     return position;
 }
 
+std::optional<float> ResolveLocalPlayerHeadingDegrees() {
+    CPlayerPed* const playerPed = FindPlayerPed();
+    if (!playerPed) {
+        return std::nullopt;
+    }
+
+    constexpr float kRadiansToDegrees = 57.29577951308232f;
+    float heading = playerPed->GetHeading() * kRadiansToDegrees;
+    if (!std::isfinite(heading)) {
+        return std::nullopt;
+    }
+
+    heading = std::fmod(heading, 360.0f);
+    if (heading < 0.0f) {
+        heading += 360.0f;
+    }
+    return heading;
+}
+
 std::string FormatCoordinateValue(float value) {
     if (std::fabs(value) < 0.005f) {
         value = 0.0f;
@@ -81,6 +100,68 @@ eLevelName ResolveLocalPlayerCityLevel() {
     }
 
     return CTheZones::GetLevelFromPosition(&*position);
+}
+
+std::string ResolveDirectionName(bool english, bool shortName) {
+    const std::optional<float> heading = ResolveLocalPlayerHeadingDegrees();
+    if (!heading) {
+        return {};
+    }
+
+    const int sector = static_cast<int>(std::floor((*heading + 22.5f) / 45.0f)) % 8;
+    static constexpr const char* kRuFull[] = {
+        "Север",
+        "Северо-запад",
+        "Запад",
+        "Юго-запад",
+        "Юг",
+        "Юго-восток",
+        "Восток",
+        "Северо-восток",
+    };
+    static constexpr const char* kRuShort[] = {"С", "СЗ", "З", "ЮЗ", "Ю", "ЮВ", "В", "СВ"};
+    static constexpr const char* kEnFull[] = {
+        "North",
+        "North-West",
+        "West",
+        "South-West",
+        "South",
+        "South-East",
+        "East",
+        "North-East",
+    };
+    static constexpr const char* kEnShort[] = {"N", "NW", "W", "SW", "S", "SE", "E", "NE"};
+
+    if (english) {
+        return shortName ? kEnShort[sector] : kEnFull[sector];
+    }
+    return shortName ? kRuShort[sector] : kRuFull[sector];
+}
+
+std::string ResolveSquareName(bool english) {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return {};
+    }
+
+    static constexpr float kGridSize = 250.0f;
+    static constexpr const char* kRuRows[] = {
+        "А", "Б", "В", "Г", "Д", "Ж", "З", "И", "К", "Л", "М", "Н",
+        "О", "П", "Р", "С", "Т", "У", "Ф", "Х", "Ц", "Ч", "Ш", "Я",
+    };
+    static constexpr const char* kEnRows[] = {
+        "A", "B", "V", "G", "D", "Zh", "Z", "I", "K", "L", "M", "N",
+        "O", "P", "R", "S", "T", "U", "F", "Kh", "Ts", "Ch", "Sh", "Ya",
+    };
+
+    const int x = static_cast<int>(std::floor((position->x + 3000.0f) / kGridSize)) + 1;
+    const int y = static_cast<int>(std::floor((3000.0f - position->y) / kGridSize)) + 1;
+    if (x < 1 || x > 24 || y < 1 || y > 24) {
+        return {};
+    }
+
+    const char* const row = english ? kEnRows[y - 1] : kRuRows[y - 1];
+    return std::string(row) + "-" + std::to_string(x);
 }
 
 std::string WideToUtf8(std::wstring_view text) {
@@ -674,6 +755,30 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyPosTag(const Evalua
         + FormatCoordinateValue(position->y)
         + ", "
         + FormatCoordinateValue(position->z);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyDirectionShortTag(const EvaluationContext&) const {
+    return ResolveDirectionName(false, true);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyDirectionTag(const EvaluationContext&) const {
+    return ResolveDirectionName(false, false);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyDirectionShortEnTag(const EvaluationContext&) const {
+    return ResolveDirectionName(true, true);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyDirectionEnTag(const EvaluationContext&) const {
+    return ResolveDirectionName(true, false);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMySquareTag(const EvaluationContext&) const {
+    return ResolveSquareName(false);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMySquareEnTag(const EvaluationContext&) const {
+    return ResolveSquareName(true);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinCityTag(const EvaluationContext&) const {

@@ -55,6 +55,18 @@ public:
         CursorIntents cursors{};
     };
 
+    enum class DialogInputBackend {
+        None,
+        Samp,
+        ArizonaCef,
+    };
+
+    struct DialogInputSetResult {
+        bool ok = false;
+        DialogInputBackend backend = DialogInputBackend::None;
+        std::string error{};
+    };
+
     struct EvaluationContext {
         SampApi* sampApi = nullptr;
         std::string_view activationSource;
@@ -103,6 +115,10 @@ public:
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;
     ExpandedText ExpandTextWithCursorIntents(std::string_view text) const;
     ExpandedText ExpandTextWithCursorIntents(std::string_view text, const EvaluationContext& context) const;
+    DialogInputSetResult SetActiveDialogInputTextAuto(
+        std::string_view text,
+        const CursorIntents* cursorIntents,
+        bool alreadyDecoded) const;
     std::string ExpandHudText(std::string_view text) const;
     std::string ExpandOutgoingText(
         std::string_view text,

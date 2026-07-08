@@ -102,7 +102,7 @@ struct Request {
 };
 
 std::string MakeEntryId(EntryKind kind, std::string_view token);
-bool IsActionBuiltin(std::string_view name);
+bool IsActionBuiltin(EntryKind kind, std::string_view name);
 Category ClassifyBuiltin(std::string_view name);
 const char* CategoryLabel(Category category, UiSettings& ui);
 Request Draw(State& state, const std::vector<Entry>& entries, const Options& options);

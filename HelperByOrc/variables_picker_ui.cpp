@@ -591,8 +591,11 @@ int CountCategory(const std::vector<Entry>& entries, State& state, Category cate
         state.categoryCountsCache[CategoryIndex(Category::All)] = static_cast<int>(entries.size());
         for (const Entry& entry : entries) {
             const std::size_t index = CategoryIndex(entry.category);
-            if (index < kVariablesCategoryCount) {
+            if (index < kVariablesCategoryCount && entry.category != Category::Actions) {
                 ++state.categoryCountsCache[index];
+            }
+            if (entry.action) {
+                ++state.categoryCountsCache[CategoryIndex(Category::Actions)];
             }
         }
         state.categoryCountsEntriesHash = entriesHash;
@@ -1236,9 +1239,9 @@ std::string MakeEntryId(EntryKind kind, std::string_view token) {
     return std::string(1, prefix) + ":" + std::string(token);
 }
 
-bool IsActionBuiltin(std::string_view name) {
+bool IsActionBuiltin(EntryKind kind, std::string_view name) {
     const std::string lower = ToLowerAscii(name);
-    static constexpr std::string_view actions[] = {
+    static constexpr std::string_view allKindActions[] = {
         "bindstopall",
         "chatclear",
         "cursor",
@@ -1260,10 +1263,8 @@ bool IsActionBuiltin(std::string_view name) {
         "dialogresponse",
         "save_dialog",
         "arzdialogsetinputtext",
-        "arzdialoggetinputtext",
         "arzdialogclosewithbutton",
         "arzdialogsetlistitem",
-        "arzdialoggetlistitem",
         "arzdialogsendrespond",
         "binddisable",
         "bindenable",
@@ -1276,7 +1277,18 @@ bool IsActionBuiltin(std::string_view name) {
         "bindrandom",
         "bindpopup",
     };
-    return std::find(actions, actions + (sizeof(actions) / sizeof(actions[0])), lower) != actions + (sizeof(actions) / sizeof(actions[0]));
+    static constexpr std::string_view functionOnlyActions[] = {
+        "arzdialoggetinputtext",
+        "arzdialoggetlistitem",
+    };
+    const auto contains = [&lower](const std::string_view* begin, const std::string_view* end) {
+        return std::find(begin, end, lower) != end;
+    };
+    if (contains(allKindActions, allKindActions + (sizeof(allKindActions) / sizeof(allKindActions[0])))) {
+        return true;
+    }
+    return kind == EntryKind::Function
+        && contains(functionOnlyActions, functionOnlyActions + (sizeof(functionOnlyActions) / sizeof(functionOnlyActions[0])));
 }
 
 Category ClassifyBuiltin(std::string_view name) {
@@ -1290,11 +1302,12 @@ Category ClassifyBuiltin(std::string_view name) {
     if (lower == "arzcursor" || lower == "arzcursordialog") {
         return Category::Arizona;
     }
+    if (lower == "screen" || lower == "tphoto" || lower == "chatclear"
+        || lower == "keyemulate" || lower == "keydown" || lower == "wait" || lower == "cursor") {
+        return Category::Actions;
+    }
     if (lower == "cursordialog") {
         return Category::SampDialog;
-    }
-    if (lower == "cursor") {
-        return Category::Actions;
     }
     if (lower.rfind("dialog", 0) == 0 || lower == "save_dialog") {
         return Category::SampDialog;
@@ -1305,6 +1318,8 @@ Category ClassifyBuiltin(std::string_view name) {
     if (lower == "id" || lower == "nick" || lower == "rpnick" || lower == "nickrp" || lower == "name"
         || lower == "surname" || lower == "armour" || lower == "health" || lower == "myskin"
         || lower == "myx" || lower == "myy" || lower == "myz" || lower == "mypos"
+        || lower == "myd" || lower == "mydirection" || lower == "myden" || lower == "mydirectionen"
+        || lower == "mysquare" || lower == "mysquareen"
         || lower == "city" || lower == "cityen" || lower == "mycolor"
         || lower.rfind("mycar", 0) == 0
         || lower == "myweapon" || lower == "myweaponid" || lower == "myweaponclip" || lower == "mymoney"

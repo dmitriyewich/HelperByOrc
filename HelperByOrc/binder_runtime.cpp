@@ -1663,15 +1663,17 @@ void BinderModule::Impl::SendExpandedText(
         }
         break;
     case 6:
-        if (!sampApi || !sampApi->sampSetDialogEditboxText(expandedText, true)) {
+        if (!tagsModule) {
             Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), 2500.0);
-        } else if (cursorIntents && cursorIntents->sampDialog.valid
-            && !sampApi->sampSetDialogInputCursor(cursorIntents->sampDialog.start, cursorIntents->sampDialog.finish)) {
-            debuglog::WriteError(
-                "Binder dialog cursor failed start=%d finish=%d error=%s",
-                cursorIntents->sampDialog.start,
-                cursorIntents->sampDialog.finish,
-                sampApi->lastError().c_str());
+            break;
+        }
+        {
+            const TagsModule::DialogInputSetResult result =
+                tagsModule->SetActiveDialogInputTextAuto(expandedText, cursorIntents, true);
+            if (!result.ok) {
+                debuglog::WriteError("Binder dialog input auto-send failed: %s", result.error.c_str());
+                Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), 2500.0);
+            }
         }
         break;
     case 7:

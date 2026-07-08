@@ -158,6 +158,14 @@ return 0;
 )JS";
 }
 
+std::string MakeInputPresenceQueryCode() {
+    return R"JS(
+var d = document.querySelector('.dialog');
+if (!d) return false;
+return !!d.querySelector('input.dialog-input__field, textarea.dialog-input__field');
+)JS";
+}
+
 bool StartsWith(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
 }
@@ -208,6 +216,9 @@ void ArizonaCefDialogs::Shutdown() {
         std::lock_guard lock(mutex_);
         shutdown_ = true;
         pendingQueries_.clear();
+        cachedInputFieldPresentKnown_ = false;
+        cachedInputFieldPresent_ = false;
+        nextInputFieldProbeAtMs_ = 0;
     }
     debuglog::WriteInfo("ArizonaCefDialogs shutdown");
 }
@@ -217,7 +228,41 @@ void ArizonaCefDialogs::Tick() {
         return;
     }
 
-    PruneExpiredQueries(GetTickCount64());
+    const std::uint64_t now = GetTickCount64();
+    PruneExpiredQueries(now);
+
+    if (!IsDialogActive() || !CanUseCef()) {
+        std::lock_guard lock(mutex_);
+        cachedInputFieldPresentKnown_ = false;
+        cachedInputFieldPresent_ = false;
+        nextInputFieldProbeAtMs_ = 0;
+        return;
+    }
+
+    const int style = LastDialogStyle();
+    const bool inputStyle = sampApi_
+        ? sampApi_->isDialogInputStyle(style)
+        : style == SampApi::DIALOG_STYLE_INPUT || style == SampApi::DIALOG_STYLE_PASSWORD;
+    if (!inputStyle) {
+        std::lock_guard lock(mutex_);
+        cachedInputFieldPresentKnown_ = true;
+        cachedInputFieldPresent_ = false;
+        nextInputFieldProbeAtMs_ = 0;
+        return;
+    }
+
+    bool shouldProbe = false;
+    {
+        std::lock_guard lock(mutex_);
+        shouldProbe = now >= nextInputFieldProbeAtMs_;
+        if (shouldProbe) {
+            nextInputFieldProbeAtMs_ = now + 250;
+        }
+    }
+
+    if (shouldProbe && !HasPendingQuery(QueryKind::InputPresent)) {
+        BeginQuery(MakeInputPresenceQueryCode(), QueryKind::InputPresent, kDefaultQueryTimeoutMs);
+    }
 }
 
 bool ArizonaCefDialogs::IsDialogActive() const {
@@ -225,6 +270,12 @@ bool ArizonaCefDialogs::IsDialogActive() const {
 }
 
 bool ArizonaCefDialogs::SetInputText(std::string_view text) {
+    if (const std::optional<bool> cachedPresent = CachedInputFieldPresent();
+        cachedPresent.has_value() && !*cachedPresent) {
+        debuglog::WriteError("ArizonaCefDialogs::SetInputText skipped: cached DOM input field is absent");
+        return false;
+    }
+
     const std::string js = std::string(R"JS(
 var d = document.querySelector('.dialog');
 if (!d) return;
@@ -354,6 +405,14 @@ std::string ArizonaCefDialogs::CachedInputText() const {
 std::string ArizonaCefDialogs::CachedListItem() const {
     std::lock_guard lock(mutex_);
     return cachedListItem_;
+}
+
+std::optional<bool> ArizonaCefDialogs::CachedInputFieldPresent() const {
+    std::lock_guard lock(mutex_);
+    if (!cachedInputFieldPresentKnown_) {
+        return std::nullopt;
+    }
+    return cachedInputFieldPresent_;
 }
 
 std::string ArizonaCefDialogs::QueryInputText(int timeoutMs) {
@@ -502,6 +561,9 @@ bool ArizonaCefDialogs::HandleShowDialog(
         lastDialogInfo_.text = text;
         cachedInputText_.clear();
         cachedListItem_ = "0";
+        cachedInputFieldPresentKnown_ = false;
+        cachedInputFieldPresent_ = false;
+        nextInputFieldProbeAtMs_ = 0;
     }
 
     debuglog::WriteInfo(
@@ -633,8 +695,11 @@ void ArizonaCefDialogs::CompleteQuery(std::uint32_t requestId, std::string value
     pendingQueries_.erase(it);
     if (kind == QueryKind::InputText) {
         cachedInputText_ = std::move(value);
-    } else {
+    } else if (kind == QueryKind::ListItem) {
         cachedListItem_ = value.empty() ? std::string("0") : std::move(value);
+    } else if (kind == QueryKind::InputPresent) {
+        cachedInputFieldPresentKnown_ = true;
+        cachedInputFieldPresent_ = value == "true" || value == "1";
     }
 }
 

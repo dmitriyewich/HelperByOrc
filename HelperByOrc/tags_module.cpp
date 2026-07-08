@@ -88,6 +88,13 @@ TagsModule::ExpandedText TagsModule::ExpandTextWithCursorIntents(
     return impl_->ExpandTextWithCursorIntents(text, context);
 }
 
+TagsModule::DialogInputSetResult TagsModule::SetActiveDialogInputTextAuto(
+    std::string_view text,
+    const CursorIntents* cursorIntents,
+    bool alreadyDecoded) const {
+    return impl_->SetActiveDialogInputTextAuto(text, cursorIntents, alreadyDecoded);
+}
+
 std::string TagsModule::ExpandHudText(std::string_view text) const {
     return impl_->ExpandHudText(text);
 }

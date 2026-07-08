@@ -429,7 +429,7 @@ std::vector<variables_picker::Entry> BinderModule::Impl::BuildEditorVariablePick
         pickerEntry.token = entry.token;
         pickerEntry.example = entry.example;
         pickerEntry.descriptionText = entry.descriptionText;
-        pickerEntry.action = variables_picker::IsActionBuiltin(entry.name);
+        pickerEntry.action = variables_picker::IsActionBuiltin(kind, entry.name);
         pickerEntries.push_back(std::move(pickerEntry));
     }
 

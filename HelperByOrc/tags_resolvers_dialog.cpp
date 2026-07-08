@@ -3,6 +3,33 @@
 
 #include "debug_log.h"
 
+namespace {
+
+std::string JoinDialogInputErrors(std::string_view sampError, std::string_view arizonaError) {
+    std::string result;
+    if (!sampError.empty()) {
+        result += "samp=";
+        result += sampError;
+    }
+    if (!arizonaError.empty()) {
+        if (!result.empty()) {
+            result += "; ";
+        }
+        result += "arizona=";
+        result += arizonaError;
+    }
+    return result.empty() ? std::string("no_backend_tried") : result;
+}
+
+bool IsDialogInputStyle(SampApi* sampApi, int style) {
+    if (sampApi) {
+        return sampApi->isDialogInputStyle(style);
+    }
+    return style == SampApi::DIALOG_STYLE_INPUT || style == SampApi::DIALOG_STYLE_PASSWORD;
+}
+
+} // namespace
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogActiveTag(const EvaluationContext& context) const {
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
@@ -10,6 +37,138 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogActiveTag(const
     }
 
     return sampApi->isDialogActive() ? std::string("true") : std::string("false");
+}
+
+TagsModule::DialogInputSetResult TagsModule::Impl::SetActiveDialogInputTextAuto(
+    std::string_view text,
+    const CursorIntents* cursorIntents,
+    bool alreadyDecoded) const {
+    DialogInputSetResult result;
+    SampApi* sampApi = sampApi_;
+    std::string sampError;
+    std::string arizonaError;
+
+    const auto applySampCursor = [&]() {
+        if (!cursorIntents || !cursorIntents->sampDialog.valid || !sampApi) {
+            return;
+        }
+        if (!sampApi->sampSetDialogInputCursor(cursorIntents->sampDialog.start, cursorIntents->sampDialog.finish)) {
+            debuglog::WriteError(
+                "TagsModule::SetActiveDialogInputTextAuto SAMP cursor failed start=%d finish=%d error=%s",
+                cursorIntents->sampDialog.start,
+                cursorIntents->sampDialog.finish,
+                sampApi->lastError().c_str());
+        }
+    };
+
+    const auto applyArizonaCursor = [&]() {
+        if (!cursorIntents || !arizonaCefDialogs_) {
+            return;
+        }
+
+        const CursorRange* cursor = nullptr;
+        if (cursorIntents->arizonaDialog.valid) {
+            cursor = &cursorIntents->arizonaDialog;
+        } else if (cursorIntents->sampDialog.valid) {
+            cursor = &cursorIntents->sampDialog;
+        }
+
+        if (cursor && !arizonaCefDialogs_->SetInputCursor(cursor->start, cursor->finish)) {
+            debuglog::WriteError(
+                "TagsModule::SetActiveDialogInputTextAuto Arizona CEF cursor failed start=%d finish=%d",
+                cursor->start,
+                cursor->finish);
+        }
+    };
+
+    const auto trySamp = [&]() -> bool {
+        if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+            sampError = "unavailable";
+            return false;
+        }
+        if (!sampApi->isDialogActive()) {
+            sampError = "no_active_dialog";
+            return false;
+        }
+
+        const int style = sampApi->GetCurrentDialogStyle();
+        if (style < 0 || !sampApi->isDialogInputStyle(style)) {
+            sampError = "not_input_style";
+            return false;
+        }
+        if (!sampApi->pDialogInput_pEditBox_active_func()) {
+            sampError = "no_editbox";
+            return false;
+        }
+
+        if (!sampApi->sampSetDialogEditboxText(text, alreadyDecoded)) {
+            sampError = std::string("set_failed: ") + sampApi->lastError();
+            return false;
+        }
+
+        applySampCursor();
+        result.ok = true;
+        result.backend = TagsModule::DialogInputBackend::Samp;
+        result.error.clear();
+        debuglog::WriteInfo("TagsModule::SetActiveDialogInputTextAuto ok backend=samp len=%llu", static_cast<unsigned long long>(text.size()));
+        return true;
+    };
+
+    const auto tryArizona = [&]() -> bool {
+        if (!arizonaCefDialogs_) {
+            arizonaError = "unavailable";
+            return false;
+        }
+        if (!arizonaCefDialogs_->IsDialogActive()) {
+            arizonaError = "no_active_dialog";
+            return false;
+        }
+
+        const int style = arizonaCefDialogs_->LastDialogStyle();
+        if (style < 0 || !IsDialogInputStyle(sampApi, style)) {
+            arizonaError = "not_input_style";
+            return false;
+        }
+
+        if (const std::optional<bool> inputPresent = arizonaCefDialogs_->CachedInputFieldPresent();
+            inputPresent.has_value() && !*inputPresent) {
+            arizonaError = "no_dom_input";
+            return false;
+        }
+
+        if (!arizonaCefDialogs_->SetInputText(text)) {
+            arizonaError = "set_failed";
+            return false;
+        }
+
+        applyArizonaCursor();
+        result.ok = true;
+        result.backend = TagsModule::DialogInputBackend::ArizonaCef;
+        result.error.clear();
+        debuglog::WriteInfo("TagsModule::SetActiveDialogInputTextAuto ok backend=arizona_cef len=%llu", static_cast<unsigned long long>(text.size()));
+        return true;
+    };
+
+    const std::optional<bool> arizonaInputPresent =
+        arizonaCefDialogs_ ? arizonaCefDialogs_->CachedInputFieldPresent() : std::nullopt;
+    const bool explicitArizonaCursor = cursorIntents && cursorIntents->arizonaDialog.valid;
+
+    if ((explicitArizonaCursor || arizonaInputPresent.value_or(false)) && tryArizona()) {
+        return result;
+    }
+    if (trySamp()) {
+        return result;
+    }
+    if (!explicitArizonaCursor && !arizonaInputPresent.has_value() && tryArizona()) {
+        return result;
+    }
+
+    result.error = JoinDialogInputErrors(sampError, arizonaError);
+    debuglog::WriteError(
+        "TagsModule::SetActiveDialogInputTextAuto failed len=%llu error=%s",
+        static_cast<unsigned long long>(text.size()),
+        result.error.c_str());
+    return result;
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogCaptionTag(const EvaluationContext& context) const {

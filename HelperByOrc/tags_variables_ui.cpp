@@ -285,7 +285,6 @@ std::vector<variables_picker::Entry> TagsModule::Impl::BuildVariablePickerEntrie
         const variables_picker::EntryKind kind = tag.kind == TagKind::Function
             ? variables_picker::EntryKind::Function
             : variables_picker::EntryKind::Simple;
-        const bool action = variables_picker::IsActionBuiltin(tag.name);
         variables_picker::Entry entry;
         entry.kind = kind;
         entry.category = variables_picker::ClassifyBuiltin(tag.name);
@@ -294,7 +293,7 @@ std::vector<variables_picker::Entry> TagsModule::Impl::BuildVariablePickerEntrie
         entry.token = tag.token;
         entry.example = tag.example;
         entry.descriptionText = tag.descriptionText;
-        entry.action = action;
+        entry.action = variables_picker::IsActionBuiltin(kind, tag.name);
         entries.push_back(std::move(entry));
     }
 

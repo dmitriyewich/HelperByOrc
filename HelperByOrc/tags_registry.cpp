@@ -324,6 +324,60 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "myd",
+        "{myd}",
+        "{myd}",
+        UiText::TagsBuiltinMyDirectionShortDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyDirectionShortTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mydirection",
+        "{mydirection}",
+        "{mydirection}",
+        UiText::TagsBuiltinMyDirectionDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyDirectionTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myden",
+        "{myden}",
+        "{myden}",
+        UiText::TagsBuiltinMyDirectionShortEnDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyDirectionShortEnTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mydirectionen",
+        "{mydirectionen}",
+        "{mydirectionen}",
+        UiText::TagsBuiltinMyDirectionEnDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyDirectionEnTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mysquare",
+        "{mysquare}",
+        "{mysquare}",
+        UiText::TagsBuiltinMySquareDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMySquareTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mysquareen",
+        "{mysquareen}",
+        "{mysquareen}",
+        UiText::TagsBuiltinMySquareEnDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMySquareEnTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "city",
         "{city}",
         "{city}",

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,7 @@ public:
     bool CloseWithButton(int button);
     bool SetListItem(int index);
     bool SendRespond(int id, int button, int listItem, std::string_view inputText);
+    std::optional<bool> CachedInputFieldPresent() const;
 
     std::string CachedInputText() const;
     std::string CachedListItem() const;
@@ -53,6 +55,7 @@ private:
     enum class QueryKind {
         InputText,
         ListItem,
+        InputPresent,
     };
 
     struct DialogInfo {
@@ -109,6 +112,9 @@ private:
     RespondInfo lastRespond_{};
     std::string cachedInputText_{};
     std::string cachedListItem_{ "0" };
+    bool cachedInputFieldPresentKnown_ = false;
+    bool cachedInputFieldPresent_ = false;
+    std::uint64_t nextInputFieldProbeAtMs_ = 0;
     std::uint32_t nextRequestId_ = 0;
     std::map<std::uint32_t, PendingQuery> pendingQueries_{};
 };

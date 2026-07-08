@@ -18,6 +18,7 @@ public:
     using CursorRange = TagsModule::CursorRange;
     using CursorIntents = TagsModule::CursorIntents;
     using ExpandedText = TagsModule::ExpandedText;
+    using DialogInputSetResult = TagsModule::DialogInputSetResult;
     using EvaluationContext = TagsModule::EvaluationContext;
     using OwnedEvaluationContext = TagsModule::OwnedEvaluationContext;
 
@@ -44,6 +45,10 @@ public:
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;
     ExpandedText ExpandTextWithCursorIntents(std::string_view text) const;
     ExpandedText ExpandTextWithCursorIntents(std::string_view text, const EvaluationContext& context) const;
+    DialogInputSetResult SetActiveDialogInputTextAuto(
+        std::string_view text,
+        const CursorIntents* cursorIntents,
+        bool alreadyDecoded) const;
     std::string ExpandHudText(std::string_view text) const;
     std::string ExpandOutgoingText(
         std::string_view text,
@@ -333,6 +338,12 @@ public:
     std::optional<std::string> ResolveBuiltinMyYTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyZTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyPosTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyDirectionShortTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyDirectionTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyDirectionShortEnTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyDirectionEnTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMySquareTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMySquareEnTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinCityTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinCityEnTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClipboardTag(const EvaluationContext& context) const;
