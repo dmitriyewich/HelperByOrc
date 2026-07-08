@@ -498,7 +498,7 @@ bool BinderModule::Impl::DescribeMainWindowHotkeyConflict(const std::vector<UINT
     }
 
     for (const HotkeyEntry& hotkey : hotkeys) {
-        if (!hotkey.enabled || hotkey.keys.empty()) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || hotkey.keys.empty()) {
             continue;
         }
         if (!::hotkeys::CombosConflict(menuHotkey, HotkeyMode::ModifierTrigger, hotkey.keys, hotkey.hotkeyMode)) {
@@ -635,7 +635,7 @@ void BinderModule::Impl::ProcessHotkeys() {
 
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled || hotkey.keys.empty()) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || hotkey.keys.empty()) {
             hotkey.comboActive = false;
             hotkey.lastRepeatPressed.clear();
             continue;
@@ -794,7 +794,7 @@ bool BinderModule::Impl::TryToggleRunningHotkeyActivation(int index, std::string
     }
 
     HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
+    if (!IsHotkeyEffectivelyEnabled(index) || hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
         return false;
     }
 
@@ -1143,7 +1143,7 @@ bool BinderModule::Impl::MatchesActivationCommand(std::string_view input, std::s
 bool BinderModule::Impl::HasCommandTriggerCandidate(const std::string& normalizedCommand, double now) const {
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         const HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
             continue;
         }
         if (!MatchesActivationCommand(normalizedCommand, hotkey.command)) {
@@ -1168,7 +1168,7 @@ bool BinderModule::Impl::DispatchCommandTrigger(
     bool handled = false;
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.commandEnabled || hotkey.command.empty() || hotkey.awaitingInput) {
             continue;
         }
         if (!MatchesActivationCommand(normalizedCommand, hotkey.command)) {
@@ -1221,7 +1221,7 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     const std::string& sourceText,
     bool waitForResolution) {
     std::string conditionMessage;
-    if (hotkey.waitingTextConfirmation || hotkey.awaitingInput
+    if (!IsHotkeyEffectivelyEnabled(hotkey) || hotkey.waitingTextConfirmation || hotkey.awaitingInput
         || ConditionsBlockHotkeyStart(hotkey, sourceKind, &conditionMessage)) {
         return false;
     }
@@ -1311,7 +1311,7 @@ void BinderModule::Impl::OnIncomingMessage(const IncomingMessageEvent& message) 
     const double now = static_cast<double>(GetTickCount64());
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey)) {
             continue;
         }
 
@@ -1363,7 +1363,7 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
         if (!hotkey.waitingTextConfirmation) {
             continue;
         }
-        if (!hotkey.enabled) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey)) {
             hotkey.waitingTextConfirmation = false;
             hotkey.textConfirmationDeadlineMs = 0.0;
             hotkey.pendingConfirmationKey = kDefaultConfirmKey;
@@ -1465,7 +1465,7 @@ bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
     bool handled = false;
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!hotkey.enabled || !MatchTextTrigger(sourceText, hotkey)) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || !MatchTextTrigger(sourceText, hotkey)) {
             continue;
         }
         handled = TryDispatchTextTriggerMatch(static_cast<int>(i), hotkey, sourceText, sourceKind, now) || handled;
@@ -1501,7 +1501,7 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     }
 
     const bool isRunning = IsHotkeyRunning(index);
-    if (!hotkey.enabled || hotkey.awaitingInput || hotkey.waitingTextConfirmation || isRunning) {
+    if (!IsHotkeyEffectivelyEnabled(hotkey) || hotkey.awaitingInput || hotkey.waitingTextConfirmation || isRunning) {
         return false;
     }
 

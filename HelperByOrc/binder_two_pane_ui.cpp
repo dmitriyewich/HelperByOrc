@@ -440,10 +440,15 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const bool selected = currentFolder == &folder;
         const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
+        const bool folderEffectivelyEnabled = IsFolderEffectivelyEnabled(&folder);
+        const BinderListVisualStyle& visual = BinderListStyleTokens();
         const bool hasChildren = !folder.children.empty()
             || (folderInlineEdit.mode == FolderInlineEditMode::Create && folderInlineEdit.parent == &folder);
 
         DrawBinderListRowBackground(drawList, rowRect, rowIndex, selected, hovered);
+        if (!folderEffectivelyEnabled) {
+            DrawBinderListDisabledFolderAccent(drawList, rowRect, visual, selected, hovered);
+        }
 
         const int visualDepth = TwoPaneVisualFolderDepth(depth);
         const float indent = ScaleUi(16.0f) * static_cast<float>(visualDepth);
@@ -549,30 +554,57 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
             ImVec2(rowRect.Min.x + indent + arrowW, rowRect.Min.y),
             ImVec2(rowRect.Min.x + indent + arrowW + iconW, rowRect.Max.y));
         const std::string folderIcon = FolderIconGlyph(folder);
+        ImVec4 iconColor = selected ? visual.headerText : visual.mutedText;
+        if (!folderEffectivelyEnabled) {
+            iconColor = BinderListDisabledFolderColor(visual, selected, hovered);
+        }
         DrawCenteredIconGlyph(
             drawList,
             folderIcon.c_str(),
             iconRect,
-            ImGui::GetColorU32(selected ? BinderListStyleTokens().headerText : BinderListStyleTokens().mutedText));
+            ImGui::GetColorU32(iconColor));
 
         const bool hasConditions = HasSelectedCondition(folder.conditions);
-        const std::string marker = std::string(ui_icons::Sliders);
-        const ImVec2 markerSize = hasConditions ? ImGui::CalcTextSize(marker.c_str()) : ImVec2(0.0f, 0.0f);
-        const float markerReserve = hasConditions ? markerSize.x + ScaleUi(12.0f) : 0.0f;
+        const std::string conditionMarker = std::string(ui_icons::Sliders);
+        const std::string disabledMarker = std::string(ui_icons::ToggleOff);
+        const ImVec2 conditionMarkerSize = hasConditions ? ImGui::CalcTextSize(conditionMarker.c_str()) : ImVec2(0.0f, 0.0f);
+        const ImVec2 disabledMarkerSize = !folderEffectivelyEnabled ? ImGui::CalcTextSize(disabledMarker.c_str()) : ImVec2(0.0f, 0.0f);
+        float markerReserve = 0.0f;
+        if (!folderEffectivelyEnabled) {
+            markerReserve += disabledMarkerSize.x + ScaleUi(9.0f);
+        }
+        if (hasConditions) {
+            markerReserve += conditionMarkerSize.x + ScaleUi(9.0f);
+        }
         const float labelX = iconRect.Max.x + ScaleUi(4.0f);
         const float labelMaxX = std::max(labelX, actionX - ScaleUi(6.0f));
         const std::string label = EllipsizeText(folder.name, std::max(0.0f, labelMaxX - labelX - markerReserve));
+        ImVec4 textColor = selected ? visual.headerText : visual.mutedText;
+        if (!folderEffectivelyEnabled) {
+            textColor = BinderListDisabledFolderColor(visual, selected, hovered);
+        }
         ImGui::PushClipRect(ImVec2(labelX, rowRect.Min.y), ImVec2(labelMaxX, rowRect.Max.y), true);
         drawList->AddText(
             ImVec2(labelX, textY),
-            ImGui::GetColorU32(selected ? BinderListStyleTokens().headerText : BinderListStyleTokens().mutedText),
+            ImGui::GetColorU32(textColor),
             label.c_str());
+        float markerX = labelMaxX;
         if (hasConditions) {
+            markerX -= conditionMarkerSize.x;
             DrawCenteredIconGlyph(
                 drawList,
-                marker.c_str(),
-                ImRect(ImVec2(labelMaxX - markerSize.x, rowRect.Min.y), ImVec2(labelMaxX, rowRect.Max.y)),
+                conditionMarker.c_str(),
+                ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + conditionMarkerSize.x, rowRect.Max.y)),
                 ImGui::GetColorU32(BinderListStyleTokens().faintText));
+            markerX -= ScaleUi(9.0f);
+        }
+        if (!folderEffectivelyEnabled) {
+            markerX -= disabledMarkerSize.x;
+            DrawCenteredIconGlyph(
+                drawList,
+                disabledMarker.c_str(),
+                ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + disabledMarkerSize.x, rowRect.Max.y)),
+                ImGui::GetColorU32(BinderListDisabledFolderColor(visual, selected, hovered)));
         }
         ImGui::PopClipRect();
 
@@ -587,6 +619,12 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
                 OpenFolder(&folder, false);
                 ImGui::CloseCurrentPopup();
             }
+            if (ImGui::MenuItem(ui.Text(folder.enabled ? UiText::FolderDisable : UiText::FolderEnable))) {
+                folder.enabled = !folder.enabled;
+                SaveConfig();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem(ui.Text(UiText::AddBind))) {
                 OpenFolder(&folder, false);
                 StartEditing(-1, true);

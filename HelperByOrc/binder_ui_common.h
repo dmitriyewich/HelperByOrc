@@ -162,6 +162,32 @@ inline void DrawBinderListRowBackground(
     }
 }
 
+inline ImVec4 BinderListDisabledFolderColor(
+    const BinderListVisualStyle& visual,
+    const bool selected,
+    const bool hovered) {
+    const ImVec4 disabledTint(0.88f, 0.62f, 0.38f, 1.0f);
+    const float mix = selected || hovered ? 0.62f : 0.54f;
+    const float alpha = selected || hovered ? 0.98f : 0.90f;
+    return WithAlpha(BlendColor(visual.faintText, disabledTint, mix), alpha);
+}
+
+inline void DrawBinderListDisabledFolderAccent(
+    ImDrawList* drawList,
+    const ImRect& rowRect,
+    const BinderListVisualStyle& visual,
+    const bool selected,
+    const bool hovered) {
+    const ImVec4 disabledColor = BinderListDisabledFolderColor(visual, selected, hovered);
+    const ImVec4 bg = WithAlpha(disabledColor, selected || hovered ? 0.13f : 0.08f);
+    drawList->AddRectFilled(rowRect.Min, rowRect.Max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
+
+    const ImRect accentRect(
+        ImVec2(rowRect.Min.x + ScaleUi(2.0f), rowRect.Min.y + ScaleUi(5.0f)),
+        ImVec2(rowRect.Min.x + ScaleUi(4.0f), rowRect.Max.y - ScaleUi(5.0f)));
+    drawList->AddRectFilled(accentRect.Min, accentRect.Max, ImGui::GetColorU32(disabledColor), ScaleUi(2.0f));
+}
+
 inline bool BinderListFlatIconButton(
     const char* icon,
     const char* id,

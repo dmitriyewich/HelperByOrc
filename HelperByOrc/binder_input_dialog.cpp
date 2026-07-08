@@ -403,6 +403,18 @@ void BinderModule::Impl::DrawInputDialog() {
         }
     };
     const auto submitDialog = [&]() {
+        if (!IsHotkeyEffectivelyEnabled(hotkey)) {
+            Notify(
+                NotificationGroup::BinderErrors,
+                NotificationSeverity::Warning,
+                ui.Text(UiText::BindFolderDisabledTooltip),
+                2200.0);
+            hotkey.awaitingInput = false;
+            inputDialog.reset();
+            ImGui::CloseCurrentPopup();
+            return;
+        }
+
         std::map<std::string, std::string> values;
         for (std::size_t i = 0; i < inputDialog->fields.size(); ++i) {
             const InputDialogField& field = inputDialog->fields[i];

@@ -725,6 +725,7 @@ struct FolderNode {
     std::vector<ExplorerItem> items;
     std::vector<bool> conditions;
     ConditionCombineMode conditionsCombine = ConditionCombineMode::RequireAny;
+    bool enabled = true;
     bool quickMenu = true;
     bool open = true;
 };
@@ -2249,6 +2250,11 @@ struct BinderModule::Impl {
     void SelectExplorerItem(const ExplorerItem& item, FolderNode* directory, bool scrollIntoView = false);
     bool IsExplorerFolderSelected(const FolderNode* folder) const;
     bool IsExplorerBindSelected(int index) const;
+    bool IsFolderEffectivelyEnabled(const FolderNode* folder) const;
+    bool IsFolderPathEnabled(const BinderCategory& category, const std::vector<std::string>& path) const;
+    bool IsHotkeyFolderEnabled(const HotkeyEntry& hotkey) const;
+    bool IsHotkeyEffectivelyEnabled(const HotkeyEntry& hotkey) const;
+    bool IsHotkeyEffectivelyEnabled(int index) const;
     bool IsExplorerSelectionVisibleInFolder(const ExplorerSelection& selection, FolderNode* directory);
     int FindExplorerSelectionIndex(const std::vector<ExplorerItem>& items, FolderNode* directory) const;
     void MoveExplorerSelection(int delta);

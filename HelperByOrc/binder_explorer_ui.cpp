@@ -311,10 +311,14 @@ void BinderModule::Impl::DrawExplorerFolderRow(
     UiSettings& ui = UiSettings::Instance();
     const bool selected = IsExplorerFolderSelected(&folder);
     const BinderListVisualStyle& visual = BinderListStyleTokens();
+    const bool folderEffectivelyEnabled = IsFolderEffectivelyEnabled(&folder);
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const bool hovered = ImGui::IsMouseHoveringRect(rowRect.Min, rowRect.Max, true);
 
     DrawBinderListRowBackground(drawList, rowRect, rowIndex, selected, hovered);
+    if (!folderEffectivelyEnabled) {
+        DrawBinderListDisabledFolderAccent(drawList, rowRect, visual, selected, hovered);
+    }
 
     ImGui::PushID(folder.id);
     if (IsInlineRenamingFolder(&folder)) {
@@ -442,6 +446,9 @@ void BinderModule::Impl::DrawExplorerFolderRow(
 
     const float textY = rowRect.Min.y + std::floor((layout.rowHeight - ImGui::GetTextLineHeight()) * 0.5f);
     ImVec4 iconColor = selected || hovered ? visual.headerText : visual.mutedText;
+    if (!folderEffectivelyEnabled) {
+        iconColor = BinderListDisabledFolderColor(visual, selected, hovered);
+    }
     const std::string folderIcon = FolderIconGlyph(folder);
     DrawCenteredIconGlyph(
         drawList,
@@ -450,9 +457,17 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         ImGui::GetColorU32(iconColor));
 
     const bool hasConditions = HasSelectedCondition(folder.conditions);
-    const std::string marker = std::string(ui_icons::Sliders);
-    const ImVec2 markerSize = hasConditions ? ImGui::CalcTextSize(marker.c_str()) : ImVec2(0.0f, 0.0f);
-    const float markerReserve = hasConditions ? markerSize.x + ScaleUi(18.0f) : 0.0f;
+    const std::string conditionMarker = std::string(ui_icons::Sliders);
+    const std::string disabledMarker = std::string(ui_icons::ToggleOff);
+    const ImVec2 conditionMarkerSize = hasConditions ? ImGui::CalcTextSize(conditionMarker.c_str()) : ImVec2(0.0f, 0.0f);
+    const ImVec2 disabledMarkerSize = !folderEffectivelyEnabled ? ImGui::CalcTextSize(disabledMarker.c_str()) : ImVec2(0.0f, 0.0f);
+    float markerReserve = 0.0f;
+    if (!folderEffectivelyEnabled) {
+        markerReserve += disabledMarkerSize.x + ScaleUi(12.0f);
+    }
+    if (hasConditions) {
+        markerReserve += conditionMarkerSize.x + ScaleUi(12.0f);
+    }
     const ImRect nameRect(
         ImVec2(layout.nameX, rowRect.Min.y),
         ImVec2(layout.actionsX - ScaleUi(8.0f), rowRect.Max.y));
@@ -460,18 +475,31 @@ void BinderModule::Impl::DrawExplorerFolderRow(
         folder.name,
         std::max(0.0f, nameRect.GetWidth() - markerReserve));
     ImVec4 textColor = selected || hovered ? visual.headerText : visual.mutedText;
+    if (!folderEffectivelyEnabled) {
+        textColor = BinderListDisabledFolderColor(visual, selected, hovered);
+    }
     ImGui::PushClipRect(nameRect.Min, nameRect.Max, true);
     drawList->AddText(
         ImVec2(nameRect.Min.x, textY),
         ImGui::GetColorU32(textColor),
         folderLabel.c_str());
+    float markerX = nameRect.Max.x - ScaleUi(4.0f);
     if (hasConditions) {
-        const float markerX = nameRect.Max.x - markerSize.x - ScaleUi(4.0f);
+        markerX -= conditionMarkerSize.x;
         DrawCenteredIconGlyph(
             drawList,
-            marker.c_str(),
-            ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + markerSize.x, rowRect.Max.y)),
+            conditionMarker.c_str(),
+            ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + conditionMarkerSize.x, rowRect.Max.y)),
             ImGui::GetColorU32(visual.faintText));
+        markerX -= ScaleUi(12.0f);
+    }
+    if (!folderEffectivelyEnabled) {
+        markerX -= disabledMarkerSize.x;
+        DrawCenteredIconGlyph(
+            drawList,
+            disabledMarker.c_str(),
+            ImRect(ImVec2(markerX, rowRect.Min.y), ImVec2(markerX + disabledMarkerSize.x, rowRect.Max.y)),
+            ImGui::GetColorU32(BinderListDisabledFolderColor(visual, selected, hovered)));
     }
     ImGui::PopClipRect();
 
@@ -488,6 +516,12 @@ void BinderModule::Impl::DrawExplorerFolderRow(
             OpenFolder(&folder, true);
             ImGui::CloseCurrentPopup();
         }
+        if (ImGui::MenuItem(ui.Text(folder.enabled ? UiText::FolderDisable : UiText::FolderEnable))) {
+            folder.enabled = !folder.enabled;
+            SaveConfig();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem(ui.Text(UiText::AddBind))) {
             OpenFolder(&folder, true);
             StartEditing(-1, true);
@@ -564,6 +598,9 @@ void BinderModule::Impl::DrawExplorerBindRow(
     const bool modernVisual = layout.modernVisual;
     const bool isRunning = IsHotkeyRunning(index);
     const bool isPaused = IsHotkeyPaused(index);
+    const bool folderEnabled = IsHotkeyFolderEnabled(hotkey);
+    const bool effectivelyEnabled = hotkey.enabled && folderEnabled;
+    const bool disabledByFolder = hotkey.enabled && !folderEnabled;
 
     if (modernVisual) {
         DrawBinderListRowBackground(drawList, rowRect, rowIndex, selected, rowHovered);
@@ -609,10 +646,10 @@ void BinderModule::Impl::DrawExplorerBindRow(
         SelectExplorerBind(index);
     }
 
-    ImVec4 iconColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
+    ImVec4 iconColor = style.Colors[effectivelyEnabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
     if (modernVisual) {
         const BinderListVisualStyle& visual = BinderListStyleTokens();
-        iconColor = !hotkey.enabled
+        iconColor = !effectivelyEnabled && !isRunning
             ? visual.faintText
             : isPaused
                 ? visual.paused
@@ -620,9 +657,9 @@ void BinderModule::Impl::DrawExplorerBindRow(
                     ? visual.running
                     : (selected || bindHovered ? visual.headerText : visual.mutedText);
     } else {
-        iconColor.w = hotkey.enabled ? 0.92f : 0.62f;
+        iconColor.w = effectivelyEnabled ? 0.92f : 0.62f;
         if (selected || bindHovered) {
-            iconColor.w = hotkey.enabled ? 1.0f : 0.78f;
+            iconColor.w = effectivelyEnabled ? 1.0f : 0.78f;
         }
     }
     const std::string bindIcon = BindIconGlyph(hotkey);
@@ -652,25 +689,25 @@ void BinderModule::Impl::DrawExplorerBindRow(
     const float launchWidth = drawLaunch ? ImGui::CalcTextSize(launchLabel.c_str()).x : 0.0f;
     const float titleMaxWidth = std::max(0.0f, textAvailableWidth - (drawLaunch ? launchWidth + launchGap : 0.0f));
     const std::string bindName = EllipsizeText(bindTitle, titleMaxWidth);
-    ImVec4 bindNameColor = style.Colors[hotkey.enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
-    bindNameColor.w = hotkey.enabled ? 0.96f : 0.82f;
+    ImVec4 bindNameColor = style.Colors[effectivelyEnabled ? ImGuiCol_Text : ImGuiCol_TextDisabled];
+    bindNameColor.w = effectivelyEnabled ? 0.96f : 0.82f;
     ImVec4 launchTextColor = style.Colors[ImGuiCol_TextDisabled];
-    launchTextColor.w = hotkey.enabled ? 0.78f : 0.54f;
+    launchTextColor.w = effectivelyEnabled ? 0.78f : 0.54f;
     if (modernVisual) {
         const BinderListVisualStyle& visual = BinderListStyleTokens();
-        bindNameColor = !hotkey.enabled ? WithAlpha(visual.mutedText, 0.64f) : visual.headerText;
-        launchTextColor = !hotkey.enabled ? WithAlpha(visual.faintText, 0.58f) : visual.faintText;
-        if (!selected && !bindHovered && hotkey.enabled) {
+        bindNameColor = !effectivelyEnabled ? WithAlpha(visual.mutedText, 0.64f) : visual.headerText;
+        launchTextColor = !effectivelyEnabled ? WithAlpha(visual.faintText, 0.58f) : visual.faintText;
+        if (!selected && !bindHovered && effectivelyEnabled) {
             bindNameColor.w = 0.92f;
         }
         if (selected || bindHovered) {
-            bindNameColor.w = hotkey.enabled ? 1.0f : 0.72f;
-            launchTextColor.w = hotkey.enabled ? 0.86f : 0.62f;
+            bindNameColor.w = effectivelyEnabled ? 1.0f : 0.72f;
+            launchTextColor.w = effectivelyEnabled ? 0.86f : 0.62f;
         }
     } else if (selected) {
         bindNameColor = style.Colors[ImGuiCol_Text];
         launchTextColor.w = 0.86f;
-    } else if (bindHovered && hotkey.enabled) {
+    } else if (bindHovered && effectivelyEnabled) {
         bindNameColor.w = 1.00f;
         launchTextColor.w = 0.88f;
     }
@@ -777,6 +814,9 @@ void BinderModule::Impl::DrawExplorerBindRow(
         if (!launchLabels.empty()) {
             tooltipLines.push_back(JoinLaunchLabels(launchLabels, "\n"));
         }
+        if (disabledByFolder) {
+            tooltipLines.push_back(ui.Text(UiText::BindFolderDisabledTooltip));
+        }
         ImGui::SetTooltip("%s", JoinLaunchLabels(tooltipLines, "\n").c_str());
     }
 
@@ -802,9 +842,12 @@ void BinderModule::Impl::DrawExplorerBindRow(
     }
     ImGui::SameLine(0.0f, actionButtonGap);
     if (!isRunning) {
-        ImGui::BeginDisabled(!hotkey.enabled);
+        ImGui::BeginDisabled(!effectivelyEnabled);
         if (drawActionButton(ui_icons::Play, "##run", ui.Text(UiText::Run), BinderListStyleTokens().running)) {
             TryEnqueueHotkey(index, 0, "manual", "");
+        }
+        if (disabledByFolder && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::BindFolderDisabledTooltip));
         }
         ImGui::EndDisabled();
     } else if (isPaused) {

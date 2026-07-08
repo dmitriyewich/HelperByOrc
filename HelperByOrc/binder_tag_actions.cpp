@@ -517,7 +517,7 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
                 continue;
             }
             const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-            if (!hotkey.enabled
+            if (!IsHotkeyEffectivelyEnabled(index)
                 || hotkey.awaitingInput
                 || hotkey.waitingTextConfirmation
                 || IsHotkeyRunning(index)

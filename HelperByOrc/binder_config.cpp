@@ -250,6 +250,7 @@ JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     JsonObject object;
     object["name"] = folder.name;
     object["icon_id"] = folder.iconId;
+    object["enabled"] = folder.enabled;
     object["quick_menu"] = folder.quickMenu;
     object["conditions"] = SerializeBoolArray(folder.conditions);
     object["conditions_combine"] = ConditionCombineModeId(folder.conditionsCombine);
@@ -275,6 +276,7 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
         folder->name = UiSettings::Instance().Text(UiText::BinderDefaultFolder);
     }
     folder->iconId = icon_registry::NormalizeIconId(jsonutil::JsonStringOr(&object, "icon_id", ""));
+    folder->enabled = jsonutil::JsonBoolOr(&object, "enabled", true);
     folder->quickMenu = jsonutil::JsonBoolOr(&object, "quick_menu", true);
     const JsonArray* conditionsArray = jsonutil::JsonArrayOrNull(&object, "conditions");
     if (!conditionsArray) {

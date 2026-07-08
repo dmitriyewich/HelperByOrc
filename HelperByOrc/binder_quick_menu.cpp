@@ -31,7 +31,7 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
             return false;
         }
         const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        if (!hotkey.enabled || !hotkey.quickMenu) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
             return false;
         }
         const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
@@ -72,7 +72,9 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
 
 bool BinderModule::Impl::FolderVisibleInQuickMenu(const FolderNode& folder) const {
     const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
-    if (!folder.quickMenu || ConditionsBlocked(folder.conditions, folder.conditionsCombine, sampApi, &context)) {
+    if (!IsFolderEffectivelyEnabled(&folder)
+        || !folder.quickMenu
+        || ConditionsBlocked(folder.conditions, folder.conditionsCombine, sampApi, &context)) {
         return false;
     }
     return !folder.parent || FolderVisibleInQuickMenu(*folder.parent);
@@ -197,7 +199,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             return false;
         }
         const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        if (!hotkey.enabled || !hotkey.quickMenu) {
+        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
             return false;
         }
         const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);

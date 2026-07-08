@@ -423,6 +423,45 @@ bool BinderModule::Impl::IsExplorerBindSelected(const int index) const {
         && explorerSelection.bindOrderId == hotkeys[static_cast<std::size_t>(index)].orderId;
 }
 
+bool BinderModule::Impl::IsFolderEffectivelyEnabled(const FolderNode* folder) const {
+    for (const FolderNode* current = folder; current != nullptr; current = current->parent) {
+        if (!current->enabled) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BinderModule::Impl::IsFolderPathEnabled(
+    const BinderCategory& category,
+    const std::vector<std::string>& path) const {
+    if (path.empty()) {
+        return true;
+    }
+
+    const FolderNode* folder = FindFolderByPath(category.folders, path);
+    return !folder || IsFolderEffectivelyEnabled(folder);
+}
+
+bool BinderModule::Impl::IsHotkeyFolderEnabled(const HotkeyEntry& hotkey) const {
+    if (hotkey.folderPath.empty()) {
+        return true;
+    }
+
+    const BinderCategory* category = FindCategoryById(hotkey.categoryId);
+    return !category || IsFolderPathEnabled(*category, hotkey.folderPath);
+}
+
+bool BinderModule::Impl::IsHotkeyEffectivelyEnabled(const HotkeyEntry& hotkey) const {
+    return hotkey.enabled && IsHotkeyFolderEnabled(hotkey);
+}
+
+bool BinderModule::Impl::IsHotkeyEffectivelyEnabled(const int index) const {
+    return index >= 0
+        && index < static_cast<int>(hotkeys.size())
+        && IsHotkeyEffectivelyEnabled(hotkeys[static_cast<std::size_t>(index)]);
+}
+
 bool BinderModule::Impl::IsExplorerSelectionVisibleInFolder(const ExplorerSelection& selection, FolderNode* directory) {
     if (selection.kind == ExplorerSelectionKind::None) {
         return true;
