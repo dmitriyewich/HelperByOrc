@@ -24,6 +24,18 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinTPhotoTag(const Evalu
     return std::string();
 }
 
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinChatClearTag(const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->ClearChatLocal()) {
+        return std::string();
+    }
+    return std::string();
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinKeyEmulateFunctionTag(
     std::string_view param,
     const EvaluationContext& context) const {

@@ -865,6 +865,22 @@ bool SampApi::memoryAddMessageSamp(std::string_view text, std::uint32_t color, b
     return true;
 }
 
+bool SampApi::ClearChatLocal(int lines, std::uint32_t color) {
+    if (lines <= 0) {
+        return true;
+    }
+
+    if (!isSAMPInitilizeLua()) {
+        return false;
+    }
+
+    bool ok = true;
+    for (int i = 0; i < lines; ++i) {
+        ok = memoryAddMessageSamp(" ", color, true) && ok;
+    }
+    return ok;
+}
+
 SampApi::ChatEntry SampApi::pGetChatString(int index) {
     ChatEntry result;
     if (index < 0 || index >= kChatEntryCount || currentVersion_ == Version::Unknown) {

@@ -43,6 +43,7 @@ void TagsModule::Impl::Shutdown() {
     readyArzDialogQueries_.clear();
     blockedCurrentDispatchRuntimes_.clear();
     pendingDialogWaits_.clear();
+    clipboardCache_ = {};
     variablesPickerState_ = {};
     dialogItemPickerSearchQuery_.clear();
     dialogTextPickerSearchQuery_.clear();

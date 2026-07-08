@@ -15,6 +15,7 @@
 #include <game_sa/CModelInfo.h>
 #include <game_sa/CPlayerInfo.h>
 #include <game_sa/CSprite.h>
+#include <game_sa/CTheZones.h>
 #include <game_sa/CVehicle.h>
 #include <game_sa/CVehicleModelInfo.h>
 #include <extensions/ScriptCommands.h>
@@ -65,6 +66,8 @@ constexpr std::uint64_t kMyCarSnapshotCacheTtlMs = 100;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogMs = 10;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogThrottleMs = 3000;
 constexpr std::uint64_t kMyCarPerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kClipboardCacheTtlMs = 500;
+constexpr std::size_t kClipboardTagMaxLength = 4096;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
 constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
 constexpr wchar_t kHelperScreensRelativePath[] = L"screens";
@@ -1922,9 +1925,10 @@ std::string GetWeaponDisplayName(eWeaponType weaponType) {
 }
 
 std::string FormatSampColorTag(std::uint32_t color) {
-    const unsigned int red = (color >> 16) & 0xFFu;
-    const unsigned int green = (color >> 8) & 0xFFu;
-    const unsigned int blue = color & 0xFFu;
+    // SA:MP player colors are stored as 0xRRGGBBAA; Helper markup needs {RRGGBB}.
+    const unsigned int red = (color >> 24) & 0xFFu;
+    const unsigned int green = (color >> 16) & 0xFFu;
+    const unsigned int blue = (color >> 8) & 0xFFu;
     char buffer[10]{};
     std::snprintf(buffer, sizeof(buffer), "{%02X%02X%02X}", red, green, blue);
     return buffer;

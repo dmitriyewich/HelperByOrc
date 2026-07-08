@@ -2,6 +2,7 @@
 #include "tags_module_detail.h"
 
 #include <cmath>
+#include <cwchar>
 #include <iomanip>
 #include <locale>
 #include <optional>
@@ -43,6 +44,104 @@ std::string FormatCoordinateValue(float value) {
     stream.imbue(std::locale::classic());
     stream << std::fixed << std::setprecision(2) << value;
     return stream.str();
+}
+
+const char* CityNameRu(eLevelName level) {
+    switch (level) {
+    case LEVEL_NAME_LOS_SANTOS:
+        return "Лос-Сантос";
+    case LEVEL_NAME_SAN_FIERRO:
+        return "Сан-Фиерро";
+    case LEVEL_NAME_LAS_VENTURAS:
+        return "Лас-Вентурас";
+    case LEVEL_NAME_COUNTRY_SIDE:
+    default:
+        return "Округ";
+    }
+}
+
+const char* CityNameEn(eLevelName level) {
+    switch (level) {
+    case LEVEL_NAME_LOS_SANTOS:
+        return "Los Santos";
+    case LEVEL_NAME_SAN_FIERRO:
+        return "San Fierro";
+    case LEVEL_NAME_LAS_VENTURAS:
+        return "Las Venturas";
+    case LEVEL_NAME_COUNTRY_SIDE:
+    default:
+        return "Countryside";
+    }
+}
+
+eLevelName ResolveLocalPlayerCityLevel() {
+    const std::optional<CVector> position = ResolveLocalPlayerPosition();
+    if (!position) {
+        return LEVEL_NAME_COUNTRY_SIDE;
+    }
+
+    return CTheZones::GetLevelFromPosition(&*position);
+}
+
+std::string WideToUtf8(std::wstring_view text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int utf8Length = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (utf8Length <= 0) {
+        return {};
+    }
+
+    std::string utf8(static_cast<std::size_t>(utf8Length), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            text.data(),
+            static_cast<int>(text.size()),
+            utf8.data(),
+            utf8Length,
+            nullptr,
+            nullptr) <= 0) {
+        return {};
+    }
+    return utf8;
+}
+
+std::string ReadClipboardUtf8Text() {
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(nullptr)) {
+        return {};
+    }
+
+    HANDLE handle = GetClipboardData(CF_UNICODETEXT);
+    if (!handle) {
+        CloseClipboard();
+        return {};
+    }
+
+    const auto* wideText = static_cast<const wchar_t*>(GlobalLock(handle));
+    if (!wideText) {
+        CloseClipboard();
+        return {};
+    }
+
+    std::size_t length = 0;
+    while (length < kClipboardTagMaxLength && wideText[length] != L'\0') {
+        ++length;
+    }
+
+    std::string result = WideToUtf8(std::wstring_view(wideText, length));
+    GlobalUnlock(handle);
+    CloseClipboard();
+    return result;
 }
 
 std::optional<LocalVehicleContext> ResolveLocalVehicleContext() {
@@ -575,6 +674,41 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyPosTag(const Evalua
         + FormatCoordinateValue(position->y)
         + ", "
         + FormatCoordinateValue(position->z);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinCityTag(const EvaluationContext&) const {
+    return std::string(CityNameRu(ResolveLocalPlayerCityLevel()));
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinCityEnTag(const EvaluationContext&) const {
+    return std::string(CityNameEn(ResolveLocalPlayerCityLevel()));
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClipboardTag(const EvaluationContext&) const {
+    const std::uint64_t now = GetTickCount64();
+    if (clipboardCache_.valid && now - clipboardCache_.updatedAtMs <= kClipboardCacheTtlMs) {
+        return clipboardCache_.text;
+    }
+
+    clipboardCache_.text = ReadClipboardUtf8Text();
+    clipboardCache_.updatedAtMs = now;
+    clipboardCache_.valid = true;
+    return clipboardCache_.text;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyColorTag(const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string("{FFFFFF}");
+    }
+
+    const int localId = sampApi->Local_ID();
+    if (localId < 0 || !sampApi->IsConnected(localId)) {
+        return std::string("{FFFFFF}");
+    }
+
+    const std::optional<std::uint32_t> color = sampApi->GetPlayerColor(localId);
+    return color.has_value() ? FormatSampColorTag(*color) : std::string("{FFFFFF}");
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const {

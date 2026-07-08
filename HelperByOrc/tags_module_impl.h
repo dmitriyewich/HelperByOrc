@@ -235,6 +235,12 @@ public:
         std::uint64_t maxNameMs = 0;
     };
 
+    struct ClipboardCache {
+        std::string text{};
+        std::uint64_t updatedAtMs = 0;
+        bool valid = false;
+    };
+
     void InitializeRegistry();
     void LoadConfig();
     void SaveConfig() const;
@@ -308,6 +314,10 @@ public:
     std::optional<std::string> ResolveBuiltinMyYTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyZTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyPosTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCityTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCityEnTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClipboardTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyColorTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarOccupantsTag(
@@ -324,6 +334,7 @@ public:
     std::optional<std::string> ResolveBuiltinGetVehTypeTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinScreenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTPhotoTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinChatClearTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickRpTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSurnameTag(const EvaluationContext& context) const;
@@ -529,6 +540,7 @@ private:
     mutable ClosestPlayerCache closestPlayerCache_{};
     mutable MyCarSnapshotCache myCarSnapshotCache_{};
     mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
+    mutable ClipboardCache clipboardCache_{};
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};

@@ -291,6 +291,7 @@ public:
     bool send_chat(std::string_view text, bool alreadyDecoded = false);
     bool process_chat_input(std::string_view text, bool alreadyDecoded = false);
     bool memoryAddMessageSamp(std::string_view text, std::uint32_t color, bool alreadyDecoded = false);
+    bool ClearChatLocal(int lines = 100, std::uint32_t color = 0xFFFFFFFF);
     ChatEntry pGetChatString(int index);
     bool Set_ChatInputText(std::string_view text, bool openInput = false, bool alreadyDecoded = false);
 

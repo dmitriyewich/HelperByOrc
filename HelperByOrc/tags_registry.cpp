@@ -324,6 +324,42 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "city",
+        "{city}",
+        "{city}",
+        UiText::TagsBuiltinCityDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCityTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "cityen",
+        "{cityen}",
+        "{cityen}",
+        UiText::TagsBuiltinCityEnDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCityEnTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "clipboard",
+        "{clipboard}",
+        "{clipboard}",
+        UiText::TagsBuiltinClipboardDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClipboardTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mycolor",
+        "{mycolor}",
+        "{mycolor}",
+        UiText::TagsBuiltinMyColorDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyColorTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "mycarhealth",
         "{mycarhealth}",
         "{mycarhealth}",
@@ -479,6 +515,15 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinTPhotoDescription,
         [](const Impl& module, const EvaluationContext& context) {
             return module.ResolveBuiltinTPhotoTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "chatclear",
+        "{chatclear}",
+        "{chatclear}",
+        UiText::TagsBuiltinChatClearDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinChatClearTag(context);
         });
 
     tagRegistry_.RegisterSimple(
