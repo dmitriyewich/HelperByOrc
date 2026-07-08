@@ -927,8 +927,11 @@ SampApi::ChatEntry SampApi::pGetChatString(int index) {
 }
 
 void SampApi::ResetChatAsiInputDiscovery(HMODULE module) {
+    RemoveChatAsiInputCallbackHook();
     chatAsiInputDiscovery_ = {};
     chatAsiInputDiscovery_.module = module;
+    std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+    chatAsiPendingCursor_ = {};
 }
 
 bool SampApi::EnsureChatAsiInputDiscovery() {
@@ -983,14 +986,16 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     const auto refs = FindPushImmediateRefs(sections, inputLabel);
     std::uintptr_t fallbackRef = 0;
     std::uintptr_t fallbackWrapper = 0;
+    std::uintptr_t fallbackCallback = 0;
     std::uintptr_t fallbackBuffer = 0;
     std::uintptr_t fallbackWriter = 0;
     std::uintptr_t fallbackWriterDirty = 0;
 
     for (const auto ref : refs) {
         const std::uintptr_t inputWrapper = FindNearbyWrapperCall(ref, imageBase, imageEnd);
+        const std::uintptr_t inputCallback = FindExecutablePushBefore(ref, sections, imageBase, imageEnd);
         const std::uintptr_t inputBuffer = FindWritablePushBefore(ref, sections);
-        if (inputWrapper == 0 || inputBuffer == 0) {
+        if (inputWrapper == 0 || inputCallback == 0 || inputBuffer == 0) {
             continue;
         }
 
@@ -1000,9 +1005,19 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
             continue;
         }
 
+        if (!ValidateChatAsiInputCallback(sections, inputCallback, writerDirtyFlag)) {
+            debuglog::WriteError(
+                "SampApi::_chat.asi input discovery rejected callback=0x%08X ref=0x%08X writer_dirty=0x%08X",
+                static_cast<unsigned>(inputCallback),
+                static_cast<unsigned>(ref),
+                static_cast<unsigned>(writerDirtyFlag));
+            continue;
+        }
+
         if (fallbackWriter == 0) {
             fallbackRef = ref;
             fallbackWrapper = inputWrapper;
+            fallbackCallback = inputCallback;
             fallbackBuffer = inputBuffer;
             fallbackWriter = inputWriter;
             fallbackWriterDirty = writerDirtyFlag;
@@ -1016,16 +1031,18 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
 
         chatAsiInputDiscovery_.inputLabel = inputLabel;
         chatAsiInputDiscovery_.inputWrapper = inputWrapper;
+        chatAsiInputDiscovery_.inputCallback = inputCallback;
         chatAsiInputDiscovery_.inputBuffer = inputBuffer;
         chatAsiInputDiscovery_.inputWriter = inputWriter;
         chatAsiInputDiscovery_.inputSubmit = inputSubmit;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
+            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X callback=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
             module,
             static_cast<unsigned>(inputLabel),
             static_cast<unsigned>(ref),
             static_cast<unsigned>(inputWrapper),
+            static_cast<unsigned>(inputCallback),
             static_cast<unsigned>(inputBuffer),
             static_cast<unsigned>(inputWriter),
             static_cast<unsigned>(inputSubmit),
@@ -1037,15 +1054,17 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     if (fallbackWriter != 0) {
         chatAsiInputDiscovery_.inputLabel = inputLabel;
         chatAsiInputDiscovery_.inputWrapper = fallbackWrapper;
+        chatAsiInputDiscovery_.inputCallback = fallbackCallback;
         chatAsiInputDiscovery_.inputBuffer = fallbackBuffer;
         chatAsiInputDiscovery_.inputWriter = fallbackWriter;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
+            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X callback=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
             module,
             static_cast<unsigned>(inputLabel),
             static_cast<unsigned>(fallbackRef),
             static_cast<unsigned>(fallbackWrapper),
+            static_cast<unsigned>(fallbackCallback),
             static_cast<unsigned>(fallbackBuffer),
             static_cast<unsigned>(fallbackWriter),
             static_cast<unsigned>(fallbackWriterDirty));
@@ -1080,6 +1099,238 @@ bool SampApi::TrySetChatInputTextViaChatAsi(std::string_view utf8Text) {
         return false;
     }
 
+    const std::string bufferSummary = ChatAsiInputBufferSummary(chatAsiInputDiscovery_.inputBuffer);
+    debuglog::WriteInfo(
+        "SampApi::_chat.asi input writer ok writer=0x%08X len=%llu %s",
+        static_cast<unsigned>(chatAsiInputDiscovery_.inputWriter),
+        static_cast<unsigned long long>(utf8Text.size()),
+        bufferSummary.c_str());
+    return true;
+#endif
+}
+
+bool SampApi::EnsureChatAsiInputCallbackHook() {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    return false;
+#else
+    if (chatAsiInputDiscovery_.inputCallback == 0) {
+        SetError("_chat.asi input callback was not discovered");
+        return false;
+    }
+
+    void* const target = reinterpret_cast<void*>(chatAsiInputDiscovery_.inputCallback);
+    if (chatAsiInputCallbackHookTarget_ == target) {
+        return true;
+    }
+
+    RemoveChatAsiInputCallbackHook();
+
+    g_chatAsiInputCallbackOwner = this;
+    g_chatAsiInputCallbackOriginal = nullptr;
+    if (!minhook::CreateAndEnableHook(
+            target,
+            reinterpret_cast<void*>(&SampApi::ChatAsiInputCallbackDetour),
+            &g_chatAsiInputCallbackOriginal,
+            "SampApi::_chat.asi InputText callback")) {
+        g_chatAsiInputCallbackOwner = nullptr;
+        g_chatAsiInputCallbackOriginal = nullptr;
+        SetError("_chat.asi input callback hook install failed");
+        return false;
+    }
+
+    chatAsiInputCallbackHookTarget_ = target;
+    debuglog::WriteInfo(
+        "SampApi::_chat.asi input callback hook installed callback=0x%08X",
+        static_cast<unsigned>(chatAsiInputDiscovery_.inputCallback));
+    return true;
+#endif
+}
+
+void SampApi::RemoveChatAsiInputCallbackHook() {
+#if HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    if (chatAsiInputCallbackHookTarget_) {
+        minhook::DisableAndRemoveHook(chatAsiInputCallbackHookTarget_, "SampApi::_chat.asi InputText callback");
+        debuglog::WriteInfo("SampApi::_chat.asi input callback hook removed");
+    }
+    if (g_chatAsiInputCallbackOwner == this) {
+        g_chatAsiInputCallbackOwner = nullptr;
+        g_chatAsiInputCallbackOriginal = nullptr;
+    }
+#endif
+    chatAsiInputCallbackHookTarget_ = nullptr;
+}
+
+int __cdecl SampApi::ChatAsiInputCallbackDetour(void* callbackData) {
+    int result = 0;
+    if (g_chatAsiInputCallbackOriginal) {
+        result = g_chatAsiInputCallbackOriginal(callbackData);
+    }
+
+    if (SampApi* owner = g_chatAsiInputCallbackOwner) {
+        owner->ApplyChatAsiPendingCursor(callbackData);
+    }
+    return result;
+}
+
+void SampApi::ApplyChatAsiPendingCursor(void* callbackData) {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    (void)callbackData;
+#else
+    ChatAsiPendingCursor pending{};
+    {
+        std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+        if (!chatAsiPendingCursor_.valid) {
+            return;
+        }
+        pending = chatAsiPendingCursor_;
+    }
+
+    const auto data = reinterpret_cast<std::uintptr_t>(callbackData);
+    if (!IsReadableMemory(data, kChatAsiCallbackDataSize) || !IsWritableMemory(data, kChatAsiCallbackDataSize)) {
+        debuglog::WriteError(
+            "SampApi::_chat.asi cursor callback apply failed: callback data unavailable data=0x%08X region=%s seq=%llu",
+            static_cast<unsigned>(data),
+            MemoryRegionSummary(data).c_str(),
+            static_cast<unsigned long long>(pending.sequence));
+        std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+        if (chatAsiPendingCursor_.sequence == pending.sequence) {
+            chatAsiPendingCursor_ = {};
+        }
+        return;
+    }
+
+    std::uint32_t eventFlag = 0;
+    if (!SafeRead(data + kChatAsiCallbackOffsetEventFlag, eventFlag)) {
+        return;
+    }
+
+    if (eventFlag != kChatAsiInputTextCallbackAlways) {
+        return;
+    }
+
+    std::uintptr_t textBuffer = 0;
+    std::int32_t textLength = 0;
+    std::int32_t bufferSize = 0;
+    const bool bufferOk = SafeRead(data + kChatAsiCallbackOffsetBuf, textBuffer);
+    const bool lengthOk = SafeRead(data + kChatAsiCallbackOffsetBufTextLen, textLength);
+    const bool sizeOk = SafeRead(data + kChatAsiCallbackOffsetBufSize, bufferSize);
+    if (!bufferOk || !lengthOk || !sizeOk || textLength < 0 || bufferSize <= 0
+        || textLength >= bufferSize || textLength > static_cast<std::int32_t>(kDefaultTextLimit)
+        || !IsReadableMemory(textBuffer, static_cast<std::size_t>(textLength) + 1)) {
+        debuglog::WriteError(
+            "SampApi::_chat.asi cursor callback apply failed: invalid callback data data=0x%08X event=0x%X buf_ok=%d buf=0x%08X len_ok=%d len=%d size_ok=%d size=%d seq=%llu data_region=%s buf_region=%s",
+            static_cast<unsigned>(data),
+            static_cast<unsigned>(eventFlag),
+            bufferOk ? 1 : 0,
+            static_cast<unsigned>(textBuffer),
+            lengthOk ? 1 : 0,
+            textLength,
+            sizeOk ? 1 : 0,
+            bufferSize,
+            static_cast<unsigned long long>(pending.sequence),
+            MemoryRegionSummary(data).c_str(),
+            MemoryRegionSummary(textBuffer).c_str());
+        std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+        if (chatAsiPendingCursor_.sequence == pending.sequence) {
+            chatAsiPendingCursor_ = {};
+        }
+        return;
+    }
+
+    int start = std::clamp(pending.start, 0, textLength);
+    int finish = std::clamp(pending.finish, 0, textLength);
+    if (finish < start) {
+        std::swap(start, finish);
+    }
+
+    const bool cursorOk = SafeWrite(data + kChatAsiCallbackOffsetCursorPos, finish);
+    const bool selectionStartOk = SafeWrite(data + kChatAsiCallbackOffsetSelectionStart, start);
+    const bool selectionEndOk = SafeWrite(data + kChatAsiCallbackOffsetSelectionEnd, finish);
+    if (!cursorOk || !selectionStartOk || !selectionEndOk) {
+        debuglog::WriteError(
+            "SampApi::_chat.asi cursor callback apply failed: write failed data=0x%08X cursor_ok=%d sel_start_ok=%d sel_end_ok=%d start=%d finish=%d len=%d seq=%llu",
+            static_cast<unsigned>(data),
+            cursorOk ? 1 : 0,
+            selectionStartOk ? 1 : 0,
+            selectionEndOk ? 1 : 0,
+            start,
+            finish,
+            textLength,
+            static_cast<unsigned long long>(pending.sequence));
+        std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+        if (chatAsiPendingCursor_.sequence == pending.sequence) {
+            chatAsiPendingCursor_ = {};
+        }
+        return;
+    }
+
+    debuglog::WriteInfo(
+        "SampApi::_chat.asi cursor callback apply ok callback=0x%08X data=0x%08X start=%d finish=%d len=%d buf=0x%08X seq=%llu",
+        static_cast<unsigned>(chatAsiInputDiscovery_.inputCallback),
+        static_cast<unsigned>(data),
+        start,
+        finish,
+        textLength,
+        static_cast<unsigned>(textBuffer),
+        static_cast<unsigned long long>(pending.sequence));
+
+    std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+    if (chatAsiPendingCursor_.sequence == pending.sequence) {
+        chatAsiPendingCursor_ = {};
+    }
+#endif
+}
+
+bool SampApi::SetChatAsiInputCursor(int start, int finish) {
+#if !HELPERBYORC_ENABLE_CHAT_ASI_INTEGRATION
+    (void)start;
+    (void)finish;
+    SetError("_chat.asi cursor callback is disabled in this build");
+    return false;
+#else
+    if (!EnsureChatAsiInputDiscovery()) {
+        SetError("_chat.asi input discovery is unavailable");
+        return false;
+    }
+
+    const int maxPosition = ClampChatAsiCursorRange(chatAsiInputDiscovery_.inputBuffer, start, finish);
+
+    if (!EnsureChatAsiInputCallbackHook()) {
+        debuglog::WriteError(
+            "SampApi::_chat.asi cursor schedule failed: callback hook unavailable module=%p callback=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X start=%d finish=%d max=%d error=%s",
+            chatAsiInputDiscovery_.module,
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputCallback),
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputBuffer),
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputWriter),
+            static_cast<unsigned>(chatAsiInputDiscovery_.inputSubmit),
+            start,
+            finish,
+            maxPosition,
+            lastError_.c_str());
+        return false;
+    }
+
+    std::uint64_t sequence = 0;
+    {
+        std::lock_guard<std::mutex> lock(chatAsiCursorMutex_);
+        sequence = ++chatAsiCursorSequence_;
+        chatAsiPendingCursor_.valid = true;
+        chatAsiPendingCursor_.start = start;
+        chatAsiPendingCursor_.finish = finish;
+        chatAsiPendingCursor_.maxPosition = maxPosition;
+        chatAsiPendingCursor_.sequence = sequence;
+    }
+
+    const std::string bufferSummary = ChatAsiInputBufferSummary(chatAsiInputDiscovery_.inputBuffer);
+    debuglog::WriteInfo(
+        "SampApi::_chat.asi cursor scheduled callback=0x%08X start=%d finish=%d max=%d seq=%llu %s",
+        static_cast<unsigned>(chatAsiInputDiscovery_.inputCallback),
+        start,
+        finish,
+        maxPosition,
+        static_cast<unsigned long long>(sequence),
+        bufferSummary.c_str());
+    ClearError();
     return true;
 #endif
 }

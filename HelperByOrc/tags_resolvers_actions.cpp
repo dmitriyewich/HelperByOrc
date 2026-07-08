@@ -36,6 +36,12 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinChatClearTag(const Ev
     return std::string();
 }
 
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinCursorMarkerTag(
+    CursorTarget,
+    const EvaluationContext&) const {
+    return std::string();
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinKeyEmulateFunctionTag(
     std::string_view param,
     const EvaluationContext& context) const {
@@ -87,6 +93,16 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinKeyDownFunctionTag(
             binderModule_->PauseRuntime(context.runningBindRuntimeId);
             QueuePendingKeyHoldWait(context.runningBindRuntimeId, static_cast<unsigned int>(*keyCode), releaseAtMs);
         }
+    }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinCursorFunctionTag(
+    CursorTarget target,
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (const std::optional<std::pair<int, int>> range = ParseCursorFunctionRange(param); range.has_value()) {
+        RecordCursorRange(target, range->first, range->second, context);
     }
     return std::string();
 }

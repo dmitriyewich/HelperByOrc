@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -229,12 +230,14 @@ public:
     bool pDialogInput_pEditBox_active_func();
     int SAMP_DIALOG_ID();
     bool sampSetDialogInputCursor(int cursor);
+    bool sampSetDialogInputCursor(int start, int finish);
     CursorRange sampGetDialogInputCursor();
     std::uintptr_t SAMP_CHAT_INPUT_INFO_OFFSET_func();
     std::uintptr_t SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
     std::string sampGetChatEditboxText();
     bool pCInput_Open_Close(bool open);
     bool sampSetChatInputCursor(int cursor);
+    bool sampSetChatInputCursor(int start, int finish);
     std::string sampGetDialogText();
     int getListItemNumberByText(std::string_view text);
     std::string get_dialog_caption();
@@ -294,6 +297,7 @@ public:
     bool ClearChatLocal(int lines = 100, std::uint32_t color = 0xFFFFFFFF);
     ChatEntry pGetChatString(int index);
     bool Set_ChatInputText(std::string_view text, bool openInput = false, bool alreadyDecoded = false);
+    bool SetChatAsiInputCursor(int start, int finish);
 
     bool restoreOriginalFunctionGlobals();
     bool applyFunctionBackend(std::string_view mode);
@@ -317,9 +321,18 @@ private:
         bool attempted = false;
         std::uintptr_t inputLabel = 0;
         std::uintptr_t inputWrapper = 0;
+        std::uintptr_t inputCallback = 0;
         std::uintptr_t inputBuffer = 0;
         std::uintptr_t inputWriter = 0;
         std::uintptr_t inputSubmit = 0;
+    };
+
+    struct ChatAsiPendingCursor {
+        bool valid = false;
+        int start = 0;
+        int finish = 0;
+        int maxPosition = 0;
+        std::uint64_t sequence = 0;
     };
 
     bool DetectVersion();
@@ -350,6 +363,10 @@ private:
     bool EnsureChatAsiInputDiscovery();
     bool TrySetChatInputTextViaChatAsi(std::string_view utf8Text);
     bool TryProcessChatInputViaChatAsi(std::string_view utf8Text);
+    bool EnsureChatAsiInputCallbackHook();
+    void RemoveChatAsiInputCallbackHook();
+    static int __cdecl ChatAsiInputCallbackDetour(void* callbackData);
+    void ApplyChatAsiPendingCursor(void* callbackData);
     HMODULE sampModule_ = nullptr;
     bool versionResolved_ = false;
     Version currentVersion_ = Version::Unknown;
@@ -365,4 +382,8 @@ private:
     std::string functionBackendMode_ = BACKEND_STANDARD;
     std::string functionBackendActive_ = BACKEND_STANDARD;
     ChatAsiInputDiscovery chatAsiInputDiscovery_{};
+    void* chatAsiInputCallbackHookTarget_ = nullptr;
+    std::mutex chatAsiCursorMutex_;
+    ChatAsiPendingCursor chatAsiPendingCursor_{};
+    std::uint64_t chatAsiCursorSequence_ = 0;
 };

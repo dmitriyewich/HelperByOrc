@@ -1,6 +1,8 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include "debug_log.h"
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogActiveTag(const EvaluationContext& context) const {
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
@@ -280,9 +282,19 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogSetTextFunction
         return std::string();
     }
 
-    const std::string text = Unquote(std::string(param));
-    if (!sampApi->sampSetDialogEditboxText(text, false) && binderModule_) {
-        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSetTextFailed), 2800.0);
+    const ExpandedText expanded = ExpandTextWithCursorIntents(Unquote(std::string(param)), context);
+    const bool textOk = sampApi->sampSetDialogEditboxText(expanded.text, false);
+    if (!textOk) {
+        if (binderModule_) {
+            NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogSetTextFailed), 2800.0);
+        }
+    } else if (expanded.cursors.sampDialog.valid
+        && !sampApi->sampSetDialogInputCursor(expanded.cursors.sampDialog.start, expanded.cursors.sampDialog.finish)) {
+        debuglog::WriteError(
+            "TagsModule::dialogsettext cursor failed start=%d finish=%d error=%s",
+            expanded.cursors.sampDialog.start,
+            expanded.cursors.sampDialog.finish,
+            sampApi->lastError().c_str());
     }
 
     return std::string();
@@ -698,8 +710,16 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogSetInputText
         return std::string();
     }
 
-    if (!arizonaCefDialogs_->SetInputText(Unquote(std::string(param)))) {
+    const ExpandedText expanded = ExpandTextWithCursorIntents(Unquote(std::string(param)), context);
+    const bool textOk = arizonaCefDialogs_->SetInputText(expanded.text);
+    if (!textOk) {
         NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSetInputFailed), 2800.0);
+    } else if (expanded.cursors.arizonaDialog.valid
+        && !arizonaCefDialogs_->SetInputCursor(expanded.cursors.arizonaDialog.start, expanded.cursors.arizonaDialog.finish)) {
+        debuglog::WriteError(
+            "TagsModule::ARZdialogsetinputtext cursor failed start=%d finish=%d",
+            expanded.cursors.arizonaDialog.start,
+            expanded.cursors.arizonaDialog.finish);
     }
     return std::string();
 }

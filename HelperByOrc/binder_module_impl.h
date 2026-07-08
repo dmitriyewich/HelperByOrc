@@ -2436,7 +2436,7 @@ struct BinderModule::Impl {
     std::vector<int> FilterButtons(const InputDialogState& dialog, std::size_t fieldIndex) const;
     bool TryEnqueueHotkey(HotkeyEntry& hotkey, int startDelayMs, std::string_view source, const std::string& sourceText);
     bool TryEnqueueHotkey(int index, int startDelayMs, std::string_view source, const std::string& sourceText);
-    void SendExpandedText(const std::string& expandedText, int method);
+    void SendExpandedText(const std::string& expandedText, int method, const TagsModule::CursorIntents* cursorIntents = nullptr);
     bool DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId = 0);
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
     int MoveHotkeysFromFolderPath(const std::vector<std::string>& fromPath, const std::vector<std::string>& toPath);

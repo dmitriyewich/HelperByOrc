@@ -1241,6 +1241,10 @@ bool IsActionBuiltin(std::string_view name) {
     static constexpr std::string_view actions[] = {
         "bindstopall",
         "chatclear",
+        "cursor",
+        "arzcursor",
+        "cursordialog",
+        "arzcursordialog",
         "screen",
         "tphoto",
         "keyemulate",
@@ -1282,6 +1286,15 @@ Category ClassifyBuiltin(std::string_view name) {
     }
     if (lower.rfind("arzdialog", 0) == 0) {
         return Category::Arizona;
+    }
+    if (lower == "arzcursor" || lower == "arzcursordialog") {
+        return Category::Arizona;
+    }
+    if (lower == "cursordialog") {
+        return Category::SampDialog;
+    }
+    if (lower == "cursor") {
+        return Category::Actions;
     }
     if (lower.rfind("dialog", 0) == 0 || lower == "save_dialog") {
         return Category::SampDialog;

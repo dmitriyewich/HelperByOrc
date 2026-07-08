@@ -1553,7 +1553,10 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     return true;
 }
 
-void BinderModule::Impl::SendExpandedText(const std::string& expandedText, int method) {
+void BinderModule::Impl::SendExpandedText(
+    const std::string& expandedText,
+    int method,
+    const TagsModule::CursorIntents* cursorIntents) {
     switch (method) {
     case 0: {
         const std::string decoratedText = DecorateDialogLocalChatText(expandedText, sampApi);
@@ -1614,16 +1617,61 @@ void BinderModule::Impl::SendExpandedText(const std::string& expandedText, int m
     case 4:
         if (!sampApi || !sampApi->Set_ChatInputText(expandedText, false, true)) {
             Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertChatFailed), 2500.0);
+        } else if (cursorIntents) {
+            if (cursorIntents->sampChat.valid
+                && !sampApi->sampSetChatInputCursor(cursorIntents->sampChat.start, cursorIntents->sampChat.finish)) {
+                debuglog::WriteError(
+                    "Binder chat cursor failed method=%d start=%d finish=%d error=%s",
+                    method,
+                    cursorIntents->sampChat.start,
+                    cursorIntents->sampChat.finish,
+                    sampApi->lastError().c_str());
+            }
+            if (cursorIntents->arizonaChat.valid
+                && !sampApi->SetChatAsiInputCursor(cursorIntents->arizonaChat.start, cursorIntents->arizonaChat.finish)) {
+                debuglog::WriteError(
+                    "Binder ARZ chat cursor failed method=%d start=%d finish=%d error=%s",
+                    method,
+                    cursorIntents->arizonaChat.start,
+                    cursorIntents->arizonaChat.finish,
+                    sampApi->lastError().c_str());
+            }
         }
         break;
     case 5:
         if (!sampApi || !sampApi->Set_ChatInputText(expandedText, true, true)) {
             Notify(NotificationGroup::BinderErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastOpenChatFailed), 2500.0);
+        } else if (cursorIntents) {
+            if (cursorIntents->sampChat.valid
+                && !sampApi->sampSetChatInputCursor(cursorIntents->sampChat.start, cursorIntents->sampChat.finish)) {
+                debuglog::WriteError(
+                    "Binder chat cursor failed method=%d start=%d finish=%d error=%s",
+                    method,
+                    cursorIntents->sampChat.start,
+                    cursorIntents->sampChat.finish,
+                    sampApi->lastError().c_str());
+            }
+            if (cursorIntents->arizonaChat.valid
+                && !sampApi->SetChatAsiInputCursor(cursorIntents->arizonaChat.start, cursorIntents->arizonaChat.finish)) {
+                debuglog::WriteError(
+                    "Binder ARZ chat cursor failed method=%d start=%d finish=%d error=%s",
+                    method,
+                    cursorIntents->arizonaChat.start,
+                    cursorIntents->arizonaChat.finish,
+                    sampApi->lastError().c_str());
+            }
         }
         break;
     case 6:
         if (!sampApi || !sampApi->sampSetDialogEditboxText(expandedText, true)) {
             Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, UiSettings::Instance().Text(UiText::ToastInsertDialogFailed), 2500.0);
+        } else if (cursorIntents && cursorIntents->sampDialog.valid
+            && !sampApi->sampSetDialogInputCursor(cursorIntents->sampDialog.start, cursorIntents->sampDialog.finish)) {
+            debuglog::WriteError(
+                "Binder dialog cursor failed start=%d finish=%d error=%s",
+                cursorIntents->sampDialog.start,
+                cursorIntents->sampDialog.finish,
+                sampApi->lastError().c_str());
         }
         break;
     case 7:
@@ -1648,8 +1696,18 @@ void BinderModule::Impl::SendExpandedText(const std::string& expandedText, int m
 }
 
 bool BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId) {
-    const bool expandTags = method == 0 || method == 1 || method == 2 || method == 3 || method == 7 || method == 8 || method == 9;
-    const std::string expandedText = expandTags && tagsModule ? tagsModule->ExpandText(text) : text;
+    TagsModule::ExpandedText expandedWithCursor;
+    const TagsModule::CursorIntents* cursorIntents = nullptr;
+    std::string expandedText;
+    const bool cursorInputMethod = method == 4 || method == 5 || method == 6;
+    if (cursorInputMethod && tagsModule) {
+        expandedWithCursor = tagsModule->ExpandTextWithCursorIntents(text);
+        expandedText = expandedWithCursor.text;
+        cursorIntents = &expandedWithCursor.cursors;
+    } else {
+        const bool expandTags = method == 0 || method == 1 || method == 2 || method == 3 || method == 7 || method == 8 || method == 9;
+        expandedText = expandTags && tagsModule ? tagsModule->ExpandText(text) : text;
+    }
     if (tagsModule && sourceRuntimeId != 0 && tagsModule->ConsumeCurrentDispatchBlocked(sourceRuntimeId)) {
         return false;
     }
@@ -1669,6 +1727,6 @@ bool BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64
         return true;
     }
 
-    SendExpandedText(expandedText, method);
+    SendExpandedText(expandedText, method, cursorIntents);
     return true;
 }

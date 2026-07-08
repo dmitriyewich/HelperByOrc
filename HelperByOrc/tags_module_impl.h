@@ -15,6 +15,9 @@ public:
     using TagKind = TagsModule::TagKind;
     using CatalogEntry = TagsModule::CatalogEntry;
     using VirtualKeyPickerEntry = TagsModule::VirtualKeyPickerEntry;
+    using CursorRange = TagsModule::CursorRange;
+    using CursorIntents = TagsModule::CursorIntents;
+    using ExpandedText = TagsModule::ExpandedText;
     using EvaluationContext = TagsModule::EvaluationContext;
     using OwnedEvaluationContext = TagsModule::OwnedEvaluationContext;
 
@@ -39,6 +42,8 @@ public:
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;
+    ExpandedText ExpandTextWithCursorIntents(std::string_view text) const;
+    ExpandedText ExpandTextWithCursorIntents(std::string_view text, const EvaluationContext& context) const;
     std::string ExpandHudText(std::string_view text) const;
     std::string ExpandOutgoingText(
         std::string_view text,
@@ -113,6 +118,13 @@ public:
         Surname,
         Nick,
         RpNick,
+    };
+
+    enum class CursorTarget {
+        SampChat,
+        ArizonaChat,
+        SampDialog,
+        ArizonaDialog,
     };
 
     struct ActiveVirtualKeyHold {
@@ -282,6 +294,13 @@ public:
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandSimpleTags(std::string_view text, const EvaluationContext& context) const;
+    bool TryGetCursorTarget(std::string_view normalizedName, CursorTarget& target) const;
+    std::optional<std::pair<int, int>> ParseCursorFunctionRange(std::string_view param) const;
+    static std::string MakeCursorFunctionSentinel(CursorTarget target, int start, int finish);
+    static bool TryParseCursorFunctionSentinel(std::string_view name, CursorTarget& target, int& start, int& finish);
+    static int CursorPositionForOutput(CursorTarget target, const std::string& output);
+    void RecordCursorMarker(CursorTarget target, const std::string& currentOutput, const EvaluationContext& context) const;
+    void RecordCursorRange(CursorTarget target, int start, int finish, const EvaluationContext& context) const;
 
     std::optional<std::string> ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const;
     std::optional<std::string> ResolveFunctionTag(
@@ -335,6 +354,7 @@ public:
     std::optional<std::string> ResolveBuiltinScreenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinTPhotoTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinChatClearTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCursorMarkerTag(CursorTarget target, const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickRpTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSurnameTag(const EvaluationContext& context) const;
@@ -434,6 +454,10 @@ public:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinWaitFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCursorFunctionTag(
+        CursorTarget target,
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinDialogCloseFunctionTag(

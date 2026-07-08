@@ -37,6 +37,24 @@ public:
         std::string search{};
     };
 
+    struct CursorRange {
+        int start = -1;
+        int finish = -1;
+        bool valid = false;
+    };
+
+    struct CursorIntents {
+        CursorRange sampChat{};
+        CursorRange arizonaChat{};
+        CursorRange sampDialog{};
+        CursorRange arizonaDialog{};
+    };
+
+    struct ExpandedText {
+        std::string text{};
+        CursorIntents cursors{};
+    };
+
     struct EvaluationContext {
         SampApi* sampApi = nullptr;
         std::string_view activationSource;
@@ -44,6 +62,7 @@ public:
         std::string_view bindCommand;
         bool allowSideEffects = true;
         std::uint64_t runningBindRuntimeId = 0;
+        CursorIntents* cursorIntents = nullptr;
     };
 
     struct OwnedEvaluationContext {
@@ -82,6 +101,8 @@ public:
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;
     std::string ExpandText(std::string_view text, const EvaluationContext& context) const;
+    ExpandedText ExpandTextWithCursorIntents(std::string_view text) const;
+    ExpandedText ExpandTextWithCursorIntents(std::string_view text, const EvaluationContext& context) const;
     std::string ExpandHudText(std::string_view text) const;
     std::string ExpandOutgoingText(
         std::string_view text,

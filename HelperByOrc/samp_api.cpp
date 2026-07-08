@@ -2,6 +2,7 @@
 
 #include "debug_log.h"
 #include "feature_flags.h"
+#include "minhook_utils.h"
 #include "module_signature_scanner.h"
 #include "text_encoding.h"
 
@@ -58,6 +59,7 @@ using AddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
 using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
+using ChatAsiInputCallbackFn = int(__cdecl*)(void*);
 
 struct ModuleSectionRange {
     std::uintptr_t begin = 0;
@@ -81,12 +83,25 @@ constexpr std::uintptr_t kChatEntryBaseOffset = 0x132;
 constexpr std::size_t kChatEntrySize = 0xFC;
 constexpr int kChatEntryCount = 100;
 constexpr std::size_t kChatAsiWriterScanWindow = 0x80;
+constexpr std::size_t kChatAsiCallbackScanWindow = 0x200;
 constexpr std::size_t kChatAsiSubmitScanWindow = 0x500;
 constexpr std::size_t kChatAsiSubmitBacktrackWindow = 0x400;
 constexpr std::size_t kDefaultSmallStringLimit = 256;
 constexpr std::size_t kDefaultTextLimit = 8192;
+constexpr std::uint32_t kChatAsiInputTextCallbackAlways = 0x100;
+constexpr std::size_t kChatAsiCallbackDataSize = 0x30;
+constexpr std::uintptr_t kChatAsiCallbackOffsetEventFlag = 0x00;
+constexpr std::uintptr_t kChatAsiCallbackOffsetBuf = 0x14;
+constexpr std::uintptr_t kChatAsiCallbackOffsetBufTextLen = 0x18;
+constexpr std::uintptr_t kChatAsiCallbackOffsetBufSize = 0x1C;
+constexpr std::uintptr_t kChatAsiCallbackOffsetCursorPos = 0x24;
+constexpr std::uintptr_t kChatAsiCallbackOffsetSelectionStart = 0x28;
+constexpr std::uintptr_t kChatAsiCallbackOffsetSelectionEnd = 0x2C;
 constexpr int kMaxSampPlayerId = 1003;
 constexpr std::uint16_t kInvalidSampPlayerId = 0xFFFF;
+
+ChatAsiInputCallbackFn g_chatAsiInputCallbackOriginal = nullptr;
+SampApi* g_chatAsiInputCallbackOwner = nullptr;
 
 constexpr const char* kSampGlobalNames[] = {
     "sampAddChatMessage",
@@ -150,6 +165,50 @@ bool IsReadableMemory(std::uintptr_t address, std::size_t size) {
         if (readable != PAGE_READONLY && readable != PAGE_READWRITE && readable != PAGE_WRITECOPY
             && readable != PAGE_EXECUTE_READ && readable != PAGE_EXECUTE_READWRITE
             && readable != PAGE_EXECUTE_WRITECOPY) {
+            return false;
+        }
+
+        const auto regionBase = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
+        if (regionBase == 0 || mbi.RegionSize == 0) {
+            return false;
+        }
+
+        const auto regionEnd = regionBase + mbi.RegionSize;
+        if (regionEnd <= current) {
+            return false;
+        }
+
+        current = regionEnd;
+    }
+
+    return true;
+}
+
+bool IsWritableMemory(std::uintptr_t address, std::size_t size) {
+    if (address == 0 || size == 0) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION mbi{};
+    std::uintptr_t current = address;
+    const std::uintptr_t finish = address + size - 1;
+
+    while (current <= finish) {
+        if (VirtualQuery(reinterpret_cast<const void*>(current), &mbi, sizeof(mbi)) == 0) {
+            return false;
+        }
+
+        if (mbi.State != MEM_COMMIT) {
+            return false;
+        }
+
+        if ((mbi.Protect & PAGE_GUARD) != 0 || (mbi.Protect & PAGE_NOACCESS) != 0) {
+            return false;
+        }
+
+        const DWORD writable = mbi.Protect & 0xFF;
+        if (writable != PAGE_READWRITE && writable != PAGE_WRITECOPY
+            && writable != PAGE_EXECUTE_READWRITE && writable != PAGE_EXECUTE_WRITECOPY) {
             return false;
         }
 
@@ -939,6 +998,128 @@ std::uintptr_t FindWritablePushBefore(
     return 0;
 }
 
+std::uintptr_t FindExecutablePushBefore(
+    std::uintptr_t stringRef,
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t imageBase,
+    std::uintptr_t imageEnd) {
+    constexpr std::size_t kMaxBacktrack = 48;
+
+    for (std::size_t distance = 1; distance <= kMaxBacktrack; ++distance) {
+        const auto address = stringRef - distance;
+        std::uint8_t opcode = 0;
+        if (!SafeRead(address, opcode)) {
+            continue;
+        }
+
+        if (opcode != 0x68) {
+            continue;
+        }
+
+        std::uint32_t immediate = 0;
+        if (!SafeRead(address + 1, immediate)) {
+            continue;
+        }
+
+        if (!IsAddressInModule(immediate, imageBase, imageEnd)) {
+            continue;
+        }
+
+        const auto* section = FindSectionForAddress(sections, immediate, true);
+        if (section != nullptr) {
+            return immediate;
+        }
+    }
+
+    return 0;
+}
+
+bool ValidateChatAsiInputCallback(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t callback,
+    std::uintptr_t dirtyFlag) {
+    const auto* section = FindSectionForAddress(sections, callback, true);
+    if (!section) {
+        return false;
+    }
+
+    const std::size_t callbackOffset = static_cast<std::size_t>(callback - section->begin);
+    const std::size_t sectionSize = section->end - section->begin;
+    if (callbackOffset + 3 > sectionSize) {
+        return false;
+    }
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(section->begin);
+    if (bytes[callbackOffset] != 0x55 || bytes[callbackOffset + 1] != 0x8B || bytes[callbackOffset + 2] != 0xEC) {
+        return false;
+    }
+
+    const std::size_t window = std::min<std::size_t>(kChatAsiCallbackScanWindow, sectionSize - callbackOffset);
+    bool sawCallbackDataArg = false;
+    bool sawAlwaysEventCompare = false;
+    bool sawDirtyCheck = dirtyFlag == 0;
+    bool sawBufTextLenPush = false;
+    bool sawBufPointerUse = false;
+    int internalCallCount = 0;
+    bool sawDirtyClear = dirtyFlag == 0;
+
+    for (std::size_t index = 0; index < window; ++index) {
+        const std::size_t absoluteIndex = callbackOffset + index;
+
+        if (index + 3 <= window && bytes[absoluteIndex] == 0x8B && bytes[absoluteIndex + 1] == 0x75
+            && bytes[absoluteIndex + 2] == 0x08) {
+            sawCallbackDataArg = true;
+        }
+
+        if (index + 5 <= window && bytes[absoluteIndex] == 0x3D) {
+            std::uint32_t immediate = 0;
+            std::memcpy(&immediate, bytes + absoluteIndex + 1, sizeof(immediate));
+            if (immediate == kChatAsiInputTextCallbackAlways) {
+                sawAlwaysEventCompare = true;
+            }
+        }
+
+        if (dirtyFlag != 0 && index + 7 <= window && bytes[absoluteIndex] == 0x80
+            && bytes[absoluteIndex + 1] == 0x3D && bytes[absoluteIndex + 6] == 0x00) {
+            std::uint32_t absolute = 0;
+            std::memcpy(&absolute, bytes + absoluteIndex + 2, sizeof(absolute));
+            if (absolute == dirtyFlag) {
+                sawDirtyCheck = true;
+            }
+        }
+
+        if (index + 3 <= window && bytes[absoluteIndex] == 0xFF && bytes[absoluteIndex + 1] == 0x76
+            && bytes[absoluteIndex + 2] == kChatAsiCallbackOffsetBufTextLen) {
+            sawBufTextLenPush = true;
+        }
+
+        if (index + 3 <= window && bytes[absoluteIndex] == 0xFF && bytes[absoluteIndex + 1] == 0x76
+            && bytes[absoluteIndex + 2] == kChatAsiCallbackOffsetBuf) {
+            sawBufPointerUse = true;
+        }
+
+        if (index + 5 <= window && bytes[absoluteIndex] == 0xE8) {
+            const std::uintptr_t callAddress = section->begin + absoluteIndex;
+            const std::uintptr_t target = ResolveRelativeTarget(callAddress);
+            if (FindSectionForAddress(sections, target, true) != nullptr) {
+                ++internalCallCount;
+            }
+        }
+
+        if (dirtyFlag != 0 && index + 7 <= window && bytes[absoluteIndex] == 0xC6
+            && bytes[absoluteIndex + 1] == 0x05 && bytes[absoluteIndex + 6] == 0x00) {
+            std::uint32_t absolute = 0;
+            std::memcpy(&absolute, bytes + absoluteIndex + 2, sizeof(absolute));
+            if (absolute == dirtyFlag) {
+                sawDirtyClear = true;
+            }
+        }
+    }
+
+    return sawCallbackDataArg && sawAlwaysEventCompare && sawDirtyCheck
+        && sawBufTextLenPush && sawBufPointerUse && internalCallCount >= 2 && sawDirtyClear;
+}
+
 std::uintptr_t RecoverFunctionStart(
     const ModuleSectionRange& section,
     std::uintptr_t address,
@@ -1578,6 +1759,70 @@ bool CallChatAsiInputSubmit(ChatAsiInputSubmitFn fn, unsigned int mode) {
     __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
+}
+
+int ClampSampEditboxCursorRange(std::string_view utf8Text, int& start, int& finish) {
+    const int maxPosition = static_cast<int>(std::min<std::size_t>(textencoding::Utf8ToGame(utf8Text).size(), 255));
+    const auto clampPosition = [maxPosition](int value) {
+        return std::clamp(value, 0, maxPosition);
+    };
+
+    start = clampPosition(start);
+    finish = clampPosition(finish);
+    if (finish < start) {
+        std::swap(start, finish);
+    }
+    return maxPosition;
+}
+
+int ClampChatAsiCursorRange(std::uintptr_t inputBuffer, int& start, int& finish) {
+    if (finish < start) {
+        std::swap(start, finish);
+    }
+
+    start = std::max(0, start);
+    finish = std::max(0, finish);
+
+    std::uint32_t inputLength = 0;
+    int maxPosition = std::max(start, finish);
+    if (inputBuffer != 0 && SafeRead(inputBuffer + 0x10, inputLength)
+        && inputLength <= static_cast<std::uint32_t>(kDefaultTextLimit)) {
+        maxPosition = static_cast<int>(inputLength);
+    }
+
+    start = std::clamp(start, 0, maxPosition);
+    finish = std::clamp(finish, 0, maxPosition);
+    if (finish < start) {
+        std::swap(start, finish);
+    }
+    return maxPosition;
+}
+
+std::string ChatAsiInputBufferSummary(std::uintptr_t inputBuffer) {
+    if (inputBuffer == 0) {
+        return "input_buffer=null";
+    }
+
+    std::uintptr_t dataPointer = 0;
+    std::uint32_t inputLength = 0;
+    std::uint32_t inputCapacity = 0;
+    const bool dataPointerOk = SafeRead(inputBuffer, dataPointer);
+    const bool lengthOk = SafeRead(inputBuffer + 0x10, inputLength);
+    const bool capacityOk = SafeRead(inputBuffer + 0x14, inputCapacity);
+
+    char buffer[256]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "input_buffer=0x%08X data_ok=%d data=0x%08X len_ok=%d len=%u cap_ok=%d cap=%u",
+        static_cast<unsigned>(inputBuffer),
+        dataPointerOk ? 1 : 0,
+        static_cast<unsigned>(dataPointer),
+        lengthOk ? 1 : 0,
+        static_cast<unsigned>(inputLength),
+        capacityOk ? 1 : 0,
+        static_cast<unsigned>(inputCapacity));
+    return buffer;
 }
 
 } // namespace

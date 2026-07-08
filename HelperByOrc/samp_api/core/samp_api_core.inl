@@ -607,6 +607,7 @@ bool SampApi::installSampfuncsCompat(std::string_view mode) {
 }
 
 void SampApi::onTerminate() {
+    RemoveChatAsiInputCallbackHook();
     restoreOriginalFunctionGlobals();
 }
 

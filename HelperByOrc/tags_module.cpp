@@ -78,6 +78,16 @@ std::string TagsModule::ExpandText(std::string_view text, const EvaluationContex
     return impl_->ExpandText(text, context);
 }
 
+TagsModule::ExpandedText TagsModule::ExpandTextWithCursorIntents(std::string_view text) const {
+    return impl_->ExpandTextWithCursorIntents(text);
+}
+
+TagsModule::ExpandedText TagsModule::ExpandTextWithCursorIntents(
+    std::string_view text,
+    const EvaluationContext& context) const {
+    return impl_->ExpandTextWithCursorIntents(text, context);
+}
+
 std::string TagsModule::ExpandHudText(std::string_view text) const {
     return impl_->ExpandHudText(text);
 }

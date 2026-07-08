@@ -527,6 +527,42 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "cursor",
+        "{cursor}",
+        "abc{cursor}def",
+        UiText::TagsBuiltinCursorDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCursorMarkerTag(CursorTarget::SampChat, context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzcursor",
+        "{ARZcursor}",
+        "abc{ARZcursor}def",
+        UiText::TagsBuiltinArzCursorDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCursorMarkerTag(CursorTarget::ArizonaChat, context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "cursordialog",
+        "{cursordialog}",
+        "abc{cursordialog}def",
+        UiText::TagsBuiltinCursorDialogDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCursorMarkerTag(CursorTarget::SampDialog, context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "arzcursordialog",
+        "{ARZcursordialog}",
+        "abc{ARZcursordialog}def",
+        UiText::TagsBuiltinArzCursorDialogDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinCursorMarkerTag(CursorTarget::ArizonaDialog, context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "nickrp",
         "{nickrp}",
         "{nickrp}",
@@ -983,6 +1019,42 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinWaitDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinWaitFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "cursor",
+        "[cursor(...)]",
+        "[cursor(3)]",
+        UiText::TagsBuiltinCursorFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCursorFunctionTag(CursorTarget::SampChat, param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzcursor",
+        "[ARZcursor(...)]",
+        "[ARZcursor(3)]",
+        UiText::TagsBuiltinArzCursorFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCursorFunctionTag(CursorTarget::ArizonaChat, param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "cursordialog",
+        "[cursordialog(...)]",
+        "[cursordialog(3)]",
+        UiText::TagsBuiltinCursorDialogFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCursorFunctionTag(CursorTarget::SampDialog, param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzcursordialog",
+        "[ARZcursordialog(...)]",
+        "[ARZcursordialog(3)]",
+        UiText::TagsBuiltinArzCursorDialogFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCursorFunctionTag(CursorTarget::ArizonaDialog, param, context);
         });
 
     tagRegistry_.RegisterFunction(

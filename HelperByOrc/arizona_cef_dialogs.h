@@ -24,6 +24,7 @@ public:
 
     bool IsDialogActive() const;
     bool SetInputText(std::string_view text);
+    bool SetInputCursor(int start, int finish);
     bool CloseWithButton(int button);
     bool SetListItem(int index);
     bool SendRespond(int id, int button, int listItem, std::string_view inputText);

@@ -202,14 +202,20 @@ int SampApi::SAMP_DIALOG_ID() {
 }
 
 bool SampApi::sampSetDialogInputCursor(int cursor) {
+    return sampSetDialogInputCursor(cursor, cursor);
+}
+
+bool SampApi::sampSetDialogInputCursor(int start, int finish) {
     const std::uintptr_t editBox = pDialogInput_pEditBox_func();
     if (!isDialogActive() || editBox == 0) {
         SetError("Dialog input edit box is not available");
         return false;
     }
 
-    const auto value = static_cast<std::int8_t>(cursor);
-    if (!SafeWrite(editBox + 0x11E, value) || !SafeWrite(editBox + 0x119, value)) {
+    ClampSampEditboxCursorRange(sampGetDialogEditboxText(), start, finish);
+    const auto startValue = static_cast<std::uint8_t>(start);
+    const auto finishValue = static_cast<std::uint8_t>(finish);
+    if (!SafeWrite(editBox + 0x11E, startValue) || !SafeWrite(editBox + 0x119, finishValue)) {
         SetError("Failed to set dialog input cursor");
         return false;
     }
@@ -225,8 +231,8 @@ SampApi::CursorRange SampApi::sampGetDialogInputCursor() {
     }
 
     const std::uintptr_t editBox = pDialogInput_pEditBox_func();
-    std::int8_t start = -1;
-    std::int8_t end = -1;
+    std::uint8_t start = 0;
+    std::uint8_t end = 0;
     if (!SafeRead(editBox + 0x11E, start) || !SafeRead(editBox + 0x119, end)) {
         return result;
     }
@@ -296,14 +302,20 @@ bool SampApi::pCInput_Open_Close(bool open) {
 }
 
 bool SampApi::sampSetChatInputCursor(int cursor) {
+    return sampSetChatInputCursor(cursor, cursor);
+}
+
+bool SampApi::sampSetChatInputCursor(int start, int finish) {
     const std::uintptr_t editBox = SAMP_CHAT_INPUT_INFO_OFFSET_func_test();
     if (editBox == 0) {
         SetError("Chat input edit box is not available");
         return false;
     }
 
-    const auto value = static_cast<std::int8_t>(cursor);
-    if (!SafeWrite(editBox + 0x11E, value) || !SafeWrite(editBox + 0x119, value)) {
+    ClampSampEditboxCursorRange(sampGetChatEditboxText(), start, finish);
+    const auto startValue = static_cast<std::uint8_t>(start);
+    const auto finishValue = static_cast<std::uint8_t>(finish);
+    if (!SafeWrite(editBox + 0x11E, startValue) || !SafeWrite(editBox + 0x119, finishValue)) {
         SetError("Failed to set chat input cursor");
         return false;
     }

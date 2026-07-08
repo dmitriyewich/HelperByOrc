@@ -246,6 +246,42 @@ i.dispatchEvent(new Event('change', { bubbles: true }));
     return ok;
 }
 
+bool ArizonaCefDialogs::SetInputCursor(int start, int finish) {
+    if (start < 0) {
+        start = 0;
+    }
+    if (finish < 0) {
+        finish = 0;
+    }
+    if (finish < start) {
+        std::swap(start, finish);
+    }
+
+    const std::string js = std::string(R"JS(
+var d = document.querySelector('.dialog');
+if (!d) return;
+var i = d.querySelector('input.dialog-input__field, textarea.dialog-input__field');
+if (!i) return;
+var start = Math.max(0, Math.min()JS")
+        + std::to_string(start)
+        + R"JS(, i.value.length));
+var finish = Math.max(0, Math.min()JS"
+        + std::to_string(finish)
+        + R"JS(, i.value.length));
+if (finish < start) {
+    var tmp = start;
+    start = finish;
+    finish = tmp;
+}
+i.focus();
+if (typeof i.setSelectionRange === 'function') {
+    i.setSelectionRange(start, finish);
+}
+)JS";
+
+    return EvalAnon(js, true);
+}
+
 bool ArizonaCefDialogs::CloseWithButton(int button) {
     if (button != 0 && button != 1) {
         return false;
