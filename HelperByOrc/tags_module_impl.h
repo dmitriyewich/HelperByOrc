@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <array>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -60,6 +62,7 @@ public:
     static std::string MakeKeyEmulateToken(unsigned int keyCode);
     void OpenKeyEmulatePicker();
     void OpenDialogItemPicker();
+    void OpenArizonaDialogItemPicker();
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
@@ -103,6 +106,8 @@ public:
 
     private:
         std::vector<TagEntry> entries_{};
+        std::unordered_map<std::string, std::size_t> simpleIndex_{};
+        std::unordered_map<std::string, std::size_t> functionIndex_{};
     };
 
     enum class MiscPage {
@@ -170,6 +175,11 @@ public:
         Arizona,
     };
 
+    enum class DialogItemPickerSource {
+        Samp,
+        Arizona,
+    };
+
     struct PendingDialogWait {
         std::uint64_t runtimeId = 0;
         PendingDialogWaitKind kind = PendingDialogWaitKind::Open;
@@ -180,6 +190,7 @@ public:
     enum class PendingArzDialogQueryKind {
         InputText,
         ListItem,
+        ListItems,
     };
 
     struct PendingArzDialogQueryWait {
@@ -218,10 +229,23 @@ public:
         std::string rpNick{};
     };
 
+    struct MyCarOccupantCollectStats {
+        std::size_t driverSlots = 0;
+        std::size_t passengerSlots = 0;
+        std::size_t validSlots = 0;
+        std::size_t skippedInvalidPed = 0;
+        std::size_t skippedSeatMismatch = 0;
+        std::size_t skippedDuplicate = 0;
+        std::size_t skippedUnresolvedId = 0;
+        std::uint64_t maxIdResolveMs = 0;
+        std::uintptr_t slowIdResolvePed = 0;
+    };
+
     struct MyCarSnapshotCache {
         std::vector<MyCarSnapshotOccupant> occupants{};
         std::string health{};
         std::string speed{};
+        MyCarOccupantCollectStats occupantStats{};
         std::uint64_t updatedAtMs = 0;
         std::uint64_t lastSlowLogAtMs = 0;
         std::uintptr_t localPed = 0;
@@ -252,10 +276,90 @@ public:
         std::uint64_t maxNameMs = 0;
     };
 
+    struct ClosestPlayerPerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::uint64_t requests = 0;
+        std::uint64_t cacheHits = 0;
+        std::uint64_t rebuilds = 0;
+        std::uint64_t noSamp = 0;
+        std::uint64_t noLocal = 0;
+        std::uint64_t totalRebuildMs = 0;
+        std::uint64_t maxRebuildMs = 0;
+        std::size_t maxCandidates = 0;
+    };
+
+    struct PlayerNamePerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::uint64_t calls = 0;
+        std::uint64_t failed = 0;
+        std::uint64_t unknown = 0;
+        double totalMs = 0.0;
+        double maxMs = 0.0;
+    };
+
     struct ClipboardCache {
         std::string text{};
         std::uint64_t updatedAtMs = 0;
         bool valid = false;
+    };
+
+    enum class TagPerfSource {
+        Unknown,
+        Hud,
+        Binder,
+        Outgoing,
+        Notepad,
+        Ui,
+        Count,
+    };
+
+    enum class TagPerfGroup {
+        Builtin,
+        Custom,
+        MyCar,
+        Closest,
+        Dialog,
+        Arizona,
+        Action,
+        Count,
+    };
+
+    struct TagExpansionTrace {
+        TagPerfSource source = TagPerfSource::Unknown;
+        std::size_t inputBytes = 0;
+        std::size_t outputBytes = 0;
+        std::uint64_t simpleTags = 0;
+        std::uint64_t functionTags = 0;
+        std::uint64_t customTags = 0;
+        std::uint64_t actionTags = 0;
+        std::uint64_t unresolvedTags = 0;
+        std::uint64_t recursionLimitHits = 0;
+        std::array<std::uint64_t, static_cast<std::size_t>(TagPerfGroup::Count)> groupCounts{};
+        TagKind hotTagKind = TagKind::Simple;
+        std::string hotTagName{};
+        double hotTagMs = 0.0;
+        int maxDepth = 0;
+    };
+
+    struct TagExpansionPerfBucket {
+        std::uint64_t calls = 0;
+        std::uint64_t slowCalls = 0;
+        std::uint64_t inputBytes = 0;
+        std::uint64_t outputBytes = 0;
+        std::uint64_t simpleTags = 0;
+        std::uint64_t functionTags = 0;
+        std::uint64_t customTags = 0;
+        std::uint64_t actionTags = 0;
+        std::uint64_t unresolvedTags = 0;
+        std::uint64_t recursionLimitHits = 0;
+        double totalMs = 0.0;
+        double maxMs = 0.0;
+        std::array<std::uint64_t, static_cast<std::size_t>(TagPerfGroup::Count)> groupCounts{};
+    };
+
+    struct TagExpansionPerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::array<TagExpansionPerfBucket, static_cast<std::size_t>(TagPerfSource::Count)> buckets{};
     };
 
     void InitializeRegistry();
@@ -263,12 +367,15 @@ public:
     void SaveConfig() const;
     void DrawMiscHomePage();
     void DrawVariablesPage();
-    std::vector<variables_picker::Entry> BuildVariablePickerEntries() const;
+    const std::vector<variables_picker::Entry>& BuildVariablePickerEntries() const;
     void HandleVariablePickerRequest(const variables_picker::Request& request);
     bool UpsertCustomVariable(std::string originalName, std::string name, std::string value);
     bool DeleteCustomVariable(std::string_view name);
     std::string ValidateCustomVariableName(std::string_view originalName, std::string_view name) const;
     void RefreshCatalogEntries();
+    void RebuildCustomVariableIndex();
+    void InvalidateVariablePickerEntriesCache() const;
+    void OpenDialogItemPicker(DialogItemPickerSource source);
     void OpenDialogTextPicker(DialogTextPickerSource source = DialogTextPickerSource::Samp);
     void DrawDialogItemPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void DrawDialogTextPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
@@ -297,8 +404,17 @@ public:
     void MarkCurrentDispatchBlocked(std::uint64_t runtimeId) const;
 
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
-    std::string ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const;
-    std::string ExpandSimpleTags(std::string_view text, const EvaluationContext& context) const;
+    std::string ExpandTextRecursive(
+        std::string_view text,
+        const EvaluationContext& context,
+        int depth,
+        TagExpansionTrace* trace) const;
+    std::string ExpandFunctionTags(
+        std::string_view text,
+        const EvaluationContext& context,
+        int depth,
+        TagExpansionTrace* trace) const;
+    std::string ExpandSimpleTags(std::string_view text, const EvaluationContext& context, TagExpansionTrace* trace) const;
     bool TryGetCursorTarget(std::string_view normalizedName, CursorTarget& target) const;
     std::optional<std::pair<int, int>> ParseCursorFunctionRange(std::string_view param) const;
     static std::string MakeCursorFunctionSentinel(CursorTarget target, int start, int finish);
@@ -308,11 +424,16 @@ public:
     void RecordCursorRange(CursorTarget target, int start, int finish, const EvaluationContext& context) const;
 
     std::optional<std::string> ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const;
+    std::optional<std::string> ResolveSimpleTagNormalized(
+        std::string_view normalizedName,
+        const EvaluationContext& context,
+        TagExpansionTrace* trace) const;
     std::optional<std::string> ResolveFunctionTag(
         std::string_view name,
         std::string_view param,
         const EvaluationContext& context,
-        int depth) const;
+        int depth,
+        TagExpansionTrace* trace) const;
     std::optional<std::string> ResolveBuiltinIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNickTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinThisbindTag(const EvaluationContext& context) const;
@@ -508,6 +629,9 @@ public:
     std::optional<std::string> ResolveBuiltinArzDialogSetListItemFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinArzDialogItemFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinArzDialogGetListItemFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
@@ -536,6 +660,25 @@ public:
         std::uint64_t elapsedMs) const;
     void RecordMyCarNameResolvePerf(std::size_t requested, std::size_t resolved, std::uint64_t elapsedMs) const;
     void MaybeLogMyCarPerf(std::uint64_t nowMs) const;
+    void RecordClosestPlayersPerf(
+        bool cacheHit,
+        bool sampReady,
+        bool localReady,
+        std::size_t candidates,
+        std::uint64_t elapsedMs) const;
+    void MaybeLogClosestPlayersPerf(std::uint64_t nowMs) const;
+    void RecordPlayerNamePerf(bool failed, bool unknown, double elapsedMs) const;
+    void MaybeLogPlayerNamePerf(std::uint64_t nowMs) const;
+    TagPerfSource ResolveTagPerfSource(const EvaluationContext& context) const;
+    static const char* TagPerfSourceName(TagPerfSource source);
+    static const char* TagPerfGroupName(TagPerfGroup group);
+    static const char* TagKindPerfName(TagKind kind);
+    static TagPerfGroup ClassifyTagPerfGroup(std::string_view normalizedName, bool action);
+    static TagPerfGroup DominantTagPerfGroup(const TagExpansionTrace& trace);
+    void RecordTagGroup(TagExpansionTrace& trace, TagPerfGroup group) const;
+    void RecordHotTag(TagExpansionTrace& trace, TagKind kind, std::string_view name, double elapsedMs) const;
+    void RecordTagExpansionPerf(const TagExpansionTrace& trace, double elapsedMs) const;
+    void MaybeLogTagExpansionPerf(std::uint64_t nowMs) const;
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;
@@ -565,6 +708,12 @@ private:
     TagRegistry tagRegistry_{};
     std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
+    std::unordered_map<std::string, std::size_t> customVariableIndex_{};
+    std::uint64_t catalogEntriesRevision_ = 0;
+    std::uint64_t customVariablesRevision_ = 0;
+    mutable std::vector<variables_picker::Entry> variablePickerEntriesCache_{};
+    mutable std::uint64_t variablePickerEntriesCatalogRevision_ = 0;
+    mutable std::uint64_t variablePickerEntriesCustomRevision_ = 0;
     variables_picker::State variablesPickerState_{};
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
@@ -573,15 +722,21 @@ private:
     mutable std::vector<ReadyArzDialogQuery> readyArzDialogQueries_{};
     mutable std::vector<std::uint64_t> blockedCurrentDispatchRuntimes_{};
     mutable ClosestPlayerCache closestPlayerCache_{};
+    mutable ClosestPlayerPerfStats closestPlayerPerfStats_{};
+    mutable PlayerNamePerfStats playerNamePerfStats_{};
     mutable MyCarSnapshotCache myCarSnapshotCache_{};
     mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
+    mutable TagExpansionPerfStats tagExpansionPerfStats_{};
+    mutable std::uint64_t lastTagExpansionSlowLogAtMs_ = 0;
     mutable ClipboardCache clipboardCache_{};
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};
     std::string dialogItemPickerSearchQuery_{};
     std::string dialogTextPickerSearchQuery_{};
+    DialogItemPickerSource dialogItemPickerSource_ = DialogItemPickerSource::Samp;
     DialogTextPickerSource dialogTextPickerSource_ = DialogTextPickerSource::Samp;
     bool dialogItemPickerOpenPending_ = false;
+    bool dialogItemPickerArizonaQueryStarted_ = false;
     bool dialogTextPickerOpenPending_ = false;
 };

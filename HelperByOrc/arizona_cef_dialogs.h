@@ -33,10 +33,13 @@ public:
 
     std::string CachedInputText() const;
     std::string CachedListItem() const;
+    std::string CachedListItemsJson() const;
     std::string QueryInputText(int timeoutMs);
     std::string QueryListItem(int timeoutMs);
+    std::string QueryListItems(int timeoutMs);
     bool HasPendingInputTextQuery() const;
     bool HasPendingListItemQuery() const;
+    bool HasPendingListItemsQuery() const;
 
     int LastDialogId() const;
     int LastDialogStyle() const;
@@ -55,6 +58,7 @@ private:
     enum class QueryKind {
         InputText,
         ListItem,
+        ListItems,
         InputPresent,
     };
 
@@ -112,6 +116,7 @@ private:
     RespondInfo lastRespond_{};
     std::string cachedInputText_{};
     std::string cachedListItem_{ "0" };
+    std::string cachedListItemsJson_{};
     bool cachedInputFieldPresentKnown_ = false;
     bool cachedInputFieldPresent_ = false;
     std::uint64_t nextInputFieldProbeAtMs_ = 0;

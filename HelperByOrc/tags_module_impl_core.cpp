@@ -44,9 +44,16 @@ void TagsModule::Impl::Shutdown() {
     blockedCurrentDispatchRuntimes_.clear();
     pendingDialogWaits_.clear();
     clipboardCache_ = {};
+    customVariables_.clear();
+    customVariableIndex_.clear();
+    variablePickerEntriesCache_.clear();
+    customVariablesRevision_ = 0;
+    variablePickerEntriesCatalogRevision_ = 0;
+    variablePickerEntriesCustomRevision_ = 0;
     variablesPickerState_ = {};
     dialogItemPickerSearchQuery_.clear();
     dialogTextPickerSearchQuery_.clear();
+    dialogItemPickerArizonaQueryStarted_ = false;
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     g_activeContextStack.clear();

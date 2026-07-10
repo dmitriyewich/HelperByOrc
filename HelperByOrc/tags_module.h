@@ -130,6 +130,7 @@ public:
     static std::string MakeKeyEmulateToken(unsigned int keyCode);
     void OpenKeyEmulatePicker();
     void OpenDialogItemPicker();
+    void OpenArizonaDialogItemPicker();
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});

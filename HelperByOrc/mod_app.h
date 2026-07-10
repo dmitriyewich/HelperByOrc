@@ -16,6 +16,7 @@
 #include "hud_module.h"
 #include "imgui_overlay.h"
 #include "incoming_message_router.h"
+#include "logo_texture_loader.h"
 #include "notification_manager.h"
 #include "notepad_module.h"
 #include "overlay_cursor_controller.h"
@@ -100,6 +101,7 @@ private:
     bool mainWindowRectKnown_ = false;
     bool mainWindowRectDirty_ = false;
     bool logoLoadAttempted_ = false;
+    LogoTextureLoader logoTextureLoader_{};
     IDirect3DTexture9* logoTexture_ = nullptr;
     std::uint32_t logoWidth_ = 0;
     std::uint32_t logoHeight_ = 0;

@@ -130,6 +130,10 @@ void TagsModule::OpenDialogItemPicker() {
     impl_->OpenDialogItemPicker();
 }
 
+void TagsModule::OpenArizonaDialogItemPicker() {
+    impl_->OpenArizonaDialogItemPicker();
+}
+
 void TagsModule::OpenSampDialogTextPicker() {
     impl_->OpenSampDialogTextPicker();
 }

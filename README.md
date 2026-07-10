@@ -16,7 +16,7 @@
 
 ![HelperByOrc - HUD](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/hud-editor.png)
 
-![HelperByOrc - игнорирование сообщений](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/unwanted-rules.png)
+![HelperByOrc - игнорирование сообщений](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/unwanted.png)
 
 ---
 
@@ -45,8 +45,8 @@
 - Arizona `_chat.asi` writer/submit для отправки через input чата, открытия и вставки текста; `{ARZcursor}`/`[ARZcursor(...)]` ставят caret через callback hook активного input, fallback остаётся на стандартный SA:MP-путь.
 - Метод Биндера `В диалог` вставляет текст в активный SA:MP input/password dialog или Arizona CEF input/textarea, сам выбирая доступный backend; `{cursordialog}` ставит caret в текущем backend, а `{ARZcursordialog}` остаётся явным CEF-маркером.
 - Ввод параметров перед запуском бинда и подстановка `{{placeholders}}`.
-- Теги и пользовательские переменные с редактированием во вкладке «Прочее -> Переменные», включая отдельные кнопки подбора для `[keyemulate(...)]`, `[dialogitem(...)]`, `[dialogtext(...)]`, `[ARZdialoggetdialogtext(...)]`, bind-actions `[bindstart(30)]`, `[bindstart({thisbind})]`, `{thisbind}` и `{thiscategory}` для runtime-контекста текущего bind.
-- Arizona CEF dialog-теги: `[ARZdialogsetinputtext(...)]` с `{ARZcursordialog}`/`[ARZcursordialog(...)]`, `[ARZdialogclosewithbutton(1)]`, `[ARZdialogsetlistitem(0)]`, `[ARZdialoggetdialogtext(0)]`, `[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]` и getter-переменные `{ARZdialoggetid}`, `{ARZdialoggettitle}`, `{ARZdialoggetrespond}`.
+- Теги и пользовательские переменные с редактированием во вкладке «Прочее -> Переменные», включая отдельные кнопки подбора для `[keyemulate(...)]`, `[dialogitem(...)]`, `[ARZdialogitem(...)]`, `[dialogtext(...)]`, `[ARZdialoggetdialogtext(...)]`, bind-actions `[bindstart(30)]`, `[bindstart({thisbind})]`, `{thisbind}` и `{thiscategory}` для runtime-контекста текущего bind.
+- Arizona CEF dialog-теги: `[ARZdialogsetinputtext(...)]` с `{ARZcursordialog}`/`[ARZcursordialog(...)]`, `[ARZdialogclosewithbutton(1)]`, `[ARZdialogitem(1)]`, `[ARZdialogsetlistitem(0)]`, `[ARZdialoggetdialogtext(0)]`, `[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]` и getter-переменные `{ARZdialoggetid}`, `{ARZdialoggettitle}`, `{ARZdialoggetrespond}`.
 - Профильный блокнот: папки, поиск, избранное, split preview, Lua-compatible разметка, picker иконок для вставки `#icon(...)`, локальные картинки, импорт/экспорт `.txt`.
 - HUD v2: единый профессиональный редактор экранных виджетов прямо во вкладке HUD: рабочая область с главным холстом, компактная панель действий по группам, адаптивные панели, ручной hit-test без конфликтующих overlay-кнопок, крупные ручки размера, рамка выделения, перемещение view средней кнопкой, масштаб, мягкий магнит к сетке, слои, инспектор секциями `Основное`/данные элемента/`Стиль`/`Видимость`/`Дополнительно`, режимы текста, picker переменных и иконок, импорт картинок, lock/hide, group/ungroup, undo/redo через toolbar, пресеты и импорт/экспорт `.helperhud.json`; обычные виджеты рисуются нижним слоем под окнами Helper и не перехватывают ввод.
 - Профили конфигурации: переключение, создание, дублирование, переименование и удаление во вкладке «Настройки».
@@ -155,10 +155,10 @@ HelperByOrc\Release\HelperByOrc.asi
 - `[probe]`, `[probe][stuck]`, `[samp][diag]` - готовность SA:MP;
 - `[samp][file]`, `[samp][cursor]` - fingerprint `samp.dll` и validation `SetCursorMode`;
 - `[ui] cursor owner=... route=... swallowMouse=... underlay=...` - кто сейчас владеет курсором, разрешён ли routing ввода в ImGui и какой внешний интерфейс лежит под Helper;
-- `[ui][perf]`, `[ui][perf][modules]`, `[ui][perf][prepare]` - медленные кадры ImGui, разбивка по HUD/Binder/Notepad/активной вкладке, draw stats и first-frame prepare timing;
-- `AppConfig snapshot queued for async serialize`, `AppConfig snapshot saved async`, `AppConfig snapshot skipped unchanged async` - очередь, фоновые сериализация/запись и пропуск неизменившегося профильного `HelperByOrc.json`;
+- `[ui][perf]`, `[ui][perf][modules]`, `[ui][perf][prepare]`, `[ui][perf][logo]` - медленные кадры ImGui, разбивка по HUD/Binder/Notepad/активной вкладке, draw stats, first-frame prepare и раздельные timings фонового WIC decode и D3D9 upload логотипа;
+- `AppConfig snapshot requested`, `AppConfig snapshot copied async`, `AppConfig snapshot saved async`, `AppConfig snapshot skipped unchanged async` - coalesce-запрос, фоновая копия/snapshot, сериализация/запись и пропуск неизменившегося профильного `HelperByOrc.json`;
 - `[unwanted][perf]` - агрегированное время проверки правил игнорирования сообщений за окно: сообщения, кандидаты, regex rules, blocked, avg/max;
-- `[tags][mycar][perf]` - агрегированная стоимость `{mycar...}` тегов за окно: cache hits/rebuilds, occupants, noVehicle/noSamp и lazy-resolve имён;
+- `[tags][perf]`, `[tags][name][perf]`, `[tags][mycar][perf]`, `[tags][closest][perf]` - агрегированная стоимость раскрытия переменных по источникам (`hud`, `binder`, `outgoing`, `notepad`, `ui`), slow `hot=*`, player-name resolver family и тяжёлым группам `{mycar...}` / `{closest...}`: calls, avg/max, slow, cache hits/rebuilds, unresolved и topGroup;
 - `[ui][d3d]` - D3D9 hook policy и overlay;
 - `[diag][appcompat]` - Compatibility Mode, `apphelp.dll`, `AcLayers.dll`;
 - transfer-owner строки - кто уже пропатчил SA:MP-функции до плагина.

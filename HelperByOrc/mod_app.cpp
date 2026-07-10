@@ -10,7 +10,6 @@
 #include "ui_settings.h"
 
 #include <GameVersion.h>
-#include <d3dx9tex.h>
 #include <imgui.h>
 #include <shellapi.h>
 
@@ -19,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -1418,39 +1418,6 @@ void DrawPathDiagnosticRow(UiText labelId, const fs::path& path, UiText openActi
     ImGui::PopID();
 }
 
-bool LoadBinaryResource(HMODULE module, int resourceId, const void** data, DWORD* size) {
-    if (!module || !data || !size) {
-        return false;
-    }
-
-    *data = nullptr;
-    *size = 0;
-
-    const HRSRC resource = FindResourceA(module, MAKEINTRESOURCEA(resourceId), RT_RCDATA);
-    if (!resource) {
-        return false;
-    }
-
-    const HGLOBAL loadedResource = LoadResource(module, resource);
-    if (!loadedResource) {
-        return false;
-    }
-
-    const DWORD resourceSize = SizeofResource(module, resource);
-    if (resourceSize == 0) {
-        return false;
-    }
-
-    const void* resourceData = LockResource(loadedResource);
-    if (!resourceData) {
-        return false;
-    }
-
-    *data = resourceData;
-    *size = resourceSize;
-    return true;
-}
-
 void ClampWindowRect(const ImVec2& displaySize, ImVec2& position, ImVec2& size, float scale) {
     const float margin = kWindowMargin * scale;
     const float maxWidth = std::max(360.0f, displaySize.x - margin * 2.0f);
@@ -1770,6 +1737,7 @@ void ModApp::Shutdown() {
     sampApi_.onTerminate();
     debuglog::WriteInfo("SampApi terminated");
     ReleaseUiResources();
+    logoTextureLoader_.Reset();
     if (minHookInitialized_) {
         minhook::Uninitialize();
         minHookInitialized_ = false;
@@ -1936,6 +1904,7 @@ DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
     }
 
     debuglog::WriteInfo("[ui][d3d] deferred overlay thread started");
+    self->logoTextureLoader_.DecodeEmbeddedPng(self->module_, IDR_MAIN_LOGO_PNG);
     while (!self->deferredOverlayThreadStop_.load()) {
         if (self->RefreshSampGate()) {
             self->RequestOverlayAttachOnce("SA:MP full-ready gate");
@@ -2207,21 +2176,15 @@ void ModApp::QueueShellStateSave() {
         mainWindowPos.y,
         mainWindowSize.x,
         mainWindowSize.y);
-    AppConfig::Instance().QueueMutation([sidebarCollapsed, includeMainWindow, mainWindowPos, mainWindowSize](jsonutil::JsonObject& root) {
-        jsonutil::JsonObject section;
-        const auto existing = root.find(std::string(kShellSectionName));
-        if (existing != root.end()) {
-            if (const jsonutil::JsonObject* object = existing->second.TryObject()) {
-                section = *object;
+    AppConfig::Instance().QueueSectionMutation(
+        std::string(kShellSectionName),
+        [sidebarCollapsed, includeMainWindow, mainWindowPos, mainWindowSize](jsonutil::JsonObject& section) {
+            section["sidebar_collapsed"] = sidebarCollapsed;
+            if (includeMainWindow) {
+                WriteMainWindowRect(section, mainWindowPos, mainWindowSize);
             }
-        }
-
-        section["sidebar_collapsed"] = sidebarCollapsed;
-        if (includeMainWindow) {
-            WriteMainWindowRect(section, mainWindowPos, mainWindowSize);
-        }
-        root[std::string(kShellSectionName)] = jsonutil::JsonValue(std::move(section));
-    });
+        },
+        "ui:shell");
     if (mainWindowRectDirty_) {
         mainWindowRectDirty_ = false;
     }
@@ -2264,37 +2227,91 @@ void ModApp::SetSidebarCollapsed(bool collapsed) {
 }
 
 void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
-    if (logoTexture_ || logoLoadAttempted_ || !device || !module_) {
+    if (logoTexture_ || logoLoadAttempted_ || !device) {
         return;
     }
 
     logoLoadAttempted_ = true;
-
-    const void* resourceData = nullptr;
-    DWORD resourceSize = 0;
-    if (!LoadBinaryResource(module_, IDR_MAIN_LOGO, &resourceData, &resourceSize)) {
-        debuglog::WriteError("Failed to locate embedded logo resource");
+    const double totalBeginMs = UiPerfNowMs();
+    const std::uint8_t* source = logoTextureLoader_.Pixels();
+    const std::size_t sourceBytes = logoTextureLoader_.PixelBytes();
+    if (!source || sourceBytes != LogoTextureLoader::kDecodedBytes) {
+        debuglog::WriteError(
+            "[ui][logo] stage=upload pixels-not-ready expected=%zu actual=%zu",
+            LogoTextureLoader::kDecodedBytes,
+            sourceBytes);
         return;
     }
 
-    D3DXIMAGE_INFO imageInfo{};
-    const HRESULT infoResult = D3DXGetImageInfoFromFileInMemory(resourceData, resourceSize, &imageInfo);
-    if (FAILED(infoResult)) {
-        debuglog::WriteError("D3DXGetImageInfoFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(infoResult));
-        return;
-    }
-
+    const double createBeginMs = UiPerfNowMs();
     IDirect3DTexture9* texture = nullptr;
-    const HRESULT textureResult = D3DXCreateTextureFromFileInMemory(device, resourceData, resourceSize, &texture);
+    const HRESULT textureResult = device->CreateTexture(
+        LogoTextureLoader::kWidth,
+        LogoTextureLoader::kHeight,
+        1,
+        0,
+        D3DFMT_A8R8G8B8,
+        D3DPOOL_MANAGED,
+        &texture,
+        nullptr);
+    const double createMs = UiPerfNowMs() - createBeginMs;
     if (FAILED(textureResult) || !texture) {
-        debuglog::WriteError("D3DXCreateTextureFromFileInMemory failed: 0x%08lX", static_cast<unsigned long>(textureResult));
+        debuglog::WriteError(
+            "[ui][logo] stage=create failed hr=0x%08lX size=%ux%u",
+            static_cast<unsigned long>(textureResult),
+            LogoTextureLoader::kWidth,
+            LogoTextureLoader::kHeight);
+        return;
+    }
+
+    const double uploadBeginMs = UiPerfNowMs();
+    D3DLOCKED_RECT lockedRect{};
+    const HRESULT lockResult = texture->LockRect(0, &lockedRect, nullptr, 0);
+    if (FAILED(lockResult) || !lockedRect.pBits) {
+        debuglog::WriteError(
+            "[ui][logo] stage=lock failed hr=0x%08lX",
+            static_cast<unsigned long>(lockResult));
+        texture->Release();
+        return;
+    }
+
+    if (lockedRect.Pitch < 0 || static_cast<std::size_t>(lockedRect.Pitch) < LogoTextureLoader::kRowBytes) {
+        debuglog::WriteError(
+            "[ui][logo] stage=upload invalid-pitch expected=%zu actual=%ld",
+            LogoTextureLoader::kRowBytes,
+            static_cast<long>(lockedRect.Pitch));
+        texture->UnlockRect(0);
+        texture->Release();
+        return;
+    }
+
+    auto* destination = static_cast<std::uint8_t*>(lockedRect.pBits);
+    const std::size_t destinationPitch = static_cast<std::size_t>(lockedRect.Pitch);
+    for (std::size_t row = 0; row < LogoTextureLoader::kHeight; ++row) {
+        std::memcpy(
+            destination + row * destinationPitch,
+            source + row * LogoTextureLoader::kRowBytes,
+            LogoTextureLoader::kRowBytes);
+    }
+
+    const HRESULT unlockResult = texture->UnlockRect(0);
+    const double uploadMs = UiPerfNowMs() - uploadBeginMs;
+    if (FAILED(unlockResult)) {
+        debuglog::WriteError(
+            "[ui][logo] stage=unlock failed hr=0x%08lX",
+            static_cast<unsigned long>(unlockResult));
+        texture->Release();
         return;
     }
 
     logoTexture_ = texture;
-    logoWidth_ = imageInfo.Width;
-    logoHeight_ = imageInfo.Height;
-    debuglog::WriteInfo("Logo texture loaded (%ux%u)", logoWidth_, logoHeight_);
+    logoWidth_ = LogoTextureLoader::kWidth;
+    logoHeight_ = LogoTextureLoader::kHeight;
+    debuglog::WriteInfo(
+        "[ui][perf][logo] stage=upload create=%.2fms upload=%.2fms total=%.2fms",
+        createMs,
+        uploadMs,
+        UiPerfNowMs() - totalBeginMs);
 }
 
 void ModApp::ReleaseUiResources() {

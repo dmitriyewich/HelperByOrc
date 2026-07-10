@@ -43,6 +43,7 @@ enum class RequestType {
     Insert,
     OpenKeyEmulatePicker,
     OpenDialogItemPicker,
+    OpenArizonaDialogItemPicker,
     OpenDialogTextPicker,
     OpenArizonaDialogTextPicker,
     SaveCustom,
@@ -81,6 +82,9 @@ struct State {
     std::size_t visibleEntriesHash = 0;
     std::array<int, 10> categoryCountsCache{};
     std::size_t categoryCountsEntriesHash = 0;
+    std::vector<std::string> searchBlobCache{};
+    std::size_t searchBlobEntriesHash = 0;
+    UiLanguage searchBlobLanguageCache = UiLanguage::Russian;
 };
 
 struct Options {

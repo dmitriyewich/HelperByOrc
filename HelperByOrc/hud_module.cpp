@@ -242,6 +242,7 @@ struct HudElement {
     std::string cachedIconGlyph{};
     std::string cachedStaticSource{};
     ElementType cachedStaticType = ElementType::Text;
+    std::uint64_t cachedCoarseClockUntilMs = 0;
     float cachedNumber = 0.0f;
     bool cachedStaticValueReady = false;
     bool noteMissing = false;
@@ -381,6 +382,7 @@ bool ContainsHudActionTag(std::string_view text) {
         "dialogclose",
         "dialogsettext",
         "dialogitem",
+        "arzdialogitem",
         "dialogselect",
         "dialogwaitid",
         "dialogresponse",
@@ -415,6 +417,92 @@ bool ContainsHudActionTag(std::string_view text) {
 
 bool MightContainHudTag(std::string_view text) {
     return text.find('{') != std::string_view::npos || text.find('[') != std::string_view::npos;
+}
+
+enum class CoarseClockRefresh {
+    None,
+    Second,
+    Minute,
+    Day,
+    Dynamic,
+};
+
+CoarseClockRefresh MergeCoarseRefresh(CoarseClockRefresh current, CoarseClockRefresh next) {
+    if (current == CoarseClockRefresh::Dynamic || next == CoarseClockRefresh::Dynamic) {
+        return CoarseClockRefresh::Dynamic;
+    }
+    if (current == CoarseClockRefresh::None) {
+        return next;
+    }
+    if (next == CoarseClockRefresh::None || current == next) {
+        return current;
+    }
+    if (current == CoarseClockRefresh::Second || next == CoarseClockRefresh::Second) {
+        return CoarseClockRefresh::Second;
+    }
+    if (current == CoarseClockRefresh::Minute || next == CoarseClockRefresh::Minute) {
+        return CoarseClockRefresh::Minute;
+    }
+    return CoarseClockRefresh::Day;
+}
+
+CoarseClockRefresh ClassifyCoarseClockHudTags(std::string_view text) {
+    if (text.find('[') != std::string_view::npos) {
+        return CoarseClockRefresh::Dynamic;
+    }
+
+    CoarseClockRefresh refresh = CoarseClockRefresh::None;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        const std::size_t start = text.find('{', pos);
+        if (start == std::string_view::npos) {
+            break;
+        }
+        const std::size_t end = text.find('}', start + 1);
+        if (end == std::string_view::npos) {
+            return CoarseClockRefresh::Dynamic;
+        }
+
+        const std::string name = LowerAscii(text.substr(start + 1, end - start - 1));
+        CoarseClockRefresh tokenRefresh = CoarseClockRefresh::Dynamic;
+        if (name == "time") {
+            tokenRefresh = CoarseClockRefresh::Second;
+        } else if (name == "timenosec") {
+            tokenRefresh = CoarseClockRefresh::Minute;
+        } else if (name == "date") {
+            tokenRefresh = CoarseClockRefresh::Day;
+        }
+
+        refresh = MergeCoarseRefresh(refresh, tokenRefresh);
+        if (refresh == CoarseClockRefresh::Dynamic) {
+            return refresh;
+        }
+        pos = end + 1;
+    }
+
+    return refresh;
+}
+
+std::uint64_t CoarseClockRefreshDelayMs(CoarseClockRefresh refresh) {
+    SYSTEMTIME localTime{};
+    GetLocalTime(&localTime);
+    switch (refresh) {
+    case CoarseClockRefresh::Second:
+        return static_cast<std::uint64_t>(std::max(1, 1000 - static_cast<int>(localTime.wMilliseconds)));
+    case CoarseClockRefresh::Minute:
+        return static_cast<std::uint64_t>(
+            std::max(1, (59 - static_cast<int>(localTime.wSecond)) * 1000 + 1000 - static_cast<int>(localTime.wMilliseconds)));
+    case CoarseClockRefresh::Day:
+        return static_cast<std::uint64_t>(
+            std::max(1, (23 - static_cast<int>(localTime.wHour)) * 60 * 60 * 1000
+                    + (59 - static_cast<int>(localTime.wMinute)) * 60 * 1000
+                    + (59 - static_cast<int>(localTime.wSecond)) * 1000
+                    + 1000 - static_cast<int>(localTime.wMilliseconds)));
+    case CoarseClockRefresh::None:
+    case CoarseClockRefresh::Dynamic:
+    default:
+        return 0;
+    }
 }
 
 int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
@@ -2087,6 +2175,7 @@ struct HudModule::Impl {
             element.cachedText.clear();
             element.cachedImagePath.clear();
             element.cachedStaticSource.clear();
+            element.cachedCoarseClockUntilMs = 0;
             element.cachedStaticValueReady = false;
         }
         selectedWidgetId = copy.id;
@@ -2159,6 +2248,7 @@ struct HudModule::Impl {
                 copy.cachedText.clear();
                 copy.cachedImagePath.clear();
                 copy.cachedStaticSource.clear();
+                copy.cachedCoarseClockUntilMs = 0;
                 copy.cachedStaticValueReady = false;
                 newSelection.push_back(copy.id);
                 copies.push_back(std::move(copy));
@@ -2610,6 +2700,29 @@ struct HudModule::Impl {
     void ClearStaticCache(HudElement& element) const {
         element.cachedStaticValueReady = false;
         element.cachedStaticSource.clear();
+        element.cachedCoarseClockUntilMs = 0;
+    }
+
+    bool TryUseCoarseClockTextCache(HudElement& element, std::string_view source) {
+        const CoarseClockRefresh refresh = ClassifyCoarseClockHudTags(source);
+        if (refresh == CoarseClockRefresh::None) {
+            return false;
+        }
+        if (refresh == CoarseClockRefresh::Dynamic) {
+            element.cachedCoarseClockUntilMs = 0;
+            return false;
+        }
+
+        const std::uint64_t now = TickNow();
+        if (StaticCacheHit(element, source) && now < element.cachedCoarseClockUntilMs) {
+            ++lastOverlayStats.staticRefreshSkips;
+            return true;
+        }
+
+        element.cachedText = ExpandText(source);
+        StoreStaticCache(element, source);
+        element.cachedCoarseClockUntilMs = now + CoarseClockRefreshDelayMs(refresh);
+        return true;
     }
 
     bool TryUseStaticTextCache(HudElement& element, std::string_view source) {
@@ -2664,7 +2777,8 @@ struct HudModule::Impl {
         ++lastOverlayStats.refreshedWidgets;
         for (HudElement& element : widget.elements) {
             if (element.type == ElementType::Text) {
-                if (TryUseStaticTextCache(element, element.data.text)) {
+                if (TryUseCoarseClockTextCache(element, element.data.text)
+                    || TryUseStaticTextCache(element, element.data.text)) {
                     continue;
                 }
                 ++lastOverlayStats.expandedElements;
@@ -3651,6 +3765,7 @@ struct HudModule::Impl {
         }
         element.cachedText.clear();
         element.cachedStaticSource.clear();
+        element.cachedCoarseClockUntilMs = 0;
         element.cachedStaticValueReady = false;
         MarkChanged();
     }
@@ -3801,6 +3916,7 @@ struct HudModule::Impl {
             break;
         case variables_picker::RequestType::OpenKeyEmulatePicker:
         case variables_picker::RequestType::OpenDialogItemPicker:
+        case variables_picker::RequestType::OpenArizonaDialogItemPicker:
         case variables_picker::RequestType::OpenDialogTextPicker:
         case variables_picker::RequestType::OpenArizonaDialogTextPicker:
             tagsModule->HandleVariablePickerUtilityRequest(request);

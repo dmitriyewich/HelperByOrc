@@ -1,6 +1,7 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cwchar>
 #include <iomanip>
@@ -20,6 +21,23 @@ struct MyCarOccupant {
     int id = -1;
     bool passenger = false;
     bool localPlayer = false;
+};
+
+struct MyCarOccupantCollectionStats {
+    std::size_t driverSlots = 0;
+    std::size_t passengerSlots = 0;
+    std::size_t validSlots = 0;
+    std::size_t skippedInvalidPed = 0;
+    std::size_t skippedSeatMismatch = 0;
+    std::size_t skippedDuplicate = 0;
+    std::size_t skippedUnresolvedId = 0;
+    std::uint64_t maxIdResolveMs = 0;
+    std::uintptr_t slowIdResolvePed = 0;
+};
+
+struct MyCarOccupantCollection {
+    std::vector<MyCarOccupant> occupants{};
+    MyCarOccupantCollectionStats stats{};
 };
 
 std::optional<CVector> ResolveLocalPlayerPosition() {
@@ -242,44 +260,101 @@ std::optional<LocalVehicleContext> ResolveLocalVehicleContext() {
     return std::nullopt;
 }
 
-std::optional<int> ResolveSampIdForOccupant(SampApi& sampApi, CPed* ped, const CPed* localPed) {
-    if (!ped || !IsPedPointerValid(ped)) {
+bool IsPedPoolPointerValid(const CPed* ped) {
+    if (!ped) {
+        return false;
+    }
+
+    auto* const pedPool = CPools::ms_pPedPool;
+    return pedPool != nullptr && pedPool->IsObjectValid(const_cast<CPed*>(ped));
+}
+
+bool IsMyCarOccupantPedValid(const CPed* ped) {
+    return IsPedPoolPointerValid(ped) && IsPedPointerValid(const_cast<CPed*>(ped));
+}
+
+std::size_t PassengerSlotCount(const CVehicle& vehicle) {
+    constexpr std::size_t kPassengerSlotCapacity = sizeof(vehicle.m_apPassengers) / sizeof(vehicle.m_apPassengers[0]);
+    return std::min<std::size_t>(vehicle.m_nMaxPassengers, kPassengerSlotCapacity);
+}
+
+std::optional<int> ResolveSampIdForOccupant(
+    SampApi& sampApi,
+    CPed* ped,
+    const CPed* localPed,
+    std::uint64_t& elapsedMs) {
+    elapsedMs = 0;
+    const std::uint64_t startedAtMs = GetTickCount64();
+    if (!ped || !IsMyCarOccupantPedValid(ped)) {
+        elapsedMs = GetTickCount64() - startedAtMs;
         return std::nullopt;
     }
 
     if (ped == localPed) {
         const int localId = sampApi.Local_ID();
         if (localId >= 0 && sampApi.IsConnected(localId)) {
+            elapsedMs = GetTickCount64() - startedAtMs;
             return localId;
         }
     }
 
-    const auto [resolved, id] = sampApi.getPedID(ped);
+    const auto [resolved, id] = sampApi.TryResolvePlayerIdByPedFast(ped);
+    elapsedMs = GetTickCount64() - startedAtMs;
     if (!resolved || id < 0 || id > 1003 || !sampApi.IsConnected(id)) {
         return std::nullopt;
     }
     return id;
 }
 
-std::vector<MyCarOccupant> CollectMyCarOccupants(SampApi& sampApi, const LocalVehicleContext& vehicleContext) {
-    std::vector<MyCarOccupant> occupants;
-    occupants.reserve(9);
+MyCarOccupantCollection CollectMyCarOccupants(SampApi& sampApi, const LocalVehicleContext& vehicleContext) {
+    MyCarOccupantCollection collection;
+    collection.occupants.reserve(9);
 
     const auto appendOccupant = [&](CPed* ped, bool passenger) {
         if (!ped) {
             return;
         }
-        if (std::find_if(occupants.begin(), occupants.end(), [ped](const MyCarOccupant& occupant) {
-                return occupant.ped == ped;
-            }) != occupants.end()) {
+
+        if (passenger) {
+            ++collection.stats.passengerSlots;
+        } else {
+            ++collection.stats.driverSlots;
+        }
+
+        if (!IsMyCarOccupantPedValid(ped)) {
+            ++collection.stats.skippedInvalidPed;
             return;
         }
 
-        const std::optional<int> id = ResolveSampIdForOccupant(sampApi, ped, vehicleContext.playerPed);
-        if (!id.has_value()) {
+        if (passenger) {
+            if (!vehicleContext.vehicle->IsPassenger(ped)) {
+                ++collection.stats.skippedSeatMismatch;
+                return;
+            }
+        } else if (!vehicleContext.vehicle->IsDriver(ped)) {
+            ++collection.stats.skippedSeatMismatch;
             return;
         }
-        occupants.push_back(MyCarOccupant{
+
+        ++collection.stats.validSlots;
+        if (std::find_if(collection.occupants.begin(), collection.occupants.end(), [ped](const MyCarOccupant& occupant) {
+                return occupant.ped == ped;
+            }) != collection.occupants.end()) {
+            ++collection.stats.skippedDuplicate;
+            return;
+        }
+
+        std::uint64_t idResolveMs = 0;
+        const std::optional<int> id = ResolveSampIdForOccupant(sampApi, ped, vehicleContext.playerPed, idResolveMs);
+        if (idResolveMs > collection.stats.maxIdResolveMs) {
+            collection.stats.maxIdResolveMs = idResolveMs;
+            collection.stats.slowIdResolvePed = reinterpret_cast<std::uintptr_t>(ped);
+        }
+        if (!id.has_value()) {
+            ++collection.stats.skippedUnresolvedId;
+            return;
+        }
+        collection.occupants.push_back(MyCarOccupant{
             ped,
             *id,
             passenger,
@@ -288,11 +363,12 @@ std::vector<MyCarOccupant> CollectMyCarOccupants(SampApi& sampApi, const LocalVe
     };
 
     appendOccupant(vehicleContext.vehicle->m_pDriver, false);
-    for (CPed* const passenger : vehicleContext.vehicle->m_apPassengers) {
-        appendOccupant(passenger, true);
+    const std::size_t passengerSlots = PassengerSlotCount(*vehicleContext.vehicle);
+    for (std::size_t index = 0; index < passengerSlots; ++index) {
+        appendOccupant(vehicleContext.vehicle->m_apPassengers[index], true);
     }
 
-    return occupants;
+    return collection;
 }
 
 std::optional<float> ResolveVehicleSpeedKmh(const CVehicle& vehicle) {
@@ -355,9 +431,18 @@ TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
         snapshot.speed = speed.has_value() ? FormatWholeStatValue(*speed) : std::string();
 
         if (requireOccupants && sampReady && localId >= 0) {
-            const std::vector<MyCarOccupant> occupants = CollectMyCarOccupants(*sampApi, *vehicleContext);
-            snapshot.occupants.reserve(occupants.size());
-            for (const MyCarOccupant& occupant : occupants) {
+            const MyCarOccupantCollection collection = CollectMyCarOccupants(*sampApi, *vehicleContext);
+            snapshot.occupantStats.driverSlots = collection.stats.driverSlots;
+            snapshot.occupantStats.passengerSlots = collection.stats.passengerSlots;
+            snapshot.occupantStats.validSlots = collection.stats.validSlots;
+            snapshot.occupantStats.skippedInvalidPed = collection.stats.skippedInvalidPed;
+            snapshot.occupantStats.skippedSeatMismatch = collection.stats.skippedSeatMismatch;
+            snapshot.occupantStats.skippedDuplicate = collection.stats.skippedDuplicate;
+            snapshot.occupantStats.skippedUnresolvedId = collection.stats.skippedUnresolvedId;
+            snapshot.occupantStats.maxIdResolveMs = collection.stats.maxIdResolveMs;
+            snapshot.occupantStats.slowIdResolvePed = collection.stats.slowIdResolvePed;
+            snapshot.occupants.reserve(collection.occupants.size());
+            for (const MyCarOccupant& occupant : collection.occupants) {
                 snapshot.occupants.push_back(MyCarSnapshotOccupant{
                     occupant.id,
                     occupant.passenger,
@@ -374,11 +459,22 @@ TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
             || snapshot.updatedAtMs - snapshot.lastSlowLogAtMs >= kMyCarSnapshotSlowQueryLogThrottleMs)) {
         snapshot.lastSlowLogAtMs = snapshot.updatedAtMs;
         debuglog::WriteInfo(
-            "[tags][mycar] slow snapshot elapsed=%llums vehicle=%d occupants=%zu resolved=%d",
+            "[tags][mycar] slow snapshot elapsed=%llums vehicle=%d occupants=%zu resolved=%d "
+            "driverSlots=%zu passengerSlots=%zu validSlots=%zu skippedInvalid=%zu skippedSeat=%zu "
+            "skippedDup=%zu skippedId=%zu idResolveMax=%llums slowPed=0x%08X",
             static_cast<unsigned long long>(elapsedMs),
             snapshot.hasVehicle ? 1 : 0,
             snapshot.occupants.size(),
-            snapshot.occupantsResolved ? 1 : 0);
+            snapshot.occupantsResolved ? 1 : 0,
+            snapshot.occupantStats.driverSlots,
+            snapshot.occupantStats.passengerSlots,
+            snapshot.occupantStats.validSlots,
+            snapshot.occupantStats.skippedInvalidPed,
+            snapshot.occupantStats.skippedSeatMismatch,
+            snapshot.occupantStats.skippedDuplicate,
+            snapshot.occupantStats.skippedUnresolvedId,
+            static_cast<unsigned long long>(snapshot.occupantStats.maxIdResolveMs),
+            static_cast<unsigned int>(snapshot.occupantStats.slowIdResolvePed));
     }
 
     RecordMyCarSnapshotPerf(

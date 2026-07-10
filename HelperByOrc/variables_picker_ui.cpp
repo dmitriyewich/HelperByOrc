@@ -542,11 +542,7 @@ bool EntryMatchesCategory(const Entry& entry, Category category) {
     return entry.category == category;
 }
 
-bool EntryMatchesSearch(const Entry& entry, std::string_view loweredQuery, UiSettings& ui) {
-    if (loweredQuery.empty()) {
-        return true;
-    }
-
+std::string BuildSearchBlob(const Entry& entry, UiSettings& ui) {
     std::string haystack;
     haystack.reserve(entry.name.size() + entry.token.size() + entry.example.size() + 96);
     haystack += entry.name;
@@ -558,11 +554,43 @@ bool EntryMatchesSearch(const Entry& entry, std::string_view loweredQuery, UiSet
     haystack += CategoryLabel(entry.category, ui);
     haystack.push_back(' ');
     haystack += EntryDescription(entry, ui);
-    return ToLowerAscii(haystack).find(loweredQuery) != std::string::npos;
+    return ToLowerAscii(haystack);
+}
+
+void EnsureSearchBlobCache(const std::vector<Entry>& entries, State& state, UiSettings& ui, std::size_t entriesHash) {
+    if (state.searchBlobEntriesHash == entriesHash
+        && state.searchBlobLanguageCache == ui.Language()
+        && state.searchBlobCache.size() == entries.size()) {
+        return;
+    }
+
+    state.searchBlobCache.clear();
+    state.searchBlobCache.reserve(entries.size());
+    for (const Entry& entry : entries) {
+        state.searchBlobCache.push_back(BuildSearchBlob(entry, ui));
+    }
+    state.searchBlobEntriesHash = entriesHash;
+    state.searchBlobLanguageCache = ui.Language();
+}
+
+bool EntryMatchesSearch(
+    const Entry& entry,
+    std::string_view loweredQuery,
+    UiSettings& ui,
+    const std::string* cachedSearchBlob) {
+    if (loweredQuery.empty()) {
+        return true;
+    }
+
+    if (cachedSearchBlob) {
+        return cachedSearchBlob->find(loweredQuery) != std::string::npos;
+    }
+    return BuildSearchBlob(entry, ui).find(loweredQuery) != std::string::npos;
 }
 
 const std::vector<int>& VisibleIndices(const std::vector<Entry>& entries, State& state, UiSettings& ui, std::size_t entriesHash) {
     const std::string query = ToLowerAscii(TrimAscii(state.search));
+    EnsureSearchBlobCache(entries, state, ui, entriesHash);
     if (state.visibleEntriesHash == entriesHash
         && state.visibleSearchCache == query
         && state.visibleCategoryCache == state.activeCategory
@@ -578,7 +606,10 @@ const std::vector<int>& VisibleIndices(const std::vector<Entry>& entries, State&
     state.visibleCache.reserve(entries.size());
     for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
         const Entry& entry = entries[static_cast<std::size_t>(i)];
-        if (EntryMatchesCategory(entry, state.activeCategory) && EntryMatchesSearch(entry, query, ui)) {
+        const std::string* cachedSearchBlob = static_cast<std::size_t>(i) < state.searchBlobCache.size()
+            ? &state.searchBlobCache[static_cast<std::size_t>(i)]
+            : nullptr;
+        if (EntryMatchesCategory(entry, state.activeCategory) && EntryMatchesSearch(entry, query, ui, cachedSearchBlob)) {
             state.visibleCache.push_back(i);
         }
     }
@@ -905,6 +936,10 @@ bool TryGetHelperAction(const Entry& entry, HelperAction& action) {
         requestType = RequestType::OpenDialogItemPicker;
         label = UiText::VariablesPickDialogItem;
         tooltip = UiText::MiscVariablesDialogItemPickerOpenHint;
+    } else if (entry.name == "arzdialogitem") {
+        requestType = RequestType::OpenArizonaDialogItemPicker;
+        label = UiText::VariablesPickDialogItem;
+        tooltip = UiText::MiscVariablesArzDialogItemPickerOpenHint;
     } else if (entry.name == "dialogtext") {
         requestType = RequestType::OpenDialogTextPicker;
         label = UiText::VariablesPickDialogIndex;
@@ -1265,6 +1300,7 @@ bool IsActionBuiltin(EntryKind kind, std::string_view name) {
         "arzdialogsetinputtext",
         "arzdialogclosewithbutton",
         "arzdialogsetlistitem",
+        "arzdialogitem",
         "arzdialogsendrespond",
         "binddisable",
         "bindenable",

@@ -6,6 +6,7 @@
 #include "json_utils.h"
 
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -25,14 +26,16 @@ struct ConfigProfile {
 class AppConfig {
 public:
     using Mutation = std::function<void(jsonutil::JsonObject&)>;
+    using SectionMutation = std::function<void(jsonutil::JsonObject&)>;
 
     static AppConfig& Instance();
 
     void OnProcessAttach(HMODULE module);
     void Shutdown();
 
-    void QueueMutation(Mutation mutation);
-    void QueueSectionReplace(std::string sectionName, jsonutil::JsonValue value);
+    void QueueMutation(Mutation mutation, std::string source = {});
+    void QueueSectionReplace(std::string sectionName, jsonutil::JsonValue value, std::string source = {});
+    void QueueSectionMutation(std::string sectionName, SectionMutation mutation, std::string source = {});
 
     jsonutil::JsonValue ReadSection(std::string_view sectionName);
     jsonutil::JsonObject ReadSectionObject(std::string_view sectionName);
@@ -52,12 +55,40 @@ public:
     void FlushPendingWrites();
 
 private:
+    struct PendingMutation {
+        enum class Kind {
+            Opaque,
+            SectionReplace,
+            SectionMutation,
+        };
+
+        Kind kind = Kind::Opaque;
+        Mutation mutation{};
+        SectionMutation sectionMutation{};
+        std::string sectionName{};
+        jsonutil::JsonValue sectionValue{};
+        std::string source{};
+    };
+
+    struct SnapshotRequest {
+        std::filesystem::path targetPath{};
+        std::uint64_t revision = 0;
+        std::string sources{};
+        std::uint64_t mutations = 0;
+        std::uint64_t changed = 0;
+        std::uint64_t noop = 0;
+        double requestedAtMs = 0.0;
+        double debounceMs = 0.0;
+        bool force = false;
+    };
+
     void LoadProfilesLocked(HMODULE module);
     bool SaveProfilesRegistryLocked() const;
     void RefreshProfileStateLocked();
     void EnsureLoadedLocked();
-    bool ProcessPendingWritesOnce();
-    bool WriteSnapshot(std::filesystem::path targetPath, jsonutil::JsonObject snapshot);
+    void ResetSnapshotTrackingLocked();
+    bool ProcessPendingWritesOnce(bool forceSnapshot);
+    bool RequestSnapshotWrite(SnapshotRequest request);
     void StartSnapshotWriter();
     void StopSnapshotWriter();
     void FlushSnapshotWriter();
@@ -72,7 +103,17 @@ private:
     bool loaded_ = false;
     jsonutil::JsonObject root_{};
     std::string lastSerializedSnapshot_{};
-    std::deque<Mutation> pendingMutations_{};
+    std::deque<PendingMutation> pendingMutations_{};
+    std::uint64_t rootRevision_ = 0;
+    std::uint64_t persistedRevision_ = 0;
+    std::uint64_t snapshotRequestedRevision_ = 0;
+    bool snapshotRetryPending_ = false;
+    double lastChangedMutationMs_ = 0.0;
+    double nextSnapshotRetryMs_ = 0.0;
+    std::string pendingSnapshotSources_{};
+    std::uint64_t pendingSnapshotMutations_ = 0;
+    std::uint64_t pendingSnapshotChanged_ = 0;
+    std::uint64_t pendingSnapshotNoop_ = 0;
 
     std::mutex writerMutex_{};
     std::condition_variable writerCv_{};
@@ -81,6 +122,5 @@ private:
     bool writerStop_ = false;
     bool writerBusy_ = false;
     bool writerHasPending_ = false;
-    std::filesystem::path writerPendingPath_{};
-    jsonutil::JsonObject writerPendingSnapshot_{};
+    SnapshotRequest writerPendingRequest_{};
 };

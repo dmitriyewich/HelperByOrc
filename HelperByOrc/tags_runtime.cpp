@@ -1,6 +1,28 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+namespace {
+
+double PlayerNamePerfNowMs() {
+    static const double s_invFrequencyMs = [] {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            return 0.0;
+        }
+        return 1000.0 / static_cast<double>(frequency.QuadPart);
+    }();
+
+    if (s_invFrequencyMs <= 0.0) {
+        return static_cast<double>(GetTickCount64());
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+} // namespace
+
 TagsModule::Impl::OwnedEvaluationContext TagsModule::Impl::MakeOwnedContext(const EvaluationContext& context, SampApi* fallbackSampApi) {
     OwnedEvaluationContext owned;
     owned.sampApi = context.sampApi ? context.sampApi : fallbackSampApi;
@@ -296,9 +318,17 @@ void TagsModule::Impl::ProcessPendingArzDialogQueryWaits() {
 
         bool pending = false;
         if (arizonaCefDialogs_) {
-            pending = it->kind == PendingArzDialogQueryKind::InputText
-                ? arizonaCefDialogs_->HasPendingInputTextQuery()
-                : arizonaCefDialogs_->HasPendingListItemQuery();
+            switch (it->kind) {
+            case PendingArzDialogQueryKind::InputText:
+                pending = arizonaCefDialogs_->HasPendingInputTextQuery();
+                break;
+            case PendingArzDialogQueryKind::ListItem:
+                pending = arizonaCefDialogs_->HasPendingListItemQuery();
+                break;
+            case PendingArzDialogQueryKind::ListItems:
+                pending = arizonaCefDialogs_->HasPendingListItemsQuery();
+                break;
+            }
         }
 
         if (pending && it->deadlineAtMs != 0 && now < it->deadlineAtMs) {
@@ -497,14 +527,63 @@ TagsModule::Impl::EvaluationContext TagsModule::Impl::ResolveActiveContext(
     };
 }
 
+void TagsModule::Impl::RecordPlayerNamePerf(bool failed, bool unknown, double elapsedMs) const {
+    const std::uint64_t now = GetTickCount64();
+    PlayerNamePerfStats& stats = playerNamePerfStats_;
+    if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
+        stats.windowStartMs = now;
+    }
+
+    ++stats.calls;
+    if (failed) {
+        ++stats.failed;
+    }
+    if (unknown) {
+        ++stats.unknown;
+    }
+    stats.totalMs += elapsedMs;
+    stats.maxMs = std::max(stats.maxMs, elapsedMs);
+    MaybeLogPlayerNamePerf(now);
+}
+
+void TagsModule::Impl::MaybeLogPlayerNamePerf(std::uint64_t nowMs) const {
+    PlayerNamePerfStats& stats = playerNamePerfStats_;
+    if (stats.windowStartMs == 0 || nowMs < stats.windowStartMs) {
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const std::uint64_t windowMs = nowMs - stats.windowStartMs;
+    if (windowMs < kPlayerNamePerfTelemetryWindowMs) {
+        return;
+    }
+    if (stats.calls > 0) {
+        debuglog::WriteInfo(
+            "[tags][name][perf] window=%llums calls=%llu avg=%.3fms max=%.2fms failed=%llu unknown=%llu",
+            static_cast<unsigned long long>(windowMs),
+            static_cast<unsigned long long>(stats.calls),
+            stats.totalMs / static_cast<double>(stats.calls),
+            stats.maxMs,
+            static_cast<unsigned long long>(stats.failed),
+            static_cast<unsigned long long>(stats.unknown));
+    }
+
+    stats = PlayerNamePerfStats{};
+    stats.windowStartMs = nowMs;
+}
+
 std::string TagsModule::Impl::ResolvePlayerNickById(int id, const EvaluationContext& context) const {
+    const double beginMs = PlayerNamePerfNowMs();
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || id < 0) {
+        RecordPlayerNamePerf(true, false, PlayerNamePerfNowMs() - beginMs);
         return std::string();
     }
 
     const std::string nick = sampApi->GetNameID(id);
-    return nick.empty() || nick == "UNKNOWN" ? std::string() : nick;
+    const bool unknown = nick.empty() || nick == "UNKNOWN";
+    RecordPlayerNamePerf(false, unknown, PlayerNamePerfNowMs() - beginMs);
+    return unknown ? std::string() : nick;
 }
 
 std::string TagsModule::Impl::ResolveLocalNick(const EvaluationContext& context) const {
@@ -525,6 +604,8 @@ std::string TagsModule::Impl::ResolveLastTargetNick(const EvaluationContext& con
 void TagsModule::Impl::ResetTargetTracker() {
     targetTracker_ = TargetTrackerState{};
     closestPlayerCache_.valid = false;
+    closestPlayerPerfStats_ = ClosestPlayerPerfStats{};
+    playerNamePerfStats_ = PlayerNamePerfStats{};
     myCarSnapshotCache_.valid = false;
     myCarSnapshotPerfStats_ = MyCarSnapshotPerfStats{};
 }
@@ -533,7 +614,9 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
     ClosestPlayerQueryResult result;
 
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    const std::uint64_t now = GetTickCount64();
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        RecordClosestPlayersPerf(false, false, false, 0, 0);
         return result;
     }
 
@@ -541,16 +624,17 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
     CPed* const localPed = FindPlayerPed();
     if (localId < 0 || !localPed) {
         closestPlayerCache_.valid = false;
+        RecordClosestPlayersPerf(false, true, false, 0, 0);
         return result;
     }
 
-    const std::uint64_t now = GetTickCount64();
     const std::uintptr_t localPedAddress = reinterpret_cast<std::uintptr_t>(localPed);
     if (closestPlayerCache_.valid
         && closestPlayerCache_.localId == localId
         && closestPlayerCache_.localPed == localPedAddress
         && now >= closestPlayerCache_.updatedAtMs
         && now - closestPlayerCache_.updatedAtMs <= kClosestPlayerCacheTtlMs) {
+        RecordClosestPlayersPerf(true, true, true, 0, 0);
         return closestPlayerCache_.result;
     }
 
@@ -562,6 +646,7 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
 
     float bestDistanceSq = std::numeric_limits<float>::max();
     float bestCenterDistanceSq = std::numeric_limits<float>::max();
+    std::size_t candidates = 0;
 
     for (int id = 0; id <= kMaxSampPlayerId; ++id) {
         if (id == localId) {
@@ -573,6 +658,7 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
         if (!candidatePed || candidatePed == localPed) {
             continue;
         }
+        ++candidates;
 
         const CVector& position = candidatePed->GetPosition();
         const float dx = position.x - localPosition.x;
@@ -632,7 +718,76 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
             result.nearestToCenterId);
     }
 
+    RecordClosestPlayersPerf(false, true, true, candidates, elapsedMs);
     return result;
+}
+
+void TagsModule::Impl::RecordClosestPlayersPerf(
+    bool cacheHit,
+    bool sampReady,
+    bool localReady,
+    std::size_t candidates,
+    std::uint64_t elapsedMs) const {
+    const std::uint64_t now = GetTickCount64();
+    ClosestPlayerPerfStats& stats = closestPlayerPerfStats_;
+    if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
+        stats.windowStartMs = now;
+    }
+
+    ++stats.requests;
+    if (cacheHit) {
+        ++stats.cacheHits;
+    } else {
+        ++stats.rebuilds;
+        stats.totalRebuildMs += elapsedMs;
+        stats.maxRebuildMs = std::max(stats.maxRebuildMs, elapsedMs);
+    }
+    if (!sampReady) {
+        ++stats.noSamp;
+    }
+    if (!localReady) {
+        ++stats.noLocal;
+    }
+    stats.maxCandidates = std::max(stats.maxCandidates, candidates);
+
+    MaybeLogClosestPlayersPerf(now);
+}
+
+void TagsModule::Impl::MaybeLogClosestPlayersPerf(std::uint64_t nowMs) const {
+    ClosestPlayerPerfStats& stats = closestPlayerPerfStats_;
+    if (stats.windowStartMs == 0 || nowMs < stats.windowStartMs) {
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const std::uint64_t windowMs = nowMs - stats.windowStartMs;
+    if (windowMs < kClosestPlayerPerfTelemetryWindowMs) {
+        return;
+    }
+
+    if (stats.requests == 0) {
+        stats = ClosestPlayerPerfStats{};
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const double avgRebuildMs =
+        stats.rebuilds > 0 ? static_cast<double>(stats.totalRebuildMs) / static_cast<double>(stats.rebuilds) : 0.0;
+    debuglog::WriteInfo(
+        "[tags][closest][perf] window=%llums requests=%llu hits=%llu rebuilds=%llu noSamp=%llu noLocal=%llu "
+        "avgRebuild=%.2fms maxRebuild=%llums maxCandidates=%zu",
+        static_cast<unsigned long long>(windowMs),
+        static_cast<unsigned long long>(stats.requests),
+        static_cast<unsigned long long>(stats.cacheHits),
+        static_cast<unsigned long long>(stats.rebuilds),
+        static_cast<unsigned long long>(stats.noSamp),
+        static_cast<unsigned long long>(stats.noLocal),
+        avgRebuildMs,
+        static_cast<unsigned long long>(stats.maxRebuildMs),
+        stats.maxCandidates);
+
+    stats = ClosestPlayerPerfStats{};
+    stats.windowStartMs = nowMs;
 }
 
 void TagsModule::Impl::UpdateTargetTracker() {
@@ -685,7 +840,7 @@ void TagsModule::Impl::UpdateTargetTracker() {
         return;
     }
 
-    const auto [resolved, targetId] = sampApi->getPedID(targetedPed);
+    const auto [resolved, targetId] = sampApi->TryResolvePlayerIdByPedFast(targetedPed);
     if (!resolved || targetId < 0) {
         logTargetState(targetedPed, targetId, false, "unresolved");
         return;

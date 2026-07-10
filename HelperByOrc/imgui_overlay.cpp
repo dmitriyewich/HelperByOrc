@@ -38,7 +38,7 @@ constexpr uint64_t kPostRenderHealthTraceIntervalMs =
 constexpr uint64_t kResetTraceIntervalMs = 1000;
 constexpr uint64_t kStateBlockFailTraceIntervalMs = 1000;
 constexpr uint64_t kSetCursorTraceIntervalMs = 1500;
-constexpr uint64_t kWheelTraceIntervalMs = 100;
+constexpr uint64_t kWheelTraceIntervalMs = 1000;
 constexpr uint64_t kWndProcTraceIntervalMs = 1500;
 constexpr float kHelperWindowHitTestPadding = 4.0f;
 constexpr uint64_t kRenderStatsTraceIntervalMs =
@@ -521,17 +521,21 @@ void TraceWheelMessage(UINT message, WPARAM wparam, bool wantsUiCursor, const Im
     }
 
     static uint64_t s_lastWheelTraceMs = 0;
+    static uint32_t s_suppressedWheelTrace = 0;
     const uint64_t now = GetTickCount64();
     if (now - s_lastWheelTraceMs < kWheelTraceIntervalMs) {
+        ++s_suppressedWheelTrace;
         return;
     }
+    const uint32_t suppressedWheelTrace = s_suppressedWheelTrace;
+    s_suppressedWheelTrace = 0;
     s_lastWheelTraceMs = now;
 
     const ImGuiContext* ctx = GImGui;
     const ImGuiWindow* hoveredWindow = ctx ? ctx->HoveredWindow : nullptr;
     const ImGuiWindow* wheelingWindow = ctx ? ctx->WheelingWindow : nullptr;
     debuglog::WriteInfo(
-        "[ui] wheel msg=%u delta=%d wantsUiCur=%d WantCapMouse=%d HovWin=\"%s\" WheelWin=\"%s\" OpenPop=%d BeginPop=%d ioWheel=(%.2f,%.2f)",
+        "[ui] wheel msg=%u delta=%d wantsUiCur=%d WantCapMouse=%d HovWin=\"%s\" WheelWin=\"%s\" OpenPop=%d BeginPop=%d ioWheel=(%.2f,%.2f) suppressed=%u",
         static_cast<unsigned>(message),
         static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)),
         wantsUiCursor ? 1 : 0,
@@ -541,7 +545,8 @@ void TraceWheelMessage(UINT message, WPARAM wparam, bool wantsUiCursor, const Im
         ctx ? ctx->OpenPopupStack.Size : -1,
         ctx ? ctx->BeginPopupStack.Size : -1,
         io.MouseWheelH,
-        io.MouseWheel);
+        io.MouseWheel,
+        static_cast<unsigned>(suppressedWheelTrace));
 }
 
 void DestroyDummyWindow(HWND window, bool registeredWindowClass) {

@@ -7,19 +7,18 @@ void TagsModule::Impl::LoadConfig() {
 
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kTagsSectionName);
     const jsonutil::JsonObject* customVars = jsonutil::JsonObjectOrNull(&section, kCustomVarsKey.data());
-    if (!customVars) {
-        return;
-    }
-
-    for (const auto& [key, value] : *customVars) {
-        if (const std::string* text = value.TryString()) {
-            customVariables_.emplace_back(key, *text);
+    if (customVars) {
+        for (const auto& [key, value] : *customVars) {
+            if (const std::string* text = value.TryString()) {
+                customVariables_.emplace_back(key, *text);
+            }
         }
     }
 
     std::sort(customVariables_.begin(), customVariables_.end(), [](const auto& left, const auto& right) {
         return left.first < right.first;
     });
+    RebuildCustomVariableIndex();
     debuglog::WriteInfo("TagsModule::LoadConfig done customVars=%llu", static_cast<unsigned long long>(customVariables_.size()));
 }
 
@@ -34,14 +33,39 @@ void TagsModule::Impl::SaveConfig() const {
     AppConfig::Instance().QueueSectionReplace(std::string(kTagsSectionName), jsonutil::JsonValue(std::move(section)));
 }
 
+void TagsModule::Impl::RebuildCustomVariableIndex() {
+    customVariableIndex_.clear();
+    customVariableIndex_.reserve(customVariables_.size());
+    for (std::size_t i = 0; i < customVariables_.size(); ++i) {
+        customVariableIndex_[ToLower(customVariables_[i].first)] = i;
+    }
+    ++customVariablesRevision_;
+    InvalidateVariablePickerEntriesCache();
+}
+
+void TagsModule::Impl::InvalidateVariablePickerEntriesCache() const {
+    variablePickerEntriesCatalogRevision_ = 0;
+    variablePickerEntriesCustomRevision_ = 0;
+}
+
 void TagsModule::Impl::OpenKeyEmulatePicker() {
     keyPickerSearchQuery_.clear();
     ImGui::OpenPopup("##tags_keyemulate_picker");
 }
 
-void TagsModule::Impl::OpenDialogItemPicker() {
+void TagsModule::Impl::OpenDialogItemPicker(DialogItemPickerSource source) {
     dialogItemPickerSearchQuery_.clear();
+    dialogItemPickerSource_ = source;
+    dialogItemPickerArizonaQueryStarted_ = false;
     dialogItemPickerOpenPending_ = true;
+}
+
+void TagsModule::Impl::OpenDialogItemPicker() {
+    OpenDialogItemPicker(DialogItemPickerSource::Samp);
+}
+
+void TagsModule::Impl::OpenArizonaDialogItemPicker() {
+    OpenDialogItemPicker(DialogItemPickerSource::Arizona);
 }
 
 void TagsModule::Impl::OpenDialogTextPicker(DialogTextPickerSource source) {
@@ -113,8 +137,11 @@ void TagsModule::Impl::DrawDialogItemPickerPopup(const std::function<void(std::s
         return;
     }
 
-    ImGui::TextUnformatted(ui.Text(UiText::MiscVariablesDialogItemPickerTitle));
-    ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesDialogItemPickerIntro));
+    const bool arizonaSource = dialogItemPickerSource_ == DialogItemPickerSource::Arizona;
+    ImGui::TextUnformatted(ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogItemPickerTitle : UiText::MiscVariablesDialogItemPickerTitle));
+    ImGui::TextWrapped(
+        "%s",
+        ui.Text(arizonaSource ? UiText::MiscVariablesArzDialogItemPickerIntro : UiText::MiscVariablesDialogItemPickerIntro));
     ImGui::Separator();
 
     InputTextWithHintString(
@@ -125,18 +152,51 @@ void TagsModule::Impl::DrawDialogItemPickerPopup(const std::function<void(std::s
         128);
     ImGui::Spacing();
 
-    std::string error;
-    const std::optional<DialogListItems> items = ReadActiveDialogListItems(sampApi_, error);
-    if (!items.has_value()) {
-        const UiText errorText = error == "not_list" ? UiText::MiscVariablesDialogItemPickerNotList : UiText::MiscVariablesDialogItemPickerNoDialog;
+    std::optional<DialogListItems> items;
+    std::string caption;
+    if (arizonaSource) {
+        if (arizonaCefDialogs_) {
+            const std::string domItemsJson = dialogItemPickerArizonaQueryStarted_
+                ? arizonaCefDialogs_->CachedListItemsJson()
+                : arizonaCefDialogs_->QueryListItems(kArzDialogQueryDefaultTimeoutMs);
+            dialogItemPickerArizonaQueryStarted_ = true;
+            items = ParseDialogListItemsJson(domItemsJson);
+            const std::string rpcText = arizonaCefDialogs_->LastDialogText();
+            if ((!items.has_value() || items->items.empty()) && arizonaCefDialogs_->LastDialogId() >= 0 && !rpcText.empty()) {
+                items = CollectDialogListItems(
+                    rpcText,
+                    GetDialogItemHeaderLinesToSkipForStyle(arizonaCefDialogs_->LastDialogStyle()));
+            }
+            caption = arizonaCefDialogs_->LastDialogTitle();
+        }
+    } else {
+        std::string error;
+        items = ReadActiveDialogListItems(sampApi_, error);
+        if (!items.has_value()) {
+            const UiText errorText =
+                error == "not_list" ? UiText::MiscVariablesDialogItemPickerNotList : UiText::MiscVariablesDialogItemPickerNoDialog;
+            ImGui::TextDisabled("%s", ui.Text(errorText));
+            ImGui::EndPopup();
+            return;
+        }
+        caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
+    }
+
+    if (!items.has_value() || items->items.empty()) {
+        const UiText errorText =
+            arizonaSource ? UiText::MiscVariablesArzDialogItemPickerNoDialog : UiText::MiscVariablesDialogItemPickerNoDialog;
         ImGui::TextDisabled("%s", ui.Text(errorText));
         ImGui::EndPopup();
         return;
     }
 
-    const std::string caption = sampApi_ ? NormalizeDialogCaptionVisibleText(sampApi_->get_dialog_caption()) : std::string();
     if (!caption.empty()) {
-        ImGui::TextDisabled("%s", ui.Format(UiText::MiscVariablesDialogItemPickerCaptionLabel, caption.c_str()).c_str());
+        ImGui::TextDisabled(
+            "%s",
+            ui.Format(
+                  arizonaSource ? UiText::MiscVariablesArzDialogItemPickerCaptionLabel : UiText::MiscVariablesDialogItemPickerCaptionLabel,
+                  caption.c_str())
+                .c_str());
     }
     if (!items->headerText.empty()) {
         ImGui::TextWrapped("%s", ui.Format(UiText::MiscVariablesDialogItemPickerHeaderLabel, items->headerText.c_str()).c_str());
@@ -157,15 +217,20 @@ void TagsModule::Impl::DrawDialogItemPickerPopup(const std::function<void(std::s
             const std::string visibleText = item.text.empty() ? item.rawText : item.text;
             return std::to_string(item.index1) + " - " + visibleText;
         },
-        [](const DialogListItemInfo& item) {
-            return "[dialogitem(" + std::to_string(item.index1) + ")]";
+        [arizonaSource](const DialogListItemInfo& item) {
+            return std::string(arizonaSource ? "[ARZdialogitem(" : "[dialogitem(")
+                + std::to_string(item.index1)
+                + ")]";
         },
         tokenAction);
 
     ImGui::Spacing();
     ImGui::TextDisabled(
         "%s",
-        ui.Text(tokenAction ? UiText::EditorVariablesDialogPickerInsertHint : UiText::MiscVariablesDialogItemPickerCopyHint));
+        ui.Text(
+            tokenAction
+                ? UiText::EditorVariablesDialogPickerInsertHint
+                : arizonaSource ? UiText::MiscVariablesArzDialogItemPickerCopyHint : UiText::MiscVariablesDialogItemPickerCopyHint));
     ImGui::EndPopup();
 }
 
@@ -277,10 +342,14 @@ void TagsModule::Impl::DrawMiscHomePage() {
     }
 }
 
-std::vector<variables_picker::Entry> TagsModule::Impl::BuildVariablePickerEntries() const {
-    std::vector<variables_picker::Entry> entries;
-    entries.reserve(tagRegistry_.Entries().size() + customVariables_.size());
+const std::vector<variables_picker::Entry>& TagsModule::Impl::BuildVariablePickerEntries() const {
+    if (variablePickerEntriesCatalogRevision_ == catalogEntriesRevision_
+        && variablePickerEntriesCustomRevision_ == customVariablesRevision_) {
+        return variablePickerEntriesCache_;
+    }
 
+    variablePickerEntriesCache_.clear();
+    variablePickerEntriesCache_.reserve(tagRegistry_.Entries().size() + customVariables_.size());
     for (const TagEntry& tag : tagRegistry_.Entries()) {
         const variables_picker::EntryKind kind = tag.kind == TagKind::Function
             ? variables_picker::EntryKind::Function
@@ -294,7 +363,7 @@ std::vector<variables_picker::Entry> TagsModule::Impl::BuildVariablePickerEntrie
         entry.example = tag.example;
         entry.descriptionText = tag.descriptionText;
         entry.action = variables_picker::IsActionBuiltin(kind, tag.name);
-        entries.push_back(std::move(entry));
+        variablePickerEntriesCache_.push_back(std::move(entry));
     }
 
     for (const auto& [name, value] : customVariables_) {
@@ -307,10 +376,12 @@ std::vector<variables_picker::Entry> TagsModule::Impl::BuildVariablePickerEntrie
         entry.example = entry.token;
         entry.value = value;
         entry.description = value;
-        entries.push_back(std::move(entry));
+        variablePickerEntriesCache_.push_back(std::move(entry));
     }
 
-    return entries;
+    variablePickerEntriesCatalogRevision_ = catalogEntriesRevision_;
+    variablePickerEntriesCustomRevision_ = customVariablesRevision_;
+    return variablePickerEntriesCache_;
 }
 
 std::string TagsModule::Impl::ValidateCustomVariableName(std::string_view originalName, std::string_view name) const {
@@ -331,17 +402,13 @@ std::string TagsModule::Impl::ValidateCustomVariableName(std::string_view origin
 
     const std::string loweredName = ToLower(cleanName);
     const std::string loweredOriginal = ToLower(Trim(originalName));
-    for (const TagEntry& tag : tagRegistry_.Entries()) {
-        if (ToLower(tag.name) == loweredName) {
-            return ui.Text(UiText::VariablesCustomErrorBuiltinConflict);
-        }
+    if (tagRegistry_.Find(TagKind::Simple, loweredName) || tagRegistry_.Find(TagKind::Function, loweredName)) {
+        return ui.Text(UiText::VariablesCustomErrorBuiltinConflict);
     }
 
-    for (const auto& [customName, _] : customVariables_) {
-        const std::string loweredCustom = ToLower(customName);
-        if (loweredCustom == loweredName && loweredCustom != loweredOriginal) {
-            return ui.Text(UiText::VariablesCustomErrorDuplicate);
-        }
+    const auto customIt = customVariableIndex_.find(loweredName);
+    if (customIt != customVariableIndex_.end() && loweredName != loweredOriginal) {
+        return ui.Text(UiText::VariablesCustomErrorDuplicate);
     }
 
     return {};
@@ -380,6 +447,7 @@ bool TagsModule::Impl::UpsertCustomVariable(std::string originalName, std::strin
     std::sort(customVariables_.begin(), customVariables_.end(), [](const auto& left, const auto& right) {
         return left.first < right.first;
     });
+    RebuildCustomVariableIndex();
     SaveConfig();
     return true;
 }
@@ -397,6 +465,7 @@ bool TagsModule::Impl::DeleteCustomVariable(std::string_view name) {
         return false;
     }
 
+    RebuildCustomVariableIndex();
     SaveConfig();
     return true;
 }
@@ -411,6 +480,9 @@ void TagsModule::Impl::HandleVariablePickerRequest(const variables_picker::Reque
         break;
     case variables_picker::RequestType::OpenDialogItemPicker:
         OpenDialogItemPicker();
+        break;
+    case variables_picker::RequestType::OpenArizonaDialogItemPicker:
+        OpenDialogItemPicker(DialogItemPickerSource::Arizona);
         break;
     case variables_picker::RequestType::OpenDialogTextPicker:
         OpenDialogTextPicker(DialogTextPickerSource::Samp);
@@ -462,7 +534,7 @@ void TagsModule::Impl::DrawVariablesPage() {
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesEntryDesc));
     ImGui::Spacing();
 
-    const std::vector<variables_picker::Entry> entries = BuildVariablePickerEntries();
+    const std::vector<variables_picker::Entry>& entries = BuildVariablePickerEntries();
     const variables_picker::Request request = variables_picker::Draw(
         variablesPickerState_,
         entries,

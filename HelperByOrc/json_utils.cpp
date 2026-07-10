@@ -400,6 +400,63 @@ std::optional<JsonValue> ParseJson(std::string_view source, std::string& error) 
     return parser.Parse(error);
 }
 
+bool JsonEquals(const JsonValue& left, const JsonValue& right) {
+    if (left.storage.index() != right.storage.index()) {
+        return false;
+    }
+
+    if (left.IsNull()) {
+        return true;
+    }
+
+    if (const bool* leftBool = left.TryBool()) {
+        const bool* rightBool = right.TryBool();
+        return rightBool && *leftBool == *rightBool;
+    }
+
+    if (const double* leftNumber = left.TryNumber()) {
+        const double* rightNumber = right.TryNumber();
+        return rightNumber && *leftNumber == *rightNumber;
+    }
+
+    if (const std::string* leftString = left.TryString()) {
+        const std::string* rightString = right.TryString();
+        return rightString && *leftString == *rightString;
+    }
+
+    if (const JsonArray* leftArray = left.TryArray()) {
+        const JsonArray* rightArray = right.TryArray();
+        if (!rightArray || leftArray->size() != rightArray->size()) {
+            return false;
+        }
+
+        for (std::size_t index = 0; index < leftArray->size(); ++index) {
+            if (!JsonEquals((*leftArray)[index], (*rightArray)[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (const JsonObject* leftObject = left.TryObject()) {
+        const JsonObject* rightObject = right.TryObject();
+        if (!rightObject || leftObject->size() != rightObject->size()) {
+            return false;
+        }
+
+        auto leftIt = leftObject->begin();
+        auto rightIt = rightObject->begin();
+        for (; leftIt != leftObject->end(); ++leftIt, ++rightIt) {
+            if (leftIt->first != rightIt->first || !JsonEquals(leftIt->second, rightIt->second)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void WriteJson(const JsonValue& value, std::string& out, int indent) {
     if (const auto* nullValue = std::get_if<std::nullptr_t>(&value.storage)) {
         (void)nullValue;

@@ -1303,7 +1303,13 @@ struct NotepadModule::Impl {
         renderedNoteCache.applyTags = applyTags;
         renderedNoteCache.tagsModule = tagsModule;
         renderedNoteCache.source = note.text;
-        renderedNoteCache.rendered = tagsModule->ExpandText(note.text);
+        renderedNoteCache.rendered = tagsModule->ExpandText(note.text, TagsModule::EvaluationContext{
+                                                                         nullptr,
+                                                                         "notepad",
+                                                                         {},
+                                                                         {},
+                                                                         true,
+                                                                     });
         renderedNoteCache.valid = true;
         lastRenderStats.tagsMs += NotepadPerfNowMs() - beginMs;
         lastRenderStats.renderedBytes = renderedNoteCache.rendered.size();
@@ -1330,7 +1336,13 @@ struct NotepadModule::Impl {
         renderedEditCache.applyTags = applyTags;
         renderedEditCache.tagsModule = tagsModule;
         renderedEditCache.source = editBuffer;
-        renderedEditCache.rendered = tagsModule->ExpandText(editBuffer);
+        renderedEditCache.rendered = tagsModule->ExpandText(editBuffer, TagsModule::EvaluationContext{
+                                                                       nullptr,
+                                                                       "notepad",
+                                                                       {},
+                                                                       {},
+                                                                       true,
+                                                                   });
         renderedEditCache.valid = true;
         lastRenderStats.tagsMs += NotepadPerfNowMs() - beginMs;
         lastRenderStats.renderedBytes = renderedEditCache.rendered.size();

@@ -22,7 +22,111 @@ int Utf16CodeUnitLength(std::string_view utf8Text) {
     return length > 0 ? length : static_cast<int>(utf8Text.size());
 }
 
+double TagsPerfNowMs() {
+    static LARGE_INTEGER frequency{};
+    static bool initialized = false;
+    if (!initialized) {
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            frequency.QuadPart = 1;
+        }
+        initialized = true;
+    }
+
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart);
+}
+
+bool MightContainAnyTag(std::string_view text) {
+    return text.find('{') != std::string_view::npos || text.find('[') != std::string_view::npos;
+}
+
+bool IsSampColorLiteralName(std::string_view name) {
+    if (name.size() != 6 && name.size() != 8) {
+        return false;
+    }
+    for (const unsigned char ch : name) {
+        if (std::isxdigit(ch) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
+
+const char* TagsModule::Impl::TagPerfSourceName(TagPerfSource source) {
+    switch (source) {
+    case TagPerfSource::Hud:
+        return "hud";
+    case TagPerfSource::Binder:
+        return "binder";
+    case TagPerfSource::Outgoing:
+        return "outgoing";
+    case TagPerfSource::Notepad:
+        return "notepad";
+    case TagPerfSource::Ui:
+        return "ui";
+    case TagPerfSource::Unknown:
+    default:
+        return "unknown";
+    }
+}
+
+const char* TagsModule::Impl::TagPerfGroupName(TagPerfGroup group) {
+    switch (group) {
+    case TagPerfGroup::Custom:
+        return "custom";
+    case TagPerfGroup::MyCar:
+        return "mycar";
+    case TagPerfGroup::Closest:
+        return "closest";
+    case TagPerfGroup::Dialog:
+        return "dialog";
+    case TagPerfGroup::Arizona:
+        return "arizona";
+    case TagPerfGroup::Action:
+        return "action";
+    case TagPerfGroup::Builtin:
+    default:
+        return "builtin";
+    }
+}
+
+const char* TagsModule::Impl::TagKindPerfName(TagKind kind) {
+    return kind == TagKind::Function ? "function" : "simple";
+}
+
+TagsModule::Impl::TagPerfGroup TagsModule::Impl::ClassifyTagPerfGroup(std::string_view normalizedName, bool action) {
+    if (action) {
+        return TagPerfGroup::Action;
+    }
+    if (normalizedName.rfind("mycar", 0) == 0) {
+        return TagPerfGroup::MyCar;
+    }
+    if (normalizedName.rfind("closest", 0) == 0) {
+        return TagPerfGroup::Closest;
+    }
+    if (normalizedName.rfind("arzdialog", 0) == 0) {
+        return TagPerfGroup::Arizona;
+    }
+    if (normalizedName.find("dialog") != std::string_view::npos) {
+        return TagPerfGroup::Dialog;
+    }
+    return TagPerfGroup::Builtin;
+}
+
+TagsModule::Impl::TagPerfGroup TagsModule::Impl::DominantTagPerfGroup(const TagExpansionTrace& trace) {
+    std::size_t bestIndex = 0;
+    std::uint64_t bestCount = 0;
+    for (std::size_t i = 0; i < trace.groupCounts.size(); ++i) {
+        if (trace.groupCounts[i] > bestCount) {
+            bestCount = trace.groupCounts[i];
+            bestIndex = i;
+        }
+    }
+    return static_cast<TagPerfGroup>(bestIndex);
+}
 
 bool TagsModule::Impl::TryGetCursorTarget(std::string_view normalizedName, CursorTarget& target) const {
     if (normalizedName == "cursor") {
@@ -167,20 +271,195 @@ int TagsModule::Impl::CursorPositionForOutput(CursorTarget target, const std::st
     }
 }
 
-std::optional<std::string> TagsModule::Impl::ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const {
-    const std::string normalized = ToLower(name);
+TagsModule::Impl::TagPerfSource TagsModule::Impl::ResolveTagPerfSource(const EvaluationContext& context) const {
+    if (context.runningBindRuntimeId != 0 || !context.bindCommand.empty()) {
+        return TagPerfSource::Binder;
+    }
+    if (context.activationSource == "hud") {
+        return TagPerfSource::Hud;
+    }
+    if (context.activationSource == "command" || context.activationSource == "chat") {
+        return TagPerfSource::Outgoing;
+    }
+    if (context.activationSource == "notepad") {
+        return TagPerfSource::Notepad;
+    }
+    if (context.activationSource == "ui" || context.activationSource == "binder_preview") {
+        return TagPerfSource::Ui;
+    }
+    return TagPerfSource::Unknown;
+}
 
-    for (const auto& [customName, customValue] : customVariables_) {
-        if (normalized == ToLower(customName)) {
-            return customValue;
+void TagsModule::Impl::RecordTagGroup(TagExpansionTrace& trace, TagPerfGroup group) const {
+    const std::size_t index = static_cast<std::size_t>(group);
+    if (index < trace.groupCounts.size()) {
+        ++trace.groupCounts[index];
+    }
+}
+
+void TagsModule::Impl::RecordHotTag(
+    TagExpansionTrace& trace,
+    TagKind kind,
+    std::string_view name,
+    double elapsedMs) const {
+    if (elapsedMs <= trace.hotTagMs) {
+        return;
+    }
+
+    trace.hotTagKind = kind;
+    trace.hotTagName.assign(name.begin(), name.end());
+    trace.hotTagMs = elapsedMs;
+}
+
+void TagsModule::Impl::RecordTagExpansionPerf(const TagExpansionTrace& trace, double elapsedMs) const {
+    const std::uint64_t now = GetTickCount64();
+    TagExpansionPerfStats& stats = tagExpansionPerfStats_;
+    if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
+        stats.windowStartMs = now;
+    }
+
+    const std::size_t bucketIndex = static_cast<std::size_t>(trace.source);
+    TagExpansionPerfBucket& bucket = stats.buckets[bucketIndex < stats.buckets.size() ? bucketIndex : 0];
+    ++bucket.calls;
+    bucket.inputBytes += trace.inputBytes;
+    bucket.outputBytes += trace.outputBytes;
+    bucket.simpleTags += trace.simpleTags;
+    bucket.functionTags += trace.functionTags;
+    bucket.customTags += trace.customTags;
+    bucket.actionTags += trace.actionTags;
+    bucket.unresolvedTags += trace.unresolvedTags;
+    bucket.recursionLimitHits += trace.recursionLimitHits;
+    bucket.totalMs += elapsedMs;
+    bucket.maxMs = std::max(bucket.maxMs, elapsedMs);
+    for (std::size_t i = 0; i < bucket.groupCounts.size(); ++i) {
+        bucket.groupCounts[i] += trace.groupCounts[i];
+    }
+
+    if (elapsedMs >= kTagExpansionSlowLogMs) {
+        ++bucket.slowCalls;
+        if (lastTagExpansionSlowLogAtMs_ == 0 || now - lastTagExpansionSlowLogAtMs_ >= kTagExpansionSlowLogThrottleMs) {
+            lastTagExpansionSlowLogAtMs_ = now;
+            const bool hasHotTag = !trace.hotTagName.empty();
+            debuglog::WriteInfo(
+                "[tags][perf] slow source=%s elapsed=%.2fms group=%s hot=%s:%s hotMs=%.2fms input=%zu output=%zu simple=%llu function=%llu "
+                "custom=%llu action=%llu unresolved=%llu depth=%d",
+                TagPerfSourceName(trace.source),
+                elapsedMs,
+                TagPerfGroupName(DominantTagPerfGroup(trace)),
+                hasHotTag ? TagKindPerfName(trace.hotTagKind) : "none",
+                hasHotTag ? trace.hotTagName.c_str() : "-",
+                trace.hotTagMs,
+                trace.inputBytes,
+                trace.outputBytes,
+                static_cast<unsigned long long>(trace.simpleTags),
+                static_cast<unsigned long long>(trace.functionTags),
+                static_cast<unsigned long long>(trace.customTags),
+                static_cast<unsigned long long>(trace.actionTags),
+                static_cast<unsigned long long>(trace.unresolvedTags),
+                trace.maxDepth);
         }
     }
 
-    if (const TagEntry* entry = tagRegistry_.Find(TagKind::Simple, normalized);
-        entry && entry->simpleResolver) {
-        return entry->simpleResolver(*this, context);
+    MaybeLogTagExpansionPerf(now);
+}
+
+void TagsModule::Impl::MaybeLogTagExpansionPerf(std::uint64_t nowMs) const {
+    TagExpansionPerfStats& stats = tagExpansionPerfStats_;
+    if (stats.windowStartMs == 0 || nowMs < stats.windowStartMs) {
+        stats.windowStartMs = nowMs;
+        return;
     }
 
+    const std::uint64_t windowMs = nowMs - stats.windowStartMs;
+    if (windowMs < kTagsPerfTelemetryWindowMs) {
+        return;
+    }
+
+    for (std::size_t i = 0; i < stats.buckets.size(); ++i) {
+        const TagExpansionPerfBucket& bucket = stats.buckets[i];
+        if (bucket.calls == 0) {
+            continue;
+        }
+
+        std::size_t bestGroupIndex = 0;
+        std::uint64_t bestGroupCount = 0;
+        for (std::size_t groupIndex = 0; groupIndex < bucket.groupCounts.size(); ++groupIndex) {
+            if (bucket.groupCounts[groupIndex] > bestGroupCount) {
+                bestGroupCount = bucket.groupCounts[groupIndex];
+                bestGroupIndex = groupIndex;
+            }
+        }
+
+        const double avgMs = bucket.calls > 0
+            ? bucket.totalMs / static_cast<double>(bucket.calls)
+            : 0.0;
+        const double avgInput = bucket.calls > 0
+            ? static_cast<double>(bucket.inputBytes) / static_cast<double>(bucket.calls)
+            : 0.0;
+        const double avgOutput = bucket.calls > 0
+            ? static_cast<double>(bucket.outputBytes) / static_cast<double>(bucket.calls)
+            : 0.0;
+        debuglog::WriteInfo(
+            "[tags][perf] window=%llums source=%s calls=%llu slow=%llu avg=%.3fms max=%.2fms "
+            "avgIn=%.1f avgOut=%.1f simple=%llu function=%llu custom=%llu action=%llu unresolved=%llu "
+            "recursionLimit=%llu topGroup=%s",
+            static_cast<unsigned long long>(windowMs),
+            TagPerfSourceName(static_cast<TagPerfSource>(i)),
+            static_cast<unsigned long long>(bucket.calls),
+            static_cast<unsigned long long>(bucket.slowCalls),
+            avgMs,
+            bucket.maxMs,
+            avgInput,
+            avgOutput,
+            static_cast<unsigned long long>(bucket.simpleTags),
+            static_cast<unsigned long long>(bucket.functionTags),
+            static_cast<unsigned long long>(bucket.customTags),
+            static_cast<unsigned long long>(bucket.actionTags),
+            static_cast<unsigned long long>(bucket.unresolvedTags),
+            static_cast<unsigned long long>(bucket.recursionLimitHits),
+            TagPerfGroupName(static_cast<TagPerfGroup>(bestGroupIndex)));
+    }
+
+    stats = TagExpansionPerfStats{};
+    stats.windowStartMs = nowMs;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const {
+    return ResolveSimpleTagNormalized(ToLower(name), context, nullptr);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveSimpleTagNormalized(
+    std::string_view normalizedName,
+    const EvaluationContext& context,
+    TagExpansionTrace* trace) const {
+    if (const auto customIt = customVariableIndex_.find(std::string(normalizedName)); customIt != customVariableIndex_.end()) {
+        if (trace) {
+            ++trace->customTags;
+            RecordTagGroup(*trace, TagPerfGroup::Custom);
+        }
+        return customVariables_[customIt->second].second;
+    }
+
+    if (const TagEntry* entry = tagRegistry_.Find(TagKind::Simple, normalizedName);
+        entry && entry->simpleResolver) {
+        if (trace) {
+            const bool action = variables_picker::IsActionBuiltin(variables_picker::EntryKind::Simple, entry->name);
+            if (action) {
+                ++trace->actionTags;
+            }
+            RecordTagGroup(*trace, ClassifyTagPerfGroup(normalizedName, action));
+        }
+        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        const std::optional<std::string> resolved = entry->simpleResolver(*this, context);
+        if (trace) {
+            RecordHotTag(*trace, TagKind::Simple, entry->name, TagsPerfNowMs() - resolverBeginMs);
+        }
+        return resolved;
+    }
+
+    if (trace) {
+        ++trace->unresolvedTags;
+    }
     return std::nullopt;
 }
 
@@ -188,21 +467,48 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
     std::string_view name,
     std::string_view param,
     const EvaluationContext& context,
-    int depth) const {
-    const std::string normalized = ToLower(name);
-    if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, normalized);
+    int depth,
+    TagExpansionTrace* trace) const {
+    if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, name);
         entry && entry->functionResolver) {
-        if (normalized == "ifandor" || normalized == "dialogsettext" || normalized == "dialogresponse"
-            || normalized == "arzdialogsetinputtext" || normalized == "arzdialogsendrespond") {
-            return entry->functionResolver(*this, param, context, depth);
+        if (trace) {
+            const bool action = variables_picker::IsActionBuiltin(variables_picker::EntryKind::Function, entry->name);
+            if (action) {
+                ++trace->actionTags;
+            }
+            RecordTagGroup(*trace, ClassifyTagPerfGroup(name, action));
         }
-        return entry->functionResolver(*this, ExpandTextRecursive(param, context, depth + 1), context, depth);
+        const bool rawParam = name == "ifandor" || name == "dialogsettext" || name == "dialogresponse"
+            || name == "arzdialogsetinputtext" || name == "arzdialogsendrespond";
+        std::optional<std::string> resolved;
+        if (rawParam) {
+            const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+            resolved = entry->functionResolver(*this, param, context, depth);
+            if (trace) {
+                RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
+            }
+            return resolved;
+        }
+
+        const std::string expandedParam = ExpandTextRecursive(param, context, depth + 1, trace);
+        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        resolved = entry->functionResolver(*this, expandedParam, context, depth);
+        if (trace) {
+            RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
+        }
+        return resolved;
     }
 
+    if (trace) {
+        ++trace->unresolvedTags;
+    }
     return std::nullopt;
 }
 
-std::string TagsModule::Impl::ExpandSimpleTags(std::string_view text, const EvaluationContext& context) const {
+std::string TagsModule::Impl::ExpandSimpleTags(
+    std::string_view text,
+    const EvaluationContext& context,
+    TagExpansionTrace* trace) const {
     std::string output;
     output.reserve(text.size());
 
@@ -222,7 +528,6 @@ std::string TagsModule::Impl::ExpandSimpleTags(std::string_view text, const Eval
         }
 
         const std::string_view name = text.substr(start + 1, end - start - 1);
-        const std::string normalizedName = ToLower(name);
         CursorTarget sentinelTarget = CursorTarget::SampChat;
         int sentinelStart = 0;
         int sentinelFinish = 0;
@@ -246,14 +551,27 @@ std::string TagsModule::Impl::ExpandSimpleTags(std::string_view text, const Eval
             continue;
         }
 
+        if (IsSampColorLiteralName(name)) {
+            output.append(text.substr(start, end - start + 1));
+            pos = end + 1;
+            continue;
+        }
+
+        if (trace) {
+            ++trace->simpleTags;
+        }
+        const std::string normalizedName = ToLower(name);
         CursorTarget cursorTarget = CursorTarget::SampChat;
         if (TryGetCursorTarget(normalizedName, cursorTarget)) {
+            if (trace) {
+                RecordTagGroup(*trace, TagPerfGroup::Action);
+            }
             RecordCursorMarker(cursorTarget, output, context);
             pos = end + 1;
             continue;
         }
 
-        if (const std::optional<std::string> value = ResolveSimpleTag(name, context); value.has_value()) {
+        if (const std::optional<std::string> value = ResolveSimpleTagNormalized(normalizedName, context, trace); value.has_value()) {
             output += *value;
         } else {
             output.append(text.substr(start, end - start + 1));
@@ -264,7 +582,11 @@ std::string TagsModule::Impl::ExpandSimpleTags(std::string_view text, const Eval
     return output;
 }
 
-std::string TagsModule::Impl::ExpandFunctionTags(std::string_view text, const EvaluationContext& context, int depth) const {
+std::string TagsModule::Impl::ExpandFunctionTags(
+    std::string_view text,
+    const EvaluationContext& context,
+    int depth,
+    TagExpansionTrace* trace) const {
     std::string output;
     output.reserve(text.size());
 
@@ -299,12 +621,19 @@ std::string TagsModule::Impl::ExpandFunctionTags(std::string_view text, const Ev
         }
         if (openParen < text.size() && text[openParen] == ']') {
             const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
+            const std::string normalizedName = ToLower(name);
+            if (trace) {
+                ++trace->functionTags;
+            }
             CursorTarget cursorTarget = CursorTarget::SampChat;
-            if (TryGetCursorTarget(ToLower(name), cursorTarget)) {
+            if (TryGetCursorTarget(normalizedName, cursorTarget)) {
+                if (trace) {
+                    RecordTagGroup(*trace, TagPerfGroup::Action);
+                }
                 pos = openParen + 1;
                 continue;
             }
-            if (const std::optional<std::string> value = ResolveFunctionTag(name, {}, context, depth);
+            if (const std::optional<std::string> value = ResolveFunctionTag(normalizedName, {}, context, depth, trace);
                 value.has_value()) {
                 output += *value;
             } else {
@@ -339,8 +668,15 @@ std::string TagsModule::Impl::ExpandFunctionTags(std::string_view text, const Ev
 
         const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
         const std::string_view rawParam = text.substr(openParen + 1, cursor - openParen - 1);
+        const std::string normalizedName = ToLower(name);
+        if (trace) {
+            ++trace->functionTags;
+        }
         CursorTarget cursorTarget = CursorTarget::SampChat;
-        if (TryGetCursorTarget(ToLower(name), cursorTarget)) {
+        if (TryGetCursorTarget(normalizedName, cursorTarget)) {
+            if (trace) {
+                RecordTagGroup(*trace, TagPerfGroup::Action);
+            }
             if (const std::optional<std::pair<int, int>> range = ParseCursorFunctionRange(rawParam); range.has_value()) {
                 output += MakeCursorFunctionSentinel(cursorTarget, range->first, range->second);
             }
@@ -348,10 +684,11 @@ std::string TagsModule::Impl::ExpandFunctionTags(std::string_view text, const Ev
             continue;
         }
         if (const std::optional<std::string> value = ResolveFunctionTag(
-                name,
+                normalizedName,
                 rawParam,
                 context,
-                depth);
+                depth,
+                trace);
             value.has_value()) {
             output += *value;
         } else {
@@ -364,12 +701,31 @@ std::string TagsModule::Impl::ExpandFunctionTags(std::string_view text, const Ev
 }
 
 std::string TagsModule::Impl::ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const {
+    return ExpandTextRecursive(text, context, depth, nullptr);
+}
+
+std::string TagsModule::Impl::ExpandTextRecursive(
+    std::string_view text,
+    const EvaluationContext& context,
+    int depth,
+    TagExpansionTrace* trace) const {
     if (depth > kRecursionLimit) {
+        if (trace) {
+            ++trace->recursionLimitHits;
+        }
         return std::string(text);
     }
+    if (trace) {
+        trace->maxDepth = std::max(trace->maxDepth, depth);
+    }
 
-    const std::string withFunctions = ExpandFunctionTags(text, context, depth);
-    return ExpandSimpleTags(withFunctions, context);
+    const std::string withFunctions = text.find('[') == std::string_view::npos
+        ? std::string(text)
+        : ExpandFunctionTags(text, context, depth, trace);
+    if (withFunctions.find('{') == std::string::npos) {
+        return withFunctions;
+    }
+    return ExpandSimpleTags(withFunctions, context, trace);
 }
 
 void TagsModule::Impl::RecordCursorMarker(
@@ -431,7 +787,18 @@ std::string TagsModule::Impl::ExpandText(std::string_view text, const Evaluation
     if (!effective.sampApi) {
         effective.sampApi = sampApi_;
     }
-    return ExpandTextRecursive(text, effective, 0);
+    if (!MightContainAnyTag(text)) {
+        return std::string(text);
+    }
+
+    TagExpansionTrace trace;
+    trace.source = ResolveTagPerfSource(effective);
+    trace.inputBytes = text.size();
+    const double beginMs = TagsPerfNowMs();
+    std::string result = ExpandTextRecursive(text, effective, 0, &trace);
+    trace.outputBytes = result.size();
+    RecordTagExpansionPerf(trace, TagsPerfNowMs() - beginMs);
+    return result;
 }
 
 TagsModule::Impl::ExpandedText TagsModule::Impl::ExpandTextWithCursorIntents(std::string_view text) const {
@@ -447,7 +814,18 @@ TagsModule::Impl::ExpandedText TagsModule::Impl::ExpandTextWithCursorIntents(
         effective.sampApi = sampApi_;
     }
     effective.cursorIntents = &result.cursors;
-    result.text = ExpandTextRecursive(text, effective, 0);
+    if (!MightContainAnyTag(text)) {
+        result.text.assign(text.begin(), text.end());
+        return result;
+    }
+
+    TagExpansionTrace trace;
+    trace.source = ResolveTagPerfSource(effective);
+    trace.inputBytes = text.size();
+    const double beginMs = TagsPerfNowMs();
+    result.text = ExpandTextRecursive(text, effective, 0, &trace);
+    trace.outputBytes = result.text.size();
+    RecordTagExpansionPerf(trace, TagsPerfNowMs() - beginMs);
     return result;
 }
 

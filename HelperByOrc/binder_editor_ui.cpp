@@ -505,6 +505,11 @@ void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picke
             tagsModule->OpenDialogItemPicker();
         }
         break;
+    case variables_picker::RequestType::OpenArizonaDialogItemPicker:
+        if (tagsModule) {
+            tagsModule->OpenArizonaDialogItemPicker();
+        }
+        break;
     case variables_picker::RequestType::OpenDialogTextPicker:
         if (tagsModule) {
             tagsModule->OpenSampDialogTextPicker();

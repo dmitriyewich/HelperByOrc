@@ -138,6 +138,9 @@
     <ClCompile Include="mod_app.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="logo_texture_loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="notification_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -242,11 +245,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="ui_resources.rc">
-      <Filter>Resource Files</Filter>
-    </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="app_config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -311,6 +309,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="mod_app.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="logo_texture_loader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="notification_manager.h">
@@ -406,6 +407,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="resource\logo.png">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="tools\generate_logo_png.ps1">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>

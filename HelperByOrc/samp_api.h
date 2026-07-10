@@ -279,6 +279,7 @@ public:
     bool IsScoreboardOpen();
     bool IsServerConnected();
     int Local_ID();
+    std::pair<bool, int> TryResolvePlayerIdByPedFast(const void* ped);
     std::pair<bool, int> getPedID(const void* ped);
     const void* GetPlayerPedPointer(
         int id,

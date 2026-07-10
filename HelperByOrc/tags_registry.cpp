@@ -1,8 +1,23 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+namespace {
+
+std::string LowerAsciiForTagIndex(std::string_view value) {
+    std::string lowered;
+    lowered.reserve(value.size());
+    for (const unsigned char ch : value) {
+        lowered.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return lowered;
+}
+
+} // namespace
+
 void TagsModule::Impl::TagRegistry::Clear() {
     entries_.clear();
+    simpleIndex_.clear();
+    functionIndex_.clear();
 }
 
 void TagsModule::Impl::TagRegistry::RegisterSimple(
@@ -11,6 +26,8 @@ void TagsModule::Impl::TagRegistry::RegisterSimple(
     std::string example,
     UiText descriptionText,
     TagEntry::SimpleResolver resolver) {
+    const std::size_t index = entries_.size();
+    simpleIndex_[LowerAsciiForTagIndex(name)] = index;
     entries_.push_back(TagEntry{
         TagKind::Simple,
         std::move(name),
@@ -28,6 +45,8 @@ void TagsModule::Impl::TagRegistry::RegisterFunction(
     std::string example,
     UiText descriptionText,
     TagEntry::FunctionResolver resolver) {
+    const std::size_t index = entries_.size();
+    functionIndex_[LowerAsciiForTagIndex(name)] = index;
     entries_.push_back(TagEntry{
         TagKind::Function,
         std::move(name),
@@ -44,10 +63,12 @@ const std::vector<TagsModule::Impl::TagEntry>& TagsModule::Impl::TagRegistry::En
 }
 
 const TagsModule::Impl::TagEntry* TagsModule::Impl::TagRegistry::Find(TagKind kind, std::string_view name) const {
-    const auto it = std::find_if(entries_.begin(), entries_.end(), [&](const TagEntry& entry) {
-        return entry.kind == kind && entry.name == name;
-    });
-    return it == entries_.end() ? nullptr : &(*it);
+    const auto& index = kind == TagKind::Simple ? simpleIndex_ : functionIndex_;
+    const auto it = index.find(std::string(name));
+    if (it == index.end() || it->second >= entries_.size()) {
+        return nullptr;
+    }
+    return &entries_[it->second];
 }
 
 const TagsModule::Impl::TagEntry* TagsModule::Impl::TagRegistry::FindByIndex(int index) const {
@@ -58,9 +79,13 @@ const TagsModule::Impl::TagEntry* TagsModule::Impl::TagRegistry::FindByIndex(int
 }
 
 std::size_t TagsModule::Impl::TagRegistry::Count(TagKind kind) const {
-    return static_cast<std::size_t>(std::count_if(entries_.begin(), entries_.end(), [&](const TagEntry& entry) {
-        return entry.kind == kind;
-    }));
+    std::size_t count = 0;
+    for (const TagEntry& entry : entries_) {
+        if (entry.kind == kind) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 void TagsModule::Impl::RefreshCatalogEntries() {
@@ -75,6 +100,8 @@ void TagsModule::Impl::RefreshCatalogEntries() {
             entry.descriptionText,
         });
     }
+    ++catalogEntriesRevision_;
+    InvalidateVariablePickerEntriesCache();
 }
 
 void TagsModule::Impl::InitializeRegistry() {
@@ -140,15 +167,6 @@ void TagsModule::Impl::InitializeRegistry() {
         "{thiscategory}",
         UiText::TagsBuiltinThiscategoryDescription,
         [](const Impl& module, const EvaluationContext& context) {
-            return module.ResolveBuiltinThiscategoryTag(context);
-        });
-
-    tagRegistry_.RegisterFunction(
-        "thiscategory",
-        "[thiscategory]",
-        "[thiscategory]",
-        UiText::TagsBuiltinThiscategoryDescription,
-        [](const Impl& module, std::string_view, const EvaluationContext& context, int) {
             return module.ResolveBuiltinThiscategoryTag(context);
         });
 
@@ -1217,6 +1235,15 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinArzDialogSetListItemDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinArzDialogSetListItemFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "arzdialogitem",
+        "[ARZdialogitem(...)]",
+        "[ARZdialogitem(1)]",
+        UiText::TagsBuiltinArzDialogItemDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinArzDialogItemFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(

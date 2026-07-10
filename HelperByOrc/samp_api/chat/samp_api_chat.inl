@@ -26,10 +26,163 @@ int SampApi::Local_ID() {
     return localId;
 }
 
+std::pair<bool, int> SampApi::TryResolvePlayerIdByPedFast(const void* ped) {
+    if (!ped) {
+        return { false, -1 };
+    }
+
+    const auto pedAddress = reinterpret_cast<std::uintptr_t>(ped);
+    const int localId = Local_ID();
+    if (ped == FindPlayerPed()) {
+        if (localId >= 0 && localId <= kMaxSampPlayerId && IsConnected(localId)) {
+            return { true, localId };
+        }
+        return { false, -1 };
+    }
+
+    std::uint32_t pool = 0;
+    if (!ResolvePedPool(pool) || pool == 0) {
+        return { false, -1 };
+    }
+
+    auto isUsablePlayerId = [&](int id) {
+        return id >= 0 && id <= kMaxSampPlayerId && IsConnected(id);
+    };
+
+    const auto address = GetAddress(main_offsets.ID_Find);
+    if (address != 0) {
+        const auto findId = reinterpret_cast<IdFindFn>(address);
+        std::uint16_t rawId = kInvalidSampPlayerId;
+        if (CallIdFind(findId, reinterpret_cast<void*>(pool), ped, rawId)
+            && rawId != kInvalidSampPlayerId) {
+            const int id = static_cast<int>(rawId);
+            if (isUsablePlayerId(id)) {
+                return { true, id };
+            }
+        }
+    }
+
+    auto matchesTargetPed = [&](std::uint32_t gtaPed) {
+        return gtaPed != 0 && static_cast<std::uintptr_t>(gtaPed) == pedAddress;
+    };
+
+    auto tryRemoteDataPed = [&](std::uint32_t remoteData) {
+        if (remoteData == 0) {
+            return false;
+        }
+
+        const std::uint32_t actorOffset = main_offsets.pSAMP_Actor.Get(currentVersion_);
+        std::uint32_t sampPed = 0;
+        if (!SafeRead(remoteData + actorOffset, sampPed) || sampPed == 0) {
+            return false;
+        }
+
+        return matchesTargetPed(ReadGamePedFromSampPed(sampPed, currentVersion_));
+    };
+
+    auto trySampPedField = [&](std::uint32_t owner, std::uint32_t fieldOffset) {
+        if (owner == 0 || fieldOffset == 0) {
+            return false;
+        }
+
+        std::uint32_t sampPed = 0;
+        if (!SafeRead(owner + fieldOffset, sampPed) || sampPed == 0) {
+            return false;
+        }
+
+        return matchesTargetPed(ReadGamePedFromSampPed(sampPed, currentVersion_));
+    };
+
+    auto trySlotRemoteData = [&](int id) {
+        std::uint32_t slotPointer = 0;
+        if (!SafeRead(
+                pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (static_cast<std::uint32_t>(id) * 4),
+                slotPointer)
+            || slotPointer == 0) {
+            return false;
+        }
+
+        std::uint32_t remoteData = 0;
+        return ResolveRemotePlayerData(slotPointer, remoteData) && tryRemoteDataPed(remoteData);
+    };
+
+    auto tryRemotePlayerPrimaryPed = [&](int id) {
+        std::uint32_t remotePlayer = 0;
+        if (!ResolveRemotePlayer(id, remotePlayer, false, nullptr) || remotePlayer == 0) {
+            return false;
+        }
+
+        std::uint32_t remoteData = 0;
+        if (ResolveRemotePlayerData(remotePlayer, remoteData) && tryRemoteDataPed(remoteData)) {
+            return true;
+        }
+
+        return trySampPedField(remotePlayer, GetRemotePlayerPedOffset(currentVersion_));
+    };
+
+    for (int id = 0; id <= kMaxSampPlayerId; ++id) {
+        if ((localId >= 0 && id == localId) || !IsConnected(id)) {
+            continue;
+        }
+
+        if (trySlotRemoteData(id) || tryRemotePlayerPrimaryPed(id)) {
+            return { true, id };
+        }
+    }
+
+    return { false, -1 };
+}
+
 std::pair<bool, int> SampApi::getPedID(const void* ped) {
     if (!ped) {
         return { false, -1 };
     }
+
+    struct GetPedIdPerfStats {
+        std::uint64_t windowStartMs = 0;
+        std::uint64_t calls = 0;
+        std::uint64_t scanFallbacks = 0;
+        std::uint64_t scanHits = 0;
+        std::uint64_t totalScanMs = 0;
+        std::uint64_t maxScanMs = 0;
+    };
+
+    static GetPedIdPerfStats perfStats{};
+    auto beginGetPedIdPerf = []() {
+        constexpr std::uint64_t kGetPedIdPerfWindowMs = 5000;
+        const std::uint64_t nowMs = GetTickCount64();
+        if (perfStats.windowStartMs == 0 || nowMs < perfStats.windowStartMs) {
+            perfStats.windowStartMs = nowMs;
+        }
+
+        const std::uint64_t windowMs = nowMs - perfStats.windowStartMs;
+        if (windowMs >= kGetPedIdPerfWindowMs) {
+            if (perfStats.scanFallbacks > 0) {
+                const double avgScanMs =
+                    static_cast<double>(perfStats.totalScanMs) / static_cast<double>(perfStats.scanFallbacks);
+                debuglog::WriteInfo(
+                    "[samp][getPedID][perf] window=%llums calls=%llu scanFallbacks=%llu scanHits=%llu avgScan=%.2fms maxScan=%llums",
+                    static_cast<unsigned long long>(windowMs),
+                    static_cast<unsigned long long>(perfStats.calls),
+                    static_cast<unsigned long long>(perfStats.scanFallbacks),
+                    static_cast<unsigned long long>(perfStats.scanHits),
+                    avgScanMs,
+                    static_cast<unsigned long long>(perfStats.maxScanMs));
+            }
+            perfStats = GetPedIdPerfStats{};
+            perfStats.windowStartMs = nowMs;
+        }
+        ++perfStats.calls;
+    };
+    auto recordScanFallbackPerf = [](bool hit, std::uint64_t elapsedMs) {
+        ++perfStats.scanFallbacks;
+        if (hit) {
+            ++perfStats.scanHits;
+        }
+        perfStats.totalScanMs += elapsedMs;
+        perfStats.maxScanMs = std::max(perfStats.maxScanMs, elapsedMs);
+    };
+    beginGetPedIdPerf();
 
     const auto pedAddress = reinterpret_cast<std::uintptr_t>(ped);
     auto logPedIdResolve = [&](const char* source, std::uint16_t rawId, int resolvedId, const char* reason) {
@@ -42,19 +195,35 @@ std::pair<bool, int> SampApi::getPedID(const void* ped) {
         };
 
         static LastLogState lastLog{};
+        static std::uint64_t lastNoisyTraceMs = 0;
+        static std::uint32_t suppressedNoisyTraces = 0;
         if (lastLog.ped == pedAddress && lastLog.rawId == rawId && lastLog.resolvedId == resolvedId
             && lastLog.source == source && lastLog.reason == reason) {
             return;
         }
 
         lastLog = LastLogState{ pedAddress, rawId, resolvedId, source, reason };
+        std::uint32_t suppressedForLog = 0;
+        if (std::strcmp(reason, "id-find-not-found") == 0) {
+            constexpr std::uint64_t kNoisyTraceIntervalMs = 1000;
+            const std::uint64_t nowMs = GetTickCount64();
+            if (lastNoisyTraceMs != 0 && nowMs - lastNoisyTraceMs < kNoisyTraceIntervalMs) {
+                ++suppressedNoisyTraces;
+                return;
+            }
+            lastNoisyTraceMs = nowMs;
+            suppressedForLog = suppressedNoisyTraces;
+            suppressedNoisyTraces = 0;
+        }
+
         debuglog::WriteInfo(
-            "[samp][getPedID] ped=0x%08X rawId=%u resolvedId=%d source=%s reason=%s",
+            "[samp][getPedID] ped=0x%08X rawId=%u resolvedId=%d source=%s reason=%s suppressed=%u",
             static_cast<unsigned int>(pedAddress),
             static_cast<unsigned int>(rawId),
             resolvedId,
             source,
-            reason);
+            reason,
+            static_cast<unsigned int>(suppressedForLog));
     };
 
     const int localId = Local_ID();
@@ -165,16 +334,19 @@ std::pair<bool, int> SampApi::getPedID(const void* ped) {
         return false;
     };
 
+    const std::uint64_t scanStartedAtMs = GetTickCount64();
     for (int id = 0; id <= kMaxSampPlayerId; ++id) {
         if ((localId >= 0 && id == localId) || !IsConnected(id)) {
             continue;
         }
 
         if (trySlotRemoteData(id) || tryRemotePlayer(id)) {
+            recordScanFallbackPerf(true, GetTickCount64() - scanStartedAtMs);
             logPedIdResolve("scan", rawId, id, rejectReason);
             return { true, id };
         }
     }
+    recordScanFallbackPerf(false, GetTickCount64() - scanStartedAtMs);
 
     if (!idFindOk || rawId != kInvalidSampPlayerId) {
         logPedIdResolve("none", rawId, -1, rejectReason);

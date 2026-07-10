@@ -71,6 +71,12 @@
     <IntDir>$(MSBuildProjectDirectory)\build\Release\</IntDir>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <LogoPngGeneratedDir>$(IntDir)generated\</LogoPngGeneratedDir>
+    <LogoPngDataPath>$(LogoPngGeneratedDir)logo.generated.png</LogoPngDataPath>
+    <LogoPngRcPath>$(LogoPngGeneratedDir)logo.generated.rc</LogoPngRcPath>
+  </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -87,7 +93,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreImportLibrary>true</IgnoreImportLibrary>
       <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -120,7 +126,7 @@
       <LinkIncremental>false</LinkIncremental>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -150,6 +156,9 @@
     <ClCompile Include="incoming_message_router.cpp" />
     <ClCompile Include="imgui_overlay.cpp" />
     <ClCompile Include="json_utils.cpp" />
+    <ClCompile Include="logo_texture_loader.cpp">
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\$(TargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(TargetPlatformVersion)\um;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="markup_renderer.cpp" />
     <ClCompile Include="module_signature_scanner.cpp" />
@@ -190,7 +199,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ResourceCompile Include="ui_resources.rc" />
+    <ResourceCompile Include="$(LogoPngRcPath)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -220,6 +229,7 @@
     <ClInclude Include="incoming_message_router.h" />
     <ClInclude Include="imgui_overlay.h" />
     <ClInclude Include="json_utils.h" />
+    <ClInclude Include="logo_texture_loader.h" />
     <ClInclude Include="markup_renderer.h" />
     <ClInclude Include="minhook_utils.h" />
     <ClInclude Include="module_signature_scanner.h" />
@@ -251,7 +261,21 @@
 
   <ItemGroup>
     <None Include="resource\logo.png" />
+    <None Include="tools\generate_logo_png.ps1" />
   </ItemGroup>
+
+  <Target
+    Name="GenerateLogoPng"
+    BeforeTargets="ResourceCompile"
+    Inputs="$(MSBuildProjectDirectory)\resource\logo.png;$(MSBuildProjectDirectory)\tools\generate_logo_png.ps1"
+    Outputs="$(LogoPngDataPath);$(LogoPngRcPath)">
+    <MakeDir Directories="$(LogoPngGeneratedDir)" />
+    <Exec Command="&quot;%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\tools\generate_logo_png.ps1&quot; -InputPath &quot;$(MSBuildProjectDirectory)\resource\logo.png&quot; -OutputPngPath &quot;$(LogoPngDataPath)&quot; -OutputRcPath &quot;$(LogoPngRcPath)&quot; -ResourceHeaderPath &quot;$(MSBuildProjectDirectory)\resource.h&quot; -OutputWidth 768 -OutputHeight 512 -MaximumPngBytes 409600" />
+  </Target>
+
+  <Target Name="CleanGeneratedLogoPng" BeforeTargets="Clean">
+    <Delete Files="$(LogoPngDataPath);$(LogoPngRcPath);$(LogoPngGeneratedDir)logo.bgra" />
+  </Target>
 
   <Target Name="GeneratePluginSdkProjects" BeforeTargets="BuildPluginSdk" Condition="'$(Platform)'=='Win32' and !Exists('$(PluginSdkDir)\Plugin_SA\Plugin_SA.vcxproj')">
     <Exec Command="&quot;$(PluginSdkDir)\tools\premake\premake5.exe&quot; vs2022 --file=&quot;$(PluginSdkDir)\tools\premake\premake5.lua&quot;" EnvironmentVariables="PLUGIN_SDK_DIR=$(PluginSdkDir)" />

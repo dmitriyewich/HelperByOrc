@@ -158,6 +158,17 @@ return 0;
 )JS";
 }
 
+std::string MakeListItemsQueryCode() {
+    return R"JS(
+var d = document.querySelector('.dialog');
+if (!d) return [];
+var items = d.querySelectorAll('.dialog-list-loop__list-item');
+return Array.prototype.map.call(items, function (item) {
+    return item ? (item.innerText || item.textContent || '') : '';
+});
+)JS";
+}
+
 std::string MakeInputPresenceQueryCode() {
     return R"JS(
 var d = document.querySelector('.dialog');
@@ -407,6 +418,11 @@ std::string ArizonaCefDialogs::CachedListItem() const {
     return cachedListItem_;
 }
 
+std::string ArizonaCefDialogs::CachedListItemsJson() const {
+    std::lock_guard lock(mutex_);
+    return cachedListItemsJson_;
+}
+
 std::optional<bool> ArizonaCefDialogs::CachedInputFieldPresent() const {
     std::lock_guard lock(mutex_);
     if (!cachedInputFieldPresentKnown_) {
@@ -423,12 +439,20 @@ std::string ArizonaCefDialogs::QueryListItem(int timeoutMs) {
     return Query(MakeListItemQueryCode(), QueryKind::ListItem, timeoutMs, CachedListItem());
 }
 
+std::string ArizonaCefDialogs::QueryListItems(int timeoutMs) {
+    return Query(MakeListItemsQueryCode(), QueryKind::ListItems, timeoutMs, CachedListItemsJson());
+}
+
 bool ArizonaCefDialogs::HasPendingInputTextQuery() const {
     return HasPendingQuery(QueryKind::InputText);
 }
 
 bool ArizonaCefDialogs::HasPendingListItemQuery() const {
     return HasPendingQuery(QueryKind::ListItem);
+}
+
+bool ArizonaCefDialogs::HasPendingListItemsQuery() const {
+    return HasPendingQuery(QueryKind::ListItems);
 }
 
 int ArizonaCefDialogs::LastDialogId() const {
@@ -561,6 +585,7 @@ bool ArizonaCefDialogs::HandleShowDialog(
         lastDialogInfo_.text = text;
         cachedInputText_.clear();
         cachedListItem_ = "0";
+        cachedListItemsJson_.clear();
         cachedInputFieldPresentKnown_ = false;
         cachedInputFieldPresent_ = false;
         nextInputFieldProbeAtMs_ = 0;
@@ -697,6 +722,8 @@ void ArizonaCefDialogs::CompleteQuery(std::uint32_t requestId, std::string value
         cachedInputText_ = std::move(value);
     } else if (kind == QueryKind::ListItem) {
         cachedListItem_ = value.empty() ? std::string("0") : std::move(value);
+    } else if (kind == QueryKind::ListItems) {
+        cachedListItemsJson_ = std::move(value);
     } else if (kind == QueryKind::InputPresent) {
         cachedInputFieldPresentKnown_ = true;
         cachedInputFieldPresent_ = value == "true" || value == "1";

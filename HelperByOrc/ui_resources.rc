@@ -1,3 +1,0 @@
-#include "resource.h"
-
-IDR_MAIN_LOGO RCDATA "resource/logo.png"

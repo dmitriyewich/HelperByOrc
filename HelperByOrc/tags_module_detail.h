@@ -62,10 +62,15 @@ constexpr float kClosestScreenTargetZOffset = 0.9f;
 constexpr std::uint64_t kClosestPlayerCacheTtlMs = 250;
 constexpr std::uint64_t kClosestPlayerSlowQueryLogMs = 25;
 constexpr std::uint64_t kClosestPlayerSlowQueryLogThrottleMs = 3000;
+constexpr std::uint64_t kClosestPlayerPerfTelemetryWindowMs = 5000;
 constexpr std::uint64_t kMyCarSnapshotCacheTtlMs = 100;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogMs = 10;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogThrottleMs = 3000;
 constexpr std::uint64_t kMyCarPerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kPlayerNamePerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kTagsPerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kTagExpansionSlowLogThrottleMs = 1000;
+constexpr double kTagExpansionSlowLogMs = 4.0;
 constexpr std::uint64_t kClipboardCacheTtlMs = 500;
 constexpr std::size_t kClipboardTagMaxLength = 4096;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
@@ -1947,30 +1952,13 @@ const CPed* FindPlayerPedBySampId(SampApi& sampApi, int id) {
         return nullptr;
     }
 
-    if (const void* resolvedPed = sampApi.GetPlayerPedPointer(id)) {
+    if (const void* resolvedPed = sampApi.GetPlayerPedPointer(id, false, nullptr, false)) {
         return reinterpret_cast<const CPed*>(resolvedPed);
     }
 
     const int localId = sampApi.Local_ID();
     if (localId >= 0 && id == localId) {
         return FindPlayerPed();
-    }
-
-    auto* const pedPool = CPools::ms_pPedPool;
-    if (!pedPool || pedPool->m_nSize <= 0) {
-        return nullptr;
-    }
-
-    for (int index = 0; index < pedPool->m_nSize; ++index) {
-        CPed* const candidatePed = pedPool->GetAt(index);
-        if (!candidatePed) {
-            continue;
-        }
-
-        const auto [matched, matchedId] = sampApi.getPedID(candidatePed);
-        if (matched && matchedId == id) {
-            return candidatePed;
-        }
     }
 
     return nullptr;
@@ -2193,11 +2181,15 @@ std::vector<std::string> BuildDialogItemSearchVariants(std::string_view rawText)
     return out;
 }
 
+int GetDialogItemHeaderLinesToSkipForStyle(int style) {
+    return style == SampApi::DIALOG_STYLE_TABLIST_HEADERS ? 1 : 0;
+}
+
 int GetDialogItemHeaderLinesToSkip(SampApi* sampApi) {
     if (!sampApi || !sampApi->isDialogActive()) {
         return 0;
     }
-    return sampApi->GetCurrentDialogStyle() == SampApi::DIALOG_STYLE_TABLIST_HEADERS ? 1 : 0;
+    return GetDialogItemHeaderLinesToSkipForStyle(sampApi->GetCurrentDialogStyle());
 }
 
 DialogListItems CollectDialogListItems(std::string_view rawText, int headerLinesToSkip) {
@@ -2240,6 +2232,47 @@ DialogListItems CollectDialogListItems(std::string_view rawText, int headerLines
     }
 
     return result;
+}
+
+DialogListItems CollectDialogListItemsFromTexts(const std::vector<std::string>& rawItems) {
+    DialogListItems result;
+    result.items.reserve(rawItems.size());
+    for (std::size_t i = 0; i < rawItems.size(); ++i) {
+        result.items.push_back(DialogListItemInfo{
+            static_cast<int>(i),
+            static_cast<int>(i + 1),
+            NormalizeDialogListItemText(rawItems[i]),
+            rawItems[i],
+        });
+    }
+    return result;
+}
+
+std::optional<DialogListItems> ParseDialogListItemsJson(std::string_view rawJson) {
+    if (TrimAscii(rawJson).empty()) {
+        return std::nullopt;
+    }
+
+    std::string error;
+    const std::optional<jsonutil::JsonValue> parsed = jsonutil::ParseJson(rawJson, error);
+    if (!parsed.has_value()) {
+        return std::nullopt;
+    }
+
+    const jsonutil::JsonArray* array = parsed->TryArray();
+    if (!array) {
+        return std::nullopt;
+    }
+
+    std::vector<std::string> rawItems;
+    rawItems.reserve(array->size());
+    for (const jsonutil::JsonValue& value : *array) {
+        if (const std::string* text = value.TryString()) {
+            rawItems.push_back(*text);
+        }
+    }
+
+    return CollectDialogListItemsFromTexts(rawItems);
 }
 
 std::optional<DialogListItems> ReadActiveDialogListItems(SampApi* sampApi, std::string& error) {

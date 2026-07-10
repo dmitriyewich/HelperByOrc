@@ -28,6 +28,37 @@ bool IsDialogInputStyle(SampApi* sampApi, int style) {
     return style == SampApi::DIALOG_STYLE_INPUT || style == SampApi::DIALOG_STYLE_PASSWORD;
 }
 
+std::optional<DialogListItems> ReadArizonaDialogListItems(
+    ArizonaCefDialogs* arizonaCefDialogs,
+    bool startDomQuery,
+    int timeoutMs,
+    bool& pendingDomQuery) {
+    pendingDomQuery = false;
+    if (!arizonaCefDialogs) {
+        return std::nullopt;
+    }
+
+    const std::string domItemsJson =
+        startDomQuery ? arizonaCefDialogs->QueryListItems(timeoutMs) : arizonaCefDialogs->CachedListItemsJson();
+    std::optional<DialogListItems> domItems = ParseDialogListItemsJson(domItemsJson);
+    if (domItems.has_value() && !domItems->items.empty()) {
+        return domItems;
+    }
+
+    pendingDomQuery = startDomQuery && arizonaCefDialogs->HasPendingListItemsQuery();
+
+    const std::string rpcText = arizonaCefDialogs->LastDialogText();
+    if (!rpcText.empty()) {
+        DialogListItems rpcItems =
+            CollectDialogListItems(rpcText, GetDialogItemHeaderLinesToSkipForStyle(arizonaCefDialogs->LastDialogStyle()));
+        if (!rpcItems.items.empty()) {
+            return rpcItems;
+        }
+    }
+
+    return domItems;
+}
+
 } // namespace
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogActiveTag(const EvaluationContext& context) const {
@@ -962,6 +993,77 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogSetListItemF
     if (!arizonaCefDialogs_->SetListItem(*index)) {
         NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogSetListFailed), 2800.0);
     }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogItemFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+    if (!arizonaCefDialogs_ || !arizonaCefDialogs_->IsDialogActive()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemNoActive), 2800.0);
+        return std::string();
+    }
+
+    const std::string rawValue = Unquote(Trim(param));
+    if (rawValue.empty()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemEmptyParam), 2800.0);
+        return std::string();
+    }
+
+    const bool readyListItems = context.runningBindRuntimeId != 0
+        && ConsumeReadyArzDialogQuery(context.runningBindRuntimeId, PendingArzDialogQueryKind::ListItems);
+    bool pendingDomQuery = false;
+    const std::optional<DialogListItems> items = ReadArizonaDialogListItems(
+        arizonaCefDialogs_,
+        !readyListItems,
+        kArzDialogQueryDefaultTimeoutMs,
+        pendingDomQuery);
+    if (context.runningBindRuntimeId != 0 && !readyListItems && pendingDomQuery) {
+        QueuePendingArzDialogQueryWait(
+            context.runningBindRuntimeId,
+            PendingArzDialogQueryKind::ListItems,
+            GetTickCount64() + static_cast<std::uint64_t>(kArzDialogQueryDefaultTimeoutMs));
+        MarkCurrentDispatchBlocked(context.runningBindRuntimeId);
+        if (binderModule_) {
+            binderModule_->PauseRuntime(context.runningBindRuntimeId);
+        }
+        return std::string();
+    }
+
+    if (!items.has_value() || items->items.empty()) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemReadFailed), 2800.0);
+        return std::string();
+    }
+
+    int targetIndex = -1;
+    if (const std::optional<int> parsed = ParseInteger(rawValue); parsed.has_value()) {
+        targetIndex = *parsed >= 1 ? (*parsed - 1) : *parsed;
+    } else if (const std::optional<int> foundIndex = FindDialogItemIndexByText(*items, rawValue); foundIndex.has_value()) {
+        targetIndex = *foundIndex;
+    } else {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemNotFound), 2800.0);
+        return std::string();
+    }
+
+    if (targetIndex < 0 || targetIndex >= static_cast<int>(items->items.size())) {
+        NotifyDialogError(
+            UiSettings::Instance().Format(UiText::ToastArzDialogItemOutOfRange, std::to_string(targetIndex + 1).c_str()),
+            2800.0);
+        return std::string();
+    }
+
+    if (!arizonaCefDialogs_->SetListItem(targetIndex)) {
+        debuglog::WriteError("TagsModule::ARZdialogitem DOM select failed index=%d", targetIndex);
+    }
+
+    const int dialogId = arizonaCefDialogs_->LastDialogId();
+    if (dialogId < 0 || !arizonaCefDialogs_->SendRespond(dialogId, 1, targetIndex, std::string_view{})) {
+        NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemFailed), 2800.0);
+    }
+
     return std::string();
 }
 

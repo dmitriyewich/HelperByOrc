@@ -391,7 +391,10 @@ void UiSettings::QueueSave() const {
     section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     section["settings_active_section"] = SettingsSectionId(settingsActiveSection_);
-    AppConfig::Instance().QueueSectionReplace(std::string(kUiSectionName), jsonutil::JsonValue(std::move(section)));
+    AppConfig::Instance().QueueSectionReplace(
+        std::string(kUiSectionName),
+        jsonutil::JsonValue(std::move(section)),
+        "ui:settings");
 }
 
 float UiSettings::ComputeAutoScale(const ImVec2& displaySize) const {

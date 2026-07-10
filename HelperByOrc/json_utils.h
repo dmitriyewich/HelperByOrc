@@ -51,6 +51,7 @@ struct JsonValue {
 };
 
 std::optional<JsonValue> ParseJson(std::string_view source, std::string& error);
+bool JsonEquals(const JsonValue& left, const JsonValue& right);
 void WriteJson(const JsonValue& value, std::string& out, int indent = 0);
 
 template <typename T>

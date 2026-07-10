@@ -4,6 +4,7 @@
 #include "user_files_path.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <fstream>
 #include <iterator>
@@ -22,6 +23,9 @@ constexpr int kConfigSchemaVersion = 1;
 constexpr int kProfilesSchemaVersion = 1;
 constexpr char kDefaultProfileId[] = "default";
 constexpr char kDefaultProfileName[] = "Default";
+constexpr std::chrono::milliseconds kSnapshotBuildDebounceWindow{ 500 };
+constexpr std::chrono::milliseconds kSnapshotWriterCoalesceWindow{ 200 };
+constexpr std::chrono::milliseconds kSnapshotRetryWindow{ 5000 };
 
 double ConfigPerfNowMs() {
     static const double s_invFrequencyMs = [] {
@@ -39,6 +43,54 @@ double ConfigPerfNowMs() {
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
     return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+double DurationMs(std::chrono::milliseconds value) {
+    return static_cast<double>(value.count());
+}
+
+std::string SectionSource(std::string_view sectionName) {
+    std::string source = "section:";
+    source.append(sectionName);
+    return source;
+}
+
+std::string SourceOrFallback(std::string source, std::string_view fallback) {
+    if (!source.empty()) {
+        return source;
+    }
+    return std::string(fallback);
+}
+
+bool SourceListContains(std::string_view sources, std::string_view source) {
+    if (source.empty()) {
+        return true;
+    }
+
+    std::size_t start = 0;
+    while (start <= sources.size()) {
+        const std::size_t comma = sources.find(',', start);
+        const std::size_t end = comma == std::string_view::npos ? sources.size() : comma;
+        if (sources.substr(start, end - start) == source) {
+            return true;
+        }
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return false;
+}
+
+void AppendSource(std::string& sources, std::string_view source) {
+    if (source.empty() || SourceListContains(sources, source)) {
+        return;
+    }
+
+    if (!sources.empty()) {
+        sources.push_back(',');
+    }
+    sources.append(source);
 }
 
 fs::path ResolveLegacyConfigPath(HMODULE module) {
@@ -314,6 +366,7 @@ void AppConfig::OnProcessAttach(HMODULE module) {
     loaded_ = false;
     root_.clear();
     lastSerializedSnapshot_.clear();
+    ResetSnapshotTrackingLocked();
     pendingMutations_.clear();
     debuglog::WriteInfo(
         "AppConfig::OnProcessAttach profile=%s path=%ls profiles=%ls",
@@ -329,20 +382,46 @@ void AppConfig::Shutdown() {
     debuglog::WriteInfo("AppConfig::Shutdown done");
 }
 
-void AppConfig::QueueMutation(Mutation mutation) {
+void AppConfig::QueueMutation(Mutation mutation, std::string source) {
     if (!mutation) {
         return;
     }
 
     std::lock_guard lock(mutex_);
     EnsureLoadedLocked();
-    pendingMutations_.push_back(std::move(mutation));
+    PendingMutation pending;
+    pending.kind = PendingMutation::Kind::Opaque;
+    pending.mutation = std::move(mutation);
+    pending.source = SourceOrFallback(std::move(source), "mutation");
+    pendingMutations_.push_back(std::move(pending));
 }
 
-void AppConfig::QueueSectionReplace(std::string sectionName, jsonutil::JsonValue value) {
-    QueueMutation([sectionName = std::move(sectionName), value = std::move(value)](jsonutil::JsonObject& root) mutable {
-        root[sectionName] = std::move(value);
-    });
+void AppConfig::QueueSectionReplace(std::string sectionName, jsonutil::JsonValue value, std::string source) {
+    std::lock_guard lock(mutex_);
+    EnsureLoadedLocked();
+
+    PendingMutation pending;
+    pending.kind = PendingMutation::Kind::SectionReplace;
+    pending.source = SourceOrFallback(std::move(source), SectionSource(sectionName));
+    pending.sectionName = std::move(sectionName);
+    pending.sectionValue = std::move(value);
+    pendingMutations_.push_back(std::move(pending));
+}
+
+void AppConfig::QueueSectionMutation(std::string sectionName, SectionMutation mutation, std::string source) {
+    if (!mutation) {
+        return;
+    }
+
+    std::lock_guard lock(mutex_);
+    EnsureLoadedLocked();
+
+    PendingMutation pending;
+    pending.kind = PendingMutation::Kind::SectionMutation;
+    pending.source = SourceOrFallback(std::move(source), SectionSource(sectionName));
+    pending.sectionName = std::move(sectionName);
+    pending.sectionMutation = std::move(mutation);
+    pendingMutations_.push_back(std::move(pending));
 }
 
 jsonutil::JsonValue AppConfig::ReadSection(std::string_view sectionName) {
@@ -419,6 +498,7 @@ bool AppConfig::SwitchProfile(std::string_view profileId, std::string* error) {
     loaded_ = false;
     root_.clear();
     lastSerializedSnapshot_.clear();
+    ResetSnapshotTrackingLocked();
     pendingMutations_.clear();
     debuglog::WriteInfo("[profiles] switched active profile to id=%s path=%ls", activeProfileId_.c_str(), configPath_.c_str());
     return true;
@@ -459,6 +539,7 @@ bool AppConfig::CreateProfile(std::string_view name, bool copyCurrentConfig, boo
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
+        ResetSnapshotTrackingLocked();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -525,6 +606,7 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
+        ResetSnapshotTrackingLocked();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -620,6 +702,7 @@ bool AppConfig::DeleteProfile(std::string_view profileId, std::string* error) {
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
+        ResetSnapshotTrackingLocked();
         pendingMutations_.clear();
     }
     RefreshProfileStateLocked();
@@ -635,12 +718,13 @@ bool AppConfig::DeleteProfile(std::string_view profileId, std::string* error) {
 }
 
 void AppConfig::ProcessPendingWrites() {
-    while (ProcessPendingWritesOnce()) {
+    while (ProcessPendingWritesOnce(false)) {
     }
 }
 
 void AppConfig::FlushPendingWrites() {
-    ProcessPendingWrites();
+    while (ProcessPendingWritesOnce(true)) {
+    }
     FlushSnapshotWriter();
 }
 
@@ -761,6 +845,19 @@ void AppConfig::RefreshProfileStateLocked() {
     }
 }
 
+void AppConfig::ResetSnapshotTrackingLocked() {
+    rootRevision_ = 0;
+    persistedRevision_ = 0;
+    snapshotRequestedRevision_ = 0;
+    snapshotRetryPending_ = false;
+    lastChangedMutationMs_ = 0.0;
+    nextSnapshotRetryMs_ = 0.0;
+    pendingSnapshotSources_.clear();
+    pendingSnapshotMutations_ = 0;
+    pendingSnapshotChanged_ = 0;
+    pendingSnapshotNoop_ = 0;
+}
+
 void AppConfig::EnsureLoadedLocked() {
     if (loaded_) {
         return;
@@ -769,6 +866,7 @@ void AppConfig::EnsureLoadedLocked() {
     loaded_ = true;
     root_.clear();
     lastSerializedSnapshot_.clear();
+    ResetSnapshotTrackingLocked();
     root_["schema_version"] = kConfigSchemaVersion;
 
     if (configPath_.empty() || !fs::exists(configPath_)) {
@@ -789,49 +887,154 @@ void AppConfig::EnsureLoadedLocked() {
     debuglog::WriteInfo("AppConfig loaded from disk: %ls", configPath_.c_str());
 }
 
-bool AppConfig::ProcessPendingWritesOnce() {
-    fs::path targetPath;
-    jsonutil::JsonObject snapshot;
+bool AppConfig::ProcessPendingWritesOnce(bool forceSnapshot) {
+    SnapshotRequest request;
+    bool hadPendingMutations = false;
+    bool shouldRequestSnapshot = false;
 
     {
         std::lock_guard lock(mutex_);
         EnsureLoadedLocked();
-        if (pendingMutations_.empty()) {
-            return false;
-        }
+        hadPendingMutations = !pendingMutations_.empty();
+        const double nowMs = ConfigPerfNowMs();
 
         while (!pendingMutations_.empty()) {
-            Mutation mutation = std::move(pendingMutations_.front());
+            PendingMutation pending = std::move(pendingMutations_.front());
             pendingMutations_.pop_front();
-            if (mutation) {
-                mutation(root_);
+            ++pendingSnapshotMutations_;
+            AppendSource(pendingSnapshotSources_, pending.source);
+
+            bool changed = false;
+            switch (pending.kind) {
+            case PendingMutation::Kind::Opaque:
+                if (pending.mutation) {
+                    pending.mutation(root_);
+                    changed = true;
+                }
+                break;
+            case PendingMutation::Kind::SectionReplace: {
+                const auto existing = root_.find(pending.sectionName);
+                if (existing != root_.end() && jsonutil::JsonEquals(existing->second, pending.sectionValue)) {
+                    changed = false;
+                } else {
+                    root_[pending.sectionName] = std::move(pending.sectionValue);
+                    changed = true;
+                }
+                break;
+            }
+            case PendingMutation::Kind::SectionMutation: {
+                jsonutil::JsonObject before;
+                const auto existing = root_.find(pending.sectionName);
+                const jsonutil::JsonValue beforeValue = existing != root_.end() ? existing->second : jsonutil::JsonValue(nullptr);
+                if (existing != root_.end()) {
+                    if (const jsonutil::JsonObject* object = existing->second.TryObject()) {
+                        before = *object;
+                    }
+                }
+
+                jsonutil::JsonObject after = before;
+                if (pending.sectionMutation) {
+                    pending.sectionMutation(after);
+                }
+
+                jsonutil::JsonValue afterValue(std::move(after));
+                if (jsonutil::JsonEquals(beforeValue, afterValue)) {
+                    changed = false;
+                } else {
+                    root_[pending.sectionName] = std::move(afterValue);
+                    changed = true;
+                }
+                break;
+            }
+            }
+
+            if (changed) {
+                ++rootRevision_;
+                ++pendingSnapshotChanged_;
+                lastChangedMutationMs_ = nowMs;
+                root_["schema_version"] = kConfigSchemaVersion;
+            } else {
+                ++pendingSnapshotNoop_;
             }
         }
 
-        root_["schema_version"] = kConfigSchemaVersion;
-        targetPath = configPath_;
-        snapshot = root_;
+        const bool hasUnpersistedRevision = rootRevision_ > persistedRevision_;
+        const bool hasNewRevision = rootRevision_ > snapshotRequestedRevision_;
+        const bool retryDue = snapshotRetryPending_ && (forceSnapshot || nowMs >= nextSnapshotRetryMs_);
+        const double debounceMs = lastChangedMutationMs_ > 0.0
+            ? std::max(0.0, nowMs - lastChangedMutationMs_)
+            : DurationMs(kSnapshotBuildDebounceWindow);
+        const bool debounceReady = debounceMs >= DurationMs(kSnapshotBuildDebounceWindow);
+
+        if (hasUnpersistedRevision && (hasNewRevision || retryDue) && (forceSnapshot || debounceReady)) {
+            request.targetPath = configPath_;
+            request.revision = rootRevision_;
+            request.sources = pendingSnapshotSources_;
+            request.mutations = pendingSnapshotMutations_;
+            request.changed = pendingSnapshotChanged_;
+            request.noop = pendingSnapshotNoop_;
+            request.requestedAtMs = nowMs;
+            request.debounceMs = debounceMs;
+            request.force = forceSnapshot;
+
+            snapshotRequestedRevision_ = rootRevision_;
+            snapshotRetryPending_ = false;
+            nextSnapshotRetryMs_ = 0.0;
+            pendingSnapshotSources_.clear();
+            pendingSnapshotMutations_ = 0;
+            pendingSnapshotChanged_ = 0;
+            pendingSnapshotNoop_ = 0;
+            shouldRequestSnapshot = true;
+        } else if (!hasUnpersistedRevision) {
+            pendingSnapshotSources_.clear();
+            pendingSnapshotMutations_ = 0;
+            pendingSnapshotChanged_ = 0;
+            pendingSnapshotNoop_ = 0;
+        }
     }
 
-    WriteSnapshot(std::move(targetPath), std::move(snapshot));
-    return true;
+    if (shouldRequestSnapshot) {
+        RequestSnapshotWrite(std::move(request));
+    }
+    return hadPendingMutations || shouldRequestSnapshot;
 }
 
-bool AppConfig::WriteSnapshot(fs::path targetPath, jsonutil::JsonObject snapshot) {
-    if (targetPath.empty()) {
+bool AppConfig::RequestSnapshotWrite(SnapshotRequest request) {
+    if (request.targetPath.empty()) {
         debuglog::WriteError("AppConfig: write skipped, config path is empty");
         return false;
     }
 
     StartSnapshotWriter();
+    const std::string sourceLog = request.sources.empty() ? std::string("unknown") : request.sources;
+    const std::uint64_t revision = request.revision;
+    const std::uint64_t mutations = request.mutations;
+    const std::uint64_t changed = request.changed;
+    const std::uint64_t noop = request.noop;
+    const double debounceMs = request.debounceMs;
+    bool force = request.force;
     {
         std::lock_guard writerLock(writerMutex_);
-        writerPendingPath_ = targetPath;
-        writerPendingSnapshot_ = std::move(snapshot);
+        if (writerHasPending_ && request.revision < writerPendingRequest_.revision && !request.force) {
+            return true;
+        }
+        if (writerHasPending_ && writerPendingRequest_.force) {
+            request.force = true;
+            force = true;
+        }
+        writerPendingRequest_ = std::move(request);
         writerHasPending_ = true;
     }
     writerCv_.notify_one();
-    debuglog::WriteInfo("AppConfig snapshot queued for async serialize: %ls", targetPath.c_str());
+    debuglog::WriteInfo(
+        "AppConfig snapshot requested source=%s mutations=%llu changed=%llu noop=%llu debounce=%.0fms rev=%llu force=%d",
+        sourceLog.c_str(),
+        static_cast<unsigned long long>(mutations),
+        static_cast<unsigned long long>(changed),
+        static_cast<unsigned long long>(noop),
+        debounceMs,
+        static_cast<unsigned long long>(revision),
+        force ? 1 : 0);
     return true;
 }
 
@@ -862,8 +1065,7 @@ void AppConfig::StopSnapshotWriter() {
     writerStop_ = false;
     writerBusy_ = false;
     writerHasPending_ = false;
-    writerPendingPath_.clear();
-    writerPendingSnapshot_.clear();
+    writerPendingRequest_ = SnapshotRequest{};
 }
 
 void AppConfig::FlushSnapshotWriter() {
@@ -872,6 +1074,9 @@ void AppConfig::FlushSnapshotWriter() {
         return;
     }
 
+    if (writerHasPending_) {
+        writerPendingRequest_.force = true;
+    }
     writerCv_.notify_one();
     writerIdleCv_.wait(writerLock, [this]() {
         return !writerHasPending_ && !writerBusy_;
@@ -880,10 +1085,12 @@ void AppConfig::FlushSnapshotWriter() {
 
 void AppConfig::SnapshotWriterLoop() {
     for (;;) {
-        fs::path targetPath;
+        SnapshotRequest request;
         jsonutil::JsonObject snapshot;
         std::string output;
+        double copyMs = 0.0;
         double serializeMs = 0.0;
+        std::uint64_t snapshotRevision = 0;
 
         {
             std::unique_lock writerLock(writerMutex_);
@@ -894,17 +1101,45 @@ void AppConfig::SnapshotWriterLoop() {
                 break;
             }
 
-            targetPath = std::move(writerPendingPath_);
-            snapshot = std::move(writerPendingSnapshot_);
-            writerPendingPath_.clear();
-            writerPendingSnapshot_.clear();
+            if (!writerStop_ && !writerPendingRequest_.force) {
+                writerCv_.wait_for(writerLock, kSnapshotWriterCoalesceWindow, [this]() {
+                    return writerStop_ || (writerHasPending_ && writerPendingRequest_.force);
+                });
+            }
+
+            request = std::move(writerPendingRequest_);
+            writerPendingRequest_ = SnapshotRequest{};
             writerHasPending_ = false;
             writerBusy_ = true;
         }
 
+        const double copyBeginMs = ConfigPerfNowMs();
+        {
+            std::lock_guard lock(mutex_);
+            snapshot = root_;
+            snapshotRevision = rootRevision_;
+            if (snapshotRevision > snapshotRequestedRevision_) {
+                snapshotRequestedRevision_ = snapshotRevision;
+            }
+        }
+        copyMs = ConfigPerfNowMs() - copyBeginMs;
+
         const double serializeBeginMs = ConfigPerfNowMs();
         jsonutil::WriteJson(jsonutil::JsonValue(snapshot), output, 0);
         serializeMs = ConfigPerfNowMs() - serializeBeginMs;
+        const double queuedAgeMs = request.requestedAtMs > 0.0 ? ConfigPerfNowMs() - request.requestedAtMs : 0.0;
+        const char* sourceLog = request.sources.empty() ? "unknown" : request.sources.c_str();
+
+        debuglog::WriteInfo(
+            "AppConfig snapshot copied async: %ls copy=%.2fms serialize=%.2fms rev=%llu requestedRev=%llu source=%s queuedAge=%.0fms bytesCandidate=%zu",
+            request.targetPath.c_str(),
+            copyMs,
+            serializeMs,
+            static_cast<unsigned long long>(snapshotRevision),
+            static_cast<unsigned long long>(request.revision),
+            sourceLog,
+            queuedAgeMs,
+            output.size());
 
         bool skipUnchanged = false;
         {
@@ -913,10 +1148,20 @@ void AppConfig::SnapshotWriterLoop() {
         }
 
         if (skipUnchanged) {
+            {
+                std::lock_guard lock(mutex_);
+                persistedRevision_ = std::max(persistedRevision_, snapshotRevision);
+                snapshotRetryPending_ = false;
+                nextSnapshotRetryMs_ = 0.0;
+            }
             debuglog::WriteInfo(
-                "AppConfig snapshot skipped unchanged async: %ls serialize=%.2fms bytes=%zu",
-                targetPath.c_str(),
+                "AppConfig snapshot skipped unchanged async: %ls copy=%.2fms serialize=%.2fms rev=%llu source=%s queuedAge=%.0fms bytes=%zu",
+                request.targetPath.c_str(),
+                copyMs,
                 serializeMs,
+                static_cast<unsigned long long>(snapshotRevision),
+                sourceLog,
+                queuedAgeMs,
                 output.size());
 
             {
@@ -928,21 +1173,43 @@ void AppConfig::SnapshotWriterLoop() {
         }
 
         const double writeBeginMs = ConfigPerfNowMs();
-        const bool saved = WriteJsonTextFile(targetPath, output);
+        const bool saved = WriteJsonTextFile(request.targetPath, output);
         const double writeMs = ConfigPerfNowMs() - writeBeginMs;
         if (saved) {
             {
                 std::lock_guard lock(mutex_);
                 lastSerializedSnapshot_ = output;
+                persistedRevision_ = std::max(persistedRevision_, snapshotRevision);
+                snapshotRetryPending_ = false;
+                nextSnapshotRetryMs_ = 0.0;
             }
             debuglog::WriteInfo(
-                "AppConfig snapshot saved async: %ls serialize=%.2fms write=%.2fms bytes=%zu",
-                targetPath.c_str(),
+                "AppConfig snapshot saved async: %ls copy=%.2fms serialize=%.2fms write=%.2fms rev=%llu source=%s queuedAge=%.0fms bytes=%zu",
+                request.targetPath.c_str(),
+                copyMs,
                 serializeMs,
                 writeMs,
+                static_cast<unsigned long long>(snapshotRevision),
+                sourceLog,
+                queuedAgeMs,
                 output.size());
         } else {
-            debuglog::WriteError("AppConfig: failed to save snapshot async: %ls", targetPath.c_str());
+            {
+                std::lock_guard lock(mutex_);
+                if (snapshotRevision > persistedRevision_) {
+                    snapshotRetryPending_ = true;
+                    nextSnapshotRetryMs_ = ConfigPerfNowMs() + DurationMs(kSnapshotRetryWindow);
+                }
+            }
+            debuglog::WriteError(
+                "AppConfig: failed to save snapshot async: %ls copy=%.2fms serialize=%.2fms write=%.2fms rev=%llu source=%s queuedAge=%.0fms",
+                request.targetPath.c_str(),
+                copyMs,
+                serializeMs,
+                writeMs,
+                static_cast<unsigned long long>(snapshotRevision),
+                sourceLog,
+                queuedAgeMs);
         }
 
         {
