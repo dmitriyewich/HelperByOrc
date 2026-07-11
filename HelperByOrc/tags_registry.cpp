@@ -279,6 +279,60 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        "closestcolor",
+        "{closestcolor}",
+        "{closestcolor}",
+        UiText::TagsBuiltinClosestColorDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestColorTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestdrivercar",
+        "{closestdrivercar}",
+        "{closestdrivercar}",
+        UiText::TagsBuiltinClosestDriverCarDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestDriverCarTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestdrivercolor",
+        "{closestdrivercolor}",
+        "{closestdrivercolor}",
+        UiText::TagsBuiltinClosestDriverColorDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestDriverColorTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestdriverid",
+        "{closestdriverid}",
+        "{closestdriverid}",
+        UiText::TagsBuiltinClosestDriverIdDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestDriverIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestdrivername",
+        "{closestdrivername}",
+        "{closestdrivername}",
+        UiText::TagsBuiltinClosestDriverNameDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestDriverNameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "closestdriversurname",
+        "{closestdriversurname}",
+        "{closestdriversurname}",
+        UiText::TagsBuiltinClosestDriverSurnameDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinClosestDriverSurnameTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
         "armour",
         "{armour}",
         "{armour}",
@@ -447,6 +501,51 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinMyCarSpeedDescription,
         [](const Impl& module, const EvaluationContext& context) {
             return module.ResolveBuiltinMyCarSpeedTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mycarwindow",
+        "{mycarwindow}",
+        "{mycarwindow}",
+        UiText::TagsBuiltinMyCarWindowDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyCarWindowTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "mystamina",
+        "{mystamina}",
+        "{mystamina}",
+        UiText::TagsBuiltinMyStaminaDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyStaminaTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "myoxygen",
+        "{myoxygen}",
+        "{myoxygen}",
+        UiText::TagsBuiltinMyOxygenDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyOxygenTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "weather",
+        "{weather}",
+        "{weather}",
+        UiText::TagsBuiltinWeatherDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinWeatherTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        "weatheren",
+        "{weatheren}",
+        "{weatheren}",
+        UiText::TagsBuiltinWeatherEnDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinWeatherEnTag(context);
         });
 
     const auto registerMyCarOccupantTag = [this](
@@ -1010,6 +1109,15 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinCarHealthFunctionDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinCarHealthFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        "carwindow",
+        "[carwindow(...)]",
+        "[carwindow(15)]",
+        UiText::TagsBuiltinCarWindowFunctionDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCarWindowFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(

@@ -3,7 +3,7 @@
 
 namespace {
 
-double PlayerNamePerfNowMs() {
+double TagResolverPerfNowMs() {
     static const double s_invFrequencyMs = [] {
         LARGE_INTEGER frequency{};
         if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
@@ -19,6 +19,17 @@ double PlayerNamePerfNowMs() {
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
     return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+bool IsClosestCandidatePedValid(CPed* ped) {
+    if (!ped || !CPools::ms_pPedPool || !CPools::ms_pPedPool->IsObjectValid(ped)) {
+        return false;
+    }
+    return IsPedPointerValid(ped);
+}
+
+bool IsFinitePosition(const CVector& position) {
+    return std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z);
 }
 
 } // namespace
@@ -573,16 +584,16 @@ void TagsModule::Impl::MaybeLogPlayerNamePerf(std::uint64_t nowMs) const {
 }
 
 std::string TagsModule::Impl::ResolvePlayerNickById(int id, const EvaluationContext& context) const {
-    const double beginMs = PlayerNamePerfNowMs();
+    const double beginMs = TagResolverPerfNowMs();
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || id < 0) {
-        RecordPlayerNamePerf(true, false, PlayerNamePerfNowMs() - beginMs);
+        RecordPlayerNamePerf(true, false, TagResolverPerfNowMs() - beginMs);
         return std::string();
     }
 
     const std::string nick = sampApi->GetNameID(id);
     const bool unknown = nick.empty() || nick == "UNKNOWN";
-    RecordPlayerNamePerf(false, unknown, PlayerNamePerfNowMs() - beginMs);
+    RecordPlayerNamePerf(false, unknown, TagResolverPerfNowMs() - beginMs);
     return unknown ? std::string() : nick;
 }
 
@@ -603,64 +614,101 @@ std::string TagsModule::Impl::ResolveLastTargetNick(const EvaluationContext& con
 
 void TagsModule::Impl::ResetTargetTracker() {
     targetTracker_ = TargetTrackerState{};
-    closestPlayerCache_.valid = false;
+    closestPlayerCache_ = ClosestPlayerCache{};
     closestPlayerPerfStats_ = ClosestPlayerPerfStats{};
     playerNamePerfStats_ = PlayerNamePerfStats{};
     myCarSnapshotCache_.valid = false;
     myCarSnapshotPerfStats_ = MyCarSnapshotPerfStats{};
 }
 
-TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers(const EvaluationContext& context) const {
-    ClosestPlayerQueryResult result;
-
+TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = closestPlayerCache_;
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     const std::uint64_t now = GetTickCount64();
+    const ClosestPlayerQueryStats emptyStats{};
+    const auto clearSnapshot = [&snapshot] {
+        snapshot.result = ClosestPlayerQueryResult{};
+        snapshot.nearestDetails = ClosestPlayerDetails{};
+        snapshot.driverDetails = ClosestPlayerDetails{};
+        snapshot.localPed = 0;
+        snapshot.localId = -1;
+        snapshot.valid = false;
+    };
+
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
-        RecordClosestPlayersPerf(false, false, false, 0, 0);
-        return result;
+        clearSnapshot();
+        MaybeLogClosestPlayersSnapshot(snapshot, emptyStats, 0.0, context);
+        RecordClosestPlayersPerf(false, false, false, emptyStats, 0.0);
+        return snapshot;
     }
 
     const int localId = sampApi->Local_ID();
     CPed* const localPed = FindPlayerPed();
-    if (localId < 0 || !localPed) {
-        closestPlayerCache_.valid = false;
-        RecordClosestPlayersPerf(false, true, false, 0, 0);
-        return result;
+    if (localId < 0 || !IsClosestCandidatePedValid(localPed)) {
+        clearSnapshot();
+        MaybeLogClosestPlayersSnapshot(snapshot, emptyStats, 0.0, context);
+        RecordClosestPlayersPerf(false, true, false, emptyStats, 0.0);
+        return snapshot;
     }
 
     const std::uintptr_t localPedAddress = reinterpret_cast<std::uintptr_t>(localPed);
-    if (closestPlayerCache_.valid
-        && closestPlayerCache_.localId == localId
-        && closestPlayerCache_.localPed == localPedAddress
-        && now >= closestPlayerCache_.updatedAtMs
-        && now - closestPlayerCache_.updatedAtMs <= kClosestPlayerCacheTtlMs) {
-        RecordClosestPlayersPerf(true, true, true, 0, 0);
-        return closestPlayerCache_.result;
+    if (snapshot.valid
+        && snapshot.localId == localId
+        && snapshot.localPed == localPedAddress
+        && now >= snapshot.updatedAtMs
+        && now - snapshot.updatedAtMs <= kClosestPlayerCacheTtlMs) {
+        RecordClosestPlayersPerf(true, true, true, emptyStats, 0.0);
+        return snapshot;
     }
 
-    const std::uint64_t queryStartedAtMs = now;
+    const double queryStartedAtMs = TagResolverPerfNowMs();
     const CVector localPosition = localPed->GetPosition();
+    if (!IsFinitePosition(localPosition)) {
+        clearSnapshot();
+        MaybeLogClosestPlayersSnapshot(snapshot, emptyStats, 0.0, context);
+        RecordClosestPlayersPerf(false, true, false, emptyStats, 0.0);
+        return snapshot;
+    }
+
     const bool hasScreenMetrics = RsGlobal.maximumWidth > 0 && RsGlobal.maximumHeight > 0;
     const float screenCenterX = static_cast<float>(RsGlobal.maximumWidth) * 0.5f;
     const float screenCenterY = static_cast<float>(RsGlobal.maximumHeight) * 0.5f;
 
+    ClosestPlayerQueryResult result;
+    if (hasScreenMetrics) {
+        result.viewportWidth = RsGlobal.maximumWidth;
+        result.viewportHeight = RsGlobal.maximumHeight;
+        result.screenCenterX = screenCenterX;
+        result.screenCenterY = screenCenterY;
+    }
+    ClosestPlayerQueryStats queryStats;
     float bestDistanceSq = std::numeric_limits<float>::max();
     float bestCenterDistanceSq = std::numeric_limits<float>::max();
-    std::size_t candidates = 0;
+    float bestDriverDistanceSq = std::numeric_limits<float>::max();
 
     for (int id = 0; id <= kMaxSampPlayerId; ++id) {
-        if (id == localId) {
+        if (id == localId || !sampApi->IsConnected(id)) {
             continue;
         }
 
         CPed* const candidatePed =
             reinterpret_cast<CPed*>(const_cast<void*>(sampApi->GetPlayerPedPointer(id, false, nullptr, false)));
-        if (!candidatePed || candidatePed == localPed) {
+        if (!candidatePed) {
+            ++queryStats.notStreamed;
             continue;
         }
-        ++candidates;
+        if (candidatePed == localPed || !IsClosestCandidatePedValid(candidatePed)) {
+            ++queryStats.invalidPed;
+            continue;
+        }
 
         const CVector& position = candidatePed->GetPosition();
+        if (!IsFinitePosition(position)) {
+            ++queryStats.invalidPosition;
+            continue;
+        }
+        ++queryStats.candidates;
+
         const float dx = position.x - localPosition.x;
         const float dy = position.y - localPosition.y;
         const float dz = position.z - localPosition.z;
@@ -669,9 +717,21 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
         if (IsBetterClosestCandidate(distanceSq, id, bestDistanceSq, result.nearestId)) {
             bestDistanceSq = distanceSq;
             result.nearestId = id;
+            result.nearestDistanceSq = distanceSq;
+        }
+
+        CVehicle* const vehicle = candidatePed->m_pVehicle;
+        if (IsVehiclePointerValid(vehicle) && vehicle->m_pDriver == candidatePed) {
+            ++queryStats.driverCandidates;
+            if (IsBetterClosestCandidate(distanceSq, id, bestDriverDistanceSq, result.nearestDriverId)) {
+                bestDriverDistanceSq = distanceSq;
+                result.nearestDriverId = id;
+                result.nearestDriverDistanceSq = distanceSq;
+            }
         }
 
         if (!hasScreenMetrics) {
+            ++queryStats.projectionFailed;
             continue;
         }
 
@@ -684,6 +744,18 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
         float width = 0.0f;
         float height = 0.0f;
         if (!CSprite::CalcScreenCoors(worldPosition, &screenPosition, &width, &height, true, true)) {
+            ++queryStats.projectionFailed;
+            continue;
+        }
+        if (!std::isfinite(screenPosition.x) || !std::isfinite(screenPosition.y)) {
+            ++queryStats.projectionFailed;
+            continue;
+        }
+        if (screenPosition.x < 0.0f
+            || screenPosition.y < 0.0f
+            || screenPosition.x >= static_cast<float>(RsGlobal.maximumWidth)
+            || screenPosition.y >= static_cast<float>(RsGlobal.maximumHeight)) {
+            ++queryStats.offscreen;
             continue;
         }
 
@@ -697,37 +769,143 @@ TagsModule::Impl::ClosestPlayerQueryResult TagsModule::Impl::QueryClosestPlayers
                 result.nearestToCenterId)) {
             bestCenterDistanceSq = centerDistanceSq;
             result.nearestToCenterId = id;
+            result.nearestToCenterDistanceSq = centerDistanceSq;
+            result.nearestToCenterScreenX = screenPosition.x;
+            result.nearestToCenterScreenY = screenPosition.y;
         }
     }
 
-    closestPlayerCache_.result = result;
-    closestPlayerCache_.updatedAtMs = GetTickCount64();
-    closestPlayerCache_.localPed = localPedAddress;
-    closestPlayerCache_.localId = localId;
-    closestPlayerCache_.valid = true;
+    snapshot.result = result;
+    snapshot.nearestDetails = ClosestPlayerDetails{};
+    snapshot.driverDetails = ClosestPlayerDetails{};
+    snapshot.updatedAtMs = GetTickCount64();
+    snapshot.localPed = localPedAddress;
+    snapshot.localId = localId;
+    snapshot.valid = true;
 
-    const std::uint64_t elapsedMs = closestPlayerCache_.updatedAtMs - queryStartedAtMs;
+    const double elapsedMs = std::max(0.0, TagResolverPerfNowMs() - queryStartedAtMs);
+    MaybeLogClosestPlayersSnapshot(snapshot, queryStats, elapsedMs, context);
     if (elapsedMs >= kClosestPlayerSlowQueryLogMs
-        && (closestPlayerCache_.lastSlowLogAtMs == 0
-            || closestPlayerCache_.updatedAtMs - closestPlayerCache_.lastSlowLogAtMs >= kClosestPlayerSlowQueryLogThrottleMs)) {
-        closestPlayerCache_.lastSlowLogAtMs = closestPlayerCache_.updatedAtMs;
+        && (snapshot.lastSlowLogAtMs == 0
+            || snapshot.updatedAtMs - snapshot.lastSlowLogAtMs >= kClosestPlayerSlowQueryLogThrottleMs)) {
+        snapshot.lastSlowLogAtMs = snapshot.updatedAtMs;
         debuglog::WriteInfo(
-            "[tags][closest] slow query elapsed=%llums nearest=%d center=%d",
-            static_cast<unsigned long long>(elapsedMs),
+            "[tags][closest] slow query elapsed=%.3fms nearest=%d center=%d driver=%d candidates=%zu drivers=%zu",
+            elapsedMs,
             result.nearestId,
-            result.nearestToCenterId);
+            result.nearestToCenterId,
+            result.nearestDriverId,
+            queryStats.candidates,
+            queryStats.driverCandidates);
     }
 
-    RecordClosestPlayersPerf(false, true, true, candidates, elapsedMs);
-    return result;
+    RecordClosestPlayersPerf(false, true, true, queryStats, elapsedMs);
+    return snapshot;
+}
+
+void TagsModule::Impl::ResolveClosestPlayerDetails(
+    ClosestPlayerCache& snapshot,
+    bool driver,
+    bool requireNick,
+    bool requireColor,
+    bool requireVehicle,
+    const EvaluationContext& context) const {
+    ClosestPlayerDetails& details = driver ? snapshot.driverDetails : snapshot.nearestDetails;
+    const int id = driver ? snapshot.result.nearestDriverId : snapshot.result.nearestId;
+    if (id < 0) {
+        return;
+    }
+
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (requireNick && !details.nickResolved) {
+        details.nickResolved = true;
+        details.nick = ResolvePlayerNickById(id, context);
+    }
+    if (requireColor && !details.colorResolved) {
+        details.colorResolved = true;
+        const std::optional<std::uint32_t> color = sampApi ? sampApi->GetPlayerColor(id) : std::nullopt;
+        details.color = color.has_value() ? FormatSampColorTag(*color) : std::string("{FFFFFF}");
+    }
+    if (driver && requireVehicle && !details.vehicleResolved) {
+        details.vehicleResolved = true;
+        if (!sampApi) {
+            return;
+        }
+
+        const CPed* const ped = FindPlayerPedBySampId(*sampApi, id);
+        if (!IsClosestCandidatePedValid(const_cast<CPed*>(ped))) {
+            return;
+        }
+        const CVehicle* const vehicle = ped->m_pVehicle;
+        if (!IsVehiclePointerValid(vehicle) || vehicle->m_pDriver != ped) {
+            return;
+        }
+        details.vehicle = ResolveVehicleNameForPed(ped).value_or(std::string());
+    }
+}
+
+void TagsModule::Impl::MaybeLogClosestPlayersSnapshot(
+    ClosestPlayerCache& snapshot,
+    const ClosestPlayerQueryStats& queryStats,
+    double elapsedMs,
+    const EvaluationContext& context) const {
+    if (snapshot.snapshotLogged
+        && snapshot.result.nearestId == snapshot.lastLoggedResult.nearestId
+        && snapshot.result.nearestToCenterId == snapshot.lastLoggedResult.nearestToCenterId
+        && snapshot.result.nearestDriverId == snapshot.lastLoggedResult.nearestDriverId
+        && snapshot.result.viewportWidth == snapshot.lastLoggedResult.viewportWidth
+        && snapshot.result.viewportHeight == snapshot.lastLoggedResult.viewportHeight) {
+        return;
+    }
+
+    ResolveClosestPlayerDetails(snapshot, false, true, true, false, context);
+    ResolveClosestPlayerDetails(snapshot, true, true, true, true, context);
+    const auto distance = [](float distanceSq) {
+        return distanceSq >= 0.0f && std::isfinite(distanceSq) ? std::sqrt(distanceSq) : -1.0f;
+    };
+
+    debuglog::WriteInfo(
+        "[tags][closest] snapshot nearest=%d nick=\"%s\" dist=%.2f color=%s "
+        "viewport=%dx%d center=(%.1f,%.1f) centerId=%d centerProjected=(%.1f,%.1f) centerPx=%.2f "
+        "driver=%d driverNick=\"%s\" driverDist=%.2f driverColor=%s car=\"%s\" "
+        "candidates=%zu drivers=%zu notStreamed=%zu invalidPed=%zu invalidPos=%zu projectionFailed=%zu offscreen=%zu "
+        "elapsed=%.3fms",
+        snapshot.result.nearestId,
+        snapshot.nearestDetails.nick.c_str(),
+        distance(snapshot.result.nearestDistanceSq),
+        snapshot.nearestDetails.color.c_str(),
+        snapshot.result.viewportWidth,
+        snapshot.result.viewportHeight,
+        snapshot.result.screenCenterX,
+        snapshot.result.screenCenterY,
+        snapshot.result.nearestToCenterId,
+        snapshot.result.nearestToCenterScreenX,
+        snapshot.result.nearestToCenterScreenY,
+        distance(snapshot.result.nearestToCenterDistanceSq),
+        snapshot.result.nearestDriverId,
+        snapshot.driverDetails.nick.c_str(),
+        distance(snapshot.result.nearestDriverDistanceSq),
+        snapshot.driverDetails.color.c_str(),
+        snapshot.driverDetails.vehicle.c_str(),
+        queryStats.candidates,
+        queryStats.driverCandidates,
+        queryStats.notStreamed,
+        queryStats.invalidPed,
+        queryStats.invalidPosition,
+        queryStats.projectionFailed,
+        queryStats.offscreen,
+        elapsedMs);
+
+    snapshot.lastLoggedResult = snapshot.result;
+    snapshot.snapshotLogged = true;
 }
 
 void TagsModule::Impl::RecordClosestPlayersPerf(
     bool cacheHit,
     bool sampReady,
     bool localReady,
-    std::size_t candidates,
-    std::uint64_t elapsedMs) const {
+    const ClosestPlayerQueryStats& queryStats,
+    double elapsedMs) const {
     const std::uint64_t now = GetTickCount64();
     ClosestPlayerPerfStats& stats = closestPlayerPerfStats_;
     if (stats.windowStartMs == 0 || now < stats.windowStartMs) {
@@ -737,7 +915,7 @@ void TagsModule::Impl::RecordClosestPlayersPerf(
     ++stats.requests;
     if (cacheHit) {
         ++stats.cacheHits;
-    } else {
+    } else if (sampReady && localReady) {
         ++stats.rebuilds;
         stats.totalRebuildMs += elapsedMs;
         stats.maxRebuildMs = std::max(stats.maxRebuildMs, elapsedMs);
@@ -748,7 +926,13 @@ void TagsModule::Impl::RecordClosestPlayersPerf(
     if (!localReady) {
         ++stats.noLocal;
     }
-    stats.maxCandidates = std::max(stats.maxCandidates, candidates);
+    stats.maxCandidates = std::max(stats.maxCandidates, queryStats.candidates);
+    stats.maxDriverCandidates = std::max(stats.maxDriverCandidates, queryStats.driverCandidates);
+    stats.notStreamed += queryStats.notStreamed;
+    stats.invalidPed += queryStats.invalidPed;
+    stats.invalidPosition += queryStats.invalidPosition;
+    stats.projectionFailed += queryStats.projectionFailed;
+    stats.offscreen += queryStats.offscreen;
 
     MaybeLogClosestPlayersPerf(now);
 }
@@ -775,7 +959,8 @@ void TagsModule::Impl::MaybeLogClosestPlayersPerf(std::uint64_t nowMs) const {
         stats.rebuilds > 0 ? static_cast<double>(stats.totalRebuildMs) / static_cast<double>(stats.rebuilds) : 0.0;
     debuglog::WriteInfo(
         "[tags][closest][perf] window=%llums requests=%llu hits=%llu rebuilds=%llu noSamp=%llu noLocal=%llu "
-        "avgRebuild=%.2fms maxRebuild=%llums maxCandidates=%zu",
+        "avgRebuild=%.3fms maxRebuild=%.3fms maxCandidates=%zu maxDrivers=%zu notStreamed=%llu invalidPed=%llu "
+        "invalidPos=%llu projectionFailed=%llu offscreen=%llu",
         static_cast<unsigned long long>(windowMs),
         static_cast<unsigned long long>(stats.requests),
         static_cast<unsigned long long>(stats.cacheHits),
@@ -783,8 +968,14 @@ void TagsModule::Impl::MaybeLogClosestPlayersPerf(std::uint64_t nowMs) const {
         static_cast<unsigned long long>(stats.noSamp),
         static_cast<unsigned long long>(stats.noLocal),
         avgRebuildMs,
-        static_cast<unsigned long long>(stats.maxRebuildMs),
-        stats.maxCandidates);
+        stats.maxRebuildMs,
+        stats.maxCandidates,
+        stats.maxDriverCandidates,
+        static_cast<unsigned long long>(stats.notStreamed),
+        static_cast<unsigned long long>(stats.invalidPed),
+        static_cast<unsigned long long>(stats.invalidPosition),
+        static_cast<unsigned long long>(stats.projectionFailed),
+        static_cast<unsigned long long>(stats.offscreen));
 
     stats = ClosestPlayerPerfStats{};
     stats.windowStartMs = nowMs;

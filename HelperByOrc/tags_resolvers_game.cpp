@@ -1,6 +1,11 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include <game_sa/CClumpModelInfo.h>
+#include <game_sa/CStats.h>
+#include <game_sa/CVisibilityPlugins.h>
+#include <game_sa/CWeather.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
@@ -271,6 +276,168 @@ bool IsPedPoolPointerValid(const CPed* ped) {
 
 bool IsMyCarOccupantPedValid(const CPed* ped) {
     return IsPedPoolPointerValid(ped) && IsPedPointerValid(const_cast<CPed*>(ped));
+}
+
+constexpr int kFrontLeftWindowFrameId = 10;
+constexpr int kFrontRightWindowFrameId = 8;
+constexpr int kRearLeftWindowFrameId = 11;
+constexpr int kRearRightWindowFrameId = 9;
+constexpr unsigned short kWindowOpenAtomicFlag = 0x1000;
+
+struct VehicleWindowAtomicState {
+    bool sawAtomic = false;
+    bool open = false;
+};
+
+RwObject* InspectVehicleWindowAtomic(RwObject* object, void* data) {
+    auto* const state = static_cast<VehicleWindowAtomicState*>(data);
+    if (!object || !state || object->type != rpATOMIC || CVisibilityPlugins::ms_atomicPluginOffset <= 0) {
+        return object;
+    }
+
+    auto* const atomic = reinterpret_cast<RpAtomic*>(object);
+    auto* const visibility = reinterpret_cast<tAtomicVisibilityPlugin*>(
+        reinterpret_cast<std::uintptr_t>(atomic)
+        + static_cast<std::uintptr_t>(CVisibilityPlugins::ms_atomicPluginOffset));
+    state->sawAtomic = true;
+    state->open = state->open || (visibility->m_wFlags & kWindowOpenAtomicFlag) != 0;
+    return object;
+}
+
+std::optional<int> ResolveVehicleWindowFrameId(const CPed* ped, const CVehicle* vehicle) {
+    if (!ped || !vehicle) {
+        return std::nullopt;
+    }
+
+    if (vehicle->m_pDriver == ped) {
+        return kFrontLeftWindowFrameId;
+    }
+
+    static constexpr int kPassengerWindowFrameIds[] = {
+        kFrontRightWindowFrameId,
+        kRearLeftWindowFrameId,
+        kRearRightWindowFrameId,
+    };
+    for (std::size_t index = 0; index < std::size(kPassengerWindowFrameIds); ++index) {
+        if (vehicle->m_apPassengers[index] == ped) {
+            return kPassengerWindowFrameIds[index];
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> ResolveVehicleWindowState(const CPed* ped, const CVehicle* vehicle) {
+    if (!IsPedPoolPointerValid(ped) || !IsVehiclePointerValid(vehicle) || !vehicle->m_pRwClump) {
+        return std::nullopt;
+    }
+
+    const std::optional<int> frameId = ResolveVehicleWindowFrameId(ped, vehicle);
+    if (!frameId.has_value()) {
+        return std::nullopt;
+    }
+
+    RwFrame* const frame = CClumpModelInfo::GetFrameFromId(vehicle->m_pRwClump, *frameId);
+    if (!frame) {
+        return std::nullopt;
+    }
+
+    VehicleWindowAtomicState state;
+    RwFrameForAllObjects(frame, InspectVehicleWindowAtomic, &state);
+    if (!state.sawAtomic) {
+        return std::nullopt;
+    }
+    return state.open;
+}
+
+std::string FormatVehicleWindowState(const CPed* ped, const CVehicle* vehicle) {
+    const std::optional<bool> open = ResolveVehicleWindowState(ped, vehicle);
+    if (!open.has_value()) {
+        return {};
+    }
+    return *open ? "1" : "0";
+}
+
+std::string FormatLocalPlayerStatPercent(float current, eStatModAbilities statModifier) {
+    const float maximum = CStats::GetFatAndMuscleModifier(statModifier);
+    if (!std::isfinite(current) || !std::isfinite(maximum) || maximum <= 0.0f) {
+        return {};
+    }
+
+    const float percent = std::clamp(current / maximum * 100.0f, 0.0f, 100.0f);
+    return std::to_string(std::lround(percent));
+}
+
+enum class WeatherCategory {
+    Clear,
+    Cloudy,
+    Rainy,
+    Foggy,
+    Sandstorm,
+    Underwater,
+    Special,
+    Unknown,
+};
+
+WeatherCategory ClassifyWeather(short weatherId) {
+    switch (weatherId) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+    case 6:
+    case 10:
+    case 11:
+    case 13:
+    case 14:
+    case 17:
+    case 18:
+        return WeatherCategory::Clear;
+    case 4:
+    case 7:
+    case 12:
+    case 15:
+        return WeatherCategory::Cloudy;
+    case 8:
+    case 16:
+        return WeatherCategory::Rainy;
+    case 9:
+        return WeatherCategory::Foggy;
+    case 19:
+        return WeatherCategory::Sandstorm;
+    case 20:
+        return WeatherCategory::Underwater;
+    default:
+        return weatherId >= 21 && weatherId <= 45 ? WeatherCategory::Special : WeatherCategory::Unknown;
+    }
+}
+
+std::string ResolveWeatherName(bool english) {
+    const float interpolation = CWeather::InterpolationValue;
+    if (!std::isfinite(interpolation)) {
+        return {};
+    }
+
+    const short weatherId = interpolation < 0.5f ? CWeather::OldWeatherType : CWeather::NewWeatherType;
+    switch (ClassifyWeather(weatherId)) {
+    case WeatherCategory::Clear:
+        return english ? "Clear" : "Ясная";
+    case WeatherCategory::Cloudy:
+        return english ? "Cloudy" : "Облачная";
+    case WeatherCategory::Rainy:
+        return english ? "Rainy" : "Дождливая";
+    case WeatherCategory::Foggy:
+        return english ? "Foggy" : "Туманная";
+    case WeatherCategory::Sandstorm:
+        return english ? "Sandstorm" : "Песчаная буря";
+    case WeatherCategory::Underwater:
+        return english ? "Underwater" : "Под водой";
+    case WeatherCategory::Special:
+        return english ? "Special" : "Особая";
+    case WeatherCategory::Unknown:
+    default:
+        return std::string(english ? "Unknown (" : "Неизвестно (") + std::to_string(weatherId) + ')';
+    }
 }
 
 std::size_t PassengerSlotCount(const CVehicle& vehicle) {
@@ -734,35 +901,90 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinTargetArmourTag(const
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestIdTag(const EvaluationContext& context) const {
-    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
-    if (result.nearestId < 0) {
+    const ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestId < 0) {
         return std::string();
     }
-    return std::to_string(result.nearestId);
+    return std::to_string(snapshot.result.nearestId);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestIdToCenterTag(const EvaluationContext& context) const {
-    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
-    if (result.nearestToCenterId < 0) {
+    const ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestToCenterId < 0) {
         return std::string();
     }
-    return std::to_string(result.nearestToCenterId);
+    return std::to_string(snapshot.result.nearestToCenterId);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestNameTag(const EvaluationContext& context) const {
-    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
-    if (result.nearestId < 0) {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestId < 0) {
         return std::string();
     }
-    return ExtractName(ResolvePlayerNickById(result.nearestId, context));
+    ResolveClosestPlayerDetails(snapshot, false, true, false, false, context);
+    return ExtractName(snapshot.nearestDetails.nick);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestSurnameTag(const EvaluationContext& context) const {
-    const ClosestPlayerQueryResult result = QueryClosestPlayers(context);
-    if (result.nearestId < 0) {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestId < 0) {
         return std::string();
     }
-    return ExtractSurname(ResolvePlayerNickById(result.nearestId, context));
+    ResolveClosestPlayerDetails(snapshot, false, true, false, false, context);
+    return ExtractSurname(snapshot.nearestDetails.nick);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestColorTag(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestId < 0) {
+        return std::string();
+    }
+    ResolveClosestPlayerDetails(snapshot, false, false, true, false, context);
+    return snapshot.nearestDetails.color;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestDriverCarTag(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestDriverId < 0) {
+        return std::string();
+    }
+    ResolveClosestPlayerDetails(snapshot, true, false, false, true, context);
+    return snapshot.driverDetails.vehicle;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestDriverColorTag(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestDriverId < 0) {
+        return std::string();
+    }
+    ResolveClosestPlayerDetails(snapshot, true, false, true, false, context);
+    return snapshot.driverDetails.color;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestDriverIdTag(const EvaluationContext& context) const {
+    const ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestDriverId < 0) {
+        return std::string();
+    }
+    return std::to_string(snapshot.result.nearestDriverId);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestDriverNameTag(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestDriverId < 0) {
+        return std::string();
+    }
+    ResolveClosestPlayerDetails(snapshot, true, true, false, false, context);
+    return ExtractName(snapshot.driverDetails.nick);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClosestDriverSurnameTag(const EvaluationContext& context) const {
+    ClosestPlayerCache& snapshot = QueryClosestPlayers(context);
+    if (snapshot.result.nearestDriverId < 0) {
+        return std::string();
+    }
+    ResolveClosestPlayerDetails(snapshot, true, true, false, false, context);
+    return ExtractSurname(snapshot.driverDetails.nick);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinArmourTag(const EvaluationContext& context) const {
@@ -926,6 +1148,45 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarSpeedTag(const E
         return std::string();
     }
     return snapshot.speed;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarWindowTag(const EvaluationContext& context) const {
+    MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, false);
+    if (!snapshot.hasVehicle) {
+        return std::string();
+    }
+
+    if (!snapshot.windowResolved) {
+        snapshot.windowResolved = true;
+        snapshot.window = FormatVehicleWindowState(
+            reinterpret_cast<const CPed*>(snapshot.localPed),
+            reinterpret_cast<const CVehicle*>(snapshot.vehicle));
+    }
+    return snapshot.window;
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyStaminaTag(const EvaluationContext&) const {
+    CPlayerPed* const playerPed = FindPlayerPed();
+    if (!playerPed || !playerPed->m_pPlayerData) {
+        return std::string();
+    }
+    return FormatLocalPlayerStatPercent(playerPed->m_pPlayerData->m_fTimeCanRun, STAT_MOD_TIME_CAN_RUN);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyOxygenTag(const EvaluationContext&) const {
+    CPlayerPed* const playerPed = FindPlayerPed();
+    if (!playerPed || !playerPed->m_pPlayerData) {
+        return std::string();
+    }
+    return FormatLocalPlayerStatPercent(playerPed->m_pPlayerData->m_fBreath, STAT_MOD_AIR_IN_LUNG);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinWeatherTag(const EvaluationContext&) const {
+    return ResolveWeatherName(false);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinWeatherEnTag(const EvaluationContext&) const {
+    return ResolveWeatherName(true);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarOccupantsTag(
@@ -1406,6 +1667,31 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinCarHealthFunctionTag(
         return std::string();
     }
     return FormatWholeStatValue(ped->m_pVehicle->m_fHealth);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinCarWindowFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+        return std::string();
+    }
+
+    const std::optional<int> id = ParseInteger(param);
+    if (!id.has_value() || !sampApi->IsConnected(*id)) {
+        return std::string();
+    }
+
+    const CPed* const ped = FindPlayerPedBySampId(*sampApi, *id);
+    if (!IsPedPoolPointerValid(ped)) {
+        return std::string();
+    }
+
+    const CVehicle* const vehicle = ped->m_pVehicle;
+    if (!IsVehiclePointerValid(vehicle)) {
+        return std::string();
+    }
+    return FormatVehicleWindowState(ped, vehicle);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinStrLowFunctionTag(

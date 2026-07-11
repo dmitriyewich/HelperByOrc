@@ -207,15 +207,48 @@ public:
     struct ClosestPlayerQueryResult {
         int nearestId = -1;
         int nearestToCenterId = -1;
+        int nearestDriverId = -1;
+        int viewportWidth = 0;
+        int viewportHeight = 0;
+        float nearestDistanceSq = -1.0f;
+        float nearestToCenterDistanceSq = -1.0f;
+        float nearestDriverDistanceSq = -1.0f;
+        float screenCenterX = -1.0f;
+        float screenCenterY = -1.0f;
+        float nearestToCenterScreenX = -1.0f;
+        float nearestToCenterScreenY = -1.0f;
+    };
+
+    struct ClosestPlayerDetails {
+        std::string nick{};
+        std::string color{};
+        std::string vehicle{};
+        bool nickResolved = false;
+        bool colorResolved = false;
+        bool vehicleResolved = false;
+    };
+
+    struct ClosestPlayerQueryStats {
+        std::size_t candidates = 0;
+        std::size_t driverCandidates = 0;
+        std::size_t notStreamed = 0;
+        std::size_t invalidPed = 0;
+        std::size_t invalidPosition = 0;
+        std::size_t projectionFailed = 0;
+        std::size_t offscreen = 0;
     };
 
     struct ClosestPlayerCache {
         ClosestPlayerQueryResult result{};
+        ClosestPlayerQueryResult lastLoggedResult{};
+        ClosestPlayerDetails nearestDetails{};
+        ClosestPlayerDetails driverDetails{};
         std::uint64_t updatedAtMs = 0;
         std::uint64_t lastSlowLogAtMs = 0;
         std::uintptr_t localPed = 0;
         int localId = -1;
         bool valid = false;
+        bool snapshotLogged = false;
     };
 
     struct MyCarSnapshotOccupant {
@@ -245,6 +278,7 @@ public:
         std::vector<MyCarSnapshotOccupant> occupants{};
         std::string health{};
         std::string speed{};
+        std::string window{};
         MyCarOccupantCollectStats occupantStats{};
         std::uint64_t updatedAtMs = 0;
         std::uint64_t lastSlowLogAtMs = 0;
@@ -255,6 +289,7 @@ public:
         bool hasVehicle = false;
         bool sampReady = false;
         bool occupantsResolved = false;
+        bool windowResolved = false;
     };
 
     struct MyCarSnapshotPerfStats {
@@ -283,9 +318,15 @@ public:
         std::uint64_t rebuilds = 0;
         std::uint64_t noSamp = 0;
         std::uint64_t noLocal = 0;
-        std::uint64_t totalRebuildMs = 0;
-        std::uint64_t maxRebuildMs = 0;
+        double totalRebuildMs = 0.0;
+        double maxRebuildMs = 0.0;
         std::size_t maxCandidates = 0;
+        std::size_t maxDriverCandidates = 0;
+        std::uint64_t notStreamed = 0;
+        std::uint64_t invalidPed = 0;
+        std::uint64_t invalidPosition = 0;
+        std::uint64_t projectionFailed = 0;
+        std::uint64_t offscreen = 0;
     };
 
     struct PlayerNamePerfStats {
@@ -452,6 +493,12 @@ public:
     std::optional<std::string> ResolveBuiltinClosestIdToCenterTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClosestNameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClosestSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestColorTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverCarTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverColorTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverNameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverSurnameTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinArmourTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinPingTag(const EvaluationContext& context) const;
@@ -471,6 +518,11 @@ public:
     std::optional<std::string> ResolveBuiltinMyColorTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarWindowTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyStaminaTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyOxygenTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinWeatherTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinWeatherEnTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarOccupantsTag(
         MyCarOccupantScope scope,
         MyCarOccupantField field,
@@ -558,6 +610,9 @@ public:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinCarHealthFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCarWindowFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinKeyDownFunctionTag(
@@ -648,7 +703,19 @@ public:
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
     void ResetTargetTracker();
-    ClosestPlayerQueryResult QueryClosestPlayers(const EvaluationContext& context) const;
+    ClosestPlayerCache& QueryClosestPlayers(const EvaluationContext& context) const;
+    void ResolveClosestPlayerDetails(
+        ClosestPlayerCache& snapshot,
+        bool driver,
+        bool requireNick,
+        bool requireColor,
+        bool requireVehicle,
+        const EvaluationContext& context) const;
+    void MaybeLogClosestPlayersSnapshot(
+        ClosestPlayerCache& snapshot,
+        const ClosestPlayerQueryStats& queryStats,
+        double elapsedMs,
+        const EvaluationContext& context) const;
     MyCarSnapshotCache& QueryMyCarSnapshot(const EvaluationContext& context, bool requireOccupants) const;
     void ResolveMyCarOccupantNames(MyCarSnapshotCache& snapshot, const EvaluationContext& context) const;
     void RecordMyCarSnapshotPerf(
@@ -664,8 +731,8 @@ public:
         bool cacheHit,
         bool sampReady,
         bool localReady,
-        std::size_t candidates,
-        std::uint64_t elapsedMs) const;
+        const ClosestPlayerQueryStats& queryStats,
+        double elapsedMs) const;
     void MaybeLogClosestPlayersPerf(std::uint64_t nowMs) const;
     void RecordPlayerNamePerf(bool failed, bool unknown, double elapsedMs) const;
     void MaybeLogPlayerNamePerf(std::uint64_t nowMs) const;

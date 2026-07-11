@@ -1356,11 +1356,12 @@ Category ClassifyBuiltin(std::string_view name) {
         || lower == "myx" || lower == "myy" || lower == "myz" || lower == "mypos"
         || lower == "myd" || lower == "mydirection" || lower == "myden" || lower == "mydirectionen"
         || lower == "mysquare" || lower == "mysquareen"
-        || lower == "city" || lower == "cityen" || lower == "mycolor"
+        || lower == "city" || lower == "cityen" || lower == "weather" || lower == "weatheren"
+        || lower == "mycolor" || lower == "mystamina" || lower == "myoxygen"
         || lower.rfind("mycar", 0) == 0
         || lower == "myweapon" || lower == "myweaponid" || lower == "myweaponclip" || lower == "mymoney"
         || lower == "fps" || lower == "getvehtype" || lower == "car" || lower == "carhealth"
-        || lower == "skin" || lower == "ping" || lower == "nickcolor") {
+        || lower == "carwindow" || lower == "skin" || lower == "ping" || lower == "nickcolor") {
         return Category::Player;
     }
     return Category::Text;
