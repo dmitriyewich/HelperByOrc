@@ -431,6 +431,9 @@ HotkeyEntry BuildComparableDraft(const State& editor) {
 }
 
 void NormalizeDraftForSave(HotkeyEntry& hotkey) {
+    std::erase_if(hotkey.messages, [](const HotkeyMessage& message) {
+        return Trim(message.text).empty();
+    });
     hotkey.repeatIntervalMs = std::max(hotkey.repeatIntervalMs, 0);
     NormalizeConfirmationKeys(hotkey);
     ApplyDerivedActivationFlags(hotkey, true);
@@ -625,7 +628,8 @@ void DrawConfirmationSettingsPopup(State& editor, const LaunchPanelActions& acti
     }
 
     bool open = true;
-    ImGui::SetNextWindowSize(ScaleUi(520.0f, 0.0f), ImGuiCond_Appearing);
+    const float confirmationMaxWidth = std::max(ScaleUi(320.0f), ImGui::GetIO().DisplaySize.x - ScaleUi(24.0f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(ScaleUi(520.0f), confirmationMaxWidth), 0.0f), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(title.c_str(), &open, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
@@ -765,8 +769,15 @@ void DrawInline(State& editor, const ShellActions& actions) {
             }
 
             ImGui::TableSetColumnIndex(1);
-            const float previousButtonWidth = ScaleUi(148.0f);
-            const float nextButtonWidth = ScaleUi(136.0f);
+            const float headerAvailableWidth = ImGui::GetContentRegionAvail().x;
+            const float desiredPreviousButtonWidth = ScaleUi(148.0f);
+            const float desiredNextButtonWidth = ScaleUi(136.0f);
+            const float headerButtonScale = std::min(
+                1.0f,
+                std::max(0.0f, headerAvailableWidth - itemSpacingX)
+                    / (desiredPreviousButtonWidth + desiredNextButtonWidth));
+            const float previousButtonWidth = desiredPreviousButtonWidth * headerButtonScale;
+            const float nextButtonWidth = desiredNextButtonWidth * headerButtonScale;
             const float headerActionWidth = previousButtonWidth + nextButtonWidth + itemSpacingX;
             alignRight(headerActionWidth);
             ImGui::BeginDisabled(prevIndex < 0);
@@ -851,15 +862,24 @@ void DrawInline(State& editor, const ShellActions& actions) {
             }
 
             ImGui::TableSetColumnIndex(1);
-            const float footerActionWidth = ScaleUi(190.0f) + ScaleUi(130.0f) + itemSpacingX;
+            const float footerAvailableWidth = ImGui::GetContentRegionAvail().x;
+            const float desiredSaveButtonWidth = ScaleUi(190.0f);
+            const float desiredCancelButtonWidth = ScaleUi(130.0f);
+            const float footerButtonScale = std::min(
+                1.0f,
+                std::max(0.0f, footerAvailableWidth - itemSpacingX)
+                    / (desiredSaveButtonWidth + desiredCancelButtonWidth));
+            const float saveButtonWidth = desiredSaveButtonWidth * footerButtonScale;
+            const float cancelButtonWidth = desiredCancelButtonWidth * footerButtonScale;
+            const float footerActionWidth = saveButtonWidth + cancelButtonWidth + itemSpacingX;
             alignRight(footerActionWidth);
             pushPrimaryButtonStyle();
-            if (ImGui::Button(saveLabel.c_str(), ScaleUi(190.0f, 0.0f)) && actions.saveRequested) {
+            if (ImGui::Button(saveLabel.c_str(), ImVec2(saveButtonWidth, 0.0f)) && actions.saveRequested) {
                 actions.saveRequested();
             }
             popPrimaryButtonStyle();
             ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(130.0f, 0.0f))) {
+            if (ImGui::Button(ui.Text(UiText::Cancel), ImVec2(cancelButtonWidth, 0.0f))) {
                 requestAction(State::PendingAction::Close);
             }
 

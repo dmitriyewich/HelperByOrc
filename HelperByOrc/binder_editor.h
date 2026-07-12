@@ -43,7 +43,7 @@ struct State {
     std::string multiText{};
     std::string scenarioAppendText{};
     int scenarioMessageFocusIndex = -1;
-    int scenarioMessageNoSelectFocusIndex = -1;
+    int scenarioMessageFocusCaretByte = -1;
     Tab activeTab = Tab::Scenario;
     PendingAction pendingAction = PendingAction::None;
     bool tabSelectionPending = false;
@@ -58,6 +58,8 @@ struct State {
     VariableInsertTarget variablesInsertTarget = VariableInsertTarget::None;
     int variablesInsertMessageIndex = -1;
     int variablesInsertCursorByte = -1;
+    int variablesInsertSelectionStartByte = -1;
+    int variablesInsertSelectionEndByte = -1;
     std::string variablesKeyPickerSearch{};
     variables_picker::State variablesPicker{};
     std::vector<variables_picker::Entry> variablePickerEntries{};

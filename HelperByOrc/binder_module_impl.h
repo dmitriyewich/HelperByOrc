@@ -1377,42 +1377,21 @@ inline int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
     return 0;
 }
 
-struct InputTextMoveCaretToEndData {
+struct InputTextSetCaretData {
+    int caretByte = -1;
     bool applied = false;
 };
 
-inline void MoveInputTextCaretToEnd(ImGuiID id) {
-    if (ImGuiInputTextState* state = ImGui::GetInputTextState(id)) {
-        state->SetSelection(state->TextLen, state->TextLen);
-        state->SelectedAllMouseLock = false;
-        state->CursorFollow = true;
-        state->CursorAnimReset();
-    }
-}
-
-inline void PrepareInputTextNoSelectFocus(ImGuiID id, int textLen) {
-    ImGuiContext& g = *GImGui;
-    ImGuiInputTextState& state = g.InputTextState;
-    // SetKeyboardFocusHere() activates InputText through nav and normally selects all text.
-    // Pre-seed the text state so ImGui treats this as preserved focus with the caret at the end.
-    state.ID = id;
-    state.TextLen = std::max(textLen, 0);
-    state.SetSelection(state.TextLen, state.TextLen);
-    state.SelectedAllMouseLock = false;
-    state.CursorFollow = true;
-    state.CursorAnimReset();
-    g.NavActivateFlags |= ImGuiActivateFlags_TryToPreserveState;
-    g.NavNextActivateFlags |= ImGuiActivateFlags_TryToPreserveState;
-}
-
-inline int MoveCaretToEndInputTextCallback(ImGuiInputTextCallbackData* data) {
-    if (data->EventFlag != ImGuiInputTextFlags_CallbackAlways
-        && data->EventFlag != ImGuiInputTextFlags_CallbackCharFilter) {
+inline int SetInputTextCaretCallback(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag != ImGuiInputTextFlags_CallbackAlways) {
         return 0;
     }
 
-    MoveInputTextCaretToEnd(data->ID);
-    if (auto* userData = static_cast<InputTextMoveCaretToEndData*>(data->UserData)) {
+    if (auto* userData = static_cast<InputTextSetCaretData*>(data->UserData)) {
+        const int caretByte = std::clamp(userData->caretByte, 0, data->BufTextLen);
+        data->CursorPos = caretByte;
+        data->SelectionStart = caretByte;
+        data->SelectionEnd = caretByte;
         userData->applied = true;
     }
     return 0;
@@ -2380,10 +2359,13 @@ struct BinderModule::Impl {
     std::vector<variables_picker::Entry> BuildEditorVariablePickerEntries() const;
     void HandleEditorVariablePickerRequest(const variables_picker::Request& request);
     bool InsertTextIntoEditorVariableTarget(std::string_view text);
+    bool CommitEditorScenarioAppendText();
     void RememberEditorVariableInsertTarget(
         binder_editor::State::VariableInsertTarget target,
         int messageIndex,
-        int cursorByte);
+        int cursorByte,
+        int selectionStartByte,
+        int selectionEndByte);
     bool DrawEditorVariableKeyPickerPopup();
     void DrawEditorConditionsPopup();
     void DrawEditorVariablesPopup();

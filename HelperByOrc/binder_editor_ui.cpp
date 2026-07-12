@@ -57,6 +57,29 @@ bool EditableHotkeysEqual(const HotkeyEntry& left, const HotkeyEntry& right) {
         && left.folderPath == right.folderPath
         && left.orderId == right.orderId;
 }
+
+void ClearEditorVariableInsertTarget(binder_editor::State& editor) {
+    editor.variablesInsertTarget = binder_editor::State::VariableInsertTarget::None;
+    editor.variablesInsertMessageIndex = -1;
+    editor.variablesInsertCursorByte = -1;
+    editor.variablesInsertSelectionStartByte = -1;
+    editor.variablesInsertSelectionEndByte = -1;
+}
+
+void SetNextResponsiveEditorPopupSize(const ImVec2& preferredSize, const ImVec2& minimumSize) {
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    const ImVec2 margin = ScaleUi(24.0f, 24.0f);
+    const ImVec2 maximumSize(
+        std::max(ScaleUi(320.0f), displaySize.x - margin.x),
+        std::max(ScaleUi(240.0f), displaySize.y - margin.y));
+    const ImVec2 clampedMinimum(
+        std::min(minimumSize.x, maximumSize.x),
+        std::min(minimumSize.y, maximumSize.y));
+    ImGui::SetNextWindowSizeConstraints(clampedMinimum, maximumSize);
+    ImGui::SetNextWindowSize(
+        ImVec2(std::min(preferredSize.x, maximumSize.x), std::min(preferredSize.y, maximumSize.y)),
+        ImGuiCond_Appearing);
+}
 } // namespace
 
 void BinderModule::Impl::StartEditing(int index, bool isNew) {
@@ -174,6 +197,9 @@ void BinderModule::Impl::ApplyEditorMultiToDraft(bool applyBulkToAll) {
             message.method = editor.bulkMethod;
         }
     }
+    ClearEditorVariableInsertTarget(editor);
+    editor.scenarioMessageFocusIndex = -1;
+    editor.scenarioMessageFocusCaretByte = -1;
 }
 
 HotkeyEntry BinderModule::Impl::BuildEditorComparableDraft() const {
@@ -287,7 +313,8 @@ void BinderModule::Impl::ExecuteEditorPendingAction() {
 
 bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
     UiSettings& ui = UiSettings::Instance();
-    const HotkeyEntry current = BuildEditorComparableDraft();
+    HotkeyEntry current = BuildEditorComparableDraft();
+    binder_editor::NormalizeDraftForSave(current);
     const std::string triggerText = Trim(current.textTrigger.text);
     if (!HasRequiredFirstMessage(current)) {
         errors.push_back(ui.Text(UiText::ValidationFirstMessageRequired));
@@ -514,19 +541,44 @@ std::vector<variables_picker::Entry> BinderModule::Impl::BuildEditorVariablePick
 void BinderModule::Impl::RememberEditorVariableInsertTarget(
     binder_editor::State::VariableInsertTarget target,
     int messageIndex,
-    int cursorByte) {
+    int cursorByte,
+    int selectionStartByte,
+    int selectionEndByte) {
     editor.variablesInsertTarget = target;
     editor.variablesInsertMessageIndex = messageIndex;
     editor.variablesInsertCursorByte = cursorByte;
+    editor.variablesInsertSelectionStartByte = selectionStartByte;
+    editor.variablesInsertSelectionEndByte = selectionEndByte;
 }
 
 bool BinderModule::Impl::InsertTextIntoEditorVariableTarget(std::string_view text) {
-    const auto insertAt = [&](std::string& value) {
-        const int clampedCursor = editor.variablesInsertCursorByte < 0
+    const auto replaceSelection = [&](std::string& value) {
+        const int fallbackCursor = editor.variablesInsertCursorByte < 0
             ? static_cast<int>(value.size())
             : std::clamp(editor.variablesInsertCursorByte, 0, static_cast<int>(value.size()));
-        value.insert(static_cast<std::size_t>(clampedCursor), text.data(), text.size());
-        editor.variablesInsertCursorByte = clampedCursor + static_cast<int>(text.size());
+        const bool hasSelection = editor.variablesInsertSelectionStartByte >= 0
+            && editor.variablesInsertSelectionEndByte >= 0;
+        const int selectionStart = hasSelection
+            ? std::clamp(
+                  std::min(editor.variablesInsertSelectionStartByte, editor.variablesInsertSelectionEndByte),
+                  0,
+                  static_cast<int>(value.size()))
+            : fallbackCursor;
+        const int selectionEnd = hasSelection
+            ? std::clamp(
+                  std::max(editor.variablesInsertSelectionStartByte, editor.variablesInsertSelectionEndByte),
+                  selectionStart,
+                  static_cast<int>(value.size()))
+            : fallbackCursor;
+
+        value.replace(
+            static_cast<std::size_t>(selectionStart),
+            static_cast<std::size_t>(selectionEnd - selectionStart),
+            text.data(),
+            text.size());
+        editor.variablesInsertCursorByte = selectionStart + static_cast<int>(text.size());
+        editor.variablesInsertSelectionStartByte = editor.variablesInsertCursorByte;
+        editor.variablesInsertSelectionEndByte = editor.variablesInsertCursorByte;
     };
 
     switch (editor.variablesInsertTarget) {
@@ -535,18 +587,63 @@ bool BinderModule::Impl::InsertTextIntoEditorVariableTarget(std::string_view tex
             || editor.variablesInsertMessageIndex >= static_cast<int>(editor.draft.messages.size())) {
             return false;
         }
-        insertAt(editor.draft.messages[static_cast<std::size_t>(editor.variablesInsertMessageIndex)].text);
-        editor.scenarioMessageNoSelectFocusIndex = editor.variablesInsertMessageIndex;
-        SyncEditorMessagesToMulti();
+        replaceSelection(editor.draft.messages[static_cast<std::size_t>(editor.variablesInsertMessageIndex)].text);
+        editor.scenarioMessageFocusIndex = editor.variablesInsertMessageIndex;
+        editor.scenarioMessageFocusCaretByte = editor.variablesInsertCursorByte;
         return true;
     case binder_editor::State::VariableInsertTarget::ScenarioAppend:
-        insertAt(editor.scenarioAppendText);
-        editor.scenarioAppendFocusPending = true;
-        return true;
+        replaceSelection(editor.scenarioAppendText);
+        return CommitEditorScenarioAppendText();
     case binder_editor::State::VariableInsertTarget::None:
     default:
         return false;
     }
+}
+
+bool BinderModule::Impl::CommitEditorScenarioAppendText() {
+    std::vector<std::string> lines;
+    std::istringstream stream(NormalizeLineEndings(editor.scenarioAppendText));
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!Trim(line).empty()) {
+            lines.push_back(std::move(line));
+        }
+    }
+    if (lines.empty()) {
+        return false;
+    }
+
+    HotkeyMessage inherited;
+    if (!editor.draft.messages.empty()) {
+        inherited = editor.draft.messages.back();
+    } else {
+        inherited.intervalMs = std::max(editor.bulkIntervalMs, 0);
+        inherited.method = editor.bulkMethod;
+    }
+
+    const bool replacePlaceholder =
+        editor.draft.messages.size() == 1 && Trim(editor.draft.messages.front().text).empty();
+    int lastAddedIndex = -1;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        HotkeyMessage message;
+        message.text = std::move(lines[i]);
+        message.intervalMs = std::max(inherited.intervalMs, 0);
+        message.method = inherited.method;
+
+        if (replacePlaceholder && i == 0) {
+            editor.draft.messages.front() = std::move(message);
+            lastAddedIndex = 0;
+        } else {
+            editor.draft.messages.push_back(std::move(message));
+            lastAddedIndex = static_cast<int>(editor.draft.messages.size()) - 1;
+        }
+    }
+
+    editor.scenarioAppendText.clear();
+    editor.scenarioMessageFocusIndex = lastAddedIndex;
+    editor.scenarioMessageFocusCaretByte = static_cast<int>(
+        editor.draft.messages[static_cast<std::size_t>(lastAddedIndex)].text.size());
+    return true;
 }
 
 void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picker::Request& request) {
@@ -601,7 +698,7 @@ bool BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
     }
 
     UiSettings& ui = UiSettings::Instance();
-    ImGui::SetNextWindowSize(ScaleUi(560.0f, 520.0f), ImGuiCond_Appearing);
+    SetNextResponsiveEditorPopupSize(ScaleUi(560.0f, 520.0f), ScaleUi(400.0f, 320.0f));
     if (!ImGui::BeginPopup("##binder_editor_variable_keypicker")) {
         return false;
     }
@@ -621,7 +718,10 @@ bool BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
 
     const std::string filter = ToLower(editor.variablesKeyPickerSearch);
     bool hasMatches = false;
-    if (ImGui::BeginChild("##binder_editor_variable_keypicker_list", ScaleUi(0.0f, 360.0f), ImGuiChildFlags_Borders)) {
+    const float keyListHeight = std::max(
+        ScaleUi(120.0f),
+        std::min(ScaleUi(360.0f), ImGui::GetContentRegionAvail().y - ScaleUi(72.0f)));
+    if (ImGui::BeginChild("##binder_editor_variable_keypicker_list", ImVec2(0.0f, keyListHeight), ImGuiChildFlags_Borders)) {
         for (const auto& entry : tagsModule->VirtualKeyPickerEntries()) {
             if (!filter.empty() && entry.search.find(filter) == std::string::npos) {
                 continue;
@@ -1318,7 +1418,7 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     UiSettings& ui = UiSettings::Instance();
     const std::string popupTitle = std::string(ui.Text(UiText::EditorVariablesTitle)) + kEditorVariablesPopupId;
     bool popupOpen = true;
-    ImGui::SetNextWindowSize(ScaleUi(920.0f, 640.0f), ImGuiCond_Appearing);
+    SetNextResponsiveEditorPopupSize(ScaleUi(920.0f, 640.0f), ScaleUi(640.0f, 420.0f));
     if (!ImGui::BeginPopupModal(popupTitle.c_str(), &popupOpen, ImGuiWindowFlags_NoSavedSettings)) {
         return;
     }
@@ -1408,46 +1508,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     const std::size_t visibleMessageCount = onlyEmptyPlaceholder ? 0 : editor.draft.messages.size();
     if (editor.scenarioMessageFocusIndex >= static_cast<int>(visibleMessageCount)) {
         editor.scenarioMessageFocusIndex = -1;
+        editor.scenarioMessageFocusCaretByte = -1;
     }
-    if (editor.scenarioMessageNoSelectFocusIndex >= static_cast<int>(visibleMessageCount)) {
-        editor.scenarioMessageNoSelectFocusIndex = -1;
-    }
-
-    const auto appendScenarioMessage = [&]() -> bool {
-        if (Trim(editor.scenarioAppendText).empty()) {
-            return false;
-        }
-
-        HotkeyMessage message;
-        message.text = editor.scenarioAppendText;
-        if (visibleMessageCount > 0) {
-            const HotkeyMessage& previous = editor.draft.messages[visibleMessageCount - 1];
-            message.intervalMs = std::max(previous.intervalMs, 0);
-            message.method = previous.method;
-        } else if (!editor.draft.messages.empty()) {
-            const HotkeyMessage& previous = editor.draft.messages.back();
-            message.intervalMs = std::max(previous.intervalMs, 0);
-            message.method = previous.method;
-        } else {
-            message.intervalMs = std::max(editor.bulkIntervalMs, 0);
-            message.method = editor.bulkMethod;
-        }
-
-        int newIndex = 0;
-        const bool replacePlaceholder =
-            editor.draft.messages.size() == 1 && Trim(editor.draft.messages.front().text).empty();
-        if (replacePlaceholder) {
-            editor.draft.messages.front() = std::move(message);
-        } else {
-            editor.draft.messages.push_back(std::move(message));
-            newIndex = static_cast<int>(editor.draft.messages.size()) - 1;
-        }
-
-        editor.scenarioAppendText.clear();
-        editor.scenarioMessageFocusIndex = -1;
-        editor.scenarioMessageNoSelectFocusIndex = newIndex;
-        return true;
-    };
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("%s", ui.Text(UiText::EditorScenarioHint));
@@ -1513,48 +1575,41 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             ImGui::TableSetColumnIndex(1);
             ImGui::SetNextItemWidth(-FLT_MIN);
             const int messageIndex = static_cast<int>(i);
-            const bool noSelectFocusMessageText = editor.scenarioMessageNoSelectFocusIndex == messageIndex;
-            const bool focusMessageText = editor.scenarioMessageFocusIndex == messageIndex || noSelectFocusMessageText;
-            const ImGuiID stepTextId = ImGui::GetID("##step_text");
+            const bool focusMessageText = editor.scenarioMessageFocusIndex == messageIndex;
             if (focusMessageText) {
                 ImGui::SetKeyboardFocusHere();
-                if (noSelectFocusMessageText) {
-                    PrepareInputTextNoSelectFocus(stepTextId, static_cast<int>(message.text.size()));
-                }
             }
-            InputTextMoveCaretToEndData noSelectFocusData{};
-            const ImGuiInputTextFlags textFlags = noSelectFocusMessageText
-                ? ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCharFilter
+            InputTextSetCaretData focusData{ editor.scenarioMessageFocusCaretByte, false };
+            const ImGuiInputTextFlags textFlags = focusMessageText
+                ? ImGuiInputTextFlags_CallbackAlways
                 : 0;
             InputTextString(
                 "##step_text",
                 message.text,
                 textFlags,
                 256,
-                noSelectFocusMessageText ? MoveCaretToEndInputTextCallback : nullptr,
-                noSelectFocusMessageText ? &noSelectFocusData : nullptr);
+                focusMessageText ? SetInputTextCaretCallback : nullptr,
+                focusMessageText ? &focusData : nullptr);
+            const ImGuiID stepTextId = ImGui::GetItemID();
             if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
                 int cursorByte = -1;
+                int selectionStartByte = -1;
+                int selectionEndByte = -1;
                 if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(stepTextId)) {
                     cursorByte = inputState->GetCursorPos();
+                    selectionStartByte = inputState->GetSelectionStart();
+                    selectionEndByte = inputState->GetSelectionEnd();
                 }
                 RememberEditorVariableInsertTarget(
                     binder_editor::State::VariableInsertTarget::ScenarioMessage,
                     messageIndex,
-                    cursorByte);
+                    cursorByte,
+                    selectionStartByte,
+                    selectionEndByte);
             }
-            if (focusMessageText) {
-                if (ImGui::GetInputTextState(stepTextId)) {
-                    if (noSelectFocusMessageText && !noSelectFocusData.applied) {
-                        MoveInputTextCaretToEnd(stepTextId);
-                    }
-                    if (editor.scenarioMessageFocusIndex == messageIndex) {
-                        editor.scenarioMessageFocusIndex = -1;
-                    }
-                    if (editor.scenarioMessageNoSelectFocusIndex == messageIndex) {
-                        editor.scenarioMessageNoSelectFocusIndex = -1;
-                    }
-                }
+            if (focusMessageText && focusData.applied) {
+                editor.scenarioMessageFocusIndex = -1;
+                editor.scenarioMessageFocusCaretByte = -1;
             }
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
@@ -1620,9 +1675,45 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
 
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-FLT_MIN);
+        const ImGuiID appendTextId = ImGui::GetID("##step_append_text");
         if (editor.scenarioAppendFocusPending) {
             ImGui::SetKeyboardFocusHere();
             editor.scenarioAppendFocusPending = false;
+        }
+        bool handledMultilinePaste = false;
+        if (ImGui::GetActiveID() == appendTextId
+            && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+            const char* clipboardText = ImGui::GetClipboardText();
+            if (clipboardText && std::string_view(clipboardText).find_first_of("\r\n") != std::string_view::npos) {
+                int selectionStart = static_cast<int>(editor.scenarioAppendText.size());
+                int selectionEnd = selectionStart;
+                if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(appendTextId)) {
+                    selectionStart = std::clamp(
+                        std::min(inputState->GetSelectionStart(), inputState->GetSelectionEnd()),
+                        0,
+                        static_cast<int>(editor.scenarioAppendText.size()));
+                    selectionEnd = std::clamp(
+                        std::max(inputState->GetSelectionStart(), inputState->GetSelectionEnd()),
+                        selectionStart,
+                        static_cast<int>(editor.scenarioAppendText.size()));
+                }
+                editor.scenarioAppendText.replace(
+                    static_cast<std::size_t>(selectionStart),
+                    static_cast<std::size_t>(selectionEnd - selectionStart),
+                    clipboardText);
+                (void)CommitEditorScenarioAppendText();
+                if (!editor.scenarioAppendText.empty()) {
+                    editor.scenarioAppendText.clear();
+                }
+                if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(appendTextId)) {
+                    inputState->ReloadUserBufAndMoveToEnd();
+                }
+                ImGui::SetKeyOwner(
+                    ImGuiKey_V,
+                    ImGui::GetID("##step_append_multiline_paste"),
+                    ImGuiInputFlags_LockThisFrame);
+                handledMultilinePaste = true;
+            }
         }
         const bool appendChanged = InputTextWithHintString(
             "##step_append_text",
@@ -1631,20 +1722,28 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             0,
             256);
         if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
-            const ImGuiID appendTextId = ImGui::GetID("##step_append_text");
             int cursorByte = -1;
+            int selectionStartByte = -1;
+            int selectionEndByte = -1;
             if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(appendTextId)) {
                 cursorByte = inputState->GetCursorPos();
+                selectionStartByte = inputState->GetSelectionStart();
+                selectionEndByte = inputState->GetSelectionEnd();
             }
             RememberEditorVariableInsertTarget(
                 binder_editor::State::VariableInsertTarget::ScenarioAppend,
                 -1,
-                cursorByte);
+                cursorByte,
+                selectionStartByte,
+                selectionEndByte);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
             ImGui::SetTooltip("%s", ui.Text(UiText::EditorAppendStepTooltip));
         }
-        if (appendChanged && appendScenarioMessage()) {
+        if (!handledMultilinePaste && appendChanged && CommitEditorScenarioAppendText()) {
+            if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(appendTextId)) {
+                inputState->ReloadUserBufAndMoveToEnd();
+            }
             ImGui::ClearActiveID();
         }
 
@@ -1674,7 +1773,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         }
         CenterNextItemHorizontally(actionButtonsWidth);
         if (SmallIconActionButton(ui_icons::Plus, "##step_append_add", ui.Text(UiText::EditorAppendStepTooltip), actionButtonSize)
-            && !appendScenarioMessage()) {
+            && !CommitEditorScenarioAppendText()) {
             editor.scenarioAppendFocusPending = true;
         }
         ImGui::PopID();
@@ -1686,12 +1785,49 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         HotkeyMessage moved = editor.draft.messages[static_cast<std::size_t>(moveSourceIndex)];
         editor.draft.messages.erase(editor.draft.messages.begin() + moveSourceIndex);
         editor.draft.messages.insert(editor.draft.messages.begin() + moveTargetIndex, std::move(moved));
+
+        const auto remapMovedIndex = [&](int index) {
+            if (index < 0 || index == moveSourceIndex) {
+                return index < 0 ? index : moveTargetIndex;
+            }
+            if (moveSourceIndex < moveTargetIndex && index > moveSourceIndex && index <= moveTargetIndex) {
+                return index - 1;
+            }
+            if (moveSourceIndex > moveTargetIndex && index >= moveTargetIndex && index < moveSourceIndex) {
+                return index + 1;
+            }
+            return index;
+        };
+        if (editor.variablesInsertTarget == binder_editor::State::VariableInsertTarget::ScenarioMessage) {
+            editor.variablesInsertMessageIndex = remapMovedIndex(editor.variablesInsertMessageIndex);
+        }
+        editor.scenarioMessageFocusIndex = remapMovedIndex(editor.scenarioMessageFocusIndex);
     }
     if (removeIndex >= 0 && removeIndex < static_cast<int>(editor.draft.messages.size())) {
         if (editor.draft.messages.size() > 1) {
             editor.draft.messages.erase(editor.draft.messages.begin() + removeIndex);
+            if (editor.variablesInsertTarget == binder_editor::State::VariableInsertTarget::ScenarioMessage) {
+                if (editor.variablesInsertMessageIndex == removeIndex) {
+                    ClearEditorVariableInsertTarget(editor);
+                } else if (editor.variablesInsertMessageIndex > removeIndex) {
+                    --editor.variablesInsertMessageIndex;
+                }
+            }
+            if (editor.scenarioMessageFocusIndex == removeIndex) {
+                editor.scenarioMessageFocusIndex = -1;
+                editor.scenarioMessageFocusCaretByte = -1;
+            } else if (editor.scenarioMessageFocusIndex > removeIndex) {
+                --editor.scenarioMessageFocusIndex;
+            }
         } else {
             editor.draft.messages.front() = HotkeyMessage{ "", 0, editor.bulkMethod };
+            if (editor.variablesInsertTarget == binder_editor::State::VariableInsertTarget::ScenarioMessage) {
+                editor.variablesInsertCursorByte = 0;
+                editor.variablesInsertSelectionStartByte = 0;
+                editor.variablesInsertSelectionEndByte = 0;
+            }
+            editor.scenarioMessageFocusIndex = -1;
+            editor.scenarioMessageFocusCaretByte = -1;
         }
     }
 }
@@ -1704,7 +1840,7 @@ void BinderModule::Impl::DrawEditorMultiInputPopup() {
         ImGui::OpenPopup(title.c_str());
         editor.multiInputPopupPending = false;
     }
-    ImGui::SetNextWindowSize(ScaleUi(640.0f, 460.0f), ImGuiCond_Appearing);
+    SetNextResponsiveEditorPopupSize(ScaleUi(640.0f, 460.0f), ScaleUi(420.0f, 300.0f));
     if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
         return;
     }
