@@ -60,6 +60,7 @@ struct State {
     int variablesInsertCursorByte = -1;
     std::string variablesKeyPickerSearch{};
     variables_picker::State variablesPicker{};
+    std::vector<variables_picker::Entry> variablePickerEntries{};
     icon_picker::State iconPicker{};
     HotkeyEntry baseline{};
     HotkeyEntry draft{};

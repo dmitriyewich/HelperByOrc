@@ -1,5 +1,64 @@
 #include "binder_module_impl.h"
 
+namespace {
+bool EditableMessagesEqual(const std::vector<HotkeyMessage>& left, const std::vector<HotkeyMessage>& right) {
+    return left.size() == right.size()
+        && std::equal(left.begin(), left.end(), right.begin(), [](const HotkeyMessage& a, const HotkeyMessage& b) {
+               return a.text == b.text && a.intervalMs == b.intervalMs && a.method == b.method;
+           });
+}
+
+bool EditableButtonsEqual(const std::vector<InputButton>& left, const std::vector<InputButton>& right) {
+    return left.size() == right.size()
+        && std::equal(left.begin(), left.end(), right.begin(), [](const InputButton& a, const InputButton& b) {
+               return a.label == b.label && a.text == b.text && a.hint == b.hint && a.when == b.when;
+           });
+}
+
+bool EditableInputsEqual(const std::vector<HotkeyInput>& left, const std::vector<HotkeyInput>& right) {
+    return left.size() == right.size()
+        && std::equal(left.begin(), left.end(), right.begin(), [](const HotkeyInput& a, const HotkeyInput& b) {
+               return a.key == b.key
+                   && a.label == b.label
+                   && a.hint == b.hint
+                   && a.mode == b.mode
+                   && EditableButtonsEqual(a.buttons, b.buttons)
+                   && a.multiSelect == b.multiSelect
+                   && a.multiSeparator == b.multiSeparator
+                   && a.cascadeParentKey == b.cascadeParentKey;
+           });
+}
+
+bool EditableHotkeysEqual(const HotkeyEntry& left, const HotkeyEntry& right) {
+    return left.label == right.label
+        && left.iconId == right.iconId
+        && left.keys == right.keys
+        && left.hotkeyMode == right.hotkeyMode
+        && EditableMessagesEqual(left.messages, right.messages)
+        && EditableInputsEqual(left.inputs, right.inputs)
+        && left.textTrigger.text == right.textTrigger.text
+        && left.textTrigger.enabled == right.textTrigger.enabled
+        && left.textTrigger.pattern == right.textTrigger.pattern
+        && left.textConfirmation.enabled == right.textConfirmation.enabled
+        && left.textConfirmation.key == right.textConfirmation.key
+        && left.textConfirmation.cancelKey == right.textConfirmation.cancelKey
+        && left.textConfirmation.waitForResolution == right.textConfirmation.waitForResolution
+        && left.commandConfirmation.enabled == right.commandConfirmation.enabled
+        && left.commandConfirmation.waitForResolution == right.commandConfirmation.waitForResolution
+        && left.conditions == right.conditions
+        && left.conditionsCombine == right.conditionsCombine
+        && left.repeatMode == right.repeatMode
+        && left.repeatIntervalMs == right.repeatIntervalMs
+        && left.enabled == right.enabled
+        && left.quickMenu == right.quickMenu
+        && left.command == right.command
+        && left.commandEnabled == right.commandEnabled
+        && left.categoryId == right.categoryId
+        && left.folderPath == right.folderPath
+        && left.orderId == right.orderId;
+}
+} // namespace
+
 void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor = {};
     editor.active = true;
@@ -19,6 +78,7 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.draft.pendingTriggerSource.clear();
     editor.draft.lastActivatedAtMs = 0.0;
     editor.draft.debounceUntilMs = 0.0;
+    editor.draft.textTrigger.InvalidateRuntimeCache();
 
     if (editor.isNew) {
         editor.draft.folderPath = CurrentFolderPath();
@@ -125,11 +185,7 @@ bool BinderModule::Impl::EditorHasUnsavedChanges() const {
         return false;
     }
 
-    std::string currentSerialized;
-    std::string baselineSerialized;
-    jsonutil::WriteJson(SerializeHotkey(BuildEditorComparableDraft()), currentSerialized);
-    jsonutil::WriteJson(SerializeHotkey(editor.baseline), baselineSerialized);
-    return currentSerialized != baselineSerialized;
+    return !EditableHotkeysEqual(BuildEditorComparableDraft(), editor.baseline);
 }
 
 std::pair<int, int> BinderModule::Impl::EditorNeighborIndices() const {
@@ -138,39 +194,45 @@ std::pair<int, int> BinderModule::Impl::EditorNeighborIndices() const {
     }
 
     const HotkeyEntry& current = hotkeys[static_cast<std::size_t>(editor.hotkeyIndex)];
-    const std::vector<std::string>& folderPath = current.folderPath;
-    const std::string& categoryId = current.categoryId;
+    const BinderCategory* category = FindCategoryById(current.categoryId);
+    if (!category) {
+        return { -1, -1 };
+    }
+
+    FolderNode* folder = current.folderPath.empty() ? nullptr : FindFolderByPath(category->folders, current.folderPath);
+    if (!current.folderPath.empty() && !folder) {
+        return { -1, -1 };
+    }
+
+    const std::vector<ExplorerItem>& items = folder ? folder->items : category->rootItems;
     int previous = -1;
     int next = -1;
-    int last = -1;
-    for (int index = 0; index < static_cast<int>(hotkeys.size()); ++index) {
-        if (hotkeys[static_cast<std::size_t>(index)].categoryId != categoryId
-            || hotkeys[static_cast<std::size_t>(index)].folderPath != folderPath) {
+    bool currentFound = false;
+    for (const ExplorerItem& item : items) {
+        if (item.kind != ExplorerItemKind::Bind) {
             continue;
         }
+
+        const int index = FindHotkeyIndexByOrderId(item.key);
+        if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+            continue;
+        }
+
+        const HotkeyEntry& candidate = hotkeys[static_cast<std::size_t>(index)];
+        if (candidate.categoryId != current.categoryId || candidate.folderPath != current.folderPath) {
+            continue;
+        }
+
         if (index == editor.hotkeyIndex) {
-            previous = last;
-            continue;
+            currentFound = true;
+        } else if (!currentFound) {
+            previous = index;
+        } else {
+            next = index;
+            break;
         }
-        if (previous != -1 || index > editor.hotkeyIndex) {
-            if (index > editor.hotkeyIndex) {
-                next = index;
-                break;
-            }
-        }
-        last = index;
     }
-    if (previous == -1) {
-        last = -1;
-        for (int index = 0; index < editor.hotkeyIndex; ++index) {
-            if (hotkeys[static_cast<std::size_t>(index)].categoryId == categoryId
-                && hotkeys[static_cast<std::size_t>(index)].folderPath == folderPath) {
-                last = index;
-            }
-        }
-        previous = last;
-    }
-    return { previous, next };
+    return currentFound ? std::pair<int, int>{ previous, next } : std::pair<int, int>{ -1, -1 };
 }
 
 void BinderModule::Impl::RequestEditorAction(binder_editor::State::PendingAction action, int targetIndex) {
@@ -518,6 +580,11 @@ void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picke
     case variables_picker::RequestType::OpenArizonaDialogTextPicker:
         if (tagsModule) {
             tagsModule->OpenArizonaDialogTextPicker();
+        }
+        break;
+    case variables_picker::RequestType::OpenBindSelectorBuilder:
+        if (tagsModule) {
+            tagsModule->OpenBindSelectorBuilder(request.name);
         }
         break;
     case variables_picker::RequestType::None:
@@ -870,6 +937,7 @@ void BinderModule::Impl::DrawInputEditor() {
             }
 
             clampSelectedInput();
+            inputIssues = buildInputKeyIssues();
             if (editor.selectedInputIndex >= 0 && editor.selectedInputIndex < static_cast<int>(editor.draft.inputs.size())) {
                 HotkeyInput& input = editor.draft.inputs[static_cast<std::size_t>(editor.selectedInputIndex)];
                 const InputKeyIssue currentIssue = inputIssues[static_cast<std::size_t>(editor.selectedInputIndex)];
@@ -1242,6 +1310,7 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
         } else if (editor.variablesPicker.activeCategory == variables_picker::Category::Parameters) {
             editor.variablesPicker.activeCategory = variables_picker::Category::All;
         }
+        editor.variablePickerEntries = BuildEditorVariablePickerEntries();
         ImGui::OpenPopup(kEditorVariablesPopupId);
         editor.variablesPopupPending = false;
     }
@@ -1261,7 +1330,6 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
         editor.variablesKeyPickerPopupPending = false;
     }
 
-    const std::vector<variables_picker::Entry> pickerEntries = BuildEditorVariablePickerEntries();
     variables_picker::Options pickerOptions{
         variables_picker::Mode::Insert,
         "binder_editor_variables_picker",
@@ -1271,7 +1339,10 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
         ImGui::GetContentRegionAvail(),
     };
     pickerOptions.allowCopyInInsert = true;
-    const variables_picker::Request request = variables_picker::Draw(editor.variablesPicker, pickerEntries, pickerOptions);
+    const variables_picker::Request request = variables_picker::Draw(
+        editor.variablesPicker,
+        editor.variablePickerEntries,
+        pickerOptions);
     HandleEditorVariablePickerRequest(request);
     closeRequested |= request.closePopupAfterAction;
 
@@ -1286,6 +1357,7 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     closeRequested |= DrawEditorVariableKeyPickerPopup();
     if (closeRequested) {
         editor.variablesKeyPickerSearch.clear();
+        editor.variablePickerEntries.clear();
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -1622,14 +1694,13 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             editor.draft.messages.front() = HotkeyMessage{ "", 0, editor.bulkMethod };
         }
     }
-
-    SyncEditorMessagesToMulti();
 }
 
 void BinderModule::Impl::DrawEditorMultiInputPopup() {
     UiSettings& ui = UiSettings::Instance();
     const std::string title = std::string(ui.Text(UiText::EditorMultiInputTitle)) + "##binder_editor_multi_input_popup";
     if (editor.multiInputPopupPending) {
+        SyncEditorMessagesToMulti();
         ImGui::OpenPopup(title.c_str());
         editor.multiInputPopupPending = false;
     }

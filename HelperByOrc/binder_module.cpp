@@ -72,6 +72,10 @@ std::string BinderModule::GetThiscategoryTagValue(std::uint64_t runtimeId) const
     return impl_->BuildThiscategoryTagValue(runtimeId);
 }
 
+binder_tags::Catalog BinderModule::GetBindSelectorCatalog() const {
+    return impl_->BuildBindSelectorCatalog();
+}
+
 bool BinderModule::IsRuntimeActive(std::uint64_t runtimeId) const {
     return impl_->IsRuntimeActive(runtimeId);
 }

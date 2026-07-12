@@ -948,6 +948,20 @@ bool TryGetHelperAction(const Entry& entry, HelperAction& action) {
         requestType = RequestType::OpenArizonaDialogTextPicker;
         label = UiText::VariablesPickDialogIndex;
         tooltip = UiText::MiscVariablesArzDialogTextPickerOpenHint;
+    } else if (entry.name == "binddisable"
+        || entry.name == "bindenable"
+        || entry.name == "bindstart"
+        || entry.name == "bindstop"
+        || entry.name == "bindpause"
+        || entry.name == "bindunpause"
+        || entry.name == "bindfastmenu"
+        || entry.name == "bindunfastmenu"
+        || entry.name == "bindrandom"
+        || entry.name == "bindended"
+        || entry.name == "bindpopup") {
+        requestType = RequestType::OpenBindSelectorBuilder;
+        label = UiText::VariablesBuildBindTag;
+        tooltip = UiText::MiscVariablesBindBuilderOpenHint;
     }
 
     if (requestType == RequestType::None) {
@@ -979,6 +993,7 @@ void DrawHelperActionButton(const Entry& entry, const VisualStyle& visual, Reque
             true,
             ui.Text(action.tooltip))) {
         request.type = action.requestType;
+        request.name = entry.name;
     }
 }
 
@@ -1220,6 +1235,12 @@ void DrawInspectorPane(State& state, const Entry* selected, const Options& optio
     }
 
     DrawHelperActionButton(*selected, visual, request);
+
+    if (selected->kind == EntryKind::Function
+        && (selected->name.rfind("bind", 0) == 0 || selected->name.rfind("thisbind", 0) == 0)) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", ui.Text(UiText::MiscVariablesBindSelectorNote));
+    }
 
     if (selected->kind == EntryKind::Function && selected->name == "paramcmd") {
         ImGui::Spacing();

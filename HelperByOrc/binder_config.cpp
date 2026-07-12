@@ -60,6 +60,7 @@ void BinderModule::Impl::LogDeprecatedHelperConditionMigration() const {
 }
 
 void BinderModule::Impl::LoadConfig() {
+    ++categoryTabOrderRevision;
     categories.clear();
     activeCategoryId.clear();
     categoryTabSelectionTargetId.clear();
@@ -274,6 +275,12 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
         jsonutil::JsonStringOr(&object, "name", UiSettings::Instance().Text(UiText::BinderDefaultFolder)));
     if (folder->name.empty()) {
         folder->name = UiSettings::Instance().Text(UiText::BinderDefaultFolder);
+    }
+    if (binder_tags::IsReservedFolderName(folder->name)) {
+        debuglog::WriteError(
+            "[binder][selector] legacy reserved folder name kept id=%d name=%s; use @bind-N selectors until renamed",
+            folder->id,
+            folder->name.c_str());
     }
     folder->iconId = icon_registry::NormalizeIconId(jsonutil::JsonStringOr(&object, "icon_id", ""));
     folder->enabled = jsonutil::JsonBoolOr(&object, "enabled", true);

@@ -1,5 +1,21 @@
 #include "binder_module_impl.h"
 
+std::string BinderModule::Impl::EscapeBindTagLogValue(std::string_view value) {
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char ch : value) {
+        switch (ch) {
+        case '\\': escaped += "\\\\"; break;
+        case '"': escaped += "\\\""; break;
+        case '\r': escaped += "\\r"; break;
+        case '\n': escaped += "\\n"; break;
+        case '\t': escaped += "\\t"; break;
+        default: escaped.push_back(ch); break;
+        }
+    }
+    return escaped;
+}
+
 int BinderModule::Impl::FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const {
     if (runtimeId == 0) {
         return -1;
@@ -31,15 +47,86 @@ BindTagContextDesc BinderModule::Impl::DescribeBindTagContext(std::uint64_t runt
     return desc;
 }
 
+std::string BinderModule::Impl::DescribeBindTagLogSource(std::uint64_t runtimeId) const {
+    const BindTagContextDesc source = DescribeBindTagContext(runtimeId);
+    std::string result = "runtime=" + std::to_string(runtimeId);
+    result += " index=" + std::to_string(source.hotkeyIndex);
+    result += " category=\"" + EscapeBindTagLogValue(source.category) + "\"";
+    result += " folder=\"" + EscapeBindTagLogValue(source.folder) + "\"";
+    result += " bind=\"" + EscapeBindTagLogValue(source.name) + "\"";
+    return result;
+}
+
+std::string BinderModule::Impl::DescribeBindTagLogTargets(const std::vector<int>& targetIndices) const {
+    constexpr std::size_t kMaxLoggedTargets = 8;
+    std::string result = "count=" + std::to_string(targetIndices.size());
+    const std::size_t logged = std::min(targetIndices.size(), kMaxLoggedTargets);
+    for (std::size_t i = 0; i < logged; ++i) {
+        const int index = targetIndices[i];
+        result += " target={index=" + std::to_string(index);
+        if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
+            result += " invalid=1}";
+            continue;
+        }
+
+        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+        const BinderCategory* category = FindCategoryById(hotkey.categoryId);
+        result += " ui=" + std::to_string(hotkey.number);
+        result += " id=\"" + EscapeBindTagLogValue(binder_tags::StableSelector(hotkey.orderId)) + "\"";
+        result += " category=\"" + EscapeBindTagLogValue(category ? category->name : hotkey.categoryId) + "\"";
+        result += " folder=\"" + EscapeBindTagLogValue(JoinPath(hotkey.folderPath)) + "\"";
+        result += " bind=\"" + EscapeBindTagLogValue(BuildBindDisplayLabel(hotkey)) + "\"";
+        result += " enabled=" + std::to_string(hotkey.enabled ? 1 : 0);
+        result += " effective=" + std::to_string(IsHotkeyEffectivelyEnabled(index) ? 1 : 0);
+        result += " running=" + std::to_string(IsHotkeyRunning(index) ? 1 : 0);
+        result += " paused=" + std::to_string(IsHotkeyPaused(index) ? 1 : 0);
+        result += " input=" + std::to_string(hotkey.awaitingInput ? 1 : 0);
+        result += " confirmation=" + std::to_string(hotkey.waitingTextConfirmation ? 1 : 0);
+        result += '}';
+    }
+    if (targetIndices.size() > logged) {
+        result += " omitted=" + std::to_string(targetIndices.size() - logged);
+    }
+    return result;
+}
+
+binder_tags::Catalog BinderModule::Impl::BuildBindSelectorCatalog() const {
+    binder_tags::Catalog catalog;
+    catalog.categories.reserve(categories.size());
+    for (const BinderCategory& category : categories) {
+        binder_tags::CategoryEntry entry;
+        entry.id = category.id;
+        entry.name = category.name;
+        CollectFolderPaths(category.folders, entry.folderPaths);
+        catalog.categories.push_back(std::move(entry));
+    }
+
+    catalog.binds.reserve(hotkeys.size());
+    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
+        const HotkeyEntry& hotkey = hotkeys[i];
+        catalog.binds.push_back(binder_tags::BindEntry{
+            static_cast<int>(i),
+            hotkey.number,
+            hotkey.orderId,
+            BuildBindDisplayLabel(hotkey),
+            hotkey.categoryId,
+            hotkey.folderPath,
+            hotkey.enabled,
+            IsHotkeyEffectivelyEnabled(static_cast<int>(i)),
+        });
+    }
+    return catalog;
+}
+
 std::string BinderModule::Impl::BuildThisbindTagValue(std::uint64_t runtimeId) const {
     const BindTagContextDesc desc = DescribeBindTagContext(runtimeId);
     if (desc.hotkeyIndex < 0 || desc.name.empty()) {
         return {};
     }
 
-    std::string value = QuoteBindTagToken(desc.name);
+    std::string value = binder_tags::QuoteToken(desc.name);
     value += ' ';
-    value += QuoteBindTagToken(desc.folder);
+    value += binder_tags::QuoteToken(desc.folder);
     return value;
 }
 
@@ -104,9 +191,15 @@ void BinderModule::Impl::QueueSelfRestart(std::uint64_t runtimeId) {
         return;
     }
     if (std::find(pendingSelfRestarts.begin(), pendingSelfRestarts.end(), runtimeId) != pendingSelfRestarts.end()) {
+        debuglog::WriteInfo(
+            "[binder][bind-tag] self-restart already queued source={%s}",
+            DescribeBindTagLogSource(runtimeId).c_str());
         return;
     }
     pendingSelfRestarts.push_back(runtimeId);
+    debuglog::WriteInfo(
+        "[binder][bind-tag] self-restart queued source={%s}",
+        DescribeBindTagLogSource(runtimeId).c_str());
 }
 
 bool BinderModule::Impl::StartPendingSelfRestart(std::uint64_t runtimeId) {
@@ -118,10 +211,19 @@ bool BinderModule::Impl::StartPendingSelfRestart(std::uint64_t runtimeId) {
     pendingSelfRestarts.erase(it);
     const int index = FindHotkeyIndexByRuntimeId(runtimeId);
     if (index < 0) {
+        debuglog::WriteError(
+            "[binder][bind-tag] self-restart failed reason=source_not_found source={%s}",
+            DescribeBindTagLogSource(runtimeId).c_str());
         return false;
     }
 
-    return TryEnqueueHotkey(index, kNestedBindStartDelayMs, "bind_tag", "[bindstart({thisbind})]");
+    const bool started = TryEnqueueHotkey(index, kNestedBindStartDelayMs, "bind_tag", "[bindstart({thisbind})]");
+    debuglog::WriteInfo(
+        "[binder][bind-tag] self-restart execute success=%d source={%s} targets={%s}",
+        started ? 1 : 0,
+        DescribeBindTagLogSource(runtimeId).c_str(),
+        DescribeBindTagLogTargets({ index }).c_str());
+    return started;
 }
 
 std::vector<int> BinderModule::Impl::ResolveBindTagTargets(
@@ -129,290 +231,40 @@ std::vector<int> BinderModule::Impl::ResolveBindTagTargets(
     std::string_view rawParam,
     std::uint64_t sourceRuntimeId,
     std::string& error) const {
-    error.clear();
-
-    const BindTagContextDesc context = DescribeBindTagContext(sourceRuntimeId);
-    const std::vector<BindTagToken> tokens = TokenizeBindTagArgs(rawParam);
-
-    BindTagSelector selector;
-    selector.hasTokens = !tokens.empty();
-    selector.contextHotkeyIndex = context.hotkeyIndex;
-
-    const auto parseDisplayAlias = [](std::string_view value, int& number, std::string& displayName) {
-        constexpr std::string_view kNumberSign = "\xE2\x84\x96";
-        std::string text = Trim(value);
-        if (text.size() < kNumberSign.size() || std::string_view(text).substr(0, kNumberSign.size()) != kNumberSign) {
-            return false;
-        }
-
-        text.erase(0, kNumberSign.size());
-        text = Trim(text);
-        std::size_t digitCount = 0;
-        while (digitCount < text.size() && std::isdigit(static_cast<unsigned char>(text[digitCount])) != 0) {
-            ++digitCount;
-        }
-        if (digitCount == 0) {
-            return false;
-        }
-
-        int parsedNumber = 0;
-        if (!ParseInt(std::string_view(text).substr(0, digitCount), parsedNumber) || parsedNumber < 1) {
-            return false;
-        }
-
-        number = parsedNumber;
-        displayName = Trim(std::string_view(text).substr(digitCount));
-        return true;
-    };
-
-    const auto assignFolderToken = [&](const BindTagToken& token) {
-        selector.folderProvided = true;
-        selector.folder = token.value;
-        selector.folderExact = token.quoted;
-        selector.rootExplicit = token.quoted && token.value.empty();
-    };
-
-    const auto assignCategoryToken = [&](const BindTagToken& token) {
-        selector.categoryProvided = true;
-        selector.category = token.value;
-        selector.categoryExact = token.quoted;
-    };
-
-    if (action == BindTagAction::Random) {
-        selector.kind = BindTagTargetKind::All;
-        if (tokens.empty()) {
-            if (selector.contextHotkeyIndex < 0) {
-                error = "param_required";
-                return {};
-            }
-            const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(selector.contextHotkeyIndex)];
-            selector.folderProvided = true;
-            selector.folder = JoinPath(hotkey.folderPath);
-            selector.folderExact = true;
-            selector.rootExplicit = hotkey.folderPath.empty();
-        } else if (tokens.front().value == "*") {
-            selector.folderProvided = false;
-            if (tokens.size() >= 2) {
-                assignCategoryToken(tokens[1]);
-            }
-        } else {
-            assignFolderToken(tokens.front());
-            if (tokens.size() >= 2) {
-                assignCategoryToken(tokens[1]);
-            }
-        }
-    } else if (tokens.empty()) {
-        if (selector.contextHotkeyIndex < 0) {
-            error = "param_required";
-            return {};
-        }
-        selector.kind = BindTagTargetKind::Context;
-    } else {
-        const BindTagToken& first = tokens.front();
-        int numericIndex = 0;
-        std::string displayAliasName;
-        if (!first.quoted && ParseInt(first.value, numericIndex) && numericIndex > 0) {
-            selector.kind = BindTagTargetKind::Number;
-            selector.number = numericIndex;
-        } else if (parseDisplayAlias(first.value, numericIndex, displayAliasName)) {
-            selector.kind = displayAliasName.empty() ? BindTagTargetKind::Number : BindTagTargetKind::DisplayAlias;
-            selector.number = numericIndex;
-            selector.displayAliasName = std::move(displayAliasName);
-        } else {
-            selector.kind = BindTagTargetKind::Name;
-            selector.target = first.value;
-            selector.targetQuoted = first.quoted;
-        }
-
-        if (tokens.size() >= 2) {
-            assignFolderToken(tokens[1]);
-        }
-        if (tokens.size() >= 3) {
-            assignCategoryToken(tokens[2]);
-        }
-    }
-
-    if (selector.kind == BindTagTargetKind::Context && selector.contextHotkeyIndex >= 0) {
-        return { selector.contextHotkeyIndex };
-    }
-
-    const auto pathEqualNoCase = [](const std::vector<std::string>& left, const std::vector<std::string>& right) {
-        if (left.size() != right.size()) {
-            return false;
-        }
-        for (std::size_t i = 0; i < left.size(); ++i) {
-            if (!EqualNoCase(left[i], right[i])) {
-                return false;
-            }
-        }
-        return true;
-    };
-
-    const auto splitFolderPath = [](std::string_view value) {
-        std::vector<std::string> path;
-        for (std::string part : Split(value, '/')) {
-            part = Trim(part);
-            if (!part.empty()) {
-                path.push_back(std::move(part));
-            }
-        }
-        return path;
-    };
-
-    bool categoryAmbiguous = false;
-    const auto findCategory = [&](std::string_view query, bool exact) -> const BinderCategory* {
-        categoryAmbiguous = false;
-        const std::string trimmed = Trim(query);
-        if (trimmed.empty()) {
-            return nullptr;
-        }
-
-        const BinderCategory* partialMatch = nullptr;
-        bool partialAmbiguous = false;
-        for (const BinderCategory& category : categories) {
-            if (EqualNoCase(category.id, trimmed) || EqualNoCase(category.name, trimmed)) {
-                return &category;
-            }
-            if (!exact && (ContainsNoCase(category.id, trimmed) || ContainsNoCase(category.name, trimmed))) {
-                if (partialMatch) {
-                    partialAmbiguous = true;
-                    categoryAmbiguous = true;
-                } else {
-                    partialMatch = &category;
-                }
-            }
-        }
-        return partialAmbiguous ? nullptr : partialMatch;
-    };
-
-    const BinderCategory* scopeCategory = nullptr;
-    if (selector.categoryProvided && !Trim(selector.category).empty()) {
-        scopeCategory = findCategory(selector.category, selector.categoryExact);
-        if (!scopeCategory) {
-            error = categoryAmbiguous ? "bind_ambiguous" : "category_not_found";
-            return {};
-        }
-    } else {
-        const std::string scopeCategoryId = selector.contextHotkeyIndex >= 0
-            ? hotkeys[static_cast<std::size_t>(selector.contextHotkeyIndex)].categoryId
-            : activeCategoryId;
-        scopeCategory = FindCategoryById(scopeCategoryId);
-        if (!scopeCategory) {
-            scopeCategory = &ActiveCategory();
-        }
-    }
-
-    std::optional<std::vector<std::string>> scopePath;
-    if (selector.folderProvided) {
-        if (selector.rootExplicit || Trim(selector.folder).empty()) {
-            scopePath = std::vector<std::string>{};
-        } else {
-            const std::vector<std::string> requestedPath = splitFolderPath(selector.folder);
-            std::vector<std::vector<std::string>> folderPaths;
-            CollectFolderPaths(scopeCategory->folders, folderPaths);
-
-            std::vector<std::vector<std::string>> matches;
-            for (const auto& path : folderPaths) {
-                const std::string fullPath = JoinPath(path);
-                const std::string folderName = path.empty() ? std::string{} : path.back();
-                const bool exactPathMatch = pathEqualNoCase(path, requestedPath)
-                    || EqualNoCase(fullPath, selector.folder)
-                    || EqualNoCase(folderName, selector.folder);
-                const bool partialMatch = !selector.folderExact
-                    && (ContainsNoCase(fullPath, selector.folder) || ContainsNoCase(folderName, selector.folder));
-                if (selector.folderExact ? exactPathMatch : (exactPathMatch || partialMatch)) {
-                    matches.push_back(path);
-                }
-            }
-
-            if (matches.empty()) {
-                error = "folder_not_found";
-                return {};
-            }
-            if (matches.size() > 1) {
-                error = "bind_ambiguous";
-                return {};
-            }
-            scopePath = matches.front();
-        }
-    }
-
-    std::vector<int> candidates;
-    for (std::size_t i = 0; i < hotkeys.size(); ++i) {
-        const HotkeyEntry& hotkey = hotkeys[i];
-        if (hotkey.categoryId != scopeCategory->id) {
-            continue;
-        }
-        if (scopePath.has_value() && hotkey.folderPath != *scopePath) {
-            continue;
-        }
-        candidates.push_back(static_cast<int>(i));
-    }
-
-    if (selector.kind == BindTagTargetKind::All) {
-        return candidates;
-    }
-
-    const auto hotkeyDisplayName = [this](int index) {
-        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        return BuildBindDisplayLabel(hotkey);
-    };
-
-    if (selector.kind == BindTagTargetKind::Number || selector.kind == BindTagTargetKind::DisplayAlias) {
-        std::vector<int> matches;
-        for (const int index : candidates) {
-            const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-            if (hotkey.number != selector.number) {
-                continue;
-            }
-            if (selector.kind == BindTagTargetKind::DisplayAlias
-                && !EqualNoCase(hotkeyDisplayName(index), selector.displayAliasName)) {
-                continue;
-            }
-            matches.push_back(index);
-        }
-        if (matches.size() > 1) {
-            error = "bind_ambiguous";
-            return {};
-        }
-        return matches;
-    }
-
-    if (selector.kind == BindTagTargetKind::Name && !selector.target.empty()) {
-        std::vector<int> exactMatches;
-        std::vector<int> partialMatches;
-        for (const int index : candidates) {
-            const std::string displayName = hotkeyDisplayName(index);
-            if (EqualNoCase(displayName, selector.target)) {
-                exactMatches.push_back(index);
-                continue;
-            }
-            if (!selector.targetQuoted && ContainsNoCase(displayName, selector.target)) {
-                partialMatches.push_back(index);
-            }
-        }
-
-        if (exactMatches.size() > 1) {
-            error = "bind_ambiguous";
-            return {};
-        }
-        if (exactMatches.size() == 1) {
-            return exactMatches;
-        }
-        if (selector.targetQuoted) {
-            return {};
-        }
-        if (partialMatches.size() > 1) {
-            error = "bind_ambiguous";
-            return {};
-        }
-        if (partialMatches.size() == 1) {
-            return partialMatches;
-        }
+    binder_tags::Action selectorAction = binder_tags::Action::Start;
+    switch (action) {
+    case BindTagAction::Disable: selectorAction = binder_tags::Action::Disable; break;
+    case BindTagAction::Enable: selectorAction = binder_tags::Action::Enable; break;
+    case BindTagAction::Start: selectorAction = binder_tags::Action::Start; break;
+    case BindTagAction::Stop: selectorAction = binder_tags::Action::Stop; break;
+    case BindTagAction::Pause: selectorAction = binder_tags::Action::Pause; break;
+    case BindTagAction::Unpause: selectorAction = binder_tags::Action::Unpause; break;
+    case BindTagAction::FastMenu: selectorAction = binder_tags::Action::FastMenu; break;
+    case BindTagAction::UnfastMenu: selectorAction = binder_tags::Action::UnfastMenu; break;
+    case BindTagAction::Random: selectorAction = binder_tags::Action::Random; break;
+    case BindTagAction::Ended: selectorAction = binder_tags::Action::Ended; break;
+    case BindTagAction::Popup: selectorAction = binder_tags::Action::Popup; break;
+    case BindTagAction::StopAll:
+    case BindTagAction::Unknown:
+        error = "invalid_syntax";
         return {};
     }
 
-    return {};
+    const BindTagContextDesc source = DescribeBindTagContext(sourceRuntimeId);
+    binder_tags::Context context;
+    context.bindIndex = source.hotkeyIndex;
+    if (source.hotkeyIndex >= 0 && source.hotkeyIndex < static_cast<int>(hotkeys.size())) {
+        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(source.hotkeyIndex)];
+        context.categoryId = hotkey.categoryId;
+        context.folderPath = hotkey.folderPath;
+    } else {
+        context.categoryId = activeCategoryId;
+    }
+
+    binder_tags::ResolveResult resolved =
+        binder_tags::Resolve(selectorAction, rawParam, context, BuildBindSelectorCatalog());
+    error = std::string(binder_tags::ErrorCode(resolved.error));
+    return std::move(resolved.indices);
 }
 
 std::string BinderModule::Impl::DescribeBindTagError(std::string_view actionName, std::string_view error) const {
@@ -421,6 +273,18 @@ std::string BinderModule::Impl::DescribeBindTagError(std::string_view actionName
 
     if (error == "param_required") {
         return ui.Format(UiText::ToastBindTagTargetRequired, token.c_str());
+    }
+    if (error == "invalid_syntax") {
+        return ui.Format(UiText::ToastBindTagInvalidSyntax, token.c_str());
+    }
+    if (error == "too_many_args") {
+        return ui.Format(UiText::ToastBindTagTooManyArguments, token.c_str());
+    }
+    if (error == "unterminated_quote") {
+        return ui.Format(UiText::ToastBindTagUnterminatedQuote, token.c_str());
+    }
+    if (error == "invalid_stable_id") {
+        return ui.Format(UiText::ToastBindTagInvalidStableId, token.c_str());
     }
     if (error == "no_folders") {
         return ui.Text(UiText::ToastBindTagNoFolders);
@@ -440,11 +304,35 @@ std::string BinderModule::Impl::DescribeBindTagError(std::string_view actionName
     if (error == "bind_not_started") {
         return ui.Format(UiText::ToastBindTagNotStarted, token.c_str());
     }
+    if (error == "bind_already_running") {
+        return ui.Format(UiText::ToastBindTagAlreadyRunning, token.c_str());
+    }
+    if (error == "bind_disabled") {
+        return ui.Format(UiText::ToastBindTagDisabled, token.c_str());
+    }
+    if (error == "folder_disabled") {
+        return ui.Format(UiText::ToastBindTagFolderDisabled, token.c_str());
+    }
+    if (error == "bind_busy") {
+        return ui.Format(UiText::ToastBindTagBusy, token.c_str());
+    }
+    if (error == "bind_conditions_blocked") {
+        return ui.Format(UiText::ToastBindTagConditionsBlocked, token.c_str());
+    }
+    if (error == "bind_input_busy") {
+        return ui.Format(UiText::ToastBindTagInputBusy, token.c_str());
+    }
+    if (error == "bind_empty") {
+        return ui.Format(UiText::ToastBindTagEmpty, token.c_str());
+    }
     if (error == "bind_not_running") {
         return ui.Format(UiText::ToastBindTagNotRunning, token.c_str());
     }
     if (error == "bind_not_paused") {
         return ui.Format(UiText::ToastBindTagNotPaused, token.c_str());
+    }
+    if (error == "bind_already_paused") {
+        return ui.Format(UiText::ToastBindTagAlreadyPaused, token.c_str());
     }
     if (error == "bind_no_changes") {
         return ui.Format(UiText::ToastBindTagNoChanges, token.c_str());
@@ -511,29 +399,66 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
     case BindTagAction::Random: {
         std::vector<int> pool;
         pool.reserve(targetIndices.size());
+        int rejectedDisabled = 0;
+        int rejectedInput = 0;
+        int rejectedRunning = 0;
+        int rejectedCursor = 0;
+        int rejectedConditions = 0;
         const ConditionRuntimeContext conditionContext = MakeConditionContext(false);
         for (const int index : targetIndices) {
             if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
                 continue;
             }
             const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-            if (!IsHotkeyEffectivelyEnabled(index)
-                || hotkey.awaitingInput
-                || hotkey.waitingTextConfirmation
-                || IsHotkeyRunning(index)
-                || ShouldBlockHelperCursorActivation(hotkey, "bind_tag")
-                || ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &conditionContext)) {
+            if (!IsHotkeyEffectivelyEnabled(index)) {
+                ++rejectedDisabled;
+                continue;
+            }
+            if (hotkey.awaitingInput || hotkey.waitingTextConfirmation) {
+                ++rejectedInput;
+                continue;
+            }
+            if (IsHotkeyRunning(index)) {
+                ++rejectedRunning;
+                continue;
+            }
+            if (ShouldBlockHelperCursorActivation(hotkey, "bind_tag")) {
+                ++rejectedCursor;
+                continue;
+            }
+            if (ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &conditionContext)) {
+                ++rejectedConditions;
                 continue;
             }
             pool.push_back(index);
         }
 
         if (pool.empty()) {
+            debuglog::WriteError(
+                "[binder][bind-tag] random rejected candidates=%d eligible=0 disabled=%d input=%d running=%d cursor=%d conditions=%d source={%s}",
+                static_cast<int>(targetIndices.size()),
+                rejectedDisabled,
+                rejectedInput,
+                rejectedRunning,
+                rejectedCursor,
+                rejectedConditions,
+                DescribeBindTagLogSource(sourceRuntimeId).c_str());
             result.error = "bind_not_started";
             return result;
         }
 
         const int chosen = pool[RandomIndex(pool.size())];
+        debuglog::WriteInfo(
+            "[binder][bind-tag] random selected candidates=%d eligible=%d disabled=%d input=%d running=%d cursor=%d conditions=%d source={%s} chosen={%s}",
+            static_cast<int>(targetIndices.size()),
+            static_cast<int>(pool.size()),
+            rejectedDisabled,
+            rejectedInput,
+            rejectedRunning,
+            rejectedCursor,
+            rejectedConditions,
+            DescribeBindTagLogSource(sourceRuntimeId).c_str(),
+            DescribeBindTagLogTargets({ chosen }).c_str());
         if (TryEnqueueHotkey(chosen, 0, "bind_tag", std::string(actionName))) {
             result.success = true;
             result.affected = 1;
@@ -566,6 +491,38 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
                 continue;
             }
 
+            const HotkeyEntry& target = hotkeys[static_cast<std::size_t>(index)];
+            if (IsHotkeyRunning(index)) {
+                result.error = "bind_already_running";
+                return result;
+            }
+            if (!target.enabled) {
+                result.error = "bind_disabled";
+                return result;
+            }
+            const BinderCategory* category = FindCategoryById(target.categoryId);
+            if (!category || !IsFolderPathEnabled(*category, target.folderPath)) {
+                result.error = "folder_disabled";
+                return result;
+            }
+            if (target.awaitingInput || target.waitingTextConfirmation) {
+                result.error = "bind_busy";
+                return result;
+            }
+            std::string conditionMessage;
+            if (ConditionsBlockHotkeyStart(target, "bind_tag", &conditionMessage)) {
+                result.error = "bind_conditions_blocked";
+                return result;
+            }
+            if (!target.inputs.empty() && inputDialog.has_value() && inputDialog->hotkeyIndex != index) {
+                result.error = "bind_input_busy";
+                return result;
+            }
+            if (target.inputs.empty() && target.messages.empty()) {
+                result.error = "bind_empty";
+                return result;
+            }
+
             if (TryEnqueueHotkey(index, 0, "bind_tag", std::string(actionName))) {
                 ++changed;
             }
@@ -594,6 +551,10 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteBindTagActionNow(
     case BindTagAction::Pause: {
         int changed = 0;
         for (const int index : targetIndices) {
+            if (IsHotkeyPaused(index)) {
+                result.error = "bind_already_paused";
+                return result;
+            }
             if (PauseHotkey(index)) {
                 ++changed;
             }
@@ -686,6 +647,12 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
     if (action == BindTagAction::Unknown) {
         result.error = "unknown_action";
         Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
+        debuglog::WriteError(
+            "[binder][bind-tag] action rejected action=\"%s\" error=%s selector=\"%s\" source={%s}",
+            EscapeBindTagLogValue(actionName).c_str(),
+            result.error.c_str(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str());
         return result;
     }
 
@@ -695,8 +662,15 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
                 action,
                 sourceRuntimeId,
                 std::string(actionName),
+                std::string(param),
                 {},
             });
+            debuglog::WriteInfo(
+                "[binder][bind-tag] queued action=%.*s selector=\"%s\" source={%s} targets={count=all_running}",
+                static_cast<int>(actionName.size()),
+                actionName.data(),
+                EscapeBindTagLogValue(param).c_str(),
+                DescribeBindTagLogSource(sourceRuntimeId).c_str());
             result.success = true;
             result.affected = 1;
             return result;
@@ -721,7 +695,24 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
             result.value = "0";
         }
         Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, error), 2600.0);
+        debuglog::WriteError(
+            "[binder][bind-tag] resolve failed action=%.*s error=%s selector=\"%s\" source={%s}",
+            static_cast<int>(actionName.size()),
+            actionName.data(),
+            error.c_str(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str());
         return result;
+    }
+
+    if (action != BindTagAction::Ended) {
+        debuglog::WriteInfo(
+            "[binder][bind-tag] resolved action=%.*s selector=\"%s\" source={%s} targets={%s}",
+            static_cast<int>(actionName.size()),
+            actionName.data(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str(),
+            DescribeBindTagLogTargets(targetIndices).c_str());
     }
 
     if (action != BindTagAction::Ended && sourceRuntimeId != 0) {
@@ -729,8 +720,15 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
             action,
             sourceRuntimeId,
             std::string(actionName),
+            std::string(param),
             std::move(targetIndices),
         });
+        debuglog::WriteInfo(
+            "[binder][bind-tag] queued action=%.*s selector=\"%s\" source={%s}",
+            static_cast<int>(actionName.size()),
+            actionName.data(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str());
         result.success = true;
         return result;
     }
@@ -741,6 +739,29 @@ BinderModule::TagActionResult BinderModule::Impl::ExecuteTagAction(
             result.value = "0";
         }
         Notify(NotificationGroup::TagErrors, NotificationSeverity::Error, DescribeBindTagError(actionName, result.error), 2600.0);
+    }
+    if (action == BindTagAction::Ended && sourceRuntimeId != 0) {
+        debuglog::WriteInfo(
+            "[binder][bind-tag] queried action=%.*s value=%s error=%s selector=\"%s\" source={%s} targets={%s}",
+            static_cast<int>(actionName.size()),
+            actionName.data(),
+            result.value.c_str(),
+            result.error.c_str(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str(),
+            DescribeBindTagLogTargets(targetIndices).c_str());
+    }
+    if (action != BindTagAction::Ended) {
+        debuglog::WriteInfo(
+            "[binder][bind-tag] executed action=%.*s success=%d affected=%d error=%s selector=\"%s\" source={%s} targets={%s}",
+            static_cast<int>(actionName.size()),
+            actionName.data(),
+            result.success ? 1 : 0,
+            result.affected,
+            result.error.c_str(),
+            EscapeBindTagLogValue(param).c_str(),
+            DescribeBindTagLogSource(sourceRuntimeId).c_str(),
+            DescribeBindTagLogTargets(targetIndices).c_str());
     }
     return result;
 }

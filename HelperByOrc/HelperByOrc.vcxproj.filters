@@ -93,6 +93,9 @@
     <ClCompile Include="binder_tag_actions.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
+    <ClCompile Include="binder_tag_selector.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_two_pane_ui.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
@@ -255,6 +258,9 @@
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
     <ClInclude Include="binder_module.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
+    <ClInclude Include="binder_tag_selector.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
     <ClInclude Include="binder_module_impl.h">

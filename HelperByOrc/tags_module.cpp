@@ -142,6 +142,10 @@ void TagsModule::OpenArizonaDialogTextPicker() {
     impl_->OpenArizonaDialogTextPicker();
 }
 
+void TagsModule::OpenBindSelectorBuilder(std::string_view action) {
+    impl_->OpenBindSelectorBuilder(action);
+}
+
 void TagsModule::DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction) {
     impl_->DrawVariableHelperPopups(std::move(tokenAction));
 }

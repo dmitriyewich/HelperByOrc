@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tags_module.h"
+#include "binder_tag_selector.h"
 
 #include <cstdint>
 #include <functional>
@@ -65,6 +66,7 @@ public:
     void OpenArizonaDialogItemPicker();
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
+    void OpenBindSelectorBuilder(std::string_view action);
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
     std::vector<variables_picker::Entry> BuildVariablePickerEntriesForInsert() const;
     void HandleVariablePickerUtilityRequest(const variables_picker::Request& request);
@@ -178,6 +180,18 @@ public:
     enum class DialogItemPickerSource {
         Samp,
         Arizona,
+    };
+
+    struct BindSelectorBuilderState {
+        bool openPending = false;
+        std::string action{ "bindstart" };
+        binder_tags::Catalog catalog{};
+        int categoryIndex = 0;
+        int folderChoice = -1;
+        int bindIndex = -1;
+        int outputMode = 0;
+        int randomScope = 0;
+        std::string search{};
     };
 
     struct PendingDialogWait {
@@ -420,6 +434,7 @@ public:
     void OpenDialogTextPicker(DialogTextPickerSource source = DialogTextPickerSource::Samp);
     void DrawDialogItemPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void DrawDialogTextPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
+    void DrawBindSelectorBuilderPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void ProcessPendingKeyHoldWaits();
     void ProcessPendingDialogWaits();
     void ProcessPendingArzDialogQueryWaits();
@@ -806,4 +821,5 @@ private:
     bool dialogItemPickerOpenPending_ = false;
     bool dialogItemPickerArizonaQueryStarted_ = false;
     bool dialogTextPickerOpenPending_ = false;
+    BindSelectorBuilderState bindSelectorBuilder_{};
 };

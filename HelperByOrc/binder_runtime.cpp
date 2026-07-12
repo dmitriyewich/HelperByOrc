@@ -151,7 +151,7 @@ bool BinderModule::Impl::IsManualActivationSource(std::string_view source) const
 }
 
 bool BinderModule::Impl::CanToggleRunningHotkeyActivation(std::string_view source) const {
-    return source != "incoming_server";
+    return source != "incoming_server" && source != "bind_tag";
 }
 
 bool BinderModule::Impl::ShouldNotifyRunningHotkeyToggle(std::string_view source) const {
@@ -958,6 +958,15 @@ void BinderModule::Impl::ExecutePendingBindTagActions(std::uint64_t sourceRuntim
                 DescribeBindTagError(pending.actionName, result.error),
                 2600.0);
         }
+        debuglog::WriteInfo(
+            "[binder][bind-tag] executed pending action=%s success=%d affected=%d error=%s selector=\"%s\" source={%s} targets={%s}",
+            pending.actionName.c_str(),
+            result.success ? 1 : 0,
+            result.affected,
+            result.error.c_str(),
+            EscapeBindTagLogValue(pending.selector).c_str(),
+            DescribeBindTagLogSource(pending.sourceRuntimeId).c_str(),
+            DescribeBindTagLogTargets(pending.targetIndices).c_str());
     }
 }
 

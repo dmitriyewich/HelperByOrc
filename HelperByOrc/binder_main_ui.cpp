@@ -3,8 +3,14 @@
 void BinderModule::Impl::DrawCategoryTabs() {
     EnsureCategories();
     UiSettings& ui = UiSettings::Instance();
+    struct PendingCategoryMove {
+        std::string categoryId;
+        int offset = 0;
+    };
+    std::optional<PendingCategoryMove> pendingMove;
 
-    if (!ImGui::BeginTabBar("##binder_category_tabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+    const std::string tabBarId = "##binder_category_tabs_" + std::to_string(categoryTabOrderRevision);
+    if (!ImGui::BeginTabBar(tabBarId.c_str(), ImGuiTabBarFlags_FittingPolicyScroll)) {
         return;
     }
 
@@ -73,7 +79,7 @@ void BinderModule::Impl::DrawCategoryTabs() {
                 ImGui::BeginDisabled();
             }
             if (ImGui::MenuItem(ui.Text(UiText::CategoryMoveLeft)) && canMoveLeft) {
-                MoveCategoryByOffset(categoryId, -1);
+                pendingMove = PendingCategoryMove{ categoryId, -1 };
             }
             if (!canMoveLeft) {
                 ImGui::EndDisabled();
@@ -83,7 +89,7 @@ void BinderModule::Impl::DrawCategoryTabs() {
                 ImGui::BeginDisabled();
             }
             if (ImGui::MenuItem(ui.Text(UiText::CategoryMoveRight)) && canMoveRight) {
-                MoveCategoryByOffset(categoryId, 1);
+                pendingMove = PendingCategoryMove{ categoryId, 1 };
             }
             if (!canMoveRight) {
                 ImGui::EndDisabled();
@@ -120,6 +126,7 @@ void BinderModule::Impl::DrawCategoryTabs() {
         category.name = NextCategoryName();
         const std::string id = category.id;
         categories.push_back(std::move(category));
+        ++categoryTabOrderRevision;
         SelectCategory(id);
         BeginRenameCategory(id);
     }
@@ -128,6 +135,9 @@ void BinderModule::Impl::DrawCategoryTabs() {
     }
 
     ImGui::EndTabBar();
+    if (pendingMove) {
+        MoveCategoryByOffset(pendingMove->categoryId, pendingMove->offset);
+    }
 }
 
 void BinderModule::Impl::DrawCategoryPopups() {

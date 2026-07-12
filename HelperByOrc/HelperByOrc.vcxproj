@@ -143,6 +143,7 @@
     <ClCompile Include="binder_module.cpp" />
     <ClCompile Include="binder_quick_menu.cpp" />
     <ClCompile Include="binder_runtime.cpp" />
+    <ClCompile Include="binder_tag_selector.cpp" />
     <ClCompile Include="binder_tag_actions.cpp" />
     <ClCompile Include="binder_two_pane_ui.cpp" />
     <ClCompile Include="binder_ui_common.cpp" />
@@ -208,6 +209,7 @@
     <ClInclude Include="binder_editor.h" />
     <ClInclude Include="binder_module.h" />
     <ClInclude Include="binder_module_impl.h" />
+    <ClInclude Include="binder_tag_selector.h" />
     <ClInclude Include="binder_types.h" />
     <ClInclude Include="binder_ui_common.h" />
     <ClInclude Include="conditions_module.h" />

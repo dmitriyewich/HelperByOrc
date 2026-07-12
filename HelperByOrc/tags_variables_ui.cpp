@@ -1,5 +1,28 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
+#include "binder_module.h"
+
+namespace {
+
+constexpr std::array<std::string_view, 11> kBindBuilderActions{
+    "bindstart",
+    "bindstop",
+    "bindpause",
+    "bindunpause",
+    "binddisable",
+    "bindenable",
+    "bindfastmenu",
+    "bindunfastmenu",
+    "bindrandom",
+    "bindended",
+    "bindpopup",
+};
+
+bool IsBindBuilderAction(std::string_view value) {
+    return std::find(kBindBuilderActions.begin(), kBindBuilderActions.end(), value) != kBindBuilderActions.end();
+}
+
+} // namespace
 
 void TagsModule::Impl::LoadConfig() {
     debuglog::WriteInfo("TagsModule::LoadConfig begin");
@@ -82,10 +105,290 @@ void TagsModule::Impl::OpenArizonaDialogTextPicker() {
     OpenDialogTextPicker(DialogTextPickerSource::Arizona);
 }
 
+void TagsModule::Impl::OpenBindSelectorBuilder(std::string_view action) {
+    bindSelectorBuilder_ = {};
+    bindSelectorBuilder_.action = IsBindBuilderAction(action) ? std::string(action) : "bindstart";
+    if (binderModule_) {
+        bindSelectorBuilder_.catalog = binderModule_->GetBindSelectorCatalog();
+    }
+    bindSelectorBuilder_.openPending = true;
+}
+
 void TagsModule::Impl::DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction) {
     DrawKeyEmulatePickerPopup();
     DrawDialogItemPickerPopup(tokenAction);
     DrawDialogTextPickerPopup(tokenAction);
+    DrawBindSelectorBuilderPopup(tokenAction);
+}
+
+void TagsModule::Impl::DrawBindSelectorBuilderPopup(const std::function<void(std::string_view)>& tokenAction) {
+    UiSettings& ui = UiSettings::Instance();
+    BindSelectorBuilderState& state = bindSelectorBuilder_;
+    constexpr char kPopupId[] = "##tags_bind_selector_builder";
+    if (state.openPending) {
+        ImGui::OpenPopup(kPopupId);
+        state.openPending = false;
+    }
+
+    ImGui::SetNextWindowSize(ScaleUi(680.0f, 610.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(kPopupId, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::BindBuilderTitle));
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", ui.Text(UiText::BindBuilderIntro));
+    ImGui::Spacing();
+
+    if (ImGui::BeginCombo("##bind_builder_action", state.action.c_str())) {
+        for (const std::string_view action : kBindBuilderActions) {
+            const bool selected = state.action == action;
+            if (ImGui::Selectable(std::string(action).c_str(), selected)) {
+                state.action = std::string(action);
+                state.bindIndex = -1;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderAction));
+
+    if (state.catalog.categories.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderEmpty));
+        if (ImGui::Button(ui.Text(UiText::Close))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+        return;
+    }
+
+    state.categoryIndex = std::clamp(state.categoryIndex, 0, static_cast<int>(state.catalog.categories.size()) - 1);
+    binder_tags::CategoryEntry& category = state.catalog.categories[static_cast<std::size_t>(state.categoryIndex)];
+    if (ImGui::BeginCombo("##bind_builder_category", category.name.c_str())) {
+        for (int i = 0; i < static_cast<int>(state.catalog.categories.size()); ++i) {
+            const bool selected = i == state.categoryIndex;
+            if (ImGui::Selectable(state.catalog.categories[static_cast<std::size_t>(i)].name.c_str(), selected)) {
+                state.categoryIndex = i;
+                state.folderChoice = -1;
+                state.bindIndex = -1;
+                state.search.clear();
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderCategory));
+
+    binder_tags::CategoryEntry& selectedCategory =
+        state.catalog.categories[static_cast<std::size_t>(state.categoryIndex)];
+    const auto folderLabel = [&]() -> std::string {
+        if (state.folderChoice == -1) {
+            return ui.Text(UiText::BindBuilderAnyFolder);
+        }
+        if (state.folderChoice == -2) {
+            return ui.Text(UiText::BindBuilderNoFolder);
+        }
+        if (state.folderChoice >= 0
+            && state.folderChoice < static_cast<int>(selectedCategory.folderPaths.size())) {
+            return binder_tags::JoinFolderPath(
+                selectedCategory.folderPaths[static_cast<std::size_t>(state.folderChoice)]);
+        }
+        return ui.Text(UiText::BindBuilderAnyFolder);
+    };
+    const std::string currentFolderLabel = folderLabel();
+    if (ImGui::BeginCombo("##bind_builder_folder", currentFolderLabel.c_str())) {
+        if (ImGui::Selectable(ui.Text(UiText::BindBuilderAnyFolder), state.folderChoice == -1)) {
+            state.folderChoice = -1;
+            state.bindIndex = -1;
+        }
+        if (ImGui::Selectable(ui.Text(UiText::BindBuilderNoFolder), state.folderChoice == -2)) {
+            state.folderChoice = -2;
+            state.bindIndex = -1;
+        }
+        for (int i = 0; i < static_cast<int>(selectedCategory.folderPaths.size()); ++i) {
+            const std::string path = binder_tags::JoinFolderPath(
+                selectedCategory.folderPaths[static_cast<std::size_t>(i)]);
+            if (ImGui::Selectable(path.c_str(), state.folderChoice == i)) {
+                state.folderChoice = i;
+                state.bindIndex = -1;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderFolder));
+
+    const bool randomAction = state.action == "bindrandom";
+    std::string generated;
+    if (randomAction) {
+        state.randomScope = std::clamp(state.randomScope, 0, 3);
+        const UiText scopeLabels[]{
+            UiText::BindBuilderScopeCategory,
+            UiText::BindBuilderScopeRoot,
+            UiText::BindBuilderScopeDirect,
+            UiText::BindBuilderScopeRecursive,
+        };
+        if (ImGui::BeginCombo("##bind_builder_random_scope", ui.Text(scopeLabels[state.randomScope]))) {
+            for (int i = 0; i < 4; ++i) {
+                if (ImGui::Selectable(ui.Text(scopeLabels[i]), state.randomScope == i)) {
+                    state.randomScope = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderScope));
+
+        std::string scope;
+        bool validScope = true;
+        if (state.randomScope == 0) {
+            scope = "*";
+        } else if (state.randomScope == 1) {
+            scope = binder_tags::QuoteToken("");
+        } else if (state.folderChoice >= 0
+            && state.folderChoice < static_cast<int>(selectedCategory.folderPaths.size())) {
+            std::string path = binder_tags::JoinFolderPath(
+                selectedCategory.folderPaths[static_cast<std::size_t>(state.folderChoice)]);
+            if (state.randomScope == 3) {
+                path += "/**";
+            }
+            scope = binder_tags::QuoteToken(path);
+        } else {
+            validScope = false;
+        }
+        if (validScope) {
+            generated = "[bindrandom(" + scope + " " + binder_tags::QuoteToken(selectedCategory.name) + ")]";
+        }
+    } else {
+        InputTextWithHintString(
+            "##bind_builder_search",
+            ui.Text(UiText::BindBuilderSearch),
+            state.search,
+            ImGuiInputTextFlags_None,
+            128);
+
+        const auto bindVisible = [&](const binder_tags::BindEntry& bind) {
+            if (bind.categoryId != selectedCategory.id) {
+                return false;
+            }
+            if (state.folderChoice == -2 && !bind.folderPath.empty()) {
+                return false;
+            }
+            if (state.folderChoice >= 0
+                && (state.folderChoice >= static_cast<int>(selectedCategory.folderPaths.size())
+                    || bind.folderPath != selectedCategory.folderPaths[static_cast<std::size_t>(state.folderChoice)])) {
+                return false;
+            }
+            return state.search.empty()
+                || binder_tags::ContainsNoCaseUtf8(bind.displayName, state.search)
+                || binder_tags::ContainsNoCaseUtf8(bind.stableId, state.search)
+                || binder_tags::ContainsNoCaseUtf8(std::to_string(bind.number), state.search);
+        };
+
+        if (state.bindIndex < 0
+            || state.bindIndex >= static_cast<int>(state.catalog.binds.size())
+            || !bindVisible(state.catalog.binds[static_cast<std::size_t>(state.bindIndex)])) {
+            state.bindIndex = -1;
+            for (int i = 0; i < static_cast<int>(state.catalog.binds.size()); ++i) {
+                if (bindVisible(state.catalog.binds[static_cast<std::size_t>(i)])) {
+                    state.bindIndex = i;
+                    break;
+                }
+            }
+        }
+
+        const char* bindPreview = state.bindIndex >= 0
+            ? state.catalog.binds[static_cast<std::size_t>(state.bindIndex)].displayName.c_str()
+            : ui.Text(UiText::BindBuilderEmpty);
+        if (ImGui::BeginCombo("##bind_builder_bind", bindPreview)) {
+            for (int i = 0; i < static_cast<int>(state.catalog.binds.size()); ++i) {
+                const binder_tags::BindEntry& bind = state.catalog.binds[static_cast<std::size_t>(i)];
+                if (!bindVisible(bind)) {
+                    continue;
+                }
+                std::string label = "№" + std::to_string(bind.number) + " " + bind.displayName;
+                if (!bind.effectivelyEnabled) {
+                    label += " (off)";
+                }
+                if (ImGui::Selectable(label.c_str(), state.bindIndex == i)) {
+                    state.bindIndex = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderBind));
+
+        const UiText outputLabels[]{
+            UiText::BindBuilderOutputStable,
+            UiText::BindBuilderOutputHuman,
+            UiText::BindBuilderOutputNumber,
+        };
+        state.outputMode = std::clamp(state.outputMode, 0, 2);
+        if (ImGui::BeginCombo("##bind_builder_output", ui.Text(outputLabels[state.outputMode]))) {
+            for (int i = 0; i < 3; ++i) {
+                if (ImGui::Selectable(ui.Text(outputLabels[i]), state.outputMode == i)) {
+                    state.outputMode = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderOutput));
+
+        if (state.bindIndex >= 0) {
+            const binder_tags::BindEntry& bind = state.catalog.binds[static_cast<std::size_t>(state.bindIndex)];
+            std::string selector;
+            if (state.outputMode == 0) {
+                selector = binder_tags::StableSelector(bind.stableId);
+            } else if (state.outputMode == 1) {
+                selector = binder_tags::QuoteToken(bind.displayName)
+                    + " " + binder_tags::QuoteToken(binder_tags::JoinFolderPath(bind.folderPath))
+                    + " " + binder_tags::QuoteToken(selectedCategory.name);
+            } else {
+                selector = std::to_string(bind.number);
+            }
+            generated = "[" + state.action + "(" + selector + ")]";
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderPreview));
+    if (generated.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::BindBuilderEmpty));
+    } else {
+        ImGui::PushTextWrapPos();
+        ImGui::TextUnformatted(generated.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Spacing();
+    if (generated.empty()) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button(ui.Text(tokenAction ? UiText::VariablesInsert : UiText::VariablesCopy), ScaleUi(150.0f, 0.0f))) {
+        if (tokenAction) {
+            tokenAction(generated);
+        } else {
+            ImGui::SetClipboardText(generated.c_str());
+            NotifySuccess(ui.Text(UiText::ToastClipboardCopied), 1400.0);
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    if (generated.empty()) {
+        ImGui::EndDisabled();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::Close), ScaleUi(120.0f, 0.0f))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void TagsModule::Impl::DrawKeyEmulatePickerPopup() {
@@ -490,6 +793,9 @@ void TagsModule::Impl::HandleVariablePickerRequest(const variables_picker::Reque
     case variables_picker::RequestType::OpenArizonaDialogTextPicker:
         OpenDialogTextPicker(DialogTextPickerSource::Arizona);
         break;
+    case variables_picker::RequestType::OpenBindSelectorBuilder:
+        OpenBindSelectorBuilder(request.name);
+        break;
     case variables_picker::RequestType::SaveCustom:
         if (UpsertCustomVariable(request.text, request.name, request.value)) {
             const std::string cleanName = Trim(request.name);
@@ -551,6 +857,7 @@ void TagsModule::Impl::DrawVariablesPage() {
     DrawKeyEmulatePickerPopup();
     DrawDialogItemPickerPopup();
     DrawDialogTextPickerPopup();
+    DrawBindSelectorBuilderPopup();
 }
 
 bool TagsModule::Impl::IsMiscHomePage() const {

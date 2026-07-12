@@ -136,7 +136,7 @@ bool BinderModule::Impl::CategoryNameUnique(std::string_view name, const BinderC
         if (&category == ignoredCategory) {
             continue;
         }
-        if (category.name == name) {
+        if (binder_tags::EqualNoCaseUtf8(category.name, name)) {
             return false;
         }
     }
@@ -153,23 +153,32 @@ void BinderModule::Impl::BeginRenameCategory(std::string_view categoryId) {
     categoryRenamePopupPending = true;
 }
 
-void BinderModule::Impl::MoveCategoryByOffset(std::string_view categoryId, int offset) {
+bool BinderModule::Impl::MoveCategoryByOffset(std::string_view categoryId, int offset) {
     if (offset == 0) {
-        return;
+        return false;
     }
     const auto it = std::find_if(categories.begin(), categories.end(), [&](const BinderCategory& category) {
         return category.id == categoryId;
     });
     if (it == categories.end()) {
-        return;
+        return false;
     }
     const int index = static_cast<int>(std::distance(categories.begin(), it));
     const int target = std::clamp(index + offset, 0, static_cast<int>(categories.size()) - 1);
     if (target == index) {
-        return;
+        return false;
     }
     std::iter_swap(categories.begin() + index, categories.begin() + target);
+    categoryTabSelectionTargetId = std::string(categoryId);
+    ++categoryTabOrderRevision;
+    debuglog::WriteInfo(
+        "[binder] category moved id=%.*s from=%d to=%d",
+        static_cast<int>(categoryId.size()),
+        categoryId.data(),
+        index,
+        target);
     SaveConfig();
+    return true;
 }
 
 void BinderModule::Impl::MoveCategoryContents(BinderCategory& from, BinderCategory& to) {
@@ -283,11 +292,13 @@ void BinderModule::Impl::DeleteCategory(
         ? std::string(moveTargetId)
         : (sourceIt == categories.begin() ? (sourceIt + 1)->id : (sourceIt - 1)->id);
     categories.erase(sourceIt);
+    ++categoryTabOrderRevision;
     EnsureCategories();
     if (deletingActive || !FindCategoryById(activeCategoryId)) {
         activeCategoryId = FindCategoryById(fallbackId) ? fallbackId : categories.front().id;
         currentFolder = nullptr;
     }
+    categoryTabSelectionTargetId = activeCategoryId;
     ClearExplorerSelection();
     NormalizeExplorerOrders();
     SaveConfig();
@@ -508,7 +519,6 @@ void BinderModule::Impl::MoveExplorerSelection(const int delta) {
         return;
     }
 
-    NormalizeExplorerOrders();
     const std::vector<ExplorerItem>& items = ItemsForFolder(currentFolder);
     if (items.empty()) {
         ClearExplorerSelection();
@@ -1530,6 +1540,11 @@ std::string BinderModule::Impl::NextFolderNameForParent(FolderNode* parent) cons
 }
 
 void BinderModule::Impl::BeginInlineCreateFolder(FolderNode* parent) {
+    bindSearch.clear();
+    twoPaneFolderSearch.clear();
+    for (FolderNode* ancestor = parent; ancestor != nullptr; ancestor = ancestor->parent) {
+        ancestor->open = true;
+    }
     folderInlineEdit = {};
     folderInlineEdit.mode = FolderInlineEditMode::Create;
     folderInlineEdit.parent = parent;
@@ -1543,6 +1558,11 @@ void BinderModule::Impl::BeginInlineRenameFolder(FolderNode* folder) {
         return;
     }
 
+    bindSearch.clear();
+    twoPaneFolderSearch.clear();
+    for (FolderNode* ancestor = folder->parent; ancestor != nullptr; ancestor = ancestor->parent) {
+        ancestor->open = true;
+    }
     folderInlineEdit = {};
     folderInlineEdit.mode = FolderInlineEditMode::Rename;
     folderInlineEdit.target = folder;
@@ -1568,6 +1588,16 @@ bool BinderModule::Impl::CommitInlineFolderEdit() {
             NotificationSeverity::Error,
             UiSettings::Instance().Text(UiText::ValidationFolderNameRequired),
             2200.0);
+        folderInlineEdit.focusPending = true;
+        return false;
+    }
+
+    if (binder_tags::IsReservedFolderName(name)) {
+        Notify(
+            NotificationGroup::Validation,
+            NotificationSeverity::Error,
+            UiSettings::Instance().Text(UiText::ValidationFolderNameReserved),
+            2600.0);
         folderInlineEdit.focusPending = true;
         return false;
     }

@@ -1159,7 +1159,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "ifandor",
         "[ifandor(...)]",
-        "[ifandor({id}==74?[bindstart(30)]:[bindstart(\"fb\" \"\")])]",
+        "[ifandor({id}==74?[bindstart(31)]:[bindstart(\"Имя бинда\" \"\")])]",
         UiText::TagsBuiltinIfAndOrDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int depth) {
             return module.ResolveBuiltinIfAndOrFunctionTag(param, context, depth);
@@ -1384,7 +1384,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "binddisable",
         "[binddisable(...)]",
-        "[binddisable(30)]",
+        "[binddisable(@bind-62)]",
         UiText::TagsBuiltinBindDisableDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("disable", param, context);
@@ -1393,7 +1393,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindenable",
         "[bindenable(...)]",
-        "[bindenable(\"fb\" \"\" \"Основные\")]",
+        "[bindenable(\"Имя бинда\" \"Папка/Подпапка\" \"Категория\")]",
         UiText::TagsBuiltinBindEnableDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("enable", param, context);
@@ -1402,7 +1402,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindstart",
         "[bindstart(...)]",
-        "[bindstart(30)]",
+        "[bindstart(@bind-62)]",
         UiText::TagsBuiltinBindStartDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("start", param, context);
@@ -1438,7 +1438,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindfastmenu",
         "[bindfastmenu(...)]",
-        "[bindfastmenu(\"fb\" \"\")]",
+        "[bindfastmenu(\"Имя бинда\" \"\")]",
         UiText::TagsBuiltinBindFastMenuDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("fastmenu", param, context);
@@ -1447,7 +1447,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindunfastmenu",
         "[bindunfastmenu(...)]",
-        "[bindunfastmenu(\"fb\" \"\")]",
+        "[bindunfastmenu(\"Имя бинда\" \"\")]",
         UiText::TagsBuiltinBindUnfastMenuDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("unfastmenu", param, context);
@@ -1456,7 +1456,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindrandom",
         "[bindrandom(...)]",
-        "[bindrandom(\"Команды/Фрапс\" \"Основные\")]",
+        "[bindrandom(\"Папка/Подпапка\" \"Категория\")]",
         UiText::TagsBuiltinBindRandomDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("random", param, context);
@@ -1474,7 +1474,7 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterFunction(
         "bindpopup",
         "[bindpopup(...)]",
-        "[bindpopup(\"№30 fb\")]",
+        "[bindpopup(@bind-62)]",
         UiText::TagsBuiltinBindPopupDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBinderActionFunctionTag("popup", param, context);

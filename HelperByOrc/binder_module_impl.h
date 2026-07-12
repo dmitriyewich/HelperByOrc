@@ -843,69 +843,6 @@ inline BindTagAction ParseBindTagActionName(std::string_view action) {
     return BindTagAction::Unknown;
 }
 
-struct BindTagToken {
-    std::string value{};
-    bool quoted = false;
-};
-
-inline std::vector<BindTagToken> TokenizeBindTagArgs(std::string_view raw) {
-    std::vector<BindTagToken> out;
-    std::size_t i = 0;
-    while (i < raw.size()) {
-        while (i < raw.size()) {
-            const char ch = raw[i];
-            if (ch == ',' || std::isspace(static_cast<unsigned char>(ch)) != 0) {
-                ++i;
-            } else {
-                break;
-            }
-        }
-        if (i >= raw.size()) {
-            break;
-        }
-
-        const char opener = raw[i];
-        if (opener == '"' || opener == '\'') {
-            const char quote = opener;
-            std::string token;
-            bool escaped = false;
-            ++i;
-            while (i < raw.size()) {
-                const char ch = raw[i];
-                if (escaped) {
-                    token.push_back(ch);
-                    escaped = false;
-                } else if (ch == '\\') {
-                    escaped = true;
-                } else if (ch == quote) {
-                    ++i;
-                    break;
-                } else {
-                    token.push_back(ch);
-                }
-                ++i;
-            }
-            out.push_back(BindTagToken{ std::move(token), true });
-            continue;
-        }
-
-        const std::size_t start = i;
-        while (i < raw.size()) {
-            const char ch = raw[i];
-            if (ch == ',' || std::isspace(static_cast<unsigned char>(ch)) != 0) {
-                break;
-            }
-            ++i;
-        }
-
-        if (i > start) {
-            out.push_back(BindTagToken{ std::string(raw.substr(start, i - start)), false });
-        }
-    }
-
-    return out;
-}
-
 struct BindTagContextDesc {
     int hotkeyIndex = -1;
     std::string name{};
@@ -913,35 +850,11 @@ struct BindTagContextDesc {
     std::string category{};
 };
 
-enum class BindTagTargetKind {
-    Context,
-    All,
-    Number,
-    DisplayAlias,
-    Name,
-};
-
-struct BindTagSelector {
-    bool hasTokens = false;
-    int contextHotkeyIndex = -1;
-    BindTagTargetKind kind = BindTagTargetKind::Context;
-    std::string target{};
-    bool targetQuoted = false;
-    int number = 0;
-    std::string displayAliasName{};
-    std::string folder{};
-    bool folderProvided = false;
-    bool folderExact = false;
-    bool rootExplicit = false;
-    std::string category{};
-    bool categoryProvided = false;
-    bool categoryExact = false;
-};
-
 struct PendingBindTagAction {
     BindTagAction action = BindTagAction::Unknown;
     std::uint64_t sourceRuntimeId = 0;
     std::string actionName{};
+    std::string selector{};
     std::vector<int> targetIndices{};
 };
 
@@ -1128,22 +1041,6 @@ inline bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
 
 inline bool EndsWith(std::string_view value, std::string_view suffix) {
     return value.size() >= suffix.size() && value.substr(value.size() - suffix.size()) == suffix;
-}
-
-inline std::string EscapeBindTagToken(std::string_view value) {
-    std::string escaped;
-    escaped.reserve(value.size() + 4);
-    for (const char ch : value) {
-        if (ch == '\\' || ch == '"') {
-            escaped.push_back('\\');
-        }
-        escaped.push_back(ch);
-    }
-    return escaped;
-}
-
-inline std::string QuoteBindTagToken(std::string_view value) {
-    return "\"" + EscapeBindTagToken(value) + "\"";
 }
 
 inline float ScaleUi(float value) {
@@ -1741,7 +1638,7 @@ inline bool FolderNameUnique(
         if (!folder || folder.get() == ignoredFolder) {
             continue;
         }
-        if (folder->name == name) {
+        if (binder_tags::EqualNoCaseUtf8(folder->name, name)) {
             return false;
         }
     }
@@ -2144,6 +2041,7 @@ struct BinderModule::Impl {
     std::string categoryDeleteMoveTargetId{};
     bool categoryDeletePopupPending = false;
     std::string categoryTabSelectionTargetId{};
+    std::uint64_t categoryTabOrderRevision = 0;
     int bindDeleteTarget = -1;
     bool bindDeletePopupPending = false;
     int moveBindTarget = -1;
@@ -2226,7 +2124,7 @@ struct BinderModule::Impl {
     std::string NextCategoryName() const;
     bool CategoryNameUnique(std::string_view name, const BinderCategory* ignoredCategory = nullptr) const;
     void BeginRenameCategory(std::string_view categoryId);
-    void MoveCategoryByOffset(std::string_view categoryId, int offset);
+    bool MoveCategoryByOffset(std::string_view categoryId, int offset);
     void DeleteCategory(std::string_view categoryId, std::string_view moveTargetId, bool deleteContents);
     void MoveCategoryContents(BinderCategory& from, BinderCategory& to);
     FolderNode* EnsureRootFolder();
@@ -2326,7 +2224,7 @@ struct BinderModule::Impl {
     void CaptureQuickMenuConditionSnapshot();
     void ClearQuickMenuConditionSnapshot();
     bool VisibleQuickMenuEntriesExist() const;
-    bool FolderVisibleInQuickMenu(const FolderNode& folder) const;
+    bool FolderVisibleInQuickMenu(const FolderNode& folder, const ConditionRuntimeContext& context) const;
     ConditionRuntimeContext MakeConditionContext(bool quickMenuContext = false) const;
     bool IsSilentActivationSource(std::string_view source) const;
     bool IsManualActivationSource(std::string_view source) const;
@@ -2362,6 +2260,10 @@ struct BinderModule::Impl {
     void ProcessRunningBinds();
     int FindHotkeyIndexByRuntimeId(std::uint64_t runtimeId) const;
     BindTagContextDesc DescribeBindTagContext(std::uint64_t runtimeId) const;
+    binder_tags::Catalog BuildBindSelectorCatalog() const;
+    static std::string EscapeBindTagLogValue(std::string_view value);
+    std::string DescribeBindTagLogSource(std::uint64_t runtimeId) const;
+    std::string DescribeBindTagLogTargets(const std::vector<int>& targetIndices) const;
     std::string BuildThisbindTagValue(std::uint64_t runtimeId) const;
     std::string BuildThisbindNameTagValue(std::uint64_t runtimeId) const;
     std::string BuildThisbindFolderTagValue(std::uint64_t runtimeId) const;

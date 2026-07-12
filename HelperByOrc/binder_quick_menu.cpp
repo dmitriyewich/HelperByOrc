@@ -26,6 +26,7 @@ void BinderModule::Impl::ClearQuickMenuConditionSnapshot() {
 }
 
 bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
+    const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
     const auto hotkeyVisible = [&](const int index) {
         if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
             return false;
@@ -34,12 +35,10 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
         if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
             return false;
         }
-        const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
         return !ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context);
     };
 
     const auto categoryVisible = [&](const BinderCategory& category) {
-        const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
         return category.quickMenu && !ConditionsBlocked(category.conditions, category.conditionsCombine, sampApi, &context);
     };
 
@@ -55,7 +54,7 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
             }
 
             FolderNode* child = FindFolderByNameInDirectory(category, const_cast<FolderNode*>(folder), item.key);
-            if (child && FolderVisibleInQuickMenu(*child) && self(self, category, child)) {
+            if (child && FolderVisibleInQuickMenu(*child, context) && self(self, category, child)) {
                 return true;
             }
         }
@@ -70,14 +69,15 @@ bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
     return false;
 }
 
-bool BinderModule::Impl::FolderVisibleInQuickMenu(const FolderNode& folder) const {
-    const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
+bool BinderModule::Impl::FolderVisibleInQuickMenu(
+    const FolderNode& folder,
+    const ConditionRuntimeContext& context) const {
     if (!IsFolderEffectivelyEnabled(&folder)
         || !folder.quickMenu
         || ConditionsBlocked(folder.conditions, folder.conditionsCombine, sampApi, &context)) {
         return false;
     }
-    return !folder.parent || FolderVisibleInQuickMenu(*folder.parent);
+    return !folder.parent || FolderVisibleInQuickMenu(*folder.parent, context);
 }
 
 void BinderModule::Impl::CenterQuickMenuCursorOnGameWindow() {
@@ -137,13 +137,6 @@ void BinderModule::Impl::UpdateQuickMenuState() {
         return;
     }
 
-    const bool hasEntries = VisibleQuickMenuEntriesExist();
-    if (!hasEntries) {
-        quickMenuOpen = false;
-        ResetQuickMenuVisualState();
-        return;
-    }
-
     if (IsMainWindowHotkeyPressed()) {
         quickMenuOpen = false;
         quickMenuToggleLatch = false;
@@ -167,13 +160,15 @@ void BinderModule::Impl::UpdateQuickMenuState() {
     if (quickMenuActivationMode == QuickMenuActivationMode::Toggle) {
         if (comboHeld && !quickMenuToggleLatch) {
             quickMenuToggleLatch = true;
-            quickMenuOpen = !quickMenuOpen;
+            quickMenuOpen = quickMenuOpen ? false : VisibleQuickMenuEntriesExist();
         } else if (!comboHeld) {
             quickMenuToggleLatch = false;
         }
     } else {
         if (comboHeld) {
-            quickMenuOpen = true;
+            if (!quickMenuOpen) {
+                quickMenuOpen = VisibleQuickMenuEntriesExist();
+            }
         } else if (quickMenuOpen && (quickMenuMouseEventPending || mouseButtonHeld)) {
             quickMenuOpen = true;
             quickMenuCloseAfterMouseFrame = !mouseButtonHeld;
@@ -192,8 +187,7 @@ void BinderModule::Impl::DrawQuickMenu() {
         return;
     }
 
-    NormalizeExplorerOrders();
-
+    const ConditionRuntimeContext context = MakeConditionContext(true);
     const auto hotkeyVisible = [&](const int index) {
         if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
             return false;
@@ -202,12 +196,10 @@ void BinderModule::Impl::DrawQuickMenu() {
         if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
             return false;
         }
-        const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
         return !ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context);
     };
 
     const auto categoryVisible = [&](const BinderCategory& category) {
-        const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
         return category.quickMenu && !ConditionsBlocked(category.conditions, category.conditionsCombine, sampApi, &context);
     };
 
@@ -222,7 +214,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                 continue;
             }
             FolderNode* child = FindFolderByNameInDirectory(category, const_cast<FolderNode*>(folder), item.key);
-            if (child && FolderVisibleInQuickMenu(*child) && self(self, category, child)) {
+            if (child && FolderVisibleInQuickMenu(*child, context) && self(self, category, child)) {
                 return true;
             }
         }
@@ -400,14 +392,19 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
 
     if (visibleCategories.size() > 1) {
-        if (ImGui::BeginTabBar("##quick_menu_category_tabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+        const std::string tabBarId = "##quick_menu_category_tabs_" + std::to_string(categoryTabOrderRevision);
+        const bool restoreSelectedCategory = ImGui::IsWindowAppearing();
+        if (ImGui::BeginTabBar(tabBarId.c_str(), ImGuiTabBarFlags_FittingPolicyResizeDown)) {
             for (const BinderCategory* category : visibleCategories) {
                 if (category == nullptr) {
                     continue;
                 }
                 const std::string visibleTab = EllipsizeText(category->name, ScaleUi(82.0f));
                 const std::string label = labelWithId(visibleTab, "qm_category_tab_", category->id);
-                if (ImGui::BeginTabItem(label.c_str())) {
+                const ImGuiTabItemFlags flags = restoreSelectedCategory && category->id == quickMenuActiveCategoryId
+                    ? ImGuiTabItemFlags_SetSelected
+                    : 0;
+                if (ImGui::BeginTabItem(label.c_str(), nullptr, flags)) {
                     quickMenuActiveCategoryId = category->id;
                     activeCategory = category;
                     ImGui::EndTabItem();
@@ -543,7 +540,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             FolderNode* child = FindFolderByNameInDirectory(category, folder, item.key);
-            if (!child || !FolderVisibleInQuickMenu(*child) || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
+            if (!child || !FolderVisibleInQuickMenu(*child, context)
+                || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
                 continue;
             }
             drawSeparatorBeforeRow();
@@ -586,7 +584,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             FolderNode* child = FindFolderByNameInDirectory(category, folder, item.key);
-            if (!child || !FolderVisibleInQuickMenu(*child) || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
+            if (!child || !FolderVisibleInQuickMenu(*child, context)
+                || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
                 continue;
             }
             drawSeparatorBeforeRow();

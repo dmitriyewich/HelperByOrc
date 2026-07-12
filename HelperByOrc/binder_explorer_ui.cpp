@@ -918,12 +918,17 @@ void BinderModule::Impl::DrawExplorerBindRow(
 }
 
 void BinderModule::Impl::DrawExplorerKeyboardShortcuts(const bool focused) {
-    if (!focused || ImGui::GetActiveID() != 0) {
+    if (!focused) {
         return;
     }
 
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !bindSearch.empty()) {
         bindSearch.clear();
+        ImGui::ClearActiveID();
+        return;
+    }
+
+    if (ImGui::GetActiveID() != 0) {
         return;
     }
 
@@ -1205,7 +1210,6 @@ void BinderModule::Impl::DrawExplorerEmptyAreaContextMenu(const char* popupId) {
 }
 
 void BinderModule::Impl::DrawExplorerDirectory() {
-    NormalizeExplorerOrders();
     const std::vector<ExplorerItem> items = ItemsForFolder(currentFolder);
 
     UiSettings& ui = UiSettings::Instance();

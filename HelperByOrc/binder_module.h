@@ -3,6 +3,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "binder_tag_selector.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -52,6 +54,7 @@ public:
     std::string GetThisbindNameTagValue(std::uint64_t runtimeId) const;
     std::string GetThisbindFolderTagValue(std::uint64_t runtimeId) const;
     std::string GetThiscategoryTagValue(std::uint64_t runtimeId) const;
+    binder_tags::Catalog GetBindSelectorCatalog() const;
     bool IsRuntimeActive(std::uint64_t runtimeId) const;
     bool IsRuntimePaused(std::uint64_t runtimeId) const;
     bool PauseRuntime(std::uint64_t runtimeId);

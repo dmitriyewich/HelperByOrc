@@ -61,8 +61,6 @@ std::vector<FolderNode*> BinderModule::Impl::CollectTwoPaneVisibleFolders(const 
 }
 
 std::vector<int> BinderModule::Impl::CollectTwoPaneVisibleBindIndices(const std::string& filter) {
-    NormalizeExplorerOrders();
-
     std::vector<int> indices;
     const std::vector<ExplorerItem>& items = ItemsForFolder(currentFolder);
     const std::vector<std::string> folderPath = CurrentFolderPath();
@@ -726,7 +724,6 @@ void BinderModule::Impl::DrawTwoPaneFolderPane() {
 }
 
 void BinderModule::Impl::DrawTwoPaneBindDirectory() {
-    NormalizeExplorerOrders();
     const std::vector<ExplorerItem> items = ItemsForFolder(currentFolder);
     const std::string filter = ToLower(Trim(twoPaneBindSearch));
 
