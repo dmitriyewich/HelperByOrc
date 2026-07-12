@@ -659,13 +659,13 @@ const std::vector<variables_picker::Entry>& TagsModule::Impl::BuildVariablePicke
             : variables_picker::EntryKind::Simple;
         variables_picker::Entry entry;
         entry.kind = kind;
-        entry.category = variables_picker::ClassifyBuiltin(tag.name);
+        entry.category = TagsModule::ToPickerCategory(tag.category);
         entry.id = variables_picker::MakeEntryId(kind, tag.token);
         entry.name = tag.name;
         entry.token = tag.token;
         entry.example = tag.example;
         entry.descriptionText = tag.descriptionText;
-        entry.action = variables_picker::IsActionBuiltin(kind, tag.name);
+        entry.action = tag.action;
         variablePickerEntriesCache_.push_back(std::move(entry));
     }
 

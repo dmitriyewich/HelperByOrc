@@ -33,7 +33,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
-#include <cwctype>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -2124,23 +2123,53 @@ std::string ToLowerUtf8(std::string_view value) {
         return {};
     }
 
+    constexpr unsigned int kCp1251 = 1251;
     unsigned int outputCodePage = CP_UTF8;
     std::wstring wide = Utf8ToWide(value);
     if (wide.empty()) {
-        wide = MultiByteToWide(value, CP_ACP);
-        outputCodePage = CP_ACP;
+        wide = MultiByteToWide(value, kCp1251);
+        outputCodePage = kCp1251;
     }
 
     if (wide.empty()) {
-        return ToLowerAscii(value);
+        return std::string(value);
     }
 
-    for (wchar_t& ch : wide) {
-        ch = static_cast<wchar_t>(std::towlower(ch));
+    const int mappedLength = ::LCMapStringEx(
+        LOCALE_NAME_INVARIANT,
+        LCMAP_LOWERCASE,
+        wide.data(),
+        static_cast<int>(wide.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr,
+        0);
+    bool mappedSuccessfully = false;
+    if (mappedLength > 0) {
+        std::wstring mapped(static_cast<std::size_t>(mappedLength), L'\0');
+        const int written = ::LCMapStringEx(
+            LOCALE_NAME_INVARIANT,
+            LCMAP_LOWERCASE,
+            wide.data(),
+            static_cast<int>(wide.size()),
+            mapped.data(),
+            mappedLength,
+            nullptr,
+            nullptr,
+            0);
+        if (written > 0) {
+            mapped.resize(static_cast<std::size_t>(written));
+            wide = std::move(mapped);
+            mappedSuccessfully = true;
+        }
+    }
+    if (!mappedSuccessfully) {
+        ::CharLowerBuffW(wide.data(), static_cast<DWORD>(wide.size()));
     }
 
     const std::string lowered = WideToMultiByte(wide, outputCodePage);
-    return lowered.empty() ? ToLowerAscii(value) : lowered;
+    return lowered.empty() ? std::string(value) : lowered;
 }
 
 std::string NormalizeDialogItemSearchText(std::string_view rawText) {

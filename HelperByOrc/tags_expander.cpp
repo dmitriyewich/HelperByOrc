@@ -443,7 +443,7 @@ std::optional<std::string> TagsModule::Impl::ResolveSimpleTagNormalized(
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Simple, normalizedName);
         entry && entry->simpleResolver) {
         if (trace) {
-            const bool action = variables_picker::IsActionBuiltin(variables_picker::EntryKind::Simple, entry->name);
+            const bool action = entry->action;
             if (action) {
                 ++trace->actionTags;
             }
@@ -472,7 +472,7 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, name);
         entry && entry->functionResolver) {
         if (trace) {
-            const bool action = variables_picker::IsActionBuiltin(variables_picker::EntryKind::Function, entry->name);
+            const bool action = entry->action;
             if (action) {
                 ++trace->actionTags;
             }

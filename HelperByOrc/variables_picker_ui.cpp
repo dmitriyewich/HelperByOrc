@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cfloat>
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -42,7 +43,7 @@ struct VisualStyle {
     ImVec4 danger{};
 };
 
-constexpr std::size_t kVariablesCategoryCount = 10;
+constexpr std::size_t kVariablesCategoryCount = 13;
 
 constexpr std::size_t FnvPrimeValue() {
     if constexpr (sizeof(std::size_t) == 8) {
@@ -518,6 +519,69 @@ std::string EntryDescription(const Entry& entry, UiSettings& ui) {
     return {};
 }
 
+std::string CollapseToSingleLine(std::string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    bool pendingSpace = false;
+    for (const unsigned char ch : text) {
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            pendingSpace = !result.empty();
+            continue;
+        }
+        if (pendingSpace) {
+            result.push_back(' ');
+            pendingSpace = false;
+        }
+        result.push_back(static_cast<char>(ch));
+    }
+    return result;
+}
+
+std::string EllipsizeSingleLine(std::string text, ImFont* font, float fontSize, float maxWidth) {
+    if (text.empty() || maxWidth <= 0.0f || !font) {
+        return maxWidth > 0.0f ? text : std::string();
+    }
+
+    const auto textWidth = [font, fontSize](std::string_view value) {
+        return font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, value.data(), value.data() + value.size()).x;
+    };
+    if (textWidth(text) <= maxWidth) {
+        return text;
+    }
+
+    constexpr std::string_view kEllipsis = "...";
+    if (textWidth(kEllipsis) >= maxWidth) {
+        return std::string(kEllipsis);
+    }
+
+    std::vector<std::size_t> boundaries;
+    boundaries.reserve(text.size() + 1);
+    boundaries.push_back(0);
+    for (std::size_t pos = 0; pos < text.size();) {
+        ++pos;
+        while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0u) == 0x80u) {
+            ++pos;
+        }
+        boundaries.push_back(pos);
+    }
+
+    const float prefixWidthLimit = maxWidth - textWidth(kEllipsis);
+    std::size_t low = 0;
+    std::size_t high = boundaries.size() - 1;
+    while (low < high) {
+        const std::size_t middle = low + (high - low + 1) / 2;
+        const std::string_view prefix(text.data(), boundaries[middle]);
+        if (textWidth(prefix) <= prefixWidthLimit) {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    text.resize(boundaries[low]);
+    text += kEllipsis;
+    return text;
+}
+
 std::string PrimaryText(const Entry& entry) {
     if (entry.kind == EntryKind::Function && !entry.example.empty()) {
         return entry.example;
@@ -644,6 +708,87 @@ std::string CategoryChipLabel(Category category, int count, UiSettings& ui) {
     return std::string(CategoryLabel(category, ui)) + " " + std::to_string(count);
 }
 
+struct CategoryChip {
+    Category category = Category::All;
+    int count = 0;
+    std::string label{};
+    float width = 0.0f;
+};
+
+struct CommandBarLayout {
+    std::vector<CategoryChip> chips{};
+    int chipRows = 1;
+    float panelHeight = 0.0f;
+};
+
+CommandBarLayout BuildCommandBarLayout(
+    const std::vector<Entry>& entries,
+    State& state,
+    const Options& options,
+    std::size_t entriesHash,
+    float panelWidth) {
+    UiSettings& ui = UiSettings::Instance();
+    static constexpr Category categories[] = {
+        Category::All,
+        Category::Player,
+        Category::Target,
+        Category::Vehicle,
+        Category::World,
+        Category::Time,
+        Category::SampDialog,
+        Category::Arizona,
+        Category::Binder,
+        Category::Text,
+        Category::Actions,
+        Category::Custom,
+        Category::Parameters,
+    };
+
+    CommandBarLayout layout;
+    layout.chips.reserve(std::size(categories));
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float chipSpacing = ScaleUi(5.0f);
+    for (const Category category : categories) {
+        const int count = CountCategory(entries, state, category, entriesHash);
+        if ((category == Category::Parameters && count == 0)
+            || (category == Category::Custom && count == 0 && !options.allowCustomEdit)) {
+            continue;
+        }
+        CategoryChip chip;
+        chip.category = category;
+        chip.count = count;
+        chip.label = CategoryChipLabel(category, count, ui);
+        chip.width = ImGui::CalcTextSize(chip.label.c_str()).x + style.FramePadding.x * 2.0f;
+        layout.chips.push_back(std::move(chip));
+    }
+
+    const float contentWidth = std::max(ScaleUi(120.0f), panelWidth - ScaleUi(16.0f));
+    float rowWidth = 0.0f;
+    layout.chipRows = layout.chips.empty() ? 0 : 1;
+    for (const CategoryChip& chip : layout.chips) {
+        const float needed = rowWidth > 0.0f ? chipSpacing + chip.width : chip.width;
+        if (rowWidth > 0.0f && rowWidth + needed > contentWidth) {
+            ++layout.chipRows;
+            rowWidth = chip.width;
+        } else {
+            rowWidth += needed;
+        }
+    }
+
+    const float frameHeight = ImGui::GetFrameHeight();
+    const float rowsHeight = layout.chipRows > 0
+        ? frameHeight * static_cast<float>(layout.chipRows)
+            + style.ItemSpacing.y * static_cast<float>(layout.chipRows - 1)
+        : 0.0f;
+    layout.panelHeight = ScaleUi(18.0f)
+        + frameHeight
+        + style.ItemSpacing.y
+        + ImGui::GetTextLineHeight()
+        + style.ItemSpacing.y
+        + rowsHeight;
+    return layout;
+}
+
 Request MakeCopyRequest(std::string text) {
     Request request;
     request.type = RequestType::Copy;
@@ -704,12 +849,15 @@ void DrawCommandBar(
     const std::vector<Entry>& entries,
     const Options& options,
     const std::vector<int>& visible,
-    std::size_t entriesHash,
+    const CommandBarLayout& layout,
     Request& request) {
     UiSettings& ui = UiSettings::Instance();
     const VisualStyle visual = StyleTokens();
-    const float panelHeight = options.allowCustomEdit ? ScaleUi(96.0f) : ScaleUi(70.0f);
-    if (!BeginPanel("##variables_command_bar", ImVec2(0.0f, panelHeight), visual)) {
+    if (!BeginPanel(
+            "##variables_command_bar",
+            ImVec2(0.0f, layout.panelHeight),
+            visual,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         EndPanel();
         return;
     }
@@ -743,42 +891,22 @@ void DrawCommandBar(
         std::to_string(visible.size()).c_str(),
         std::to_string(entries.size()).c_str());
     ImGui::TextDisabled("%s", visibleText.c_str());
-    ImGui::SameLine();
-
-    const Category categories[] = {
-        Category::All,
-        Category::Player,
-        Category::Target,
-        Category::SampDialog,
-        Category::Arizona,
-        Category::Binder,
-        Category::Text,
-        Category::Actions,
-        Category::Custom,
-        Category::Parameters,
-    };
+    ImGui::Spacing();
 
     const float startX = ImGui::GetCursorPosX();
-    const float wrapX = ImGui::GetContentRegionAvail().x;
-    for (Category category : categories) {
-        const int count = CountCategory(entries, state, category, entriesHash);
-        if (category == Category::Parameters && count == 0) {
-            continue;
-        }
-        if (category == Category::Custom && count == 0 && !options.allowCustomEdit) {
-            continue;
-        }
-
-        const std::string label = CategoryChipLabel(category, count, ui);
-        const float nextWidth = ImGui::CalcTextSize(label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        if (ImGui::GetCursorPosX() > startX && ImGui::GetCursorPosX() + nextWidth > startX + wrapX) {
-            ImGui::NewLine();
+    const float wrapWidth = ImGui::GetContentRegionAvail().x;
+    float rowWidth = 0.0f;
+    for (const CategoryChip& chip : layout.chips) {
+        const float spacing = rowWidth > 0.0f ? ScaleUi(5.0f) : 0.0f;
+        if (rowWidth > 0.0f && rowWidth + spacing + chip.width > wrapWidth) {
             ImGui::SetCursorPosX(startX);
+            rowWidth = 0.0f;
+        } else if (rowWidth > 0.0f) {
+            ImGui::SameLine(0.0f, spacing);
         }
-        DrawCategoryChip(category, count, state, visual, ui);
-        ImGui::SameLine(0.0f, ScaleUi(5.0f));
+        DrawCategoryChip(chip.category, chip.count, state, visual, ui);
+        rowWidth += (rowWidth > 0.0f ? spacing : 0.0f) + chip.width;
     }
-    ImGui::NewLine();
 
     (void)request;
     EndPanel();
@@ -840,13 +968,25 @@ void DrawEntryRow(
     DrawRowBackground(drawList, rowRect, rowIndex, selected, hovered, visual);
 
     const float padX = ScaleUi(12.0f);
-    const float badgeWidth = std::min(ScaleUi(92.0f), rowRect.GetWidth() * 0.34f);
-    const float textMaxX = rowRect.Max.x - badgeWidth - ScaleUi(14.0f);
+    const char* badgeLabel = KindBadgeLabel(entry, ui);
+    const ImVec2 badgeTextSize = ImGui::CalcTextSize(badgeLabel);
+    const ImVec2 badgeSize(badgeTextSize.x + ScaleUi(10.0f), std::max(ScaleUi(20.0f), badgeTextSize.y + ScaleUi(4.0f)));
+    const ImRect badgeRect(
+        ImVec2(rowRect.Max.x - badgeSize.x - ScaleUi(10.0f), rowRect.Min.y + std::floor((rowHeight - badgeSize.y) * 0.5f)),
+        ImVec2(rowRect.Max.x - ScaleUi(10.0f), rowRect.Min.y + std::floor((rowHeight - badgeSize.y) * 0.5f) + badgeSize.y));
+    const float textMaxX = badgeRect.Min.x - ScaleUi(8.0f);
     const ImVec2 tokenPos(rowRect.Min.x + padX, rowRect.Min.y + ScaleUi(7.0f));
-    const std::string desc = EntryDescription(entry, ui);
+    ImFont* const font = ImGui::GetFont();
+    const float descFontSize = ImGui::GetFontSize() * 0.92f;
+    const float textWidth = std::max(0.0f, textMaxX - tokenPos.x);
+    const std::string desc = EllipsizeSingleLine(
+        CollapseToSingleLine(EntryDescription(entry, ui)),
+        font,
+        descFontSize,
+        textWidth);
     const ImVec4 clip(rowRect.Min.x, rowRect.Min.y, textMaxX, rowRect.Max.y);
     drawList->AddText(
-        ImGui::GetFont(),
+        font,
         ImGui::GetFontSize(),
         tokenPos,
         ImGui::GetColorU32(visual.headerText),
@@ -857,8 +997,8 @@ void DrawEntryRow(
     if (!desc.empty()) {
         const ImVec2 descPos(rowRect.Min.x + padX, rowRect.Min.y + ScaleUi(28.0f));
         drawList->AddText(
-            ImGui::GetFont(),
-            ImGui::GetFontSize() * 0.92f,
+            font,
+            descFontSize,
             descPos,
             ImGui::GetColorU32(visual.faintText),
             desc.c_str(),
@@ -867,12 +1007,6 @@ void DrawEntryRow(
             &clip);
     }
 
-    const char* badgeLabel = KindBadgeLabel(entry, ui);
-    const ImVec2 badgeTextSize = ImGui::CalcTextSize(badgeLabel);
-    const ImVec2 badgeSize(badgeTextSize.x + ScaleUi(10.0f), std::max(ScaleUi(20.0f), badgeTextSize.y + ScaleUi(4.0f)));
-    const ImRect badgeRect(
-        ImVec2(rowRect.Max.x - badgeSize.x - ScaleUi(10.0f), rowRect.Min.y + std::floor((rowHeight - badgeSize.y) * 0.5f)),
-        ImVec2(rowRect.Max.x - ScaleUi(10.0f), rowRect.Min.y + std::floor((rowHeight - badgeSize.y) * 0.5f) + badgeSize.y));
     const ImVec4 badgeColor = BadgeColor(entry, visual);
     drawList->AddRectFilled(badgeRect.Min, badgeRect.Max, ImGui::GetColorU32(WithAlpha(badgeColor, 0.16f)), ScaleUi(4.0f));
     drawList->AddRect(badgeRect.Min, badgeRect.Max, ImGui::GetColorU32(WithAlpha(badgeColor, 0.36f)), ScaleUi(4.0f), 0, ScaleUi(1.0f));
@@ -1295,99 +1429,6 @@ std::string MakeEntryId(EntryKind kind, std::string_view token) {
     return std::string(1, prefix) + ":" + std::string(token);
 }
 
-bool IsActionBuiltin(EntryKind kind, std::string_view name) {
-    const std::string lower = ToLowerAscii(name);
-    static constexpr std::string_view allKindActions[] = {
-        "bindstopall",
-        "chatclear",
-        "cursor",
-        "arzcursor",
-        "cursordialog",
-        "arzcursordialog",
-        "screen",
-        "tphoto",
-        "keyemulate",
-        "keydown",
-        "wait",
-        "dialogwaitopen",
-        "dialogwaitclose",
-        "dialogwaitid",
-        "dialogclose",
-        "dialogsettext",
-        "dialogitem",
-        "dialogselect",
-        "dialogresponse",
-        "save_dialog",
-        "arzdialogsetinputtext",
-        "arzdialogclosewithbutton",
-        "arzdialogsetlistitem",
-        "arzdialogitem",
-        "arzdialogsendrespond",
-        "binddisable",
-        "bindenable",
-        "bindstart",
-        "bindstop",
-        "bindpause",
-        "bindunpause",
-        "bindfastmenu",
-        "bindunfastmenu",
-        "bindrandom",
-        "bindpopup",
-    };
-    static constexpr std::string_view functionOnlyActions[] = {
-        "arzdialoggetinputtext",
-        "arzdialoggetlistitem",
-    };
-    const auto contains = [&lower](const std::string_view* begin, const std::string_view* end) {
-        return std::find(begin, end, lower) != end;
-    };
-    if (contains(allKindActions, allKindActions + (sizeof(allKindActions) / sizeof(allKindActions[0])))) {
-        return true;
-    }
-    return kind == EntryKind::Function
-        && contains(functionOnlyActions, functionOnlyActions + (sizeof(functionOnlyActions) / sizeof(functionOnlyActions[0])));
-}
-
-Category ClassifyBuiltin(std::string_view name) {
-    const std::string lower = ToLowerAscii(name);
-    if (lower.rfind("target", 0) == 0 || lower.rfind("closest", 0) == 0) {
-        return Category::Target;
-    }
-    if (lower.rfind("arzdialog", 0) == 0) {
-        return Category::Arizona;
-    }
-    if (lower == "arzcursor" || lower == "arzcursordialog") {
-        return Category::Arizona;
-    }
-    if (lower == "screen" || lower == "tphoto" || lower == "chatclear"
-        || lower == "keyemulate" || lower == "keydown" || lower == "wait" || lower == "cursor") {
-        return Category::Actions;
-    }
-    if (lower == "cursordialog") {
-        return Category::SampDialog;
-    }
-    if (lower.rfind("dialog", 0) == 0 || lower == "save_dialog") {
-        return Category::SampDialog;
-    }
-    if (lower.rfind("bind", 0) == 0 || lower.rfind("thisbind", 0) == 0 || lower == "thiscategory" || lower == "paramcmd") {
-        return Category::Binder;
-    }
-    if (lower == "id" || lower == "nick" || lower == "rpnick" || lower == "nickrp" || lower == "name"
-        || lower == "surname" || lower == "armour" || lower == "health" || lower == "myskin"
-        || lower == "myx" || lower == "myy" || lower == "myz" || lower == "mypos"
-        || lower == "myd" || lower == "mydirection" || lower == "myden" || lower == "mydirectionen"
-        || lower == "mysquare" || lower == "mysquareen"
-        || lower == "city" || lower == "cityen" || lower == "weather" || lower == "weatheren"
-        || lower == "mycolor" || lower == "mystamina" || lower == "myoxygen"
-        || lower.rfind("mycar", 0) == 0
-        || lower == "myweapon" || lower == "myweaponid" || lower == "myweaponclip" || lower == "mymoney"
-        || lower == "fps" || lower == "getvehtype" || lower == "car" || lower == "carhealth"
-        || lower == "carwindow" || lower == "skin" || lower == "ping" || lower == "nickcolor") {
-        return Category::Player;
-    }
-    return Category::Text;
-}
-
 const char* CategoryLabel(Category category, UiSettings& ui) {
     switch (category) {
     case Category::All:
@@ -1396,6 +1437,12 @@ const char* CategoryLabel(Category category, UiSettings& ui) {
         return ui.Text(UiText::VariablesCategoryPlayer);
     case Category::Target:
         return ui.Text(UiText::VariablesCategoryTarget);
+    case Category::Vehicle:
+        return ui.Text(UiText::VariablesCategoryVehicle);
+    case Category::World:
+        return ui.Text(UiText::VariablesCategoryWorld);
+    case Category::Time:
+        return ui.Text(UiText::VariablesCategoryTime);
     case Category::SampDialog:
         return ui.Text(UiText::VariablesCategorySampDialog);
     case Category::Arizona:
@@ -1424,13 +1471,12 @@ Request Draw(State& state, const std::vector<Entry>& entries, const Options& opt
 
     ImGui::PushID(options.id);
     const ImVec2 size = options.size.x > 0.0f || options.size.y > 0.0f ? options.size : ImGui::GetContentRegionAvail();
-    const float commandHeight = options.allowCustomEdit ? ScaleUi(102.0f) : ScaleUi(76.0f);
+    const CommandBarLayout commandLayout = BuildCommandBarLayout(entries, state, options, entriesHash, size.x);
     const float gap = ScaleUi(8.0f);
-    const ImVec2 commandSize(size.x, commandHeight);
-    DrawCommandBar(state, entries, options, visible, entriesHash, request);
-    ImGui::Dummy(ImVec2(0.0f, gap));
+    DrawCommandBar(state, entries, options, visible, commandLayout, request);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + gap);
 
-    const float bodyHeight = std::max(ScaleUi(220.0f), size.y - commandSize.y - gap);
+    const float bodyHeight = std::max(1.0f, ImGui::GetContentRegionAvail().y);
     if (ImGui::BeginTable(
             "##variables_body",
             2,

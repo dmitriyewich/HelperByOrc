@@ -23,8 +23,23 @@ public:
         Function,
     };
 
+    enum class CatalogCategory {
+        Player,
+        Target,
+        Vehicle,
+        World,
+        Time,
+        SampDialog,
+        Arizona,
+        Binder,
+        Text,
+        Actions,
+    };
+
     struct CatalogEntry {
         TagKind kind = TagKind::Simple;
+        CatalogCategory category = CatalogCategory::Text;
+        bool action = false;
         std::string name{};
         std::string token{};
         std::string example{};
@@ -125,6 +140,7 @@ public:
         std::string_view activationSource,
         std::string_view activationText) const;
     const std::vector<CatalogEntry>& CatalogEntries() const;
+    static variables_picker::Category ToPickerCategory(CatalogCategory category);
     const std::vector<std::pair<std::string, std::string>>& CustomVariables() const;
     const std::vector<VirtualKeyPickerEntry>& VirtualKeyPickerEntries() const;
     static std::string MakeKeyEmulateToken(unsigned int keyCode);

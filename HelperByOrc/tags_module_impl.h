@@ -77,6 +77,8 @@ public:
             std::function<std::optional<std::string>(const Impl&, std::string_view, const EvaluationContext&, int)>;
 
         TagKind kind = TagKind::Simple;
+        CatalogCategory category = CatalogCategory::Text;
+        bool action = false;
         std::string name{};
         std::string token{};
         std::string example{};
@@ -89,12 +91,16 @@ public:
     public:
         void Clear();
         void RegisterSimple(
+            CatalogCategory category,
+            bool action,
             std::string name,
             std::string token,
             std::string example,
             UiText descriptionText,
             TagEntry::SimpleResolver resolver);
         void RegisterFunction(
+            CatalogCategory category,
+            bool action,
             std::string name,
             std::string token,
             std::string example,

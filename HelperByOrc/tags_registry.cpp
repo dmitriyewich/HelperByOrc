@@ -21,6 +21,8 @@ void TagsModule::Impl::TagRegistry::Clear() {
 }
 
 void TagsModule::Impl::TagRegistry::RegisterSimple(
+    CatalogCategory category,
+    bool action,
     std::string name,
     std::string token,
     std::string example,
@@ -30,6 +32,8 @@ void TagsModule::Impl::TagRegistry::RegisterSimple(
     simpleIndex_[LowerAsciiForTagIndex(name)] = index;
     entries_.push_back(TagEntry{
         TagKind::Simple,
+        category,
+        action,
         std::move(name),
         std::move(token),
         std::move(example),
@@ -40,6 +44,8 @@ void TagsModule::Impl::TagRegistry::RegisterSimple(
 }
 
 void TagsModule::Impl::TagRegistry::RegisterFunction(
+    CatalogCategory category,
+    bool action,
     std::string name,
     std::string token,
     std::string example,
@@ -49,6 +55,8 @@ void TagsModule::Impl::TagRegistry::RegisterFunction(
     functionIndex_[LowerAsciiForTagIndex(name)] = index;
     entries_.push_back(TagEntry{
         TagKind::Function,
+        category,
+        action,
         std::move(name),
         std::move(token),
         std::move(example),
@@ -94,6 +102,8 @@ void TagsModule::Impl::RefreshCatalogEntries() {
     for (const TagEntry& entry : tagRegistry_.Entries()) {
         catalogEntries_.push_back(CatalogEntry{
             entry.kind,
+            entry.category,
+            entry.action,
             entry.name,
             entry.token,
             entry.example,
@@ -108,6 +118,8 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.Clear();
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "id",
         "{id}",
         "{id}",
@@ -117,6 +129,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "nick",
         "{nick}",
         "{nick}",
@@ -126,6 +140,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        false,
         "thisbind",
         "{thisbind}",
         "{thisbind}",
@@ -135,6 +151,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        false,
         "thisbindselector",
         "{thisbindselector}",
         "{thisbindselector}",
@@ -144,6 +162,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        false,
         "thisbindname",
         "{thisbindname}",
         "{thisbindname}",
@@ -153,6 +173,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        false,
         "thisbindfolder",
         "{thisbindfolder}",
         "{thisbindfolder}",
@@ -162,6 +184,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        false,
         "thiscategory",
         "{thiscategory}",
         "{thiscategory}",
@@ -171,6 +195,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Binder,
+        true,
         "bindstopall",
         "{bindstopall}",
         "{bindstopall}",
@@ -180,6 +206,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetid",
         "{targetid}",
         "{targetid}",
@@ -189,6 +217,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetnick",
         "{targetnick}",
         "{targetnick}",
@@ -198,6 +228,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetrpnick",
         "{targetrpnick}",
         "{targetrpnick}",
@@ -207,6 +239,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetname",
         "{targetname}",
         "{targetname}",
@@ -216,6 +250,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetsurname",
         "{targetsurname}",
         "{targetsurname}",
@@ -225,6 +261,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targethealth",
         "{targethealth}",
         "{targethealth}",
@@ -234,6 +272,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "targetarmour",
         "{targetarmour}",
         "{targetarmour}",
@@ -243,6 +283,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestid",
         "{closestid}",
         "{closestid}",
@@ -252,6 +294,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestidtocenter",
         "{closestidtocenter}",
         "{closestidtocenter}",
@@ -261,6 +305,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestname",
         "{closestname}",
         "{closestname}",
@@ -270,6 +316,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestsurname",
         "{closestsurname}",
         "{closestsurname}",
@@ -279,6 +327,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestcolor",
         "{closestcolor}",
         "{closestcolor}",
@@ -288,6 +338,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestdrivercar",
         "{closestdrivercar}",
         "{closestdrivercar}",
@@ -297,6 +349,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestdrivercolor",
         "{closestdrivercolor}",
         "{closestdrivercolor}",
@@ -306,6 +360,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestdriverid",
         "{closestdriverid}",
         "{closestdriverid}",
@@ -315,6 +371,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestdrivername",
         "{closestdrivername}",
         "{closestdrivername}",
@@ -324,6 +382,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Target,
+        false,
         "closestdriversurname",
         "{closestdriversurname}",
         "{closestdriversurname}",
@@ -333,6 +393,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "armour",
         "{armour}",
         "{armour}",
@@ -342,6 +404,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "health",
         "{health}",
         "{health}",
@@ -351,6 +415,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "ping",
         "{ping}",
         "{ping}",
@@ -360,6 +426,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "myx",
         "{myX}",
         "{myX}",
@@ -369,6 +437,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "myy",
         "{myY}",
         "{myY}",
@@ -378,6 +448,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "myz",
         "{myZ}",
         "{myZ}",
@@ -387,6 +459,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "mypos",
         "{mypos}",
         "{mypos}",
@@ -396,6 +470,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "myd",
         "{myd}",
         "{myd}",
@@ -405,6 +481,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "mydirection",
         "{mydirection}",
         "{mydirection}",
@@ -414,6 +492,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "myden",
         "{myden}",
         "{myden}",
@@ -423,6 +503,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "mydirectionen",
         "{mydirectionen}",
         "{mydirectionen}",
@@ -432,6 +514,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "mysquare",
         "{mysquare}",
         "{mysquare}",
@@ -441,6 +525,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "mysquareen",
         "{mysquareen}",
         "{mysquareen}",
@@ -450,6 +536,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "city",
         "{city}",
         "{city}",
@@ -459,6 +547,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "cityen",
         "{cityen}",
         "{cityen}",
@@ -468,6 +558,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Text,
+        false,
         "clipboard",
         "{clipboard}",
         "{clipboard}",
@@ -477,6 +569,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "mycolor",
         "{mycolor}",
         "{mycolor}",
@@ -486,6 +580,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Vehicle,
+        false,
         "mycarhealth",
         "{mycarhealth}",
         "{mycarhealth}",
@@ -495,6 +591,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Vehicle,
+        false,
         "mycarspeed",
         "{mycarspeed}",
         "{mycarspeed}",
@@ -504,6 +602,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Vehicle,
+        false,
         "mycarwindow",
         "{mycarwindow}",
         "{mycarwindow}",
@@ -513,6 +613,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "mystamina",
         "{mystamina}",
         "{mystamina}",
@@ -522,6 +624,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "myoxygen",
         "{myoxygen}",
         "{myoxygen}",
@@ -531,6 +635,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "weather",
         "{weather}",
         "{weather}",
@@ -540,6 +646,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::World,
+        false,
         "weatheren",
         "{weatheren}",
         "{weatheren}",
@@ -555,6 +663,8 @@ void TagsModule::Impl::InitializeRegistry() {
                                              MyCarOccupantField field) {
         const std::string token = "{" + name + "}";
         tagRegistry_.RegisterSimple(
+            CatalogCategory::Vehicle,
+            false,
             std::move(name),
             token,
             token,
@@ -599,6 +709,8 @@ void TagsModule::Impl::InitializeRegistry() {
     }
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Time,
+        false,
         "date",
         "{date}",
         "{date}",
@@ -608,6 +720,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "myskin",
         "{myskin}",
         "{myskin}",
@@ -617,6 +731,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "myweapon",
         "{myweapon}",
         "{myweapon}",
@@ -626,6 +742,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "myweaponid",
         "{myweaponid}",
         "{myweaponid}",
@@ -635,6 +753,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "myweaponclip",
         "{myweaponclip}",
         "{myweaponclip}",
@@ -644,6 +764,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "mymoney",
         "{mymoney}",
         "{mymoney}",
@@ -653,6 +775,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "fps",
         "{fps}",
         "{fps}",
@@ -662,6 +786,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Vehicle,
+        false,
         "getvehtype",
         "{getvehtype}",
         "{getvehtype}",
@@ -671,6 +797,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Actions,
+        true,
         "screen",
         "{screen}",
         "{screen}",
@@ -680,6 +808,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Actions,
+        true,
         "tphoto",
         "{tphoto}",
         "{tphoto}",
@@ -689,6 +819,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Actions,
+        true,
         "chatclear",
         "{chatclear}",
         "{chatclear}",
@@ -698,6 +830,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Actions,
+        true,
         "cursor",
         "{cursor}",
         "abc{cursor}def",
@@ -707,6 +841,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        true,
         "arzcursor",
         "{ARZcursor}",
         "abc{ARZcursor}def",
@@ -716,6 +852,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        true,
         "cursordialog",
         "{cursordialog}",
         "abc{cursordialog}def",
@@ -725,6 +863,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        true,
         "arzcursordialog",
         "{ARZcursordialog}",
         "abc{ARZcursordialog}def",
@@ -734,6 +874,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "nickrp",
         "{nickrp}",
         "{nickrp}",
@@ -743,6 +885,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "name",
         "{name}",
         "{name}",
@@ -752,6 +896,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "surname",
         "{surname}",
         "{surname}",
@@ -761,6 +907,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Time,
+        false,
         "time",
         "{time}",
         "{time}",
@@ -770,6 +918,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Time,
+        false,
         "timenosec",
         "{timenosec}",
         "{timenosec}",
@@ -779,6 +929,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialogactive",
         "{dialogactive}",
         "{dialogactive}",
@@ -788,6 +940,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialogcaption",
         "{dialogcaption}",
         "{dialogcaption}",
@@ -797,6 +951,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialoggetselecteditem",
         "{dialoggetselecteditem}",
         "{dialoggetselecteditem}",
@@ -806,6 +962,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialogeditboxtext",
         "{dialogeditboxtext}",
         "{dialogeditboxtext}",
@@ -815,6 +973,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialogselectedindex",
         "{dialogselectedindex}",
         "{dialogselectedindex}",
@@ -824,6 +984,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        true,
         "dialogwaitopen",
         "{dialogwaitopen}",
         "{dialogwaitopen}",
@@ -833,6 +995,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        true,
         "dialogwaitclose",
         "{dialogwaitclose}",
         "{dialogwaitclose}",
@@ -842,6 +1006,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::SampDialog,
+        false,
         "dialoggetid",
         "{dialoggetid}",
         "{dialoggetid}",
@@ -851,6 +1017,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetinputtext",
         "{ARZdialoggetinputtext}",
         "{ARZdialoggetinputtext}",
@@ -860,6 +1028,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetlistitem",
         "{ARZdialoggetlistitem}",
         "{ARZdialoggetlistitem}",
@@ -869,6 +1039,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialogisdialogactive",
         "{ARZdialogisdialogactive}",
         "{ARZdialogisdialogactive}",
@@ -878,6 +1050,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetid",
         "{ARZdialoggetid}",
         "{ARZdialoggetid}",
@@ -887,6 +1061,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetstyle",
         "{ARZdialoggetstyle}",
         "{ARZdialoggetstyle}",
@@ -896,6 +1072,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggettitle",
         "{ARZdialoggettitle}",
         "{ARZdialoggettitle}",
@@ -905,6 +1083,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetbutton1",
         "{ARZdialoggetbutton1}",
         "{ARZdialoggetbutton1}",
@@ -914,6 +1094,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetbutton2",
         "{ARZdialoggetbutton2}",
         "{ARZdialoggetbutton2}",
@@ -923,6 +1105,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetdialogtext",
         "{ARZdialoggetdialogtext}",
         "{ARZdialoggetdialogtext}",
@@ -932,6 +1116,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetrespond",
         "{ARZdialoggetrespond}",
         "{ARZdialoggetrespond}",
@@ -941,6 +1127,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialogrespondid",
         "{ARZdialogrespondid}",
         "{ARZdialogrespondid}",
@@ -950,6 +1138,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialogrespondbutton",
         "{ARZdialogrespondbutton}",
         "{ARZdialogrespondbutton}",
@@ -959,6 +1149,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialogrespondlist",
         "{ARZdialogrespondlist}",
         "{ARZdialogrespondlist}",
@@ -968,6 +1160,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterSimple(
+        CatalogCategory::Arizona,
+        false,
         "arzdialogrespondinput",
         "{ARZdialogrespondinput}",
         "{ARZdialogrespondinput}",
@@ -977,6 +1171,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "nick",
         "[nick(...)]",
         "[nick(15)]",
@@ -986,6 +1182,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "rpnick",
         "[rpnick(...)]",
         "[rpnick(15)]",
@@ -995,6 +1193,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "name",
         "[name(...)]",
         "[name(15)]",
@@ -1004,6 +1204,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "surname",
         "[surname(...)]",
         "[surname(15)]",
@@ -1013,6 +1215,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        false,
         "paramcmd",
         "[paramcmd(...)]",
         "[paramcmd(1+)]",
@@ -1022,6 +1226,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
         "keyemulate",
         "[keyemulate(...)]",
         "[keyemulate(87)]",
@@ -1031,6 +1237,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
         "math",
         "[math(...)]",
         "[math(2+2)]",
@@ -1040,6 +1248,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
         "numberwithdots",
         "[numberwithdots(...)]",
         "[numberwithdots([math(100*10)])]",
@@ -1049,6 +1259,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "armour",
         "[armour(...)]",
         "[armour(15)]",
@@ -1058,6 +1270,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "health",
         "[health(...)]",
         "[health(15)]",
@@ -1067,6 +1281,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "ping",
         "[ping(...)]",
         "[ping(15)]",
@@ -1076,6 +1292,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "skin",
         "[skin(...)]",
         "[skin(15)]",
@@ -1085,6 +1303,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Player,
+        false,
         "nickcolor",
         "[nickcolor(...)]",
         "[nickcolor(15)]",
@@ -1094,6 +1314,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Vehicle,
+        false,
         "car",
         "[car(...)]",
         "[car(15)]",
@@ -1103,6 +1325,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Vehicle,
+        false,
         "carhealth",
         "[carhealth(...)]",
         "[carhealth(15)]",
@@ -1112,6 +1336,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Vehicle,
+        false,
         "carwindow",
         "[carwindow(...)]",
         "[carwindow(15)]",
@@ -1121,6 +1347,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
         "keydown",
         "[keydown(...)]",
         "[keydown(87;1000)]",
@@ -1130,6 +1358,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
         "strlow",
         "[strlow(...)]",
         "[strlow(TeSt)]",
@@ -1139,6 +1369,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Time,
+        false,
         "addtime",
         "[addtime(...)]",
         "[addtime(10:10:10)]",
@@ -1148,6 +1380,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
         "random",
         "[random(...)]",
         "[random(20-30)]",
@@ -1157,6 +1391,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
         "ifandor",
         "[ifandor(...)]",
         "[ifandor({id}==74?[bindstart(31)]:[bindstart(\"Имя бинда\" \"\")])]",
@@ -1166,6 +1402,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Time,
+        false,
         "timef",
         "[timef(...)]",
         "[timef(%c;)]",
@@ -1175,6 +1413,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Vehicle,
+        false,
         "getvehtype",
         "[getvehtype(...)]",
         "[getvehtype(15)]",
@@ -1184,6 +1424,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
         "screen",
         "[screen(...)]",
         "[screen(Пример)]",
@@ -1193,6 +1435,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
         "wait",
         "[wait(...)]",
         "[wait(1000)]",
@@ -1202,6 +1446,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
         "cursor",
         "[cursor(...)]",
         "[cursor(3)]",
@@ -1211,6 +1457,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzcursor",
         "[ARZcursor(...)]",
         "[ARZcursor(3)]",
@@ -1220,6 +1468,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "cursordialog",
         "[cursordialog(...)]",
         "[cursordialog(3)]",
@@ -1229,6 +1479,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzcursordialog",
         "[ARZcursordialog(...)]",
         "[ARZcursordialog(3)]",
@@ -1238,6 +1490,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogclose",
         "[dialogclose(...)]",
         "[dialogclose(1)]",
@@ -1247,6 +1501,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogsettext",
         "[dialogsettext(...)]",
         "[dialogsettext(Пример)]",
@@ -1256,6 +1512,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogitem",
         "[dialogitem(...)]",
         "[dialogitem(1)]",
@@ -1265,6 +1523,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogselect",
         "[dialogselect(...)]",
         "[dialogselect(1)]",
@@ -1274,6 +1534,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogwaitid",
         "[dialogwaitid(...)]",
         "[dialogwaitid(722)]",
@@ -1283,6 +1545,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "dialogresponse",
         "[dialogresponse(...)]",
         "[dialogresponse(1;1;)]",
@@ -1292,6 +1556,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        false,
         "dialogtext",
         "[dialogtext(...)]",
         "[dialogtext(0)]",
@@ -1301,6 +1567,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::SampDialog,
+        true,
         "save_dialog",
         "[save_dialog(...)]",
         "[save_dialog()]",
@@ -1310,6 +1578,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialogsetinputtext",
         "[ARZdialogsetinputtext(...)]",
         "[ARZdialogsetinputtext(Привет)]",
@@ -1319,6 +1589,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialoggetinputtext",
         "[ARZdialoggetinputtext(...)]",
         "[ARZdialoggetinputtext(500)]",
@@ -1328,6 +1600,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialogclosewithbutton",
         "[ARZdialogclosewithbutton(...)]",
         "[ARZdialogclosewithbutton(1)]",
@@ -1337,6 +1611,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialogsetlistitem",
         "[ARZdialogsetlistitem(...)]",
         "[ARZdialogsetlistitem(0)]",
@@ -1346,6 +1622,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialogitem",
         "[ARZdialogitem(...)]",
         "[ARZdialogitem(1)]",
@@ -1355,6 +1633,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialoggetlistitem",
         "[ARZdialoggetlistitem(...)]",
         "[ARZdialoggetlistitem(500)]",
@@ -1364,6 +1644,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        false,
         "arzdialoggetdialogtext",
         "[ARZdialoggetdialogtext(...)]",
         "[ARZdialoggetdialogtext(0)]",
@@ -1373,6 +1655,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Arizona,
+        true,
         "arzdialogsendrespond",
         "[ARZdialogsendrespond(...)]",
         "[ARZdialogsendrespond({ARZdialoggetid};1;;Привет)]",
@@ -1382,6 +1666,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "binddisable",
         "[binddisable(...)]",
         "[binddisable(@bind-62)]",
@@ -1391,6 +1677,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindenable",
         "[bindenable(...)]",
         "[bindenable(\"Имя бинда\" \"Папка/Подпапка\" \"Категория\")]",
@@ -1400,6 +1688,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindstart",
         "[bindstart(...)]",
         "[bindstart(@bind-62)]",
@@ -1409,6 +1699,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindstop",
         "[bindstop(...)]",
         "[bindstop({thisbind})]",
@@ -1418,6 +1710,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindpause",
         "[bindpause(...)]",
         "[bindpause({thisbind})]",
@@ -1427,6 +1721,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindunpause",
         "[bindunpause(...)]",
         "[bindunpause({thisbind})]",
@@ -1436,6 +1732,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindfastmenu",
         "[bindfastmenu(...)]",
         "[bindfastmenu(\"Имя бинда\" \"\")]",
@@ -1445,6 +1743,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindunfastmenu",
         "[bindunfastmenu(...)]",
         "[bindunfastmenu(\"Имя бинда\" \"\")]",
@@ -1454,6 +1754,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindrandom",
         "[bindrandom(...)]",
         "[bindrandom(\"Папка/Подпапка\" \"Категория\")]",
@@ -1463,6 +1765,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        false,
         "bindended",
         "[bindended(...)]",
         "[bindended({thisbind})]",
@@ -1472,6 +1776,8 @@ void TagsModule::Impl::InitializeRegistry() {
         });
 
     tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
+        true,
         "bindpopup",
         "[bindpopup(...)]",
         "[bindpopup(@bind-62)]",

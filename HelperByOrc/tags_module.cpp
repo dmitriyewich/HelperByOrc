@@ -110,6 +110,32 @@ const std::vector<TagsModule::CatalogEntry>& TagsModule::CatalogEntries() const 
     return impl_->CatalogEntries();
 }
 
+variables_picker::Category TagsModule::ToPickerCategory(CatalogCategory category) {
+    switch (category) {
+    case CatalogCategory::Player:
+        return variables_picker::Category::Player;
+    case CatalogCategory::Target:
+        return variables_picker::Category::Target;
+    case CatalogCategory::Vehicle:
+        return variables_picker::Category::Vehicle;
+    case CatalogCategory::World:
+        return variables_picker::Category::World;
+    case CatalogCategory::Time:
+        return variables_picker::Category::Time;
+    case CatalogCategory::SampDialog:
+        return variables_picker::Category::SampDialog;
+    case CatalogCategory::Arizona:
+        return variables_picker::Category::Arizona;
+    case CatalogCategory::Binder:
+        return variables_picker::Category::Binder;
+    case CatalogCategory::Actions:
+        return variables_picker::Category::Actions;
+    case CatalogCategory::Text:
+    default:
+        return variables_picker::Category::Text;
+    }
+}
+
 const std::vector<std::pair<std::string, std::string>>& TagsModule::CustomVariables() const {
     return impl_->CustomVariables();
 }

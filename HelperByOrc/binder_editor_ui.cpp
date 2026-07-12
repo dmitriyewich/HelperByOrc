@@ -511,13 +511,13 @@ std::vector<variables_picker::Entry> BinderModule::Impl::BuildEditorVariablePick
             : variables_picker::EntryKind::Simple;
         variables_picker::Entry pickerEntry;
         pickerEntry.kind = kind;
-        pickerEntry.category = variables_picker::ClassifyBuiltin(entry.name);
+        pickerEntry.category = TagsModule::ToPickerCategory(entry.category);
         pickerEntry.id = variables_picker::MakeEntryId(kind, entry.token);
         pickerEntry.name = entry.name;
         pickerEntry.token = entry.token;
         pickerEntry.example = entry.example;
         pickerEntry.descriptionText = entry.descriptionText;
-        pickerEntry.action = variables_picker::IsActionBuiltin(kind, entry.name);
+        pickerEntry.action = entry.action;
         pickerEntries.push_back(std::move(pickerEntry));
     }
 
@@ -1315,8 +1315,11 @@ void BinderModule::Impl::DrawEditorVariablesPopup() {
     UiSettings& ui = UiSettings::Instance();
     const std::string popupTitle = std::string(ui.Text(UiText::EditorVariablesTitle)) + kEditorVariablesPopupId;
     bool popupOpen = true;
-    SetNextResponsiveEditorPopupSize(ScaleUi(920.0f, 640.0f), ScaleUi(640.0f, 420.0f));
-    if (!ImGui::BeginPopupModal(popupTitle.c_str(), &popupOpen, ImGuiWindowFlags_NoSavedSettings)) {
+    SetNextResponsiveEditorPopupSize(ScaleUi(960.0f, 700.0f), ScaleUi(680.0f, 460.0f));
+    if (!ImGui::BeginPopupModal(
+            popupTitle.c_str(),
+            &popupOpen,
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         return;
     }
 

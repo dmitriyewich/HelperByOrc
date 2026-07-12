@@ -23,6 +23,9 @@ enum class Category {
     All,
     Player,
     Target,
+    Vehicle,
+    World,
+    Time,
     SampDialog,
     Arizona,
     Binder,
@@ -81,7 +84,7 @@ struct State {
     Category visibleCategoryCache = Category::All;
     UiLanguage visibleLanguageCache = UiLanguage::Russian;
     std::size_t visibleEntriesHash = 0;
-    std::array<int, 10> categoryCountsCache{};
+    std::array<int, 13> categoryCountsCache{};
     std::size_t categoryCountsEntriesHash = 0;
     std::vector<std::string> searchBlobCache{};
     std::size_t searchBlobEntriesHash = 0;
@@ -107,8 +110,6 @@ struct Request {
 };
 
 std::string MakeEntryId(EntryKind kind, std::string_view token);
-bool IsActionBuiltin(EntryKind kind, std::string_view name);
-Category ClassifyBuiltin(std::string_view name);
 const char* CategoryLabel(Category category, UiSettings& ui);
 Request Draw(State& state, const std::vector<Entry>& entries, const Options& options);
 
