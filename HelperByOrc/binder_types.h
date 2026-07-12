@@ -121,9 +121,3 @@ struct ButtonsTextParseStats {
     int ignored = 0;
     int extraPipes = 0;
 };
-
-struct ButtonsBulkPreviewState {
-    bool active = false;
-    int count = 0;
-    ButtonsTextParseStats stats{};
-};

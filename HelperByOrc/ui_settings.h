@@ -1049,24 +1049,24 @@
     X(AddField, "+ Параметр", "+ Parameter") \
     X(AddButton, "+ Вариант", "+ Option") \
     X(FieldLabelFormat, "Параметр %d", "Parameter %d") \
+    X(ParameterSelectorFormat, "%s · %d/%d", "%s · %d/%d") \
+    X(ParameterAddHint, "+ Добавить подсказку", "+ Add hint") \
+    X(ParameterAdvancedCompact, "Дополнительно", "Advanced") \
+    X(ParameterVariantsCountFormat, "Варианты (%d)", "Options (%d)") \
+    X(ParameterBulkEdit, "Править списком", "Edit as list") \
+    X(ParameterBulkTitle, "Варианты списком", "Options as list") \
+    X(ParameterOptionActions, "Действия с вариантом", "Option actions") \
     X(ButtonLabelFormat, "Вариант %d", "Option %d") \
     X(UnnamedField, "(без названия)", "(unnamed)") \
-    X(FieldProperties, "Свойства параметра", "Parameter properties") \
     X(ButtonPropertiesTitle, "Свойства варианта", "Option properties") \
-    X(InputFieldsListTitle, "Параметры", "Parameters") \
     X(InputFieldsEmpty, "Параметры ещё не настроены.", "No parameters are configured yet.") \
-    X(ParameterQuestionSection, "Что увидит игрок", "What the player sees") \
-    X(ParameterQuestionHint, "Название и подсказка этого параметра в окне перед запуском.", "Name and helper text shown before the bind starts.") \
     X(ParameterPrompt, "Заголовок вопроса", "Prompt title") \
     X(ParameterHintText, "Подсказка под вопросом", "Hint under the prompt") \
-    X(ParameterResponseSection, "Какой ответ ожидается", "Expected answer") \
-    X(ParameterResponseHint, "Выберите способ ответа и формат значения, которое подставится в сообщения.", "Choose how the player answers and which value will be inserted into messages.") \
     X(ParameterResponseType, "Тип ответа", "Answer type") \
     X(ParameterAllowMultiple, "Можно выбрать несколько", "Allow multiple choices") \
     X(ParameterJoinSeparator, "Разделитель при подстановке", "Separator for inserted values") \
     X(ParameterVariantsSection, "Варианты ответа", "Answer options") \
     X(ParameterVariantsHint, "Название показывается игроку, а значение подставляется в {{KEY}}.", "The label is shown to the player, while the value is inserted into {{KEY}}.") \
-    X(ParameterAdvancedSection, "Расширенные настройки", "Advanced settings") \
     X(ParameterAdvancedHint, "Служебный ключ нужен для {{KEY}}, зависимостей и каскадных списков.", "The service key is used for {{KEY}}, dependencies, and cascading lists.") \
     X(ParameterSystemKey, "Служебный ключ", "Service key") \
     X(ParameterDependsOn, "Зависит от параметра", "Depends on parameter") \
@@ -1080,24 +1080,18 @@
     X(Separator, "Разделитель", "Separator") \
     X(CascadeFromKey, "Каскад от ключа", "Cascade from key") \
     X(Buttons, "Варианты", "Options") \
-    X(ButtonsStructuredTab, "Редактор", "Editor") \
-    X(ButtonsBulkTab, "Списком", "Bulk") \
-    X(ButtonListTitle, "Список вариантов", "Options list") \
     X(ButtonsEmpty, "Список вариантов пуст.", "The options list is empty.") \
     X(ButtonsBulkAddLine, "+ 1 строка", "+ 1 line") \
     X(ButtonsBulkAddFiveLines, "+ 5 строк", "+ 5 lines") \
     X(ButtonsBulkTemplateValueFormat, "значение_%d", "value_%d") \
     X(ButtonsBulkTemplateHintFormat, "Подсказка %d", "Hint %d") \
-    X(ButtonsBulkSync, "Синхронизировать", "Sync") \
-    X(ButtonsBulkCheck, "Проверить", "Check") \
     X(ButtonsBulkNormalize, "Нормализовать", "Normalize") \
     X(ButtonsBulkApply, "Применить", "Apply") \
-    X(ButtonsFormatHint, "Формат строки: название | значение | подсказка | when", "Line format: label | value | hint | when") \
+    X(ButtonsFormatHint, "Формат строки: название | значение | подсказка", "Line format: label | value | hint") \
+    X(ButtonsCascadeFormatHint, "Для зависимого списка поддерживается четвёртый столбец when.", "Dependent lists support an optional fourth when column.") \
     X(ButtonsBulkEscapingHint, "Поддерживаются комментарии # и экранирование \\\\|, \\\\n, \\\\\\\\.", "Supports # comments and escaping \\\\|, \\\\n, \\\\\\\\.") \
     X(ButtonsBulkPreviewFormat, "Строк: %d, полезных: %d, пропущено: %d, кнопок после разбора: %d", "Lines: %d, used: %d, ignored: %d, buttons after parse: %d") \
     X(ButtonsBulkExtraPipesHint, "Лишние символы | после третьего столбца объединяются в when.", "Extra | after the third column are merged into when.") \
-    X(ButtonWhen, "Правило показа", "Display rule") \
-    X(ButtonWhenHint, "Показывать вариант, если у родительского параметра совпали label/text через |.", "Show this option when the parent parameter matches one of the label/text tokens separated by |.") \
     X(MoveUp, "Поднять выше", "Move up") \
     X(MoveDown, "Опустить ниже", "Move down") \
     X(CopyPlaceholder, "Скопировать {{KEY}}", "Copy {{KEY}}") \
@@ -1181,8 +1175,11 @@
     X(ConditionBlockHint, "Сработает блокировка, если активно хотя бы одно отмеченное условие.", "Blocks when any selected condition is active.") \
     X(InputDialogSearchHint, "Поиск по названию, тексту или подсказке", "Search by label, text, or hint") \
     X(InputDialogNoOptions, "Нет доступных вариантов.", "No available options.") \
-    X(InputDialogPreviewTitle, "Предпросмотр отправки", "Send preview") \
+    X(InputDialogPreviewSummaryFormat, "Предпросмотр · %d сообщений", "Preview · %d messages") \
     X(InputDialogPreviewEmpty, "В сценарии нет сообщений для отправки.", "There are no messages to send in this scenario.") \
+    X(InputDialogFieldSummaryFormat, "%s · %s", "%s · %s") \
+    X(InputDialogEmptyValue, "не заполнено", "not filled") \
+    X(InputDialogCancelHint, "Esc — отмена", "Esc — cancel") \
     X(AddBind, "+ Бинд", "+ Bind") \
     X(BinderAddBindTooltip, "Добавить бинд", "Add bind") \
     X(BinderClearSearch, "Очистить поиск", "Clear search") \
@@ -1208,7 +1205,6 @@
     X(WaitingMouseButton, "Ожидание кнопки мыши...", "Waiting for a mouse button...") \
     X(Clear, "Очистить", "Clear") \
     X(Mouse, "Мышь", "Mouse") \
-    X(FillBindParametersFormat, "Заполните параметры для бинда \"%s\".", "Fill in the parameters for bind \"%s\".") \
     X(Launch, "Запустить", "Launch") \
     X(BinderSectionTitle, "Биндер", "Binder") \
     X(QuickMenuWindowTitle, "Быстрое меню", "Quick menu") \

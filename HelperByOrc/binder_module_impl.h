@@ -870,6 +870,7 @@ struct InputDialogField {
     std::string searchValue;
     std::optional<int> selectedButtonIndex;
     std::set<int> selectedButtons;
+    int activeButtonIndex = -1;
 };
 
 struct InputDialogState {
@@ -879,6 +880,8 @@ struct InputDialogState {
     std::string activationSource;
     std::string activationText;
     std::string bindCommand;
+    int activeFieldIndex = 0;
+    bool popupOpened = false;
 };
 
 enum class CaptureTarget {
@@ -1320,12 +1323,17 @@ inline std::vector<InputButton> ParseButtonsText(std::string_view multiLine) {
 
 inline std::string SerializeButtonsText(const std::vector<InputButton>& buttons) {
     std::ostringstream stream;
+    const bool includeWhen = std::any_of(buttons.begin(), buttons.end(), [](const InputButton& button) {
+        return !Trim(button.when).empty();
+    });
     for (std::size_t i = 0; i < buttons.size(); ++i) {
         const InputButton& button = buttons[i];
         stream << EscapeButtonsField(button.label)
                << " | " << EscapeButtonsField(button.text)
-               << " | " << EscapeButtonsField(button.hint)
-               << " | " << EscapeButtonsField(button.when);
+               << " | " << EscapeButtonsField(button.hint);
+        if (includeWhen) {
+            stream << " | " << EscapeButtonsField(button.when);
+        }
         if (i + 1 != buttons.size()) {
             stream << "\n";
         }
@@ -1344,8 +1352,7 @@ inline std::string BuildButtonsBulkTemplateLine(int index) {
     UiSettings& ui = UiSettings::Instance();
     return EscapeButtonsField(ui.Format(UiText::ButtonLabelFormat, index))
         + " | " + EscapeButtonsField(ui.Format(UiText::ButtonsBulkTemplateValueFormat, index))
-        + " | " + EscapeButtonsField(ui.Format(UiText::ButtonsBulkTemplateHintFormat, index))
-        + " | ";
+        + " | " + EscapeButtonsField(ui.Format(UiText::ButtonsBulkTemplateHintFormat, index));
 }
 
 inline void AppendButtonsBulkTemplateLines(std::string& text, int count) {

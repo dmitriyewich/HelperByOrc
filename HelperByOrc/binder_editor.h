@@ -34,12 +34,12 @@ struct State {
     int hotkeyIndex = -1;
     int selectedInputIndex = -1;
     int selectedInputButtonIndex = -1;
+    int expandedInputHintIndex = -1;
     int bulkMethod = 2;
     int bulkIntervalMs = 0;
     int pendingTargetIndex = -1;
     std::string selectedButtonsText{};
     std::vector<std::string> inputButtonsBulkDrafts{};
-    std::vector<ButtonsBulkPreviewState> inputButtonsBulkPreviews{};
     std::string multiText{};
     std::string scenarioAppendText{};
     int scenarioMessageFocusIndex = -1;
