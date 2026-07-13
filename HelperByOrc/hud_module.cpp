@@ -10,6 +10,7 @@
 #include "icon_registry.h"
 #include "json_utils.h"
 #include "markup_renderer.h"
+#include "native_file_dialog.h"
 #include "notepad_module.h"
 #include "samp_api.h"
 #include "tags_module.h"
@@ -25,7 +26,6 @@
 #include <array>
 #include <cctype>
 #include <chrono>
-#include <commdlg.h>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -1949,7 +1949,12 @@ struct HudModule::Impl {
     bool WriteMigrationBackup(const jsonutil::JsonObject& section, int sourceSchema) const {
         const fs::path target = HudMigrationBackupPath();
         std::error_code error;
-        if (fs::exists(target, error) && !error) {
+        const bool backupExists = fs::exists(target, error);
+        if (error) {
+            debuglog::WriteError("[hud] migration backup stat failed path=%ls error=%d", target.c_str(), error.value());
+            return false;
+        }
+        if (backupExists) {
             return true;
         }
 
@@ -1988,31 +1993,27 @@ struct HudModule::Impl {
     }
 
     std::optional<fs::path> OpenFileDialog(UiText titleId, const std::wstring& filter) const {
-        wchar_t fileName[MAX_PATH]{};
         const std::wstring title = MarkupRenderer::Utf8ToWide(UiSettings::Instance().Text(titleId));
-        OPENFILENAMEW ofn{};
-        ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = nullptr;
-        ofn.lpstrFile = fileName;
-        ofn.nMaxFile = static_cast<DWORD>(std::size(fileName));
-        ofn.lpstrFilter = filter.c_str();
-        ofn.lpstrTitle = title.c_str();
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
-        if (!GetOpenFileNameW(&ofn)) {
-            return std::nullopt;
-        }
-        return fs::path(fileName);
+        return native_file_dialog::OpenFile(title, filter);
     }
 
-    fs::path MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
+    std::optional<fs::path> MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
         fs::path candidate = directory / desiredName.filename();
         const fs::path stem = candidate.stem();
         const fs::path ext = candidate.extension();
         int suffix = 1;
-        while (fs::exists(candidate)) {
+        for (;;) {
+            std::error_code existsError;
+            const bool candidateExists = fs::exists(candidate, existsError);
+            if (existsError) {
+                debuglog::WriteError("[hud] unique image path stat failed path=%ls error=%d", candidate.c_str(), existsError.value());
+                return std::nullopt;
+            }
+            if (!candidateExists) {
+                return candidate;
+            }
             candidate = directory / (stem.wstring() + L"_" + std::to_wstring(suffix++) + ext.wstring());
         }
-        return candidate;
     }
 
     std::optional<std::string> CopyImageIntoHudProfile() {
@@ -2029,17 +2030,21 @@ struct HudModule::Impl {
         EnsureAssetDirectories();
         const std::string sanitized = SanitizeFileStem(PathToUtf8(source->stem()), "image");
         const fs::path desiredName = fs::path(MarkupRenderer::Utf8ToWide(sanitized)).replace_extension(source->extension());
-        const fs::path target = MakeUniquePath(HudImagesDirectory(), desiredName);
+        const std::optional<fs::path> target = MakeUniquePath(HudImagesDirectory(), desiredName);
+        if (!target) {
+            statusMessage = UiSettings::Instance().Text(UiText::HudImageInsertFailed);
+            return std::nullopt;
+        }
         std::error_code copyError;
-        fs::copy_file(*source, target, fs::copy_options::none, copyError);
+        fs::copy_file(*source, *target, fs::copy_options::none, copyError);
         if (copyError) {
             statusMessage = UiSettings::Instance().Text(UiText::HudImageInsertFailed);
-            debuglog::WriteError("[hud] image copy failed source=%ls target=%ls error=%d", source->c_str(), target.c_str(), copyError.value());
+            debuglog::WriteError("[hud] image copy failed source=%ls target=%ls error=%d", source->c_str(), target->c_str(), copyError.value());
             return std::nullopt;
         }
 
         statusMessage = UiSettings::Instance().Text(UiText::HudImageCopied);
-        return PathToUtf8(target.filename());
+        return PathToUtf8(target->filename());
     }
 
     HudWidget* FindWidget(std::string_view id) {
@@ -6754,10 +6759,19 @@ struct HudModule::Impl {
         std::vector<std::string> missingAssets;
         std::unordered_set<std::string> missingAssetIds;
         for (const HudElement& element : widget.elements) {
-            if (element.type == ElementType::Image && MarkupRenderer::IsSafeRelativeAssetPath(element.data.imagePath)
-                && !MightContainHudTag(element.data.imagePath)
-                && !fs::exists(HudImagesDirectory() / MarkupRenderer::Utf8ToWide(element.data.imagePath))
-                && missingAssetIds.insert(element.data.imagePath).second) {
+            if (element.type != ElementType::Image
+                || !MarkupRenderer::IsSafeRelativeAssetPath(element.data.imagePath)
+                || MightContainHudTag(element.data.imagePath)) {
+                continue;
+            }
+
+            const fs::path assetPath = HudImagesDirectory() / MarkupRenderer::Utf8ToWide(element.data.imagePath);
+            std::error_code assetExistsError;
+            const bool assetExists = fs::exists(assetPath, assetExistsError);
+            if (assetExistsError) {
+                debuglog::WriteError("[hud] import asset stat failed path=%ls error=%d", assetPath.c_str(), assetExistsError.value());
+            }
+            if ((!assetExists || assetExistsError) && missingAssetIds.insert(element.data.imagePath).second) {
                 missingAssets.push_back(element.data.imagePath);
             }
         }

@@ -151,7 +151,7 @@ std::string LoadedRiskModules() {
 
 void ProbeCef(ExternalCursorSnapshot& snapshot) {
     HMODULE loader = GetModuleHandleA("loader.dll");
-    if (!IsCefLoaderModule(loader)) {
+    if (!loader || !IsCefLoaderModule(loader)) {
         return;
     }
 

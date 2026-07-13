@@ -436,11 +436,15 @@ Packet* SampRakHooks::PopQueuedIncomingPacket() {
     }
 
     auto* data = new (std::nothrow) unsigned char[bytes.size()];
-    auto* packet = new (std::nothrow) Packet{};
-    if (!data || !packet) {
+    if (!data) {
+        debuglog::WriteError("SampRakHooks::PopQueuedIncomingPacket failed: data allocation failed");
+        return nullptr;
+    }
+
+    auto* packet = new (std::nothrow) Packet;
+    if (!packet) {
         delete[] data;
-        delete packet;
-        debuglog::WriteError("SampRakHooks::PopQueuedIncomingPacket failed: allocation failed");
+        debuglog::WriteError("SampRakHooks::PopQueuedIncomingPacket failed: packet allocation failed");
         return nullptr;
     }
 

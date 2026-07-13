@@ -12,6 +12,21 @@ namespace {
 HMODULE g_module = nullptr;
 Level g_level = Level::Info;
 std::mutex g_mutex;
+bool g_sessionInitialized = false;
+
+bool ResolveLogPath(HMODULE module, char (&path)[MAX_PATH]) {
+    if (!module || !GetModuleFileNameA(module, path, MAX_PATH)) {
+        return false;
+    }
+
+    char* slash = std::strrchr(path, '\\');
+    if (!slash) {
+        return false;
+    }
+
+    *(slash + 1) = '\0';
+    return strcat_s(path, "HelperByOrc.log") == 0;
+}
 
 bool IsErrorLike(std::string_view message) {
     return message.find("FAILED") != std::string_view::npos
@@ -47,17 +62,9 @@ void WriteInternal(Level level, bool force, const char* format, va_list args) {
     }
 
     char path[MAX_PATH]{};
-    if (!GetModuleFileNameA(g_module, path, MAX_PATH)) {
+    if (!ResolveLogPath(g_module, path)) {
         return;
     }
-
-    char* slash = std::strrchr(path, '\\');
-    if (!slash) {
-        return;
-    }
-
-    *(slash + 1) = '\0';
-    strcat_s(path, "HelperByOrc.log");
 
     FILE* file = nullptr;
     if (fopen_s(&file, path, "a") != 0 || !file) {
@@ -72,7 +79,43 @@ void WriteInternal(Level level, bool force, const char* format, va_list args) {
 
 void Initialize(HMODULE module) {
     std::lock_guard lock(g_mutex);
+    if (!module) {
+        OutputDebugStringA("[HelperByOrc] debuglog initialization failed: module is null\n");
+        return;
+    }
+
     g_module = module;
+    if (g_sessionInitialized) {
+        return;
+    }
+    g_sessionInitialized = true;
+
+    char path[MAX_PATH]{};
+    if (!ResolveLogPath(module, path)) {
+        OutputDebugStringA("[HelperByOrc] failed to resolve HelperByOrc.log path\n");
+        return;
+    }
+
+    const HANDLE file = CreateFileA(
+        path,
+        GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        char message[160]{};
+        std::snprintf(
+            message,
+            sizeof(message),
+            "[HelperByOrc] failed to reset HelperByOrc.log: win32=%lu\n",
+            static_cast<unsigned long>(GetLastError()));
+        OutputDebugStringA(message);
+        return;
+    }
+
+    CloseHandle(file);
 }
 
 void Shutdown() {

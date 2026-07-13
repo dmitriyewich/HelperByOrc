@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <system_error>
 
 namespace helper_paths {
 namespace {
@@ -87,7 +88,12 @@ std::optional<fs::path> ResolvePortableGtaUserFilesDirectory() {
 
     fs::path path(widePath);
     if (path.is_relative()) {
-        path = fs::absolute(path);
+        std::error_code error;
+        path = fs::absolute(path, error);
+        if (error) {
+            debuglog::WriteError("[paths] portablegta userfiles absolute path failed: error=%d", error.value());
+            return std::nullopt;
+        }
     }
 
     debuglog::WriteInfo("[paths] GTA userfiles resolved through portablegta: %ls", path.c_str());

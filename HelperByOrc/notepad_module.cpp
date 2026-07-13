@@ -5,6 +5,7 @@
 #include "icon_picker_ui.h"
 #include "json_utils.h"
 #include "markup_renderer.h"
+#include "native_file_dialog.h"
 #include "tags_module.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
@@ -15,7 +16,6 @@
 #include <array>
 #include <cctype>
 #include <chrono>
-#include <commdlg.h>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -2091,20 +2091,8 @@ struct NotepadModule::Impl {
     }
 
     std::optional<fs::path> OpenFileDialog(UiText titleId, const std::wstring& filter) const {
-        wchar_t fileName[MAX_PATH]{};
         const std::wstring title = Utf8ToWide(UiSettings::Instance().Text(titleId));
-        OPENFILENAMEW ofn{};
-        ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = nullptr;
-        ofn.lpstrFile = fileName;
-        ofn.nMaxFile = static_cast<DWORD>(std::size(fileName));
-        ofn.lpstrFilter = filter.c_str();
-        ofn.lpstrTitle = title.c_str();
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
-        if (!GetOpenFileNameW(&ofn)) {
-            return std::nullopt;
-        }
-        return fs::path(fileName);
+        return native_file_dialog::OpenFile(title, filter);
     }
 
     void ImportTxtAsNote() {
@@ -2134,15 +2122,23 @@ struct NotepadModule::Impl {
         }
     }
 
-    fs::path MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
+    std::optional<fs::path> MakeUniquePath(const fs::path& directory, const fs::path& desiredName) const {
         fs::path candidate = directory / desiredName.filename();
         const fs::path stem = candidate.stem();
         const fs::path ext = candidate.extension();
         int suffix = 1;
-        while (fs::exists(candidate)) {
+        for (;;) {
+            std::error_code existsError;
+            const bool candidateExists = fs::exists(candidate, existsError);
+            if (existsError) {
+                debuglog::WriteError("[notepad] unique image path stat failed path=%ls error=%d", candidate.c_str(), existsError.value());
+                return std::nullopt;
+            }
+            if (!candidateExists) {
+                return candidate;
+            }
             candidate = directory / (stem.wstring() + L"_" + std::to_wstring(suffix++) + ext.wstring());
         }
-        return candidate;
     }
 
     void InsertImageFromDialog() {
@@ -2158,15 +2154,19 @@ struct NotepadModule::Impl {
         EnsureAssetDirectories();
         const std::string sanitized = SanitizeFileStem(PathToUtf8(source->stem()), "image");
         const fs::path desiredName = fs::path(Utf8ToWide(sanitized)).replace_extension(source->extension());
-        const fs::path target = MakeUniquePath(ImagesDirectory(), desiredName);
-        std::error_code copyError;
-        fs::copy_file(*source, target, fs::copy_options::none, copyError);
-        if (copyError) {
+        const std::optional<fs::path> target = MakeUniquePath(ImagesDirectory(), desiredName);
+        if (!target) {
             statusMessage = UiSettings::Instance().Text(UiText::NotepadImageInsertFailed);
-            debuglog::WriteError("[notepad] image copy failed source=%ls target=%ls error=%d", source->c_str(), target.c_str(), copyError.value());
             return;
         }
-        const std::string relative = PathToUtf8(target.filename());
+        std::error_code copyError;
+        fs::copy_file(*source, *target, fs::copy_options::none, copyError);
+        if (copyError) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadImageInsertFailed);
+            debuglog::WriteError("[notepad] image copy failed source=%ls target=%ls error=%d", source->c_str(), target->c_str(), copyError.value());
+            return;
+        }
+        const std::string relative = PathToUtf8(target->filename());
         InsertTextAtCursor("#img(" + relative + ")\n");
         statusMessage = UiSettings::Instance().Text(UiText::NotepadImageCopied);
     }
@@ -2181,8 +2181,14 @@ struct NotepadModule::Impl {
     void ExportNote(const NoteEntry& note) {
         EnsureAssetDirectories();
         const std::string safeTitle = SanitizeFileStem(note.title, "note");
-        fs::path target = MakeUniquePath(ExportDirectory(), fs::path(Utf8ToWide(safeTitle)).replace_extension(L".txt"));
-        std::ofstream file(target, std::ios::binary | std::ios::trunc);
+        const std::optional<fs::path> target = MakeUniquePath(
+            ExportDirectory(),
+            fs::path(Utf8ToWide(safeTitle)).replace_extension(L".txt"));
+        if (!target) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadExportFailed);
+            return;
+        }
+        std::ofstream file(*target, std::ios::binary | std::ios::trunc);
         if (!file) {
             statusMessage = UiSettings::Instance().Text(UiText::NotepadExportFailed);
             return;
@@ -2192,7 +2198,7 @@ struct NotepadModule::Impl {
             statusMessage = UiSettings::Instance().Text(UiText::NotepadExportFailed);
             return;
         }
-        statusMessage = UiSettings::Instance().Format(UiText::NotepadExportSuccessFormat, PathToUtf8(target.filename()).c_str());
+        statusMessage = UiSettings::Instance().Format(UiText::NotepadExportSuccessFormat, PathToUtf8(target->filename()).c_str());
     }
 };
 

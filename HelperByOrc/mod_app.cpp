@@ -3,9 +3,11 @@
 #include "app_config.h"
 #include "debug_log.h"
 #include "feature_flags.h"
+#include "file_hash_utils.h"
 #include "minhook_utils.h"
 #include "resource.h"
 #include "ui_fonts.h"
+#include "ui_frame_timing.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 
@@ -169,6 +171,10 @@ void MaxHudEditorStats(HudModule::EditorStats& target, const HudModule::EditorSt
 }
 
 void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
+    if (ui_frame_timing::HasExternalWait()) {
+        return;
+    }
+
     static std::uint64_t s_windowStartMs = 0;
     static std::uint64_t s_lastSlowTraceMs = 0;
     static unsigned s_frames = 0;
@@ -681,29 +687,6 @@ std::string FileTimeToText(const FILETIME& fileTime) {
     return buffer;
 }
 
-std::uint64_t Fnva64File(const fs::path& path, bool& ok) {
-    ok = false;
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return 0;
-    }
-
-    std::uint64_t hash = 14695981039346656037ull;
-    std::array<std::uint8_t, 64 * 1024> buffer{};
-    DWORD bytesRead = 0;
-    while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) && bytesRead > 0) {
-        for (DWORD i = 0; i < bytesRead; ++i) {
-            hash ^= buffer[i];
-            hash *= 1099511628211ull;
-        }
-    }
-
-    ok = GetLastError() == ERROR_HANDLE_EOF || bytesRead == 0;
-    CloseHandle(file);
-    return hash;
-}
-
 void LogPeFileDetails(const fs::path& path, const char* label) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -756,17 +739,17 @@ void LogFileFingerprint(const fs::path& path, const char* label) {
     }
 
     const std::uint64_t size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32u) | data.nFileSizeLow;
-    bool hashOk = false;
-    const std::uint64_t hash = Fnva64File(path, hashOk);
+    const file_hash::Result hashes = file_hash::Compute(path, false);
     const std::string pathText = PathToUtf8(path);
     const std::string tags = JoinTags(ConflictTagsForPath(pathText));
     debuglog::WriteInfo(
-        "[diag][file] %s size=%llu mtime=\"%s\" fnv64=%016llX hashOk=%d tags=%s path=\"%s\"",
+        "[diag][file] %s size=%llu mtime=\"%s\" fnv64=%016llX hashOk=%d hashError=%lu tags=%s path=\"%s\"",
         label,
         static_cast<unsigned long long>(size),
         FileTimeToText(data.ftLastWriteTime).c_str(),
-        static_cast<unsigned long long>(hash),
-        hashOk ? 1 : 0,
+        static_cast<unsigned long long>(hashes.fnv1a64),
+        hashes.fnvOk ? 1 : 0,
+        hashes.fnvError,
         tags.c_str(),
         pathText.c_str());
 }
@@ -787,7 +770,16 @@ bool ShouldInventoryFile(const fs::path& path) {
 
 void LogDirectoryInventory(const fs::path& directory, const char* label, bool recursive, std::size_t limit) {
     std::error_code ec;
-    if (!fs::exists(directory, ec)) {
+    const bool directoryExists = fs::exists(directory, ec);
+    if (ec) {
+        debuglog::WriteError(
+            "[diag][inventory] %s stat failed error=%d path=\"%s\"",
+            label,
+            ec.value(),
+            PathToUtf8(directory).c_str());
+        return;
+    }
+    if (!directoryExists) {
         debuglog::WriteInfo("[diag][inventory] %s missing path=\"%s\"", label, PathToUtf8(directory).c_str());
         return;
     }
@@ -809,23 +801,39 @@ void LogDirectoryInventory(const fs::path& directory, const char* label, bool re
     };
 
     if (recursive) {
-        for (const auto& entry : fs::recursive_directory_iterator(directory, fs::directory_options::skip_permission_denied, ec)) {
-            if (ec) {
-                break;
-            }
+        fs::recursive_directory_iterator it(directory, fs::directory_options::skip_permission_denied, ec);
+        const fs::recursive_directory_iterator end;
+        while (!ec && it != end) {
+            const fs::directory_entry& entry = *it;
             if (entry.is_regular_file(ec)) {
                 logPath(entry.path());
             }
+            if (ec) {
+                break;
+            }
+            it.increment(ec);
         }
     } else {
-        for (const auto& entry : fs::directory_iterator(directory, fs::directory_options::skip_permission_denied, ec)) {
-            if (ec) {
-                break;
-            }
+        fs::directory_iterator it(directory, fs::directory_options::skip_permission_denied, ec);
+        const fs::directory_iterator end;
+        while (!ec && it != end) {
+            const fs::directory_entry& entry = *it;
             if (entry.is_regular_file(ec)) {
                 logPath(entry.path());
             }
+            if (ec) {
+                break;
+            }
+            it.increment(ec);
         }
+    }
+
+    if (ec) {
+        debuglog::WriteError(
+            "[diag][inventory] %s enumeration failed error=%d path=\"%s\"",
+            label,
+            ec.value(),
+            PathToUtf8(directory).c_str());
     }
 
     debuglog::WriteInfo(
@@ -840,8 +848,10 @@ void LogDirectoryInventory(const fs::path& directory, const char* label, bool re
 
 std::string ModuleOrigin(const std::string& path, const std::string& gameDir) {
     wchar_t windowsDir[MAX_PATH]{};
-    GetWindowsDirectoryW(windowsDir, MAX_PATH);
-    const std::string winDir = WideToUtf8(windowsDir);
+    const UINT windowsDirLength = GetWindowsDirectoryW(windowsDir, static_cast<UINT>(std::size(windowsDir)));
+    const std::string winDir = windowsDirLength > 0 && windowsDirLength < std::size(windowsDir)
+        ? WideToUtf8(windowsDir)
+        : std::string{};
     if (!gameDir.empty() && StartsWithNoCase(path, gameDir)) {
         return "game";
     }
@@ -1719,14 +1729,20 @@ void ModApp::OnProcessAttach(HMODULE module) {
 void ModApp::Shutdown() {
     debuglog::WriteInfo("[probe] shutdown begin ts=%llums", static_cast<unsigned long long>(GetTickCount64()));
     debuglog::WriteInfo("ModApp shutdown begin");
-    StopDeferredOverlayThread();
+    if (!StopDeferredOverlayThread()) {
+        debuglog::WriteError("ModApp shutdown aborted: deferred overlay thread is still active");
+        return;
+    }
     ::ClipCursor(nullptr);
 
     SaveShellStateIfDirty();
     sampApi_.Refresh();
     overlayCursor_.Shutdown();
 
-    overlay_.Shutdown();
+    if (!overlay_.Shutdown()) {
+        debuglog::WriteError("ModApp shutdown aborted: D3D overlay teardown is not safe");
+        return;
+    }
     debuglog::WriteInfo("Overlay shutdown done");
     incomingMessageRouter_.Shutdown();
     debuglog::WriteInfo("Incoming router shutdown done");
@@ -1920,12 +1936,15 @@ DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
 
     debuglog::WriteInfo("[ui][d3d] deferred overlay thread started");
     self->logoTextureLoader_.DecodeEmbeddedPng(self->module_, IDR_MAIN_LOGO_PNG);
-    while (!self->deferredOverlayThreadStop_.load()) {
+    while (!self->deferredOverlayStopEvent_ || WaitForSingleObject(self->deferredOverlayStopEvent_, 0) == WAIT_TIMEOUT) {
         if (self->RefreshSampGate()) {
             self->RequestOverlayAttachOnce("SA:MP full-ready gate");
             break;
         }
-        Sleep(50);
+        if (self->deferredOverlayStopEvent_
+            && WaitForSingleObject(self->deferredOverlayStopEvent_, 50) != WAIT_TIMEOUT) {
+            break;
+        }
     }
     debuglog::WriteInfo("[ui][d3d] deferred overlay thread finished");
     return 0;
@@ -1936,24 +1955,53 @@ void ModApp::StartDeferredOverlayThread() {
         return;
     }
 
-    deferredOverlayThreadStop_.store(false);
-    deferredOverlayThread_ = CreateThread(nullptr, 0, &DeferredOverlayThreadProc, this, 0, nullptr);
-    if (!deferredOverlayThread_) {
-        debuglog::WriteError("[ui][d3d] deferred overlay thread creation failed: %lu", GetLastError());
-    }
-}
-
-void ModApp::StopDeferredOverlayThread() {
-    deferredOverlayThreadStop_.store(true);
-    if (!deferredOverlayThread_) {
+    deferredOverlayStopEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!deferredOverlayStopEvent_) {
+        debuglog::WriteError("[ui][d3d] deferred overlay stop event creation failed: %lu", GetLastError());
         return;
     }
 
-    if (GetCurrentThreadId() != GetThreadId(deferredOverlayThread_)) {
-        WaitForSingleObject(deferredOverlayThread_, 5000);
+    deferredOverlayThread_ = CreateThread(nullptr, 0, &DeferredOverlayThreadProc, this, 0, nullptr);
+    if (!deferredOverlayThread_) {
+        debuglog::WriteError("[ui][d3d] deferred overlay thread creation failed: %lu", GetLastError());
+        CloseHandle(deferredOverlayStopEvent_);
+        deferredOverlayStopEvent_ = nullptr;
     }
+}
+
+bool ModApp::StopDeferredOverlayThread() {
+    if (deferredOverlayStopEvent_) {
+        SetEvent(deferredOverlayStopEvent_);
+    }
+    if (!deferredOverlayThread_) {
+        if (deferredOverlayStopEvent_) {
+            CloseHandle(deferredOverlayStopEvent_);
+            deferredOverlayStopEvent_ = nullptr;
+        }
+        return true;
+    }
+
+    if (GetCurrentThreadId() == GetThreadId(deferredOverlayThread_)) {
+        debuglog::WriteError("[ui][d3d] deferred overlay thread cannot join itself");
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(deferredOverlayThread_, 5000);
+    if (waitResult != WAIT_OBJECT_0) {
+        debuglog::WriteError(
+            "[ui][d3d] deferred overlay thread stop failed result=%lu gle=%lu",
+            static_cast<unsigned long>(waitResult),
+            static_cast<unsigned long>(waitResult == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT));
+        return false;
+    }
+
     CloseHandle(deferredOverlayThread_);
     deferredOverlayThread_ = nullptr;
+    if (deferredOverlayStopEvent_) {
+        CloseHandle(deferredOverlayStopEvent_);
+        deferredOverlayStopEvent_ = nullptr;
+    }
+    return true;
 }
 
 void ModApp::RequestOverlayAttachOnce(const char* reason) {

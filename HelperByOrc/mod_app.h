@@ -55,7 +55,7 @@ private:
     std::uint8_t CurrentHelperMouseSuppressionMask() const;
     static DWORD WINAPI DeferredOverlayThreadProc(LPVOID param);
     void StartDeferredOverlayThread();
-    void StopDeferredOverlayThread();
+    bool StopDeferredOverlayThread();
     void RequestOverlayAttachOnce(const char* reason);
     bool RefreshSampGate();
     void Tick();
@@ -114,7 +114,7 @@ private:
     bool sampUiPipelineReady_ = false;
     std::uint64_t sampUiPipelineLastProbeMs_ = 0;
     HANDLE deferredOverlayThread_ = nullptr;
-    std::atomic_bool deferredOverlayThreadStop_{ false };
+    HANDLE deferredOverlayStopEvent_ = nullptr;
     std::atomic_bool overlayAttachRequested_{ false };
     std::atomic_uint32_t helperMouseSuppressionMask_{ 0 };
     int helperMouseSuppressionReleaseFrames_ = 0;

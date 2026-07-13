@@ -423,7 +423,7 @@ void BinderModule::Impl::DrawFolderPopups() {
         }
         ImGui::SameLine();
         if (ImGui::Button(UiSettings::Instance().Text(UiText::DeleteFolderAll))) {
-            if (CanDeleteFolder(folderDeleteTarget)) {
+            if (folderDeleteTarget && CanDeleteFolder(folderDeleteTarget)) {
                 FolderNode* fallbackFolder = folderDeleteTarget->parent;
                 const auto removedPath = BuildFolderPath(folderDeleteTarget);
                 DeleteHotkeysFromFolderPath(removedPath);

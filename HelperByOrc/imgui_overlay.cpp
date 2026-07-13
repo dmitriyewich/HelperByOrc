@@ -3,6 +3,7 @@
 #include "debug_log.h"
 #include "minhook_utils.h"
 #include "ui_fonts.h"
+#include "ui_frame_timing.h"
 #include "ui_settings.h"
 
 #include <imgui.h>
@@ -605,7 +606,9 @@ void DbgTraceImGuiInternalState(const char* reason) {
 } // namespace
 
 HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
-    if (self_ && !self_->shuttingDown_) {
+    AcquireSRWLockShared(&detourRundownLock_);
+    ImGuiOverlay* self = self_;
+    if (self && !self->shuttingDown_.load(std::memory_order_acquire)) {
         if constexpr (kVerboseUiTraceEnabled) {
             static uint64_t s_lastEndSceneProbeMs = 0;
             const uint64_t probeNow = GetTickCount64();
@@ -614,20 +617,20 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
                 debuglog::WriteInfo(
                     "[ui][probe] EndScene ts=%llums init=%d gate=%d",
                     static_cast<unsigned long long>(probeNow),
-                    self_->imguiInitialized_ ? 1 : 0,
-                    self_->IsInputPipelineEnabled() ? 1 : 0);
+                    self->imguiInitialized_ ? 1 : 0,
+                    self->IsInputPipelineEnabled() ? 1 : 0);
             }
         }
-        self_->InitializeImGuiIfNeeded(device);
+        self->InitializeImGuiIfNeeded(device);
         // Fallback path only: when Present detour is unavailable, render from EndScene.
-        const bool isPrimary = self_->IsPrimaryRenderTarget(device);
+        const bool isPrimary = self->IsPrimaryRenderTarget(device);
         const bool rendered = !originalPresent_ && isPrimary;
         if (rendered) {
-            self_->UpdateHotkeyState();
-            if (self_->updateCallback_) {
-                self_->updateCallback_();
+            self->UpdateHotkeyState();
+            if (self->updateCallback_) {
+                self->updateCallback_();
             }
-            self_->RenderFrame(device);
+            self->RenderFrame(device);
         }
         TraceRenderPathCounters("endscene", rendered);
         if (!rendered) {
@@ -642,15 +645,12 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
                     isPrimary ? 1 : 0);
             }
         }
-    } else if (self_ && self_->shuttingDown_) {
-        static bool s_reportedEndSceneDuringShutdown = false;
-        if (!s_reportedEndSceneDuringShutdown) {
-            s_reportedEndSceneDuringShutdown = true;
-            debuglog::WriteInfo("[ui] EndSceneDetour observed after shutdown flag");
-        }
     }
 
-    return originalEndScene_ ? originalEndScene_(device) : D3D_OK;
+    const EndSceneFn original = originalEndScene_;
+    const HRESULT result = original ? original(device) : D3D_OK;
+    ReleaseSRWLockShared(&detourRundownLock_);
+    return result;
 }
 
 HRESULT __stdcall ImGuiOverlay::PresentDetour(
@@ -659,7 +659,9 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
     const RECT* destRect,
     HWND overrideWindow,
     const RGNDATA* dirtyRegion) {
-    if (self_ && !self_->shuttingDown_) {
+    AcquireSRWLockShared(&detourRundownLock_);
+    ImGuiOverlay* self = self_;
+    if (self && !self->shuttingDown_.load(std::memory_order_acquire)) {
         if constexpr (kVerboseUiTraceEnabled) {
             static uint64_t s_lastPresentProbeMs = 0;
             const uint64_t probeNow = GetTickCount64();
@@ -668,20 +670,20 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
                 debuglog::WriteInfo(
                     "[ui][probe] Present ts=%llums init=%d gate=%d",
                     static_cast<unsigned long long>(probeNow),
-                    self_->imguiInitialized_ ? 1 : 0,
-                    self_->IsInputPipelineEnabled() ? 1 : 0);
+                    self->imguiInitialized_ ? 1 : 0,
+                    self->IsInputPipelineEnabled() ? 1 : 0);
             }
         }
-        self_->InitializeImGuiIfNeeded(device);
+        self->InitializeImGuiIfNeeded(device);
         // Primary and stable render path for overlay.
-        const bool isPrimary = self_->IsPrimaryRenderTarget(device);
+        const bool isPrimary = self->IsPrimaryRenderTarget(device);
         const bool rendered = isPrimary;
         if (rendered) {
-            self_->UpdateHotkeyState();
-            if (self_->updateCallback_) {
-                self_->updateCallback_();
+            self->UpdateHotkeyState();
+            if (self->updateCallback_) {
+                self->updateCallback_();
             }
-            self_->RenderFrame(device);
+            self->RenderFrame(device);
         }
         TraceRenderPathCounters("present", rendered);
         if (!rendered) {
@@ -692,19 +694,21 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
                 debuglog::WriteInfo("[ui] Present render skipped due to non-primary target");
             }
         }
-    } else if (self_ && self_->shuttingDown_) {
-        static bool s_reportedPresentDuringShutdown = false;
-        if (!s_reportedPresentDuringShutdown) {
-            s_reportedPresentDuringShutdown = true;
-            debuglog::WriteInfo("[ui] PresentDetour observed after shutdown flag");
-        }
     }
 
-    return originalPresent_ ? originalPresent_(device, sourceRect, destRect, overrideWindow, dirtyRegion) : D3D_OK;
+    const PresentFn original = originalPresent_;
+    const HRESULT result = original ? original(device, sourceRect, destRect, overrideWindow, dirtyRegion) : D3D_OK;
+    ReleaseSRWLockShared(&detourRundownLock_);
+    return result;
 }
 
 HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters) {
-    if (self_ && self_->imguiInitialized_) {
+    AcquireSRWLockShared(&detourRundownLock_);
+    ImGuiOverlay* self = self_;
+    const bool canUseImGui = self
+        && !self->shuttingDown_.load(std::memory_order_acquire)
+        && self->imguiInitialized_;
+    if (canUseImGui) {
         static uint64_t s_lastResetBeginTraceMs = 0;
         const uint64_t now = GetTickCount64();
         if (now - s_lastResetBeginTraceMs >= kResetTraceIntervalMs) {
@@ -714,12 +718,14 @@ HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT
         ImGui_ImplDX9_InvalidateDeviceObjects();
     }
 
-    if (!originalReset_) {
+    const ResetFn original = originalReset_;
+    if (!original) {
+        ReleaseSRWLockShared(&detourRundownLock_);
         return D3DERR_INVALIDCALL;
     }
 
-    const HRESULT result = originalReset_(device, presentationParameters);
-    if (SUCCEEDED(result) && self_ && self_->imguiInitialized_) {
+    const HRESULT result = original(device, presentationParameters);
+    if (SUCCEEDED(result) && canUseImGui) {
         ImGui_ImplDX9_CreateDeviceObjects();
         static uint64_t s_lastResetOkTraceMs = 0;
         const uint64_t now = GetTickCount64();
@@ -736,6 +742,7 @@ HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT
         }
     }
 
+    ReleaseSRWLockShared(&detourRundownLock_);
     return result;
 }
 
@@ -911,13 +918,22 @@ void ImGuiOverlay::DrawMenuToggleHotkeyCapturePopup() {
 
 void ImGuiOverlay::OnProcessAttach() {
     self_ = this;
-    shuttingDown_ = false;
+    shuttingDown_.store(false, std::memory_order_release);
+    shutdownComplete_ = false;
 
     debuglog::WriteInfo("ImGuiOverlay attached (tid=%lu)", GetCurrentThreadId());
 
+    initStopEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!initStopEvent_) {
+        debuglog::WriteError("[ui][d3d] init stop event creation failed: %lu", GetLastError());
+        return;
+    }
+
     initThread_ = CreateThread(nullptr, 0, &InitializeThread, this, 0, nullptr);
     if (!initThread_) {
-        debuglog::WriteError("CreateThread failed: %lu", GetLastError());
+        debuglog::WriteError("[ui][d3d] init thread creation failed: %lu", GetLastError());
+        CloseHandle(initStopEvent_);
+        initStopEvent_ = nullptr;
     }
 }
 
@@ -927,7 +943,7 @@ DWORD WINAPI ImGuiOverlay::InitializeThread(LPVOID param) {
         return 0;
     }
 
-    for (int attempt = 1; attempt <= 30 && !self->shuttingDown_; ++attempt) {
+    for (int attempt = 1; attempt <= 30 && !self->shuttingDown_.load(std::memory_order_acquire); ++attempt) {
         if (self->InstallGraphicsHooks()) {
             return 0;
         }
@@ -935,10 +951,14 @@ DWORD WINAPI ImGuiOverlay::InitializeThread(LPVOID param) {
         if (attempt == 1 || attempt % 5 == 0) {
             debuglog::WriteError("D3D9 hook attempt %d failed, retrying", attempt);
         }
-        Sleep(1000);
+        if (!self->initStopEvent_ || WaitForSingleObject(self->initStopEvent_, 1000) != WAIT_TIMEOUT) {
+            return 0;
+        }
     }
 
-    debuglog::WriteError("D3D9 hooks were not installed");
+    if (!self->shuttingDown_.load(std::memory_order_acquire)) {
+        debuglog::WriteError("D3D9 hooks were not installed");
+    }
     return 0;
 }
 
@@ -1861,6 +1881,7 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     if (!imguiInitialized_ || !device) {
         return;
     }
+    ui_frame_timing::BeginFrame();
 
     if (IsInputPipelineEnabled()) {
         EnsureWndProcHookInstalled(WantsInputRouting());
@@ -2013,8 +2034,11 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
     }
     perf.stateRestoreMs = PerfNowMs() - stageBeginMs;
     perf.totalMs = PerfNowMs() - beginMs;
-    const bool slow = perf.totalMs >= static_cast<double>(kSlowFrameTraceThresholdMs);
-    AccumulateUiFramePerf(perf, slow);
+    const bool externalWait = ui_frame_timing::HasExternalWait();
+    const bool slow = !externalWait && perf.totalMs >= static_cast<double>(kSlowFrameTraceThresholdMs);
+    if (!externalWait) {
+        AccumulateUiFramePerf(perf, slow);
+    }
     if (slow) {
         const bool firstSlowFrame = !slowFrameSeen_;
         slowFrameSeen_ = true;
@@ -2294,9 +2318,40 @@ LRESULT CALLBACK ImGuiOverlay::OverlayWndProc(HWND hwnd, UINT message, WPARAM wp
     return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
-void ImGuiOverlay::Shutdown() {
+bool ImGuiOverlay::Shutdown() {
+    if (shuttingDown_.exchange(true, std::memory_order_acq_rel)) {
+        return shutdownComplete_;
+    }
+
     debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown begin");
-    shuttingDown_ = true;
+    if (initStopEvent_) {
+        SetEvent(initStopEvent_);
+    }
+    if (initThread_) {
+        WaitForSingleObject(initThread_, INFINITE);
+        CloseHandle(initThread_);
+        initThread_ = nullptr;
+    }
+    if (initStopEvent_) {
+        CloseHandle(initStopEvent_);
+        initStopEvent_ = nullptr;
+    }
+
+    debuglog::WriteInfo(
+        "[ui][d3d] disabling D3D hooks installed=%d EndScene=%p Present=%p Reset=%p",
+        hooksInstalled_ ? 1 : 0,
+        endSceneTarget_,
+        presentTarget_,
+        resetTarget_);
+    const bool endSceneDisabled = minhook::DisableHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+    const bool presentDisabled = minhook::DisableHook(presentTarget_, "IDirect3DDevice9::Present");
+    const bool resetDisabled = minhook::DisableHook(resetTarget_, "IDirect3DDevice9::Reset");
+    if (!endSceneDisabled || !presentDisabled || !resetDisabled) {
+        debuglog::WriteError("[ui][d3d] shutdown aborted: failed to disable all D3D hooks");
+        return false;
+    }
+
+    AcquireSRWLockExclusive(&detourRundownLock_);
     menuOpen_ = false;
     inputRoutingAllowed_ = false;
     drawHelperCursor_ = false;
@@ -2304,35 +2359,24 @@ void ImGuiOverlay::Shutdown() {
     CancelMenuToggleHotkeyCapture();
     ApplyInputCaptureState(false);
 
-    CleanupImGui();
-
-    debuglog::WriteInfo(
-        "[ui][d3d] removing D3D hooks installed=%d EndScene=%p Present=%p Reset=%p",
-        hooksInstalled_ ? 1 : 0,
-        endSceneTarget_,
-        presentTarget_,
-        resetTarget_);
-    minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
-    minhook::DisableAndRemoveHook(presentTarget_, "IDirect3DDevice9::Present");
-    minhook::DisableAndRemoveHook(resetTarget_, "IDirect3DDevice9::Reset");
+    minhook::RemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+    minhook::RemoveHook(presentTarget_, "IDirect3DDevice9::Present");
+    minhook::RemoveHook(resetTarget_, "IDirect3DDevice9::Reset");
     debuglog::WriteInfo("[ui][d3d] D3D hooks removed");
     originalEndScene_ = nullptr;
     originalPresent_ = nullptr;
     originalReset_ = nullptr;
-    endSceneTarget_ = nullptr;
-    presentTarget_ = nullptr;
-    resetTarget_ = nullptr;
     hooksInstalled_ = false;
 
-    if (initThread_) {
-        CloseHandle(initThread_);
-        initThread_ = nullptr;
-    }
+    CleanupImGui();
 
     menuToggleWasDown_ = false;
     inputCaptureChangedCallback_ = nullptr;
     frameSurfaceCallback_ = nullptr;
     slowFrameSeen_ = false;
     self_ = nullptr;
+    shutdownComplete_ = true;
+    ReleaseSRWLockExclusive(&detourRundownLock_);
     debuglog::WriteInfo("[ui] ImGuiOverlay::Shutdown done");
+    return true;
 }

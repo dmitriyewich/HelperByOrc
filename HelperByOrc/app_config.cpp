@@ -99,7 +99,13 @@ fs::path ResolveLegacyConfigPath(HMODULE module) {
         return fs::path(path).parent_path() / kUnifiedConfigFileName;
     }
 
-    return fs::current_path() / kUnifiedConfigFileName;
+    std::error_code error;
+    const fs::path currentPath = fs::current_path(error);
+    if (error) {
+        debuglog::WriteError("AppConfig: current directory unavailable error=%d", error.value());
+        return fs::path(kUnifiedConfigFileName);
+    }
+    return currentPath / kUnifiedConfigFileName;
 }
 
 fs::path ResolveProfilesRoot(HMODULE module) {
@@ -280,8 +286,19 @@ const ConfigProfile* FindProfile(const std::vector<ConfigProfile>& profiles, std
 }
 
 bool IsPathInsideDirectory(const fs::path& directory, const fs::path& candidate) {
-    const fs::path root = fs::absolute(directory).lexically_normal();
-    const fs::path child = fs::absolute(candidate).lexically_normal();
+    std::error_code rootError;
+    const fs::path root = fs::absolute(directory, rootError).lexically_normal();
+    std::error_code childError;
+    const fs::path child = fs::absolute(candidate, childError).lexically_normal();
+    if (rootError || childError) {
+        debuglog::WriteError(
+            "[profiles] path containment resolution failed root=%ls child=%ls rootError=%d childError=%d",
+            directory.c_str(),
+            candidate.c_str(),
+            rootError.value(),
+            childError.value());
+        return false;
+    }
     auto rootIt = root.begin();
     auto childIt = child.begin();
     for (; rootIt != root.end(); ++rootIt, ++childIt) {
@@ -292,12 +309,43 @@ bool IsPathInsideDirectory(const fs::path& directory, const fs::path& candidate)
     return true;
 }
 
+void RemoveIncompleteProfileDirectory(
+    const fs::path& profilesRoot,
+    const fs::path& profileDirectory,
+    const char* operation) {
+    if (!IsPathInsideDirectory(profilesRoot, profileDirectory)) {
+        debuglog::WriteError(
+            "[profiles] %s rollback blocked outside profiles root: %ls",
+            operation,
+            profileDirectory.c_str());
+        return;
+    }
+
+    std::error_code removeError;
+    fs::remove_all(profileDirectory, removeError);
+    if (removeError) {
+        debuglog::WriteError(
+            "[profiles] %s rollback cleanup failed: %ls error=%d",
+            operation,
+            profileDirectory.c_str(),
+            removeError.value());
+    }
+}
+
 bool CopyDirectoryIfExists(const fs::path& source, const fs::path& target, std::string* error = nullptr) {
     std::error_code existsError;
-    if (!fs::exists(source, existsError)) {
+    const bool sourceExists = fs::exists(source, existsError);
+    if (existsError) {
+        if (error) {
+            *error = "source asset directory is unavailable";
+        }
+        debuglog::WriteError("[profiles] source asset directory stat failed: %ls error=%d", source.c_str(), existsError.value());
+        return false;
+    }
+    if (!sourceExists) {
         return true;
     }
-    if (existsError || !fs::is_directory(source, existsError)) {
+    if (!fs::is_directory(source, existsError) || existsError) {
         if (error) {
             *error = "source asset directory is unavailable";
         }
@@ -318,7 +366,19 @@ bool CopyDirectoryIfExists(const fs::path& source, const fs::path& target, std::
     std::error_code iteratorError;
     for (fs::recursive_directory_iterator it(source, iteratorError), end; it != end && !iteratorError; it.increment(iteratorError)) {
         const fs::directory_entry& entry = *it;
-        const fs::path relative = fs::relative(entry.path(), source);
+        std::error_code relativeError;
+        const fs::path relative = fs::relative(entry.path(), source, relativeError);
+        if (relativeError) {
+            if (error) {
+                *error = "failed to resolve profile asset path";
+            }
+            debuglog::WriteError(
+                "[profiles] failed to resolve profile asset path: source=%ls entry=%ls error=%d",
+                source.c_str(),
+                entry.path().c_str(),
+                relativeError.value());
+            return false;
+        }
         const fs::path destination = target / relative;
         std::error_code copyError;
         if (entry.is_directory(copyError)) {
@@ -486,12 +546,16 @@ bool AppConfig::SwitchProfile(std::string_view profileId, std::string* error) {
         return true;
     }
 
+    const std::string previousActiveProfileId = activeProfileId_;
     activeProfileId_ = profile->id;
     RefreshProfileStateLocked();
     if (!SaveProfilesRegistryLocked()) {
+        activeProfileId_ = previousActiveProfileId;
+        RefreshProfileStateLocked();
         if (error) {
             *error = "failed to save profile registry";
         }
+        debuglog::WriteError("[profiles] switch rolled back after registry save failure id=%.*s", static_cast<int>(profileId.size()), profileId.data());
         return false;
     }
 
@@ -533,21 +597,31 @@ bool AppConfig::CreateProfile(std::string_view name, bool copyCurrentConfig, boo
         return false;
     }
 
+    const std::string previousActiveProfileId = activeProfileId_;
     profiles_.push_back(ConfigProfile{ id, displayName, targetPath, false });
     if (activate) {
         activeProfileId_ = id;
+    }
+    RefreshProfileStateLocked();
+    if (!SaveProfilesRegistryLocked()) {
+        activeProfileId_ = previousActiveProfileId;
+        profiles_.erase(std::remove_if(profiles_.begin(), profiles_.end(), [&](const ConfigProfile& profile) {
+            return profile.id == id;
+        }), profiles_.end());
+        RefreshProfileStateLocked();
+        RemoveIncompleteProfileDirectory(profilesRoot_, targetPath.parent_path(), "create");
+        if (error) {
+            *error = "failed to save profile registry";
+        }
+        debuglog::WriteError("[profiles] create rolled back after registry save failure id=%s", id.c_str());
+        return false;
+    }
+    if (activate) {
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
         ResetSnapshotTrackingLocked();
         pendingMutations_.clear();
-    }
-    RefreshProfileStateLocked();
-    if (!SaveProfilesRegistryLocked()) {
-        if (error) {
-            *error = "failed to save profile registry";
-        }
-        return false;
     }
 
     debuglog::WriteInfo("[profiles] created profile id=%s copy_current=%d activate=%d", id.c_str(), copyCurrentConfig ? 1 : 0, activate ? 1 : 0);
@@ -575,14 +649,17 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         return false;
     }
 
-    jsonutil::JsonObject snapshot = MakeDefaultConfigRoot();
     std::string readError;
-    if (const std::optional<jsonutil::JsonObject> sourceConfig = ReadJsonObjectFile(source->configPath, &readError)) {
-        snapshot = *sourceConfig;
-        snapshot["schema_version"] = kConfigSchemaVersion;
-    } else {
+    const std::optional<jsonutil::JsonObject> sourceConfig = ReadJsonObjectFile(source->configPath, &readError);
+    if (!sourceConfig) {
         debuglog::WriteError("[profiles] duplicate source config unavailable id=%s error=%s", source->id.c_str(), readError.c_str());
+        if (error) {
+            *error = "source profile config is unavailable";
+        }
+        return false;
     }
+    jsonutil::JsonObject snapshot = *sourceConfig;
+    snapshot["schema_version"] = kConfigSchemaVersion;
 
     const std::string id = MakeUniqueProfileId(profiles_, displayName);
     const fs::path targetPath = ProfileConfigPath(profilesRoot_, id);
@@ -595,26 +672,35 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
     const fs::path sourceAssets = source->configPath.parent_path() / kNotepadAssetsFolderName;
     const fs::path targetAssets = targetPath.parent_path() / kNotepadAssetsFolderName;
     if (!CopyDirectoryIfExists(sourceAssets, targetAssets, error)) {
-        std::error_code removeError;
-        fs::remove_all(targetPath.parent_path(), removeError);
+        RemoveIncompleteProfileDirectory(profilesRoot_, targetPath.parent_path(), "duplicate copy");
         return false;
     }
 
+    const std::string previousActiveProfileId = activeProfileId_;
     profiles_.push_back(ConfigProfile{ id, displayName, targetPath, false });
     if (activate) {
         activeProfileId_ = id;
+    }
+    RefreshProfileStateLocked();
+    if (!SaveProfilesRegistryLocked()) {
+        activeProfileId_ = previousActiveProfileId;
+        profiles_.erase(std::remove_if(profiles_.begin(), profiles_.end(), [&](const ConfigProfile& profile) {
+            return profile.id == id;
+        }), profiles_.end());
+        RefreshProfileStateLocked();
+        RemoveIncompleteProfileDirectory(profilesRoot_, targetPath.parent_path(), "duplicate");
+        if (error) {
+            *error = "failed to save profile registry";
+        }
+        debuglog::WriteError("[profiles] duplicate rolled back after registry save failure id=%s", id.c_str());
+        return false;
+    }
+    if (activate) {
         loaded_ = false;
         root_.clear();
         lastSerializedSnapshot_.clear();
         ResetSnapshotTrackingLocked();
         pendingMutations_.clear();
-    }
-    RefreshProfileStateLocked();
-    if (!SaveProfilesRegistryLocked()) {
-        if (error) {
-            *error = "failed to save profile registry";
-        }
-        return false;
     }
 
     debuglog::WriteInfo("[profiles] duplicated profile source=%s new=%s activate=%d", sourceIdForLog.c_str(), id.c_str(), activate ? 1 : 0);
@@ -642,11 +728,14 @@ bool AppConfig::RenameProfile(std::string_view profileId, std::string_view name,
         return true;
     }
 
+    const std::string previousName = profile->name;
     profile->name = displayName;
     if (!SaveProfilesRegistryLocked()) {
+        profile->name = previousName;
         if (error) {
             *error = "failed to save profile registry";
         }
+        debuglog::WriteError("[profiles] rename rolled back after registry save failure id=%s", profile->id.c_str());
         return false;
     }
 
@@ -740,7 +829,14 @@ void AppConfig::LoadProfilesLocked(HMODULE module) {
     }
 
     std::optional<jsonutil::JsonObject> registry;
-    if (fs::exists(profilesRegistryPath_)) {
+    std::error_code registryExistsError;
+    const bool registryExists = fs::exists(profilesRegistryPath_, registryExistsError);
+    if (registryExistsError) {
+        debuglog::WriteError(
+            "[profiles] registry stat failed: %ls error=%d",
+            profilesRegistryPath_.c_str(),
+            registryExistsError.value());
+    } else if (registryExists) {
         std::string readError;
         registry = ReadJsonObjectFile(profilesRegistryPath_, &readError);
         if (!registry) {
@@ -788,28 +884,49 @@ void AppConfig::LoadProfilesLocked(HMODULE module) {
     const fs::path legacyConfigPath = ResolveLegacyConfigPath(module);
     for (const ConfigProfile& profile : profiles_) {
         const fs::path profileConfigPath = ProfileConfigPath(profilesRoot_, profile.id);
-        if (fs::exists(profileConfigPath)) {
+        std::error_code profileExistsError;
+        const bool profileExists = fs::exists(profileConfigPath, profileExistsError);
+        if (profileExistsError) {
+            debuglog::WriteError(
+                "[profiles] profile config stat failed: %ls error=%d",
+                profileConfigPath.c_str(),
+                profileExistsError.value());
+            continue;
+        }
+        if (profileExists) {
             continue;
         }
 
-        if (profile.id == kDefaultProfileId && fs::exists(legacyConfigPath)) {
-            std::error_code copyError;
-            fs::create_directories(profileConfigPath.parent_path(), copyError);
-            if (!copyError) {
-                fs::copy_file(legacyConfigPath, profileConfigPath, fs::copy_options::overwrite_existing, copyError);
-            }
-            if (!copyError) {
+        std::error_code legacyExistsError;
+        const bool legacyExists = profile.id == kDefaultProfileId
+            && fs::exists(legacyConfigPath, legacyExistsError);
+        if (legacyExistsError) {
+            debuglog::WriteError(
+                "[profiles] legacy config stat failed: %ls error=%d",
+                legacyConfigPath.c_str(),
+                legacyExistsError.value());
+        } else if (legacyExists) {
+            std::string importError;
+            const std::optional<jsonutil::JsonObject> legacyConfig = ReadJsonObjectFile(legacyConfigPath, &importError);
+            if (legacyConfig && WriteJsonObjectFile(profileConfigPath, *legacyConfig)) {
                 debuglog::WriteInfo("[profiles] imported legacy config into default profile: %ls", profileConfigPath.c_str());
                 continue;
             }
-            debuglog::WriteError("[profiles] failed to import legacy config: %ls error=%d", legacyConfigPath.c_str(), copyError.value());
+            debuglog::WriteError(
+                "[profiles] failed to import legacy config safely: %ls error=%s",
+                legacyConfigPath.c_str(),
+                importError.empty() ? "write failed" : importError.c_str());
         }
 
-        WriteJsonObjectFile(profileConfigPath, MakeDefaultConfigRoot());
+        if (!WriteJsonObjectFile(profileConfigPath, MakeDefaultConfigRoot())) {
+            debuglog::WriteError("[profiles] failed to initialize profile config: %ls", profileConfigPath.c_str());
+        }
     }
 
     RefreshProfileStateLocked();
-    SaveProfilesRegistryLocked();
+    if (!SaveProfilesRegistryLocked()) {
+        debuglog::WriteError("[profiles] failed to save loaded profile registry: %ls", profilesRegistryPath_.c_str());
+    }
 }
 
 bool AppConfig::SaveProfilesRegistryLocked() const {
@@ -869,7 +986,17 @@ void AppConfig::EnsureLoadedLocked() {
     ResetSnapshotTrackingLocked();
     root_["schema_version"] = kConfigSchemaVersion;
 
-    if (configPath_.empty() || !fs::exists(configPath_)) {
+    if (configPath_.empty()) {
+        return;
+    }
+
+    std::error_code configExistsError;
+    const bool configExists = fs::exists(configPath_, configExistsError);
+    if (configExistsError) {
+        debuglog::WriteError("AppConfig: config stat failed path=%ls error=%d", configPath_.c_str(), configExistsError.value());
+        return;
+    }
+    if (!configExists) {
         return;
     }
 

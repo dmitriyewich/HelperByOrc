@@ -151,6 +151,7 @@
     <ClCompile Include="conditions_module.cpp" />
     <ClCompile Include="debug_log.cpp" />
     <ClCompile Include="external_cursor_detector.cpp" />
+    <ClCompile Include="file_hash_utils.cpp" />
     <ClCompile Include="hotkey_utils.cpp" />
     <ClCompile Include="hud_module.cpp" />
     <ClCompile Include="hud_v3_editor_tools.cpp" />
@@ -168,6 +169,7 @@
     <ClCompile Include="markup_renderer.cpp" />
     <ClCompile Include="module_signature_scanner.cpp" />
     <ClCompile Include="mod_app.cpp" />
+    <ClCompile Include="native_file_dialog.cpp" />
     <ClCompile Include="notification_manager.cpp" />
     <ClCompile Include="notepad_module.cpp" />
     <ClCompile Include="overlay_cursor_controller.cpp" />
@@ -186,6 +188,7 @@
     <ClCompile Include="tags_module_impl_core.cpp" />
     <ClCompile Include="text_encoding.cpp" />
     <ClCompile Include="ui_fonts.cpp" />
+    <ClCompile Include="ui_frame_timing.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
     <ClCompile Include="unwanted_regex_builder.cpp" />
@@ -227,6 +230,7 @@
     <ClInclude Include="debug_log.h" />
     <ClInclude Include="external_cursor_detector.h" />
     <ClInclude Include="feature_flags.h" />
+    <ClInclude Include="file_hash_utils.h" />
     <ClInclude Include="font_awesome7_data.h" />
     <ClInclude Include="icon_picker_ui.h" />
     <ClInclude Include="icon_registry.h" />
@@ -250,6 +254,7 @@
     <ClInclude Include="minhook_utils.h" />
     <ClInclude Include="module_signature_scanner.h" />
     <ClInclude Include="mod_app.h" />
+    <ClInclude Include="native_file_dialog.h" />
     <ClInclude Include="notification_manager.h" />
     <ClInclude Include="notepad_module.h" />
     <ClInclude Include="overlay_cursor_controller.h" />
@@ -267,6 +272,7 @@
     <ClInclude Include="tags_module_impl.h" />
     <ClInclude Include="text_encoding.h" />
     <ClInclude Include="ui_fonts.h" />
+    <ClInclude Include="ui_frame_timing.h" />
     <ClInclude Include="ui_icons.h" />
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="unwanted_messages_module.h" />

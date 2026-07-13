@@ -114,6 +114,9 @@
     <ClCompile Include="external_cursor_detector.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="file_hash_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="hotkey_utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -151,6 +154,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="mod_app.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="native_file_dialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="logo_texture_loader.cpp">
@@ -208,6 +214,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ui_fonts.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ui_frame_timing.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ui_settings.cpp">
@@ -305,6 +314,9 @@
     <ClInclude Include="feature_flags.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="file_hash_utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="font_awesome7_data.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -345,6 +357,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="mod_app.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="native_file_dialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="logo_texture_loader.h">
@@ -399,6 +414,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_fonts.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ui_frame_timing.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_settings.h">

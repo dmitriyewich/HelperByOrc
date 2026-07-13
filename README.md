@@ -86,7 +86,7 @@
 | SA:MP | Поддерживаемые `samp.dll`: **R1, R2, R3, R3-1, R4, R4-2, R5-1, DL-R1** |
 | Ограничение | Для неизвестных `samp.dll` SA:MP-часть деградирует в fallback-режим; cursor writes отключаются, если `SetCursorMode` не проходит runtime validation |
 | Ограничение | Не заменяйте `HelperByOrc.asi` во время работы игры |
-| Лог | `HelperByOrc.log`, уровень: `Off`, `Error`, `Info` |
+| Лог | `HelperByOrc.log`, перезаписывается при каждом запуске; уровень: `Off`, `Error`, `Info` |
 
 ---
 
@@ -150,7 +150,7 @@ HelperByOrc\Release\HelperByOrc.asi
 
 ## Диагностика
 
-Главный файл для разбора проблем: `HelperByOrc.log`.
+Главный файл для разбора проблем: `HelperByOrc.log`. При каждом запуске игры файл создаётся заново и содержит только текущую сессию.
 
 В первую очередь смотрите:
 

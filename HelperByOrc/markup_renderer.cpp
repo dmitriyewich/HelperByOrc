@@ -1030,9 +1030,7 @@ struct MarkupRenderer::Impl {
         return parsedTextCache;
     }
 
-    ImVec2 ResolveImageRenderSize(const ParsedImage& image, IDirect3DDevice9* device, const fs::path& imageRoot) {
-        const fs::path path = ResolveImagePath(image, imageRoot);
-        const TextureCacheEntry* texture = LoadTexture(device, path);
+    ImVec2 ResolveImageRenderSize(const ParsedImage& image, const TextureCacheEntry* texture) {
         float width = image.width > 0 ? ScaleUi(static_cast<float>(image.width)) : 0.0f;
         float height = image.height > 0 ? ScaleUi(static_cast<float>(image.height)) : 0.0f;
         if (texture && texture->width > 0 && texture->height > 0) {
@@ -1062,7 +1060,9 @@ struct MarkupRenderer::Impl {
         const fs::path& imageRoot,
         const MarkupRenderer::DrawOptions& options) {
         if (segment.image) {
-            const ImVec2 size = ResolveImageRenderSize(*segment.image, device, imageRoot);
+            const fs::path path = ResolveImagePath(*segment.image, imageRoot);
+            const TextureCacheEntry* texture = LoadTexture(device, path);
+            const ImVec2 size = ResolveImageRenderSize(*segment.image, texture);
             return segment.image->hasPosition ? ScaleUi(static_cast<float>(segment.image->posX)) + size.x : size.x;
         }
         std::string text = SegmentPlainText(segment);
@@ -1113,7 +1113,7 @@ struct MarkupRenderer::Impl {
             ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", message.c_str());
             return ImGui::GetItemRectSize();
         }
-        const ImVec2 size = ResolveImageRenderSize(image, device, imageRoot);
+        const ImVec2 size = ResolveImageRenderSize(image, texture);
         if (image.hasPosition) {
             const ImVec2 pos(
                 contentOrigin.x + ScaleUi(static_cast<float>(image.posX)),

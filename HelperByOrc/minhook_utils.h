@@ -63,6 +63,40 @@ inline bool EnableHook(void* target, const char* hookName) {
     return false;
 }
 
+inline bool DisableHook(void* target, const char* hookName) {
+    if (!target) {
+        return true;
+    }
+
+    const MH_STATUS status = MH_DisableHook(target);
+    if (status == MH_OK || status == MH_ERROR_DISABLED || status == MH_ERROR_NOT_CREATED) {
+        return true;
+    }
+
+    debuglog::WriteError(
+        "MH_DisableHook failed for %s: %s (%d)",
+        hookName ? hookName : "<unnamed>",
+        MH_StatusToString(status),
+        static_cast<int>(status));
+    return false;
+}
+
+inline void RemoveHook(void*& target, const char* hookName) {
+    if (!target) {
+        return;
+    }
+
+    const MH_STATUS status = MH_RemoveHook(target);
+    if (status != MH_OK && status != MH_ERROR_NOT_CREATED) {
+        debuglog::WriteError(
+            "MH_RemoveHook failed for %s: %s (%d)",
+            hookName ? hookName : "<unnamed>",
+            MH_StatusToString(status),
+            static_cast<int>(status));
+    }
+    target = nullptr;
+}
+
 template <typename TOriginal>
 inline bool CreateAndEnableHook(void* target, void* detour, TOriginal* original, const char* hookName) {
     if (!CreateHook(target, detour, reinterpret_cast<void**>(original), hookName)) {
@@ -89,27 +123,8 @@ inline void DisableAndRemoveHook(void*& target, const char* hookName) {
         return;
     }
 
-    const MH_STATUS disableStatus = MH_DisableHook(target);
-    if (disableStatus != MH_OK
-        && disableStatus != MH_ERROR_DISABLED
-        && disableStatus != MH_ERROR_NOT_CREATED) {
-        debuglog::WriteError(
-            "MH_DisableHook failed for %s: %s (%d)",
-            hookName ? hookName : "<unnamed>",
-            MH_StatusToString(disableStatus),
-            static_cast<int>(disableStatus));
-    }
-
-    const MH_STATUS removeStatus = MH_RemoveHook(target);
-    if (removeStatus != MH_OK && removeStatus != MH_ERROR_NOT_CREATED) {
-        debuglog::WriteError(
-            "MH_RemoveHook failed for %s: %s (%d)",
-            hookName ? hookName : "<unnamed>",
-            MH_StatusToString(removeStatus),
-            static_cast<int>(removeStatus));
-    }
-
-    target = nullptr;
+    DisableHook(target, hookName);
+    RemoveHook(target, hookName);
 }
 
 } // namespace minhook

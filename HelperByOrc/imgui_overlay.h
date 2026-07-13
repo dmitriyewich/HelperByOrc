@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -67,7 +68,7 @@ public:
     void CancelMenuToggleHotkeyCapture();
     void DrawMenuToggleHotkeyCapturePopup();
     void OnProcessAttach();
-    void Shutdown();
+    bool Shutdown();
 
 private:
     using EndSceneFn = HRESULT(__stdcall*)(IDirect3DDevice9*);
@@ -122,9 +123,12 @@ private:
     bool EnsureWndProcHookInstalled(bool forceTop);
 
     static inline ImGuiOverlay* self_ = nullptr;
+    static inline SRWLOCK detourRundownLock_ = SRWLOCK_INIT;
 
     HANDLE initThread_ = nullptr;
-    bool shuttingDown_ = false;
+    HANDLE initStopEvent_ = nullptr;
+    std::atomic_bool shuttingDown_{ false };
+    bool shutdownComplete_ = false;
     bool hooksInstalled_ = false;
     bool imguiInitialized_ = false;
     bool menuOpen_ = false;

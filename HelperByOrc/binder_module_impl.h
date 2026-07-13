@@ -77,8 +77,10 @@ constexpr char kBindDragPayload[] = "BINDER_HOTKEY_INDEX";
 constexpr char kFolderDragPayload[] = "BINDER_FOLDER_ID";
 
 inline std::uint32_t MakeRandomSeed(std::uintptr_t salt) {
+    const std::uint64_t tick = GetTickCount64();
     const std::uint64_t wideSalt = static_cast<std::uint64_t>(salt);
-    std::uint32_t seed = static_cast<std::uint32_t>(GetTickCount());
+    std::uint32_t seed = static_cast<std::uint32_t>(tick);
+    seed ^= static_cast<std::uint32_t>(tick >> 32);
     seed ^= static_cast<std::uint32_t>(wideSalt);
     seed ^= static_cast<std::uint32_t>(wideSalt >> 32);
     return seed != 0 ? seed : 0xA341316Cu;
