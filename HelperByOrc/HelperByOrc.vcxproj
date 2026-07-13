@@ -153,6 +153,9 @@
     <ClCompile Include="external_cursor_detector.cpp" />
     <ClCompile Include="hotkey_utils.cpp" />
     <ClCompile Include="hud_module.cpp" />
+    <ClCompile Include="hud_v3_editor_tools.cpp" />
+    <ClCompile Include="hud_v3_model.cpp" />
+    <ClCompile Include="hud_v3_runtime.cpp" />
     <ClCompile Include="icon_picker_ui.cpp" />
     <ClCompile Include="icon_registry.cpp" />
     <ClCompile Include="incoming_message_router.cpp" />
@@ -236,6 +239,9 @@
     <ClInclude Include="external\raknet\RakClient.h" />
     <ClInclude Include="hotkey_utils.h" />
     <ClInclude Include="hud_module.h" />
+    <ClInclude Include="hud_v3_editor_tools.h" />
+    <ClInclude Include="hud_v3_model.h" />
+    <ClInclude Include="hud_v3_runtime.h" />
     <ClInclude Include="incoming_message_router.h" />
     <ClInclude Include="imgui_overlay.h" />
     <ClInclude Include="json_utils.h" />

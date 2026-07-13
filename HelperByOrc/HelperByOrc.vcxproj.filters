@@ -120,6 +120,15 @@
     <ClCompile Include="hud_module.cpp">
       <Filter>Source Files\HUD</Filter>
     </ClCompile>
+    <ClCompile Include="hud_v3_editor_tools.cpp">
+      <Filter>Source Files\HUD</Filter>
+    </ClCompile>
+    <ClCompile Include="hud_v3_model.cpp">
+      <Filter>Source Files\HUD</Filter>
+    </ClCompile>
+    <ClCompile Include="hud_v3_runtime.cpp">
+      <Filter>Source Files\HUD</Filter>
+    </ClCompile>
     <ClCompile Include="icon_picker_ui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -312,6 +321,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="hud_module.h">
+      <Filter>Header Files\HUD</Filter>
+    </ClInclude>
+    <ClInclude Include="hud_v3_editor_tools.h">
+      <Filter>Header Files\HUD</Filter>
+    </ClInclude>
+    <ClInclude Include="hud_v3_model.h">
+      <Filter>Header Files\HUD</Filter>
+    </ClInclude>
+    <ClInclude Include="hud_v3_runtime.h">
       <Filter>Header Files\HUD</Filter>
     </ClInclude>
     <ClInclude Include="imgui_overlay.h">

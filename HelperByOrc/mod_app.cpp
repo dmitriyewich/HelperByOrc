@@ -161,6 +161,10 @@ void MaxHudEditorStats(HudModule::EditorStats& target, const HudModule::EditorSt
     target.layersMs = std::max(target.layersMs, source.layersMs);
     target.canvasMs = std::max(target.canvasMs, source.canvasMs);
     target.inspectorMs = std::max(target.inspectorMs, source.inspectorMs);
+    target.bottomPanelMs = std::max(target.bottomPanelMs, source.bottomPanelMs);
+    target.validationMs = std::max(target.validationMs, source.validationMs);
+    target.saveTransactionMs = std::max(target.saveTransactionMs, source.saveTransactionMs);
+    target.guidesMs = std::max(target.guidesMs, source.guidesMs);
     target.variablesPopupMs = std::max(target.variablesPopupMs, source.variablesPopupMs);
 }
 
@@ -203,7 +207,7 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
         if (now - s_lastSlowTraceMs >= kUiModuleSlowTraceIntervalMs) {
             s_lastSlowTraceMs = now;
             debuglog::WriteInfo(
-                "[ui][perf][modules] slow total=%.2fms surface=%s menu=%d tab=%d hud=%.2fms shell=%.2fms tabMs=%.2fms binder=%.2fms notifications=%.2fms config=%.2fms hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heTotal=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npTotal=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+                "[ui][perf][modules] slow total=%.2fms surface=%s menu=%d tab=%d hud=%.2fms shell=%.2fms tabMs=%.2fms binder=%.2fms notifications=%.2fms config=%.2fms hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heTotal=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npTotal=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
                 perf.totalMs,
                 FrameSurfaceName(perf.surface),
                 perf.menuOpen ? 1 : 0,
@@ -230,6 +234,10 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
                 perf.hudEditorStats.layersMs,
                 perf.hudEditorStats.canvasMs,
                 perf.hudEditorStats.inspectorMs,
+                perf.hudEditorStats.bottomPanelMs,
+                perf.hudEditorStats.validationMs,
+                perf.hudEditorStats.saveTransactionMs,
+                perf.hudEditorStats.guidesMs,
                 perf.hudEditorStats.variablesPopupMs,
                 perf.hudEditorStats.widgets,
                 perf.hudEditorStats.elements,
@@ -293,7 +301,7 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
     }
 
     debuglog::WriteInfo(
-        "[ui][perf][modules] 5s frames=%u menu=%u slow=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avg=%.2fms max=%.2fms maxHud=%.2fms maxShell=%.2fms maxTab=%.2fms maxBinder=%.2fms maxNotifications=%.2fms maxConfig=%.2fms maxTabId=%d hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heMax=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npMax=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+        "[ui][perf][modules] 5s frames=%u menu=%u slow=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avg=%.2fms max=%.2fms maxHud=%.2fms maxShell=%.2fms maxTab=%.2fms maxBinder=%.2fms maxNotifications=%.2fms maxConfig=%.2fms maxTabId=%d hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heMax=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npMax=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
         s_frames,
         s_menuFrames,
         s_slowFrames,
@@ -327,6 +335,10 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
         s_maxHudEditorStats.layersMs,
         s_maxHudEditorStats.canvasMs,
         s_maxHudEditorStats.inspectorMs,
+        s_maxHudEditorStats.bottomPanelMs,
+        s_maxHudEditorStats.validationMs,
+        s_maxHudEditorStats.saveTransactionMs,
+        s_maxHudEditorStats.guidesMs,
         s_maxHudEditorStats.variablesPopupMs,
         s_maxHudEditorStats.widgets,
         s_maxHudEditorStats.elements,

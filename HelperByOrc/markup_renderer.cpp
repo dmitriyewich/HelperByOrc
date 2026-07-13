@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "debug_log.h"
 #include "icon_registry.h"
 #include "ui_fonts.h"
 #include "ui_settings.h"
@@ -13,12 +14,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <map>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -104,7 +107,37 @@ struct TextureCacheEntry {
     UINT width = 0;
     UINT height = 0;
     bool failed = false;
+    bool failureLogged = false;
+    bool fileStampKnown = false;
+    std::uintmax_t fileSize = 0;
+    fs::file_time_type lastWriteTime{};
+    std::uint64_t nextProbeAtMs = 0;
+    std::uint64_t lastUsedAtMs = 0;
 };
+
+struct TextureFileStamp {
+    std::uintmax_t size = 0;
+    fs::file_time_type lastWriteTime{};
+};
+
+constexpr std::uint64_t kTextureProbeIntervalMs = 1000;
+constexpr std::size_t kMaxCachedTextures = 256;
+
+std::optional<TextureFileStamp> ReadTextureFileStamp(const fs::path& path, std::error_code& error) {
+    error.clear();
+    const fs::file_time_type lastWriteTime = fs::last_write_time(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+
+    TextureFileStamp stamp;
+    stamp.size = fs::file_size(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+    stamp.lastWriteTime = lastWriteTime;
+    return stamp;
+}
 
 std::wstring MultiByteToWide(std::string_view text, UINT codePage, DWORD flags = 0) {
     if (text.empty()) {
@@ -810,12 +843,18 @@ struct MarkupRenderer::Impl {
     std::optional<ParsedTextCacheKey> parsedTextCacheKey;
     std::vector<std::vector<RichSegment>> parsedTextCache;
 
+    static void ReleaseTexture(TextureCacheEntry& entry) {
+        if (entry.texture) {
+            entry.texture->Release();
+            entry.texture = nullptr;
+        }
+        entry.width = 0;
+        entry.height = 0;
+    }
+
     void ReleaseDeviceResources() {
         for (auto& [_, entry] : textureCache) {
-            if (entry.texture) {
-                entry.texture->Release();
-                entry.texture = nullptr;
-            }
+            ReleaseTexture(entry);
         }
         textureCache.clear();
     }
@@ -827,31 +866,125 @@ struct MarkupRenderer::Impl {
         return (imageRoot / fs::path(MarkupRenderer::Utf8ToWide(image.source))).lexically_normal();
     }
 
+    void PruneTextureCacheForInsert() {
+        if (textureCache.size() < kMaxCachedTextures) {
+            return;
+        }
+
+        const auto oldest = std::min_element(
+            textureCache.begin(),
+            textureCache.end(),
+            [](const auto& left, const auto& right) {
+                return left.second.lastUsedAtMs < right.second.lastUsedAtMs;
+            });
+        if (oldest == textureCache.end()) {
+            return;
+        }
+        ReleaseTexture(oldest->second);
+        textureCache.erase(oldest);
+    }
+
+    static bool SameFileStamp(const TextureCacheEntry& entry, const TextureFileStamp& stamp) {
+        return entry.fileStampKnown
+            && entry.fileSize == stamp.size
+            && entry.lastWriteTime == stamp.lastWriteTime;
+    }
+
+    static void StoreFileStamp(TextureCacheEntry& entry, const TextureFileStamp& stamp) {
+        entry.fileStampKnown = true;
+        entry.fileSize = stamp.size;
+        entry.lastWriteTime = stamp.lastWriteTime;
+    }
+
+    static void LogTextureFailureOnce(TextureCacheEntry& entry, const fs::path& path, HRESULT result) {
+        if (entry.failureLogged) {
+            return;
+        }
+        entry.failureLogged = true;
+        debuglog::WriteError(
+            "[image] texture unavailable path=\"%s\" hresult=0x%08lX retry=%llums",
+            MarkupRenderer::WideToUtf8(path.wstring()).c_str(),
+            static_cast<unsigned long>(result),
+            static_cast<unsigned long long>(kTextureProbeIntervalMs));
+    }
+
     TextureCacheEntry* LoadTexture(IDirect3DDevice9* device, const fs::path& path) {
         if (!device || path.empty()) {
             return nullptr;
         }
         const std::wstring key = path.wstring();
+        if (textureCache.find(key) == textureCache.end()) {
+            PruneTextureCacheForInsert();
+        }
         auto [it, inserted] = textureCache.try_emplace(key);
         TextureCacheEntry& entry = it->second;
-        if (!inserted) {
-            return entry.failed ? nullptr : &entry;
+        const std::uint64_t now = GetTickCount64();
+        entry.lastUsedAtMs = now;
+        if (!inserted && now < entry.nextProbeAtMs) {
+            return entry.texture ? &entry : nullptr;
         }
+        entry.nextProbeAtMs = now + kTextureProbeIntervalMs;
+
+        std::error_code stampError;
+        const std::optional<TextureFileStamp> stamp = ReadTextureFileStamp(path, stampError);
+        if (!stamp) {
+            const bool stateChanged = entry.texture || !entry.failed;
+            ReleaseTexture(entry);
+            entry.failed = true;
+            entry.fileStampKnown = false;
+            if (stateChanged || !entry.failureLogged) {
+                const HRESULT result = stampError
+                    ? HRESULT_FROM_WIN32(static_cast<DWORD>(stampError.value()))
+                    : E_FAIL;
+                LogTextureFailureOnce(entry, path, result);
+            }
+            return nullptr;
+        }
+
+        const bool fileChanged = !SameFileStamp(entry, *stamp);
+        if (!inserted && entry.texture && !fileChanged) {
+            return &entry;
+        }
+
         D3DXIMAGE_INFO info{};
         const HRESULT infoResult = D3DXGetImageInfoFromFileW(path.c_str(), &info);
         if (FAILED(infoResult)) {
-            entry.failed = true;
-            return nullptr;
+            if (!entry.texture) {
+                entry.failed = true;
+                StoreFileStamp(entry, *stamp);
+            }
+            LogTextureFailureOnce(entry, path, infoResult);
+            return entry.texture ? &entry : nullptr;
         }
         IDirect3DTexture9* texture = nullptr;
         const HRESULT textureResult = D3DXCreateTextureFromFileW(device, path.c_str(), &texture);
         if (FAILED(textureResult) || !texture) {
-            entry.failed = true;
-            return nullptr;
+            if (!entry.texture) {
+                entry.failed = true;
+                StoreFileStamp(entry, *stamp);
+            }
+            LogTextureFailureOnce(entry, path, FAILED(textureResult) ? textureResult : E_FAIL);
+            return entry.texture ? &entry : nullptr;
         }
+
+        const bool recovered = entry.failed;
+        const bool reloaded = entry.texture != nullptr;
+        ReleaseTexture(entry);
         entry.texture = texture;
         entry.width = info.Width;
         entry.height = info.Height;
+        entry.failed = false;
+        entry.failureLogged = false;
+        StoreFileStamp(entry, *stamp);
+        if (recovered) {
+            debuglog::WriteInfo(
+                "[image] texture recovered path=\"%s\"",
+                MarkupRenderer::WideToUtf8(path.wstring()).c_str());
+        } else if (reloaded) {
+            debuglog::WriteInfo(
+                "[image] texture reloaded path=\"%s\"",
+                MarkupRenderer::WideToUtf8(path.wstring()).c_str());
+        }
         return &entry;
     }
 

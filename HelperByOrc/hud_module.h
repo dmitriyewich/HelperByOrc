@@ -38,6 +38,10 @@ public:
         double layersMs = 0.0;
         double canvasMs = 0.0;
         double inspectorMs = 0.0;
+        double bottomPanelMs = 0.0;
+        double validationMs = 0.0;
+        double saveTransactionMs = 0.0;
+        double guidesMs = 0.0;
         double variablesPopupMs = 0.0;
     };
 
