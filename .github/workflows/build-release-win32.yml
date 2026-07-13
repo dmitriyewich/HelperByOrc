@@ -51,6 +51,13 @@ jobs:
             'HelperByOrc/external/fontawesome-free-7.2.0/LICENSE.txt',
             'HelperByOrc/external/MinHook/include/MinHook.h',
             'HelperByOrc/external/MinHook/src/hook.c',
+            'HelperByOrc/external/pcre2/LICENCE.md',
+            'HelperByOrc/external/pcre2/src/config.h',
+            'HelperByOrc/external/pcre2/src/pcre2.h',
+            'HelperByOrc/external/pcre2/src/pcre2_compile.c',
+            'HelperByOrc/external/pcre2/src/pcre2_context.c',
+            'HelperByOrc/external/pcre2/src/pcre2_match.c',
+            'HelperByOrc/external/pcre2/src/pcre2_xclass.c',
             'HelperByOrc/external/raknet/BitStream.cpp',
             'HelperByOrc/external/SAMP-API/include',
             'HelperByOrc/external/memwrapper/memwrapper'
@@ -63,6 +70,11 @@ jobs:
           $nestedGit = @(Get-ChildItem -LiteralPath HelperByOrc/external -Force -Recurse -Directory -Filter .git -ErrorAction SilentlyContinue)
           if ($nestedGit.Count -gt 0) {
             $nestedGit | ForEach-Object { Write-Error "Nested .git is not allowed in vendored dependencies: $($_.FullName)" }
+            exit 1
+          }
+          $pcre2Header = Get-Content -LiteralPath 'HelperByOrc/external/pcre2/src/pcre2.h' -Raw
+          if ($pcre2Header -notmatch '#define\s+PCRE2_MAJOR\s+10' -or $pcre2Header -notmatch '#define\s+PCRE2_MINOR\s+47') {
+            Write-Error 'Vendored PCRE2 must remain at version 10.47'
             exit 1
           }
 

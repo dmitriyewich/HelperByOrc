@@ -1564,6 +1564,9 @@ void ModApp::OnProcessAttach(HMODULE module) {
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
     sampHooks_.SetSampApi(&sampApi_);
+    unwanted_.SetChatAsiCompatibilityHandler([this](bool enabled) {
+        sampHooks_.SetChatAsiCompatibilityEnabled(enabled);
+    });
     sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     sampHooks_.SetHotkeyBlockCallback([this]() {
         return overlay_.IsTextInputActive();

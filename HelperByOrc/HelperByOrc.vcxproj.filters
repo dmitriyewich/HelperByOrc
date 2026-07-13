@@ -15,6 +15,9 @@
     <Filter Include="External Libraries\MinHook">
       <UniqueIdentifier>{B6135D8D-6326-4A3B-8EC5-358D2D4E1955}</UniqueIdentifier>
     </Filter>
+    <Filter Include="External Libraries\PCRE2">
+      <UniqueIdentifier>{8E55F2C9-44C3-46C1-A8A0-6EAFEC4AE2C4}</UniqueIdentifier>
+    </Filter>
     <Filter Include="External Libraries\RakNet">
       <UniqueIdentifier>{D6C6AE64-320B-4DFB-BCC2-879831D1CFD2}</UniqueIdentifier>
     </Filter>
@@ -204,6 +207,12 @@
     <ClCompile Include="unwanted_messages_module.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="unwanted_regex_builder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="unwanted_regex_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="user_files_path.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -245,6 +254,9 @@
     </ClCompile>
     <ClCompile Include="external\MinHook\src\hde\hde32.c">
       <Filter>External Libraries\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="$(Pcre2Dir)\pcre2_auto_possess.c;$(Pcre2Dir)\pcre2_chartables.c;$(Pcre2Dir)\pcre2_chkdint.c;$(Pcre2Dir)\pcre2_compile_cgroup.c;$(Pcre2Dir)\pcre2_compile_class.c;$(Pcre2Dir)\pcre2_compile.c;$(Pcre2Dir)\pcre2_config.c;$(Pcre2Dir)\pcre2_context.c;$(Pcre2Dir)\pcre2_convert.c;$(Pcre2Dir)\pcre2_dfa_match.c;$(Pcre2Dir)\pcre2_error.c;$(Pcre2Dir)\pcre2_extuni.c;$(Pcre2Dir)\pcre2_find_bracket.c;$(Pcre2Dir)\pcre2_maketables.c;$(Pcre2Dir)\pcre2_match_data.c;$(Pcre2Dir)\pcre2_match_next.c;$(Pcre2Dir)\pcre2_match.c;$(Pcre2Dir)\pcre2_newline.c;$(Pcre2Dir)\pcre2_ord2utf.c;$(Pcre2Dir)\pcre2_pattern_info.c;$(Pcre2Dir)\pcre2_script_run.c;$(Pcre2Dir)\pcre2_serialize.c;$(Pcre2Dir)\pcre2_string_utils.c;$(Pcre2Dir)\pcre2_study.c;$(Pcre2Dir)\pcre2_substitute.c;$(Pcre2Dir)\pcre2_substring.c;$(Pcre2Dir)\pcre2_tables.c;$(Pcre2Dir)\pcre2_ucd.c;$(Pcre2Dir)\pcre2_valid_utf.c;$(Pcre2Dir)\pcre2_xclass.c">
+      <Filter>External Libraries\PCRE2</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -375,6 +387,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="unwanted_messages_module.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="unwanted_regex_builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="unwanted_regex_engine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_icons.h">

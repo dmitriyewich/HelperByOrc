@@ -24,9 +24,61 @@
 namespace {
 
 constexpr std::string_view kUnwantedSectionName = "unwanted";
-constexpr int kUnwantedSchemaVersion = 1;
+constexpr int kUnwantedSchemaVersion = 2;
 constexpr int kMaxConfigPatternLength = 65535;
 constexpr std::uint64_t kPerfTelemetryWindowMs = 5000;
+
+struct RegexReferenceItem {
+    UiText category;
+    const char* expression;
+    UiText description;
+};
+
+constexpr RegexReferenceItem kRegexReferenceItems[] = {
+    {UiText::UnwantedRegexRefCategoryReady, R"(\A\z)", UiText::UnwantedRegexRefEmptyMessage},
+    {UiText::UnwantedRegexRefCategoryReady, R"(\A[ ]+\z)", UiText::UnwantedRegexRefSpacesOnly},
+    {UiText::UnwantedRegexRefCategoryBasic, R"(\A)", UiText::UnwantedRegexRefAbsoluteStart},
+    {UiText::UnwantedRegexRefCategoryBasic, R"(\z)", UiText::UnwantedRegexRefAbsoluteEnd},
+    {UiText::UnwantedRegexRefCategoryBasic, R"(\Q...\E)", UiText::UnwantedRegexRefQuotedLiteral},
+    {UiText::UnwantedRegexRefCategoryBasic, R"(\.)", UiText::UnwantedRegexRefEscapedMeta},
+    {UiText::UnwantedRegexRefCategoryBasic, ".", UiText::UnwantedRegexRefAnyChar},
+    {UiText::UnwantedRegexRefCategoryClasses, "[abc]", UiText::UnwantedRegexRefClass},
+    {UiText::UnwantedRegexRefCategoryClasses, "[^abc]", UiText::UnwantedRegexRefNegatedClass},
+    {UiText::UnwantedRegexRefCategoryClasses, "[a-z]", UiText::UnwantedRegexRefRange},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\d)", UiText::UnwantedRegexRefUnicodeDigit},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\p{L})", UiText::UnwantedRegexRefUnicodeLetter},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\s)", UiText::UnwantedRegexRefWhitespace},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\h)", UiText::UnwantedRegexRefHorizontalWhitespace},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\w)", UiText::UnwantedRegexRefWordChar},
+    {UiText::UnwantedRegexRefCategoryClasses, R"(\b)", UiText::UnwantedRegexRefWordBoundary},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "?", UiText::UnwantedRegexRefOptional},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "*", UiText::UnwantedRegexRefZeroOrMore},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "+", UiText::UnwantedRegexRefOneOrMore},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "{3}", UiText::UnwantedRegexRefExactCount},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "{1,4}", UiText::UnwantedRegexRefRangeCount},
+    {UiText::UnwantedRegexRefCategoryQuantifiers, "*?", UiText::UnwantedRegexRefLazy},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?:...)", UiText::UnwantedRegexRefNonCapturingGroup},
+    {UiText::UnwantedRegexRefCategoryGroups, "(a|b)", UiText::UnwantedRegexRefAlternation},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?=...)", UiText::UnwantedRegexRefPositiveLookahead},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?!...)", UiText::UnwantedRegexRefNegativeLookahead},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?<=a)", UiText::UnwantedRegexRefPositiveLookbehind},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?<!a)", UiText::UnwantedRegexRefNegativeLookbehind},
+    {UiText::UnwantedRegexRefCategoryGroups, "(?>...)", UiText::UnwantedRegexRefAtomicGroup},
+    {UiText::UnwantedRegexRefCategoryReady, R"(\[[0-9]{1,4}\])", UiText::UnwantedTokenPlayerIdHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"(\{[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?\})", UiText::UnwantedTokenColorHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"((?=[A-Za-z0-9_]{3,24}(?:[^A-Za-z0-9_]|\z))[A-Za-z0-9]+_[A-Za-z0-9]+)", UiText::UnwantedTokenNicknameHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+)", UiText::UnwantedTokenIntegerHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?)", UiText::UnwantedTokenDecimalHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?%)", UiText::UnwantedTokenPercentageHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?[kK][0-9]*)", UiText::UnwantedTokenCompactAmountHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"(\$[+-]?[0-9]+(?:[.,][0-9]+)?)", UiText::UnwantedTokenMoneyHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"((?:[01][0-9]|2[0-3]):[0-5][0-9])", UiText::UnwantedTokenClockHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"([0-9]{1,3}:[0-5][0-9])", UiText::UnwantedTokenDurationHelp},
+    {UiText::UnwantedRegexRefCategoryReady, R"(\[[^\]\r\n]{1,64}\])", UiText::UnwantedTokenBracketPrefixHelp},
+    {UiText::UnwantedRegexRefCategoryReady,
+        R"((?:https?://)?(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?::(?:[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/(?:[^\s\]\)}>]*[^\s\]\)}>,;!?])?)?)",
+        UiText::UnwantedTokenDomainHelp},
+};
 
 double UnwantedPerfNowMs() {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -239,6 +291,12 @@ void TextBadge(const char* label, const ImVec4& color) {
     DrawBadgeVisual(label, ImRect(pos, ImVec2(pos.x + size.x, pos.y + size.y)), color);
 }
 
+void DrawUnwantedTooltip(const char* text) {
+    if (text && text[0] != '\0' && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", text);
+    }
+}
+
 bool BadgeButton(const char* label, const char* id, const ImVec4& color, bool active = false) {
     const ImVec2 size = BadgeSize(label);
     const bool clicked = ImGui::InvisibleButton(id, size);
@@ -261,6 +319,107 @@ std::string TrimAscii(std::string_view value) {
     }
 
     return std::string(value.substr(start, end - start));
+}
+
+bool RegexContainsBroadWildcard(std::string_view pattern) {
+    bool escaped = false;
+    bool inClass = false;
+    bool inQuotedLiteral = false;
+    for (std::size_t i = 0; i + 1 < pattern.size(); ++i) {
+        const char ch = pattern[i];
+        if (!inClass && ch == '\\' && pattern[i + 1] == (inQuotedLiteral ? 'E' : 'Q')) {
+            inQuotedLiteral = !inQuotedLiteral;
+            ++i;
+            escaped = false;
+            continue;
+        }
+        if (inQuotedLiteral) {
+            continue;
+        }
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (ch == '[') {
+            inClass = true;
+            continue;
+        }
+        if (ch == ']' && inClass) {
+            inClass = false;
+            continue;
+        }
+        if (!inClass && ch == '.' && (pattern[i + 1] == '*' || pattern[i + 1] == '+')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::size_t Utf8CharacterOffset(std::string_view value, std::size_t byteOffset) {
+    byteOffset = std::min(byteOffset, value.size());
+    std::size_t characters = 0;
+    for (std::size_t i = 0; i < byteOffset;) {
+        const unsigned char lead = static_cast<unsigned char>(value[i]);
+        std::size_t size = 1;
+        if ((lead & 0xE0) == 0xC0) size = 2;
+        else if ((lead & 0xF0) == 0xE0) size = 3;
+        else if ((lead & 0xF8) == 0xF0) size = 4;
+        i += std::min(size, byteOffset - i);
+        ++characters;
+    }
+    return characters;
+}
+
+std::string FormatPcrePosition(std::string_view pattern, std::size_t byteOffset) {
+    UiSettings& ui = UiSettings::Instance();
+    byteOffset = std::min(byteOffset, pattern.size());
+    const std::size_t lineStart = byteOffset == 0
+        ? std::string_view::npos
+        : pattern.rfind('\n', byteOffset - 1);
+    const std::size_t actualStart = lineStart == std::string_view::npos ? 0 : lineStart + 1;
+    const std::size_t lineEnd = pattern.find('\n', byteOffset);
+    const std::size_t actualEnd = lineEnd == std::string_view::npos ? pattern.size() : lineEnd;
+    std::string line(pattern.substr(actualStart, actualEnd - actualStart));
+    constexpr std::size_t kMaxContextBytes = 96;
+    std::size_t caretByte = byteOffset - actualStart;
+    if (line.size() > kMaxContextBytes) {
+        const std::size_t contextStart = caretByte > kMaxContextBytes / 2 ? caretByte - kMaxContextBytes / 2 : 0;
+        line = line.substr(contextStart, kMaxContextBytes);
+        caretByte -= contextStart;
+        if (contextStart > 0) {
+            line.insert(0, "...");
+            caretByte += 3;
+        }
+    }
+    const std::size_t caretChars = Utf8CharacterOffset(line, std::min(caretByte, line.size()));
+    return ui.Format(
+        UiText::UnwantedPcrePositionDetail,
+        std::to_string(Utf8CharacterOffset(pattern, byteOffset) + 1).c_str(),
+        line.c_str(),
+        std::string(caretChars, ' ').c_str());
+}
+
+const char* RuntimeWarningDisplay(std::string_view status) {
+    UiSettings& ui = UiSettings::Instance();
+    if (status == "match_limit") return ui.Text(UiText::UnwantedRuntimeMatchLimit);
+    if (status == "depth_limit") return ui.Text(UiText::UnwantedRuntimeDepthLimit);
+    if (status == "heap_limit") return ui.Text(UiText::UnwantedRuntimeHeapLimit);
+    if (status == "invalid_utf8") return ui.Text(UiText::UnwantedRuntimeInvalidText);
+    return ui.Text(UiText::UnwantedRuntimeGenericError);
+}
+
+void AppendWarning(std::string& warning, std::string_view message) {
+    if (message.empty()) {
+        return;
+    }
+    if (!warning.empty()) {
+        warning.push_back(' ');
+    }
+    warning.append(message);
 }
 
 bool IsHex(char ch) {
@@ -479,9 +638,6 @@ bool IsWordBoundary(std::string_view value, std::size_t matchStart, std::size_t 
 }
 
 void AddUnique(std::vector<std::string>& values, std::string value) {
-    if (value.empty()) {
-        return;
-    }
     if (std::find(values.begin(), values.end(), value) == values.end()) {
         values.push_back(std::move(value));
     }
@@ -491,312 +647,6 @@ const char* RuleTypeName(UnwantedMessagesModule::RuleType type) {
     return type == UnwantedMessagesModule::RuleType::Regex ? "regex" : "literal";
 }
 
-std::string SourceLabel(UnwantedMessageSource source) {
-    switch (source) {
-    case UnwantedMessageSource::CChatAddEntry:
-        return "CChat::AddEntry";
-    case UnwantedMessageSource::CChatAddMessage:
-        return "CChat::AddMessage";
-    case UnwantedMessageSource::CChatAddChatMessage:
-        return "CChat::AddChatMessage";
-    case UnwantedMessageSource::RakClientMessage:
-        return "RPC ClientMessage";
-    case UnwantedMessageSource::RakChat:
-        return "RPC Chat";
-    case UnwantedMessageSource::RakChatBubble:
-        return "RPC ChatBubble";
-    default:
-        return "unknown";
-    }
-}
-
-std::string EscapeRegex(std::string_view value) {
-    std::string out;
-    out.reserve(value.size() * 2);
-    for (const char ch : value) {
-        switch (ch) {
-        case '\\':
-        case '^':
-        case '$':
-        case '.':
-        case '|':
-        case '?':
-        case '*':
-        case '+':
-        case '(':
-        case ')':
-        case '[':
-        case ']':
-        case '{':
-        case '}':
-            out.push_back('\\');
-            break;
-        default:
-            break;
-        }
-        out.push_back(ch);
-    }
-    return out;
-}
-
-bool IsRegexEscaped(std::string_view value, std::size_t offset) {
-    if (offset == 0 || offset > value.size()) {
-        return false;
-    }
-
-    std::size_t slashCount = 0;
-    for (std::size_t i = offset; i > 0 && value[i - 1] == '\\'; --i) {
-        ++slashCount;
-    }
-    return slashCount % 2 != 0;
-}
-
-bool IsRegexQuantifier(char ch) {
-    return ch == '*' || ch == '+' || ch == '?';
-}
-
-bool RegexHasRepeatedWildcard(std::string_view pattern) {
-    int wildcardRuns = 0;
-    for (std::size_t i = 0; i + 1 < pattern.size(); ++i) {
-        if (IsRegexEscaped(pattern, i)) {
-            continue;
-        }
-        if (pattern[i] == '.' && (pattern[i + 1] == '*' || pattern[i + 1] == '+')) {
-            ++wildcardRuns;
-            if (wildcardRuns >= 2) {
-                return true;
-            }
-            ++i;
-        }
-    }
-    return false;
-}
-
-bool RegexHasNestedQuantifier(std::string_view pattern) {
-    struct GroupState {
-        bool hasQuantifier = false;
-        bool hasWildcardQuantifier = false;
-    };
-
-    std::vector<GroupState> stack;
-    for (std::size_t i = 0; i < pattern.size(); ++i) {
-        const char ch = pattern[i];
-        if (IsRegexEscaped(pattern, i)) {
-            continue;
-        }
-
-        if (ch == '(') {
-            stack.push_back({});
-            continue;
-        }
-        if (ch == '.' && i + 1 < pattern.size() && (pattern[i + 1] == '*' || pattern[i + 1] == '+') && !stack.empty()) {
-            stack.back().hasQuantifier = true;
-            stack.back().hasWildcardQuantifier = true;
-            continue;
-        }
-        if ((IsRegexQuantifier(ch) || ch == '{') && !stack.empty()) {
-            stack.back().hasQuantifier = true;
-            continue;
-        }
-        if (ch != ')' || stack.empty()) {
-            continue;
-        }
-
-        const bool innerHasWildcardQuantifier = stack.back().hasWildcardQuantifier;
-        stack.pop_back();
-        if (!innerHasWildcardQuantifier) {
-            continue;
-        }
-
-        const std::size_t next = i + 1;
-        if (next < pattern.size() && !IsRegexEscaped(pattern, next) && (IsRegexQuantifier(pattern[next]) || pattern[next] == '{')) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool RegexLooksTooBroad(std::string_view pattern) {
-    if (pattern == ".*" || pattern == ".+") {
-        return true;
-    }
-    if (!pattern.empty() && !IsRegexEscaped(pattern, 0) && pattern.rfind(".*", 0) == 0 && pattern.size() <= 8) {
-        return true;
-    }
-    return false;
-}
-
-bool StartsBracketTag(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset != 0 || value.empty() || value.front() != '[') {
-        return false;
-    }
-
-    const std::size_t close = value.find(']', 1);
-    if (close == std::string_view::npos || close <= 1) {
-        return false;
-    }
-
-    consumed = close + 1;
-    return true;
-}
-
-bool StartsTime(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset + 5 > value.size()) {
-        return false;
-    }
-    if (std::isdigit(static_cast<unsigned char>(value[offset])) == 0
-        || std::isdigit(static_cast<unsigned char>(value[offset + 1])) == 0
-        || value[offset + 2] != ':'
-        || std::isdigit(static_cast<unsigned char>(value[offset + 3])) == 0
-        || std::isdigit(static_cast<unsigned char>(value[offset + 4])) == 0) {
-        return false;
-    }
-    consumed = 5;
-    return true;
-}
-
-bool StartsMoney(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset + 2 > value.size() || value[offset] != '$' || std::isdigit(static_cast<unsigned char>(value[offset + 1])) == 0) {
-        return false;
-    }
-
-    std::size_t end = offset + 2;
-    while (end < value.size()) {
-        const unsigned char ch = static_cast<unsigned char>(value[end]);
-        if (std::isdigit(ch) == 0 && value[end] != '.' && value[end] != ',') {
-            break;
-        }
-        ++end;
-    }
-
-    consumed = end - offset;
-    return true;
-}
-
-bool StartsNumber(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset >= value.size() || std::isdigit(static_cast<unsigned char>(value[offset])) == 0) {
-        return false;
-    }
-
-    std::size_t end = offset + 1;
-    while (end < value.size()) {
-        const unsigned char ch = static_cast<unsigned char>(value[end]);
-        if (std::isdigit(ch) == 0 && value[end] != '.' && value[end] != ',') {
-            break;
-        }
-        ++end;
-    }
-
-    if (end < value.size() && (value[end] == 'k' || value[end] == 'K')) {
-        const std::size_t suffixStart = end + 1;
-        end = suffixStart;
-        while (end < value.size()) {
-            const unsigned char ch = static_cast<unsigned char>(value[end]);
-            if (std::isdigit(ch) == 0 && value[end] != '.' && value[end] != ',') {
-                break;
-            }
-            ++end;
-        }
-        if (end == suffixStart) {
-            end = suffixStart;
-        }
-    }
-
-    consumed = end - offset;
-    return true;
-}
-
-bool StartsPlayerIdTag(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset + 3 > value.size() || value[offset] != '[' || std::isdigit(static_cast<unsigned char>(value[offset + 1])) == 0) {
-        return false;
-    }
-
-    std::size_t end = offset + 2;
-    while (end < value.size() && std::isdigit(static_cast<unsigned char>(value[end])) != 0) {
-        ++end;
-    }
-    if (end >= value.size() || value[end] != ']') {
-        return false;
-    }
-
-    consumed = end - offset + 1;
-    return true;
-}
-
-bool StartsDomain(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset >= value.size() || !std::isalnum(static_cast<unsigned char>(value[offset]))) {
-        return false;
-    }
-
-    std::size_t end = offset;
-    bool hasDot = false;
-    while (end < value.size()) {
-        const unsigned char ch = static_cast<unsigned char>(value[end]);
-        if (std::isalnum(ch) != 0 || value[end] == '-' || value[end] == '.') {
-            hasDot = hasDot || value[end] == '.';
-            ++end;
-            continue;
-        }
-        break;
-    }
-
-    if (!hasDot || end <= offset + 3) {
-        return false;
-    }
-
-    const std::size_t dot = value.rfind('.', end - 1);
-    if (dot == std::string_view::npos || dot <= offset || end - dot < 3) {
-        return false;
-    }
-    for (std::size_t i = dot + 1; i < end; ++i) {
-        if (std::isalpha(static_cast<unsigned char>(value[i])) == 0) {
-            return false;
-        }
-    }
-
-    while (end < value.size()) {
-        const unsigned char ch = static_cast<unsigned char>(value[end]);
-        if (std::isspace(ch) != 0 || value[end] == ')' || value[end] == ']' || value[end] == '}') {
-            break;
-        }
-        ++end;
-    }
-
-    consumed = end - offset;
-    return true;
-}
-
-bool IsAsciiNickChar(unsigned char ch) {
-    return std::isalnum(ch) != 0 || ch == '_';
-}
-
-bool StartsNick(std::string_view value, std::size_t offset, std::size_t& consumed) {
-    consumed = 0;
-    if (offset >= value.size() || !IsAsciiNickChar(static_cast<unsigned char>(value[offset]))) {
-        return false;
-    }
-
-    std::size_t end = offset;
-    bool hasUnderscore = false;
-    while (end < value.size() && IsAsciiNickChar(static_cast<unsigned char>(value[end]))) {
-        hasUnderscore = hasUnderscore || value[end] == '_';
-        ++end;
-    }
-
-    if (!hasUnderscore || end == offset) {
-        return false;
-    }
-
-    consumed = end - offset;
-    return true;
-}
-
 } // namespace
 
 void UnwantedMessagesModule::OnProcessAttach() {
@@ -804,64 +654,121 @@ void UnwantedMessagesModule::OnProcessAttach() {
     debuglog::WriteInfo("UnwantedMessagesModule::OnProcessAttach rules=%zu", rules_.size());
 }
 
+void UnwantedMessagesModule::SetChatAsiCompatibilityHandler(std::function<void(bool)> handler) {
+    chatAsiCompatibilityHandler_ = std::move(handler);
+    ApplyChatAsiCompatibilitySetting();
+}
+
 void UnwantedMessagesModule::Shutdown() {
-    std::lock_guard lock(mutex_);
     rules_.clear();
     selectedRuleIds_.clear();
-    miscPageOpen_ = false;
+    scrollToRuleId_.clear();
+    regexReferenceOpen_ = false;
+    page_ = Page::Closed;
+    {
+        std::lock_guard lock(snapshotMutex_);
+        runtimeSnapshot_.reset();
+    }
+    {
+        std::lock_guard lock(statusMutex_);
+        runtimeWarnings_.clear();
+        runtimeWarningsView_.clear();
+        perfStats_ = {};
+        lastBlocked_ = {};
+        blockedCount_ = 0;
+    }
 }
 
 void UnwantedMessagesModule::ReloadConfig() {
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kUnwantedSectionName);
 
-    {
-        std::lock_guard lock(mutex_);
-        LoadFromConfig(section);
-        CompileRules();
-    }
+    LoadFromConfig(section);
+    CompileRules();
+    PublishRuntimeSnapshot();
+    ApplyChatAsiCompatibilitySetting();
 
     debuglog::WriteInfo("UnwantedMessagesModule::ReloadConfig done");
 }
 
 bool UnwantedMessagesModule::ShouldBlock(const UnwantedMessageContext& context) {
+    const double totalBeginMs = UnwantedPerfNowMs();
     std::optional<PerfLogSnapshot> perfLog;
+    std::vector<RegexLogEvent> regexLogs;
     bool blocked = false;
+    double waitMs = 0.0;
+    double matchMs = 0.0;
 
+    const double snapshotWaitBeginMs = UnwantedPerfNowMs();
+    std::shared_ptr<const RuntimeSnapshot> snapshot;
     {
-        std::lock_guard lock(mutex_);
-        if (!settings_.enabled || context.text.empty()) {
-            return false;
+        std::lock_guard lock(snapshotMutex_);
+        snapshot = runtimeSnapshot_;
+    }
+    waitMs += UnwantedPerfNowMs() - snapshotWaitBeginMs;
+    if (!snapshot || !snapshot->settings.enabled || snapshot->rules.empty()) {
+        return false;
+    }
+
+    const std::vector<std::string> candidates = BuildCandidates(context, snapshot->settings);
+    std::vector<std::string> foldedCandidates;
+    if (snapshot->hasNoCaseLiteral) {
+        foldedCandidates.reserve(candidates.size());
+        for (const std::string& candidate : candidates) {
+            foldedCandidates.push_back(Utf8ToLower(candidate));
         }
+    }
 
-        const double beginMs = UnwantedPerfNowMs();
-        const std::vector<std::string> candidates = BuildCandidates(context);
-        std::size_t enabledRules = 0;
-        std::size_t regexRules = 0;
-        for (const Rule& rule : rules_) {
-            if (!rule.enabled || !rule.error.empty()) {
-                continue;
-            }
+    MatchResult result;
+    std::size_t actualChecks = 0;
+    std::vector<unsigned char> evaluationState(snapshot->rules.size(), 0);
+    std::vector<unwanted_regex::MatchResult> runtimeErrors(snapshot->rules.size());
+    const double matchWaitBeginMs = UnwantedPerfNowMs();
+    {
+        std::lock_guard lock(matchMutex_);
+        waitMs += UnwantedPerfNowMs() - matchWaitBeginMs;
+        const double matchBeginMs = UnwantedPerfNowMs();
+        blocked = MatchCandidates(
+            *snapshot,
+            candidates,
+            foldedCandidates,
+            context.source,
+            &result,
+            actualChecks,
+            evaluationState,
+            runtimeErrors);
+        matchMs = UnwantedPerfNowMs() - matchBeginMs;
+    }
 
-            ++enabledRules;
-            if (rule.type == RuleType::Regex) {
-                ++regexRules;
-            }
-        }
-
-        MatchResult result;
-        blocked = MatchCandidates(candidates, context.source, &result);
+    ApplyRuntimeEvaluation(*snapshot, evaluationState, runtimeErrors, regexLogs);
+    const double totalMs = UnwantedPerfNowMs() - totalBeginMs;
+    {
+        std::lock_guard lock(statusMutex_);
         if (blocked) {
             ++blockedCount_;
             lastBlocked_ = std::move(result);
         }
+        perfLog = AccumulatePerfStats(
+            totalMs,
+            waitMs,
+            matchMs,
+            candidates.size(),
+            snapshot->rules.size(),
+            snapshot->regexRules,
+            actualChecks,
+            blocked);
+    }
 
-        const double elapsedMs = UnwantedPerfNowMs() - beginMs;
-        perfLog = AccumulatePerfStats(elapsedMs, candidates.size(), enabledRules, regexRules, blocked);
+    for (const RegexLogEvent& event : regexLogs) {
+        debuglog::WriteError(
+            "[unwanted][regex] rule=%s status=%s code=%d",
+            event.ruleId.c_str(),
+            event.status.c_str(),
+            event.errorCode);
     }
 
     if (perfLog) {
         debuglog::WriteInfo(
-            "[unwanted][perf] window=%llums messages=%llu blocked=%llu candidates=%llu maxCandidates=%zu rules=%zu regexRules=%zu ruleChecksUpper=%llu avg=%.3fms max=%.3fms",
+            "[unwanted][perf] window=%llums messages=%llu blocked=%llu candidates=%llu maxCandidates=%zu rules=%zu regexRules=%zu checks=%llu avgTotal=%.3fms avgWait=%.3fms avgMatch=%.3fms maxTotal=%.3fms maxWait=%.3fms maxMatch=%.3fms",
             static_cast<unsigned long long>(perfLog->windowMs),
             static_cast<unsigned long long>(perfLog->messages),
             static_cast<unsigned long long>(perfLog->blocked),
@@ -870,18 +777,25 @@ bool UnwantedMessagesModule::ShouldBlock(const UnwantedMessageContext& context) 
             perfLog->maxRules,
             perfLog->maxRegexRules,
             static_cast<unsigned long long>(perfLog->ruleChecks),
-            perfLog->avgMs,
-            perfLog->maxMs);
+            perfLog->avgTotalMs,
+            perfLog->avgWaitMs,
+            perfLog->avgMatchMs,
+            perfLog->maxTotalMs,
+            perfLog->maxWaitMs,
+            perfLog->maxMatchMs);
     }
 
     return blocked;
 }
 
 std::optional<UnwantedMessagesModule::PerfLogSnapshot> UnwantedMessagesModule::AccumulatePerfStats(
-    double elapsedMs,
+    double totalMs,
+    double waitMs,
+    double matchMs,
     std::size_t candidateCount,
     std::size_t enabledRules,
     std::size_t regexRules,
+    std::size_t actualChecks,
     bool blocked) {
     const std::uint64_t nowMs = UnwantedPerfTickMs();
     if (perfStats_.windowStartMs == 0) {
@@ -893,9 +807,13 @@ std::optional<UnwantedMessagesModule::PerfLogSnapshot> UnwantedMessagesModule::A
         ++perfStats_.blocked;
     }
     perfStats_.candidates += static_cast<std::uint64_t>(candidateCount);
-    perfStats_.ruleChecks += static_cast<std::uint64_t>(candidateCount) * static_cast<std::uint64_t>(enabledRules);
-    perfStats_.totalMs += elapsedMs;
-    perfStats_.maxMs = std::max(perfStats_.maxMs, elapsedMs);
+    perfStats_.ruleChecks += static_cast<std::uint64_t>(actualChecks);
+    perfStats_.totalMs += totalMs;
+    perfStats_.waitMs += waitMs;
+    perfStats_.matchMs += matchMs;
+    perfStats_.maxTotalMs = std::max(perfStats_.maxTotalMs, totalMs);
+    perfStats_.maxWaitMs = std::max(perfStats_.maxWaitMs, waitMs);
+    perfStats_.maxMatchMs = std::max(perfStats_.maxMatchMs, matchMs);
     perfStats_.maxCandidates = std::max(perfStats_.maxCandidates, candidateCount);
     perfStats_.maxRules = std::max(perfStats_.maxRules, enabledRules);
     perfStats_.maxRegexRules = std::max(perfStats_.maxRegexRules, regexRules);
@@ -911,10 +829,18 @@ std::optional<UnwantedMessagesModule::PerfLogSnapshot> UnwantedMessagesModule::A
     snapshot.blocked = perfStats_.blocked;
     snapshot.candidates = perfStats_.candidates;
     snapshot.ruleChecks = perfStats_.ruleChecks;
-    snapshot.avgMs = perfStats_.messages > 0
+    snapshot.avgTotalMs = perfStats_.messages > 0
         ? perfStats_.totalMs / static_cast<double>(perfStats_.messages)
         : 0.0;
-    snapshot.maxMs = perfStats_.maxMs;
+    snapshot.avgWaitMs = perfStats_.messages > 0
+        ? perfStats_.waitMs / static_cast<double>(perfStats_.messages)
+        : 0.0;
+    snapshot.avgMatchMs = perfStats_.messages > 0
+        ? perfStats_.matchMs / static_cast<double>(perfStats_.messages)
+        : 0.0;
+    snapshot.maxTotalMs = perfStats_.maxTotalMs;
+    snapshot.maxWaitMs = perfStats_.maxWaitMs;
+    snapshot.maxMatchMs = perfStats_.maxMatchMs;
     snapshot.maxCandidates = perfStats_.maxCandidates;
     snapshot.maxRules = perfStats_.maxRules;
     snapshot.maxRegexRules = perfStats_.maxRegexRules;
@@ -924,7 +850,7 @@ std::optional<UnwantedMessagesModule::PerfLogSnapshot> UnwantedMessagesModule::A
 }
 
 bool UnwantedMessagesModule::IsMiscPageOpen() const {
-    return miscPageOpen_;
+    return page_ != Page::Closed;
 }
 
 bool UnwantedMessagesModule::DrawMiscCard() {
@@ -974,7 +900,7 @@ bool UnwantedMessagesModule::DrawMiscCard() {
     ImGui::PopStyleColor();
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        miscPageOpen_ = true;
+        page_ = Page::Home;
         return true;
     }
     return false;
@@ -983,32 +909,229 @@ bool UnwantedMessagesModule::DrawMiscCard() {
 void UnwantedMessagesModule::DrawMainPage() {
     bool reload = false;
     {
-        std::lock_guard lock(mutex_);
-        EnsureActiveRule();
-        DrawHeader(reload);
-
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const bool wideLayout = avail.x >= ScaleUi(1080.0f);
-        if (wideLayout) {
-            const float gap = ScaleUi(10.0f);
-            const float leftWidth = std::clamp(avail.x * 0.58f, ScaleUi(620.0f), avail.x - ScaleUi(440.0f));
-            const float rightWidth = std::max(ScaleUi(380.0f), avail.x - leftWidth - gap);
-            DrawRulesPane(ImVec2(leftWidth, avail.y));
-            ImGui::SameLine(0.0f, gap);
-            DrawInspectorPane(ImVec2(rightWidth, avail.y));
-        } else {
-            const float listHeight = std::min(std::max(ScaleUi(310.0f), avail.y * 0.48f), std::max(ScaleUi(280.0f), avail.y - ScaleUi(280.0f)));
-            DrawRulesPane(ImVec2(0.0f, listHeight));
-            ImGui::Spacing();
-            DrawInspectorPane(ImVec2(0.0f, ImGui::GetContentRegionAvail().y));
+        std::lock_guard lock(statusMutex_);
+        runtimeWarningsView_.clear();
+        runtimeWarningsView_.reserve(runtimeWarnings_.size());
+        for (const auto& [id, state] : runtimeWarnings_) {
+            if (!state.status.empty()) {
+                runtimeWarningsView_[id] = state.status;
+            }
         }
-
-        DrawDeleteConfirmPopup();
+    }
+    RefreshLocalizedDiagnostics();
+    switch (page_) {
+    case Page::Create:
+        DrawCreatePage(reload);
+        break;
+    case Page::Rules:
+        DrawRulesPage(reload);
+        break;
+    case Page::Home:
+    default:
+        DrawHomePage(reload);
+        break;
+    }
+    DrawDeleteConfirmPopup();
+    DrawUnsavedConfirmPopup();
+    if (reloadRequested_) {
+        reloadRequested_ = false;
+        reload = true;
     }
 
     if (reload) {
         ReloadConfig();
     }
+}
+
+bool UnwantedMessagesModule::DrawPageHeader(const char* subtitle, bool& reload) {
+    UiSettings& ui = UiSettings::Instance();
+    const bool narrow = ImGui::GetContentRegionAvail().x < ScaleUi(620.0f);
+    const float headerHeight = narrow ? ScaleUi(84.0f) : ScaleUi(58.0f);
+    if (!BeginUnwantedPanel("##unwanted_page_header", ImVec2(0.0f, headerHeight))) {
+        EndUnwantedPanel();
+        return false;
+    }
+
+    if (UnwantedTextButton(ui_icons::ChevronLeft, ui.Text(UiText::EditorBack), "##unwanted_page_back", ScaleUi(112.0f, 0.0f))) {
+        const Page target = page_ == Page::Home ? Page::Closed : Page::Home;
+        if (page_ == Page::Create && ruleDraft_.active && ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = target;
+            unsavedConfirmOpen_ = true;
+        } else {
+            page_ = target;
+            if (target != Page::Create) {
+                ruleDraft_ = {};
+            }
+        }
+        EndUnwantedPanel();
+        return true;
+    }
+    const float buttonWidth = narrow ? ScaleUi(118.0f) : ScaleUi(138.0f);
+    if (!narrow) {
+        ImGui::SameLine();
+        ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
+        if (subtitle && subtitle[0] != '\0') {
+            ImGui::SameLine();
+            ImGui::TextDisabled("/ %s", subtitle);
+        }
+    }
+    ImGui::SameLine(std::max(
+        ImGui::GetCursorPosX() + ScaleUi(8.0f),
+        ImGui::GetWindowWidth() - buttonWidth - ScaleUi(10.0f)));
+    if (UnwantedTextButton(ui_icons::Gear, ui.Text(UiText::UnwantedTools), "##unwanted_settings", ImVec2(buttonWidth, 0.0f))) {
+        ImGui::OpenPopup("##unwanted_settings_popup");
+    }
+    if (narrow) {
+        ImGui::Spacing();
+        ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
+        if (subtitle && subtitle[0] != '\0') {
+            ImGui::SameLine();
+            ImGui::TextDisabled("/ %s", subtitle);
+        }
+    }
+    DrawSettingsPopup();
+    EndUnwantedPanel();
+    ImGui::Spacing();
+    (void)reload;
+    return false;
+}
+
+void UnwantedMessagesModule::DrawHomePage(bool& reload) {
+    UiSettings& ui = UiSettings::Instance();
+    const UnwantedVisualStyle visual = UnwantedStyleTokens();
+    if (DrawPageHeader(ui.Text(UiText::UnwantedHome), reload)) {
+        return;
+    }
+
+    const std::size_t invalid = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) { return !rule.error.empty(); });
+    const std::size_t enabled = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) { return rule.enabled; });
+    const std::size_t duplicates = DuplicateRuleCount();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool horizontal = avail.x >= ScaleUi(780.0f);
+    const float gap = ScaleUi(10.0f);
+    const float width = horizontal ? (avail.x - gap * 2.0f) / 3.0f : avail.x;
+    const float height = ScaleUi(172.0f);
+
+    const auto beginCard = [&](const char* id, const ImVec4& accent) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, WithAlpha(visual.panelBg, 0.96f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ScaleUi(9.0f));
+        const bool visible = ImGui::BeginChild(id, ImVec2(width, height), ImGuiChildFlags_FrameStyle);
+        if (visible) {
+            const ImVec2 min = ImGui::GetWindowPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                min,
+                ImVec2(min.x + ScaleUi(5.0f), min.y + ImGui::GetWindowHeight()),
+                ImGui::GetColorU32(accent),
+                ScaleUi(9.0f),
+                ImDrawFlags_RoundCornersLeft);
+        }
+        return visible;
+    };
+    const auto endCard = [&] {
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+    };
+
+    if (beginCard("##unwanted_toggle_card", settings_.enabled ? visual.ok : visual.danger)) {
+        ImGui::TextColored(settings_.enabled ? visual.ok : visual.danger, "%s", ui.Text(UiText::UnwantedModuleToggleTitle));
+        ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedModuleToggleDesc));
+        ImGui::Spacing();
+        bool enabledSetting = settings_.enabled;
+        if (ImGui::Checkbox(ui.Text(settings_.enabled ? UiText::UnwantedModuleOn : UiText::UnwantedModuleOff), &enabledSetting)) {
+            settings_.enabled = enabledSetting;
+            PublishRuntimeSnapshot();
+            SaveSettings();
+        }
+    }
+    endCard();
+    if (horizontal) ImGui::SameLine(0.0f, gap); else ImGui::Spacing();
+
+    if (beginCard("##unwanted_create_card", visual.accent)) {
+        ImGui::TextColored(visual.accent, "%s", ui.Text(UiText::UnwantedNewRule));
+        ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedCreateCardDesc));
+        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ScaleUi(42.0f));
+        if (UnwantedTextButton(ui_icons::Plus, ui.Text(UiText::UnwantedCreateOpen), "##open_create", ImVec2(-1.0f, 0.0f))) {
+            StartCreateRule({}, RuleType::Regex);
+            page_ = Page::Create;
+        }
+    }
+    endCard();
+    if (horizontal) ImGui::SameLine(0.0f, gap); else ImGui::Spacing();
+
+    if (beginCard("##unwanted_rules_card", visual.mutedText)) {
+        ImGui::TextColored(visual.mutedText, "%s", ui.Text(UiText::UnwantedRules));
+        ImGui::TextWrapped("%s", ui.Format(
+            UiText::UnwantedRulesCardStats,
+            std::to_string(rules_.size()).c_str(),
+            std::to_string(enabled).c_str(),
+            std::to_string(invalid).c_str(),
+            std::to_string(duplicates).c_str()).c_str());
+        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ScaleUi(42.0f));
+        if (UnwantedTextButton(ui_icons::Bars, ui.Text(UiText::UnwantedRulesOpen), "##open_rules", ImVec2(-1.0f, 0.0f))) {
+            page_ = Page::Rules;
+        }
+    }
+    endCard();
+
+    ImGui::Spacing();
+    MatchResult lastBlockedView;
+    std::uint64_t blockedCountView = 0;
+    {
+        std::lock_guard lock(statusMutex_);
+        lastBlockedView = lastBlocked_;
+        blockedCountView = blockedCount_;
+    }
+    if (BeginUnwantedPanel("##unwanted_session_summary", ImVec2(0.0f, ScaleUi(76.0f)))) {
+        ImGui::Text("%s", ui.Text(UiText::UnwantedSessionTitle));
+        if (lastBlockedView.matched) {
+            ImGui::TextWrapped("%s", ui.Format(
+                UiText::UnwantedLastBlocked,
+                lastBlockedView.candidate.c_str()).c_str());
+        } else {
+            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedLastBlockedEmpty));
+        }
+        ImGui::TextDisabled("%s", ui.Format(UiText::UnwantedBlockedCount, std::to_string(blockedCountView).c_str()).c_str());
+    }
+    EndUnwantedPanel();
+}
+
+void UnwantedMessagesModule::DrawCreatePage(bool& reload) {
+    UiSettings& ui = UiSettings::Instance();
+    if (DrawPageHeader(ui.Text(UiText::UnwantedCreateRuleTitle), reload)) {
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+        if (ruleDraft_.active && ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = Page::Home;
+            unsavedConfirmOpen_ = true;
+        } else {
+            ruleDraft_ = {};
+            page_ = Page::Home;
+        }
+        return;
+    }
+    if (!ruleDraft_.active || !ruleDraft_.createMode) {
+        StartCreateRule({}, RuleType::Regex);
+    }
+
+    if (BeginUnwantedPanel("##unwanted_create_workspace", ImVec2(0.0f, 0.0f))) {
+        DrawRegexHelperWizard();
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        DrawRuleEditor(false);
+    }
+    EndUnwantedPanel();
+}
+
+void UnwantedMessagesModule::DrawRulesPage(bool& reload) {
+    UiSettings& ui = UiSettings::Instance();
+    if (DrawPageHeader(ui.Text(UiText::UnwantedRules), reload)) {
+        return;
+    }
+    DrawRulesPane(ImGui::GetContentRegionAvail());
+    DrawRuleEditorPopup();
 }
 
 jsonutil::JsonValue UnwantedMessagesModule::SerializeConfig() const {
@@ -1017,6 +1140,7 @@ jsonutil::JsonValue UnwantedMessagesModule::SerializeConfig() const {
 
     jsonutil::JsonObject settings;
     settings["enabled"] = settings_.enabled;
+    settings["chat_asi_compatibility"] = settings_.chatAsiCompatibility;
     settings["max_pattern_len"] = settings_.maxPatternLength;
 
     jsonutil::JsonObject normalizer;
@@ -1031,8 +1155,11 @@ jsonutil::JsonValue UnwantedMessagesModule::SerializeConfig() const {
     for (const Rule& rule : rules_) {
         jsonutil::JsonObject item;
         item["id"] = rule.id;
+        if (!rule.name.empty()) {
+            item["name"] = rule.name;
+        }
         item["enabled"] = rule.enabled;
-        item["type"] = RuleTypeName(rule.type);
+        item["type"] = rule.invalidType ? rule.rawType : RuleTypeName(rule.type);
         item["text"] = rule.text;
         item["nocase"] = rule.nocase;
         item["whole_word"] = rule.wholeWord;
@@ -1048,12 +1175,17 @@ void UnwantedMessagesModule::LoadFromConfig(const jsonutil::JsonObject& section)
     rules_.clear();
     selectedRuleIds_.clear();
     activeRuleId_.clear();
+    scrollToRuleId_.clear();
+    regexReferenceOpen_ = false;
     ruleDraft_ = {};
     lastTesterMatch_ = {};
     nextRuleSerial_ = 1;
+    diagnosticsLanguage_ = -1;
+    draftValidationCache_ = {};
 
     const jsonutil::JsonObject* settings = jsonutil::JsonObjectOrNull(&section, "settings");
     settings_.enabled = jsonutil::JsonBoolOr(settings, "enabled", true);
+    settings_.chatAsiCompatibility = jsonutil::JsonBoolOr(settings, "chat_asi_compatibility", true);
     settings_.maxPatternLength = std::clamp(
         jsonutil::JsonNumberOr(settings, "max_pattern_len", 2048),
         1,
@@ -1065,6 +1197,11 @@ void UnwantedMessagesModule::LoadFromConfig(const jsonutil::JsonObject& section)
     settings_.normalizer.trim = jsonutil::JsonBoolOr(normalizer, "trim", false);
 
     const jsonutil::JsonArray* rules = jsonutil::JsonArrayOrNull(&section, "rules");
+    {
+        std::lock_guard lock(statusMutex_);
+        runtimeWarnings_.clear();
+        runtimeWarningsView_.clear();
+    }
     if (!rules) {
         return;
     }
@@ -1074,133 +1211,328 @@ void UnwantedMessagesModule::LoadFromConfig(const jsonutil::JsonObject& section)
         if (!object) {
             continue;
         }
+        const std::string id = jsonutil::JsonStringOr(object, "id", {});
+        if (id.rfind("unwanted-", 0) != 0) {
+            continue;
+        }
+        const std::string suffix = id.substr(9);
+        char* end = nullptr;
+        const unsigned long long serial = std::strtoull(suffix.c_str(), &end, 10);
+        if (end && *end == '\0' && serial >= nextRuleSerial_) {
+            nextRuleSerial_ = serial + 1;
+        }
+    }
+
+    std::set<std::string, std::less<>> occupiedIds;
+    for (const jsonutil::JsonValue& value : *rules) {
+        const jsonutil::JsonObject* object = value.TryObject();
+        if (!object) {
+            continue;
+        }
 
         Rule rule;
         rule.id = jsonutil::JsonStringOr(object, "id", {});
-        if (rule.id.empty()) {
-            rule.id = AllocateRuleId();
-        } else if (rule.id.rfind("unwanted-", 0) == 0) {
-            const std::string suffix = rule.id.substr(9);
-            char* end = nullptr;
-            const unsigned long long value = std::strtoull(suffix.c_str(), &end, 10);
-            if (end && *end == '\0' && value >= nextRuleSerial_) {
-                nextRuleSerial_ = value + 1;
-            }
+        if (rule.id.empty() || occupiedIds.find(rule.id) != occupiedIds.end()) {
+            do {
+                rule.id = AllocateRuleId();
+            } while (occupiedIds.find(rule.id) != occupiedIds.end());
         }
+        occupiedIds.insert(rule.id);
         rule.enabled = jsonutil::JsonBoolOr(object, "enabled", true);
-        const std::string type = jsonutil::JsonStringOr(object, "type", "literal");
-        rule.type = type == "regex" ? RuleType::Regex : RuleType::Literal;
+        rule.name = jsonutil::JsonStringOr(object, "name", {});
+        rule.rawType = jsonutil::JsonStringOr(object, "type", "literal");
+        rule.invalidType = rule.rawType != "literal" && rule.rawType != "regex";
+        rule.type = rule.rawType == "regex" ? RuleType::Regex : RuleType::Literal;
         rule.text = jsonutil::JsonStringOr(object, "text", {});
         rule.nocase = jsonutil::JsonBoolOr(object, "nocase", false);
         rule.wholeWord = jsonutil::JsonBoolOr(object, "whole_word", false);
         rules_.push_back(std::move(rule));
     }
+
 }
 
 void UnwantedMessagesModule::SaveConfig() const {
     AppConfig::Instance().QueueSectionReplace(std::string(kUnwantedSectionName), SerializeConfig());
 }
 
+void UnwantedMessagesModule::SaveSettings() const {
+    const Settings settingsCopy = settings_;
+    AppConfig::Instance().QueueSectionMutation(
+        std::string(kUnwantedSectionName),
+        [settingsCopy](jsonutil::JsonObject& section) {
+            jsonutil::JsonObject settings;
+            settings["enabled"] = settingsCopy.enabled;
+            settings["chat_asi_compatibility"] = settingsCopy.chatAsiCompatibility;
+            settings["max_pattern_len"] = settingsCopy.maxPatternLength;
+            jsonutil::JsonObject normalizer;
+            normalizer["strip_colors"] = settingsCopy.normalizer.stripColors;
+            normalizer["collapse_ws"] = settingsCopy.normalizer.collapseWhitespace;
+            normalizer["trim"] = settingsCopy.normalizer.trim;
+            settings["normalizer"] = jsonutil::JsonValue(std::move(normalizer));
+            section["settings"] = jsonutil::JsonValue(std::move(settings));
+        },
+        "unwanted:settings");
+}
+
+void UnwantedMessagesModule::ApplyChatAsiCompatibilitySetting() const {
+    if (chatAsiCompatibilityHandler_) {
+        chatAsiCompatibilityHandler_(settings_.chatAsiCompatibility);
+    }
+}
+
 void UnwantedMessagesModule::CompileRules() {
     for (Rule& rule : rules_) {
-        rule.error.clear();
-        rule.warning.clear();
-        rule.compiledRegex.reset();
+        CompileRule(rule);
+    }
+    RebuildRuleViewCache();
+}
 
-        if (static_cast<int>(rule.text.size()) > settings_.maxPatternLength) {
-            rule.error = UiSettings::Instance().Format(
-                UiText::UnwantedErrorTooLong,
-                std::to_string(settings_.maxPatternLength).c_str());
+void UnwantedMessagesModule::CompileRule(Rule& rule) {
+    rule.validation = {};
+    rule.prepared.reset();
+    if (rule.invalidType) {
+        rule.validation.error = ValidationError::UnknownType;
+        FormatRuleDiagnostics(rule);
+        return;
+    }
+    if (static_cast<int>(rule.text.size()) > settings_.maxPatternLength) {
+        rule.validation.error = ValidationError::TooLong;
+        FormatRuleDiagnostics(rule);
+        return;
+    }
+    if (rule.text.empty()) {
+        rule.validation.error = ValidationError::Empty;
+        FormatRuleDiagnostics(rule);
+        return;
+    }
+
+    auto prepared = std::make_shared<PreparedRule>();
+    prepared->type = rule.type;
+    prepared->text = rule.text;
+    prepared->nocase = rule.nocase;
+    prepared->wholeWord = rule.type == RuleType::Literal && rule.wholeWord;
+    if (rule.type == RuleType::Literal) {
+        prepared->literalNeedle = rule.nocase ? Utf8ToLower(rule.text) : rule.text;
+        rule.prepared = std::move(prepared);
+        FormatRuleDiagnostics(rule);
+        return;
+    }
+
+    const bool legacyAnchored = rule.text.size() >= 2 && rule.text.front() == '^' && rule.text.back() == '$';
+    const bool absoluteAnchored = rule.text.size() >= 4 && rule.text.rfind("\\A", 0) == 0
+        && rule.text.substr(rule.text.size() - 2) == "\\z";
+    rule.validation.unanchored = !legacyAnchored && !absoluteAnchored;
+    rule.validation.broadWildcard = RegexContainsBroadWildcard(rule.text);
+    unwanted_regex::CompileResult compiled = unwanted_regex::Compile(rule.text, rule.nocase);
+    if (!compiled.program) {
+        rule.validation.error = ValidationError::RegexCompile;
+        rule.validation.pcreErrorOffset = compiled.errorOffset;
+        FormatRuleDiagnostics(rule);
+        return;
+    }
+    rule.validation.matchesEmpty = compiled.program->MatchesEmpty();
+    prepared->compiledRegex = std::move(compiled.program);
+    rule.prepared = std::move(prepared);
+    FormatRuleDiagnostics(rule);
+}
+
+void UnwantedMessagesModule::FormatRuleDiagnostics(Rule& rule) const {
+    UiSettings& ui = UiSettings::Instance();
+    rule.error.clear();
+    rule.warning.clear();
+    switch (rule.validation.error) {
+    case ValidationError::Empty:
+        rule.error = ui.Text(UiText::UnwantedErrorEmpty);
+        break;
+    case ValidationError::TooLong:
+        rule.error = ui.Format(UiText::UnwantedErrorTooLong, std::to_string(settings_.maxPatternLength).c_str());
+        break;
+    case ValidationError::UnknownType:
+        rule.error = ui.Format(UiText::UnwantedErrorUnknownType, rule.rawType.c_str());
+        break;
+    case ValidationError::RegexCompile:
+        rule.error = ui.Format(
+            UiText::UnwantedPcreErrorFormat,
+            FormatPcrePosition(rule.text, rule.validation.pcreErrorOffset).c_str());
+        break;
+    case ValidationError::None:
+    default:
+        break;
+    }
+    if (rule.validation.unanchored) {
+        AppendWarning(rule.warning, ui.Text(UiText::UnwantedRegexSafetyUnanchored));
+    }
+    if (rule.validation.broadWildcard) {
+        AppendWarning(rule.warning, ui.Text(UiText::UnwantedRegexBroadWildcard));
+    }
+    if (rule.validation.matchesEmpty) {
+        AppendWarning(rule.warning, ui.Text(UiText::UnwantedRegexMatchesEmpty));
+    }
+}
+
+void UnwantedMessagesModule::RefreshLocalizedDiagnostics() {
+    const int language = static_cast<int>(UiSettings::Instance().Language());
+    if (diagnosticsLanguage_ == language) {
+        return;
+    }
+    diagnosticsLanguage_ = language;
+    draftValidationCache_.ready = false;
+    for (Rule& rule : rules_) {
+        FormatRuleDiagnostics(rule);
+    }
+    RebuildRuleViewCache();
+    if (!helperSample_.empty()) {
+        RegenerateHelperOutput();
+    }
+}
+
+void UnwantedMessagesModule::RebuildRuleViewCache() {
+    std::unordered_map<std::string, std::size_t> counts;
+    counts.reserve(rules_.size());
+    const auto duplicateKey = [](const Rule& rule) {
+        const std::string typeKey = rule.invalidType ? "invalid:" + rule.rawType : RuleTypeName(rule.type);
+        return typeKey + ":" + std::to_string(rule.text.size()) + ":"
+            + rule.text + ":" + (rule.nocase ? "1" : "0") + (rule.wholeWord ? "1" : "0");
+    };
+    for (const Rule& rule : rules_) {
+        ++counts[duplicateKey(rule)];
+    }
+    for (Rule& rule : rules_) {
+        rule.duplicate = counts[duplicateKey(rule)] > 1;
+        const std::string& sortName = rule.name.empty() ? rule.text : rule.name;
+        rule.sortNameLower = Utf8ToLower(sortName);
+        rule.searchBlobLower = Utf8ToLower(
+            rule.id + "\n" + rule.name + "\n" + rule.text + "\n" + RuleTypeName(rule.type)
+            + "\n" + rule.error + "\n" + rule.warning);
+    }
+}
+
+void UnwantedMessagesModule::PublishRuntimeSnapshot() {
+    auto snapshot = std::make_shared<RuntimeSnapshot>();
+    snapshot->settings = settings_;
+    snapshot->rules.reserve(rules_.size());
+    for (const Rule& rule : rules_) {
+        if (!rule.enabled || !rule.error.empty() || !rule.prepared) {
             continue;
         }
-
-        if (rule.text.empty()) {
-            rule.error = UiSettings::Instance().Text(UiText::UnwantedErrorEmpty);
-            continue;
-        }
-
-        if (rule.type != RuleType::Regex) {
-            continue;
-        }
-
-        if (RegexLooksTooBroad(rule.text) || RegexHasRepeatedWildcard(rule.text) || RegexHasNestedQuantifier(rule.text)) {
-            rule.error = UiSettings::Instance().Text(UiText::UnwantedRegexSafetyBlocked);
-            continue;
-        }
-        if (!rule.text.empty() && rule.text.front() != '^' && rule.text.back() != '$') {
-            rule.warning = UiSettings::Instance().Text(UiText::UnwantedRegexSafetyUnanchored);
-        }
-
-        try {
-            auto flags = std::regex_constants::ECMAScript | std::regex_constants::optimize;
-            if (rule.nocase) {
-                flags |= std::regex_constants::icase;
-            }
-            rule.compiledRegex.emplace(rule.text, flags);
-        } catch (const std::regex_error& error) {
-            rule.error = error.what();
+        snapshot->rules.push_back(RuntimeRule{rule.id, rule.prepared});
+        if (rule.type == RuleType::Regex) {
+            ++snapshot->regexRules;
+        } else if (rule.nocase) {
+            snapshot->hasNoCaseLiteral = true;
         }
     }
+    std::lock_guard lock(snapshotMutex_);
+    runtimeSnapshot_ = std::move(snapshot);
 }
 
 std::string UnwantedMessagesModule::AllocateRuleId() {
     return "unwanted-" + std::to_string(nextRuleSerial_++);
 }
 
-std::vector<std::string> UnwantedMessagesModule::BuildCandidates(const UnwantedMessageContext& context) const {
-    std::vector<std::string> candidates;
-    AddUnique(candidates, NormalizeCandidate(context.text));
+std::vector<std::string> UnwantedMessagesModule::BuildCandidates(
+    const UnwantedMessageContext& context,
+    const Settings& settings) const {
+    std::vector<std::string> rawCandidates;
+    rawCandidates.reserve(8);
+    AddUnique(rawCandidates, context.text);
 
+    // SA:MP may pass the prefix and text separately. Depending on the chat type,
+    // the text already starts with its own separator (often after a color tag),
+    // so retain both API representations without changing the legacy one.
     if (!context.prefix.empty()) {
-        AddUnique(candidates, NormalizeCandidate(context.prefix + " " + context.text));
+        AddUnique(rawCandidates, context.prefix + " " + context.text);
+        AddUnique(rawCandidates, context.prefix + context.text);
     }
 
     if (context.playerId >= 0) {
         const std::string id = std::to_string(context.playerId);
         const bool hasName = !context.playerName.empty() && context.playerName != "UNKNOWN";
         if (hasName) {
-            AddUnique(candidates, NormalizeCandidate(context.playerName + "[" + id + "]: " + context.text));
-            AddUnique(candidates, NormalizeCandidate(context.playerName + ": " + context.text));
-            AddUnique(candidates, NormalizeCandidate(context.playerName + " " + context.text));
+            AddUnique(rawCandidates, context.playerName + "[" + id + "]: " + context.text);
+            AddUnique(rawCandidates, context.playerName + ": " + context.text);
+            if (context.prefix != context.playerName) {
+                AddUnique(rawCandidates, context.playerName + " " + context.text);
+            }
         }
-        AddUnique(candidates, NormalizeCandidate("[" + id + "] " + context.text));
-        AddUnique(candidates, NormalizeCandidate(id + " " + context.text));
+        AddUnique(rawCandidates, "[" + id + "] " + context.text);
+        AddUnique(rawCandidates, id + " " + context.text);
+    }
+
+    std::vector<std::string> candidates;
+    candidates.reserve(rawCandidates.size() * 2);
+    for (const std::string& rawCandidate : rawCandidates) {
+        AddUnique(candidates, NormalizeCandidate(rawCandidate, settings));
+    }
+
+    // Formatting codes are not visible to the player. Keep raw candidates for
+    // color-aware legacy rules, but also expose the rendered text so a rule made
+    // from copied/visible chat behaves exactly like the editor tester.
+    if (!settings.normalizer.stripColors) {
+        for (const std::string& rawCandidate : rawCandidates) {
+            const std::string visibleCandidate = StripColorTags(rawCandidate);
+            if (visibleCandidate != rawCandidate) {
+                AddUnique(candidates, NormalizeCandidate(visibleCandidate, settings));
+            }
+        }
     }
 
     return candidates;
 }
 
-std::string UnwantedMessagesModule::NormalizeCandidate(std::string_view text) const {
+std::string UnwantedMessagesModule::NormalizeCandidate(std::string_view text, const Settings& settings) const {
     std::string result(text);
-    if (settings_.normalizer.stripColors) {
+    if (settings.normalizer.stripColors) {
         result = StripColorTags(result);
     }
-    if (settings_.normalizer.collapseWhitespace) {
+    if (settings.normalizer.collapseWhitespace) {
         result = CollapseWhitespace(result);
     }
-    if (settings_.normalizer.trim) {
+    if (settings.normalizer.trim) {
         result = TrimAscii(result);
     }
     return result;
 }
 
+std::string UnwantedMessagesModule::NormalizeCandidate(std::string_view text) const {
+    return NormalizeCandidate(text, settings_);
+}
+
 bool UnwantedMessagesModule::MatchCandidates(
+    const RuntimeSnapshot& snapshot,
     const std::vector<std::string>& candidates,
+    const std::vector<std::string>& foldedCandidates,
     UnwantedMessageSource source,
-    MatchResult* result) const {
-    for (const std::string& candidate : candidates) {
-        for (const Rule& rule : rules_) {
-            if (!rule.enabled || !rule.error.empty()) {
+    MatchResult* result,
+    std::size_t& actualChecks,
+    std::vector<unsigned char>& evaluationState,
+    std::vector<unwanted_regex::MatchResult>& runtimeErrors) const {
+    for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex) {
+        const std::string& candidate = candidates[candidateIndex];
+        const std::string_view foldedCandidate = foldedCandidates.empty()
+            ? std::string_view{}
+            : std::string_view(foldedCandidates[candidateIndex]);
+        for (std::size_t ruleIndex = 0; ruleIndex < snapshot.rules.size(); ++ruleIndex) {
+            const RuntimeRule& rule = snapshot.rules[ruleIndex];
+            ++actualChecks;
+            const unwanted_regex::MatchResult match = MatchRule(rule, candidate, foldedCandidate);
+            if (match.status != unwanted_regex::MatchStatus::Match
+                && match.status != unwanted_regex::MatchStatus::NoMatch) {
+                evaluationState[ruleIndex] = 2;
+                runtimeErrors[ruleIndex] = match;
                 continue;
             }
-            if (!MatchRule(rule, candidate)) {
+            if (evaluationState[ruleIndex] == 0) {
+                evaluationState[ruleIndex] = 1;
+            }
+            if (match.status != unwanted_regex::MatchStatus::Match) {
                 continue;
             }
 
             if (result) {
                 result->matched = true;
                 result->ruleId = rule.id;
-                result->ruleText = rule.text;
+                result->ruleText = rule.prepared ? rule.prepared->text : std::string{};
                 result->candidate = candidate;
                 result->source = source;
             }
@@ -1210,19 +1542,32 @@ bool UnwantedMessagesModule::MatchCandidates(
     return false;
 }
 
-bool UnwantedMessagesModule::MatchRule(const Rule& rule, std::string_view candidate) const {
-    if (rule.type == RuleType::Literal) {
-        return MatchLiteral(rule, candidate);
+unwanted_regex::MatchResult UnwantedMessagesModule::MatchRule(
+    const RuntimeRule& rule,
+    std::string_view candidate,
+    std::string_view foldedCandidate) const {
+    if (!rule.prepared) {
+        return {unwanted_regex::MatchStatus::NoMatch, 0};
     }
-    if (!rule.compiledRegex) {
-        return false;
+    if (rule.prepared->type == RuleType::Literal) {
+        return {
+            MatchLiteral(*rule.prepared, candidate, foldedCandidate)
+                ? unwanted_regex::MatchStatus::Match
+                : unwanted_regex::MatchStatus::NoMatch,
+            0};
     }
-    return std::regex_search(candidate.begin(), candidate.end(), *rule.compiledRegex);
+    if (!rule.prepared->compiledRegex) {
+        return {unwanted_regex::MatchStatus::NoMatch, 0};
+    }
+    return rule.prepared->compiledRegex->Match(candidate);
 }
 
-bool UnwantedMessagesModule::MatchLiteral(const Rule& rule, std::string_view candidate) const {
-    const std::string haystack = rule.nocase ? Utf8ToLower(candidate) : std::string(candidate);
-    const std::string needle = rule.nocase ? Utf8ToLower(rule.text) : rule.text;
+bool UnwantedMessagesModule::MatchLiteral(
+    const PreparedRule& rule,
+    std::string_view candidate,
+    std::string_view foldedCandidate) const {
+    const std::string_view haystack = rule.nocase ? foldedCandidate : candidate;
+    const std::string_view needle = rule.literalNeedle;
     if (needle.empty()) {
         return false;
     }
@@ -1239,82 +1584,35 @@ bool UnwantedMessagesModule::MatchLiteral(const Rule& rule, std::string_view can
     return false;
 }
 
-void UnwantedMessagesModule::DrawHeader(bool& reload) {
-    UiSettings& ui = UiSettings::Instance();
-    const UnwantedVisualStyle visual = UnwantedStyleTokens();
-    const float height = ScaleUi(92.0f);
-
-    if (!BeginUnwantedPanel("##unwanted_header", ImVec2(0.0f, height))) {
-        EndUnwantedPanel();
-        return;
+void UnwantedMessagesModule::ApplyRuntimeEvaluation(
+    const RuntimeSnapshot& snapshot,
+    const std::vector<unsigned char>& evaluationState,
+    const std::vector<unwanted_regex::MatchResult>& runtimeErrors,
+    std::vector<RegexLogEvent>& logs) {
+    {
+        std::lock_guard lock(snapshotMutex_);
+        if (runtimeSnapshot_.get() != &snapshot) {
+            return;
+        }
     }
-
-    if (UnwantedTextButton(ui_icons::ChevronLeft, ui.Text(UiText::EditorBack), "##unwanted_back", ScaleUi(112.0f, 0.0f))) {
-        miscPageOpen_ = false;
-        EndUnwantedPanel();
-        return;
+    const std::uint64_t nowMs = UnwantedPerfTickMs();
+    std::lock_guard lock(statusMutex_);
+    for (std::size_t i = 0; i < snapshot.rules.size(); ++i) {
+        if (evaluationState[i] == 0) {
+            continue;
+        }
+        RuntimeWarningState& state = runtimeWarnings_[snapshot.rules[i].id];
+        if (evaluationState[i] == 1) {
+            state.status.clear();
+            continue;
+        }
+        const unwanted_regex::MatchResult& error = runtimeErrors[i];
+        state.status = unwanted_regex::MatchStatusName(error.status);
+        if (nowMs - state.lastLogMs >= kPerfTelemetryWindowMs) {
+            state.lastLogMs = nowMs;
+            logs.push_back(RegexLogEvent{snapshot.rules[i].id, state.status, error.errorCode});
+        }
     }
-    ImGui::SameLine();
-    ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", ui.Text(UiText::TabMisc));
-
-    const std::size_t invalid = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) {
-        return !rule.error.empty();
-    });
-    const std::size_t warnings = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) {
-        return rule.error.empty() && !rule.warning.empty();
-    });
-    const std::size_t enabled = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) {
-        return rule.enabled;
-    });
-
-    ImGui::SameLine();
-    ImGui::TextColored(
-        visual.mutedText,
-        "%s",
-        ui.Format(
-            UiText::UnwantedStatsCompact,
-            std::to_string(rules_.size()).c_str(),
-            std::to_string(enabled).c_str(),
-            std::to_string(invalid).c_str(),
-            std::to_string(warnings).c_str(),
-            std::to_string(blockedCount_).c_str()).c_str());
-
-    ImGui::Spacing();
-    bool enabledSetting = settings_.enabled;
-    if (ImGui::Checkbox(ui.Text(UiText::UnwantedEnabled), &enabledSetting)) {
-        settings_.enabled = enabledSetting;
-        SaveConfig();
-    }
-    ImGui::SameLine();
-    if (UnwantedTextButton(ui_icons::Plus, ui.Text(UiText::UnwantedNewRule), "##unwanted_new_rule", ScaleUi(136.0f, 0.0f))) {
-        StartCreateRule();
-    }
-    ImGui::SameLine();
-    if (UnwantedTextButton(ui_icons::Sliders, ui.Text(UiText::UnwantedTools), "##unwanted_tools", ScaleUi(132.0f, 0.0f))) {
-        ImGui::OpenPopup("##unwanted_settings_popup");
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(ui.Text(UiText::UnwantedReload), ScaleUi(124.0f, 0.0f))) {
-        reload = true;
-    }
-
-    if (lastBlocked_.matched) {
-        ImGui::TextDisabled(
-            "%s",
-            ui.Format(
-                UiText::UnwantedLastBlocked,
-                SourceLabel(lastBlocked_.source).c_str(),
-                lastBlocked_.ruleId.c_str(),
-                lastBlocked_.candidate.c_str()).c_str());
-    } else {
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedLastBlockedEmpty));
-    }
-
-    DrawSettingsPopup();
-    EndUnwantedPanel();
-    ImGui::Spacing();
 }
 
 void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
@@ -1357,7 +1655,20 @@ void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
     }
 
     const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::UnwantedSearchHint);
+    ImGui::SetNextItemWidth(-1.0f);
     InputTextWithHintString("##unwanted_rule_search", searchHint.c_str(), ruleSearch_, ImGuiInputTextFlags_AutoSelectAll, 128);
+    const char* sortLabel = ui.Text(UiText::UnwantedSortStored);
+    if (ruleSort_ == RuleSort::Name) sortLabel = ui.Text(UiText::UnwantedSortName);
+    if (ruleSort_ == RuleSort::Type) sortLabel = ui.Text(UiText::UnwantedSortByType);
+    if (ruleSort_ == RuleSort::Status) sortLabel = ui.Text(UiText::UnwantedSortStatus);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x < ScaleUi(360.0f) ? -1.0f : ScaleUi(190.0f));
+    if (ImGui::BeginCombo("##unwanted_sort", sortLabel)) {
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedSortStored), ruleSort_ == RuleSort::Stored)) ruleSort_ = RuleSort::Stored;
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedSortName), ruleSort_ == RuleSort::Name)) ruleSort_ = RuleSort::Name;
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedSortByType), ruleSort_ == RuleSort::Type)) ruleSort_ = RuleSort::Type;
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedSortStatus), ruleSort_ == RuleSort::Status)) ruleSort_ = RuleSort::Status;
+        ImGui::EndCombo();
+    }
 
     const float wrapRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     bool firstChip = true;
@@ -1392,6 +1703,25 @@ void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
             visible.push_back(i);
         }
     }
+    if (ruleSort_ != RuleSort::Stored) {
+        std::stable_sort(visible.begin(), visible.end(), [&](std::size_t leftIndex, std::size_t rightIndex) {
+            const Rule& left = rules_[leftIndex];
+            const Rule& right = rules_[rightIndex];
+            if (ruleSort_ == RuleSort::Name) {
+                return left.sortNameLower < right.sortNameLower;
+            }
+            if (ruleSort_ == RuleSort::Type) {
+                return left.type < right.type;
+            }
+            const int leftStatus = !left.error.empty() ? 0
+                : left.duplicate ? 1
+                : runtimeWarningsView_.find(left.id) != runtimeWarningsView_.end() || !left.warning.empty() ? 2 : 3;
+            const int rightStatus = !right.error.empty() ? 0
+                : right.duplicate ? 1
+                : runtimeWarningsView_.find(right.id) != runtimeWarningsView_.end() || !right.warning.empty() ? 2 : 3;
+            return leftStatus < rightStatus;
+        });
+    }
 
     ImGui::TextDisabled(
         "%s",
@@ -1417,19 +1747,38 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
 
     const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
         | ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_ScrollY
         | ImGuiTableFlags_NoSavedSettings
         | ImGuiTableFlags_BordersInnerH;
-    if (!ImGui::BeginTable("##unwanted_rules_table", 7, flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y))) {
+    const bool compact = ImGui::GetContentRegionAvail().x < ScaleUi(760.0f);
+    const int columnCount = compact ? 4 : 7;
+    if (!ImGui::BeginTable("##unwanted_rules_table", columnCount, flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y))) {
         return;
     }
 
     ImGui::TableSetupColumn("sel", ImGuiTableColumnFlags_WidthFixed, ScaleUi(28.0f));
     ImGui::TableSetupColumn("enabled", ImGuiTableColumnFlags_WidthFixed, ScaleUi(34.0f));
-    ImGui::TableSetupColumn("type", ImGuiTableColumnFlags_WidthFixed, ScaleUi(76.0f));
-    ImGui::TableSetupColumn("text", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("flags", ImGuiTableColumnFlags_WidthFixed, ScaleUi(118.0f));
-    ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, ScaleUi(86.0f));
-    ImGui::TableSetupColumn("actions", ImGuiTableColumnFlags_WidthFixed, ScaleUi(44.0f));
+    if (compact) {
+        ImGui::TableSetupColumn("summary", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("actions", ImGuiTableColumnFlags_WidthFixed, ScaleUi(44.0f));
+    } else {
+        ImGui::TableSetupColumn("type", ImGuiTableColumnFlags_WidthFixed, ScaleUi(76.0f));
+        ImGui::TableSetupColumn("text", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("flags", ImGuiTableColumnFlags_WidthFixed, ScaleUi(118.0f));
+        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, ScaleUi(86.0f));
+        ImGui::TableSetupColumn("actions", ImGuiTableColumnFlags_WidthFixed, ScaleUi(44.0f));
+    }
+
+    if (!scrollToRuleId_.empty()) {
+        const auto target = std::find_if(visibleIndices.begin(), visibleIndices.end(), [&](std::size_t index) {
+            return index < rules_.size() && rules_[index].id == scrollToRuleId_;
+        });
+        if (target != visibleIndices.end()) {
+            const float row = static_cast<float>(std::distance(visibleIndices.begin(), target));
+            ImGui::SetScrollY(std::max(0.0f, row * ImGui::GetTextLineHeightWithSpacing() - ImGui::GetWindowHeight() * 0.4f));
+        }
+        scrollToRuleId_.clear();
+    }
 
     ImGuiListClipper clipper;
     clipper.Begin(static_cast<int>(visibleIndices.size()));
@@ -1449,8 +1798,73 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
 
             ImGui::TableSetColumnIndex(1);
             if (ImGui::Checkbox("##enabled", &rule.enabled)) {
-                CompileRules();
+                PublishRuntimeSnapshot();
                 SaveConfig();
+            }
+
+            if (compact) {
+                ImGui::TableSetColumnIndex(2);
+                std::string visibleLabel = rule.name.empty()
+                    ? (rule.text.empty() ? rule.id : rule.text)
+                    : rule.name + "  —  " + rule.text;
+                if (ImGui::Selectable((visibleLabel + "##rule_select_compact").c_str(), active)) {
+                    StartEditRule(rule.id);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    ImGui::SetTooltip("%s", rule.text.empty() ? rule.id.c_str() : rule.text.c_str());
+                }
+                std::string meta = rule.type == RuleType::Regex
+                    ? ui.Text(UiText::UnwantedTypeRegex)
+                    : ui.Text(UiText::UnwantedTypeLiteral);
+                if (rule.nocase) meta += std::string(" · ") + ui.Text(UiText::UnwantedNoCase);
+                if (rule.wholeWord) meta += std::string(" · ") + ui.Text(UiText::UnwantedWholeWord);
+                if (!rule.error.empty()) meta += std::string(" · ") + ui.Text(UiText::UnwantedInvalidRule);
+                else if (rule.duplicate) meta += std::string(" · ") + ui.Text(UiText::UnwantedDuplicate);
+                else if (runtimeWarningsView_.find(rule.id) != runtimeWarningsView_.end()) {
+                    meta += std::string(" · ") + ui.Text(UiText::UnwantedWarning);
+                } else if (!rule.warning.empty()) meta += std::string(" · ") + ui.Text(UiText::UnwantedWarning);
+                else meta += std::string(" · ") + ui.Text(UiText::UnwantedRuleOk);
+                ImGui::TextDisabled("%s", meta.c_str());
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    if (!rule.error.empty()) ImGui::SetTooltip("%s", rule.error.c_str());
+                    else if (const auto runtimeWarning = runtimeWarningsView_.find(rule.id);
+                             runtimeWarning != runtimeWarningsView_.end()) {
+                        ImGui::SetTooltip("%s", ui.Format(
+                            UiText::UnwantedRuntimeWarningFormat,
+                            RuntimeWarningDisplay(runtimeWarning->second)).c_str());
+                    } else if (!rule.warning.empty()) ImGui::SetTooltip("%s", rule.warning.c_str());
+                }
+
+                ImGui::TableSetColumnIndex(3);
+                if (ImGui::SmallButton("...")) {
+                    ImGui::OpenPopup("##rule_actions_compact");
+                }
+                if (ImGui::BeginPopup("##rule_actions_compact")) {
+                    if (ImGui::MenuItem(ui.Text(UiText::Edit))) StartEditRule(rule.id);
+                    if (ImGui::MenuItem(ui.Text(UiText::MoveUp), nullptr, false, index > 0)) {
+                        std::swap(rules_[index], rules_[index - 1]);
+                        PublishRuntimeSnapshot();
+                        SaveConfig();
+                    }
+                    if (ImGui::MenuItem(ui.Text(UiText::MoveDown), nullptr, false, index + 1 < rules_.size())) {
+                        std::swap(rules_[index], rules_[index + 1]);
+                        PublishRuntimeSnapshot();
+                        SaveConfig();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+                        selectedRuleIds_.clear();
+                        selectedRuleIds_.insert(rule.id);
+                        deleteSelectedConfirmOpen_ = true;
+                        ImGui::EndPopup();
+                        ImGui::PopID();
+                        ImGui::EndTable();
+                        return;
+                    }
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
+                continue;
             }
 
             ImGui::TableSetColumnIndex(2);
@@ -1471,7 +1885,8 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
             }
 
             ImGui::TableSetColumnIndex(3);
-            const std::string label = (rule.text.empty() ? rule.id : rule.text) + "##rule_select";
+            std::string visibleLabel = rule.name.empty() ? (rule.text.empty() ? rule.id : rule.text) : rule.name + "  —  " + rule.text;
+            const std::string label = visibleLabel + "##rule_select";
             if (ImGui::Selectable(label.c_str(), active, ImGuiSelectableFlags_SpanAvailWidth)) {
                 StartEditRule(rule.id);
             }
@@ -1502,6 +1917,16 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                     ImGui::SetTooltip("%s", rule.error.c_str());
                 }
+            } else if (IsDuplicateRule(index)) {
+                ImGui::TextColored(visual.warn, "%s", ui.Text(UiText::UnwantedDuplicate));
+            } else if (const auto runtimeWarning = runtimeWarningsView_.find(rule.id);
+                       runtimeWarning != runtimeWarningsView_.end()) {
+                ImGui::TextColored(
+                    visual.warn,
+                    "%s",
+                    ui.Format(
+                        UiText::UnwantedRuntimeWarningFormat,
+                        RuntimeWarningDisplay(runtimeWarning->second)).c_str());
             } else if (!rule.warning.empty()) {
                 ImGui::TextColored(visual.warn, "%s", ui.Text(UiText::UnwantedWarning));
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
@@ -1521,15 +1946,19 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
                 }
                 if (ImGui::MenuItem(ui.Text(UiText::MoveUp), nullptr, false, index > 0)) {
                     std::swap(rules_[index], rules_[index - 1]);
+                    PublishRuntimeSnapshot();
                     SaveConfig();
                 }
                 if (ImGui::MenuItem(ui.Text(UiText::MoveDown), nullptr, false, index + 1 < rules_.size())) {
                     std::swap(rules_[index], rules_[index + 1]);
+                    PublishRuntimeSnapshot();
                     SaveConfig();
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
-                    DeleteRuleByIndex(index);
+                    selectedRuleIds_.clear();
+                    selectedRuleIds_.insert(rules_[index].id);
+                    deleteSelectedConfirmOpen_ = true;
                     ImGui::EndPopup();
                     ImGui::PopID();
                     ImGui::EndTable();
@@ -1545,23 +1974,7 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
     ImGui::EndTable();
 }
 
-void UnwantedMessagesModule::DrawInspectorPane(const ImVec2& size) {
-    if (!BeginUnwantedPanel("##unwanted_inspector_pane", size)) {
-        EndUnwantedPanel();
-        return;
-    }
-
-    DrawRegexHelperWizard();
-    ImGui::Spacing();
-    ImGui::Separator();
-    DrawRuleEditor();
-    ImGui::Spacing();
-    ImGui::Separator();
-    DrawTesterPanel();
-    EndUnwantedPanel();
-}
-
-void UnwantedMessagesModule::DrawRuleEditor() {
+bool UnwantedMessagesModule::DrawRuleEditor(bool popupMode) {
     UiSettings& ui = UiSettings::Instance();
     const UnwantedVisualStyle visual = UnwantedStyleTokens();
 
@@ -1570,21 +1983,36 @@ void UnwantedMessagesModule::DrawRuleEditor() {
         if (ImGui::Button(ui.Text(UiText::UnwantedNewRule), ScaleUi(150.0f, 0.0f))) {
             StartCreateRule();
         }
-        return;
+        return false;
     }
 
     ImGui::Text("%s", ui.Text(ruleDraft_.createMode ? UiText::UnwantedCreateRuleTitle : UiText::UnwantedEditRuleTitle));
-    ImGui::SameLine();
     if (!ruleDraft_.createMode) {
+        ImGui::SameLine();
         ImGui::TextDisabled("%s", ruleDraft_.id.c_str());
     }
 
     bool changed = false;
+    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRuleName));
+    ImGui::SetNextItemWidth(-1.0f);
+    changed |= InputTextWithHintString(
+        "##unwanted_rule_name",
+        ui.Text(UiText::UnwantedRuleNameHint),
+        ruleDraft_.name,
+        ImGuiInputTextFlags_AutoSelectAll,
+        128);
+
+    const float controlsRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedRuleEnabled), &ruleDraft_.enabled);
-    ImGui::SameLine();
+    if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + ScaleUi(130.0f) <= controlsRight) {
+        ImGui::SameLine();
+    }
     const char* typePreview = ruleDraft_.type == RuleType::Regex ? ui.Text(UiText::UnwantedTypeRegex) : ui.Text(UiText::UnwantedTypeLiteral);
     ImGui::SetNextItemWidth(ScaleUi(130.0f));
-    if (ImGui::BeginCombo("##unwanted_draft_type", typePreview)) {
+    const bool typeComboOpen = ImGui::BeginCombo("##unwanted_draft_type", typePreview);
+    DrawUnwantedTooltip(ui.Text(
+        ruleDraft_.type == RuleType::Regex ? UiText::UnwantedTypeRegexHelp : UiText::UnwantedTypeLiteralHelp));
+    if (typeComboOpen) {
         if (ImGui::Selectable(ui.Text(UiText::UnwantedTypeLiteral), ruleDraft_.type == RuleType::Literal)) {
             ruleDraft_.type = RuleType::Literal;
             changed = true;
@@ -1596,9 +2024,15 @@ void UnwantedMessagesModule::DrawRuleEditor() {
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
+
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedNoCase), &ruleDraft_.nocase);
-    ImGui::SameLine();
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedNoCaseHelp));
+    const float wholeWordWidth = ImGui::GetFrameHeight()
+        + ImGui::GetStyle().ItemInnerSpacing.x
+        + ImGui::CalcTextSize(ui.Text(UiText::UnwantedWholeWord)).x;
+    if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + wholeWordWidth <= controlsRight) {
+        ImGui::SameLine();
+    }
     ImGui::BeginDisabled(ruleDraft_.type != RuleType::Literal);
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedWholeWord), &ruleDraft_.wholeWord);
     ImGui::EndDisabled();
@@ -1607,39 +2041,25 @@ void UnwantedMessagesModule::DrawRuleEditor() {
     changed |= InputTextMultilineString(
         "##unwanted_draft_text",
         ruleDraft_.text,
-        ImVec2(0.0f, ScaleUi(92.0f)),
+        ImVec2(-1.0f, ScaleUi(92.0f)),
         ImGuiInputTextFlags_None,
         1024);
+    DrawUnwantedTooltip(ui.Text(
+        ruleDraft_.type == RuleType::Regex ? UiText::UnwantedTypeRegexHelp : UiText::UnwantedTypeLiteralHelp));
     if (changed) {
         ruleDraft_.dirty = true;
+        lastTesterMatch_ = {};
     }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    DrawTesterPanel();
+    ImGui::Spacing();
 
     std::string draftError;
     std::string draftWarning;
-    const std::string trimmed = TrimAscii(ruleDraft_.text);
-    if (trimmed.empty()) {
-        draftError = ui.Text(UiText::UnwantedErrorEmpty);
-    } else if (static_cast<int>(trimmed.size()) > settings_.maxPatternLength) {
-        draftError = ui.Format(UiText::UnwantedErrorTooLong, std::to_string(settings_.maxPatternLength).c_str());
-    } else if (ruleDraft_.type == RuleType::Regex) {
-        if (RegexLooksTooBroad(trimmed) || RegexHasRepeatedWildcard(trimmed) || RegexHasNestedQuantifier(trimmed)) {
-            draftError = ui.Text(UiText::UnwantedRegexSafetyBlocked);
-        } else {
-            if (trimmed.front() != '^' && trimmed.back() != '$') {
-                draftWarning = ui.Text(UiText::UnwantedRegexSafetyUnanchored);
-            }
-            try {
-                auto flags = std::regex_constants::ECMAScript | std::regex_constants::optimize;
-                if (ruleDraft_.nocase) {
-                    flags |= std::regex_constants::icase;
-                }
-                const std::regex compiled(trimmed, flags);
-                (void)compiled;
-            } catch (const std::regex_error& error) {
-                draftError = error.what();
-            }
-        }
-    }
+    ValidateDraft(draftError, draftWarning);
 
     if (!draftError.empty()) {
         ImGui::TextColored(visual.danger, "%s", draftError.c_str());
@@ -1657,12 +2077,25 @@ void UnwantedMessagesModule::DrawRuleEditor() {
     if (!ruleDraft_.createMode) {
         ImGui::SameLine();
         if (UnwantedTextButton(ui_icons::Delete, ui.Text(UiText::Delete), "##unwanted_delete_rule", ScaleUi(132.0f, 0.0f))) {
-            const int index = FindRuleIndexById(ruleDraft_.id);
-            if (index >= 0) {
-                DeleteRuleByIndex(static_cast<std::size_t>(index));
+            selectedRuleIds_.clear();
+            selectedRuleIds_.insert(ruleDraft_.id);
+            deleteSelectedConfirmOpen_ = true;
+        }
+    }
+    if (popupMode) {
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(132.0f, 0.0f))) {
+            if (ruleDraft_.dirty) {
+                pendingPageAfterDiscard_ = Page::Rules;
+                unsavedConfirmOpen_ = true;
+            } else {
+                editPopupOpen_ = false;
+                ruleDraft_ = {};
+                ImGui::CloseCurrentPopup();
             }
         }
     }
+    return draftError.empty();
 }
 
 void UnwantedMessagesModule::DrawTesterPanel() {
@@ -1670,23 +2103,68 @@ void UnwantedMessagesModule::DrawTesterPanel() {
     const UnwantedVisualStyle visual = UnwantedStyleTokens();
 
     ImGui::Text("%s", ui.Text(UiText::UnwantedTester));
-    InputTextWithHintString("##unwanted_test_text", ui.Text(UiText::UnwantedTesterHint), testText_, ImGuiInputTextFlags_AutoSelectAll, 1024);
-    const std::string normalized = NormalizeCandidate(testText_);
-    if (!testText_.empty()) {
-        ImGui::TextDisabled("%s", ui.Format(UiText::UnwantedTesterNormalizedFormat, normalized.c_str()).c_str());
+    const float actionWidth = ScaleUi(132.0f);
+    const float availableWidth = ImGui::GetContentRegionAvail().x;
+    const bool inlineAction = availableWidth >= ScaleUi(360.0f);
+    if (inlineAction) {
+        ImGui::SetNextItemWidth(std::max(
+            ScaleUi(160.0f),
+            availableWidth - actionWidth - ImGui::GetStyle().ItemSpacing.x));
+    } else {
+        ImGui::SetNextItemWidth(-1.0f);
     }
-
-    if (UnwantedTextButton(ui_icons::Check, ui.Text(UiText::UnwantedTestAction), "##unwanted_test", ScaleUi(132.0f, 0.0f))) {
-        UnwantedMessageContext context;
-        context.source = UnwantedMessageSource::CChatAddEntry;
-        context.text = testText_;
-        MatchResult result;
+    const bool testerTextChanged = InputTextWithHintString(
+        "##unwanted_test_text",
+        ui.Text(UiText::UnwantedTesterHint),
+        testText_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        1024);
+    if (testerTextChanged) {
         lastTesterMatch_ = {};
-        if (MatchCandidates(BuildCandidates(context), context.source, &result)) {
-            lastTesterMatch_ = std::move(result);
-            selectedRuleIds_.clear();
-            selectedRuleIds_.insert(lastTesterMatch_.ruleId);
-            StartEditRule(lastTesterMatch_.ruleId);
+    }
+    if (inlineAction) {
+        ImGui::SameLine();
+    }
+    const bool testRequested = UnwantedTextButton(
+        ui_icons::Check,
+        ui.Text(UiText::UnwantedTestAction),
+        "##unwanted_test",
+        ImVec2(actionWidth, 0.0f));
+    const std::string normalized = NormalizeCandidate(testText_);
+    ImGui::TextDisabled(
+        "%s",
+        ui.Format(
+            UiText::UnwantedTesterNormalizedFormat,
+            std::to_string(Utf8CharacterOffset(normalized, normalized.size())).c_str(),
+            normalized.c_str()).c_str());
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedTesterEmptyHint));
+    ImGui::PopStyleColor();
+
+    if (testRequested) {
+        lastTesterMatch_ = {};
+        const std::string candidate = NormalizeCandidate(testText_);
+        bool matched = false;
+        if (ruleDraft_.active) {
+            if (ruleDraft_.type == RuleType::Literal) {
+                PreparedRule temporary;
+                temporary.type = RuleType::Literal;
+                temporary.text = TrimAscii(ruleDraft_.text);
+                temporary.nocase = ruleDraft_.nocase;
+                temporary.wholeWord = ruleDraft_.wholeWord;
+                temporary.literalNeedle = temporary.nocase ? Utf8ToLower(temporary.text) : temporary.text;
+                const std::string folded = temporary.nocase ? Utf8ToLower(candidate) : std::string{};
+                matched = MatchLiteral(temporary, candidate, folded);
+            } else {
+                unwanted_regex::CompileResult compiled = unwanted_regex::Compile(TrimAscii(ruleDraft_.text), ruleDraft_.nocase);
+                matched = compiled.program
+                    && compiled.program->Match(candidate).status == unwanted_regex::MatchStatus::Match;
+            }
+        }
+        if (matched) {
+            lastTesterMatch_.matched = true;
+            lastTesterMatch_.ruleId = ruleDraft_.createMode ? "__draft__" : ruleDraft_.id;
+            lastTesterMatch_.candidate = candidate;
         }
     }
 
@@ -1694,10 +2172,7 @@ void UnwantedMessagesModule::DrawTesterPanel() {
         ImGui::TextColored(
             visual.ok,
             "%s",
-            ui.Format(
-                UiText::UnwantedTesterMatched,
-                lastTesterMatch_.ruleId.c_str(),
-                lastTesterMatch_.candidate.c_str()).c_str());
+            ui.Text(UiText::UnwantedTesterMatched));
     } else {
         ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedTesterNoMatch));
     }
@@ -1708,7 +2183,22 @@ void UnwantedMessagesModule::DrawRegexHelperWizard() {
     const UnwantedVisualStyle visual = UnwantedStyleTokens();
 
     ImGui::Text("%s", ui.Text(UiText::UnwantedRegexHelper));
+    const float referenceWidth = ScaleUi(170.0f);
+    if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + referenceWidth
+        <= ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x) {
+        ImGui::SameLine();
+    }
+    if (UnwantedTextButton(
+            ui_icons::Book,
+            ui.Text(UiText::UnwantedRegexReference),
+            "##unwanted_regex_reference",
+            ImVec2(referenceWidth, 0.0f))) {
+        const std::string title = std::string(ui.Text(UiText::UnwantedRegexReference)) + "###unwanted_regex_reference_modal";
+        regexReferenceOpen_ = true;
+        ImGui::OpenPopup(title.c_str());
+    }
     ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperFlowHint));
+    ImGui::SetNextItemWidth(-1.0f);
     bool changed = InputTextWithHintString(
         "##unwanted_helper_sample",
         ui.Text(UiText::UnwantedHelperInputHint),
@@ -1716,19 +2206,30 @@ void UnwantedMessagesModule::DrawRegexHelperWizard() {
         ImGuiInputTextFlags_AutoSelectAll,
         1024);
 
-    const auto drawOption = [&](bool& value, UiText label) {
+    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedGeneralizations));
+    const float optionsRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    bool firstOption = true;
+    float previousOptionRight = 0.0f;
+    const auto drawOption = [&](bool& value, UiText label, UiText help) {
+        const float width = ImGui::GetFrameHeight()
+            + ImGui::GetStyle().ItemInnerSpacing.x
+            + ImGui::CalcTextSize(ui.Text(label)).x;
+        if (!firstOption && previousOptionRight + ImGui::GetStyle().ItemSpacing.x + width <= optionsRight) {
+            ImGui::SameLine();
+        }
         changed |= ImGui::Checkbox(ui.Text(label), &value);
-        ImGui::SameLine();
+        DrawUnwantedTooltip(ui.Text(help));
+        previousOptionRight = ImGui::GetItemRectMax().x;
+        firstOption = false;
     };
-    drawOption(helperAnchors_, UiText::UnwantedHelperAnchors);
-    drawOption(helperColors_, UiText::UnwantedHelperColors);
-    drawOption(helperNumbers_, UiText::UnwantedHelperNumbers);
-    drawOption(helperMoney_, UiText::UnwantedHelperMoney);
-    drawOption(helperTime_, UiText::UnwantedHelperTime);
-    drawOption(helperNick_, UiText::UnwantedHelperNick);
-    drawOption(helperPlayerId_, UiText::UnwantedHelperPlayerId);
-    drawOption(helperDomain_, UiText::UnwantedHelperDomain);
-    changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedHelperBracketTag), &helperBracketTag_);
+    drawOption(helperColors_, UiText::UnwantedHelperColors, UiText::UnwantedTokenColorHelp);
+    drawOption(helperNumbers_, UiText::UnwantedHelperNumbers, UiText::UnwantedTokenIntegerHelp);
+    drawOption(helperMoney_, UiText::UnwantedHelperMoney, UiText::UnwantedTokenMoneyHelp);
+    drawOption(helperTime_, UiText::UnwantedHelperTime, UiText::UnwantedTokenClockHelp);
+    drawOption(helperNick_, UiText::UnwantedHelperNick, UiText::UnwantedTokenNicknameHelp);
+    drawOption(helperPlayerId_, UiText::UnwantedHelperPlayerId, UiText::UnwantedTokenPlayerIdHelp);
+    drawOption(helperDomain_, UiText::UnwantedHelperDomain, UiText::UnwantedTokenDomainHelp);
+    drawOption(helperBracketTag_, UiText::UnwantedHelperBracketTag, UiText::UnwantedTokenBracketPrefixHelp);
 
     if (changed) {
         RegenerateHelperOutput();
@@ -1737,45 +2238,314 @@ void UnwantedMessagesModule::DrawRegexHelperWizard() {
         RegenerateHelperOutput();
     }
 
-    const auto drawVariant = [&](UiText title, const std::string& pattern) {
+    if (!helperSample_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedNormalizedPreview));
+        ImGui::TextWrapped("%s", NormalizeCandidate(helperSample_).c_str());
+    }
+
+    if (!helperTokens_.empty()) {
+        ImGui::Spacing();
+        ImGui::Text("%s", ui.Text(UiText::UnwantedDetectedTokens));
+        const auto tokenLabel = [&](unwanted_regex_builder::TokenKind kind) {
+            switch (kind) {
+            case unwanted_regex_builder::TokenKind::Color: return ui.Text(UiText::UnwantedTokenColor);
+            case unwanted_regex_builder::TokenKind::PlayerId: return ui.Text(UiText::UnwantedTokenPlayerId);
+            case unwanted_regex_builder::TokenKind::BracketPrefix: return ui.Text(UiText::UnwantedTokenBracketPrefix);
+            case unwanted_regex_builder::TokenKind::Nickname: return ui.Text(UiText::UnwantedTokenNickname);
+            case unwanted_regex_builder::TokenKind::Integer: return ui.Text(UiText::UnwantedTokenInteger);
+            case unwanted_regex_builder::TokenKind::Decimal: return ui.Text(UiText::UnwantedTokenDecimal);
+            case unwanted_regex_builder::TokenKind::Percentage: return ui.Text(UiText::UnwantedTokenPercentage);
+            case unwanted_regex_builder::TokenKind::CompactAmount: return ui.Text(UiText::UnwantedTokenCompactAmount);
+            case unwanted_regex_builder::TokenKind::Money: return ui.Text(UiText::UnwantedTokenMoney);
+            case unwanted_regex_builder::TokenKind::Clock: return ui.Text(UiText::UnwantedTokenClock);
+            case unwanted_regex_builder::TokenKind::Duration: return ui.Text(UiText::UnwantedTokenDuration);
+            case unwanted_regex_builder::TokenKind::Domain: return ui.Text(UiText::UnwantedTokenDomain);
+            default: return "?";
+            }
+        };
+        const auto tokenHelp = [&](unwanted_regex_builder::TokenKind kind) {
+            switch (kind) {
+            case unwanted_regex_builder::TokenKind::Color: return ui.Text(UiText::UnwantedTokenColorHelp);
+            case unwanted_regex_builder::TokenKind::PlayerId: return ui.Text(UiText::UnwantedTokenPlayerIdHelp);
+            case unwanted_regex_builder::TokenKind::BracketPrefix: return ui.Text(UiText::UnwantedTokenBracketPrefixHelp);
+            case unwanted_regex_builder::TokenKind::Nickname: return ui.Text(UiText::UnwantedTokenNicknameHelp);
+            case unwanted_regex_builder::TokenKind::Integer: return ui.Text(UiText::UnwantedTokenIntegerHelp);
+            case unwanted_regex_builder::TokenKind::Decimal: return ui.Text(UiText::UnwantedTokenDecimalHelp);
+            case unwanted_regex_builder::TokenKind::Percentage: return ui.Text(UiText::UnwantedTokenPercentageHelp);
+            case unwanted_regex_builder::TokenKind::CompactAmount: return ui.Text(UiText::UnwantedTokenCompactAmountHelp);
+            case unwanted_regex_builder::TokenKind::Money: return ui.Text(UiText::UnwantedTokenMoneyHelp);
+            case unwanted_regex_builder::TokenKind::Clock: return ui.Text(UiText::UnwantedTokenClockHelp);
+            case unwanted_regex_builder::TokenKind::Duration: return ui.Text(UiText::UnwantedTokenDurationHelp);
+            case unwanted_regex_builder::TokenKind::Domain: return ui.Text(UiText::UnwantedTokenDomainHelp);
+            default: return "";
+            }
+        };
+        for (const auto& token : helperTokens_) {
+            ImGui::PushID(static_cast<int>(token.offset));
+            TextBadge(tokenLabel(token.kind), visual.accent);
+            DrawUnwantedTooltip(tokenHelp(token.kind));
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s  ->  %s", token.source.c_str(), token.pattern.c_str());
+            ImGui::PopID();
+        }
+    }
+
+    if (!helperWarning_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(visual.warn, "%s", helperWarning_.c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("%s", ui.Text(UiText::UnwantedRegexVariants));
+    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexVariantsHint));
+    const ImGuiTableFlags variantFlags = ImGuiTableFlags_SizingStretchProp
+        | ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_BordersInnerH
+        | ImGuiTableFlags_NoSavedSettings;
+    const bool variantsVisible = ImGui::BeginTable("##unwanted_regex_variants", 3, variantFlags);
+    if (variantsVisible) {
+        ImGui::TableSetupColumn("variant", ImGuiTableColumnFlags_WidthFixed, ScaleUi(128.0f));
+        ImGui::TableSetupColumn("pattern", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, ScaleUi(122.0f));
+    }
+
+    const auto drawVariant = [&](UiText title, const std::string& pattern, bool valid) {
         if (pattern.empty()) {
             return;
         }
         ImGui::PushID(static_cast<int>(title));
-        ImGui::Spacing();
-        ImGui::TextDisabled("%s", ui.Text(title));
-        ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextColored(valid ? visual.ok : visual.danger, "%s", ui.Text(title));
+        if (!valid && !helperWarning_.empty()) {
+            DrawUnwantedTooltip(helperWarning_.c_str());
+        }
+        ImGui::TableSetColumnIndex(1);
         ImGui::TextWrapped("%s", pattern.c_str());
-        ImGui::PopTextWrapPos();
-
-        if (RegexLooksTooBroad(pattern) || RegexHasRepeatedWildcard(pattern) || RegexHasNestedQuantifier(pattern)) {
-            ImGui::TextColored(visual.danger, "%s", ui.Text(UiText::UnwantedRegexSafetyBlocked));
-        } else if (!pattern.empty() && pattern.front() != '^' && pattern.back() != '$') {
-            ImGui::TextColored(visual.warn, "%s", ui.Text(UiText::UnwantedRegexSafetyUnanchored));
-        } else {
-            ImGui::TextColored(visual.ok, "%s", ui.Text(UiText::UnwantedRuleOk));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("%s", ui.Text(UiText::UnwantedCopy));
         }
-
-        if (ImGui::Button(ui.Text(UiText::UnwantedUseInDraft), ScaleUi(120.0f, 0.0f))) {
-            StartCreateRule(pattern, RuleType::Regex);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::UnwantedAddRuleAction), ScaleUi(120.0f, 0.0f))) {
-            const std::string id = AddRule(RuleType::Regex, pattern, false, false);
-            if (!id.empty()) {
-                StartEditRule(id);
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::UnwantedCopy), ScaleUi(108.0f, 0.0f))) {
+        if (ImGui::IsItemClicked()) {
             ImGui::SetClipboardText(pattern.c_str());
+        }
+        ImGui::TableSetColumnIndex(2);
+        if (ImGui::Button(ui.Text(UiText::UnwantedUseInDraft), ImVec2(-1.0f, 0.0f))) {
+            ruleDraft_.type = RuleType::Regex;
+            ruleDraft_.wholeWord = false;
+            ruleDraft_.text = pattern;
+            ruleDraft_.dirty = true;
         }
         ImGui::PopID();
     };
 
-    drawVariant(UiText::UnwantedHelperExact, helperExact_);
-    drawVariant(UiText::UnwantedHelperGeneralized, helperGeneralized_);
-    drawVariant(UiText::UnwantedHelperContains, helperContains_);
+    if (variantsVisible) {
+        drawVariant(UiText::UnwantedHelperGeneralized, helperGeneralized_, helperGeneralizedValid_);
+        drawVariant(UiText::UnwantedHelperExact, helperExact_, helperExactValid_);
+        drawVariant(UiText::UnwantedHelperContains, helperContains_, helperContainsValid_);
+        ImGui::EndTable();
+    }
+    DrawRegexReferencePopup();
+}
+
+void UnwantedMessagesModule::DrawRegexReferencePopup() {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string title = std::string(ui.Text(UiText::UnwantedRegexReference)) + "###unwanted_regex_reference_modal";
+    if (!regexReferenceOpen_) {
+        return;
+    }
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSizeConstraints(
+        ScaleUi(620.0f, 430.0f),
+        ImVec2(viewport->WorkSize.x * 0.94f, viewport->WorkSize.y * 0.94f));
+    ImGui::SetNextWindowSize(
+        ImVec2(viewport->WorkSize.x * 0.72f, viewport->WorkSize.y * 0.78f),
+        ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        regexReferenceOpen_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedRegexReferenceHint));
+    const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::UnwantedRegexReferenceSearch);
+    ImGui::SetNextItemWidth(-1.0f);
+    InputTextWithHintString(
+        "##unwanted_regex_reference_search",
+        searchHint.c_str(),
+        regexReferenceSearch_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        256);
+
+    const std::string loweredSearch = Utf8ToLower(TrimAscii(regexReferenceSearch_));
+    const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
+        | ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_BordersInnerH
+        | ImGuiTableFlags_BordersInnerV
+        | ImGuiTableFlags_Resizable
+        | ImGuiTableFlags_ScrollY
+        | ImGuiTableFlags_NoSavedSettings;
+    bool anyVisible = false;
+    if (ImGui::BeginTable("##unwanted_regex_reference_table", 4, flags, ImVec2(0.0f, -ScaleUi(42.0f)))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceCategory), ImGuiTableColumnFlags_WidthFixed, ScaleUi(105.0f));
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceExpression), ImGuiTableColumnFlags_WidthStretch, 0.85f);
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceDescription), ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("##append", ImGuiTableColumnFlags_WidthFixed, ScaleUi(105.0f));
+        ImGui::TableHeadersRow();
+
+        for (const RegexReferenceItem& item : kRegexReferenceItems) {
+            std::string searchable = std::string(item.expression)
+                + "\n" + ui.Text(item.category)
+                + "\n" + ui.Text(item.description);
+            searchable = Utf8ToLower(searchable);
+            if (!loweredSearch.empty() && searchable.find(loweredSearch) == std::string::npos) {
+                continue;
+            }
+            anyVisible = true;
+            ImGui::PushID(item.expression);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", ui.Text(item.category));
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextWrapped("%s", item.expression);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("%s", ui.Text(UiText::UnwantedCopy));
+            }
+            if (ImGui::IsItemClicked()) {
+                ImGui::SetClipboardText(item.expression);
+            }
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextWrapped("%s", ui.Text(item.description));
+            ImGui::TableSetColumnIndex(3);
+            if (ImGui::Button(ui.Text(UiText::UnwantedRegexReferenceAppend), ImVec2(-1.0f, 0.0f))) {
+                ruleDraft_.type = RuleType::Regex;
+                ruleDraft_.wholeWord = false;
+                ruleDraft_.text += item.expression;
+                ruleDraft_.dirty = true;
+            }
+            ImGui::PopID();
+        }
+        if (!anyVisible) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexReferenceNoResults));
+        }
+        ImGui::EndTable();
+    }
+
+    if (ImGui::Button(ui.Text(UiText::Close), ScaleUi(120.0f, 0.0f))) {
+        regexReferenceOpen_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void UnwantedMessagesModule::DrawRuleEditorPopup() {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string title = std::string(ui.Text(UiText::UnwantedEditRuleTitle)) + "###unwanted_rule_editor_modal";
+    if (editPopupRequestOpen_) {
+        editPopupRequestOpen_ = false;
+        editPopupOpen_ = true;
+        ImGui::OpenPopup(title.c_str());
+    }
+    if (editPopupForceClose_) {
+        if (ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        editPopupForceClose_ = false;
+        return;
+    }
+    if (!editPopupOpen_) {
+        return;
+    }
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSizeConstraints(
+        ScaleUi(620.0f, 480.0f),
+        ImVec2(viewport->WorkSize.x * 0.92f, viewport->WorkSize.y * 0.92f));
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.78f, viewport->WorkSize.y * 0.82f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+
+    const auto requestClose = [&] {
+        if (ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = Page::Rules;
+            unsavedConfirmOpen_ = true;
+            return false;
+        }
+        editPopupOpen_ = false;
+        ruleDraft_ = {};
+        ImGui::CloseCurrentPopup();
+        return true;
+    };
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !regexReferenceOpen_) {
+        if (requestClose()) {
+            ImGui::EndPopup();
+            return;
+        }
+    }
+    ImGui::SetCursorPosX(std::max(
+        ImGui::GetCursorPosX(),
+        ImGui::GetWindowWidth() - ScaleUi(132.0f)));
+    if (UnwantedTextButton(ui_icons::Xmark, ui.Text(UiText::Close), "##unwanted_close_editor", ScaleUi(112.0f, 0.0f))) {
+        if (requestClose()) {
+            ImGui::EndPopup();
+            return;
+        }
+    }
+    ImGui::Separator();
+
+    if (ImGui::BeginChild("##unwanted_edit_workspace", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+        DrawRegexHelperWizard();
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        DrawRuleEditor(true);
+    }
+    ImGui::EndChild();
+    ImGui::EndPopup();
+}
+
+void UnwantedMessagesModule::DrawUnsavedConfirmPopup() {
+    UiSettings& ui = UiSettings::Instance();
+    const std::string title = std::string(ui.Text(UiText::UnwantedUnsavedTitle)) + "###unwanted_unsaved_confirm";
+    if (unsavedConfirmOpen_) {
+        unsavedConfirmOpen_ = false;
+        ImGui::OpenPopup(title.c_str());
+    }
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedUnsavedDesc));
+    if (ImGui::Button(ui.Text(UiText::UnwantedDiscard), ScaleUi(150.0f, 0.0f))) {
+        editPopupForceClose_ = editPopupOpen_;
+        ruleDraft_ = {};
+        editPopupOpen_ = false;
+        regexReferenceOpen_ = false;
+        page_ = pendingPageAfterDiscard_;
+        if (reloadAfterDiscard_) {
+            reloadAfterDiscard_ = false;
+            reloadRequested_ = true;
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(150.0f, 0.0f))) {
+        reloadAfterDiscard_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void UnwantedMessagesModule::DrawSettingsPopup() {
@@ -1785,41 +2555,59 @@ void UnwantedMessagesModule::DrawSettingsPopup() {
     }
 
     bool changed = false;
+    ImGui::Text("%s", ui.Text(UiText::UnwantedCompatibility));
+    const bool previousChatAsiCompatibility = settings_.chatAsiCompatibility;
+    changed |= ImGui::Checkbox(
+        ui.Text(UiText::UnwantedChatAsiCompatibility),
+        &settings_.chatAsiCompatibility);
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedChatAsiCompatibilityHelp));
+    const bool chatAsiCompatibilityChanged =
+        previousChatAsiCompatibility != settings_.chatAsiCompatibility;
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
     ImGui::Text("%s", ui.Text(UiText::UnwantedNormalizer));
+    ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedNormalizerDesc));
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedStripColors), &settings_.normalizer.stripColors);
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedStripColorsHelp));
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedCollapseWhitespace), &settings_.normalizer.collapseWhitespace);
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedCollapseWhitespaceHelp));
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedTrim), &settings_.normalizer.trim);
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedTrimHelp));
     ImGui::SetNextItemWidth(ScaleUi(130.0f));
+    const int previousMaxPatternLength = settings_.maxPatternLength;
     changed |= ImGui::InputInt(ui.Text(UiText::UnwantedMaxPatternLength), &settings_.maxPatternLength, 0, 0);
     settings_.maxPatternLength = std::clamp(settings_.maxPatternLength, 1, kMaxConfigPatternLength);
+    const bool patternLimitChanged = previousMaxPatternLength != settings_.maxPatternLength;
 
     ImGui::Separator();
-    if (ImGui::MenuItem(ui.Text(UiText::UnwantedEnableAll))) {
-        SetAllRulesEnabled(true);
-    }
-    if (ImGui::MenuItem(ui.Text(UiText::UnwantedDisableAll))) {
-        SetAllRulesEnabled(false);
-    }
-    if (ImGui::MenuItem(ui.Text(UiText::UnwantedRemoveDuplicates))) {
-        RemoveDuplicateRules();
-    }
-    if (ImGui::MenuItem(ui.Text(UiText::UnwantedSortByType))) {
-        SortRulesByType();
-    }
-    if (ImGui::MenuItem(ui.Text(UiText::UnwantedSortByText))) {
-        SortRulesByText();
+    if (ImGui::Button(ui.Text(UiText::UnwantedReload), ScaleUi(150.0f, 0.0f))) {
+        if (ruleDraft_.active && ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = page_;
+            reloadAfterDiscard_ = true;
+            unsavedConfirmOpen_ = true;
+        } else {
+            reloadRequested_ = true;
+        }
     }
 
     if (changed) {
-        CompileRules();
-        SaveConfig();
+        if (chatAsiCompatibilityChanged) {
+            ApplyChatAsiCompatibilitySetting();
+        }
+        if (patternLimitChanged) {
+            CompileRules();
+        }
+        PublishRuntimeSnapshot();
+        RegenerateHelperOutput();
+        SaveSettings();
     }
     ImGui::EndPopup();
 }
 
 void UnwantedMessagesModule::DrawDeleteConfirmPopup() {
     UiSettings& ui = UiSettings::Instance();
-    const std::string popupTitle = std::string(ui.Text(UiText::UnwantedDeleteSelected)) + "##unwanted_delete_selected_confirm";
+    const std::string popupTitle = std::string(ui.Text(UiText::UnwantedDeleteSelected)) + "###unwanted_delete_selected_confirm";
     if (deleteSelectedConfirmOpen_) {
         ImGui::OpenPopup(popupTitle.c_str());
     }
@@ -1844,39 +2632,32 @@ void UnwantedMessagesModule::DrawDeleteConfirmPopup() {
     ImGui::EndPopup();
 }
 
-std::string UnwantedMessagesModule::AddRule(RuleType type, std::string text, bool nocase, bool wholeWord) {
+std::string UnwantedMessagesModule::AddRule(
+    RuleType type,
+    std::string text,
+    bool nocase,
+    bool wholeWord,
+    std::string name) {
     if (text.empty()) {
         return {};
     }
 
     Rule rule;
     rule.id = AllocateRuleId();
+    rule.name = TrimAscii(name);
     const std::string id = rule.id;
     rule.enabled = true;
     rule.type = type;
+    rule.rawType = RuleTypeName(type);
     rule.text = std::move(text);
     rule.nocase = nocase;
     rule.wholeWord = type == RuleType::Literal && wholeWord;
+    CompileRule(rule);
     rules_.push_back(std::move(rule));
-    CompileRules();
+    RebuildRuleViewCache();
+    PublishRuntimeSnapshot();
     SaveConfig();
     return id;
-}
-
-void UnwantedMessagesModule::DeleteRuleByIndex(std::size_t index) {
-    if (index >= rules_.size()) {
-        return;
-    }
-
-    const std::string id = rules_[index].id;
-    selectedRuleIds_.erase(rules_[index].id);
-    rules_.erase(rules_.begin() + static_cast<std::ptrdiff_t>(index));
-    if (activeRuleId_ == id || ruleDraft_.id == id) {
-        activeRuleId_.clear();
-        ruleDraft_ = {};
-        EnsureActiveRule();
-    }
-    SaveConfig();
 }
 
 void UnwantedMessagesModule::DeleteSelectedRules() {
@@ -1884,25 +2665,25 @@ void UnwantedMessagesModule::DeleteSelectedRules() {
         return;
     }
 
+    const bool deletesDraft = !ruleDraft_.id.empty()
+        && selectedRuleIds_.find(ruleDraft_.id) != selectedRuleIds_.end();
+
     rules_.erase(
         std::remove_if(rules_.begin(), rules_.end(), [this](const Rule& rule) {
             return selectedRuleIds_.find(rule.id) != selectedRuleIds_.end();
         }),
         rules_.end());
-    if (selectedRuleIds_.find(activeRuleId_) != selectedRuleIds_.end()) {
+    if (selectedRuleIds_.find(activeRuleId_) != selectedRuleIds_.end() || deletesDraft) {
         activeRuleId_.clear();
         ruleDraft_ = {};
+        editPopupForceClose_ = editPopupOpen_;
+        editPopupOpen_ = false;
+        editPopupRequestOpen_ = false;
+        regexReferenceOpen_ = false;
     }
     selectedRuleIds_.clear();
-    EnsureActiveRule();
-    SaveConfig();
-}
-
-void UnwantedMessagesModule::SetAllRulesEnabled(bool enabled) {
-    for (Rule& rule : rules_) {
-        rule.enabled = enabled;
-    }
-    CompileRules();
+    RebuildRuleViewCache();
+    PublishRuntimeSnapshot();
     SaveConfig();
 }
 
@@ -1916,48 +2697,7 @@ void UnwantedMessagesModule::SetSelectedRulesEnabled(bool enabled) {
             rule.enabled = enabled;
         }
     }
-    CompileRules();
-    SaveConfig();
-}
-
-void UnwantedMessagesModule::RemoveDuplicateRules() {
-    std::set<std::string> seen;
-    rules_.erase(
-        std::remove_if(rules_.begin(), rules_.end(), [&seen](const Rule& rule) {
-            const std::string key = std::string(RuleTypeName(rule.type)) + "\n" + rule.text + "\n"
-                + (rule.nocase ? "1" : "0") + "\n" + (rule.wholeWord ? "1" : "0");
-            if (seen.find(key) != seen.end()) {
-                return true;
-            }
-            seen.insert(key);
-            return false;
-        }),
-        rules_.end());
-    ClearSelection();
-    EnsureActiveRule();
-    CompileRules();
-    SaveConfig();
-}
-
-void UnwantedMessagesModule::SortRulesByType() {
-    std::stable_sort(rules_.begin(), rules_.end(), [](const Rule& lhs, const Rule& rhs) {
-        if (lhs.type != rhs.type) {
-            return lhs.type < rhs.type;
-        }
-        return Utf8ToLower(lhs.text) < Utf8ToLower(rhs.text);
-    });
-    SaveConfig();
-}
-
-void UnwantedMessagesModule::SortRulesByText() {
-    std::stable_sort(rules_.begin(), rules_.end(), [](const Rule& lhs, const Rule& rhs) {
-        const std::string left = Utf8ToLower(lhs.text);
-        const std::string right = Utf8ToLower(rhs.text);
-        if (left != right) {
-            return left < right;
-        }
-        return lhs.type < rhs.type;
-    });
+    PublishRuntimeSnapshot();
     SaveConfig();
 }
 
@@ -1984,24 +2724,6 @@ void UnwantedMessagesModule::SelectAllRules() {
     }
 }
 
-void UnwantedMessagesModule::EnsureActiveRule() {
-    if (ruleDraft_.createMode) {
-        return;
-    }
-    if (!activeRuleId_.empty() && FindRuleById(activeRuleId_) != nullptr) {
-        if (!ruleDraft_.active || ruleDraft_.id != activeRuleId_) {
-            StartEditRule(activeRuleId_);
-        }
-        return;
-    }
-
-    activeRuleId_.clear();
-    ruleDraft_ = {};
-    if (!rules_.empty()) {
-        StartEditRule(rules_.front().id);
-    }
-}
-
 int UnwantedMessagesModule::FindRuleIndexById(std::string_view id) const {
     for (std::size_t i = 0; i < rules_.size(); ++i) {
         if (rules_[i].id == id) {
@@ -2023,6 +2745,15 @@ const UnwantedMessagesModule::Rule* UnwantedMessagesModule::FindRuleById(std::st
 
 void UnwantedMessagesModule::StartCreateRule(std::string text, RuleType type) {
     activeRuleId_.clear();
+    helperSample_.clear();
+    helperExact_.clear();
+    helperGeneralized_.clear();
+    helperContains_.clear();
+    helperTokens_.clear();
+    helperWarning_.clear();
+    helperGeneralizedValid_ = false;
+    helperExactValid_ = false;
+    helperContainsValid_ = false;
     ruleDraft_ = {};
     ruleDraft_.active = true;
     ruleDraft_.createMode = true;
@@ -2031,6 +2762,7 @@ void UnwantedMessagesModule::StartCreateRule(std::string text, RuleType type) {
     ruleDraft_.text = std::move(text);
     ruleDraft_.wholeWord = false;
     ruleDraft_.dirty = !ruleDraft_.text.empty();
+    draftValidationCache_.ready = false;
 }
 
 void UnwantedMessagesModule::StartEditRule(std::string_view id) {
@@ -2044,12 +2776,17 @@ void UnwantedMessagesModule::StartEditRule(std::string_view id) {
     ruleDraft_.active = true;
     ruleDraft_.createMode = false;
     ruleDraft_.id = rule->id;
+    ruleDraft_.name = rule->name;
     ruleDraft_.enabled = rule->enabled;
     ruleDraft_.type = rule->type;
     ruleDraft_.text = rule->text;
     ruleDraft_.nocase = rule->nocase;
     ruleDraft_.wholeWord = rule->wholeWord;
     ruleDraft_.dirty = false;
+    helperSample_.clear();
+    RegenerateHelperOutput();
+    draftValidationCache_.ready = false;
+    editPopupRequestOpen_ = true;
 }
 
 bool UnwantedMessagesModule::SaveDraftRule() {
@@ -2062,12 +2799,26 @@ bool UnwantedMessagesModule::SaveDraftRule() {
         return false;
     }
 
+    std::string validationError;
+    std::string validationWarning;
+    if (!ValidateDraft(validationError, validationWarning)) {
+        return false;
+    }
+
     if (ruleDraft_.createMode) {
-        const std::string id = AddRule(ruleDraft_.type, std::move(text), ruleDraft_.nocase, ruleDraft_.wholeWord);
+        const std::string id = AddRule(
+            ruleDraft_.type,
+            std::move(text),
+            ruleDraft_.nocase,
+            ruleDraft_.wholeWord,
+            ruleDraft_.name);
         if (id.empty()) {
             return false;
         }
-        StartEditRule(id);
+        activeRuleId_ = id;
+        scrollToRuleId_ = id;
+        ruleDraft_ = {};
+        page_ = Page::Rules;
         return true;
     }
 
@@ -2077,14 +2828,88 @@ bool UnwantedMessagesModule::SaveDraftRule() {
     }
 
     rule->enabled = ruleDraft_.enabled;
+    rule->name = TrimAscii(ruleDraft_.name);
     rule->type = ruleDraft_.type;
+    rule->rawType = RuleTypeName(ruleDraft_.type);
+    rule->invalidType = false;
     rule->text = std::move(text);
     rule->nocase = ruleDraft_.nocase;
     rule->wholeWord = ruleDraft_.type == RuleType::Literal && ruleDraft_.wholeWord;
-    CompileRules();
+    CompileRule(*rule);
+    RebuildRuleViewCache();
+    PublishRuntimeSnapshot();
     SaveConfig();
-    StartEditRule(rule->id);
+    ruleDraft_ = {};
+    editPopupOpen_ = false;
+    regexReferenceOpen_ = false;
+    ImGui::CloseCurrentPopup();
     return true;
+}
+
+bool UnwantedMessagesModule::ValidateDraft(std::string& error, std::string& warning) const {
+    const std::string text = TrimAscii(ruleDraft_.text);
+    UiSettings& ui = UiSettings::Instance();
+    const int language = static_cast<int>(ui.Language());
+    if (draftValidationCache_.ready
+        && draftValidationCache_.text == text
+        && draftValidationCache_.type == ruleDraft_.type
+        && draftValidationCache_.nocase == ruleDraft_.nocase
+        && draftValidationCache_.maxPatternLength == settings_.maxPatternLength
+        && draftValidationCache_.language == language) {
+        error = draftValidationCache_.error;
+        warning = draftValidationCache_.warning;
+        return draftValidationCache_.valid;
+    }
+
+    draftValidationCache_ = {};
+    draftValidationCache_.ready = true;
+    draftValidationCache_.text = text;
+    draftValidationCache_.type = ruleDraft_.type;
+    draftValidationCache_.nocase = ruleDraft_.nocase;
+    draftValidationCache_.maxPatternLength = settings_.maxPatternLength;
+    draftValidationCache_.language = language;
+    error.clear();
+    warning.clear();
+    if (text.empty()) {
+        error = ui.Text(UiText::UnwantedErrorEmpty);
+    } else if (static_cast<int>(text.size()) > settings_.maxPatternLength) {
+        error = ui.Format(UiText::UnwantedErrorTooLong, std::to_string(settings_.maxPatternLength).c_str());
+    } else if (ruleDraft_.type == RuleType::Regex) {
+        const bool legacyAnchored = text.size() >= 2 && text.front() == '^' && text.back() == '$';
+        const bool absoluteAnchored = text.size() >= 4 && text.rfind("\\A", 0) == 0 && text.substr(text.size() - 2) == "\\z";
+        if (!legacyAnchored && !absoluteAnchored) {
+            warning = ui.Text(UiText::UnwantedRegexSafetyUnanchored);
+        }
+        if (RegexContainsBroadWildcard(text)) {
+            AppendWarning(warning, ui.Text(UiText::UnwantedRegexBroadWildcard));
+        }
+        unwanted_regex::CompileResult compiled = unwanted_regex::Compile(text, ruleDraft_.nocase);
+        if (!compiled.program) {
+            error = ui.Format(
+                UiText::UnwantedPcreErrorFormat,
+                FormatPcrePosition(text, compiled.errorOffset).c_str());
+        } else if (compiled.program->MatchesEmpty()) {
+            AppendWarning(warning, ui.Text(UiText::UnwantedRegexMatchesEmpty));
+        }
+    }
+    draftValidationCache_.error = error;
+    draftValidationCache_.warning = warning;
+    draftValidationCache_.valid = error.empty();
+    return draftValidationCache_.valid;
+}
+
+std::size_t UnwantedMessagesModule::DuplicateRuleCount() const {
+    return static_cast<std::size_t>(std::count_if(
+        rules_.begin(),
+        rules_.end(),
+        [](const Rule& rule) { return rule.duplicate; }));
+}
+
+bool UnwantedMessagesModule::IsDuplicateRule(std::size_t index) const {
+    if (index >= rules_.size()) {
+        return false;
+    }
+    return rules_[index].duplicate;
 }
 
 bool UnwantedMessagesModule::RuleMatchesFilter(const Rule& rule, std::string_view loweredSearch) const {
@@ -2123,101 +2948,62 @@ bool UnwantedMessagesModule::RuleMatchesFilter(const Rule& rule, std::string_vie
         return true;
     }
 
-    std::string haystack = rule.id + "\n" + rule.text + "\n" + RuleTypeName(rule.type) + "\n" + rule.error + "\n" + rule.warning;
-    haystack = Utf8ToLower(haystack);
-    return haystack.find(loweredSearch) != std::string::npos;
+    if (rule.searchBlobLower.find(loweredSearch) != std::string::npos) {
+        return true;
+    }
+    const auto runtimeWarning = runtimeWarningsView_.find(rule.id);
+    return runtimeWarning != runtimeWarningsView_.end()
+        && Utf8ToLower(runtimeWarning->second).find(loweredSearch) != std::string::npos;
 }
 
 void UnwantedMessagesModule::RegenerateHelperOutput() {
-    helperExact_ = GenerateExactRegex(helperSample_);
-    helperGeneralized_ = GenerateGeneralizedRegex(helperSample_);
-    helperContains_ = GenerateContainsRegex(helperSample_);
-}
-
-std::string UnwantedMessagesModule::GenerateExactRegex(std::string_view sample) const {
-    if (sample.empty()) {
-        return {};
+    unwanted_regex_builder::Options options;
+    options.colors = helperColors_ && !settings_.normalizer.stripColors;
+    options.playerIds = helperPlayerId_;
+    options.bracketPrefixes = helperBracketTag_;
+    options.nicknames = helperNick_;
+    options.numbers = helperNumbers_;
+    options.money = helperMoney_;
+    options.time = helperTime_;
+    options.domains = helperDomain_;
+    const std::string normalized = NormalizeCandidate(helperSample_);
+    const unwanted_regex_builder::Result built = unwanted_regex_builder::Build(normalized, options);
+    helperExact_ = built.exact;
+    helperGeneralized_ = built.recommended;
+    helperContains_ = built.contains;
+    helperTokens_ = built.tokens;
+    helperWarning_.clear();
+    helperGeneralizedValid_ = false;
+    helperExactValid_ = false;
+    helperContainsValid_ = false;
+    UiSettings& ui = UiSettings::Instance();
+    if (!built.error.empty()) {
+        helperWarning_ = ui.Text(UiText::UnwantedHelperInvalidUtf8);
+        helperExact_.clear();
+        helperGeneralized_.clear();
+        helperContains_.clear();
+        helperTokens_.clear();
+        return;
     }
 
-    std::string out = EscapeRegex(sample);
-    if (helperAnchors_) {
-        out = "^" + out + "$";
+    const auto matchesSource = [&](const std::string& pattern) {
+        if (pattern.empty()) {
+            return false;
+        }
+        unwanted_regex::CompileResult compiled = unwanted_regex::Compile(pattern, false);
+        return compiled.program
+            && compiled.program->Match(normalized).status == unwanted_regex::MatchStatus::Match;
+    };
+    helperExactValid_ = matchesSource(helperExact_);
+    helperGeneralizedValid_ = matchesSource(helperGeneralized_);
+    helperContainsValid_ = matchesSource(helperContains_);
+    if (!helperGeneralizedValid_ && helperExactValid_) {
+        helperGeneralized_ = helperExact_;
+        helperGeneralizedValid_ = true;
+        helperContains_ = helperExact_.size() >= 4
+            ? helperExact_.substr(2, helperExact_.size() - 4)
+            : std::string{};
+        helperContainsValid_ = matchesSource(helperContains_);
+        helperWarning_ = ui.Text(UiText::UnwantedHelperExactFallback);
     }
-    return out;
-}
-
-std::string UnwantedMessagesModule::GenerateGeneralizedRegex(std::string_view sample) const {
-    return GenerateGeneralizedRegex(sample, helperAnchors_);
-}
-
-std::string UnwantedMessagesModule::GenerateContainsRegex(std::string_view sample) const {
-    return GenerateGeneralizedRegex(sample, false);
-}
-
-std::string UnwantedMessagesModule::GenerateGeneralizedRegex(std::string_view sample, bool anchors) const {
-    if (sample.empty()) {
-        return {};
-    }
-
-    std::string out;
-    out.reserve(sample.size() * 2);
-
-    for (std::size_t i = 0; i < sample.size();) {
-        std::size_t consumed = 0;
-        if (helperBracketTag_ && StartsBracketTag(sample, i, consumed)) {
-            out += "\\[[^\\]]+\\]";
-            i += consumed;
-            continue;
-        }
-        if (helperPlayerId_ && StartsPlayerIdTag(sample, i, consumed)) {
-            out += "\\[[0-9]+\\]";
-            i += consumed;
-            continue;
-        }
-        if (helperColors_ && TryColorTag(sample, i, consumed)) {
-            out += "\\{[0-9A-Fa-f]{";
-            out += consumed == 8 ? "6" : "8";
-            out += "}\\}";
-            i += consumed;
-            continue;
-        }
-        if (helperDomain_ && StartsDomain(sample, i, consumed)) {
-            out += "[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:/[^\\s]*)?";
-            i += consumed;
-            continue;
-        }
-        if (helperMoney_ && StartsMoney(sample, i, consumed)) {
-            out += "\\$[0-9][0-9.,]*";
-            i += consumed;
-            continue;
-        }
-        if (helperTime_ && StartsTime(sample, i, consumed)) {
-            out += "[0-9]{2}:[0-9]{2}";
-            i += consumed;
-            continue;
-        }
-        if (helperNumbers_ && StartsNumber(sample, i, consumed)) {
-            out += "[0-9]+(?:[.,][0-9]+)*(?:[kK][0-9]*(?:[.,][0-9]+)*)?";
-            i += consumed;
-            continue;
-        }
-        if (helperNick_ && StartsNick(sample, i, consumed)) {
-            out += "[A-Za-z0-9]+_[A-Za-z0-9]+";
-            i += consumed;
-            continue;
-        }
-
-        std::uint32_t cp = 0;
-        std::size_t charSize = 0;
-        if (!DecodeUtf8At(sample, i, cp, charSize) || charSize == 0) {
-            charSize = 1;
-        }
-        out += EscapeRegex(sample.substr(i, charSize));
-        i += charSize;
-    }
-
-    if (anchors) {
-        out = "^" + out + "$";
-    }
-    return out;
 }

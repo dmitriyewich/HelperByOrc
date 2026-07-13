@@ -235,84 +235,190 @@
     X(MiscHomeIntro, "Во вкладке собраны отдельные служебные разделы. Нажмите на карточку нужного модуля, чтобы открыть его экран.", "This tab groups standalone utility sections. Click a module card to open its screen.") \
     X(MiscVariablesEntryDesc, "Открывает рабочий каталог переменных с поиском, категориями, описаниями и пользовательскими переменными.", "Opens the variables picker with search, categories, descriptions, and custom variables.") \
     X(MiscOpenSectionAction, "Открыть", "Open") \
-    X(UnwantedTitle, "Игнорирование сообщений", "Message Ignoring") \
-    X(UnwantedEntryDesc, "Глушит входящие и локальные сообщения через CChat и RakNet до попадания в чат и текстовые триггеры.", "Blocks incoming and local messages through CChat and RakNet before chat display and text triggers.") \
-    X(UnwantedEnabled, "Включено", "Enabled") \
-    X(UnwantedReload, "Перезагрузить", "Reload") \
-    X(UnwantedEnableAll, "Все вкл.", "All on") \
-    X(UnwantedDisableAll, "Все выкл.", "All off") \
-    X(UnwantedStatsCompact, "правил: %s | вкл: %s | ошибок: %s | предупреждений: %s | blocked: %s", "rules: %s | on: %s | errors: %s | warnings: %s | blocked: %s") \
-    X(UnwantedLastBlocked, "Последнее: %s, правило %s, текст: %s", "Last: %s, rule %s, text: %s") \
+    X(UnwantedTitle, "Игнорирование сообщений", "Message Filter") \
+    X(UnwantedEntryDesc, "Скрывает нежелательные сообщения в чате и не даёт им запускать текстовые бинды.", "Hides unwanted chat messages and prevents them from triggering text binds.") \
+    X(UnwantedHome, "Главная", "Home") \
+    X(UnwantedModuleToggleTitle, "Фильтр сообщений", "Message filter") \
+    X(UnwantedModuleToggleDesc, "Включает или выключает все правила. Список правил при этом сохраняется.", "Turns all rules on or off. Your rule list remains saved.") \
+    X(UnwantedModuleOn, "Фильтр включён", "Filter enabled") \
+    X(UnwantedModuleOff, "Фильтр выключен", "Filter disabled") \
+    X(UnwantedCreateCardDesc, "Вставьте пример сообщения — Helper подготовит подходящее правило.", "Paste a sample message and Helper will prepare a suitable rule.") \
+    X(UnwantedCreateOpen, "Создать правило", "Create rule") \
+    X(UnwantedRulesOpen, "Показать правила", "Show rules") \
+    X(UnwantedRulesCardStats, "Правил: %s | включено: %s | ошибок: %s | дублей: %s", "Rules: %s | enabled: %s | errors: %s | duplicates: %s") \
+    X(UnwantedSessionTitle, "За этот запуск", "This launch") \
+    X(UnwantedBlockedCount, "Скрыто сообщений: %s", "Messages hidden: %s") \
+    X(UnwantedReload, "Загрузить настройки заново", "Reload settings") \
+    X(UnwantedLastBlocked, "Последнее скрытое сообщение: %s", "Last hidden message: %s") \
     X(UnwantedLastBlockedEmpty, "Пока нет заблокированных сообщений.", "No blocked messages yet.") \
     X(UnwantedNewRule, "Новое правило", "New rule") \
-    X(UnwantedTools, "Инструменты", "Tools") \
-    X(UnwantedNormalizer, "Нормализация", "Normalizer") \
-    X(UnwantedStripColors, "Убрать {RRGGBB}", "Strip {RRGGBB}") \
+    X(UnwantedTools, "Настройки", "Settings") \
+    X(UnwantedCompatibility, "Совместимость", "Compatibility") \
+    X(UnwantedChatAsiCompatibility, "Совместимость с _chat.asi", "_chat.asi compatibility") \
+    X(UnwantedChatAsiCompatibilityHelp, "Скрывает сообщения, которые _chat.asi добавляет в обход обычного чата. Адреса находятся автоматически. Если _chat.asi не установлен или изменился и не распознан, Helper продолжит работать через стандартный чат.", "Hides messages that _chat.asi adds outside the standard chat path. Addresses are detected automatically. If _chat.asi is missing or changed and cannot be recognized, Helper continues through the standard chat path.") \
+    X(UnwantedNormalizer, "Подготовка текста", "Text preparation") \
+    X(UnwantedNormalizerDesc, "Эти настройки одинаково применяются к сообщениям в игре, помощнику и проверке правила.", "These settings apply equally to in-game messages, the helper, and rule testing.") \
+    X(UnwantedStripColors, "Не учитывать цветовые коды", "Ignore color codes") \
+    X(UnwantedStripColorsHelp, "Выключено: подходят правила как с цветовыми кодами, так и без них. Включено: проверяется только видимый текст без кодов {FFFFFF} и {FF0000FF}.", "Off: rules with or without color codes can match. On: only visible text without codes such as {FFFFFF} and {FF0000FF} is checked.") \
     X(UnwantedCollapseWhitespace, "Сжать пробелы", "Collapse whitespace") \
-    X(UnwantedTrim, "Обрезать края", "Trim") \
-    X(UnwantedMaxPatternLength, "Лимит regex", "Regex limit") \
+    X(UnwantedCollapseWhitespaceHelp, "Заменяет несколько пробелов, табуляций или переносов строки одним пробелом.", "Replaces repeated spaces, tabs, or line breaks with one space.") \
+    X(UnwantedTrim, "Убирать пробелы по краям", "Trim outer spaces") \
+    X(UnwantedTrimHelp, "Убирает пробелы только в начале и конце сообщения.", "Removes spaces only at the beginning and end of a message.") \
+    X(UnwantedMaxPatternLength, "Максимальная длина правила", "Maximum rule length") \
     X(UnwantedRules, "Правила", "Rules") \
     X(UnwantedSelectAll, "Выделить все", "Select all") \
     X(UnwantedClearSelection, "Снять выделение", "Clear selection") \
     X(UnwantedDeleteSelected, "Удалить выбранные", "Delete selected") \
-    X(UnwantedEnableSelected, "Выбранные вкл.", "Selected on") \
-    X(UnwantedDisableSelected, "Выбранные выкл.", "Selected off") \
-    X(UnwantedRemoveDuplicates, "Дубли", "Duplicates") \
+    X(UnwantedEnableSelected, "Включить выбранные", "Enable selected") \
+    X(UnwantedDisableSelected, "Выключить выбранные", "Disable selected") \
     X(UnwantedSortByType, "По типу", "By type") \
-    X(UnwantedSortByText, "По тексту", "By text") \
+    X(UnwantedSortStored, "Исходный порядок", "Stored order") \
+    X(UnwantedSortName, "По имени", "By name") \
+    X(UnwantedSortStatus, "По статусу", "By status") \
     X(UnwantedSearchHint, "Поиск правил", "Search rules") \
     X(UnwantedFilterAll, "Все", "All") \
     X(UnwantedFilterEnabled, "Включены", "Enabled") \
     X(UnwantedFilterDisabled, "Выключены", "Disabled") \
-    X(UnwantedFilterRegex, "Regex", "Regex") \
-    X(UnwantedFilterLiteral, "Literal", "Literal") \
+    X(UnwantedFilterRegex, "Шаблоны", "Patterns") \
+    X(UnwantedFilterLiteral, "Обычный текст", "Plain text") \
     X(UnwantedFilterErrors, "Ошибки", "Errors") \
     X(UnwantedVisibleRulesFormat, "Показано: %s из %s", "Shown: %s of %s") \
     X(UnwantedBulkActionsFormat, "Выбрано: %s", "Selected: %s") \
     X(UnwantedNoRules, "Правил пока нет.", "No rules yet.") \
-    X(UnwantedNoVisibleRules, "Под фильтр ничего не попало.", "No rules match the filter.") \
-    X(UnwantedTypeLiteral, "literal", "literal") \
-    X(UnwantedTypeRegex, "regex", "regex") \
-    X(UnwantedNoCase, "nocase", "nocase") \
-    X(UnwantedWholeWord, "слово", "word") \
-    X(UnwantedNoFlags, "без флагов", "no flags") \
+    X(UnwantedNoVisibleRules, "По выбранным условиям правил не найдено.", "No rules match the selected filters.") \
+    X(UnwantedTypeLiteral, "Обычный текст", "Plain text") \
+    X(UnwantedTypeLiteralHelp, "Скрывает сообщение, если в нём найден указанный текст. Подходит для большинства простых правил.", "Hides a message when it contains the specified text. Best for most simple rules.") \
+    X(UnwantedTypeRegex, "Шаблон", "Pattern") \
+    X(UnwantedTypeRegexHelp, "Позволяет заменять изменяющиеся части сообщения: числа, ники, время и другие фрагменты. Помощник подготовит шаблон автоматически.", "Lets variable parts of a message change, such as numbers, names, and time. The helper can build the pattern automatically.") \
+    X(UnwantedNoCase, "Не учитывать регистр", "Ignore letter case") \
+    X(UnwantedNoCaseHelp, "Большие и маленькие буквы считаются одинаковыми. Кириллица поддерживается.", "Uppercase and lowercase letters are treated as equal. Cyrillic is supported.") \
+    X(UnwantedWholeWord, "Только целое слово", "Whole word only") \
+    X(UnwantedNoFlags, "Обычный режим", "Default mode") \
     X(UnwantedInvalidRule, "Ошибка", "Error") \
-    X(UnwantedWarning, "Предупр.", "Warning") \
-    X(UnwantedRuleOk, "OK", "OK") \
+    X(UnwantedWarning, "Проверьте", "Check") \
+    X(UnwantedRuleOk, "Готово", "Ready") \
     X(UnwantedNoSelection, "Выберите правило слева или создайте новое.", "Select a rule on the left or create a new one.") \
     X(UnwantedCreateRuleTitle, "Создание правила", "Create rule") \
     X(UnwantedEditRuleTitle, "Редактирование правила", "Edit rule") \
     X(UnwantedRuleEnabled, "Правило включено", "Rule enabled") \
+    X(UnwantedRuleName, "Имя правила", "Rule name") \
+    X(UnwantedRuleNameHint, "Необязательно. Если оставить пустым, в списке будет показан текст правила", "Optional. If left empty, the rule text is shown in the list") \
     X(UnwantedRuleText, "Текст правила", "Rule text") \
-    X(UnwantedAddRuleAction, "Добавить", "Add") \
-    X(UnwantedTester, "Тестер", "Tester") \
+    X(UnwantedTester, "Проверка правила", "Test rule") \
     X(UnwantedTesterHint, "Сообщение для проверки", "Message to test") \
     X(UnwantedTestAction, "Проверить", "Test") \
-    X(UnwantedTesterMatched, "Совпало: правило %s, кандидат: %s", "Matched: rule %s, candidate: %s") \
-    X(UnwantedTesterNoMatch, "Совпадений нет.", "No match.") \
-    X(UnwantedTesterNormalizedFormat, "После нормализации: %s", "After normalization: %s") \
-    X(UnwantedRegexHelper, "Regex-helper", "Regex Helper") \
-    X(UnwantedHelperFlowHint, "Вставьте реальную строку SA:MP, выберите обобщения и добавьте подходящий вариант.", "Paste a real SA:MP line, choose generalizations, then add the right variant.") \
+    X(UnwantedTesterMatched, "Это сообщение будет скрыто.", "This message will be hidden.") \
+    X(UnwantedTesterNoMatch, "Это сообщение не будет скрыто.", "This message will not be hidden.") \
+    X(UnwantedTesterNormalizedFormat, "После подготовки текста (%s симв.): «%s»", "After text preparation (%s chars): “%s”") \
+    X(UnwantedTesterEmptyHint, "Пустое поле проверяет пустое сообщение. Для сообщения только из пробелов введите пробелы и нажмите «Проверить».", "An empty field tests an empty message. For a spaces-only message, enter spaces and click Test.") \
+    X(UnwantedRegexHelper, "Помощник по шаблонам", "Pattern helper") \
+    X(UnwantedHelperFlowHint, "Вставьте настоящее сообщение из чата и отметьте, какие части могут меняться.", "Paste a real chat message and choose which parts may change.") \
     X(UnwantedHelperInputHint, "Вставьте пример сообщения", "Paste a sample message") \
-    X(UnwantedHelperAnchors, "^...$", "^...$") \
-    X(UnwantedHelperColors, "цвета", "colors") \
-    X(UnwantedHelperNumbers, "числа", "numbers") \
-    X(UnwantedHelperMoney, "деньги", "money") \
-    X(UnwantedHelperTime, "время", "time") \
-    X(UnwantedHelperNick, "ник", "nick") \
+    X(UnwantedGeneralizations, "Какие части могут меняться", "Parts that may change") \
+    X(UnwantedHelperColors, "Цветовые коды", "Color codes") \
+    X(UnwantedHelperNumbers, "Числа", "Numbers") \
+    X(UnwantedHelperMoney, "Суммы денег", "Money amounts") \
+    X(UnwantedHelperTime, "Время", "Time") \
+    X(UnwantedHelperNick, "Ники игроков", "Player names") \
     X(UnwantedHelperPlayerId, "[id]", "[id]") \
-    X(UnwantedHelperDomain, "domain", "domain") \
-    X(UnwantedHelperBracketTag, "[тег]", "[tag]") \
-    X(UnwantedHelperExact, "Точный escaped regex", "Exact escaped regex") \
-    X(UnwantedHelperGeneralized, "Обобщённый regex", "Generalized regex") \
-    X(UnwantedHelperContains, "Contains regex", "Contains regex") \
-    X(UnwantedUseInDraft, "В черновик", "Use draft") \
+    X(UnwantedHelperDomain, "Сайты и ссылки", "Sites and links") \
+    X(UnwantedHelperBracketTag, "Префикс [Текст]", "[Text] prefix") \
+    X(UnwantedHelperExact, "Точное сообщение", "Exact message") \
+    X(UnwantedHelperGeneralized, "Рекомендуемый вариант", "Recommended") \
+    X(UnwantedHelperContains, "Фрагмент сообщения", "Message fragment") \
+    X(UnwantedRegexVariants, "Варианты шаблона", "Pattern variants") \
+    X(UnwantedRegexVariantsHint, "Нажмите вариант, чтобы скопировать его. Кнопка «Использовать» перенесёт его в правило.", "Click a variant to copy it. The Use button moves it into the rule.") \
+    X(UnwantedNormalizedPreview, "Текст, который будет проверяться", "Text that will be checked") \
+    X(UnwantedDetectedTokens, "Что найдено в сообщении", "Detected message parts") \
+    X(UnwantedTokenColor, "Цвет", "Color") \
+    X(UnwantedTokenColorHelp, "Цветовые коды вида {FFFFFF} или {FF0000FF} будут подходить независимо от цвета.", "Color codes such as {FFFFFF} or {FF0000FF} may use any color value.") \
+    X(UnwantedTokenPlayerId, "ID игрока", "Player ID") \
+    X(UnwantedTokenPlayerIdHelp, "ID игрока в квадратных скобках, например [123].", "A player ID in square brackets, for example [123].") \
+    X(UnwantedTokenBracketPrefix, "Префикс [...]", "Bracket prefix") \
+    X(UnwantedTokenBracketPrefixHelp, "Начальная пометка сообщения, например [Подсказка] или [Информация].", "A message label such as [Hint] or [Information].") \
+    X(UnwantedTokenNickname, "Ник", "Nickname") \
+    X(UnwantedTokenNicknameHelp, "Ник вида Name_Surname. Конкретный ник сможет меняться.", "A name such as Name_Surname. The actual player name may change.") \
+    X(UnwantedTokenInteger, "Целое число", "Integer") \
+    X(UnwantedTokenIntegerHelp, "Любое целое число, включая отрицательное.", "Any whole number, including a negative one.") \
+    X(UnwantedTokenDecimal, "Дробное число", "Decimal") \
+    X(UnwantedTokenDecimalHelp, "Любое дробное число с точкой или запятой.", "Any decimal number using a dot or comma.") \
+    X(UnwantedTokenPercentage, "Процент", "Percentage") \
+    X(UnwantedTokenPercentageHelp, "Любое число со знаком процента, например 25%.", "Any percentage, for example 25%.") \
+    X(UnwantedTokenCompactAmount, "Число с k", "Number with k") \
+    X(UnwantedTokenCompactAmountHelp, "Числа вида 1.5k или 2k26.", "Numbers such as 1.5k or 2k26.") \
+    X(UnwantedTokenMoney, "Деньги", "Money") \
+    X(UnwantedTokenMoneyHelp, "Сумма со знаком $, включая варианты $10, $1.5k и $2k26.", "An amount with $, including $10, $1.5k, and $2k26.") \
+    X(UnwantedTokenClock, "Время", "Clock") \
+    X(UnwantedTokenClockHelp, "Время суток от 00:00 до 23:59.", "A time of day from 00:00 through 23:59.") \
+    X(UnwantedTokenDuration, "Длительность", "Duration") \
+    X(UnwantedTokenDurationHelp, "Продолжительность вида 5:30 или 125:59.", "A duration such as 5:30 or 125:59.") \
+    X(UnwantedTokenDomain, "Сайт или ссылка", "Site or link") \
+    X(UnwantedTokenDomainHelp, "Адрес сайта или ссылка. Конкретный адрес, порт и путь смогут меняться.", "A website address or link. Its address, port, and path may change.") \
+    X(UnwantedUseInDraft, "Использовать", "Use") \
     X(UnwantedCopy, "Копировать", "Copy") \
     X(UnwantedDeleteSelectedQuestion, "Удалить выбранные правила: %s?", "Delete selected rules: %s?") \
-    X(UnwantedErrorTooLong, "Длина больше лимита %s.", "Length exceeds limit %s.") \
-    X(UnwantedErrorEmpty, "Пустое правило не выполняется.", "Empty rule is skipped.") \
-    X(UnwantedRegexSafetyBlocked, "Regex заблокирован: обнаружен опасный wildcard/nested pattern.", "Regex blocked: dangerous wildcard/nested pattern detected.") \
-    X(UnwantedRegexSafetyUnanchored, "Regex без ^...$ может срабатывать шире ожидаемого.", "Regex without ^...$ may match more broadly than expected.") \
+    X(UnwantedErrorTooLong, "Правило слишком длинное. Максимум: %s.", "The rule is too long. Maximum: %s.") \
+    X(UnwantedErrorEmpty, "Введите текст правила.", "Enter the rule text.") \
+    X(UnwantedErrorUnknownType, "Тип правила «%s» не поддерживается. Выберите тип заново.", "Rule type “%s” is not supported. Select the type again.") \
+    X(UnwantedRegexSafetyUnanchored, "Шаблон может совпасть только с частью сообщения. Для проверки всей строки используйте \\A в начале и \\z в конце.", "The pattern may match only part of a message. Use \\A at the start and \\z at the end to check the whole message.") \
+    X(UnwantedRegexMatchesEmpty, "Этот шаблон подходит даже к пустому сообщению и может скрывать лишнее.", "This pattern also matches an empty message and may hide too much.") \
+    X(UnwantedRegexBroadWildcard, "Сочетание .*/.+ может захватить слишком много текста. Лучше указать изменяемую часть точнее.", "The .*/.+ combination may capture too much text. Consider describing the changing part more precisely.") \
+    X(UnwantedPcreErrorFormat, "Не удалось прочитать шаблон. Проверьте скобки и специальные знаки рядом с указанным местом.\n%s", "The pattern could not be read. Check brackets and special characters near the marked position.\n%s") \
+    X(UnwantedPcrePositionDetail, "Символ %s\n%s\n%s^", "Character %s\n%s\n%s^") \
+    X(UnwantedRuntimeWarningFormat, "Проверка правила остановлена: %s", "Rule checking stopped: %s") \
+    X(UnwantedRuntimeMatchLimit, "шаблон потребовал слишком много проверок", "the pattern required too many checks") \
+    X(UnwantedRuntimeDepthLimit, "шаблон слишком сложный", "the pattern is too complex") \
+    X(UnwantedRuntimeHeapLimit, "для проверки не хватило памяти", "there was not enough memory to check it") \
+    X(UnwantedRuntimeInvalidText, "сообщение содержит повреждённые символы", "the message contains invalid characters") \
+    X(UnwantedRuntimeGenericError, "не удалось проверить сообщение", "the message could not be checked") \
+    X(UnwantedHelperInvalidUtf8, "Пример содержит повреждённые символы. Вставьте сообщение заново.", "The sample contains invalid characters. Paste the message again.") \
+    X(UnwantedHelperExactFallback, "Не удалось безопасно заменить изменяемые части. Показано точное правило.", "The changing parts could not be replaced safely. An exact rule is shown instead.") \
+    X(UnwantedRegexReference, "Справочник шаблонов", "Pattern reference") \
+    X(UnwantedRegexReferenceHint, "Здесь собраны готовые элементы для ручного редактирования правила. Нажмите элемент, чтобы скопировать, или «Вставить», чтобы добавить его в правило.", "Ready-to-use elements for manual rule editing. Click an item to copy it, or use Append to add it to the rule.") \
+    X(UnwantedRegexReferenceSearch, "Поиск по выражениям и описаниям", "Search expressions and descriptions") \
+    X(UnwantedRegexReferenceCategory, "Раздел", "Category") \
+    X(UnwantedRegexReferenceExpression, "Элемент", "Item") \
+    X(UnwantedRegexReferenceDescription, "Описание", "Description") \
+    X(UnwantedRegexReferenceAppend, "Вставить", "Append") \
+    X(UnwantedRegexReferenceNoResults, "Ничего не найдено.", "No matches found.") \
+    X(UnwantedRegexRefCategoryBasic, "Основы", "Basics") \
+    X(UnwantedRegexRefCategoryClasses, "Наборы символов", "Character sets") \
+    X(UnwantedRegexRefCategoryQuantifiers, "Повторы", "Repeats") \
+    X(UnwantedRegexRefCategoryGroups, "Условия и группы", "Conditions and groups") \
+    X(UnwantedRegexRefCategoryReady, "Готовые примеры", "Ready examples") \
+    X(UnwantedRegexRefEmptyMessage, "Полностью пустое сообщение.", "A completely empty message.") \
+    X(UnwantedRegexRefSpacesOnly, "Сообщение только из одного или нескольких обычных пробелов.", "A message containing one or more regular spaces only.") \
+    X(UnwantedRegexRefAbsoluteStart, "Начало сообщения. Обычно ставится первым символом правила.", "Start of the message. Usually placed at the beginning of a rule.") \
+    X(UnwantedRegexRefAbsoluteEnd, "Конец сообщения. Обычно ставится последним символом правила.", "End of the message. Usually placed at the end of a rule.") \
+    X(UnwantedRegexRefQuotedLiteral, "Текст между \\Q и \\E ищется буквально: специальные знаки внутри него не работают как команды.", "Text between \\Q and \\E is matched literally, so special characters inside are treated as normal text.") \
+    X(UnwantedRegexRefEscapedMeta, "Обратный слеш перед специальным знаком превращает его в обычный. Пример ищет точку.", "A backslash before a special character makes it literal. This example matches a dot.") \
+    X(UnwantedRegexRefAnyChar, "Один любой символ. Используйте осторожно, особенно рядом с * или +.", "Any single character. Use it carefully, especially next to * or +.") \
+    X(UnwantedRegexRefClass, "Один символ из перечисленного набора.", "One character from the listed set.") \
+    X(UnwantedRegexRefNegatedClass, "Один символ, которого нет в перечисленном наборе.", "One character not present in the listed set.") \
+    X(UnwantedRegexRefRange, "Один символ из указанного диапазона.", "One character from the specified range.") \
+    X(UnwantedRegexRefUnicodeDigit, "Одна цифра. Для цифр только от 0 до 9 можно использовать [0-9].", "One digit. Use [0-9] when only digits from 0 through 9 are allowed.") \
+    X(UnwantedRegexRefUnicodeLetter, "Одна буква любого языка, включая кириллицу.", "One letter from any language, including Cyrillic.") \
+    X(UnwantedRegexRefWhitespace, "Один пробельный символ: пробел, табуляция или перенос строки.", "One whitespace character: a space, tab, or line break.") \
+    X(UnwantedRegexRefHorizontalWhitespace, "Один пробел или табуляция, но не перенос строки.", "One space or tab, but not a line break.") \
+    X(UnwantedRegexRefWordChar, "Одна буква, цифра или подчёркивание.", "One letter, digit, or underscore.") \
+    X(UnwantedRegexRefWordBoundary, "Начало или конец отдельного слова.", "The beginning or end of a whole word.") \
+    X(UnwantedRegexRefOptional, "Предыдущий элемент встречается ноль или один раз.", "The previous item occurs zero or one time.") \
+    X(UnwantedRegexRefZeroOrMore, "Предыдущий элемент встречается ноль или больше раз; с точкой может быть слишком широким.", "The previous item occurs zero or more times; it may be too broad after a dot.") \
+    X(UnwantedRegexRefOneOrMore, "Предыдущий элемент встречается один или больше раз.", "The previous item occurs one or more times.") \
+    X(UnwantedRegexRefExactCount, "Предыдущий элемент должен повториться ровно указанное число раз.", "The previous item must repeat exactly the specified number of times.") \
+    X(UnwantedRegexRefRangeCount, "Предыдущий элемент повторяется от минимального до максимального числа раз.", "The previous item repeats between the minimum and maximum counts.") \
+    X(UnwantedRegexRefLazy, "Берёт как можно меньше повторений, но сохраняет совпадение всего правила.", "Uses as few repetitions as possible while keeping the whole rule matched.") \
+    X(UnwantedRegexRefNonCapturingGroup, "Объединяет несколько элементов в одну часть правила.", "Combines several elements into one part of the rule.") \
+    X(UnwantedRegexRefAlternation, "Соответствует одному из вариантов слева или справа от |.", "Matches one of the alternatives on either side of |.") \
+    X(UnwantedRegexRefPositiveLookahead, "Совпадение возможно, только если сразу после него идёт указанный текст.", "Matches only when the specified text follows immediately.") \
+    X(UnwantedRegexRefNegativeLookahead, "Совпадение возможно, только если указанного текста дальше нет.", "Matches only when the specified following text is absent.") \
+    X(UnwantedRegexRefPositiveLookbehind, "Совпадение возможно, только если прямо перед ним есть указанный текст.", "Matches only when the specified text appears immediately before it.") \
+    X(UnwantedRegexRefNegativeLookbehind, "Совпадение возможно, только если указанного текста прямо перед ним нет.", "Matches only when the specified text is absent immediately before it.") \
+    X(UnwantedRegexRefAtomicGroup, "Фиксирует найденный внутри группы вариант. Может ускорить сложное правило.", "Locks in the match found inside the group and may speed up a complex rule.") \
+    X(UnwantedDuplicate, "Дубликат", "Duplicate") \
+    X(UnwantedUnsavedTitle, "Несохранённые изменения", "Unsaved Changes") \
+    X(UnwantedUnsavedDesc, "Черновик изменён. Закрыть его и потерять изменения?", "The draft was changed. Close it and discard the changes?") \
+    X(UnwantedDiscard, "Не сохранять", "Discard") \
     X(TagsKindSimple, "Простая", "Simple") \
     X(TagsKindFunction, "Функциональная", "Function") \
     X(TagsBuiltinIdDescription, "Возвращает ваш локальный ID игрока через SampApi::Local_ID().", "Returns your local player ID via SampApi::Local_ID().") \

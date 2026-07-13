@@ -52,6 +52,7 @@
     <MinHookDir>$(MSBuildProjectDirectory)\external\MinHook</MinHookDir>
     <MemwrapperDir>$(MSBuildProjectDirectory)\external\memwrapper\memwrapper</MemwrapperDir>
     <BlastHackSampApiDir>$(MSBuildProjectDirectory)\external\SAMP-API</BlastHackSampApiDir>
+    <Pcre2Dir>$(MSBuildProjectDirectory)\external\pcre2\src</Pcre2Dir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -85,7 +86,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -114,7 +115,7 @@
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>false</OmitFramePointers>
-      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Gw %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -184,6 +185,8 @@
     <ClCompile Include="ui_fonts.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
+    <ClCompile Include="unwanted_regex_builder.cpp" />
+    <ClCompile Include="unwanted_regex_engine.cpp" />
     <ClCompile Include="user_files_path.cpp" />
     <ClCompile Include="variables_picker_ui.cpp" />
     <ClCompile Include="external\raknet\BitStream.cpp" />
@@ -197,6 +200,11 @@
     <ClCompile Include="external\MinHook\src\hook.c" />
     <ClCompile Include="external\MinHook\src\trampoline.c" />
     <ClCompile Include="external\MinHook\src\hde\hde32.c" />
+    <ClCompile Include="$(Pcre2Dir)\pcre2_auto_possess.c;$(Pcre2Dir)\pcre2_chartables.c;$(Pcre2Dir)\pcre2_chkdint.c;$(Pcre2Dir)\pcre2_compile_cgroup.c;$(Pcre2Dir)\pcre2_compile_class.c;$(Pcre2Dir)\pcre2_compile.c;$(Pcre2Dir)\pcre2_config.c;$(Pcre2Dir)\pcre2_context.c;$(Pcre2Dir)\pcre2_convert.c;$(Pcre2Dir)\pcre2_dfa_match.c;$(Pcre2Dir)\pcre2_error.c;$(Pcre2Dir)\pcre2_extuni.c;$(Pcre2Dir)\pcre2_find_bracket.c;$(Pcre2Dir)\pcre2_maketables.c;$(Pcre2Dir)\pcre2_match_data.c;$(Pcre2Dir)\pcre2_match_next.c;$(Pcre2Dir)\pcre2_match.c;$(Pcre2Dir)\pcre2_newline.c;$(Pcre2Dir)\pcre2_ord2utf.c;$(Pcre2Dir)\pcre2_pattern_info.c;$(Pcre2Dir)\pcre2_script_run.c;$(Pcre2Dir)\pcre2_serialize.c;$(Pcre2Dir)\pcre2_string_utils.c;$(Pcre2Dir)\pcre2_study.c;$(Pcre2Dir)\pcre2_substitute.c;$(Pcre2Dir)\pcre2_substring.c;$(Pcre2Dir)\pcre2_tables.c;$(Pcre2Dir)\pcre2_ucd.c;$(Pcre2Dir)\pcre2_valid_utf.c;$(Pcre2Dir)\pcre2_xclass.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PreprocessorDefinitions>HAVE_CONFIG_H;PCRE2_CODE_UNIT_WIDTH=8;PCRE2_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(Pcre2Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
   </ItemGroup>
 
   <ItemGroup>
@@ -256,6 +264,8 @@
     <ClInclude Include="ui_icons.h" />
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="unwanted_messages_module.h" />
+    <ClInclude Include="unwanted_regex_builder.h" />
+    <ClInclude Include="unwanted_regex_engine.h" />
     <ClInclude Include="user_files_path.h" />
     <ClInclude Include="variables_picker_ui.h" />
     <ClInclude Include="external\MinHook\include\MinHook.h" />

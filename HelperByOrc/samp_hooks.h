@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -46,12 +47,14 @@ public:
     void AddOnSendCommandHandler(SendCommandHandler handler);
     void AddOnSendChatHandler(SendChatHandler handler);
     void SetApplyDamageProtectionEnabled(bool enabled);
+    void SetChatAsiCompatibilityEnabled(bool enabled);
     void onChatMessage(ChatMessageHandler handler) { AddOnChatMessageHandler(std::move(handler)); }
     void onSendCommand(SendCommandHandler handler) { AddOnSendCommandHandler(std::move(handler)); }
     void onSendChat(SendChatHandler handler) { AddOnSendChatHandler(std::move(handler)); }
 
 private:
     using ChatAddEntryFn = void(__thiscall*)(void*, int, const char*, const char*, unsigned long, unsigned long);
+    using ChatAsiAddEntryDispatchFn = void(__cdecl*)(int, const char*, const char*, unsigned long, unsigned long);
     using ChatAddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
     using ChatAddChatMessageFn = void(__thiscall*)(void*, const char*, unsigned long, const char*);
     using CDialogShowFn = void(__thiscall*)(std::uintptr_t, int, int, const char*, const char*, const char*, const char*, bool);
@@ -68,6 +71,7 @@ private:
     void AppendLog(const char* format, ...);
     static std::string Truncate(std::string text, std::size_t maxLength);
     static void __fastcall ChatAddEntryDetour(void* chat, void* edx, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor);
+    static void __cdecl ChatAsiAddEntryDispatchDetour(int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor);
     static void __fastcall ChatAddMessageDetour(void* chat, void* edx, unsigned long color, const char* text);
     static void __fastcall ChatAddChatMessageDetour(void* chat, void* edx, const char* prefix, unsigned long prefixColor, const char* text);
     static void __fastcall DialogShowDetour(std::uintptr_t self, void* edx, int dialogId, int style, const char* title, const char* text, const char* button1, const char* button2, bool serverside);
@@ -95,8 +99,10 @@ private:
     HotkeyBlockCallback hotkeyBlockCallback_;
     MouseButtonBlockCallback mouseButtonBlockCallback_;
     bool applyDamageProtectionEnabled_ = true;
+    std::atomic_bool chatAsiCompatibilityEnabled_{true};
 
     void* chatAddEntryTarget_ = nullptr;
+    void* chatAsiAddEntryDispatchTarget_ = nullptr;
     void* chatAddMessageTarget_ = nullptr;
     void* chatAddChatMessageTarget_ = nullptr;
     void* dialogShowTarget_ = nullptr;
@@ -108,6 +114,7 @@ private:
     void* applyDamageTarget_ = nullptr;
     void* padUpdateMouseTarget_ = nullptr;
     ChatAddEntryFn chatAddEntryOriginal_ = nullptr;
+    ChatAsiAddEntryDispatchFn chatAsiAddEntryDispatchOriginal_ = nullptr;
     ChatAddMessageFn chatAddMessageOriginal_ = nullptr;
     ChatAddChatMessageFn chatAddChatMessageOriginal_ = nullptr;
     CDialogShowFn dialogShowOriginal_ = nullptr;
