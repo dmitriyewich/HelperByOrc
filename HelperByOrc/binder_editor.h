@@ -2,6 +2,7 @@
 
 #include "binder_types.h"
 #include "icon_picker_ui.h"
+#include "text_pattern_builder.h"
 #include "variables_picker_ui.h"
 
 #include <functional>
@@ -10,6 +11,43 @@
 #include <vector>
 
 namespace binder_editor {
+
+struct TextPatternHelperState {
+    TextPatternHelperState() {
+        options.colors = false;
+    }
+
+    bool popupPending = false;
+    bool referenceOpen = false;
+    bool referencePending = false;
+    bool testRequested = false;
+    bool restoreHelperFocus = false;
+    int cursorByte = -1;
+    int selectionStartByte = -1;
+    int selectionEndByte = -1;
+    int outputLanguage = -1;
+    int validationLanguage = -1;
+    std::string sample{};
+    text_pattern_builder::Options options{};
+    std::string exact{};
+    std::string recommended{};
+    std::string contains{};
+    std::vector<text_pattern_builder::Token> tokens{};
+    std::string builderWarning{};
+    bool exactValid = false;
+    bool recommendedValid = false;
+    bool containsValid = false;
+    std::string referenceSearch{};
+    bool validationReady = false;
+    std::string validationPattern{};
+    std::string validationSample{};
+    bool validationPatternEnabled = false;
+    std::string validationNormalizedSample{};
+    std::string validationError{};
+    std::string validationWarning{};
+    bool validationMatched = false;
+    bool validationTested = false;
+};
 
 struct State {
     enum class Tab {
@@ -64,6 +102,7 @@ struct State {
     variables_picker::State variablesPicker{};
     std::vector<variables_picker::Entry> variablePickerEntries{};
     icon_picker::State iconPicker{};
+    TextPatternHelperState textPatternHelper{};
     HotkeyEntry baseline{};
     HotkeyEntry draft{};
 };
@@ -95,6 +134,8 @@ void NormalizeDraftForSave(HotkeyEntry& hotkey);
 
 void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions);
 void DrawConfirmationSettingsPopup(State& editor, const LaunchPanelActions& actions);
+bool DrawTextTriggerInput(State& editor, const char* label, const char* hint);
+void DrawTextPatternHelperPopup(State& editor);
 void DrawInline(State& editor, const ShellActions& actions);
 
 } // namespace binder_editor

@@ -5,6 +5,8 @@
 
 #include "app_config.h"
 #include "debug_log.h"
+#include "text_pattern_input.h"
+#include "text_pattern_ui_support.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
 
@@ -28,57 +30,10 @@ constexpr int kUnwantedSchemaVersion = 2;
 constexpr int kMaxConfigPatternLength = 65535;
 constexpr std::uint64_t kPerfTelemetryWindowMs = 5000;
 
-struct RegexReferenceItem {
-    UiText category;
-    const char* expression;
-    UiText description;
-};
-
-constexpr RegexReferenceItem kRegexReferenceItems[] = {
-    {UiText::UnwantedRegexRefCategoryReady, R"(\A\z)", UiText::UnwantedRegexRefEmptyMessage},
-    {UiText::UnwantedRegexRefCategoryReady, R"(\A[ ]+\z)", UiText::UnwantedRegexRefSpacesOnly},
-    {UiText::UnwantedRegexRefCategoryBasic, R"(\A)", UiText::UnwantedRegexRefAbsoluteStart},
-    {UiText::UnwantedRegexRefCategoryBasic, R"(\z)", UiText::UnwantedRegexRefAbsoluteEnd},
-    {UiText::UnwantedRegexRefCategoryBasic, R"(\Q...\E)", UiText::UnwantedRegexRefQuotedLiteral},
-    {UiText::UnwantedRegexRefCategoryBasic, R"(\.)", UiText::UnwantedRegexRefEscapedMeta},
-    {UiText::UnwantedRegexRefCategoryBasic, ".", UiText::UnwantedRegexRefAnyChar},
-    {UiText::UnwantedRegexRefCategoryClasses, "[abc]", UiText::UnwantedRegexRefClass},
-    {UiText::UnwantedRegexRefCategoryClasses, "[^abc]", UiText::UnwantedRegexRefNegatedClass},
-    {UiText::UnwantedRegexRefCategoryClasses, "[a-z]", UiText::UnwantedRegexRefRange},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\d)", UiText::UnwantedRegexRefUnicodeDigit},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\p{L})", UiText::UnwantedRegexRefUnicodeLetter},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\s)", UiText::UnwantedRegexRefWhitespace},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\h)", UiText::UnwantedRegexRefHorizontalWhitespace},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\w)", UiText::UnwantedRegexRefWordChar},
-    {UiText::UnwantedRegexRefCategoryClasses, R"(\b)", UiText::UnwantedRegexRefWordBoundary},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "?", UiText::UnwantedRegexRefOptional},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "*", UiText::UnwantedRegexRefZeroOrMore},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "+", UiText::UnwantedRegexRefOneOrMore},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "{3}", UiText::UnwantedRegexRefExactCount},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "{1,4}", UiText::UnwantedRegexRefRangeCount},
-    {UiText::UnwantedRegexRefCategoryQuantifiers, "*?", UiText::UnwantedRegexRefLazy},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?:...)", UiText::UnwantedRegexRefNonCapturingGroup},
-    {UiText::UnwantedRegexRefCategoryGroups, "(a|b)", UiText::UnwantedRegexRefAlternation},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?=...)", UiText::UnwantedRegexRefPositiveLookahead},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?!...)", UiText::UnwantedRegexRefNegativeLookahead},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?<=a)", UiText::UnwantedRegexRefPositiveLookbehind},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?<!a)", UiText::UnwantedRegexRefNegativeLookbehind},
-    {UiText::UnwantedRegexRefCategoryGroups, "(?>...)", UiText::UnwantedRegexRefAtomicGroup},
-    {UiText::UnwantedRegexRefCategoryReady, R"(\[[0-9]{1,4}\])", UiText::UnwantedTokenPlayerIdHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"(\{[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?\})", UiText::UnwantedTokenColorHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"((?=[A-Za-z0-9_]{3,24}(?:[^A-Za-z0-9_]|\z))[A-Za-z0-9]+_[A-Za-z0-9]+)", UiText::UnwantedTokenNicknameHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+)", UiText::UnwantedTokenIntegerHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?)", UiText::UnwantedTokenDecimalHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?%)", UiText::UnwantedTokenPercentageHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"([+-]?[0-9]+(?:[.,][0-9]+)?[kK][0-9]*)", UiText::UnwantedTokenCompactAmountHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"(\$[+-]?[0-9]+(?:[.,][0-9]+)?)", UiText::UnwantedTokenMoneyHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"((?:[01][0-9]|2[0-3]):[0-5][0-9])", UiText::UnwantedTokenClockHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"([0-9]{1,3}:[0-5][0-9])", UiText::UnwantedTokenDurationHelp},
-    {UiText::UnwantedRegexRefCategoryReady, R"(\[[^\]\r\n]{1,64}\])", UiText::UnwantedTokenBracketPrefixHelp},
-    {UiText::UnwantedRegexRefCategoryReady,
-        R"((?:https?://)?(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?::(?:[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/(?:[^\s\]\)}>]*[^\s\]\)}>,;!?])?)?)",
-        UiText::UnwantedTokenDomainHelp},
-};
+using text_pattern_ui::AppendWarning;
+using text_pattern_ui::ContainsBroadWildcard;
+using text_pattern_ui::FormatCompilePosition;
+using text_pattern_ui::Utf8CharacterOffset;
 
 double UnwantedPerfNowMs() {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -321,88 +276,6 @@ std::string TrimAscii(std::string_view value) {
     return std::string(value.substr(start, end - start));
 }
 
-bool RegexContainsBroadWildcard(std::string_view pattern) {
-    bool escaped = false;
-    bool inClass = false;
-    bool inQuotedLiteral = false;
-    for (std::size_t i = 0; i + 1 < pattern.size(); ++i) {
-        const char ch = pattern[i];
-        if (!inClass && ch == '\\' && pattern[i + 1] == (inQuotedLiteral ? 'E' : 'Q')) {
-            inQuotedLiteral = !inQuotedLiteral;
-            ++i;
-            escaped = false;
-            continue;
-        }
-        if (inQuotedLiteral) {
-            continue;
-        }
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
-        if (ch == '\\') {
-            escaped = true;
-            continue;
-        }
-        if (ch == '[') {
-            inClass = true;
-            continue;
-        }
-        if (ch == ']' && inClass) {
-            inClass = false;
-            continue;
-        }
-        if (!inClass && ch == '.' && (pattern[i + 1] == '*' || pattern[i + 1] == '+')) {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::size_t Utf8CharacterOffset(std::string_view value, std::size_t byteOffset) {
-    byteOffset = std::min(byteOffset, value.size());
-    std::size_t characters = 0;
-    for (std::size_t i = 0; i < byteOffset;) {
-        const unsigned char lead = static_cast<unsigned char>(value[i]);
-        std::size_t size = 1;
-        if ((lead & 0xE0) == 0xC0) size = 2;
-        else if ((lead & 0xF0) == 0xE0) size = 3;
-        else if ((lead & 0xF8) == 0xF0) size = 4;
-        i += std::min(size, byteOffset - i);
-        ++characters;
-    }
-    return characters;
-}
-
-std::string FormatPcrePosition(std::string_view pattern, std::size_t byteOffset) {
-    UiSettings& ui = UiSettings::Instance();
-    byteOffset = std::min(byteOffset, pattern.size());
-    const std::size_t lineStart = byteOffset == 0
-        ? std::string_view::npos
-        : pattern.rfind('\n', byteOffset - 1);
-    const std::size_t actualStart = lineStart == std::string_view::npos ? 0 : lineStart + 1;
-    const std::size_t lineEnd = pattern.find('\n', byteOffset);
-    const std::size_t actualEnd = lineEnd == std::string_view::npos ? pattern.size() : lineEnd;
-    std::string line(pattern.substr(actualStart, actualEnd - actualStart));
-    constexpr std::size_t kMaxContextBytes = 96;
-    std::size_t caretByte = byteOffset - actualStart;
-    if (line.size() > kMaxContextBytes) {
-        const std::size_t contextStart = caretByte > kMaxContextBytes / 2 ? caretByte - kMaxContextBytes / 2 : 0;
-        line = line.substr(contextStart, kMaxContextBytes);
-        caretByte -= contextStart;
-        if (contextStart > 0) {
-            line.insert(0, "...");
-            caretByte += 3;
-        }
-    }
-    const std::size_t caretChars = Utf8CharacterOffset(line, std::min(caretByte, line.size()));
-    return ui.Format(
-        UiText::UnwantedPcrePositionDetail,
-        std::to_string(Utf8CharacterOffset(pattern, byteOffset) + 1).c_str(),
-        line.c_str(),
-        std::string(caretChars, ' ').c_str());
-}
-
 const char* RuntimeWarningDisplay(std::string_view status) {
     UiSettings& ui = UiSettings::Instance();
     if (status == "match_limit") return ui.Text(UiText::UnwantedRuntimeMatchLimit);
@@ -410,16 +283,6 @@ const char* RuntimeWarningDisplay(std::string_view status) {
     if (status == "heap_limit") return ui.Text(UiText::UnwantedRuntimeHeapLimit);
     if (status == "invalid_utf8") return ui.Text(UiText::UnwantedRuntimeInvalidText);
     return ui.Text(UiText::UnwantedRuntimeGenericError);
-}
-
-void AppendWarning(std::string& warning, std::string_view message) {
-    if (message.empty()) {
-        return;
-    }
-    if (!warning.empty()) {
-        warning.push_back(' ');
-    }
-    warning.append(message);
 }
 
 bool IsHex(char ch) {
@@ -1322,7 +1185,7 @@ void UnwantedMessagesModule::CompileRule(Rule& rule) {
     const bool absoluteAnchored = rule.text.size() >= 4 && rule.text.rfind("\\A", 0) == 0
         && rule.text.substr(rule.text.size() - 2) == "\\z";
     rule.validation.unanchored = !legacyAnchored && !absoluteAnchored;
-    rule.validation.broadWildcard = RegexContainsBroadWildcard(rule.text);
+    rule.validation.broadWildcard = ContainsBroadWildcard(rule.text);
     unwanted_regex::CompileResult compiled = unwanted_regex::Compile(rule.text, rule.nocase);
     if (!compiled.program) {
         rule.validation.error = ValidationError::RegexCompile;
@@ -1353,7 +1216,7 @@ void UnwantedMessagesModule::FormatRuleDiagnostics(Rule& rule) const {
     case ValidationError::RegexCompile:
         rule.error = ui.Format(
             UiText::UnwantedPcreErrorFormat,
-            FormatPcrePosition(rule.text, rule.validation.pcreErrorOffset).c_str());
+            FormatCompilePosition(rule.text, rule.validation.pcreErrorOffset).c_str());
         break;
     case ValidationError::None:
     default:
@@ -2130,7 +1993,14 @@ void UnwantedMessagesModule::DrawTesterPanel() {
         ui.Text(UiText::UnwantedTestAction),
         "##unwanted_test",
         ImVec2(actionWidth, 0.0f));
-    const std::string normalized = NormalizeCandidate(testText_);
+    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(testText_);
+    UnwantedMessageContext testContext;
+    testContext.text.assign(chatlogSample.payload);
+    const std::vector<std::string> candidates = BuildCandidates(testContext, settings_);
+    const std::string& normalized = candidates.front();
+    if (chatlogSample.timestampRemoved) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
+    }
     ImGui::TextDisabled(
         "%s",
         ui.Format(
@@ -2143,8 +2013,8 @@ void UnwantedMessagesModule::DrawTesterPanel() {
 
     if (testRequested) {
         lastTesterMatch_ = {};
-        const std::string candidate = NormalizeCandidate(testText_);
         bool matched = false;
+        std::string matchedCandidate;
         if (ruleDraft_.active) {
             if (ruleDraft_.type == RuleType::Literal) {
                 PreparedRule temporary;
@@ -2153,18 +2023,31 @@ void UnwantedMessagesModule::DrawTesterPanel() {
                 temporary.nocase = ruleDraft_.nocase;
                 temporary.wholeWord = ruleDraft_.wholeWord;
                 temporary.literalNeedle = temporary.nocase ? Utf8ToLower(temporary.text) : temporary.text;
-                const std::string folded = temporary.nocase ? Utf8ToLower(candidate) : std::string{};
-                matched = MatchLiteral(temporary, candidate, folded);
+                for (const std::string& candidate : candidates) {
+                    const std::string folded = temporary.nocase ? Utf8ToLower(candidate) : std::string{};
+                    if (MatchLiteral(temporary, candidate, folded)) {
+                        matched = true;
+                        matchedCandidate = candidate;
+                        break;
+                    }
+                }
             } else {
                 unwanted_regex::CompileResult compiled = unwanted_regex::Compile(TrimAscii(ruleDraft_.text), ruleDraft_.nocase);
-                matched = compiled.program
-                    && compiled.program->Match(candidate).status == unwanted_regex::MatchStatus::Match;
+                if (compiled.program) {
+                    for (const std::string& candidate : candidates) {
+                        if (compiled.program->Match(candidate).status == unwanted_regex::MatchStatus::Match) {
+                            matched = true;
+                            matchedCandidate = candidate;
+                            break;
+                        }
+                    }
+                }
             }
         }
         if (matched) {
             lastTesterMatch_.matched = true;
             lastTesterMatch_.ruleId = ruleDraft_.createMode ? "__draft__" : ruleDraft_.id;
-            lastTesterMatch_.candidate = candidate;
+            lastTesterMatch_.candidate = std::move(matchedCandidate);
         }
     }
 
@@ -2205,6 +2088,10 @@ void UnwantedMessagesModule::DrawRegexHelperWizard() {
         helperSample_,
         ImGuiInputTextFlags_AutoSelectAll,
         1024);
+    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(helperSample_);
+    if (chatlogSample.timestampRemoved) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
+    }
 
     ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedGeneralizations));
     const float optionsRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
@@ -2241,7 +2128,8 @@ void UnwantedMessagesModule::DrawRegexHelperWizard() {
     if (!helperSample_.empty()) {
         ImGui::Spacing();
         ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedNormalizedPreview));
-        ImGui::TextWrapped("%s", NormalizeCandidate(helperSample_).c_str());
+        const std::string normalizedSample = NormalizeCandidate(chatlogSample.payload);
+        ImGui::TextWrapped("%s", normalizedSample.c_str());
     }
 
     if (!helperTokens_.empty()) {
@@ -2401,7 +2289,7 @@ void UnwantedMessagesModule::DrawRegexReferencePopup() {
         ImGui::TableSetupColumn("##append", ImGuiTableColumnFlags_WidthFixed, ScaleUi(105.0f));
         ImGui::TableHeadersRow();
 
-        for (const RegexReferenceItem& item : kRegexReferenceItems) {
+        for (const text_pattern_ui::ReferenceItem& item : text_pattern_ui::ReferenceItems()) {
             std::string searchable = std::string(item.expression)
                 + "\n" + ui.Text(item.category)
                 + "\n" + ui.Text(item.description);
@@ -2880,14 +2768,14 @@ bool UnwantedMessagesModule::ValidateDraft(std::string& error, std::string& warn
         if (!legacyAnchored && !absoluteAnchored) {
             warning = ui.Text(UiText::UnwantedRegexSafetyUnanchored);
         }
-        if (RegexContainsBroadWildcard(text)) {
+        if (ContainsBroadWildcard(text)) {
             AppendWarning(warning, ui.Text(UiText::UnwantedRegexBroadWildcard));
         }
         unwanted_regex::CompileResult compiled = unwanted_regex::Compile(text, ruleDraft_.nocase);
         if (!compiled.program) {
             error = ui.Format(
                 UiText::UnwantedPcreErrorFormat,
-                FormatPcrePosition(text, compiled.errorOffset).c_str());
+                FormatCompilePosition(text, compiled.errorOffset).c_str());
         } else if (compiled.program->MatchesEmpty()) {
             AppendWarning(warning, ui.Text(UiText::UnwantedRegexMatchesEmpty));
         }
@@ -2966,7 +2854,8 @@ void UnwantedMessagesModule::RegenerateHelperOutput() {
     options.money = helperMoney_;
     options.time = helperTime_;
     options.domains = helperDomain_;
-    const std::string normalized = NormalizeCandidate(helperSample_);
+    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(helperSample_);
+    const std::string normalized = NormalizeCandidate(chatlogSample.payload);
     const unwanted_regex_builder::Result built = unwanted_regex_builder::Build(normalized, options);
     helperExact_ = built.exact;
     helperGeneralized_ = built.recommended;

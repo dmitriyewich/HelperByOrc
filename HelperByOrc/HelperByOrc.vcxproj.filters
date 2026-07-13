@@ -69,6 +69,9 @@
     <ClCompile Include="binder_editor.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
+    <ClCompile Include="binder_pattern_helper.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_editor_ui.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
@@ -225,10 +228,16 @@
     <ClCompile Include="unwanted_messages_module.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="unwanted_regex_builder.cpp">
+    <ClCompile Include="text_pattern_builder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="unwanted_regex_engine.cpp">
+    <ClCompile Include="text_pattern_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="text_pattern_input.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="text_pattern_ui_support.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="user_files_path.cpp">
@@ -425,10 +434,16 @@
     <ClInclude Include="unwanted_messages_module.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="unwanted_regex_builder.h">
+    <ClInclude Include="text_pattern_builder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="unwanted_regex_engine.h">
+    <ClInclude Include="text_pattern_engine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="text_pattern_input.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="text_pattern_ui_support.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_icons.h">

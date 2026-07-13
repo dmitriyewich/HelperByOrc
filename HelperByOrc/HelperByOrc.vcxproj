@@ -136,6 +136,7 @@
     <ClCompile Include="arizona_cef_dialogs.cpp" />
     <ClCompile Include="binder_config.cpp" />
     <ClCompile Include="binder_editor.cpp" />
+    <ClCompile Include="binder_pattern_helper.cpp" />
     <ClCompile Include="binder_editor_ui.cpp" />
     <ClCompile Include="binder_explorer_ui.cpp" />
     <ClCompile Include="binder_input_dialog.cpp" />
@@ -191,8 +192,10 @@
     <ClCompile Include="ui_frame_timing.cpp" />
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
-    <ClCompile Include="unwanted_regex_builder.cpp" />
-    <ClCompile Include="unwanted_regex_engine.cpp" />
+    <ClCompile Include="text_pattern_builder.cpp" />
+    <ClCompile Include="text_pattern_engine.cpp" />
+    <ClCompile Include="text_pattern_input.cpp" />
+    <ClCompile Include="text_pattern_ui_support.cpp" />
     <ClCompile Include="user_files_path.cpp" />
     <ClCompile Include="variables_picker_ui.cpp" />
     <ClCompile Include="external\raknet\BitStream.cpp" />
@@ -276,8 +279,10 @@
     <ClInclude Include="ui_icons.h" />
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="unwanted_messages_module.h" />
-    <ClInclude Include="unwanted_regex_builder.h" />
-    <ClInclude Include="unwanted_regex_engine.h" />
+    <ClInclude Include="text_pattern_builder.h" />
+    <ClInclude Include="text_pattern_engine.h" />
+    <ClInclude Include="text_pattern_input.h" />
+    <ClInclude Include="text_pattern_ui_support.h" />
     <ClInclude Include="user_files_path.h" />
     <ClInclude Include="variables_picker_ui.h" />
     <ClInclude Include="external\MinHook\include\MinHook.h" />

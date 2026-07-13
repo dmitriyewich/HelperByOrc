@@ -1,8 +1,8 @@
 #pragma once
 
 #include "json_utils.h"
-#include "unwanted_regex_builder.h"
-#include "unwanted_regex_engine.h"
+#include "text_pattern_builder.h"
+#include "text_pattern_engine.h"
 
 #include <cstdint>
 #include <functional>

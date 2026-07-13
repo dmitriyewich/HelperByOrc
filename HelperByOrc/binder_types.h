@@ -2,12 +2,12 @@
 
 #include "conditions_module.h"
 #include "hotkey_utils.h"
+#include "text_pattern_engine.h"
 
 #include <windows.h>
 
 #include <cstdint>
-#include <optional>
-#include <regex>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -52,17 +52,17 @@ struct TextTrigger {
     std::string runtimeCacheText;
     bool runtimeCachePattern = false;
     bool runtimeCacheReady = false;
-    bool runtimeRegexInvalid = false;
+    bool runtimePatternInvalid = false;
     std::string runtimeNormalizedText;
-    std::optional<std::regex> runtimeRegex;
+    std::shared_ptr<text_pattern::Program> runtimePattern;
 
     void InvalidateRuntimeCache() {
         runtimeCacheText.clear();
         runtimeCachePattern = false;
         runtimeCacheReady = false;
-        runtimeRegexInvalid = false;
+        runtimePatternInvalid = false;
         runtimeNormalizedText.clear();
-        runtimeRegex.reset();
+        runtimePattern.reset();
     }
 };
 

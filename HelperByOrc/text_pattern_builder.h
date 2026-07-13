@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-namespace unwanted_regex_builder {
+namespace text_pattern_builder {
 
 enum class TokenKind {
     Color,
@@ -50,4 +50,8 @@ struct Result {
 };
 
 Result Build(std::string_view sample, const Options& options);
-} // namespace unwanted_regex_builder
+} // namespace text_pattern_builder
+
+// Transitional alias for the existing Unwanted Messages implementation.
+// New shared consumers should use text_pattern_builder directly.
+namespace unwanted_regex_builder = text_pattern_builder;

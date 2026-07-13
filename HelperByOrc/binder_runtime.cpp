@@ -12,18 +12,19 @@ void EnsureTextTriggerRuntimeCache(TextTrigger& trigger) {
     trigger.runtimeCacheText = trigger.text;
     trigger.runtimeCachePattern = trigger.pattern;
     trigger.runtimeCacheReady = true;
-    trigger.runtimeRegexInvalid = false;
+    trigger.runtimePatternInvalid = false;
     trigger.runtimeNormalizedText = NormalizeTriggerText(trigger.text);
-    trigger.runtimeRegex.reset();
+    trigger.runtimePattern.reset();
 
     if (!trigger.pattern || trigger.runtimeNormalizedText.empty()) {
         return;
     }
 
-    try {
-        trigger.runtimeRegex.emplace(trigger.text);
-    } catch (const std::exception&) {
-        trigger.runtimeRegexInvalid = true;
+    text_pattern::CompileResult compiled = text_pattern::Compile(trigger.text, false);
+    if (compiled.program) {
+        trigger.runtimePattern = std::shared_ptr<text_pattern::Program>(std::move(compiled.program));
+    } else {
+        trigger.runtimePatternInvalid = true;
     }
 }
 
@@ -1432,10 +1433,11 @@ bool BinderModule::Impl::MatchTextTrigger(const std::string& source, HotkeyEntry
         return normalizedSource == normalizedTarget;
     }
 
-    if (trigger.runtimeRegex) {
-        return std::regex_search(normalizedSource, *trigger.runtimeRegex) || normalizedSource == normalizedTarget;
+    if (trigger.runtimePattern) {
+        return trigger.runtimePattern->Match(normalizedSource).status == text_pattern::MatchStatus::Match
+            || normalizedSource == normalizedTarget;
     }
-    if (trigger.runtimeRegexInvalid) {
+    if (trigger.runtimePatternInvalid) {
         return normalizedSource == normalizedTarget;
     }
 

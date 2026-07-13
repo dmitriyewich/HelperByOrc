@@ -1,10 +1,10 @@
-#include "unwanted_regex_builder.h"
+#include "text_pattern_builder.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 
-namespace unwanted_regex_builder {
+namespace text_pattern_builder {
 namespace {
 
 bool IsAsciiAlphaNumeric(char ch) {
@@ -414,4 +414,4 @@ Result Build(std::string_view sample, const Options& options) {
     return result;
 }
 
-} // namespace unwanted_regex_builder
+} // namespace text_pattern_builder

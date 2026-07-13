@@ -397,8 +397,9 @@
     X(UnwantedTesterNormalizedFormat, "После подготовки текста (%s симв.): «%s»", "After text preparation (%s chars): “%s”") \
     X(UnwantedTesterEmptyHint, "Пустое поле проверяет пустое сообщение. Для сообщения только из пробелов введите пробелы и нажмите «Проверить».", "An empty field tests an empty message. For a spaces-only message, enter spaces and click Test.") \
     X(UnwantedRegexHelper, "Помощник по шаблонам", "Pattern helper") \
-    X(UnwantedHelperFlowHint, "Вставьте настоящее сообщение из чата и отметьте, какие части могут меняться.", "Paste a real chat message and choose which parts may change.") \
+    X(UnwantedHelperFlowHint, "Вставьте сообщение или полную строку чатлога и отметьте, какие части могут меняться.", "Paste a message or a full chatlog line and choose which parts may change.") \
     X(UnwantedHelperInputHint, "Вставьте пример сообщения", "Paste a sample message") \
+    X(TextPatternChatlogTimestampRemoved, "Время чатлога распознано и удалено перед проверкой.", "The chatlog timestamp was detected and removed before testing.") \
     X(UnwantedGeneralizations, "Какие части могут меняться", "Parts that may change") \
     X(UnwantedHelperColors, "Цветовые коды", "Color codes") \
     X(UnwantedHelperNumbers, "Числа", "Numbers") \
@@ -1305,9 +1306,19 @@
     X(EditorPreviousBind, "Предыдущий бинд", "Previous bind") \
     X(EditorNextBind, "Следующий бинд", "Next bind") \
     X(EditorUnsaved, "Несохранённые изменения", "Unsaved changes") \
-    X(EditorTriggerHint, "Срабатывает, когда вы отправляете указанную фразу в чат или в виде команды.", "Triggers when you send the specified phrase to chat or as a command.") \
-    X(EditorTriggerPatternTooltip, "Regex ECMAScript для текстового триггера.\n\nЧастое:\n. — любой символ\n.* — любой текст\n\\d+ — одно или больше чисел\n\\w+ — слово/идентификатор\n^ и $ — начало и конец строки\n(a|b) — один из вариантов\n[abc] — один символ из набора\n\\. — обычная точка\n\nПримеры:\n^[Гг]олова$\n^дом\\d+$\n^(куплю|продам)\\s+\\d+$", "ECMAScript regex for the text trigger.\n\nCommon:\n. — any character\n.* — any text\n\\d+ — one or more digits\n\\w+ — word/identifier\n^ and $ — start and end of line\n(a|b) — one of the alternatives\n[abc] — one character from a set\n\\. — literal dot\n\nExamples:\n^[Hh]ead$\n^house\\d+$\n^(buy|sell)\\s+\\d+$") \
-    X(EditorTriggerExample, "Например: Голова, [Гг]олова, ^дом\\d+$", "For example: Head, [Hh]ead, ^house\\d+$") \
+    X(EditorTriggerHint, "Срабатывает по входящему или исходящему сообщению. Перед сравнением удаляются цветовые коды, нормализуются окончания строк и пробелы по краям.", "Triggers on incoming or outgoing messages. Color codes are removed, line endings are normalized, and surrounding whitespace is trimmed before matching.") \
+    X(EditorTriggerPatternTooltip, "Открыть помощник PCRE2.\n\nОбычный триггер сравнивает всю подготовленную строку с учётом регистра. Шаблон ищет фрагмент; для полной строки используйте \\A в начале и \\z в конце. Доступны Unicode-классы, группы и lookaround. Проверка ограничена по ресурсам, чтобы сложное выражение не подвешивало игру.", "Open the PCRE2 helper.\n\nA plain trigger compares the full prepared string case-sensitively. A pattern searches for a fragment; use \\A at the start and \\z at the end for the full string. Unicode classes, groups, and lookaround are supported. Matching is resource-limited so a complex expression cannot hang the game.") \
+    X(EditorTriggerExample, "Например: Голова, [Гг]олова, \\Aдом\\d+\\z", "For example: Head, [Hh]ead, \\Ahouse\\d+\\z") \
+    X(EditorPatternHelperTitle, "Шаблон текстового триггера", "Text trigger pattern") \
+    X(EditorPatternEnabled, "Использовать шаблон PCRE2", "Use a PCRE2 pattern") \
+    X(EditorPatternCurrent, "Текст триггера / текущий шаблон", "Trigger text / current pattern") \
+    X(EditorPatternSample, "Пример и проверка", "Example and test") \
+    X(EditorPatternSampleHint, "Можно вставить полную строку чатлога: время будет удалено. Цветовые коды удаляются так же, как в игре.", "You can paste a full chatlog line: its timestamp will be removed. Color codes are removed exactly as they are in game.") \
+    X(EditorPatternReferenceHint, "Готовые элементы PCRE2. Нажмите выражение, чтобы скопировать его, или «Вставить», чтобы заменить выделение в тексте триггера либо добавить элемент в позицию курсора.", "Ready-to-use PCRE2 elements. Click an expression to copy it, or use Append to replace the trigger selection or insert it at the cursor.") \
+    X(EditorPatternMatchesEmpty, "Этот шаблон совпадает даже с пустым сообщением и может запускать бинд слишком часто.", "This pattern also matches an empty message and may trigger the bind too often.") \
+    X(EditorPatternTestStopped, "Проверка остановлена безопасным лимитом. Упростите шаблон.", "Testing stopped at a safety limit. Simplify the pattern.") \
+    X(EditorPatternMatched, "Триггер сработает.", "The trigger will fire.") \
+    X(EditorPatternNoMatch, "Триггер не сработает.", "The trigger will not fire.") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов. Пустые строки удаляются при сохранении.", "Drag the handle on the left to reorder steps. Empty rows are removed when saving.") \
     X(EditorAppendStepHint, "Введите сообщение для нового шага", "Type a message for a new step") \
     X(EditorAppendStepTooltip, "Введите текст: строка сразу станет новым шагом. При вставке нескольких строк каждая непустая строка станет отдельным шагом. Пауза и метод копируются из предыдущего шага.", "Type text: the row immediately becomes a new step. When pasting multiple lines, each non-empty line becomes a separate step. Delay and method are copied from the previous step.") \

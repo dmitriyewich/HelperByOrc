@@ -368,11 +368,11 @@ bool BinderModule::Impl::ValidateEditor(std::vector<std::string>& errors) {
     }
 
     if (current.textTrigger.enabled && current.textTrigger.pattern && !triggerText.empty()) {
-        try {
-            std::regex test(triggerText);
-            (void)test;
-        } catch (const std::exception& ex) {
-            errors.push_back(ui.Format(UiText::ValidationInvalidRegex, ex.what()));
+        text_pattern::CompileResult compiled = text_pattern::Compile(triggerText, false);
+        if (!compiled.program) {
+            errors.push_back(ui.Format(
+                UiText::ValidationInvalidRegex,
+                text_pattern_ui::FormatCompilePosition(triggerText, compiled.errorOffset).c_str()));
         }
     }
 

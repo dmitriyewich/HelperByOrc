@@ -544,12 +544,10 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
 
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        InputTextWithHintString(
+        DrawTextTriggerInput(
+            editor,
             "##binder_editor_trigger",
-            ui.Text(UiText::EditorTriggerExample),
-            editor.draft.textTrigger.text,
-            ImGuiInputTextFlags_AutoSelectAll,
-            256);
+            ui.Text(UiText::EditorTriggerExample));
 
         ImGui::TableSetColumnIndex(2);
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -584,9 +582,21 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
         DrawTextTooltip(ui.Text(UiText::RepeatInterval));
 
         ImGui::TableSetColumnIndex(1);
-        ImGui::BeginDisabled(!editor.draft.textTrigger.enabled);
-        DrawCheckboxWithTooltip(ui.Text(UiText::EditorTogglePattern), editor.draft.textTrigger.pattern, ui.Text(UiText::EditorTriggerPatternTooltip));
+        const std::string patternButtonLabel = std::string(
+            editor.draft.textTrigger.pattern ? ui_icons::ToggleOn : ui_icons::ToggleOff)
+            + " " + ui.Text(UiText::EditorTogglePattern);
+        if (editor.draft.textTrigger.pattern) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+        if (ImGui::Button(patternButtonLabel.c_str())) {
+            editor.textPatternHelper.popupPending = true;
+        }
+        if (editor.draft.textTrigger.pattern) {
+            ImGui::PopStyleColor();
+        }
+        DrawTextTooltip(ui.Text(UiText::EditorTriggerPatternTooltip));
         ImGui::SameLine();
+        ImGui::BeginDisabled(!editor.draft.textTrigger.enabled);
         DrawCheckboxWithTooltip(
             ui.Text(UiText::EditorToggleTextConfirm),
             editor.draft.textConfirmation.enabled,
@@ -897,6 +907,7 @@ void DrawInline(State& editor, const ShellActions& actions) {
         actions.drawConditionsPopup();
     }
     DrawConfirmationSettingsPopup(editor, actions.launchActions);
+    DrawTextPatternHelperPopup(editor);
     if (actions.drawVariablesPopup) {
         actions.drawVariablesPopup();
     }

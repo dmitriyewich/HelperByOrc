@@ -17,6 +17,8 @@
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
 #include "tags_module.h"
+#include "text_pattern_builder.h"
+#include "text_pattern_ui_support.h"
 #include "text_encoding.h"
 #include "ui_icons.h"
 #include "ui_settings.h"

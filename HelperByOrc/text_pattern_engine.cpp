@@ -1,4 +1,4 @@
-#include "unwanted_regex_engine.h"
+#include "text_pattern_engine.h"
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 #define PCRE2_STATIC
@@ -7,7 +7,7 @@
 #include <array>
 #include <utility>
 
-namespace unwanted_regex {
+namespace text_pattern {
 namespace {
 
 constexpr std::uint32_t kMatchLimit = 100000;
@@ -187,4 +187,4 @@ const char* MatchStatusName(MatchStatus status) {
     }
 }
 
-} // namespace unwanted_regex
+} // namespace text_pattern

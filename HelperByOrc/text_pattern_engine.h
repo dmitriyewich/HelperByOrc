@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace unwanted_regex {
+namespace text_pattern {
 
 struct CompileResult;
 
@@ -56,4 +56,8 @@ struct CompileResult {
 CompileResult Compile(std::string_view pattern, bool nocase);
 const char* MatchStatusName(MatchStatus status);
 
-} // namespace unwanted_regex
+} // namespace text_pattern
+
+// Transitional alias for the existing Unwanted Messages implementation.
+// New shared consumers should use text_pattern directly.
+namespace unwanted_regex = text_pattern;
