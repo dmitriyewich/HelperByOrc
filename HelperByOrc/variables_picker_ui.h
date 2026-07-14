@@ -91,6 +91,8 @@ struct State {
     UiLanguage searchBlobLanguageCache = UiLanguage::Russian;
 };
 
+using InspectorExtraDrawCallback = void (*)(void* context, const Entry& entry);
+
 struct Options {
     Mode mode = Mode::Manage;
     const char* id = "variables_picker";
@@ -99,6 +101,8 @@ struct Options {
     bool closeOnInsert = false;
     ImVec2 size = ImVec2(0.0f, 0.0f);
     bool allowCopyInInsert = false;
+    InspectorExtraDrawCallback drawInspectorExtra = nullptr;
+    void* inspectorExtraContext = nullptr;
 };
 
 struct Request {

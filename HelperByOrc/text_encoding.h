@@ -21,5 +21,6 @@ std::string Utf8ToAnsi(std::string_view text, unsigned int codePage);
 
 std::string GameToUtf8(std::string_view text);
 std::string Utf8ToGame(std::string_view text);
+std::string GxtToUtf8(std::string_view text);
 
 } // namespace textencoding

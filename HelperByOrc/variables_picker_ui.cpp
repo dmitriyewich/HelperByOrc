@@ -1385,6 +1385,10 @@ void DrawInspectorPane(State& state, const Entry* selected, const Options& optio
         ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesKeyEmulateNote));
     }
 
+    if (options.drawInspectorExtra) {
+        options.drawInspectorExtra(options.inspectorExtraContext, *selected);
+    }
+
     if (selected->kind == EntryKind::Custom && options.allowCustomEdit) {
         ImGui::Spacing();
         if (TextButton(ui_icons::Edit, ui.Text(UiText::Edit), "##variables_edit_custom", ScaleUi(126.0f, 0.0f), visual)) {

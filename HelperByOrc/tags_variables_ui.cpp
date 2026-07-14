@@ -825,6 +825,73 @@ void TagsModule::Impl::HandleVariablePickerUtilityRequest(const variables_picker
     HandleVariablePickerRequest(request);
 }
 
+void TagsModule::Impl::DrawTransliterationDictionaryCard() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::TransliterationDictionaryTitle));
+    ImGui::TextWrapped("%s", ui.Text(UiText::TransliterationDictionaryDescription));
+    if (ImGui::Button(ui.Text(UiText::TransliterationDictionaryOpen), ScaleUi(140.0f, 0.0f))) {
+        OpenTransliterationDictionaryFile();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::TransliterationDictionaryReload), ScaleUi(120.0f, 0.0f))) {
+        LoadTransliterationDictionary();
+    }
+
+    if (!transliterationDictionaryPathUtf8_.empty()) {
+        ImGui::TextWrapped(
+            ui.Text(UiText::TransliterationDictionaryPathFormat),
+            transliterationDictionaryPathUtf8_.c_str());
+    }
+
+    const TransliterationDictionaryStatus& dictionaryStatus = transliterationDictionaryStatus_;
+    const std::size_t skippedDictionaryLines = dictionaryStatus.invalidLines
+        + dictionaryStatus.duplicateLines
+        + dictionaryStatus.conflictLines
+        + dictionaryStatus.limitLines;
+    switch (dictionaryStatus.state) {
+    case TransliterationDictionaryState::Missing:
+        ImGui::TextDisabled("%s", ui.Text(UiText::TransliterationDictionaryMissing));
+        break;
+    case TransliterationDictionaryState::Loaded:
+        ImGui::TextDisabled(
+            ui.Text(UiText::TransliterationDictionaryLoadedFormat),
+            static_cast<unsigned long long>(dictionaryStatus.loadedPairs));
+        break;
+    case TransliterationDictionaryState::LoadedWithWarnings:
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.72f, 0.28f, 1.0f),
+            ui.Text(UiText::TransliterationDictionaryWarningsFormat),
+            static_cast<unsigned long long>(dictionaryStatus.loadedPairs),
+            static_cast<unsigned long long>(skippedDictionaryLines));
+        break;
+    case TransliterationDictionaryState::Error:
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.35f, 0.35f, 1.0f),
+            "%s",
+            ui.Text(UiText::TransliterationDictionaryLoadError));
+        break;
+    }
+    if (transliterationDictionaryOpenFailed_) {
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.35f, 0.35f, 1.0f),
+            "%s",
+            ui.Text(UiText::TransliterationDictionaryOpenError));
+    }
+}
+
+void TagsModule::Impl::DrawVariablePickerInspectorExtra(
+    void* context,
+    const variables_picker::Entry& entry) {
+    if (!context
+        || entry.kind != variables_picker::EntryKind::Function
+        || (entry.name != "cyrtolat" && entry.name != "lattocyr")) {
+        return;
+    }
+
+    static_cast<Impl*>(context)->DrawTransliterationDictionaryCard();
+}
+
 void TagsModule::Impl::DrawVariablesPage() {
     UiSettings& ui = UiSettings::Instance();
 
@@ -841,17 +908,20 @@ void TagsModule::Impl::DrawVariablesPage() {
     ImGui::Spacing();
 
     const std::vector<variables_picker::Entry>& entries = BuildVariablePickerEntries();
+    variables_picker::Options pickerOptions{
+        variables_picker::Mode::Manage,
+        "misc_variables_picker",
+        false,
+        true,
+        false,
+        ImGui::GetContentRegionAvail(),
+    };
+    pickerOptions.drawInspectorExtra = &DrawVariablePickerInspectorExtra;
+    pickerOptions.inspectorExtraContext = this;
     const variables_picker::Request request = variables_picker::Draw(
         variablesPickerState_,
         entries,
-        variables_picker::Options{
-            variables_picker::Mode::Manage,
-            "misc_variables_picker",
-            false,
-            true,
-            false,
-            ImGui::GetContentRegionAvail(),
-        });
+        pickerOptions);
     HandleVariablePickerRequest(request);
 
     DrawKeyEmulatePickerPopup();

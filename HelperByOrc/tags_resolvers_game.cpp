@@ -1,8 +1,10 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
+#include "text_encoding.h"
 
 #include <game_sa/CClumpModelInfo.h>
 #include <game_sa/CStats.h>
+#include <game_sa/CText.h>
 #include <game_sa/CVisibilityPlugins.h>
 #include <game_sa/CWeather.h>
 
@@ -546,6 +548,48 @@ std::optional<float> ResolveVehicleSpeedKmh(const CVehicle& vehicle) {
     }
     return magnitude * 180.0f;
 }
+}
+
+std::string TagsModule::Impl::ResolveVehicleDisplayName(const CVehicle* vehicle) const {
+    if (!IsVehiclePointerValid(vehicle)) {
+        return {};
+    }
+
+    const int modelId = vehicle->m_nModelIndex;
+    if (CModelInfo::IsVehicleModelType(modelId) < 0) {
+        return GetVehicleTypeName(modelId);
+    }
+
+    const auto* modelInfo = static_cast<const CVehicleModelInfo*>(CModelInfo::GetModelInfo(modelId));
+    if (!modelInfo) {
+        return GetVehicleTypeName(modelId);
+    }
+
+    std::array<char, 9> gxtKey{};
+    std::copy_n(modelInfo->m_szGameName, 8, gxtKey.data());
+
+    const auto cached = vehicleNameCache_.find(modelId);
+    if (cached != vehicleNameCache_.end() && cached->second.gxtKey == gxtKey) {
+        return cached->second.displayName;
+    }
+
+    const std::size_t keyLength = std::char_traits<char>::length(gxtKey.data());
+    std::string displayName;
+    if (keyLength != 0) {
+        const char* const gameText = TheText.Get(gxtKey.data());
+        if (gameText && gameText[0] != '\0' && std::string_view(gameText) != "NO_TEXT") {
+            displayName = textencoding::GxtToUtf8(gameText);
+        }
+        if (displayName.empty()) {
+            displayName.assign(gxtKey.data(), keyLength);
+        }
+    }
+    if (displayName.empty()) {
+        displayName = GetVehicleTypeName(modelId);
+    }
+
+    vehicleNameCache_.insert_or_assign(modelId, VehicleNameCacheEntry{gxtKey, displayName});
+    return displayName;
 }
 
 TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
@@ -1142,6 +1186,19 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarHealthTag(const 
     return snapshot.health;
 }
 
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarTag(const EvaluationContext& context) const {
+    MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, false);
+    if (!snapshot.hasVehicle) {
+        return std::string();
+    }
+
+    if (!snapshot.nameResolved) {
+        snapshot.nameResolved = true;
+        snapshot.name = ResolveVehicleDisplayName(reinterpret_cast<const CVehicle*>(snapshot.vehicle));
+    }
+    return snapshot.name;
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const {
     const MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, false);
     if (!snapshot.hasVehicle) {
@@ -1646,7 +1703,8 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinCarFunctionTag(
         return std::string();
     }
 
-    return ResolveVehicleNameForPed(FindPlayerPedBySampId(*sampApi, *id));
+    const CPed* const ped = FindPlayerPedBySampId(*sampApi, *id);
+    return ped ? ResolveVehicleDisplayName(ped->m_pVehicle) : std::string();
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinCarHealthFunctionTag(

@@ -8,6 +8,7 @@ namespace hud_v3 {
 
 void ConditionSnapshot::BeginFrame() {
     values_.assign(ConditionCount(), static_cast<signed char>(-1));
+    context_ = {};
 }
 
 bool ConditionSnapshot::IsBlocked(const std::vector<bool>& flags, SampApi* sampApi) const {
@@ -17,7 +18,6 @@ bool ConditionSnapshot::IsBlocked(const std::vector<bool>& flags, SampApi* sampA
     if (values_.size() != ConditionCount()) {
         values_.assign(ConditionCount(), static_cast<signed char>(-1));
     }
-    ConditionRuntimeContext context{};
     const std::size_t count = std::min(flags.size(), ConditionCount());
     for (std::size_t index = 0; index < count; ++index) {
         if (!flags[index]) {
@@ -25,7 +25,7 @@ bool ConditionSnapshot::IsBlocked(const std::vector<bool>& flags, SampApi* sampA
         }
         signed char& cached = values_[index];
         if (cached < 0) {
-            cached = CheckCondition(static_cast<ConditionId>(index), sampApi, &context) ? 1 : 0;
+            cached = CheckCondition(static_cast<ConditionId>(index), sampApi, &context_) ? 1 : 0;
         }
         if (cached != 0) {
             return true;

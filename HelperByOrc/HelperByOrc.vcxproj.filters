@@ -201,6 +201,12 @@
     <ClCompile Include="tags_resolvers_game.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="tags_resolvers_text.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tags_transliteration_dictionary.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="tags_runtime.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

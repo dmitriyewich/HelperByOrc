@@ -4,6 +4,7 @@
 #include "binder_tag_selector.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <array>
@@ -12,6 +13,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+class CVehicle;
 
 class TagsModule::Impl {
 public:
@@ -296,6 +299,7 @@ public:
 
     struct MyCarSnapshotCache {
         std::vector<MyCarSnapshotOccupant> occupants{};
+        std::string name{};
         std::string health{};
         std::string speed{};
         std::string window{};
@@ -309,7 +313,13 @@ public:
         bool hasVehicle = false;
         bool sampReady = false;
         bool occupantsResolved = false;
+        bool nameResolved = false;
         bool windowResolved = false;
+    };
+
+    struct VehicleNameCacheEntry {
+        std::array<char, 9> gxtKey{};
+        std::string displayName{};
     };
 
     struct MyCarSnapshotPerfStats {
@@ -362,6 +372,46 @@ public:
         std::string text{};
         std::uint64_t updatedAtMs = 0;
         bool valid = false;
+    };
+
+    struct TransparentStringHash {
+        using is_transparent = void;
+
+        std::size_t operator()(std::string_view value) const noexcept {
+            return std::hash<std::string_view>{}(value);
+        }
+    };
+
+    struct TransparentStringEqual {
+        using is_transparent = void;
+
+        bool operator()(std::string_view left, std::string_view right) const noexcept {
+            return left == right;
+        }
+    };
+
+    using TransliterationDictionaryMap =
+        std::unordered_map<std::string, std::string, TransparentStringHash, TransparentStringEqual>;
+
+    struct TransliterationDictionarySnapshot {
+        TransliterationDictionaryMap latinToCyrillic{};
+        TransliterationDictionaryMap cyrillicToLatin{};
+    };
+
+    enum class TransliterationDictionaryState {
+        Missing,
+        Loaded,
+        LoadedWithWarnings,
+        Error,
+    };
+
+    struct TransliterationDictionaryStatus {
+        TransliterationDictionaryState state = TransliterationDictionaryState::Missing;
+        std::size_t loadedPairs = 0;
+        std::size_t invalidLines = 0;
+        std::size_t duplicateLines = 0;
+        std::size_t conflictLines = 0;
+        std::size_t limitLines = 0;
     };
 
     enum class TagPerfSource {
@@ -426,8 +476,15 @@ public:
     void InitializeRegistry();
     void LoadConfig();
     void SaveConfig() const;
+    void LoadTransliterationDictionary();
+    bool OpenTransliterationDictionaryFile();
+    bool HasTransliterationDictionary() const;
+    const std::string* FindLatinDictionaryWord(std::string_view normalizedWord) const;
+    const std::string* FindCyrillicDictionaryWord(std::string_view normalizedWord) const;
     void DrawMiscHomePage();
     void DrawVariablesPage();
+    void DrawTransliterationDictionaryCard();
+    static void DrawVariablePickerInspectorExtra(void* context, const variables_picker::Entry& entry);
     const std::vector<variables_picker::Entry>& BuildVariablePickerEntries() const;
     void HandleVariablePickerRequest(const variables_picker::Request& request);
     bool UpsertCustomVariable(std::string originalName, std::string name, std::string value);
@@ -537,6 +594,7 @@ public:
     std::optional<std::string> ResolveBuiltinCityEnTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinClipboardTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyColorTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarWindowTag(const EvaluationContext& context) const;
@@ -610,6 +668,18 @@ public:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinNumberWithDotsFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinCyrToLatFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinLatToCyrFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinToRomanFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinFromRomanFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinArmourFunctionTag(
@@ -724,6 +794,7 @@ public:
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
     void ResetTargetTracker();
+    std::string ResolveVehicleDisplayName(const CVehicle* vehicle) const;
     ClosestPlayerCache& QueryClosestPlayers(const EvaluationContext& context) const;
     void ResolveClosestPlayerDetails(
         ClosestPlayerCache& snapshot,
@@ -814,9 +885,15 @@ private:
     mutable PlayerNamePerfStats playerNamePerfStats_{};
     mutable MyCarSnapshotCache myCarSnapshotCache_{};
     mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
+    mutable std::unordered_map<int, VehicleNameCacheEntry> vehicleNameCache_{};
     mutable TagExpansionPerfStats tagExpansionPerfStats_{};
     mutable std::uint64_t lastTagExpansionSlowLogAtMs_ = 0;
     mutable ClipboardCache clipboardCache_{};
+    TransliterationDictionarySnapshot transliterationDictionary_{};
+    TransliterationDictionaryStatus transliterationDictionaryStatus_{};
+    std::filesystem::path transliterationDictionaryPath_{};
+    std::string transliterationDictionaryPathUtf8_{};
+    bool transliterationDictionaryOpenFailed_ = false;
     std::vector<PendingDialogWait> pendingDialogWaits_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};

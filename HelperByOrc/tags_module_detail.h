@@ -1980,22 +1980,6 @@ std::optional<std::string> ResolveVehicleTypeForPed(const CPed* ped) {
     return GetVehicleTypeName(ped->m_pVehicle->m_nModelIndex);
 }
 
-std::optional<std::string> ResolveVehicleNameForPed(const CPed* ped) {
-    if (!ped || !IsVehiclePointerValid(ped->m_pVehicle)) {
-        return std::string();
-    }
-
-    const int modelId = ped->m_pVehicle->m_nModelIndex;
-    if (CModelInfo::IsVehicleModelType(modelId) >= 0) {
-        if (auto* modelInfo = static_cast<CVehicleModelInfo*>(CModelInfo::GetModelInfo(modelId))) {
-            if (modelInfo->m_szGameName[0] != '\0') {
-                return std::string(modelInfo->m_szGameName);
-            }
-        }
-    }
-    return GetVehicleTypeName(modelId);
-}
-
 std::string StripDialogColorCodes(std::string_view text) {
     std::string cleaned;
     cleaned.reserve(text.size());

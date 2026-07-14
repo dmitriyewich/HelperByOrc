@@ -107,6 +107,8 @@ public:
         VersionedOffset SAMP_SLOCALPLAYERID_OFFSET;
         VersionedOffset SAMP_INFO_OFFSET_Pools;
         VersionedOffset SAMP_INFO_OFFSET_Pools_Player;
+        VersionedOffset SAMP_LOCAL_PLAYER_OFFSET;
+        VersionedOffset SAMP_LOCAL_PLAYER_PASSENGER_DRIVE_BY_OFFSET;
         VersionedOffset SAMP_INFO_OFFSET_Pools_Veh;
         VersionedOffset SAMP_COLOR_OFFSET;
         VersionedOffset ID_Find;
@@ -215,6 +217,7 @@ public:
     std::optional<int> GetIDByName(std::string_view name);
     bool IsConnected(int id);
     std::optional<int> GetPlayerPing(int id);
+    std::optional<bool> GetLocalPassengerDriveByState() const;
 
     std::uintptr_t pDialog_func();
     bool sampSetCurrentDialogEditboxTextFix(std::string_view newString, bool alreadyDecoded = false);
@@ -349,6 +352,7 @@ private:
     int GetCurrentDialogSelectedIndex();
     bool ResolveSampInfo(std::uint32_t& sampInfo) const;
     bool ResolvePedPool(std::uint32_t& pedPool) const;
+    bool ResolveLocalPlayer(std::uint32_t& localPlayer) const;
     bool ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace = false, const char* traceLabel = nullptr);
     /// Resolves the `CRemotePlayerData*` (or equivalent) pointer used for health/armour and actor fields.
     /// When `SAMP_REMOTEPLAYERDATA_OFFSET` is 0 (legacy 0.3.7 R1 / R3 / R3-1 layouts), those fields live inside

@@ -582,6 +582,17 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterSimple(
         CatalogCategory::Vehicle,
         false,
+        "mycar",
+        "{mycar}",
+        "{mycar}",
+        UiText::TagsBuiltinMyCarDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyCarTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        CatalogCategory::Vehicle,
+        false,
         "mycarhealth",
         "{mycarhealth}",
         "{mycarhealth}",
@@ -1256,6 +1267,50 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinNumberWithDotsDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinNumberWithDotsFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
+        "cyrtolat",
+        "[cyrtolat(...)]",
+        "[cyrtolat(Привет)]",
+        UiText::TagsBuiltinCyrToLatDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinCyrToLatFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
+        "lattocyr",
+        "[lattocyr(...)]",
+        "[lattocyr(Privet)]",
+        UiText::TagsBuiltinLatToCyrDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinLatToCyrFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
+        "toroman",
+        "[toroman(...)]",
+        "[toroman(2026)]",
+        UiText::TagsBuiltinToRomanDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinToRomanFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Text,
+        false,
+        "fromroman",
+        "[fromroman(...)]",
+        "[fromroman(MMXXVI)]",
+        UiText::TagsBuiltinFromRomanDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinFromRomanFunctionTag(param, context);
         });
 
     tagRegistry_.RegisterFunction(

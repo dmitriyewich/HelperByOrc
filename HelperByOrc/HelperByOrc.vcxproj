@@ -183,6 +183,8 @@
     <ClCompile Include="tags_resolvers_actions.cpp" />
     <ClCompile Include="tags_resolvers_dialog.cpp" />
     <ClCompile Include="tags_resolvers_game.cpp" />
+    <ClCompile Include="tags_resolvers_text.cpp" />
+    <ClCompile Include="tags_transliteration_dictionary.cpp" />
     <ClCompile Include="tags_runtime.cpp" />
     <ClCompile Include="tags_expander.cpp" />
     <ClCompile Include="tags_registry.cpp" />

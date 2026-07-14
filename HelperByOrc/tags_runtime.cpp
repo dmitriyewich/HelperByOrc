@@ -840,7 +840,7 @@ void TagsModule::Impl::ResolveClosestPlayerDetails(
         if (!IsVehiclePointerValid(vehicle) || vehicle->m_pDriver != ped) {
             return;
         }
-        details.vehicle = ResolveVehicleNameForPed(ped).value_or(std::string());
+        details.vehicle = ResolveVehicleDisplayName(vehicle);
     }
 }
 

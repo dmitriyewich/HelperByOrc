@@ -23,6 +23,7 @@ void TagsModule::Impl::OnProcessAttach() {
     debuglog::WriteInfo("TagsModule::OnProcessAttach begin");
     InitializeRegistry();
     LoadConfig();
+    LoadTransliterationDictionary();
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
     debuglog::WriteInfo(
@@ -44,6 +45,7 @@ void TagsModule::Impl::Shutdown() {
     blockedCurrentDispatchRuntimes_.clear();
     pendingDialogWaits_.clear();
     clipboardCache_ = {};
+    vehicleNameCache_.clear();
     customVariables_.clear();
     customVariableIndex_.clear();
     variablePickerEntriesCache_.clear();
@@ -65,6 +67,7 @@ void TagsModule::Impl::ReloadConfig() {
     Shutdown();
     InitializeRegistry();
     LoadConfig();
+    LoadTransliterationDictionary();
     debuglog::WriteInfo(
         "TagsModule::ReloadConfig done tags=%llu customVars=%llu",
         static_cast<unsigned long long>(tagRegistry_.Entries().size()),

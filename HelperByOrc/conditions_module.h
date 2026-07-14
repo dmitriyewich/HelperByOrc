@@ -34,7 +34,7 @@ enum class ConditionId : std::size_t {
     WindowsCursorActive,
     HelperActive,
     GameHudVisible,
-    CameraAttached,
+    CameraLookingAtPlayer,
     Driver,
     Passenger,
     GtaMenuOpen,
@@ -50,7 +50,7 @@ enum class ConditionId : std::size_t {
     InBicycle,
     DeprecatedInTrailer,
     GameHudHidden,
-    CameraDetached,
+    CameraNotLookingAtPlayer,
     GtaMenuClosed,
     SampCursorInactive,
     WindowsCursorInactive,
@@ -78,6 +78,12 @@ enum class ConditionId : std::size_t {
     VehicleSirenOff,
     VehicleEngineOn,
     VehicleEngineOff,
+    VehicleLightsOn,
+    VehicleLightsOff,
+    PassengerDriveByOn,
+    PassengerDriveByOff,
+    AnyExplosionActive,
+    NoActiveExplosion,
     Count,
 };
 
@@ -87,6 +93,8 @@ struct ConditionRuntimeContext {
     bool gameWindowForeground = true;
     std::optional<bool> sampCursorActiveOverride{};
     std::optional<bool> windowsCursorActiveOverride{};
+    mutable std::optional<bool> cameraLookingAtPlayerCache{};
+    mutable std::optional<bool> anyExplosionActiveCache{};
 };
 
 std::size_t ConditionCount();

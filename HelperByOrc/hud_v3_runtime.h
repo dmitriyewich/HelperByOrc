@@ -15,6 +15,7 @@ public:
 
 private:
     mutable std::vector<signed char> values_;
+    mutable ConditionRuntimeContext context_{};
 };
 
 } // namespace hud_v3

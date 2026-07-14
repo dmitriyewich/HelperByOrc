@@ -56,6 +56,8 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x00000004, 0x00000000, 0x00002F1C, 0x00002F1C, 0x0000000C, 0x00000004, 0x00000004, 0x00000000 }, // SAMP_SLOCALPLAYERID_OFFSET
     { 0x000003CD, 0x000003C5, 0x000003DE, 0x000003DE, 0x000003DE, 0x000003DE, 0x000003DE, 0x000003DE }, // SAMP_INFO_OFFSET_Pools
     { 0x00000018, 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00000004, 0x00000004, 0x00000008 }, // SAMP_INFO_OFFSET_Pools_Player
+    { 0x00000022, 0x0000001E, 0x00002F3A, 0x00002F3A, 0x0000002A, 0x00000026, 0x00000026, 0x0000001E }, // SAMP_LOCAL_PLAYER_OFFSET
+    { 0x000001A7, 0x000001CB, 0x000001CB, 0x000001CB, 0x000001CB, 0x000001CB, 0x000001CB, 0x000001CF }, // SAMP_LOCAL_PLAYER_PASSENGER_DRIVE_BY_OFFSET
     { 0x0000001C, 0x0000000C, 0x0000000C, 0x0000000C, 0x0000000C, 0x00000000, 0x00000000, 0x0000000C }, // SAMP_INFO_OFFSET_Pools_Veh
     { 0x00216378, 0x00216380, 0x00151578, 0x00151578, 0x001516A0, 0x001516A0, 0x00151828, 0x0018F6C0 }, // SAMP_COLOR_OFFSET
     { 0x00010420, 0x000104C0, 0x00013570, 0x00013570, 0x00013890, 0x000138C0, 0x000138C0, 0x000137C0 }, // ID_Find
@@ -541,6 +543,25 @@ std::optional<int> SampApi::GetPlayerPing(int id) {
     return ping;
 }
 
+std::optional<bool> SampApi::GetLocalPassengerDriveByState() const {
+    if (!isSupportedVersion()) {
+        return std::nullopt;
+    }
+
+    std::uint32_t localPlayer = 0;
+    if (!ResolveLocalPlayer(localPlayer)) {
+        return std::nullopt;
+    }
+
+    std::int32_t rawState = 0;
+    const std::uint32_t stateOffset = main_offsets.SAMP_LOCAL_PLAYER_PASSENGER_DRIVE_BY_OFFSET.Get(currentVersion_);
+    if (!SafeRead(localPlayer + stateOffset, rawState) || (rawState != 0 && rawState != 1)) {
+        return std::nullopt;
+    }
+
+    return rawState == 1;
+}
+
 std::optional<std::uint32_t> SampApi::GetPlayerColor(int id) {
     if (id < 0 || id > 1003 || !isSupportedVersion() || !IsConnected(id)) {
         return std::nullopt;
@@ -859,6 +880,18 @@ bool SampApi::ResolvePedPool(std::uint32_t& pedPool) const {
     }
 
     return SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Player.Get(currentVersion_), pedPool) && pedPool != 0;
+}
+
+bool SampApi::ResolveLocalPlayer(std::uint32_t& localPlayer) const {
+    localPlayer = 0;
+
+    std::uint32_t playerPool = 0;
+    if (!ResolvePedPool(playerPool)) {
+        return false;
+    }
+
+    return SafeRead(playerPool + main_offsets.SAMP_LOCAL_PLAYER_OFFSET.Get(currentVersion_), localPlayer)
+        && localPlayer != 0;
 }
 
 bool SampApi::ResolveChat(std::uint32_t& chat) const {

@@ -6,6 +6,8 @@
 #include "samp_api.h"
 
 #include <game_sa/CMenuManager.h>
+#include <game_sa/CCamera.h>
+#include <game_sa/CExplosion.h>
 #include <game_sa/CModelInfo.h>
 #include <game_sa/CPed.h>
 #include <game_sa/CPools.h>
@@ -26,7 +28,6 @@
 namespace {
 
 constexpr std::uintptr_t kGameHudVisibleFlagAddress = 0xBA6769;
-constexpr std::uintptr_t kCameraAttachedFlagAddress = 0xB6F053;
 
 enum class ConditionCategory : std::size_t {
     Player = 0,
@@ -67,15 +68,21 @@ constexpr std::array kConditionDefinitions = {
     ConditionDefinition{ConditionId::GtaMenuClosed, UiText::ConditionGtaMenuClosed, ConditionCategory::Interface},
     ConditionDefinition{ConditionId::GameHudVisible, UiText::ConditionGameHudVisible, ConditionCategory::Game},
     ConditionDefinition{ConditionId::GameHudHidden, UiText::ConditionGameHudHidden, ConditionCategory::Game},
-    ConditionDefinition{ConditionId::CameraAttached, UiText::ConditionCameraAttached, ConditionCategory::Game},
-    ConditionDefinition{ConditionId::CameraDetached, UiText::ConditionCameraDetached, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::CameraLookingAtPlayer, UiText::ConditionCameraLookingAtPlayer, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::CameraNotLookingAtPlayer, UiText::ConditionCameraNotLookingAtPlayer, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::AnyExplosionActive, UiText::ConditionAnyExplosionActive, ConditionCategory::Game},
+    ConditionDefinition{ConditionId::NoActiveExplosion, UiText::ConditionNoActiveExplosion, ConditionCategory::Game},
     ConditionDefinition{ConditionId::ServerConnected, UiText::ConditionServerConnected, ConditionCategory::Game},
     ConditionDefinition{ConditionId::ServerDisconnected, UiText::ConditionServerDisconnected, ConditionCategory::Game},
     ConditionDefinition{ConditionId::InAnyCar, UiText::ConditionInAnyCar, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::Driver, UiText::ConditionDriver, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::Passenger, UiText::ConditionPassenger, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::PassengerDriveByOn, UiText::ConditionPassengerDriveByOn, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::PassengerDriveByOff, UiText::ConditionPassengerDriveByOff, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleEngineOn, UiText::ConditionVehicleEngineOn, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleEngineOff, UiText::ConditionVehicleEngineOff, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::VehicleLightsOn, UiText::ConditionVehicleLightsOn, ConditionCategory::Vehicle},
+    ConditionDefinition{ConditionId::VehicleLightsOff, UiText::ConditionVehicleLightsOff, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleSirenOn, UiText::ConditionVehicleSirenOn, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::VehicleSirenOff, UiText::ConditionVehicleSirenOff, ConditionCategory::Vehicle},
     ConditionDefinition{ConditionId::InCar, UiText::ConditionVehicleCar, ConditionCategory::Vehicle},
@@ -284,8 +291,36 @@ bool IsGameHudVisible() {
     return ReadGameInt8(kGameHudVisibleFlagAddress) != 0 && CTheScripts::bDisplayHud;
 }
 
-bool IsCameraAttached() {
-    return ReadGameInt8(kCameraAttachedFlagAddress) >= 1;
+bool IsCameraLookingAtPlayer(const ConditionRuntimeContext* context) {
+    if (context && context->cameraLookingAtPlayerCache.has_value()) {
+        return *context->cameraLookingAtPlayerCache;
+    }
+
+    const bool lookingAtPlayer = TheCamera.m_bLookingAtPlayer;
+    if (context) {
+        context->cameraLookingAtPlayerCache = lookingAtPlayer;
+    }
+    return lookingAtPlayer;
+}
+
+bool HasActiveExplosion(const ConditionRuntimeContext* context) {
+    if (context && context->anyExplosionActiveCache.has_value()) {
+        return *context->anyExplosionActiveCache;
+    }
+
+    bool active = false;
+    const unsigned int explosionCount = MAX_EXPLOSIONS;
+    for (unsigned int index = 0; index < explosionCount; ++index) {
+        if (aExplosions[index].m_bIsActive) {
+            active = true;
+            break;
+        }
+    }
+
+    if (context) {
+        context->anyExplosionActiveCache = active;
+    }
+    return active;
 }
 
 bool IsGtaMenuOpen() {
@@ -467,8 +502,10 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRunt
         && condition != ConditionId::HelperActive
         && condition != ConditionId::GameHudVisible
         && condition != ConditionId::GameHudHidden
-        && condition != ConditionId::CameraAttached
-        && condition != ConditionId::CameraDetached
+        && condition != ConditionId::CameraLookingAtPlayer
+        && condition != ConditionId::CameraNotLookingAtPlayer
+        && condition != ConditionId::AnyExplosionActive
+        && condition != ConditionId::NoActiveExplosion
         && condition != ConditionId::ServerConnected
         && condition != ConditionId::ServerDisconnected
         && condition != ConditionId::GtaMenuOpen
@@ -547,10 +584,14 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRunt
         return IsGameHudVisible();
     case ConditionId::GameHudHidden:
         return !IsGameHudVisible();
-    case ConditionId::CameraAttached:
-        return IsCameraAttached();
-    case ConditionId::CameraDetached:
-        return !IsCameraAttached();
+    case ConditionId::CameraLookingAtPlayer:
+        return IsCameraLookingAtPlayer(context);
+    case ConditionId::CameraNotLookingAtPlayer:
+        return !IsCameraLookingAtPlayer(context);
+    case ConditionId::AnyExplosionActive:
+        return HasActiveExplosion(context);
+    case ConditionId::NoActiveExplosion:
+        return !HasActiveExplosion(context);
     case ConditionId::ServerConnected:
         return sampApi ? sampApi->IsServerConnected() : false;
     case ConditionId::ServerDisconnected:
@@ -562,6 +603,17 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRunt
     case ConditionId::Passenger: {
         CVehicle* const vehicle = ResolvePlayerVehicle(player);
         return vehicle && vehicle->IsPassenger(player);
+    }
+    case ConditionId::PassengerDriveByOn:
+    case ConditionId::PassengerDriveByOff: {
+        CVehicle* const vehicle = ResolvePlayerVehicle(player);
+        if (!vehicle || !vehicle->IsPassenger(player) || !sampApi) {
+            return false;
+        }
+
+        const std::optional<bool> driveByState = sampApi->GetLocalPassengerDriveByState();
+        return driveByState.has_value()
+            && *driveByState == (condition == ConditionId::PassengerDriveByOn);
     }
     case ConditionId::VehicleSirenOn: {
         CVehicle* const vehicle = ResolvePlayerVehicle(player);
@@ -578,6 +630,14 @@ bool CheckCondition(ConditionId condition, SampApi* sampApi, const ConditionRunt
     case ConditionId::VehicleEngineOff: {
         CVehicle* const vehicle = ResolvePlayerVehicle(player);
         return vehicle && !vehicle->bEngineOn;
+    }
+    case ConditionId::VehicleLightsOn: {
+        CVehicle* const vehicle = ResolvePlayerVehicle(player);
+        return vehicle && vehicle->bLightsOn;
+    }
+    case ConditionId::VehicleLightsOff: {
+        CVehicle* const vehicle = ResolvePlayerVehicle(player);
+        return vehicle && !vehicle->bLightsOn;
     }
     case ConditionId::GtaMenuOpen:
         return IsGtaMenuOpen();
