@@ -134,6 +134,7 @@ private:
     bool menuOpen_ = false;
     bool menuToggleWasDown_ = false;
     HWND gameWindow_ = nullptr;
+    IDirect3DDevice9* renderDevice_ = nullptr;
     WNDPROC originalWndProc_ = nullptr;
     WNDPROC fallbackWndProc_ = nullptr;
     RenderCallback renderCallback_;

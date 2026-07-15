@@ -3,6 +3,7 @@
 #include "tags_module.h"
 #include "binder_tag_selector.h"
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -25,6 +26,7 @@ public:
     using CursorIntents = TagsModule::CursorIntents;
     using ExpandedText = TagsModule::ExpandedText;
     using DialogInputSetResult = TagsModule::DialogInputSetResult;
+    using ExternalTextPath = TagsModule::ExternalTextPath;
     using EvaluationContext = TagsModule::EvaluationContext;
     using OwnedEvaluationContext = TagsModule::OwnedEvaluationContext;
 
@@ -45,6 +47,9 @@ public:
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
     void Tick();
+    bool ExpandExternalTagsEnabled() const;
+    void SetExpandExternalTagsEnabled(bool enabled);
+    bool ProcessExternalText(std::string& text, ExternalTextPath path) const;
     bool IsMiscHomePage() const;
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;
@@ -419,6 +424,7 @@ public:
         Hud,
         Binder,
         Outgoing,
+        External,
         Notepad,
         Ui,
         Count,
@@ -471,6 +477,17 @@ public:
     struct TagExpansionPerfStats {
         std::uint64_t windowStartMs = 0;
         std::array<TagExpansionPerfBucket, static_cast<std::size_t>(TagPerfSource::Count)> buckets{};
+    };
+
+    struct ExternalTagPerfStats {
+        std::atomic_uint64_t send{};
+        std::atomic_uint64_t local{};
+        std::atomic_uint64_t changed{};
+        std::atomic_uint64_t suppressed{};
+        std::atomic_uint64_t bypassed{};
+        std::atomic_uint64_t failed{};
+        std::uint64_t windowStartMs = 0;
+        std::atomic_uint64_t lastFailureLogAtMs{};
     };
 
     void InitializeRegistry();
@@ -838,6 +855,7 @@ public:
     void RecordHotTag(TagExpansionTrace& trace, TagKind kind, std::string_view name, double elapsedMs) const;
     void RecordTagExpansionPerf(const TagExpansionTrace& trace, double elapsedMs) const;
     void MaybeLogTagExpansionPerf(std::uint64_t nowMs) const;
+    void MaybeLogExternalTagPerf(std::uint64_t nowMs) const;
     std::string ResolvePlayerNickById(int id, const EvaluationContext& context) const;
     std::string ResolveLocalNick(const EvaluationContext& context) const;
     std::string ResolveLastTargetNick(const EvaluationContext& context) const;
@@ -864,6 +882,7 @@ private:
     NotificationManager* notificationManager_ = nullptr;
     ArizonaCefDialogs* arizonaCefDialogs_ = nullptr;
     MiscPage currentPage_ = MiscPage::Home;
+    std::atomic_bool expandExternalTags_{ true };
     TagRegistry tagRegistry_{};
     std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
@@ -887,6 +906,7 @@ private:
     mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
     mutable std::unordered_map<int, VehicleNameCacheEntry> vehicleNameCache_{};
     mutable TagExpansionPerfStats tagExpansionPerfStats_{};
+    mutable ExternalTagPerfStats externalTagPerfStats_{};
     mutable std::uint64_t lastTagExpansionSlowLogAtMs_ = 0;
     mutable ClipboardCache clipboardCache_{};
     TransliterationDictionarySnapshot transliterationDictionary_{};

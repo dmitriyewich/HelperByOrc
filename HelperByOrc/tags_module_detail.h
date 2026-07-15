@@ -53,6 +53,7 @@ using tags_module_detail::g_activeContextStack;
 namespace {
 constexpr std::string_view kTagsSectionName = "tags";
 constexpr std::string_view kCustomVarsKey = "custom_vars";
+constexpr std::string_view kExpandExternalTagsKey = "expand_external_tags";
 constexpr int kRecursionLimit = 10;
 constexpr int kKeyEmulateStartDelayMs = 20;
 constexpr int kKeyEmulateTapMs = 35;
@@ -68,6 +69,8 @@ constexpr std::uint64_t kMyCarSnapshotSlowQueryLogThrottleMs = 3000;
 constexpr std::uint64_t kMyCarPerfTelemetryWindowMs = 5000;
 constexpr std::uint64_t kPlayerNamePerfTelemetryWindowMs = 5000;
 constexpr std::uint64_t kTagsPerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kExternalTagsPerfTelemetryWindowMs = 5000;
+constexpr std::uint64_t kExternalTagsFailureLogThrottleMs = 3000;
 constexpr std::uint64_t kTagExpansionSlowLogThrottleMs = 1000;
 constexpr double kTagExpansionSlowLogMs = 4.0;
 constexpr std::uint64_t kClipboardCacheTtlMs = 500;

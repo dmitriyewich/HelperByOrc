@@ -1131,27 +1131,27 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
     }
 
     chatAsiInputDiscovery_.attempted = true;
+    const std::uint64_t scanStartedAt = GetTickCount64();
 
     std::uintptr_t imageBase = 0;
     std::uintptr_t imageEnd = 0;
     std::vector<ModuleSectionRange> sections;
     if (!TryGetModuleSections(module, imageBase, imageEnd, sections)) {
-        debuglog::WriteError("SampApi::_chat.asi input discovery failed: invalid module layout module=%p", module);
+        debuglog::WriteError(
+            "SampApi::_chat.asi input discovery failed: invalid module layout module=%p elapsed=%llums",
+            module,
+            static_cast<unsigned long long>(GetTickCount64() - scanStartedAt));
         return false;
     }
 
-    std::uintptr_t inputLabel = FindAsciiStringLiteral(sections, "###input");
-    if (inputLabel == 0) {
-        inputLabel = FindRuntimeAsciiStringLiteral(module, "###input");
-        if (inputLabel != 0) {
-            debuglog::WriteInfo(
-                "SampApi::_chat.asi input discovery used runtime scan for ###input label=0x%08X",
-                static_cast<unsigned int>(inputLabel));
-        }
-    }
+    const std::uintptr_t inputLabel = FindRuntimeAsciiStringLiteral(module, "###input");
 
     if (inputLabel == 0) {
-        debuglog::WriteError("SampApi::_chat.asi input discovery failed: ###input was not found");
+        debuglog::WriteError(
+            "SampApi::_chat.asi input discovery failed: ###input was not found module=%p imageSize=0x%X elapsed=%llums",
+            module,
+            static_cast<unsigned>(imageEnd - imageBase),
+            static_cast<unsigned long long>(GetTickCount64() - scanStartedAt));
         return false;
     }
 
@@ -1209,17 +1209,25 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputSubmit = inputSubmit;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery ok module=%p label=0x%08X ref=0x%08X wrapper=0x%08X callback=0x%08X buffer=0x%08X writer=0x%08X submit=0x%08X writer_dirty=0x%08X submit_dirty=0x%08X",
+            "SampApi::_chat.asi input discovery ok module=%p imageSize=0x%X elapsed=%llums refs=%llu labelRva=0x%X refRva=0x%X wrapperRva=0x%X callbackRva=0x%X bufferRva=0x%X writerRva=0x%X submitRva=0x%X writerDirtyRva=0x%X submitDirtyRva=0x%X",
             module,
-            static_cast<unsigned>(inputLabel),
-            static_cast<unsigned>(ref),
-            static_cast<unsigned>(inputWrapper),
-            static_cast<unsigned>(inputCallback),
-            static_cast<unsigned>(inputBuffer),
-            static_cast<unsigned>(inputWriter),
-            static_cast<unsigned>(inputSubmit),
-            static_cast<unsigned>(writerDirtyFlag),
-            static_cast<unsigned>(submitDirtyFlag));
+            static_cast<unsigned>(imageEnd - imageBase),
+            static_cast<unsigned long long>(GetTickCount64() - scanStartedAt),
+            static_cast<unsigned long long>(refs.size()),
+            static_cast<unsigned>(inputLabel - imageBase),
+            static_cast<unsigned>(ref - imageBase),
+            static_cast<unsigned>(inputWrapper - imageBase),
+            static_cast<unsigned>(inputCallback - imageBase),
+            static_cast<unsigned>(inputBuffer - imageBase),
+            static_cast<unsigned>(inputWriter - imageBase),
+            static_cast<unsigned>(inputSubmit - imageBase),
+            static_cast<unsigned>(writerDirtyFlag ? writerDirtyFlag - imageBase : 0),
+            static_cast<unsigned>(submitDirtyFlag ? submitDirtyFlag - imageBase : 0));
+        debuglog::WriteInfo(
+            "SampApi::_chat.asi input validation bytes callback=[%s] writer=[%s] submit=[%s]",
+            FormatModuleCodeBytes(sections, inputCallback, 16).c_str(),
+            FormatModuleCodeBytes(sections, inputWriter, 16).c_str(),
+            FormatModuleCodeBytes(sections, inputSubmit, 16).c_str());
         return true;
     }
 
@@ -1231,20 +1239,32 @@ bool SampApi::EnsureChatAsiInputDiscovery() {
         chatAsiInputDiscovery_.inputWriter = fallbackWriter;
 
         debuglog::WriteInfo(
-            "SampApi::_chat.asi input discovery partial module=%p label=0x%08X ref=0x%08X wrapper=0x%08X callback=0x%08X buffer=0x%08X writer=0x%08X writer_dirty=0x%08X submit=not_found",
+            "SampApi::_chat.asi input discovery partial module=%p imageSize=0x%X elapsed=%llums refs=%llu labelRva=0x%X refRva=0x%X wrapperRva=0x%X callbackRva=0x%X bufferRva=0x%X writerRva=0x%X writerDirtyRva=0x%X submit=not_found",
             module,
-            static_cast<unsigned>(inputLabel),
-            static_cast<unsigned>(fallbackRef),
-            static_cast<unsigned>(fallbackWrapper),
-            static_cast<unsigned>(fallbackCallback),
-            static_cast<unsigned>(fallbackBuffer),
-            static_cast<unsigned>(fallbackWriter),
-            static_cast<unsigned>(fallbackWriterDirty));
+            static_cast<unsigned>(imageEnd - imageBase),
+            static_cast<unsigned long long>(GetTickCount64() - scanStartedAt),
+            static_cast<unsigned long long>(refs.size()),
+            static_cast<unsigned>(inputLabel - imageBase),
+            static_cast<unsigned>(fallbackRef - imageBase),
+            static_cast<unsigned>(fallbackWrapper - imageBase),
+            static_cast<unsigned>(fallbackCallback - imageBase),
+            static_cast<unsigned>(fallbackBuffer - imageBase),
+            static_cast<unsigned>(fallbackWriter - imageBase),
+            static_cast<unsigned>(fallbackWriterDirty ? fallbackWriterDirty - imageBase : 0));
+        debuglog::WriteInfo(
+            "SampApi::_chat.asi input validation bytes callback=[%s] writer=[%s] submit=[not_found]",
+            FormatModuleCodeBytes(sections, fallbackCallback, 16).c_str(),
+            FormatModuleCodeBytes(sections, fallbackWriter, 16).c_str());
         return true;
     }
 
     debuglog::WriteError(
-        "SampApi::_chat.asi input discovery failed: no valid ###input -> wrapper -> buffer -> writer chain was found");
+        "SampApi::_chat.asi input discovery failed: no valid ###input -> wrapper -> buffer -> writer chain was found module=%p imageSize=0x%X refs=%llu labelRva=0x%X elapsed=%llums",
+        module,
+        static_cast<unsigned>(imageEnd - imageBase),
+        static_cast<unsigned long long>(refs.size()),
+        static_cast<unsigned>(inputLabel - imageBase),
+        static_cast<unsigned long long>(GetTickCount64() - scanStartedAt));
     return false;
 #endif
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <limits>
 
 namespace module_signature_scanner {
@@ -55,35 +56,82 @@ bool IsReadableBaseProtect(DWORD protect) {
     }
 }
 
-std::uintptr_t ScanReadableRange(
+bool IsExecutableBaseProtect(DWORD protect) {
+    switch (protect & kProtectTypeMask) {
+    case PAGE_EXECUTE_READ:
+    case PAGE_EXECUTE_READWRITE:
+    case PAGE_EXECUTE_WRITECOPY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool MatchesScanRegion(DWORD protect, ScanRegion region) {
+    switch (region) {
+    case ScanRegion::Executable:
+        return IsExecutableBaseProtect(protect);
+    case ScanRegion::NonExecutable:
+        return IsReadableBaseProtect(protect) && !IsExecutableBaseProtect(protect);
+    case ScanRegion::Readable:
+    default:
+        return IsReadableBaseProtect(protect);
+    }
+}
+
+void ScanReadableRange(
     std::uintptr_t begin,
     std::size_t size,
     const PatternByte* pattern,
-    std::size_t patternSize) {
+    std::size_t patternSize,
+    std::size_t maxResults,
+    std::vector<std::uintptr_t>& results) {
     __try {
         const auto* const bytes = reinterpret_cast<const std::uint8_t*>(begin);
         const std::size_t limit = size - patternSize;
 
-        for (std::size_t offset = 0; offset <= limit; ++offset) {
-            bool found = true;
+        std::size_t anchorIndex = 0;
+        while (anchorIndex < patternSize && pattern[anchorIndex].wildcard) {
+            ++anchorIndex;
+        }
+
+        if (anchorIndex == patternSize) {
+            for (std::size_t offset = 0; offset <= limit && results.size() < maxResults; ++offset) {
+                results.push_back(begin + offset);
+            }
+            return;
+        }
+
+        const std::uint8_t anchorValue = pattern[anchorIndex].value;
+        const std::uint8_t* search = bytes + anchorIndex;
+        const std::uint8_t* const searchEnd = bytes + size - (patternSize - anchorIndex) + 1;
+
+        while (search < searchEnd && results.size() < maxResults) {
+            const auto* const anchor = static_cast<const std::uint8_t*>(
+                std::memchr(search, anchorValue, static_cast<std::size_t>(searchEnd - search)));
+            if (!anchor) {
+                break;
+            }
+
+            const std::size_t offset = static_cast<std::size_t>(anchor - bytes) - anchorIndex;
+            bool match = true;
             for (std::size_t index = 0; index < patternSize; ++index) {
                 const PatternByte& patternByte = pattern[index];
                 if (!patternByte.wildcard && bytes[offset + index] != patternByte.value) {
-                    found = false;
+                    match = false;
                     break;
                 }
             }
 
-            if (found) {
-                return begin + offset;
+            if (match) {
+                results.push_back(begin + offset);
             }
+            search = anchor + 1;
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        return 0;
+        return;
     }
-
-    return 0;
 }
 
 } // namespace
@@ -174,14 +222,28 @@ bool GetLoadedModuleImageRange(HMODULE module, std::uintptr_t& imageBase, std::u
 }
 
 std::uintptr_t FindPattern(HMODULE module, const PatternByte* pattern, std::size_t patternSize) {
-    if (pattern == nullptr || patternSize == 0) {
-        return 0;
+    const std::vector<std::uintptr_t> results =
+        FindPatterns(module, pattern, patternSize, 1, ScanRegion::Readable);
+    return results.empty() ? 0 : results.front();
+}
+
+std::vector<std::uintptr_t> FindPatterns(
+    HMODULE module,
+    const PatternByte* pattern,
+    std::size_t patternSize,
+    std::size_t maxResults,
+    ScanRegion scanRegion) {
+    std::vector<std::uintptr_t> results;
+    if (pattern == nullptr || patternSize == 0 || maxResults == 0) {
+        return results;
     }
+
+    results.reserve(std::min<std::size_t>(maxResults, 16));
 
     std::uintptr_t imageBase = 0;
     std::uintptr_t imageEnd = 0;
     if (!GetLoadedModuleImageRange(module, imageBase, imageEnd)) {
-        return 0;
+        return results;
     }
 
     MEMORY_BASIC_INFORMATION mbi{};
@@ -205,15 +267,23 @@ std::uintptr_t FindPattern(HMODULE module, const PatternByte* pattern, std::size
             break;
         }
 
-        if (mbi.State == MEM_COMMIT && IsReadableProtect(mbi.Protect)) {
+        if (mbi.State == MEM_COMMIT
+            && IsReadableProtect(mbi.Protect)
+            && MatchesScanRegion(mbi.Protect, scanRegion)) {
             const std::uintptr_t scanBegin = std::max(current, std::max(regionBase, imageBase));
             const std::uintptr_t scanEnd = std::min(regionEnd, imageEnd);
             if (scanEnd > scanBegin) {
                 const auto scanSize = static_cast<std::size_t>(scanEnd - scanBegin);
                 if (scanSize >= patternSize) {
-                    const std::uintptr_t found = ScanReadableRange(scanBegin, scanSize, pattern, patternSize);
-                    if (found != 0) {
-                        return found;
+                    ScanReadableRange(
+                        scanBegin,
+                        scanSize,
+                        pattern,
+                        patternSize,
+                        maxResults,
+                        results);
+                    if (results.size() >= maxResults) {
+                        break;
                     }
                 }
             }
@@ -222,7 +292,7 @@ std::uintptr_t FindPattern(HMODULE module, const PatternByte* pattern, std::size
         current = regionEnd;
     }
 
-    return 0;
+    return results;
 }
 
 std::uintptr_t FindPattern(HMODULE module, const std::vector<PatternByte>& pattern) {
@@ -236,6 +306,27 @@ std::uintptr_t FindPattern(HMODULE module, std::string_view patternText) {
     }
 
     return FindPattern(module, pattern->data(), pattern->size());
+}
+
+std::vector<std::uintptr_t> FindPatterns(
+    HMODULE module,
+    const std::vector<PatternByte>& pattern,
+    std::size_t maxResults,
+    ScanRegion region) {
+    return FindPatterns(module, pattern.data(), pattern.size(), maxResults, region);
+}
+
+std::vector<std::uintptr_t> FindPatterns(
+    HMODULE module,
+    std::string_view patternText,
+    std::size_t maxResults,
+    ScanRegion region) {
+    const std::optional<std::vector<PatternByte>> pattern = ParsePattern(patternText);
+    if (!pattern.has_value()) {
+        return {};
+    }
+
+    return FindPatterns(module, pattern->data(), pattern->size(), maxResults, region);
 }
 
 } // namespace module_signature_scanner

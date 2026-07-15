@@ -9,6 +9,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <intrin.h>
 #include <memory>
 #include <new>
 #include <string>
@@ -119,11 +120,16 @@ void __fastcall SampRakHooks::DeallocatePacketDetour(void* self, void* edx, Pack
 bool __fastcall SampRakHooks::SendRpcDetour(void* self, void* edx, int* id, BitStream* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, bool shiftTimestamp) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
     if (self_ && self_->installed_ && id && bitStream) {
+        const SampCallContext context = ResolveSampCallContext(
+            returnAddress,
+            self_->sampApi_ ? self_->sampApi_->sampModule() : nullptr,
+            self_->ownerModule_);
         RakNetBitStreamView view(bitStream);
         const auto rpcId = static_cast<std::uint8_t>(*id);
         self_->RecordSendRpc(rpcId);
-        if (!self_->HandleOutgoingRpc(rpcId, view)) {
+        if (!self_->HandleOutgoingRpc(rpcId, view, context)) {
             return false;
         }
         view.ResetReadPointer();
@@ -138,6 +144,11 @@ void SampRakHooks::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     self_ = this;
     debuglog::WriteInfo("SampRakHooks::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
+}
+
+void SampRakHooks::SetOwnerModule(HMODULE module) {
+    ownerModule_ = module;
+    debuglog::WriteInfo("SampRakHooks::SetOwnerModule assigned=%d", ownerModule_ ? 1 : 0);
 }
 
 void SampRakHooks::Refresh() {
@@ -545,7 +556,10 @@ bool SampRakHooks::HandleIncomingPacket(std::uint8_t packetId, RakNetBitStreamVi
     return true;
 }
 
-bool SampRakHooks::HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& view) {
+bool SampRakHooks::HandleOutgoingRpc(
+    std::uint8_t rpcId,
+    RakNetBitStreamView& view,
+    const SampCallContext& context) {
     for (const auto& handler : onSendRpcHandlers_) {
         view.ResetReadPointer();
         if (!handler(rpcId, view)) {
@@ -556,9 +570,9 @@ bool SampRakHooks::HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& vi
     view.ResetReadPointer();
     switch (rpcId) {
     case SampRpcIds::ServerCommand:
-        return DispatchSendCommand(view);
+        return DispatchSendCommand(view, context);
     case SampRpcIds::Chat:
-        return DispatchSendChat(view);
+        return DispatchSendChat(view, context);
     case SampRpcIds::DialogResponse:
         return DispatchSendDialogResponse(view);
     default:
@@ -589,7 +603,7 @@ bool SampRakHooks::HandleIncomingRpcPayload(std::uint8_t rpcId, RakNetBitStreamV
     }
 }
 
-bool SampRakHooks::DispatchSendCommand(RakNetBitStreamView& view) {
+bool SampRakHooks::DispatchSendCommand(RakNetBitStreamView& view, const SampCallContext& context) {
     std::string textCp1251;
     if (!ReadString32(view, textCp1251)) {
         return true;
@@ -597,7 +611,7 @@ bool SampRakHooks::DispatchSendCommand(RakNetBitStreamView& view) {
 
     std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
     for (const auto& handler : onSendCommandHandlers_) {
-        if (!handler(textUtf8)) {
+        if (!handler(textUtf8, context)) {
             return false;
         }
     }
@@ -608,7 +622,7 @@ bool SampRakHooks::DispatchSendCommand(RakNetBitStreamView& view) {
     return true;
 }
 
-bool SampRakHooks::DispatchSendChat(RakNetBitStreamView& view) {
+bool SampRakHooks::DispatchSendChat(RakNetBitStreamView& view, const SampCallContext& context) {
     std::string textCp1251;
     if (!ReadString8(view, textCp1251)) {
         return true;
@@ -616,7 +630,7 @@ bool SampRakHooks::DispatchSendChat(RakNetBitStreamView& view) {
 
     std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
     for (const auto& handler : onSendChatHandlers_) {
-        if (!handler(textUtf8)) {
+        if (!handler(textUtf8, context)) {
             return false;
         }
     }

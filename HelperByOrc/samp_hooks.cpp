@@ -8,10 +8,12 @@
 
 #include <CPad.h>
 
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <intrin.h>
 #include <string>
 #include <string_view>
 
@@ -20,14 +22,42 @@ namespace {
 constexpr std::size_t kMaxLogEntries = 64;
 constexpr std::uintptr_t kDamageManagerApplyDamageAddress = 0x6C24B0;
 constexpr std::uintptr_t kPadUpdateMouseAddress = 0x53F3C0;
-constexpr std::string_view kChatAsiAddEntryWrapperSignature =
+constexpr std::string_view kChatAsiAddEntryFrameWrapperSignature =
     "55 8B EC FF 75 18 FF 75 14 FF 75 10 FF 75 0C FF 75 08 E8 ?? ?? ?? ?? 83 C4 14 5D C2 14 00";
+constexpr std::string_view kChatAsiAddEntryStackWrapperSignature =
+    "FF 74 24 14 FF 74 24 14 FF 74 24 14 FF 74 24 14 FF 74 24 14 E8 ?? ?? ?? ?? 83 C4 14 C2 14 00";
+constexpr std::size_t kMaxChatAsiTransferDepth = 4;
+constexpr std::size_t kMaxChatAsiSignatureCandidates = 8;
+
+struct ChatAsiWrapperLayout {
+    const char* name = "none";
+    std::size_t size = 0;
+    std::size_t callOffset = 0;
+    std::size_t dispatchReturnOffset = 0;
+};
+
+constexpr ChatAsiWrapperLayout kChatAsiFrameWrapperLayout{
+    "frame",
+    30,
+    18,
+    23,
+};
+constexpr ChatAsiWrapperLayout kChatAsiStackWrapperLayout{
+    "stack",
+    31,
+    20,
+    25,
+};
 
 struct ChatAsiAddEntryDiscovery {
     HMODULE module = nullptr;
     std::uintptr_t wrapper = 0;
     std::uintptr_t dispatch = 0;
+    std::uintptr_t observedTransferTarget = 0;
+    std::size_t transferDepth = 0;
+    std::size_t signatureCandidates = 0;
     const char* method = "none";
+    const char* wrapperVariant = "none";
 
     explicit operator bool() const {
         return module != nullptr && wrapper != 0 && dispatch != 0;
@@ -64,9 +94,8 @@ HMODULE FindChatAsiModule() {
     return chatModule;
 }
 
-bool IsChatAsiAddEntryWrapper(std::uintptr_t wrapper, HMODULE chatModule) {
-    constexpr std::size_t kWrapperSize = 30;
-    if (!IsExecutableRange(wrapper, kWrapperSize, chatModule)) {
+bool MatchesChatAsiFrameWrapper(std::uintptr_t wrapper, HMODULE chatModule) {
+    if (!IsExecutableRange(wrapper, kChatAsiFrameWrapperLayout.size, chatModule)) {
         return false;
     }
 
@@ -85,24 +114,57 @@ bool IsChatAsiAddEntryWrapper(std::uintptr_t wrapper, HMODULE chatModule) {
         && std::memcmp(bytes + 23, kWrapperSuffix, sizeof(kWrapperSuffix)) == 0;
 }
 
-std::uintptr_t ResolveChatAsiAddEntryDispatch(std::uintptr_t wrapper, HMODULE chatModule) {
-    if (!IsChatAsiAddEntryWrapper(wrapper, chatModule)) {
-        return 0;
+bool MatchesChatAsiStackWrapper(std::uintptr_t wrapper, HMODULE chatModule) {
+    if (!IsExecutableRange(wrapper, kChatAsiStackWrapperLayout.size, chatModule)) {
+        return false;
+    }
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(wrapper);
+    constexpr std::uint8_t kPushArgument[] = {0xFF, 0x74, 0x24, 0x14};
+    for (std::size_t index = 0; index < 5; ++index) {
+        if (std::memcmp(bytes + index * sizeof(kPushArgument), kPushArgument, sizeof(kPushArgument)) != 0) {
+            return false;
+        }
+    }
+
+    constexpr std::uint8_t kSuffix[] = {0x83, 0xC4, 0x14, 0xC2, 0x14, 0x00};
+    return bytes[kChatAsiStackWrapperLayout.callOffset] == 0xE8
+        && std::memcmp(
+            bytes + kChatAsiStackWrapperLayout.dispatchReturnOffset,
+            kSuffix,
+            sizeof(kSuffix)) == 0;
+}
+
+bool ResolveChatAsiAddEntryDispatch(
+    std::uintptr_t wrapper,
+    HMODULE chatModule,
+    ChatAsiWrapperLayout& layout,
+    std::uintptr_t& dispatch) {
+    layout = {};
+    dispatch = 0;
+    if (MatchesChatAsiFrameWrapper(wrapper, chatModule)) {
+        layout = kChatAsiFrameWrapperLayout;
+    } else if (MatchesChatAsiStackWrapper(wrapper, chatModule)) {
+        layout = kChatAsiStackWrapperLayout;
+    } else {
+        return false;
     }
 
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(wrapper);
     std::int32_t displacement = 0;
-    std::memcpy(&displacement, bytes + 19, sizeof(displacement));
-    const std::uintptr_t dispatch = wrapper + 23 + displacement;
-    if (!IsExecutableRange(dispatch, 3, chatModule)) {
-        return 0;
+    std::memcpy(&displacement, bytes + layout.callOffset + 1, sizeof(displacement));
+    dispatch = wrapper + layout.dispatchReturnOffset + displacement;
+    if (!IsExecutableRange(dispatch, 1, chatModule) || dispatch == wrapper) {
+        dispatch = 0;
+        return false;
     }
 
-    const auto* dispatchBytes = reinterpret_cast<const std::uint8_t*>(dispatch);
-    if (dispatchBytes[0] != 0x55 || dispatchBytes[1] != 0x8B || dispatchBytes[2] != 0xEC) {
-        return 0;
+    const std::uint8_t firstOpcode = *reinterpret_cast<const std::uint8_t*>(dispatch);
+    if (firstOpcode == 0x00 || firstOpcode == 0xC2 || firstOpcode == 0xC3 || firstOpcode == 0xCC) {
+        dispatch = 0;
+        return false;
     }
-    return dispatch;
+    return true;
 }
 
 ChatAsiAddEntryDiscovery FindChatAsiAddEntryDispatch(std::uintptr_t addEntryTarget) {
@@ -112,30 +174,64 @@ ChatAsiAddEntryDiscovery FindChatAsiAddEntryDispatch(std::uintptr_t addEntryTarg
         return result;
     }
 
-    if (IsExecutableRange(addEntryTarget, 5)) {
-        const auto* addEntryBytes = reinterpret_cast<const std::uint8_t*>(addEntryTarget);
-        if (addEntryBytes[0] == 0xE9) {
-            std::int32_t ownerDisplacement = 0;
-            std::memcpy(&ownerDisplacement, addEntryBytes + 1, sizeof(ownerDisplacement));
-            const std::uintptr_t ownerEntry = addEntryTarget + 5 + ownerDisplacement;
-            const std::uintptr_t dispatch = ResolveChatAsiAddEntryDispatch(ownerEntry, result.module);
-            if (dispatch != 0) {
-                result.wrapper = ownerEntry;
-                result.dispatch = dispatch;
-                result.method = "AddEntry transfer";
-                return result;
-            }
+    std::uintptr_t transfer = addEntryTarget;
+    for (std::size_t depth = 1; depth <= kMaxChatAsiTransferDepth; ++depth) {
+        if (!IsExecutableRange(transfer, 5)) {
+            break;
         }
+
+        const auto* transferBytes = reinterpret_cast<const std::uint8_t*>(transfer);
+        if (transferBytes[0] != 0xE9) {
+            break;
+        }
+
+        std::int32_t displacement = 0;
+        std::memcpy(&displacement, transferBytes + 1, sizeof(displacement));
+        const std::uintptr_t target = transfer + 5 + displacement;
+        if (target == transfer) {
+            break;
+        }
+
+        result.observedTransferTarget = target;
+        result.transferDepth = depth;
+
+        ChatAsiWrapperLayout layout;
+        std::uintptr_t dispatch = 0;
+        if (ResolveChatAsiAddEntryDispatch(target, result.module, layout, dispatch)) {
+            result.wrapper = target;
+            result.dispatch = dispatch;
+            result.method = depth == 1 ? "AddEntry transfer" : "AddEntry transfer chain";
+            result.wrapperVariant = layout.name;
+            return result;
+        }
+
+        transfer = target;
     }
 
-    const std::uintptr_t wrapper = module_signature_scanner::FindPattern(
-        result.module,
-        kChatAsiAddEntryWrapperSignature);
-    const std::uintptr_t dispatch = ResolveChatAsiAddEntryDispatch(wrapper, result.module);
-    if (dispatch != 0) {
-        result.wrapper = wrapper;
-        result.dispatch = dispatch;
-        result.method = "module signature";
+    constexpr std::array<std::string_view, 2> signatures{
+        kChatAsiAddEntryFrameWrapperSignature,
+        kChatAsiAddEntryStackWrapperSignature,
+    };
+    for (const std::string_view signature : signatures) {
+        const auto candidates = module_signature_scanner::FindPatterns(
+            result.module,
+            signature,
+            kMaxChatAsiSignatureCandidates,
+            module_signature_scanner::ScanRegion::Executable);
+        result.signatureCandidates += candidates.size();
+        for (const std::uintptr_t wrapper : candidates) {
+            ChatAsiWrapperLayout layout;
+            std::uintptr_t dispatch = 0;
+            if (!ResolveChatAsiAddEntryDispatch(wrapper, result.module, layout, dispatch)) {
+                continue;
+            }
+
+            result.wrapper = wrapper;
+            result.dispatch = dispatch;
+            result.method = "module signature";
+            result.wrapperVariant = layout.name;
+            return result;
+        }
     }
     return result;
 }
@@ -224,10 +320,26 @@ void ClearPadMouseButtons(CPad* pad, std::uint8_t mask) {
 void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
+    const char* forwardedText = text;
+    std::string sourceTextUtf8;
+    std::string textUtf8;
+    std::string textGame;
+
     if (self_ && self_->installed_) {
-        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        sourceTextUtf8 = textencoding::GameToUtf8(text ? text : "");
+        textUtf8 = sourceTextUtf8;
         const std::string prefixUtf8 = textencoding::GameToUtf8(prefix ? prefix : "");
         if (cchatForwardDepth_ == 0) {
+            const SampCallContext context = ResolveSampCallContext(
+                returnAddress,
+                self_->sampApi_ ? self_->sampApi_->sampModule() : nullptr,
+                self_->ownerModule_);
+            for (const auto& transform : self_->chatMessageTransforms_) {
+                if (!transform(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor, context)) {
+                    return;
+                }
+            }
             for (const auto& filter : self_->chatMessageFilters_) {
                 if (!filter(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor)) {
                     return;
@@ -245,11 +357,15 @@ void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, c
         for (const auto& handler : self_->onChatMessageHandlers_) {
             handler(type, textUtf8, prefixUtf8, textColor, prefixColor);
         }
+        if (textUtf8 != sourceTextUtf8) {
+            textGame = textencoding::Utf8ToGame(textUtf8);
+            forwardedText = textGame.c_str();
+        }
     }
 
     if (self_ && self_->chatAddEntryOriginal_) {
         ++cchatForwardDepth_;
-        self_->chatAddEntryOriginal_(chat, type, text, prefix, textColor, prefixColor);
+        self_->chatAddEntryOriginal_(chat, type, forwardedText, prefix, textColor, prefixColor);
         --cchatForwardDepth_;
     }
 }
@@ -260,39 +376,92 @@ void __cdecl SampHooks::ChatAsiAddEntryDispatchDetour(
     const char* prefix,
     unsigned long textColor,
     unsigned long prefixColor) {
+    const void* returnAddress = _ReturnAddress();
+    const char* forwardedText = text;
+    std::string sourceTextUtf8;
+    std::string textUtf8;
+    std::string textGame;
+
     if (self_ && self_->installed_ && cchatForwardDepth_ == 0
-        && self_->chatAsiCompatibilityEnabled_.load(std::memory_order_relaxed)) {
-        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        && (!self_->chatMessageTransforms_.empty()
+            || self_->chatAsiCompatibilityEnabled_.load(std::memory_order_relaxed))) {
+        sourceTextUtf8 = textencoding::GameToUtf8(text ? text : "");
+        textUtf8 = sourceTextUtf8;
         const std::string prefixUtf8 = textencoding::GameToUtf8(prefix ? prefix : "");
-        for (const auto& filter : self_->chatMessageFilters_) {
-            if (!filter(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor)) {
+        const SampCallContext context = ResolveSampCallContext(
+            returnAddress,
+            self_->sampApi_ ? self_->sampApi_->sampModule() : nullptr,
+            self_->ownerModule_);
+        for (const auto& transform : self_->chatMessageTransforms_) {
+            if (!transform(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor, context)) {
                 return;
             }
+        }
+        if (self_->chatAsiCompatibilityEnabled_.load(std::memory_order_relaxed)) {
+            for (const auto& filter : self_->chatMessageFilters_) {
+                if (!filter(ChatMessageSource::AddEntry, type, textUtf8, prefixUtf8, textColor, prefixColor)) {
+                    return;
+                }
+            }
+        }
+        self_->AppendLog(
+            "_chat AddEntry type=%d prefix=%s text=%s color=%08lX prefixColor=%08lX",
+            type,
+            Truncate(prefixUtf8, 48).c_str(),
+            Truncate(textUtf8, 96).c_str(),
+            textColor,
+            prefixColor);
+        for (const auto& handler : self_->onChatMessageHandlers_) {
+            handler(type, textUtf8, prefixUtf8, textColor, prefixColor);
+        }
+        if (textUtf8 != sourceTextUtf8) {
+            textGame = textencoding::Utf8ToGame(textUtf8);
+            forwardedText = textGame.c_str();
         }
     }
 
     if (self_ && self_->chatAsiAddEntryDispatchOriginal_) {
-        self_->chatAsiAddEntryDispatchOriginal_(type, text, prefix, textColor, prefixColor);
+        self_->chatAsiAddEntryDispatchOriginal_(type, forwardedText, prefix, textColor, prefixColor);
     }
 }
 
 void __fastcall SampHooks::ChatAddMessageDetour(void* chat, void* edx, unsigned long color, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
+    const char* forwardedText = text;
+    std::string sourceTextUtf8;
+    std::string textUtf8;
+    std::string textGame;
+
     if (self_ && self_->installed_) {
-        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        sourceTextUtf8 = textencoding::GameToUtf8(text ? text : "");
+        textUtf8 = sourceTextUtf8;
         if (cchatForwardDepth_ == 0) {
+            const SampCallContext context = ResolveSampCallContext(
+                returnAddress,
+                self_->sampApi_ ? self_->sampApi_->sampModule() : nullptr,
+                self_->ownerModule_);
+            for (const auto& transform : self_->chatMessageTransforms_) {
+                if (!transform(ChatMessageSource::AddMessage, 4, textUtf8, std::string(), color, 0, context)) {
+                    return;
+                }
+            }
             for (const auto& filter : self_->chatMessageFilters_) {
                 if (!filter(ChatMessageSource::AddMessage, 4, textUtf8, std::string(), color, 0)) {
                     return;
                 }
             }
         }
+        if (textUtf8 != sourceTextUtf8) {
+            textGame = textencoding::Utf8ToGame(textUtf8);
+            forwardedText = textGame.c_str();
+        }
     }
 
     if (self_ && self_->chatAddMessageOriginal_) {
         ++cchatForwardDepth_;
-        self_->chatAddMessageOriginal_(chat, color, text);
+        self_->chatAddMessageOriginal_(chat, color, forwardedText);
         --cchatForwardDepth_;
     }
 }
@@ -300,21 +469,41 @@ void __fastcall SampHooks::ChatAddMessageDetour(void* chat, void* edx, unsigned 
 void __fastcall SampHooks::ChatAddChatMessageDetour(void* chat, void* edx, const char* prefix, unsigned long prefixColor, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
+    const char* forwardedText = text;
+    std::string sourceTextUtf8;
+    std::string textUtf8;
+    std::string textGame;
+
     if (self_ && self_->installed_) {
-        const std::string textUtf8 = textencoding::GameToUtf8(text ? text : "");
+        sourceTextUtf8 = textencoding::GameToUtf8(text ? text : "");
+        textUtf8 = sourceTextUtf8;
         const std::string prefixUtf8 = textencoding::GameToUtf8(prefix ? prefix : "");
         if (cchatForwardDepth_ == 0) {
+            const SampCallContext context = ResolveSampCallContext(
+                returnAddress,
+                self_->sampApi_ ? self_->sampApi_->sampModule() : nullptr,
+                self_->ownerModule_);
+            for (const auto& transform : self_->chatMessageTransforms_) {
+                if (!transform(ChatMessageSource::AddChatMessage, 2, textUtf8, prefixUtf8, 0, prefixColor, context)) {
+                    return;
+                }
+            }
             for (const auto& filter : self_->chatMessageFilters_) {
                 if (!filter(ChatMessageSource::AddChatMessage, 2, textUtf8, prefixUtf8, 0, prefixColor)) {
                     return;
                 }
             }
         }
+        if (textUtf8 != sourceTextUtf8) {
+            textGame = textencoding::Utf8ToGame(textUtf8);
+            forwardedText = textGame.c_str();
+        }
     }
 
     if (self_ && self_->chatAddChatMessageOriginal_) {
         ++cchatForwardDepth_;
-        self_->chatAddChatMessageOriginal_(chat, prefix, prefixColor, text);
+        self_->chatAddChatMessageOriginal_(chat, prefix, prefixColor, forwardedText);
         --cchatForwardDepth_;
     }
 }
@@ -354,15 +543,20 @@ void __fastcall SampHooks::DialogCloseDetour(std::uintptr_t self, void* edx, cha
 void __fastcall SampHooks::InputSendDetour(std::uintptr_t self, void* edx, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
     const char* forwardedText = text;
     std::string textUtf8;
     std::string textGame;
 
     if (SampHooks::self_ && SampHooks::self_->installed_) {
+        const SampCallContext context = ResolveSampCallContext(
+            returnAddress,
+            SampHooks::self_->sampApi_ ? SampHooks::self_->sampApi_->sampModule() : nullptr,
+            SampHooks::self_->ownerModule_);
         textUtf8 = textencoding::GameToUtf8(text ? text : "");
         SampHooks::self_->AppendLog("CInput_Send text=%s", Truncate(textUtf8, 96).c_str());
         for (const auto& handler : SampHooks::self_->onSendCommandHandlers_) {
-            if (!handler(textUtf8)) {
+            if (!handler(textUtf8, context)) {
                 return;
             }
         }
@@ -379,15 +573,20 @@ void __fastcall SampHooks::InputSendDetour(std::uintptr_t self, void* edx, const
 void __fastcall SampHooks::InputSendSayDetour(std::uintptr_t self, void* edx, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
+    const void* returnAddress = _ReturnAddress();
     const char* forwardedText = text;
     std::string textUtf8;
     std::string textGame;
 
     if (SampHooks::self_ && SampHooks::self_->installed_) {
+        const SampCallContext context = ResolveSampCallContext(
+            returnAddress,
+            SampHooks::self_->sampApi_ ? SampHooks::self_->sampApi_->sampModule() : nullptr,
+            SampHooks::self_->ownerModule_);
         textUtf8 = textencoding::GameToUtf8(text ? text : "");
         SampHooks::self_->AppendLog("CInput_SendSay text=%s", Truncate(textUtf8, 96).c_str());
         for (const auto& handler : SampHooks::self_->onSendChatHandlers_) {
-            if (!handler(textUtf8)) {
+            if (!handler(textUtf8, context)) {
                 return;
             }
         }
@@ -471,6 +670,11 @@ void SampHooks::SetSampApi(SampApi* sampApi) {
     debuglog::WriteInfo("SampHooks::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
 }
 
+void SampHooks::SetOwnerModule(HMODULE module) {
+    ownerModule_ = module;
+    debuglog::WriteInfo("SampHooks::SetOwnerModule assigned=%d", ownerModule_ ? 1 : 0);
+}
+
 void SampHooks::SetHotkeyBlockCallback(HotkeyBlockCallback callback) {
     hotkeyBlockCallback_ = std::move(callback);
     debuglog::WriteInfo("SampHooks::SetHotkeyBlockCallback assigned=%d", hotkeyBlockCallback_ ? 1 : 0);
@@ -543,6 +747,12 @@ void SampHooks::Shutdown() {
 void SampHooks::AddOnChatMessageHandler(ChatMessageHandler handler) {
     if (handler) {
         onChatMessageHandlers_.push_back(std::move(handler));
+    }
+}
+
+void SampHooks::AddChatMessageTransform(ChatMessageTransform handler) {
+    if (handler) {
+        chatMessageTransforms_.push_back(std::move(handler));
     }
 }
 
@@ -621,11 +831,14 @@ bool SampHooks::Install() {
     debuglog::WriteInfo("SampHooks: padUpdateMouseTarget=0x%08X", static_cast<unsigned>(padUpdateMouseTarget));
     if (chatAsiDiscovery) {
         const auto chatModule = reinterpret_cast<std::uintptr_t>(chatAsiDiscovery.module);
-        const std::string wrapperBytes = FormatCodeBytes(chatAsiDiscovery.wrapper, 30, chatAsiDiscovery.module);
-        const std::string dispatchBytes = FormatCodeBytes(chatAsiDiscovery.dispatch, 12, chatAsiDiscovery.module);
+        const std::string wrapperBytes = FormatCodeBytes(chatAsiDiscovery.wrapper, 32, chatAsiDiscovery.module);
+        const std::string dispatchBytes = FormatCodeBytes(chatAsiDiscovery.dispatch, 16, chatAsiDiscovery.module);
         debuglog::WriteInfo(
-            "SampHooks: _chat discovery method=%s wrapper=0x%08X wrapperRva=0x%X dispatch=0x%08X dispatchRva=0x%X wrapperBytes=[%s] dispatchBytes=[%s]",
+            "SampHooks: _chat discovery method=%s variant=%s transferDepth=%llu signatureCandidates=%llu wrapper=0x%08X wrapperRva=0x%X dispatch=0x%08X dispatchRva=0x%X wrapperBytes=[%s] dispatchBytes=[%s]",
             chatAsiDiscovery.method,
+            chatAsiDiscovery.wrapperVariant,
+            static_cast<unsigned long long>(chatAsiDiscovery.transferDepth),
+            static_cast<unsigned long long>(chatAsiDiscovery.signatureCandidates),
             static_cast<unsigned>(chatAsiDiscovery.wrapper),
             static_cast<unsigned>(chatAsiDiscovery.wrapper - chatModule),
             static_cast<unsigned>(chatAsiDiscovery.dispatch),
@@ -633,8 +846,16 @@ bool SampHooks::Install() {
             wrapperBytes.c_str(),
             dispatchBytes.c_str());
     } else if (chatAsiDiscovery.module) {
+        const std::string transferBytes = FormatCodeBytes(
+            chatAsiDiscovery.observedTransferTarget,
+            32,
+            chatAsiDiscovery.module);
         debuglog::WriteInfo(
-            "SampHooks: _chat AddEntry signature not recognized; standard AddEntry fallback remains active");
+            "SampHooks: _chat AddEntry dispatch not recognized transferDepth=%llu transferTarget=0x%08X transferBytes=[%s] signatureCandidates=%llu; standard AddEntry fallback remains active",
+            static_cast<unsigned long long>(chatAsiDiscovery.transferDepth),
+            static_cast<unsigned>(chatAsiDiscovery.observedTransferTarget),
+            transferBytes.c_str(),
+            static_cast<unsigned long long>(chatAsiDiscovery.signatureCandidates));
     } else {
         debuglog::WriteInfo("SampHooks: _chat.asi is not loaded; standard AddEntry fallback remains active");
     }

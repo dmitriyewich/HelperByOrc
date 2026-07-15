@@ -29,6 +29,9 @@ void TagsModule::Impl::LoadConfig() {
     customVariables_.clear();
 
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kTagsSectionName);
+    expandExternalTags_.store(
+        jsonutil::JsonBoolOr(&section, kExpandExternalTagsKey.data(), true),
+        std::memory_order_relaxed);
     const jsonutil::JsonObject* customVars = jsonutil::JsonObjectOrNull(&section, kCustomVarsKey.data());
     if (customVars) {
         for (const auto& [key, value] : *customVars) {
@@ -42,18 +45,42 @@ void TagsModule::Impl::LoadConfig() {
         return left.first < right.first;
     });
     RebuildCustomVariableIndex();
-    debuglog::WriteInfo("TagsModule::LoadConfig done customVars=%llu", static_cast<unsigned long long>(customVariables_.size()));
+    debuglog::WriteInfo(
+        "TagsModule::LoadConfig done customVars=%llu expandExternalTags=%d",
+        static_cast<unsigned long long>(customVariables_.size()),
+        ExpandExternalTagsEnabled() ? 1 : 0);
 }
 
 void TagsModule::Impl::SaveConfig() const {
-    debuglog::WriteInfo("TagsModule::SaveConfig queued customVars=%llu", static_cast<unsigned long long>(customVariables_.size()));
+    debuglog::WriteInfo(
+        "TagsModule::SaveConfig queued customVars=%llu expandExternalTags=%d",
+        static_cast<unsigned long long>(customVariables_.size()),
+        ExpandExternalTagsEnabled() ? 1 : 0);
     jsonutil::JsonObject section;
     jsonutil::JsonObject customVars;
     for (const auto& [name, value] : customVariables_) {
         customVars[name] = value;
     }
+    section[std::string(kExpandExternalTagsKey)] = ExpandExternalTagsEnabled();
     section[std::string(kCustomVarsKey)] = jsonutil::JsonValue(std::move(customVars));
-    AppConfig::Instance().QueueSectionReplace(std::string(kTagsSectionName), jsonutil::JsonValue(std::move(section)));
+    AppConfig::Instance().QueueSectionReplace(
+        std::string(kTagsSectionName),
+        jsonutil::JsonValue(std::move(section)),
+        "tags:config");
+}
+
+bool TagsModule::Impl::ExpandExternalTagsEnabled() const {
+    return expandExternalTags_.load(std::memory_order_relaxed);
+}
+
+void TagsModule::Impl::SetExpandExternalTagsEnabled(bool enabled) {
+    const bool previous = expandExternalTags_.exchange(enabled, std::memory_order_relaxed);
+    if (previous == enabled) {
+        return;
+    }
+
+    debuglog::WriteInfo("[tags][external] enabled=%d", enabled ? 1 : 0);
+    SaveConfig();
 }
 
 void TagsModule::Impl::RebuildCustomVariableIndex() {

@@ -718,30 +718,53 @@ bool TryGetModuleSections(
         return false;
     }
 
-    const auto base = reinterpret_cast<std::uintptr_t>(module);
+    if (!module_signature_scanner::GetLoadedModuleImageRange(module, imageBase, imageEnd)) {
+        return false;
+    }
+
+    const auto base = imageBase;
     const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE || dosHeader->e_lfanew <= 0) {
         return false;
     }
 
-    const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(base + dosHeader->e_lfanew);
-    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+    const auto ntOffset = static_cast<std::uintptr_t>(dosHeader->e_lfanew);
+    if (ntOffset > imageEnd - imageBase || sizeof(IMAGE_NT_HEADERS32) > imageEnd - imageBase - ntOffset) {
         return false;
     }
 
-    imageBase = base;
-    imageEnd = base + ntHeaders->OptionalHeader.SizeOfImage;
+    const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(base + ntOffset);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE
+        || ntHeaders->FileHeader.NumberOfSections == 0
+        || ntHeaders->FileHeader.NumberOfSections > 96) {
+        return false;
+    }
 
     const IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
+    const std::uintptr_t sectionHeadersBegin = reinterpret_cast<std::uintptr_t>(sectionHeader);
+    const std::size_t sectionHeadersSize =
+        static_cast<std::size_t>(ntHeaders->FileHeader.NumberOfSections) * sizeof(IMAGE_SECTION_HEADER);
+    if (sectionHeadersBegin < imageBase
+        || sectionHeadersBegin >= imageEnd
+        || sectionHeadersSize > imageEnd - sectionHeadersBegin) {
+        return false;
+    }
+
     for (unsigned short index = 0; index < ntHeaders->FileHeader.NumberOfSections; ++index, ++sectionHeader) {
-        const std::uintptr_t sectionBase = base + sectionHeader->VirtualAddress;
+        if (sectionHeader->VirtualAddress > imageEnd - imageBase) {
+            continue;
+        }
+        const std::uintptr_t sectionBase = imageBase + sectionHeader->VirtualAddress;
         const std::size_t sectionSize =
             std::max<std::size_t>(sectionHeader->Misc.VirtualSize, sectionHeader->SizeOfRawData);
-        if (sectionSize == 0) {
+        if (sectionSize == 0 || sectionBase >= imageEnd) {
             continue;
         }
 
-        sections.push_back({ sectionBase, sectionBase + sectionSize, sectionHeader->Characteristics });
+        const std::uintptr_t sectionEnd = sectionSize > imageEnd - sectionBase
+            ? imageEnd
+            : sectionBase + sectionSize;
+        sections.push_back({ sectionBase, sectionEnd, sectionHeader->Characteristics });
     }
 
     return !sections.empty();
@@ -763,6 +786,29 @@ const ModuleSectionRange* FindSectionForAddress(
     return nullptr;
 }
 
+std::string FormatModuleCodeBytes(
+    const std::vector<ModuleSectionRange>& sections,
+    std::uintptr_t address,
+    std::size_t count) {
+    const ModuleSectionRange* section = FindSectionForAddress(sections, address, true);
+    if (!section || count == 0 || address + count < address || address + count > section->end) {
+        return "unavailable";
+    }
+
+    std::string result;
+    result.reserve(count * 3);
+    char byteText[4]{};
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(address);
+    for (std::size_t index = 0; index < count; ++index) {
+        if (index != 0) {
+            result.push_back(' ');
+        }
+        std::snprintf(byteText, sizeof(byteText), "%02X", bytes[index]);
+        result.append(byteText);
+    }
+    return result;
+}
+
 bool IsAddressInModule(std::uintptr_t address, std::uintptr_t imageBase, std::uintptr_t imageEnd) {
     return address >= imageBase && address < imageEnd;
 }
@@ -777,39 +823,6 @@ bool IsAddressInWritableSection(const std::vector<ModuleSectionRange>& sections,
     return false;
 }
 
-std::uintptr_t FindAsciiStringLiteral(
-    const std::vector<ModuleSectionRange>& sections,
-    std::string_view value) {
-    if (value.empty()) {
-        return 0;
-    }
-
-    for (const auto& section : sections) {
-        if (section.executable()) {
-            continue;
-        }
-
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(section.begin);
-        const std::size_t sectionSize = section.end - section.begin;
-        if (sectionSize <= value.size()) {
-            continue;
-        }
-
-        for (std::size_t offset = 0; offset + value.size() < sectionSize; ++offset) {
-            if (std::memcmp(bytes + offset, value.data(), value.size()) != 0) {
-                continue;
-            }
-            if (bytes[offset + value.size()] != 0) {
-                continue;
-            }
-
-            return section.begin + offset;
-        }
-    }
-
-    return 0;
-}
-
 std::uintptr_t FindRuntimeAsciiStringLiteral(HMODULE module, std::string_view value) {
     if (module == nullptr || value.empty()) {
         return 0;
@@ -822,7 +835,12 @@ std::uintptr_t FindRuntimeAsciiStringLiteral(HMODULE module, std::string_view va
     }
     pattern.push_back(module_signature_scanner::PatternByte{ 0, false });
 
-    return module_signature_scanner::FindPattern(module, pattern);
+    const auto matches = module_signature_scanner::FindPatterns(
+        module,
+        pattern,
+        1,
+        module_signature_scanner::ScanRegion::NonExecutable);
+    return matches.empty() ? 0 : matches.front();
 }
 
 std::vector<std::uintptr_t> FindPushImmediateRefs(
@@ -857,6 +875,23 @@ std::uintptr_t ResolveRelativeTarget(std::uintptr_t instructionAddress) {
     std::int32_t displacement = 0;
     std::memcpy(&displacement, reinterpret_cast<const void*>(instructionAddress + 1), sizeof(displacement));
     return instructionAddress + 5 + displacement;
+}
+
+bool ReadAbsoluteEcxLoad(
+    const std::uint8_t* bytes,
+    std::size_t size,
+    std::size_t offset,
+    std::uint32_t& value) {
+    value = 0;
+    if (offset + 5 <= size && bytes[offset] == 0xB9) {
+        std::memcpy(&value, bytes + offset + 1, sizeof(value));
+        return true;
+    }
+    if (offset + 6 <= size && bytes[offset] == 0x8D && bytes[offset + 1] == 0x0D) {
+        std::memcpy(&value, bytes + offset + 2, sizeof(value));
+        return true;
+    }
+    return false;
 }
 
 std::uintptr_t FindNearbyWrapperCall(
@@ -1077,12 +1112,10 @@ bool FindChatAsiWriterForBuffer(
         const std::size_t sectionSize = section.end - section.begin;
 
         for (std::size_t offset = 0; offset + 5 <= sectionSize; ++offset) {
-            if (bytes[offset] != 0xB9) {
+            std::uint32_t immediate = 0;
+            if (!ReadAbsoluteEcxLoad(bytes, sectionSize, offset, immediate)) {
                 continue;
             }
-
-            std::uint32_t immediate = 0;
-            std::memcpy(&immediate, bytes + offset + 1, sizeof(immediate));
             if (immediate != inputBuffer) {
                 continue;
             }
@@ -1106,12 +1139,14 @@ bool FindChatAsiWriterForBuffer(
                 const std::uintptr_t address = section.begin + candidateOffset + index;
                 const std::uint8_t opcode = bytes[candidateOffset + index];
 
-                if (index + 5 <= window && opcode == 0xB9) {
-                    std::uint32_t value = 0;
-                    std::memcpy(&value, bytes + candidateOffset + index + 1, sizeof(value));
-                    if (value == inputBuffer) {
-                        sawBufferLoad = true;
-                    }
+                std::uint32_t bufferLoad = 0;
+                if (ReadAbsoluteEcxLoad(
+                        bytes + candidateOffset,
+                        window,
+                        index,
+                        bufferLoad)
+                    && bufferLoad == inputBuffer) {
+                    sawBufferLoad = true;
                 }
 
                 if (index + 7 <= window && opcode == 0xC6 && bytes[candidateOffset + index + 1] == 0x05

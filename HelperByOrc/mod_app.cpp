@@ -754,6 +754,29 @@ void LogFileFingerprint(const fs::path& path, const char* label) {
         pathText.c_str());
 }
 
+bool LogInventoryFileMetadata(const fs::path& path, const char* label, std::uint64_t& size) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        debuglog::WriteInfo(
+            "[diag][inventory-file] %s metadata failed gle=%lu path=\"%s\"",
+            label,
+            static_cast<unsigned long>(GetLastError()),
+            PathToUtf8(path).c_str());
+        return false;
+    }
+
+    size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32u) | data.nFileSizeLow;
+    const std::string pathText = PathToUtf8(path);
+    debuglog::WriteInfo(
+        "[diag][inventory-file] %s size=%llu mtime=\"%s\" hash=skipped tags=%s path=\"%s\"",
+        label,
+        static_cast<unsigned long long>(size),
+        FileTimeToText(data.ftLastWriteTime).c_str(),
+        JoinTags(ConflictTagsForPath(pathText)).c_str(),
+        pathText.c_str());
+    return true;
+}
+
 bool ShouldInventoryFile(const fs::path& path) {
     const std::string lowerName = LowerAscii(PathToUtf8(path.filename()));
     const std::string lowerExt = LowerAscii(PathToUtf8(path.extension()));
@@ -769,6 +792,7 @@ bool ShouldInventoryFile(const fs::path& path) {
 }
 
 void LogDirectoryInventory(const fs::path& directory, const char* label, bool recursive, std::size_t limit) {
+    const std::uint64_t startedAt = GetTickCount64();
     std::error_code ec;
     const bool directoryExists = fs::exists(directory, ec);
     if (ec) {
@@ -786,6 +810,7 @@ void LogDirectoryInventory(const fs::path& directory, const char* label, bool re
 
     std::size_t matched = 0;
     std::size_t logged = 0;
+    std::uint64_t metadataBytes = 0;
     const auto logPath = [&](const fs::path& path) {
         if (!ShouldInventoryFile(path)) {
             return;
@@ -797,7 +822,10 @@ void LogDirectoryInventory(const fs::path& directory, const char* label, bool re
         }
 
         ++logged;
-        LogFileFingerprint(path, label);
+        std::uint64_t size = 0;
+        if (LogInventoryFileMetadata(path, label, size)) {
+            metadataBytes += size;
+        }
     };
 
     if (recursive) {
@@ -837,12 +865,14 @@ void LogDirectoryInventory(const fs::path& directory, const char* label, bool re
     }
 
     debuglog::WriteInfo(
-        "[diag][inventory] %s done matched=%llu logged=%llu limit=%llu recursive=%d path=\"%s\"",
+        "[diag][inventory] %s done matched=%llu logged=%llu limit=%llu recursive=%d metadataBytes=%llu hashBytes=0 elapsed=%llums path=\"%s\"",
         label,
         static_cast<unsigned long long>(matched),
         static_cast<unsigned long long>(logged),
         static_cast<unsigned long long>(limit),
         recursive ? 1 : 0,
+        static_cast<unsigned long long>(metadataBytes),
+        static_cast<unsigned long long>(GetTickCount64() - startedAt),
         PathToUtf8(directory).c_str());
 }
 
@@ -1153,6 +1183,7 @@ void LogAppCompatLayers(const fs::path& gameDir, const fs::path& currentExe) {
 }
 
 void LogStartupDiagnostics(HMODULE module) {
+    const std::uint64_t startedAt = GetTickCount64();
     const fs::path gameDir = GetModuleDirectory(nullptr);
     const fs::path currentExe = GetModulePathFs(nullptr);
     wchar_t currentDir[MAX_PATH]{};
@@ -1175,14 +1206,25 @@ void LogStartupDiagnostics(HMODULE module) {
     LogFileFingerprint(GetModulePathUtf8(module), "HelperByOrc");
 
     LogKnownProxyFiles(gameDir);
+    const std::uint64_t fingerprintsDoneAt = GetTickCount64();
     LogAppCompatLayers(gameDir, currentExe);
+    const std::uint64_t appCompatDoneAt = GetTickCount64();
     LogDirectoryInventory(gameDir, "root-plugin", false, 200);
     LogDirectoryInventory(gameDir / L"scripts", "scripts", true, 300);
     LogDirectoryInventory(gameDir / L"cleo", "cleo", true, 300);
     LogDirectoryInventory(gameDir / L"moonloader", "moonloader", true, 300);
     LogDirectoryInventory(gameDir / L"modloader", "modloader", true, 500);
     LogDirectoryInventory(gameDir / L"SAMPFUNCS", "SAMPFUNCS", true, 300);
+    const std::uint64_t inventoryDoneAt = GetTickCount64();
     LogLoadedModuleSnapshot("startup", false, gameDir);
+    const std::uint64_t modulesDoneAt = GetTickCount64();
+    debuglog::WriteInfo(
+        "[diag][startup] done total=%llums fingerprints=%llums appcompat=%llums inventory=%llums modules=%llums inventoryHashing=0",
+        static_cast<unsigned long long>(modulesDoneAt - startedAt),
+        static_cast<unsigned long long>(fingerprintsDoneAt - startedAt),
+        static_cast<unsigned long long>(appCompatDoneAt - fingerprintsDoneAt),
+        static_cast<unsigned long long>(inventoryDoneAt - appCompatDoneAt),
+        static_cast<unsigned long long>(modulesDoneAt - inventoryDoneAt));
 }
 
 std::size_t ToTabIndex(MainTab tab) {
@@ -1577,6 +1619,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     unwanted_.OnProcessAttach();
     LoadShellState();
 
+    sampRakHooks_.SetOwnerModule(module_);
     sampRakHooks_.SetSampApi(&sampApi_);
     arizonaCefDialogs_.SetSampApi(&sampApi_);
     arizonaCefDialogs_.SetSampRakHooks(&sampRakHooks_);
@@ -1585,6 +1628,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     tags_.SetArizonaCefDialogs(&arizonaCefDialogs_);
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });
+    sampHooks_.SetOwnerModule(module_);
     sampHooks_.SetSampApi(&sampApi_);
     unwanted_.SetChatAsiCompatibilityHandler([this](bool enabled) {
         sampHooks_.SetChatAsiCompatibilityEnabled(enabled);
@@ -1595,6 +1639,24 @@ void ModApp::OnProcessAttach(HMODULE module) {
     });
     sampHooks_.SetMouseButtonBlockCallback([this]() {
         return CurrentHelperMouseSuppressionMask();
+    });
+    sampHooks_.AddChatMessageTransform([this](
+                                           SampHooks::ChatMessageSource source,
+                                           int type,
+                                           std::string& text,
+                                           const std::string& prefix,
+                                           std::uint32_t textColor,
+                                           std::uint32_t prefixColor,
+                                           const SampCallContext& context) {
+        UNREFERENCED_PARAMETER(source);
+        UNREFERENCED_PARAMETER(type);
+        UNREFERENCED_PARAMETER(prefix);
+        UNREFERENCED_PARAMETER(textColor);
+        UNREFERENCED_PARAMETER(prefixColor);
+        if (!context.IsExternal()) {
+            return true;
+        }
+        return tags_.ProcessExternalText(text, TagsModule::ExternalTextPath::LocalChat);
     });
     sampHooks_.AddChatMessageFilter([this](
                                         SampHooks::ChatMessageSource source,
@@ -1616,24 +1678,38 @@ void ModApp::OnProcessAttach(HMODULE module) {
         context.prefixColor = prefixColor;
         return !unwanted_.ShouldBlock(context);
     });
-    sampHooks_.AddOnSendCommandHandler([this](std::string& text) {
+    sampHooks_.AddOnSendCommandHandler([this](std::string& text, const SampCallContext& context) {
+        if (context.IsExternal()) {
+            return tags_.ProcessExternalText(text, TagsModule::ExternalTextPath::SendCommand);
+        }
         text = tags_.ExpandOutgoingText(text, "command", text);
         return true;
     });
-    sampHooks_.AddOnSendChatHandler([this](std::string& text) {
+    sampHooks_.AddOnSendChatHandler([this](std::string& text, const SampCallContext& context) {
+        if (context.IsExternal()) {
+            return tags_.ProcessExternalText(text, TagsModule::ExternalTextPath::SendChat);
+        }
         text = tags_.ExpandOutgoingText(text, "chat", text);
         return true;
     });
-    sampRakHooks_.AddOnSendCommandHandler([this](std::string& text) {
-        if (!SampHooks::IsOutgoingInputTransformActive()) {
-            text = tags_.ExpandOutgoingText(text, "command", text);
+    sampRakHooks_.AddOnSendCommandHandler([this](std::string& text, const SampCallContext& context) {
+        if (SampHooks::IsOutgoingInputTransformActive()) {
+            return true;
         }
+        if (context.IsExternal()) {
+            return tags_.ProcessExternalText(text, TagsModule::ExternalTextPath::SendCommand);
+        }
+        text = tags_.ExpandOutgoingText(text, "command", text);
         return true;
     });
-    sampRakHooks_.AddOnSendChatHandler([this](std::string& text) {
-        if (!SampHooks::IsOutgoingInputTransformActive()) {
-            text = tags_.ExpandOutgoingText(text, "chat", text);
+    sampRakHooks_.AddOnSendChatHandler([this](std::string& text, const SampCallContext& context) {
+        if (SampHooks::IsOutgoingInputTransformActive()) {
+            return true;
         }
+        if (context.IsExternal()) {
+            return tags_.ProcessExternalText(text, TagsModule::ExternalTextPath::SendChat);
+        }
+        text = tags_.ExpandOutgoingText(text, "chat", text);
         return true;
     });
     sampRakHooks_.AddServerMessageFilter([this](std::int32_t color, const std::string& text) {
@@ -2635,6 +2711,14 @@ void ModApp::DrawSettingsGeneralSection() {
     if (ImGui::IsItemDeactivatedAfterEdit()) {
         debuglog::WriteInfo("Settings changed: font_size=%.0f", ui.FontSize());
     }
+    ImGui::Spacing();
+
+    ImGui::SeparatorText(ui.Text(UiText::SettingsExternalScripts));
+    bool expandExternalTags = tags_.ExpandExternalTagsEnabled();
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsExpandExternalTags), &expandExternalTags)) {
+        tags_.SetExpandExternalTagsEnabled(expandExternalTags);
+    }
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsExpandExternalTagsDesc));
     ImGui::Spacing();
 
     if (ImGui::Button(ui.Text(UiText::SettingsResetDefaults))) {

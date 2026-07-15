@@ -1,6 +1,8 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include <exception>
+
 #include "text_encoding.h"
 
 namespace {
@@ -63,6 +65,8 @@ const char* TagsModule::Impl::TagPerfSourceName(TagPerfSource source) {
         return "binder";
     case TagPerfSource::Outgoing:
         return "outgoing";
+    case TagPerfSource::External:
+        return "external";
     case TagPerfSource::Notepad:
         return "notepad";
     case TagPerfSource::Ui:
@@ -281,6 +285,9 @@ TagsModule::Impl::TagPerfSource TagsModule::Impl::ResolveTagPerfSource(const Eva
     if (context.activationSource == "command" || context.activationSource == "chat") {
         return TagPerfSource::Outgoing;
     }
+    if (context.activationSource == "external") {
+        return TagPerfSource::External;
+    }
     if (context.activationSource == "notepad") {
         return TagPerfSource::Notepad;
     }
@@ -422,6 +429,42 @@ void TagsModule::Impl::MaybeLogTagExpansionPerf(std::uint64_t nowMs) const {
 
     stats = TagExpansionPerfStats{};
     stats.windowStartMs = nowMs;
+}
+
+void TagsModule::Impl::MaybeLogExternalTagPerf(std::uint64_t nowMs) const {
+    ExternalTagPerfStats& stats = externalTagPerfStats_;
+    if (stats.windowStartMs == 0 || nowMs < stats.windowStartMs) {
+        stats.windowStartMs = nowMs;
+        return;
+    }
+
+    const std::uint64_t windowMs = nowMs - stats.windowStartMs;
+    if (windowMs < kExternalTagsPerfTelemetryWindowMs) {
+        return;
+    }
+
+    const std::uint64_t send = stats.send.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t local = stats.local.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t changed = stats.changed.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t suppressed = stats.suppressed.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t bypassed = stats.bypassed.exchange(0, std::memory_order_relaxed);
+    const std::uint64_t failed = stats.failed.exchange(0, std::memory_order_relaxed);
+    stats.windowStartMs = nowMs;
+
+    if (send == 0 && local == 0) {
+        return;
+    }
+
+    debuglog::WriteInfo(
+        "[tags][external] window=%llums send=%llu local=%llu changed=%llu suppressed=%llu bypassed=%llu failed=%llu enabled=%d",
+        static_cast<unsigned long long>(windowMs),
+        static_cast<unsigned long long>(send),
+        static_cast<unsigned long long>(local),
+        static_cast<unsigned long long>(changed),
+        static_cast<unsigned long long>(suppressed),
+        static_cast<unsigned long long>(bypassed),
+        static_cast<unsigned long long>(failed),
+        ExpandExternalTagsEnabled() ? 1 : 0);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const {
@@ -840,4 +883,74 @@ std::string TagsModule::Impl::ExpandOutgoingText(
     std::string_view activationSource,
     std::string_view activationText) const {
     return ExpandText(text, ResolveActiveContext(activationSource, activationText));
+}
+
+bool TagsModule::Impl::ProcessExternalText(std::string& text, ExternalTextPath path) const {
+    if (path == ExternalTextPath::LocalChat) {
+        externalTagPerfStats_.local.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        externalTagPerfStats_.send.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (!ExpandExternalTagsEnabled()) {
+        externalTagPerfStats_.bypassed.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    if (!MightContainAnyTag(text)) {
+        return true;
+    }
+
+    const std::string original = text;
+    try {
+        switch (path) {
+        case ExternalTextPath::SendCommand:
+            text = ExpandOutgoingText(original, "command", original);
+            break;
+        case ExternalTextPath::SendChat:
+            text = ExpandOutgoingText(original, "chat", original);
+            break;
+        case ExternalTextPath::LocalChat: {
+            EvaluationContext context = ResolveActiveContext("external", original);
+            context.allowSideEffects = true;
+            text = ExpandText(original, context);
+            break;
+        }
+        }
+    } catch (const std::exception& error) {
+        text = original;
+        externalTagPerfStats_.failed.fetch_add(1, std::memory_order_relaxed);
+        const std::uint64_t now = GetTickCount64();
+        std::uint64_t previous = externalTagPerfStats_.lastFailureLogAtMs.load(std::memory_order_relaxed);
+        if (now - previous >= kExternalTagsFailureLogThrottleMs
+            && externalTagPerfStats_.lastFailureLogAtMs.compare_exchange_strong(
+                previous,
+                now,
+                std::memory_order_relaxed)) {
+            debuglog::WriteError("[tags][external] expansion failed: %s", error.what());
+        }
+        return true;
+    } catch (...) {
+        text = original;
+        externalTagPerfStats_.failed.fetch_add(1, std::memory_order_relaxed);
+        const std::uint64_t now = GetTickCount64();
+        std::uint64_t previous = externalTagPerfStats_.lastFailureLogAtMs.load(std::memory_order_relaxed);
+        if (now - previous >= kExternalTagsFailureLogThrottleMs
+            && externalTagPerfStats_.lastFailureLogAtMs.compare_exchange_strong(
+                previous,
+                now,
+                std::memory_order_relaxed)) {
+            debuglog::WriteError("[tags][external] expansion failed: unknown exception");
+        }
+        return true;
+    }
+
+    if (text != original) {
+        externalTagPerfStats_.changed.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (!original.empty() && text.empty() && text != original) {
+        externalTagPerfStats_.suppressed.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
 }

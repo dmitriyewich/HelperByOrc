@@ -10,6 +10,7 @@
 
 #include "external/raknet/RakClient.h"
 #include "raknet_bitstream_view.h"
+#include "samp_call_context.h"
 
 class SampApi;
 
@@ -33,8 +34,8 @@ public:
     using ChatBubbleFilter = std::function<bool(std::uint16_t, const std::string&, std::uint32_t, float, std::uint32_t, const std::string&)>;
     using ServerMessageHandler = std::function<bool(std::int32_t&, std::string&)>;
     using ShowDialogHandler = std::function<bool(std::uint16_t&, std::uint8_t&, std::string&, std::string&, std::string&, std::string&)>;
-    using SendCommandHandler = std::function<bool(std::string&)>;
-    using SendChatHandler = std::function<bool(std::string&)>;
+    using SendCommandHandler = std::function<bool(std::string&, const SampCallContext&)>;
+    using SendChatHandler = std::function<bool(std::string&, const SampCallContext&)>;
     using SendDialogResponseHandler = std::function<bool(std::uint16_t&, std::uint8_t&, std::uint16_t&, std::string&)>;
 
     struct Stats {
@@ -49,6 +50,7 @@ public:
     };
 
     void SetSampApi(SampApi* sampApi);
+    void SetOwnerModule(HMODULE module);
     void Refresh();
     void Shutdown();
 
@@ -95,13 +97,13 @@ private:
     Packet* PopQueuedIncomingPacket();
     bool FreeSyntheticPacket(Packet* packet);
     void DeallocatePacketInternal(void* self, Packet* packet);
-    bool HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& view);
+    bool HandleOutgoingRpc(std::uint8_t rpcId, RakNetBitStreamView& view, const SampCallContext& context);
     bool HandleIncomingRpcPayload(std::uint8_t rpcId, RakNetBitStreamView& view);
     bool HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStreamView& view) const;
     bool HandleIncomingPacket(std::uint8_t packetId, RakNetBitStreamView& view) const;
 
-    bool DispatchSendCommand(RakNetBitStreamView& view);
-    bool DispatchSendChat(RakNetBitStreamView& view);
+    bool DispatchSendCommand(RakNetBitStreamView& view, const SampCallContext& context);
+    bool DispatchSendChat(RakNetBitStreamView& view, const SampCallContext& context);
     bool DispatchSendDialogResponse(RakNetBitStreamView& view);
     bool DispatchServerMessage(RakNetBitStreamView& view);
     bool DispatchPlayerChat(RakNetBitStreamView& view);
@@ -132,6 +134,7 @@ private:
     static inline SampRakHooks* self_ = nullptr;
 
     SampApi* sampApi_ = nullptr;
+    HMODULE ownerModule_ = nullptr;
     bool installed_ = false;
     std::string statusText_ = "waiting for SAMP RakNet";
     mutable std::mutex logMutex_;

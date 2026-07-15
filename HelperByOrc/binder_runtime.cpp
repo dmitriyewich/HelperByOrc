@@ -85,11 +85,11 @@ void BinderModule::Impl::ConnectHooks() {
     }
 
     if (!rakHooksBound && sampRakHooks) {
-        sampRakHooks->AddOnSendCommandHandler([this](std::string& text) {
+        sampRakHooks->AddOnSendCommandHandler([this](std::string& text, const SampCallContext&) {
             const bool handled = OnOutgoingCommand(ToUtf8ForDisplay(text));
             return !handled;
         });
-        sampRakHooks->AddOnSendChatHandler([this](std::string& text) {
+        sampRakHooks->AddOnSendChatHandler([this](std::string& text, const SampCallContext&) {
             const bool handled = OnOutgoingChat(ToUtf8ForDisplay(text));
             return !handled;
         });

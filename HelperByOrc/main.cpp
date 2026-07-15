@@ -11,6 +11,9 @@ HANDLE g_shutdownEvent = nullptr;
 
 DWORD WINAPI ModBootstrapThreadProc(LPVOID) {
     OutputDebugStringA("[HelperByOrc] bootstrap thread started");
+    const ULONGLONG attachStartedAt = GetTickCount64();
+    const BOOL backgroundModeEnabled = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+    const DWORD backgroundModeError = backgroundModeEnabled ? ERROR_SUCCESS : GetLastError();
     HMODULE pinnedModule = nullptr;
     if (!GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
@@ -20,7 +23,19 @@ DWORD WINAPI ModBootstrapThreadProc(LPVOID) {
         return 0;
     }
     ModApp::Instance().OnProcessAttach(g_module);
-    debuglog::WriteInfo("[bootstrap] worker started, process-lifetime pin active, attach completed");
+    BOOL backgroundModeRestored = TRUE;
+    DWORD backgroundModeRestoreError = ERROR_SUCCESS;
+    if (backgroundModeEnabled) {
+        backgroundModeRestored = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+        backgroundModeRestoreError = backgroundModeRestored ? ERROR_SUCCESS : GetLastError();
+    }
+    debuglog::WriteInfo(
+        "[bootstrap] worker started, process-lifetime pin active, attach completed elapsed=%llums backgroundMode=%d beginError=%lu restored=%d endError=%lu",
+        static_cast<unsigned long long>(GetTickCount64() - attachStartedAt),
+        backgroundModeEnabled ? 1 : 0,
+        static_cast<unsigned long>(backgroundModeError),
+        backgroundModeRestored ? 1 : 0,
+        static_cast<unsigned long>(backgroundModeRestoreError));
     if (!g_shutdownEvent) {
         debuglog::WriteError("[bootstrap] shutdown event unavailable after attach");
         return 0;

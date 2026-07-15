@@ -76,6 +76,12 @@ public:
         ArizonaCef,
     };
 
+    enum class ExternalTextPath {
+        SendCommand,
+        SendChat,
+        LocalChat,
+    };
+
     struct DialogInputSetResult {
         bool ok = false;
         DialogInputBackend backend = DialogInputBackend::None;
@@ -124,6 +130,9 @@ public:
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
     void Tick();
+    bool ExpandExternalTagsEnabled() const;
+    void SetExpandExternalTagsEnabled(bool enabled);
+    bool ProcessExternalText(std::string& text, ExternalTextPath path) const;
     bool IsMiscHomePage() const;
     void DrawMiscTab();
     std::string ExpandText(std::string_view text) const;

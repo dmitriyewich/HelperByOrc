@@ -52,6 +52,14 @@ void TagsModule::Impl::Shutdown() {
     customVariablesRevision_ = 0;
     variablePickerEntriesCatalogRevision_ = 0;
     variablePickerEntriesCustomRevision_ = 0;
+    externalTagPerfStats_.send.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.local.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.changed.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.suppressed.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.bypassed.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.failed.store(0, std::memory_order_relaxed);
+    externalTagPerfStats_.windowStartMs = 0;
+    externalTagPerfStats_.lastFailureLogAtMs.store(0, std::memory_order_relaxed);
     variablesPickerState_ = {};
     dialogItemPickerSearchQuery_.clear();
     dialogTextPickerSearchQuery_.clear();

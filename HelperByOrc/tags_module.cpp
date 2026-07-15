@@ -62,6 +62,18 @@ void TagsModule::Tick() {
     impl_->Tick();
 }
 
+bool TagsModule::ExpandExternalTagsEnabled() const {
+    return impl_->ExpandExternalTagsEnabled();
+}
+
+void TagsModule::SetExpandExternalTagsEnabled(bool enabled) {
+    impl_->SetExpandExternalTagsEnabled(enabled);
+}
+
+bool TagsModule::ProcessExternalText(std::string& text, ExternalTextPath path) const {
+    return impl_->ProcessExternalText(text, path);
+}
+
 bool TagsModule::IsMiscHomePage() const {
     return impl_->IsMiscHomePage();
 }

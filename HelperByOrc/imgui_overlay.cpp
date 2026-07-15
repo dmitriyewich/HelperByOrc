@@ -608,7 +608,9 @@ void DbgTraceImGuiInternalState(const char* reason) {
 HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
     AcquireSRWLockShared(&detourRundownLock_);
     ImGuiOverlay* self = self_;
-    if (self && !self->shuttingDown_.load(std::memory_order_acquire)) {
+    if (self
+        && !self->shuttingDown_.load(std::memory_order_acquire)
+        && !originalPresent_) {
         if constexpr (kVerboseUiTraceEnabled) {
             static uint64_t s_lastEndSceneProbeMs = 0;
             const uint64_t probeNow = GetTickCount64();
@@ -621,10 +623,19 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
                     self->IsInputPipelineEnabled() ? 1 : 0);
             }
         }
-        self->InitializeImGuiIfNeeded(device);
-        // Fallback path only: when Present detour is unavailable, render from EndScene.
-        const bool isPrimary = self->IsPrimaryRenderTarget(device);
-        const bool rendered = !originalPresent_ && isPrimary;
+        if (!self->imguiInitialized_) {
+            const double probeStartedAt = PerfNowMs();
+            if (self->IsPrimaryRenderTarget(device)) {
+                self->InitializeImGuiIfNeeded(device);
+                if (self->imguiInitialized_) {
+                    debuglog::WriteInfo(
+                        "[ui][d3d] render device selected path=EndScene device=%p primaryProbeAndInit=%.2fms",
+                        device,
+                        PerfNowMs() - probeStartedAt);
+                }
+            }
+        }
+        const bool rendered = self->imguiInitialized_ && self->renderDevice_ == device;
         if (rendered) {
             self->UpdateHotkeyState();
             if (self->updateCallback_) {
@@ -636,13 +647,13 @@ HRESULT __stdcall ImGuiOverlay::EndSceneDetour(IDirect3DDevice9* device) {
         if (!rendered) {
             static uint64_t s_lastSkipTraceMs = 0;
             const uint64_t now = GetTickCount64();
-            const bool shouldLogSkip = kVerboseUiTraceEnabled && !isPrimary;
+            const bool shouldLogSkip = kVerboseUiTraceEnabled && self->renderDevice_ != device;
             if (shouldLogSkip && now - s_lastSkipTraceMs >= kNonPrimarySkipTraceIntervalMs) {
                 s_lastSkipTraceMs = now;
                 debuglog::WriteInfo(
-                    "[ui] EndScene render skipped presentHook=%d primary=%d",
+                    "[ui] EndScene render skipped presentHook=%d renderDeviceMatch=%d",
                     originalPresent_ ? 1 : 0,
-                    isPrimary ? 1 : 0);
+                    self->renderDevice_ == device ? 1 : 0);
             }
         }
     }
@@ -674,10 +685,19 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
                     self->IsInputPipelineEnabled() ? 1 : 0);
             }
         }
-        self->InitializeImGuiIfNeeded(device);
-        // Primary and stable render path for overlay.
-        const bool isPrimary = self->IsPrimaryRenderTarget(device);
-        const bool rendered = isPrimary;
+        if (!self->imguiInitialized_) {
+            const double probeStartedAt = PerfNowMs();
+            if (self->IsPrimaryRenderTarget(device)) {
+                self->InitializeImGuiIfNeeded(device);
+                if (self->imguiInitialized_) {
+                    debuglog::WriteInfo(
+                        "[ui][d3d] render device selected path=Present device=%p primaryProbeAndInit=%.2fms",
+                        device,
+                        PerfNowMs() - probeStartedAt);
+                }
+            }
+        }
+        const bool rendered = self->imguiInitialized_ && self->renderDevice_ == device;
         if (rendered) {
             self->UpdateHotkeyState();
             if (self->updateCallback_) {
@@ -1135,34 +1155,35 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
         resetModulePath,
         static_cast<DWORD>(std::size(resetModulePath)));
     debuglog::WriteInfo(
-        "[ui][d3d] hook policy EndScene=install Present=install Reset=%s resetAppCompatShim=%d",
+        "[ui][d3d] hook policy Present=preferred EndScene=fallback Reset=%s resetAppCompatShim=%d",
         skipResetHook ? "skip-appcompat-shim" : "install",
         skipResetHook ? 1 : 0);
 
-    if (!minhook::CreateAndEnableHook(
-            endSceneTarget_,
-            reinterpret_cast<void*>(&EndSceneDetour),
-            &originalEndScene_,
-            "IDirect3DDevice9::EndScene")) {
-        endSceneTarget_ = nullptr;
-        presentTarget_ = nullptr;
-        resetTarget_ = nullptr;
-        cleanupDummyDevice();
-        return false;
-    }
-
-    if (!minhook::CreateAndEnableHook(
+    const bool presentHooked = minhook::CreateAndEnableHook(
             presentTarget_,
             reinterpret_cast<void*>(&PresentDetour),
             &originalPresent_,
-            "IDirect3DDevice9::Present")) {
-        minhook::DisableAndRemoveHook(endSceneTarget_, "IDirect3DDevice9::EndScene");
+            "IDirect3DDevice9::Present");
+    if (presentHooked) {
         endSceneTarget_ = nullptr;
         originalEndScene_ = nullptr;
+        debuglog::WriteInfo("[ui][d3d] render hook selected=Present EndSceneHooked=0");
+    } else {
+        originalEndScene_ = nullptr;
         presentTarget_ = nullptr;
-        resetTarget_ = nullptr;
-        cleanupDummyDevice();
-        return false;
+        originalPresent_ = nullptr;
+        debuglog::WriteInfo("[ui][d3d] Present hook unavailable; installing EndScene fallback");
+        if (!minhook::CreateAndEnableHook(
+                endSceneTarget_,
+                reinterpret_cast<void*>(&EndSceneDetour),
+                &originalEndScene_,
+                "IDirect3DDevice9::EndScene")) {
+            endSceneTarget_ = nullptr;
+            resetTarget_ = nullptr;
+            cleanupDummyDevice();
+            return false;
+        }
+        debuglog::WriteInfo("[ui][d3d] render hook selected=EndScene PresentHooked=0");
     }
 
     if (skipResetHook) {
@@ -1186,7 +1207,8 @@ bool ImGuiOverlay::InstallGraphicsHooks() {
 
     hooksInstalled_ = true;
     debuglog::WriteInfo(
-        "D3D9 hooks installed via MinHook. EndScene=%p Present=%p Reset=%p ResetHooked=%d",
+        "D3D9 hooks installed via MinHook. renderPath=%s EndScene=%p Present=%p Reset=%p ResetHooked=%d",
+        originalPresent_ ? "Present" : "EndScene",
         endSceneTarget_,
         presentTarget_,
         resetTarget_,
@@ -1290,6 +1312,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
         debuglog::WriteInfo("[ui] WndProc hook deferred until SA:MP init gate");
     }
     imguiInitialized_ = true;
+    renderDevice_ = device;
 
     debuglog::WriteInfo("ImGui initialized. Game window=%p", gameWindow_);
 }
@@ -1342,6 +1365,7 @@ void ImGuiOverlay::CleanupImGui() {
     ImGui::DestroyContext();
 
     imguiInitialized_ = false;
+    renderDevice_ = nullptr;
     gameWindow_ = nullptr;
     debuglog::WriteInfo("[ui] CleanupImGui done");
 }

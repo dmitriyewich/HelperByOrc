@@ -398,6 +398,9 @@
     <ClInclude Include="samp_api.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="samp_call_context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="samp_api\chat\samp_api_chat.inl">
       <Filter>Header Files\SampApi\Chat</Filter>
     </ClInclude>

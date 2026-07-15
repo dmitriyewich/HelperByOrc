@@ -13,6 +13,7 @@ HMODULE g_module = nullptr;
 Level g_level = Level::Info;
 std::mutex g_mutex;
 bool g_sessionInitialized = false;
+HANDLE g_file = INVALID_HANDLE_VALUE;
 
 bool ResolveLogPath(HMODULE module, char (&path)[MAX_PATH]) {
     if (!module || !GetModuleFileNameA(module, path, MAX_PATH)) {
@@ -61,18 +62,35 @@ void WriteInternal(Level level, bool force, const char* format, va_list args) {
         return;
     }
 
-    char path[MAX_PATH]{};
-    if (!ResolveLogPath(g_module, path)) {
-        return;
+    if (g_file == INVALID_HANDLE_VALUE) {
+        char path[MAX_PATH]{};
+        if (!ResolveLogPath(g_module, path)) {
+            return;
+        }
+        g_file = CreateFileA(
+            path,
+            FILE_APPEND_DATA,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr);
+        if (g_file == INVALID_HANDLE_VALUE) {
+            return;
+        }
     }
 
-    FILE* file = nullptr;
-    if (fopen_s(&file, path, "a") != 0 || !file) {
+    char line[sizeof(message) + 2]{};
+    const int lineLength = std::snprintf(line, sizeof(line), "%s\r\n", message);
+    if (lineLength <= 0) {
         return;
     }
-
-    std::fprintf(file, "%s\n", message);
-    std::fclose(file);
+    DWORD bytesWritten = 0;
+    if (!WriteFile(g_file, line, static_cast<DWORD>(lineLength), &bytesWritten, nullptr)
+        || bytesWritten != static_cast<DWORD>(lineLength)) {
+        CloseHandle(g_file);
+        g_file = INVALID_HANDLE_VALUE;
+    }
 }
 
 } // namespace
@@ -115,11 +133,16 @@ void Initialize(HMODULE module) {
         return;
     }
 
-    CloseHandle(file);
+    g_file = file;
 }
 
 void Shutdown() {
     std::lock_guard lock(g_mutex);
+    if (g_file != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(g_file);
+        CloseHandle(g_file);
+        g_file = INVALID_HANDLE_VALUE;
+    }
     g_module = nullptr;
 }
 

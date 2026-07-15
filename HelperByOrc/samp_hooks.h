@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "samp_call_context.h"
+
 class SampApi;
 class CPad;
 
@@ -19,9 +21,17 @@ public:
     };
 
     using ChatMessageHandler = std::function<void(int, const std::string&, const std::string&, std::uint32_t, std::uint32_t)>;
+    using ChatMessageTransform = std::function<bool(
+        ChatMessageSource,
+        int,
+        std::string&,
+        const std::string&,
+        std::uint32_t,
+        std::uint32_t,
+        const SampCallContext&)>;
     using ChatMessageFilter = std::function<bool(ChatMessageSource, int, const std::string&, const std::string&, std::uint32_t, std::uint32_t)>;
-    using SendCommandHandler = std::function<bool(std::string&)>;
-    using SendChatHandler = std::function<bool(std::string&)>;
+    using SendCommandHandler = std::function<bool(std::string&, const SampCallContext&)>;
+    using SendChatHandler = std::function<bool(std::string&, const SampCallContext&)>;
     using HotkeyBlockCallback = std::function<bool()>;
     enum MouseButtonMask : std::uint8_t {
         MouseButtonLeft = 1u << 0,
@@ -31,6 +41,7 @@ public:
     using MouseButtonBlockCallback = std::function<std::uint8_t()>;
 
     void SetSampApi(SampApi* sampApi);
+    void SetOwnerModule(HMODULE module);
     void SetHotkeyBlockCallback(HotkeyBlockCallback callback);
     void SetMouseButtonBlockCallback(MouseButtonBlockCallback callback);
     void Refresh();
@@ -42,6 +53,7 @@ public:
     static void PopOutgoingInputTransform();
     const std::string& statusText() const;
     std::vector<std::string> GetRecentLog() const;
+    void AddChatMessageTransform(ChatMessageTransform handler);
     void AddChatMessageFilter(ChatMessageFilter handler);
     void AddOnChatMessageHandler(ChatMessageHandler handler);
     void AddOnSendCommandHandler(SendCommandHandler handler);
@@ -88,10 +100,12 @@ private:
     static inline thread_local int cchatForwardDepth_ = 0;
 
     SampApi* sampApi_ = nullptr;
+    HMODULE ownerModule_ = nullptr;
     bool installed_ = false;
     std::string statusText_ = "waiting for samp.dll";
     mutable std::mutex logMutex_;
     std::vector<std::string> recentLog_;
+    std::vector<ChatMessageTransform> chatMessageTransforms_;
     std::vector<ChatMessageFilter> chatMessageFilters_;
     std::vector<ChatMessageHandler> onChatMessageHandlers_;
     std::vector<SendCommandHandler> onSendCommandHandlers_;

@@ -860,7 +860,7 @@
     X(SettingsSectionQuickMenu, "Быстрое меню", "Quick menu") \
     X(SettingsSectionNotifications, "Уведомления", "Notifications") \
     X(SettingsSectionDiagnostics, "Диагностика", "Diagnostics") \
-    X(SettingsGeneralIntro, "Язык и масштаб интерфейса.", "Language and interface scaling.") \
+    X(SettingsGeneralIntro, "Язык, масштаб интерфейса и внешние интеграции.", "Language, interface scaling, and external integrations.") \
     X(SettingsBinderIntro, "Общие параметры выполнения биндов.", "General bind runtime settings.") \
     X(SettingsBinderListStyle, "Стиль списка биндов", "Bind list style") \
     X(SettingsBinderListStyleExplorer, "Проводник", "Explorer") \
@@ -942,6 +942,9 @@
     X(SettingsUiFont, "Шрифт интерфейса", "Interface font") \
     X(SettingsFontFamily, "Семейство", "Family") \
     X(SettingsFontSize, "Размер", "Size") \
+    X(SettingsExternalScripts, "Внешние скрипты", "External scripts") \
+    X(SettingsExpandExternalTags, "Обрабатывать теги во внешних вызовах", "Process tags in external calls") \
+    X(SettingsExpandExternalTagsDesc, "Раскрывает теги HelperByOrc в sampSendChat и sampAddChatMessage, вызванных MoonLoader, SAMPFUNCS и другими ASI. Сообщения сервера и prefix не изменяются.", "Expands HelperByOrc tags in sampSendChat and sampAddChatMessage calls made by MoonLoader, SAMPFUNCS, and other ASI plugins. Server messages and prefixes remain unchanged.") \
     X(SettingsResetDefaults, "Сбросить интерфейс", "Reset interface") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsLogPath, "Файл журнала", "Log file") \

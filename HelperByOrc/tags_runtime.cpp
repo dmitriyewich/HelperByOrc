@@ -99,11 +99,12 @@ bool TagsModule::Impl::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) co
 }
 
 void TagsModule::Impl::Tick() {
+    const std::uint64_t now = GetTickCount64();
+    MaybeLogExternalTagPerf(now);
     UpdateTargetTracker();
     ProcessPendingDialogWaits();
     ProcessPendingArzDialogQueryWaits();
     if (!activeVirtualKeyHolds_.empty()) {
-        const std::uint64_t now = GetTickCount64();
         for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
             ActiveVirtualKeyHold& hold = *it;
             if (!hold.pressed && now >= hold.pressAtMs) {
