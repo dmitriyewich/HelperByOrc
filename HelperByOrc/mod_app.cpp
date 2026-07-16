@@ -3176,6 +3176,16 @@ void ModApp::DrawSettingsDiagnosticsSection() {
     const std::string sampVersion = sampApi_.sampModule() ? sampApi_.currentVersionName() : "-";
     const std::string chatAsiStatus =
         GetModuleHandleA("_chat.asi") ? ui.Text(UiText::SettingsChatAsiLoaded) : ui.Text(UiText::SettingsChatAsiNotLoaded);
+    const debuglog::FileStatus logStatus = debuglog::GetFileStatus();
+    const std::string logStateText = ui.Format(
+        UiText::SettingsLogStateFormat,
+        ui.Text(logStatus.handleOpen ? UiText::SettingsLogHandleOpen : UiText::SettingsLogHandleClosed),
+        ui.Text(logStatus.fileExists ? UiText::SettingsLogFileExists : UiText::SettingsLogFileMissing),
+        static_cast<unsigned long>(logStatus.lastError),
+        debuglog::FileOperationName(logStatus.lastFailure),
+        static_cast<unsigned long long>(logStatus.successfulWrites),
+        static_cast<unsigned long long>(logStatus.openAttempts),
+        static_cast<unsigned long long>(logStatus.recoveries));
 
     ImGui::Spacing();
     if (ImGui::BeginTable(
@@ -3191,6 +3201,8 @@ void ModApp::DrawSettingsDiagnosticsSection() {
         DrawPathDiagnosticRow(UiText::SettingsConfigPath, config.ConfigPath(), UiText::SettingsOpenConfigFile);
         ImGui::TableNextRow();
         DrawPathDiagnosticRow(UiText::SettingsLogPath, DebugLogPath(module_), UiText::SettingsOpenLogFile);
+        ImGui::TableNextRow();
+        DrawDiagnosticValue(ui.Text(UiText::SettingsLogState), logStateText);
         ImGui::TableNextRow();
         DrawPathDiagnosticRow(UiText::SettingsProfilesRegistryPath, config.ProfilesRegistryPath(), UiText::SettingsOpenRegistryFile);
 
@@ -3210,6 +3222,18 @@ void ModApp::DrawSettingsDiagnosticsSection() {
         DrawDiagnosticValue(ui.Text(UiText::SettingsRakHooksStatus), sampRakHooks_.statusText());
 
         ImGui::EndTable();
+    }
+
+    if ((!logStatus.handleOpen || !logStatus.fileExists)
+        && ImGui::Button(ui.Text(UiText::SettingsLogRetryOpen))) {
+        const bool opened = debuglog::RetryFileOpen();
+        const debuglog::FileStatus retryStatus = debuglog::GetFileStatus();
+        debuglog::WriteAlways(
+            opened ? debuglog::Level::Info : debuglog::Level::Error,
+            "[debuglog] manual reopen result=%d lastError=%lu lastOperation=%s",
+            opened ? 1 : 0,
+            static_cast<unsigned long>(retryStatus.lastError),
+            debuglog::FileOperationName(retryStatus.lastFailure));
     }
 }
 

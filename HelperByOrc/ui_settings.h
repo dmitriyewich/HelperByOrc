@@ -948,6 +948,13 @@
     X(SettingsResetDefaults, "Сбросить интерфейс", "Reset interface") \
     X(SettingsConfigPath, "Файл конфига", "Config file") \
     X(SettingsLogPath, "Файл журнала", "Log file") \
+    X(SettingsLogState, "Состояние журнала", "Log state") \
+    X(SettingsLogStateFormat, "handle: %s; файл: %s; последняя ошибка: %lu (%s); записи: %llu; открытия: %llu; восстановления: %llu", "handle: %s; file: %s; last error: %lu (%s); writes: %llu; opens: %llu; recoveries: %llu") \
+    X(SettingsLogHandleOpen, "открыт", "open") \
+    X(SettingsLogHandleClosed, "закрыт", "closed") \
+    X(SettingsLogFileExists, "существует", "exists") \
+    X(SettingsLogFileMissing, "отсутствует", "missing") \
+    X(SettingsLogRetryOpen, "Повторить открытие журнала", "Retry opening log") \
     X(SettingsLogLevel, "Уровень логирования", "Log level") \
     X(SettingsLogLevelOff, "Off", "Off") \
     X(SettingsLogLevelError, "Error", "Error") \

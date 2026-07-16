@@ -11,6 +11,8 @@ HANDLE g_shutdownEvent = nullptr;
 
 DWORD WINAPI ModBootstrapThreadProc(LPVOID) {
     OutputDebugStringA("[HelperByOrc] bootstrap thread started");
+    debuglog::Initialize(g_module);
+    debuglog::WriteAlways(debuglog::Level::Info, "[bootstrap] worker entry");
     const ULONGLONG attachStartedAt = GetTickCount64();
     const BOOL backgroundModeEnabled = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
     const DWORD backgroundModeError = backgroundModeEnabled ? ERROR_SUCCESS : GetLastError();
@@ -19,6 +21,11 @@ DWORD WINAPI ModBootstrapThreadProc(LPVOID) {
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
             reinterpret_cast<LPCWSTR>(&ModBootstrapThreadProc),
             &pinnedModule)) {
+        const DWORD pinError = GetLastError();
+        debuglog::WriteAlways(
+            debuglog::Level::Error,
+            "[bootstrap] process-lifetime module pin failed; bootstrap aborted win32=%lu",
+            static_cast<unsigned long>(pinError));
         OutputDebugStringA("[HelperByOrc] process-lifetime module pin failed; bootstrap aborted");
         return 0;
     }
