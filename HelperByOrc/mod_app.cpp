@@ -137,6 +137,12 @@ void MaxNotepadStats(NotepadModule::RenderStats& target, const NotepadModule::Re
     target.renderedBytes = std::max(target.renderedBytes, source.renderedBytes);
     target.previewCacheHits = std::max(target.previewCacheHits, source.previewCacheHits);
     target.previewCacheMisses = std::max(target.previewCacheMisses, source.previewCacheMisses);
+    target.previewLines = std::max(target.previewLines, source.previewLines);
+    target.previewDrawnLines = std::max(target.previewDrawnLines, source.previewDrawnLines);
+    target.previewSkippedLines = std::max(target.previewSkippedLines, source.previewSkippedLines);
+    target.previewCachedLines = std::max(target.previewCachedLines, source.previewCachedLines);
+    target.copyLinesTotal = std::max(target.copyLinesTotal, source.copyLinesTotal);
+    target.copyLinesVisible = std::max(target.copyLinesVisible, source.copyLinesVisible);
     target.totalMs = std::max(target.totalMs, source.totalMs);
     target.loadMs = std::max(target.loadMs, source.loadMs);
     target.shortcutsMs = std::max(target.shortcutsMs, source.shortcutsMs);
@@ -213,7 +219,7 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
         if (now - s_lastSlowTraceMs >= kUiModuleSlowTraceIntervalMs) {
             s_lastSlowTraceMs = now;
             debuglog::WriteInfo(
-                "[ui][perf][modules] slow total=%.2fms surface=%s menu=%d tab=%d hud=%.2fms shell=%.2fms tabMs=%.2fms binder=%.2fms notifications=%.2fms config=%.2fms hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heTotal=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npTotal=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+                "[ui][perf][modules] slow total=%.2fms surface=%s menu=%d tab=%d hud=%.2fms shell=%.2fms tabMs=%.2fms binder=%.2fms notifications=%.2fms config=%.2fms hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heTotal=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npTotal=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npLines=%d npDrawn=%d npSkip=%d npCached=%d npCopyLines=%d npCopyVisible=%d npEditing=%d",
                 perf.totalMs,
                 FrameSurfaceName(perf.surface),
                 perf.menuOpen ? 1 : 0,
@@ -263,6 +269,12 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
                 perf.notepadStats.renderedBytes,
                 perf.notepadStats.previewCacheHits,
                 perf.notepadStats.previewCacheMisses,
+                perf.notepadStats.previewLines,
+                perf.notepadStats.previewDrawnLines,
+                perf.notepadStats.previewSkippedLines,
+                perf.notepadStats.previewCachedLines,
+                perf.notepadStats.copyLinesTotal,
+                perf.notepadStats.copyLinesVisible,
                 perf.notepadStats.editing ? 1 : 0);
         }
     }
@@ -307,7 +319,7 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
     }
 
     debuglog::WriteInfo(
-        "[ui][perf][modules] 5s frames=%u menu=%u slow=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avg=%.2fms max=%.2fms maxHud=%.2fms maxShell=%.2fms maxTab=%.2fms maxBinder=%.2fms maxNotifications=%.2fms maxConfig=%.2fms maxTabId=%d hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heMax=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npMax=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npEditing=%d",
+        "[ui][perf][modules] 5s frames=%u menu=%u slow=%u surfaceHud=%u surfaceQuick=%u surfaceMenu=%u surfaceMixed=%u surfaceAux=%u avg=%.2fms max=%.2fms maxHud=%.2fms maxShell=%.2fms maxTab=%.2fms maxBinder=%.2fms maxNotifications=%.2fms maxConfig=%.2fms maxTabId=%d hudWidgets=%d hudEnabled=%d hudVisible=%d hudRefresh0=%d hudElements=%d hudVisibleElements=%d hudRefreshed=%d hudExpanded=%d hudStaticSkip=%d heMax=%.2fms heToolbar=%.2fms heWorkspace=%.2fms heList=%.2fms heLayers=%.2fms heCanvas=%.2fms heInspector=%.2fms heBottom=%.2fms heValidate=%.2fms heSave=%.2fms heGuide=%.2fms heVars=%.2fms heWidgets=%d heElements=%d heSelected=%d npMax=%.2fms npLoad=%.2fms npShort=%.2fms npLeft=%.2fms npRight=%.2fms npRead=%.2fms npEdit=%.2fms npCopy=%.2fms npTags=%.2fms npDraw=%.2fms npModals=%.2fms npNotes=%d npBytes=%zu npHit=%d npMiss=%d npLines=%d npDrawn=%d npSkip=%d npCached=%d npCopyLines=%d npCopyVisible=%d npEditing=%d",
         s_frames,
         s_menuFrames,
         s_slowFrames,
@@ -364,6 +376,12 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
         s_maxNotepadStats.renderedBytes,
         s_maxNotepadStats.previewCacheHits,
         s_maxNotepadStats.previewCacheMisses,
+        s_maxNotepadStats.previewLines,
+        s_maxNotepadStats.previewDrawnLines,
+        s_maxNotepadStats.previewSkippedLines,
+        s_maxNotepadStats.previewCachedLines,
+        s_maxNotepadStats.copyLinesTotal,
+        s_maxNotepadStats.copyLinesVisible,
         s_maxNotepadStats.editing ? 1 : 0);
 
     s_windowStartMs = now;

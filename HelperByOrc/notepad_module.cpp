@@ -19,6 +19,7 @@
 #include <cctype>
 #include <chrono>
 #include <charconv>
+#include <cfloat>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -154,6 +155,12 @@ struct RenderedEditCache {
     bool valid = false;
 };
 
+struct CopyLinesCache {
+    std::string source{};
+    std::vector<std::string> lines{};
+    bool valid = false;
+};
+
 struct ImGuiStringUserData {
     std::string* value = nullptr;
     int* cursor = nullptr;
@@ -188,6 +195,167 @@ double NotepadPerfNowMs() {
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
     return static_cast<double>(counter.QuadPart) * s_invFrequencyMs;
+}
+
+std::string EllipsizeSingleLine(std::string text, ImFont* font, float fontSize, float maxWidth) {
+    if (text.empty() || maxWidth <= 0.0f || !font) {
+        return maxWidth > 0.0f ? text : std::string();
+    }
+
+    const auto textWidth = [font, fontSize](std::string_view value) {
+        return font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, value.data(), value.data() + value.size()).x;
+    };
+    if (textWidth(text) <= maxWidth) {
+        return text;
+    }
+
+    constexpr std::string_view kEllipsis = "...";
+    if (textWidth(kEllipsis) >= maxWidth) {
+        return std::string(kEllipsis);
+    }
+
+    std::vector<std::size_t> boundaries;
+    boundaries.reserve(text.size() + 1);
+    boundaries.push_back(0);
+    for (std::size_t pos = 0; pos < text.size();) {
+        ++pos;
+        while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0u) == 0x80u) {
+            ++pos;
+        }
+        boundaries.push_back(pos);
+    }
+
+    const float prefixWidthLimit = maxWidth - textWidth(kEllipsis);
+    std::size_t low = 0;
+    std::size_t high = boundaries.size() - 1;
+    while (low < high) {
+        const std::size_t middle = low + (high - low + 1) / 2;
+        const std::string_view prefix(text.data(), boundaries[middle]);
+        if (textWidth(prefix) <= prefixWidthLimit) {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+
+    text.resize(boundaries[low]);
+    text += kEllipsis;
+    return text;
+}
+
+float ButtonItemWidth(std::string_view label) {
+    return ImGui::CalcTextSize(label.data(), label.data() + label.size()).x
+        + ImGui::GetStyle().FramePadding.x * 2.0f;
+}
+
+float CheckboxItemWidth(std::string_view label) {
+    return ImGui::GetFrameHeight()
+        + ImGui::GetStyle().ItemInnerSpacing.x
+        + ImGui::CalcTextSize(label.data(), label.data() + label.size()).x;
+}
+
+bool ContinueToolbar(float nextItemWidth) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float nextX = ImGui::GetItemRectMax().x + style.ItemSpacing.x;
+    const float contentMaxX = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    if (nextX + nextItemWidth > contentMaxX) {
+        return false;
+    }
+    ImGui::SameLine();
+    return true;
+}
+
+void DrawTextTooltip(std::string_view text) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ScaleUi(520.0f));
+    ImGui::TextUnformatted(text.data(), text.data() + text.size());
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+std::string EscapeImGuiId(std::string_view id) {
+    std::string escaped;
+    escaped.reserve(id.size());
+    for (const char ch : id) {
+        if (ch == '%') {
+            escaped += "%25";
+        } else if (ch == '#') {
+            escaped += "%23";
+        } else {
+            escaped.push_back(ch);
+        }
+    }
+    return escaped;
+}
+
+bool DrawEllipsizedText(
+    std::string_view text,
+    float maxWidth,
+    const ImVec4* color = nullptr,
+    std::string_view tooltip = {}) {
+    const std::string visible = EllipsizeSingleLine(
+        std::string(text),
+        ImGui::GetFont(),
+        ImGui::GetFontSize(),
+        std::max(0.0f, maxWidth));
+    const bool clipped = visible != text;
+    if (color) {
+        ImGui::PushStyleColor(ImGuiCol_Text, *color);
+    }
+    ImGui::TextUnformatted(visible.data(), visible.data() + visible.size());
+    if (color) {
+        ImGui::PopStyleColor();
+    }
+    if (clipped && ImGui::IsItemHovered()) {
+        DrawTextTooltip(tooltip.empty() ? text : tooltip);
+    }
+    return clipped;
+}
+
+struct SelectableTextResult {
+    bool pressed = false;
+    bool hovered = false;
+    bool clipped = false;
+    ImVec2 rowMin{};
+    ImVec2 rowMax{};
+};
+
+SelectableTextResult DrawSelectableText(
+    std::string_view id,
+    std::string_view text,
+    bool selected,
+    ImGuiSelectableFlags flags,
+    const ImVec2& size,
+    float trailingWidth = 0.0f) {
+    SelectableTextResult result;
+    const std::string stableId = EscapeImGuiId(id);
+    ImGui::PushID(stableId.c_str());
+    result.pressed = ImGui::Selectable("##item", selected, flags, size);
+    result.hovered = ImGui::IsItemHovered();
+    result.rowMin = ImGui::GetItemRectMin();
+    result.rowMax = ImGui::GetItemRectMax();
+    ImGui::PopID();
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float textWidth = std::max(
+        0.0f,
+        result.rowMax.x - result.rowMin.x - style.FramePadding.x * 2.0f - trailingWidth);
+    const std::string visible = EllipsizeSingleLine(
+        std::string(text),
+        ImGui::GetFont(),
+        ImGui::GetFontSize(),
+        textWidth);
+    result.clipped = visible != text;
+
+    const ImVec2 textSize = ImGui::CalcTextSize(visible.data(), visible.data() + visible.size());
+    const ImVec2 textPos(
+        result.rowMin.x + style.FramePadding.x,
+        result.rowMin.y + std::max(0.0f, (result.rowMax.y - result.rowMin.y - textSize.y) * 0.5f));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->PushClipRect(result.rowMin, result.rowMax, true);
+    drawList->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), visible.data(), visible.data() + visible.size());
+    drawList->PopClipRect();
+    return result;
 }
 
 std::string TrimAscii(std::string_view value) {
@@ -730,6 +898,7 @@ struct NotepadModule::Impl {
     icon_picker::State iconPickerState{};
     RenderedNoteCache renderedNoteCache{};
     RenderedEditCache renderedEditCache{};
+    CopyLinesCache copyLinesCache{};
     RenderStats lastRenderStats{};
     std::uint64_t idCounter = 0;
     notepadtxt::SyncService txtSync{};
@@ -762,6 +931,7 @@ struct NotepadModule::Impl {
         iconPickerState = {};
         renderedNoteCache = {};
         renderedEditCache = {};
+        copyLinesCache = {};
         lastRenderStats = {};
     }
 
@@ -785,6 +955,7 @@ struct NotepadModule::Impl {
         iconPickerState = {};
         renderedNoteCache = {};
         renderedEditCache = {};
+        copyLinesCache = {};
         lastRenderStats = {};
     }
 
@@ -2497,14 +2668,17 @@ struct NotepadModule::Impl {
         UiSettings& ui = UiSettings::Instance();
         ImGui::SeparatorText(ui.Text(UiText::TabNotepad));
         if (!statusMessage.empty()) {
-            ImGui::TextDisabled("%s", statusMessage.c_str());
+            const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+            DrawEllipsizedText(statusMessage, ImGui::GetContentRegionAvail().x, &disabledColor);
         }
         ImGui::Spacing();
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         const bool narrow = avail.x < ScaleUi(900.0f);
         if (narrow) {
-            const float navHeight = std::clamp(avail.y * 0.34f, ScaleUi(210.0f), ScaleUi(300.0f));
+            const float preferredNavHeight = std::clamp(avail.y * 0.34f, ScaleUi(120.0f), ScaleUi(300.0f));
+            const float maxNavHeight = std::max(ScaleUi(90.0f), avail.y - ScaleUi(190.0f));
+            const float navHeight = std::min(preferredNavHeight, maxNavHeight);
             if (ImGui::BeginChild("notepad_left_top", ImVec2(0.0f, navHeight), ImGuiChildFlags_None)) {
                 stageBeginMs = NotepadPerfNowMs();
                 DrawLeftPanel();
@@ -2611,8 +2785,22 @@ struct NotepadModule::Impl {
         ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImVec4(1.0f, 0.82f, 0.18f, 1.0f)), ui_icons::Star);
     }
 
-    void DrawNoteSelectableRow(const NoteEntry& note, const std::string& label, bool selected) {
-        if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_None, ImVec2(0.0f, ScaleUi(24.0f)))) {
+    void DrawNoteSelectableRow(
+        const NoteEntry& note,
+        std::string_view id,
+        std::string_view label,
+        bool selected) {
+        const float trailingWidth = note.favorite
+            ? ImGui::CalcTextSize(ui_icons::Star).x + ScaleUi(12.0f)
+            : 0.0f;
+        const SelectableTextResult item = DrawSelectableText(
+            id,
+            label,
+            selected,
+            ImGuiSelectableFlags_None,
+            ImVec2(0.0f, ScaleUi(24.0f)),
+            trailingWidth);
+        if (item.pressed) {
             SelectNote(note.id);
             if (!search.empty()) {
                 search.clear();
@@ -2620,6 +2808,9 @@ struct NotepadModule::Impl {
         }
         DrawFavoriteMarker(note);
         DrawNoteContextMenu(note);
+        if (item.hovered && item.clipped && !ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            DrawTextTooltip(label);
+        }
     }
 
     void DrawLeftPanel() {
@@ -2660,9 +2851,7 @@ struct NotepadModule::Impl {
 
         if (ImGui::BeginChild("notepad_nav_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
             if (search.empty()) {
-                const bool hasFavorites = !FavoriteNotes().empty();
-                DrawFavorites();
-                if (hasFavorites) {
+                if (DrawFavorites()) {
                     ImGui::Separator();
                 }
                 DrawCurrentFolderRows();
@@ -2691,19 +2880,21 @@ struct NotepadModule::Impl {
         }
         ImGui::SameLine();
         const std::string label = CompactBreadcrumbLabel();
-        ImGui::TextUnformatted(label.c_str());
-        if (ImGui::IsItemHovered() && !currentFolder.empty()) {
-            const std::string full = std::string(ui.Text(UiText::NotepadRootName)) + " / " + currentFolder;
+        const std::string full = currentFolder.empty()
+            ? label
+            : std::string(ui.Text(UiText::NotepadRootName)) + " / " + currentFolder;
+        const bool clipped = DrawEllipsizedText(label, ImGui::GetContentRegionAvail().x, nullptr, full);
+        if (!clipped && ImGui::IsItemHovered() && !currentFolder.empty() && label != full) {
             ImGui::SetTooltip("%s", full.c_str());
         }
         ImGui::Spacing();
     }
 
-    void DrawFavorites() {
+    bool DrawFavorites() {
         UiSettings& ui = UiSettings::Instance();
         const auto favorites = FavoriteNotes();
         if (favorites.empty()) {
-            return;
+            return false;
         }
         const bool selectedFavoriteVisible = std::any_of(favorites.begin(), favorites.end(), [&](const NoteEntry* note) {
             return note && note->id == selectedNoteId;
@@ -2713,16 +2904,17 @@ struct NotepadModule::Impl {
         const std::string header = std::string(ui_icons::Star) + " " + ui.Text(UiText::NotepadFavorites)
             + " (" + std::to_string(favorites.size()) + ")";
         if (!ImGui::TreeNodeEx("##notepad_favorites", flags, "%s", header.c_str())) {
-            return;
+            return true;
         }
         for (const NoteEntry* note : favorites) {
             if (!note) {
                 continue;
             }
-            const std::string label = std::string(ui_icons::Book) + " " + note->title + "##fav_" + note->id;
-            DrawNoteSelectableRow(*note, label, selectedNoteId == note->id);
+            const std::string label = std::string(ui_icons::Book) + " " + note->title;
+            DrawNoteSelectableRow(*note, "fav_" + note->id, label, selectedNoteId == note->id);
         }
         ImGui::TreePop();
+        return true;
     }
 
     void DrawCurrentFolderRows() {
@@ -2741,10 +2933,19 @@ struct NotepadModule::Impl {
         const bool isFolder = row.type == ItemType::Folder;
         const bool selected = isFolder ? selectedFolderPath == row.value : selectedNoteId == row.value;
         const std::string icon = isFolder ? ui_icons::Folder : ui_icons::Book;
-        std::string label = icon + " " + row.label;
-        label += "##notepad_row_" + row.value;
-
-        if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, ScaleUi(24.0f)))) {
+        const std::string label = icon + " " + row.label;
+        const NoteEntry* note = isFolder ? nullptr : FindNote(row.value);
+        const float trailingWidth = note && note->favorite
+            ? ImGui::CalcTextSize(ui_icons::Star).x + ScaleUi(12.0f)
+            : 0.0f;
+        const SelectableTextResult item = DrawSelectableText(
+            "notepad_row_" + row.value,
+            label,
+            selected,
+            ImGuiSelectableFlags_AllowDoubleClick,
+            ImVec2(0.0f, ScaleUi(24.0f)),
+            trailingWidth);
+        if (item.pressed) {
             if (isFolder) {
                 SelectFolder(row.value);
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -2754,22 +2955,22 @@ struct NotepadModule::Impl {
                 SelectNote(row.value);
             }
         }
-        const ImVec2 rowMin = ImGui::GetItemRectMin();
-        const ImVec2 rowMax = ImGui::GetItemRectMax();
-        if (!isFolder) {
-            if (const NoteEntry* note = FindNote(row.value)) {
-                DrawFavoriteMarker(*note);
-            }
+        if (note) {
+            DrawFavoriteMarker(*note);
         }
         DrawDragSource({ row.type, row.value }, row.label);
-        DrawRowDropTarget({ row.type, row.value }, rowMin, rowMax);
+        DrawRowDropTarget({ row.type, row.value }, item.rowMin, item.rowMax);
         if (isFolder) {
-            if (ImGui::BeginPopupContextItem(("notepad_folder_popup_" + row.value).c_str())) {
+            const std::string popupId = "notepad_folder_popup_" + EscapeImGuiId(row.value);
+            if (ImGui::BeginPopupContextItem(popupId.c_str())) {
                 DrawFolderContextActions(row.value);
                 ImGui::EndPopup();
             }
-        } else if (const NoteEntry* note = FindNote(row.value)) {
+        } else if (note) {
             DrawNoteContextMenu(*note);
+        }
+        if (item.hovered && item.clipped && !ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            DrawTextTooltip(label);
         }
     }
 
@@ -2843,21 +3044,37 @@ struct NotepadModule::Impl {
             if (!note->folderPath.empty()) {
                 label += "  [" + note->folderPath + "]";
             }
-            label += "##notepad_search_" + note->id;
-            DrawNoteSelectableRow(*note, label, selectedNoteId == note->id);
+            DrawNoteSelectableRow(*note, "notepad_search_" + note->id, label, selectedNoteId == note->id);
         }
     }
 
+    bool IsNoteEditDisabled(const NoteEntry& note) const {
+        const bool sourceUnavailable = note.txtSource
+            && !note.txtSource->missing
+            && note.txtSource->status != notepadtxt::FileStatus::Ready;
+        return TxtOperationPending()
+            || sourceUnavailable
+            || (note.txtSource && note.txtSource->conflict);
+    }
+
+    void BeginEditingNote(const NoteEntry& note) {
+        if (selectedNoteId != note.id) {
+            SelectNote(note.id);
+        }
+        editing = true;
+        editBuffer = note.text;
+        editDirty = false;
+        editCursor = static_cast<int>(editBuffer.size());
+    }
+
     void DrawNoteContextMenu(const NoteEntry& note) {
-        if (!ImGui::BeginPopupContextItem(("notepad_note_popup_" + note.id).c_str())) {
+        const std::string popupId = "notepad_note_popup_" + EscapeImGuiId(note.id);
+        if (!ImGui::BeginPopupContextItem(popupId.c_str())) {
             return;
         }
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::MenuItem(ui.Text(UiText::Edit))) {
-            SelectNote(note.id);
-            editing = true;
-            editBuffer = note.text;
-            editDirty = false;
+        if (ImGui::MenuItem(ui.Text(UiText::Edit), nullptr, false, !IsNoteEditDisabled(note))) {
+            BeginEditingNote(note);
         }
         if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
             OpenRenameNoteModal(note.id);
@@ -2902,38 +3119,39 @@ struct NotepadModule::Impl {
             return;
         }
 
-        ImGui::TextUnformatted(note->title.c_str());
-        ImGui::SameLine();
+        const float favoriteMarkerWidth = note->favorite
+            ? ImGui::CalcTextSize(ui_icons::Star).x + ImGui::GetStyle().ItemSpacing.x
+            : 0.0f;
+        DrawEllipsizedText(
+            note->title,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x - favoriteMarkerWidth));
         if (note->favorite) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", ui_icons::Star);
             ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", ui_icons::Star);
         }
-        if (ImGui::Button((std::string(ui_icons::Star) + " " + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))).c_str())) {
+
+        const std::string favoriteLabel = std::string(ui_icons::Star) + " "
+            + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite));
+        const std::string editLabel = std::string(ui_icons::Edit) + " " + ui.Text(UiText::Edit);
+        const std::string exportLabel = std::string(ui_icons::FileExport) + " " + ui.Text(UiText::NotepadExportTxt);
+        const std::string applyTagsLabel = ui.Text(UiText::NotepadApplyTags);
+        if (ImGui::Button(favoriteLabel.c_str())) {
             note->favorite = !note->favorite;
             note->updatedAt = UnixTimeNow();
             QueueSave();
         }
-        ImGui::SameLine();
-        const bool sourceUnavailable = note->txtSource
-            && !note->txtSource->missing
-            && note->txtSource->status != notepadtxt::FileStatus::Ready;
-        const bool editDisabled = TxtOperationPending()
-            || sourceUnavailable
-            || (note->txtSource && note->txtSource->conflict);
-        ImGui::BeginDisabled(editDisabled);
-        if (ImGui::Button((std::string(ui_icons::Edit) + " " + ui.Text(UiText::Edit)).c_str())) {
-            editing = true;
-            editBuffer = note->text;
-            editDirty = false;
-            editCursor = static_cast<int>(editBuffer.size());
+        ContinueToolbar(ButtonItemWidth(editLabel));
+        ImGui::BeginDisabled(IsNoteEditDisabled(*note));
+        if (ImGui::Button(editLabel.c_str())) {
+            BeginEditingNote(*note);
         }
         ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::FileExport) + " " + ui.Text(UiText::NotepadExportTxt)).c_str())) {
+        ContinueToolbar(ButtonItemWidth(exportLabel));
+        if (ImGui::Button(exportLabel.c_str())) {
             ExportNote(*note);
         }
-        ImGui::SameLine();
-        ImGui::Checkbox(ui.Text(UiText::NotepadApplyTags), &applyTags);
+        ContinueToolbar(CheckboxItemWidth(applyTagsLabel));
+        ImGui::Checkbox(applyTagsLabel.c_str(), &applyTags);
 
         if (note->txtSource) {
             TxtSourceState& source = *note->txtSource;
@@ -2941,7 +3159,9 @@ struct NotepadModule::Impl {
                 + ", " + notepadtxt::NewlineStyleName(source.format.newline)
                 + (source.format.bom ? ", BOM, " : ", ")
                 + source.relativePath;
-            ImGui::TextDisabled("%s", ui.Format(UiText::NotepadTxtSourceFormat, sourceDescription.c_str()).c_str());
+            const std::string sourceText = ui.Format(UiText::NotepadTxtSourceFormat, sourceDescription.c_str());
+            const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+            DrawEllipsizedText(sourceText, ImGui::GetContentRegionAvail().x, &disabledColor);
             if (source.operationPending) {
                 ImGui::TextColored(ImVec4(0.90f, 0.75f, 0.25f, 1.0f), "%s", ui.Text(UiText::NotepadTxtOperationPending));
             } else if (source.missing) {
@@ -2982,7 +3202,7 @@ struct NotepadModule::Impl {
                     txtSync.RequestFullScan();
                     statusMessage.clear();
                 }
-                ImGui::SameLine();
+                ContinueToolbar(ButtonItemWidth(ui.Text(UiText::NotepadTxtOverwriteFile)));
                 if (ImGui::Button(ui.Text(UiText::NotepadTxtOverwriteFile))) {
                     const TxtSourceState previousSource = source;
                     if (!source.pendingExternalMissing) {
@@ -3018,18 +3238,23 @@ struct NotepadModule::Impl {
 
     void DrawReadOnlyNote(const NoteEntry& note, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::Button((std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRaw)).c_str())) {
+        const std::string copyRawLabel = std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRaw);
+        const std::string copyRenderedLabel = std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRendered);
+        const std::string modeLabel = copyLineMode
+            ? ui.Text(UiText::NotepadPreviewMode)
+            : ui.Text(UiText::NotepadCopyLine);
+        if (ImGui::Button(copyRawLabel.c_str())) {
             ImGui::SetClipboardText(note.text.c_str());
             statusMessage = ui.Text(UiText::ToastClipboardCopied);
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::Copy) + " " + ui.Text(UiText::NotepadCopyRendered)).c_str())) {
+        ContinueToolbar(ButtonItemWidth(copyRenderedLabel));
+        if (ImGui::Button(copyRenderedLabel.c_str())) {
             const std::string rendered = RenderedText(note);
             ImGui::SetClipboardText(MarkupRenderer::StripMarkup(rendered).c_str());
             statusMessage = ui.Text(UiText::ToastClipboardCopied);
         }
-        ImGui::SameLine();
-        if (ImGui::Button(copyLineMode ? ui.Text(UiText::NotepadPreviewMode) : ui.Text(UiText::NotepadCopyLine))) {
+        ContinueToolbar(ButtonItemWidth(modeLabel));
+        if (ImGui::Button(modeLabel.c_str())) {
             copyLineMode = !copyLineMode;
         }
         ImGui::Spacing();
@@ -3047,54 +3272,90 @@ struct NotepadModule::Impl {
 
     void DrawCopyLines(const std::string& text) {
         const double beginMs = NotepadPerfNowMs();
-        std::stringstream stream{ text };
-        std::string line;
-        int index = 0;
-        while (std::getline(stream, line)) {
-            std::string plain = MarkupRenderer::StripMarkupLine(line);
-            if (plain.empty()) {
-                plain = " ";
+        if (!copyLinesCache.valid || copyLinesCache.source != text) {
+            copyLinesCache.source = text;
+            copyLinesCache.lines.clear();
+            std::stringstream stream{ text };
+            std::string line;
+            while (std::getline(stream, line)) {
+                std::string plain = MarkupRenderer::StripMarkupLine(line);
+                if (plain.empty()) {
+                    plain = " ";
+                }
+                copyLinesCache.lines.push_back(std::move(plain));
             }
-            ImGui::PushID(index++);
-            if (ImGui::Selectable(plain.c_str(), false)) {
-                ImGui::SetClipboardText(plain == " " ? "" : plain.c_str());
-                statusMessage = UiSettings::Instance().Text(UiText::ToastClipboardCopied);
+            copyLinesCache.valid = true;
+        }
+
+        lastRenderStats.copyLinesTotal = static_cast<int>(copyLinesCache.lines.size());
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(copyLinesCache.lines.size()));
+        while (clipper.Step()) {
+            for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
+                const std::string& plain = copyLinesCache.lines[static_cast<std::size_t>(index)];
+                const SelectableTextResult item = DrawSelectableText(
+                    "copy_line_" + std::to_string(index),
+                    plain,
+                    false,
+                    ImGuiSelectableFlags_None,
+                    ImVec2(0.0f, 0.0f));
+                ++lastRenderStats.copyLinesVisible;
+                if (item.pressed) {
+                    ImGui::SetClipboardText(plain == " " ? "" : plain.c_str());
+                    statusMessage = UiSettings::Instance().Text(UiText::ToastClipboardCopied);
+                }
+                if (item.hovered && item.clipped) {
+                    DrawTextTooltip(plain);
+                }
             }
-            ImGui::PopID();
         }
         lastRenderStats.copyLinesMs += NotepadPerfNowMs() - beginMs;
     }
 
     void DrawEditor(NoteEntry& note, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
-        const bool savePressed = ImGui::Button((std::string(ui_icons::SaveDisk) + " " + ui.Text(UiText::Save)).c_str());
+        const std::string saveLabel = std::string(ui_icons::SaveDisk) + " " + ui.Text(UiText::Save);
+        const std::string cancelLabel = ui.Text(UiText::Cancel);
+        const std::string imageLabel = std::string(ui_icons::Image) + " " + ui.Text(UiText::NotepadInsertImage);
+        const std::string iconLabel = std::string(ui_icons::Star) + " " + ui.Text(UiText::HudMarkupIcon);
+        const std::string helpLabel = ui.Text(UiText::NotepadMarkupHelp);
+        const bool savePressed = ImGui::Button(saveLabel.c_str());
         if (savePressed) {
             editDirty = true;
             SaveEditBufferIfNeeded();
             editing = false;
         }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::Cancel))) {
+        ContinueToolbar(ButtonItemWidth(cancelLabel));
+        if (ImGui::Button(cancelLabel.c_str())) {
             editing = false;
             editDirty = false;
             editBuffer = note.text;
         }
-        ImGui::SameLine();
-        if (ImGui::Button((std::string(ui_icons::Image) + " " + ui.Text(UiText::NotepadInsertImage)).c_str())) {
+        ContinueToolbar(ButtonItemWidth(imageLabel));
+        if (ImGui::Button(imageLabel.c_str())) {
             InsertImageFromDialog();
         }
-        ImGui::SameLine();
+        ContinueToolbar(ButtonItemWidth(iconLabel));
         const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##notepad_icon_picker";
-        if (ImGui::Button((std::string(ui_icons::Star) + " " + ui.Text(UiText::HudMarkupIcon)).c_str())) {
+        if (ImGui::Button(iconLabel.c_str())) {
             icon_picker::OpenPopup(iconPickerPopup.c_str());
         }
-        std::string selectedIconId;
-        if (icon_picker::DrawPopup(iconPickerState, icon_picker::Options{ iconPickerPopup.c_str(), ImVec2(560.0f, 460.0f) }, selectedIconId)) {
-            InsertTextAtCursor(icon_picker::MarkupToken(selectedIconId) + " ");
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::NotepadMarkupHelp))) {
+        ContinueToolbar(ButtonItemWidth(helpLabel));
+        if (ImGui::Button(helpLabel.c_str())) {
             ImGui::OpenPopup("notepad_markup_help");
+        }
+
+        std::string selectedIconId;
+        const float uiScale = std::max(0.01f, ScaleUi(1.0f));
+        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+        const ImVec2 iconPickerSize(
+            std::min(560.0f, std::max(280.0f, (displaySize.x - ScaleUi(80.0f)) / uiScale)),
+            std::min(460.0f, std::max(180.0f, (displaySize.y - ScaleUi(150.0f)) / uiScale)));
+        if (icon_picker::DrawPopup(
+                iconPickerState,
+                icon_picker::Options{ iconPickerPopup.c_str(), iconPickerSize },
+                selectedIconId)) {
+            InsertTextAtCursor(icon_picker::MarkupToken(selectedIconId) + " ");
         }
         DrawMarkupHelpPopup();
 
@@ -3102,7 +3363,15 @@ struct NotepadModule::Impl {
         const bool vertical = avail.x < ScaleUi(760.0f);
         if (vertical) {
             ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEditor));
-            if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, std::max(ScaleUi(220.0f), avail.y * 0.48f)), 0, &editCursor)) {
+            const float fixedRowsHeight = ImGui::GetTextLineHeightWithSpacing() * 2.0f
+                + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+            const float maxEditorHeight = std::max(
+                ScaleUi(80.0f),
+                avail.y - ScaleUi(120.0f) - fixedRowsHeight);
+            const float editorHeight = std::max(
+                ScaleUi(80.0f),
+                std::min(std::max(ScaleUi(140.0f), avail.y * 0.48f), maxEditorHeight));
+            if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, editorHeight), 0, &editCursor)) {
                 editDirty = true;
             }
             ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
@@ -3148,13 +3417,21 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted("#img(example.png, size(320,180))");
         ImGui::TextUnformatted("#bullet text");
         ImGui::TextUnformatted("#hr");
-        ImGui::TextDisabled("%s", ui.Text(UiText::NotepadMarkupHelpHint));
+        const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        ImGui::PushStyleColor(ImGuiCol_Text, disabledColor);
+        ImGui::TextWrapped("%s", ui.Text(UiText::NotepadMarkupHelpHint));
+        ImGui::PopStyleColor();
         ImGui::EndPopup();
     }
 
     void DrawPreviewText(const std::string& text, IDirect3DDevice9* device) {
         const double beginMs = NotepadPerfNowMs();
         renderer.DrawText(text, device, ImagesDirectory());
+        const MarkupRenderer::DrawStats stats = renderer.LastDrawStats();
+        lastRenderStats.previewLines += stats.totalLines;
+        lastRenderStats.previewDrawnLines += stats.drawnLines;
+        lastRenderStats.previewSkippedLines += stats.skippedLines;
+        lastRenderStats.previewCachedLines += stats.cachedLines;
         lastRenderStats.drawPreviewMs += NotepadPerfNowMs() - beginMs;
     }
 
@@ -3212,7 +3489,11 @@ struct NotepadModule::Impl {
             title = ui.Text(UiText::NotepadCreateNoteTitle);
         }
 
-        ImGui::SetNextWindowSize(ScaleUi(420.0f, 0.0f), ImGuiCond_Appearing);
+        const float modalWidth = std::max(
+            1.0f,
+            std::min(ScaleUi(420.0f), ImGui::GetIO().DisplaySize.x - ScaleUi(32.0f)));
+        ImGui::SetNextWindowSize(ImVec2(modalWidth, 0.0f), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(1.0f, 0.0f), ImVec2(modalWidth, FLT_MAX));
         const std::string modalTitle = std::string(title) + kModalPopupId;
         if (modalOpenRequested) {
             ImGui::OpenPopup(modalTitle.c_str());
@@ -3242,7 +3523,7 @@ struct NotepadModule::Impl {
                 ImGui::TextWrapped("%s", question.c_str());
             }
         } else {
-            ImGui::SetNextItemWidth(ScaleUi(360.0f));
+            ImGui::SetNextItemWidth(-1.0f);
             const char* hint = pendingModal == PendingModal::CreateNote || pendingModal == PendingModal::RenameNote
                 ? ui.Text(UiText::NotepadNoteTitle)
                 : ui.Text(UiText::NotepadFolderName);
@@ -3270,7 +3551,7 @@ struct NotepadModule::Impl {
             pendingModal = PendingModal::None;
             modalOpenRequested = false;
         }
-        ImGui::SameLine();
+        ContinueToolbar(ButtonItemWidth(ui.Text(UiText::Cancel)));
         if (ImGui::Button(ui.Text(UiText::Cancel))) {
             pendingModal = PendingModal::None;
             modalOpenRequested = false;

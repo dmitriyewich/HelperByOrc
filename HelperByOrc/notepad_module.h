@@ -37,6 +37,12 @@ public:
         std::size_t renderedBytes = 0;
         int previewCacheHits = 0;
         int previewCacheMisses = 0;
+        int previewLines = 0;
+        int previewDrawnLines = 0;
+        int previewSkippedLines = 0;
+        int previewCachedLines = 0;
+        int copyLinesTotal = 0;
+        int copyLinesVisible = 0;
         double totalMs = 0.0;
         double loadMs = 0.0;
         double shortcutsMs = 0.0;

@@ -15,6 +15,13 @@ public:
         float fontDirectiveScale = 1.0f;
     };
 
+    struct DrawStats {
+        int totalLines = 0;
+        int drawnLines = 0;
+        int skippedLines = 0;
+        int cachedLines = 0;
+    };
+
     struct ImageTexture {
         ImTextureID textureId = 0;
         int width = 0;
@@ -36,6 +43,7 @@ public:
         IDirect3DDevice9* device,
         const std::filesystem::path& imageRoot,
         const DrawOptions& options);
+    DrawStats LastDrawStats() const;
     bool ResolveImageTexture(
         std::string_view source,
         IDirect3DDevice9* device,
