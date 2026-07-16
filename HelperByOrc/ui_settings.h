@@ -820,6 +820,16 @@
     X(NotepadOpenFolder, "Открыть папку", "Open folder") \
     X(NotepadImportTxt, "Импорт .txt", "Import .txt") \
     X(NotepadExportTxt, "Экспорт .txt", "Export .txt") \
+    X(NotepadTxtRefresh, "Пересканировать .txt", "Rescan .txt") \
+    X(NotepadTxtSourceFormat, "Живой TXT: %s", "Live TXT: %s") \
+    X(NotepadTxtMissing, "Исходный файл удалён. Заметка и её ID сохранены.", "The source file was deleted. The note and its ID are preserved.") \
+    X(NotepadTxtUnavailableFormat, "Файл временно недоступен (ошибка %lu).", "The file is temporarily unavailable (error %lu).") \
+    X(NotepadTxtConflict, "Файл изменён снаружи во время редактирования. Выберите версию.", "The file changed externally while editing. Choose a version.") \
+    X(NotepadTxtUseFile, "Использовать файл", "Use file") \
+    X(NotepadTxtAcceptDelete, "Принять удаление", "Accept deletion") \
+    X(NotepadTxtOverwriteFile, "Записать версию заметки", "Write note version") \
+    X(NotepadTxtOperationPending, "Файловая операция выполняется...", "File operation is running...") \
+    X(NotepadTxtOperationFailedFormat, "Операция с TXT не выполнена (ошибка %lu).", "TXT operation failed (error %lu).") \
     X(NotepadCopyRaw, "Копировать raw", "Copy raw") \
     X(NotepadCopyRendered, "Копировать текст", "Copy text") \
     X(NotepadCopyLine, "Копировать строки", "Copy lines") \

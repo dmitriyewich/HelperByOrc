@@ -171,6 +171,12 @@
     <ClCompile Include="notepad_module.cpp">
       <Filter>Source Files\Notepad</Filter>
     </ClCompile>
+    <ClCompile Include="notepad_txt_operations.cpp">
+      <Filter>Source Files\Notepad</Filter>
+    </ClCompile>
+    <ClCompile Include="notepad_txt_sync.cpp">
+      <Filter>Source Files\Notepad</Filter>
+    </ClCompile>
     <ClCompile Include="overlay_cursor_controller.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -384,6 +390,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="notepad_module.h">
+      <Filter>Header Files\Notepad</Filter>
+    </ClInclude>
+    <ClInclude Include="notepad_txt_operations.h">
+      <Filter>Header Files\Notepad</Filter>
+    </ClInclude>
+    <ClInclude Include="notepad_txt_sync.h">
       <Filter>Header Files\Notepad</Filter>
     </ClInclude>
     <ClInclude Include="overlay_cursor_controller.h">

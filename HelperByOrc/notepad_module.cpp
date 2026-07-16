@@ -6,6 +6,8 @@
 #include "json_utils.h"
 #include "markup_renderer.h"
 #include "native_file_dialog.h"
+#include "notepad_txt_operations.h"
+#include "notepad_txt_sync.h"
 #include "tags_module.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
@@ -16,6 +18,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <charconv>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -27,6 +30,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -35,7 +40,7 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr std::string_view kNotepadSectionName = "notepad";
-constexpr int kNotepadSchemaVersion = 1;
+constexpr int kNotepadSchemaVersion = 2;
 constexpr wchar_t kNotepadAssetsFolder[] = L"notepad";
 constexpr wchar_t kNotepadImagesFolder[] = L"images";
 constexpr wchar_t kNotepadExportFolder[] = L"export";
@@ -73,6 +78,22 @@ struct FolderEntry {
     std::uint64_t updatedAt = 0;
 };
 
+struct TxtSourceState {
+    std::string relativePath{};
+    notepadtxt::TextFormat format{};
+    notepadtxt::FileVersion version{};
+    notepadtxt::FileStatus status = notepadtxt::FileStatus::Ready;
+    unsigned long error = 0;
+    bool missing = false;
+    bool conflict = false;
+    bool writePendingRecovery = false;
+    bool pendingExternalMissing = false;
+    std::string pendingExternalText{};
+    notepadtxt::TextFormat pendingFormat{};
+    notepadtxt::FileVersion pendingVersion{};
+    bool operationPending = false;
+};
+
 struct NoteEntry {
     std::string id{};
     std::string title{};
@@ -81,6 +102,7 @@ struct NoteEntry {
     bool favorite = false;
     std::uint64_t createdAt = 0;
     std::uint64_t updatedAt = 0;
+    std::optional<TxtSourceState> txtSource{};
 };
 
 struct OrderItem {
@@ -92,6 +114,26 @@ struct RowItem {
     ItemType type = ItemType::Note;
     std::string value{};
     std::string label{};
+};
+
+enum class PendingTxtActionKind {
+    Save,
+    RenameNote,
+    MoveNote,
+    RenameFolder,
+    MoveFolder,
+    DeleteNote,
+    DeleteFolder,
+};
+
+struct PendingTxtAction {
+    PendingTxtActionKind kind = PendingTxtActionKind::Save;
+    std::string subject{};
+    std::string value{};
+    std::string targetDirectory{};
+    std::optional<OrderItem> anchor{};
+    DropPlacement placement = DropPlacement::End;
+    std::vector<std::string> noteIds{};
 };
 
 struct RenderedNoteCache {
@@ -452,8 +494,21 @@ std::string SanitizeFileStem(std::string_view value, std::string_view fallback) 
         }
     }
     std::string utf8 = TrimAscii(WideToUtf8(result));
+    while (!utf8.empty() && (utf8.back() == '.' || utf8.back() == ' ')) {
+        utf8.pop_back();
+    }
     if (utf8.empty() || utf8 == "." || utf8 == "..") {
         utf8 = std::string(fallback);
+    }
+    const std::size_t dot = utf8.find('.');
+    const std::string stemUpper = UpperUtf8(utf8.substr(0, dot));
+    const bool reserved = stemUpper == "CON" || stemUpper == "PRN" || stemUpper == "AUX"
+        || stemUpper == "NUL" || stemUpper == "CLOCK$"
+        || (stemUpper.size() == 4
+            && (stemUpper.starts_with("COM") || stemUpper.starts_with("LPT"))
+            && stemUpper[3] >= '1' && stemUpper[3] <= '9');
+    if (reserved) {
+        utf8 += "_";
     }
     return utf8;
 }
@@ -505,6 +560,146 @@ std::vector<OrderItem> DeserializeOrderItems(const jsonutil::JsonArray* array) {
     return items;
 }
 
+std::uint64_t JsonUint64StringOr(
+    const jsonutil::JsonObject* object,
+    const char* key,
+    std::uint64_t fallback = 0) {
+    const std::string text = jsonutil::JsonStringOr(object, key, "");
+    if (!text.empty()) {
+        std::uint64_t value = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (error == std::errc{} && end == text.data() + text.size()) {
+            return value;
+        }
+    }
+    return jsonutil::JsonNumberOr<std::uint64_t>(object, key, fallback);
+}
+
+jsonutil::JsonObject SerializeTxtVersion(const notepadtxt::FileVersion& version) {
+    jsonutil::JsonObject object;
+    object["size"] = static_cast<double>(version.size);
+    object["last_write_time"] = std::to_string(version.lastWriteTime);
+    object["identity"] = version.identity;
+    object["content_hash"] = version.contentHash;
+    return object;
+}
+
+notepadtxt::FileVersion DeserializeTxtVersion(const jsonutil::JsonObject* object) {
+    notepadtxt::FileVersion version;
+    version.size = JsonUint64StringOr(object, "size");
+    version.lastWriteTime = JsonUint64StringOr(object, "last_write_time");
+    version.identity = jsonutil::JsonStringOr(object, "identity", "");
+    version.contentHash = jsonutil::JsonStringOr(object, "content_hash", "");
+    return version;
+}
+
+const char* TxtFileStatusName(notepadtxt::FileStatus status) {
+    switch (status) {
+    case notepadtxt::FileStatus::TooLarge:
+        return "too_large";
+    case notepadtxt::FileStatus::ReadError:
+        return "read_error";
+    case notepadtxt::FileStatus::DecodeError:
+        return "decode_error";
+    case notepadtxt::FileStatus::Ready:
+    default:
+        return "ready";
+    }
+}
+
+notepadtxt::FileStatus ParseTxtFileStatus(std::string_view value) {
+    if (value == "too_large") {
+        return notepadtxt::FileStatus::TooLarge;
+    }
+    if (value == "read_error") {
+        return notepadtxt::FileStatus::ReadError;
+    }
+    if (value == "decode_error") {
+        return notepadtxt::FileStatus::DecodeError;
+    }
+    return notepadtxt::FileStatus::Ready;
+}
+
+jsonutil::JsonObject SerializeTxtSource(const TxtSourceState& source) {
+    jsonutil::JsonObject object;
+    object["kind"] = "txt";
+    object["relative_path"] = source.relativePath;
+    object["encoding"] = notepadtxt::TextEncodingName(source.format.encoding);
+    object["newline"] = notepadtxt::NewlineStyleName(source.format.newline);
+    object["bom"] = source.format.bom;
+    object["version"] = jsonutil::JsonValue(SerializeTxtVersion(source.version));
+    object["status"] = TxtFileStatusName(source.status);
+    object["error"] = static_cast<double>(source.error);
+    object["missing"] = source.missing;
+    object["conflict"] = source.conflict;
+    object["write_pending"] = source.writePendingRecovery;
+    if (source.conflict) {
+        object["pending_missing"] = source.pendingExternalMissing;
+        object["pending_external_text"] = source.pendingExternalText;
+        object["pending_encoding"] = notepadtxt::TextEncodingName(source.pendingFormat.encoding);
+        object["pending_newline"] = notepadtxt::NewlineStyleName(source.pendingFormat.newline);
+        object["pending_bom"] = source.pendingFormat.bom;
+        object["pending_version"] = jsonutil::JsonValue(SerializeTxtVersion(source.pendingVersion));
+    }
+    return object;
+}
+
+std::optional<TxtSourceState> DeserializeTxtSource(const jsonutil::JsonObject* object) {
+    if (!object || jsonutil::JsonStringOr(object, "kind", "") != "txt") {
+        return std::nullopt;
+    }
+    TxtSourceState source;
+    source.relativePath = jsonutil::JsonStringOr(object, "relative_path", "");
+    if (source.relativePath.empty()) {
+        return std::nullopt;
+    }
+    source.format.encoding = notepadtxt::ParseTextEncoding(jsonutil::JsonStringOr(object, "encoding", "utf8"));
+    source.format.newline = notepadtxt::ParseNewlineStyle(jsonutil::JsonStringOr(object, "newline", "crlf"));
+    source.format.bom = jsonutil::JsonBoolOr(object, "bom", false);
+    source.version = DeserializeTxtVersion(jsonutil::JsonObjectOrNull(object, "version"));
+    source.status = ParseTxtFileStatus(jsonutil::JsonStringOr(object, "status", "ready"));
+    source.error = jsonutil::JsonNumberOr<unsigned long>(object, "error", 0);
+    source.missing = jsonutil::JsonBoolOr(object, "missing", false);
+    source.conflict = jsonutil::JsonBoolOr(object, "conflict", false);
+    source.writePendingRecovery = jsonutil::JsonBoolOr(object, "write_pending", false);
+    if (source.conflict) {
+        source.pendingExternalMissing = jsonutil::JsonBoolOr(object, "pending_missing", false);
+        source.pendingExternalText = jsonutil::JsonStringOr(object, "pending_external_text", "");
+        source.pendingFormat.encoding = notepadtxt::ParseTextEncoding(jsonutil::JsonStringOr(object, "pending_encoding", "utf8"));
+        source.pendingFormat.newline = notepadtxt::ParseNewlineStyle(jsonutil::JsonStringOr(object, "pending_newline", "crlf"));
+        source.pendingFormat.bom = jsonutil::JsonBoolOr(object, "pending_bom", false);
+        source.pendingVersion = DeserializeTxtVersion(jsonutil::JsonObjectOrNull(object, "pending_version"));
+    }
+    return source;
+}
+
+std::string TxtSourcePathKey(std::string_view relativePath) {
+    std::string normalized(relativePath);
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    return LowerUtf8(normalized);
+}
+
+std::string TxtSourceFolderPath(std::string_view relativePath) {
+    const fs::path path(Utf8ToWide(relativePath));
+    return NormalizeFolderPath(PathToUtf8(path.parent_path()));
+}
+
+std::string TxtSourceTitle(std::string_view relativePath) {
+    const fs::path path(Utf8ToWide(relativePath));
+    return PathToUtf8(path.stem());
+}
+
+bool SameTxtVersion(const notepadtxt::FileVersion& lhs, const notepadtxt::FileVersion& rhs) {
+    return lhs.size == rhs.size
+        && lhs.lastWriteTime == rhs.lastWriteTime
+        && lhs.identity == rhs.identity
+        && lhs.contentHash == rhs.contentHash;
+}
+
+bool SameTxtFormat(const notepadtxt::TextFormat& lhs, const notepadtxt::TextFormat& rhs) {
+    return lhs.encoding == rhs.encoding && lhs.newline == rhs.newline && lhs.bom == rhs.bom;
+}
+
 } // namespace
 
 struct NotepadModule::Impl {
@@ -530,12 +725,18 @@ struct NotepadModule::Impl {
     std::string modalBuffer;
     std::string modalTarget;
     std::string statusMessage;
+    std::string txtOperationPendingStatusMessage;
     MarkupRenderer renderer;
     icon_picker::State iconPickerState{};
     RenderedNoteCache renderedNoteCache{};
     RenderedEditCache renderedEditCache{};
     RenderStats lastRenderStats{};
     std::uint64_t idCounter = 0;
+    notepadtxt::SyncService txtSync{};
+    notepadtxt::OperationService txtOperations{};
+    std::uint64_t txtSyncGeneration = 0;
+    std::unordered_map<std::uint64_t, PendingTxtAction> pendingTxtActions{};
+    bool txtForceRescanOnRestart = false;
 
     void OnProcessAttach(HMODULE moduleHandle) {
         module = moduleHandle;
@@ -547,6 +748,12 @@ struct NotepadModule::Impl {
 
     void Shutdown() {
         SaveEditBufferIfNeeded();
+        if (!txtOperations.Flush()) {
+            debuglog::WriteError("[notepad][txt] operation flush timed out during shutdown");
+        }
+        txtOperations.Stop();
+        ApplyPendingTxtOperations(false);
+        txtSync.Stop();
         ReleaseDeviceResources();
         configLoaded = false;
         folders.clear();
@@ -559,6 +766,11 @@ struct NotepadModule::Impl {
     }
 
     void ReloadConfig() {
+        txtOperations.Stop();
+        txtSync.Stop();
+        ++txtSyncGeneration;
+        pendingTxtActions.clear();
+        txtForceRescanOnRestart = false;
         ReleaseDeviceResources();
         configLoaded = false;
         folders.clear();
@@ -578,6 +790,17 @@ struct NotepadModule::Impl {
 
     void FlushPendingEdits() {
         SaveEditBufferIfNeeded();
+        const bool flushed = txtOperations.Flush();
+        if (!flushed) {
+            debuglog::WriteError("[notepad][txt] operation flush timed out before profile change");
+            txtOperations.Stop();
+            ApplyPendingTxtOperations(false);
+            txtOperations.Start(NotepadDirectory(), txtSyncGeneration);
+            StartTxtScanner(txtForceRescanOnRestart);
+            txtForceRescanOnRestart = false;
+            return;
+        }
+        ApplyPendingTxtOperations();
     }
 
     void ReleaseDeviceResources() {
@@ -709,12 +932,494 @@ struct NotepadModule::Impl {
         }
     }
 
-    void EnsureLoaded() {
-        if (configLoaded) {
+    std::string EnsureTxtFolderHierarchy(std::string_view requestedPath) {
+        const std::vector<std::string> parts = SplitPath(requestedPath);
+        std::string parent;
+        for (const std::string& part : parts) {
+            const std::string requested = JoinFolderPath(parent, part);
+            const std::string requestedKey = LowerUtf8(requested);
+            const auto existing = std::find_if(folders.begin(), folders.end(), [&](const FolderEntry& folder) {
+                return LowerUtf8(folder.path) == requestedKey;
+            });
+            if (existing != folders.end()) {
+                parent = existing->path;
+                continue;
+            }
+            FolderEntry folder;
+            folder.path = requested;
+            folder.createdAt = UnixTimeNow();
+            folder.updatedAt = folder.createdAt;
+            folders.push_back(folder);
+            order.try_emplace(folder.path);
+            order[parent].push_back({ ItemType::Folder, folder.path });
+            parent = folder.path;
+        }
+        return parent;
+    }
+
+    void MoveSourceNoteOrder(std::string_view noteId, std::string_view oldFolder, std::string_view newFolder) {
+        if (oldFolder == newFolder) {
             return;
         }
-        LoadConfig();
-        configLoaded = true;
+        std::size_t oldIndex = order[std::string(oldFolder)].size();
+        auto& oldItems = order[std::string(oldFolder)];
+        const auto oldIt = std::find_if(oldItems.begin(), oldItems.end(), [&](const OrderItem& item) {
+            return item.type == ItemType::Note && item.value == noteId;
+        });
+        if (oldIt != oldItems.end()) {
+            oldIndex = static_cast<std::size_t>(std::distance(oldItems.begin(), oldIt));
+            oldItems.erase(oldIt);
+        }
+        auto& newItems = order[std::string(newFolder)];
+        newItems.insert(
+            newItems.begin() + static_cast<std::ptrdiff_t>(std::min(oldIndex, newItems.size())),
+            { ItemType::Note, std::string(noteId) });
+    }
+
+    std::vector<notepadtxt::FileSnapshot> TxtScannerCache() const {
+        std::vector<notepadtxt::FileSnapshot> cachedFiles;
+        for (const NoteEntry& note : notes) {
+            if (!note.txtSource) {
+                continue;
+            }
+            notepadtxt::FileSnapshot snapshot;
+            snapshot.relativePath = note.txtSource->relativePath;
+            snapshot.format = note.txtSource->format;
+            snapshot.version = note.txtSource->version;
+            snapshot.status = note.txtSource->status;
+            snapshot.error = note.txtSource->error;
+            cachedFiles.push_back(std::move(snapshot));
+        }
+        return cachedFiles;
+    }
+
+    void StartTxtScanner(bool forceReadAll = false) {
+        txtSync.Start(NotepadDirectory(), txtSyncGeneration, TxtScannerCache(), forceReadAll);
+    }
+
+    void StartTxtSync() {
+        const std::uint64_t generation = ++txtSyncGeneration;
+        txtOperations.Start(NotepadDirectory(), generation);
+        StartTxtScanner(true);
+        debuglog::WriteInfo(
+            "[notepad][txt] sync started generation=%llu root=%ls",
+            static_cast<unsigned long long>(generation),
+            NotepadDirectory().c_str());
+    }
+
+    void ApplyPendingTxtScan() {
+        std::optional<notepadtxt::ScanResult> pending = txtSync.TakeLatestScan();
+        if (!pending || pending->generation != txtSyncGeneration) {
+            return;
+        }
+        const double beginMs = NotepadPerfNowMs();
+        std::unordered_map<std::string, std::vector<std::size_t>> notesByPath;
+        std::unordered_map<std::string, std::vector<std::size_t>> notesByIdentity;
+        std::unordered_map<std::string, std::vector<std::string>> scanPathsByIdentity;
+        notesByPath.reserve(notes.size());
+        notesByIdentity.reserve(notes.size());
+        scanPathsByIdentity.reserve(pending->files.size());
+        for (std::size_t index = 0; index < notes.size(); ++index) {
+            const NoteEntry& note = notes[index];
+            if (!note.txtSource) {
+                continue;
+            }
+            notesByPath[TxtSourcePathKey(note.txtSource->relativePath)].push_back(index);
+            if (!note.txtSource->version.identity.empty()) {
+                notesByIdentity[note.txtSource->version.identity].push_back(index);
+            }
+        }
+        for (const notepadtxt::FileSnapshot& snapshot : pending->files) {
+            if (!snapshot.version.identity.empty()) {
+                scanPathsByIdentity[snapshot.version.identity].push_back(TxtSourcePathKey(snapshot.relativePath));
+            }
+        }
+
+        std::set<std::string> matchedIds;
+        std::size_t created = 0;
+        std::size_t updated = 0;
+        std::size_t missing = 0;
+        std::size_t conflicts = 0;
+        bool modelChanged = false;
+        for (notepadtxt::FileSnapshot& snapshot : pending->files) {
+            std::optional<std::size_t> noteIndex;
+            const auto pathIt = notesByPath.find(TxtSourcePathKey(snapshot.relativePath));
+            if (pathIt != notesByPath.end() && pathIt->second.size() == 1) {
+                const std::size_t candidateIndex = pathIt->second.front();
+                const TxtSourceState& candidateSource = *notes[candidateIndex].txtSource;
+                const bool identityMovedElsewhere = !candidateSource.version.identity.empty()
+                    && candidateSource.version.identity != snapshot.version.identity
+                    && scanPathsByIdentity[candidateSource.version.identity].size() == 1
+                    && scanPathsByIdentity[candidateSource.version.identity].front()
+                        != TxtSourcePathKey(snapshot.relativePath);
+                if (!identityMovedElsewhere) {
+                    noteIndex = candidateIndex;
+                }
+            }
+            if (!noteIndex && !snapshot.version.identity.empty()) {
+                const auto identityIt = notesByIdentity.find(snapshot.version.identity);
+                if (identityIt != notesByIdentity.end() && identityIt->second.size() == 1) {
+                    noteIndex = identityIt->second.front();
+                }
+            }
+            if (noteIndex && matchedIds.contains(notes[*noteIndex].id)) {
+                noteIndex.reset();
+            }
+
+            if (!noteIndex) {
+                NoteEntry note;
+                note.id = GenerateNoteId();
+                note.title = TxtSourceTitle(snapshot.relativePath);
+                if (note.title.empty()) {
+                    note.title = UiSettings::Instance().Text(UiText::NotepadUntitled);
+                }
+                note.folderPath = EnsureTxtFolderHierarchy(TxtSourceFolderPath(snapshot.relativePath));
+                note.text = std::move(snapshot.text);
+                note.createdAt = UnixTimeNow();
+                note.updatedAt = note.createdAt;
+                TxtSourceState source;
+                source.relativePath = snapshot.relativePath;
+                source.format = snapshot.format;
+                source.version = snapshot.version;
+                source.status = snapshot.status;
+                source.error = snapshot.error;
+                note.txtSource = std::move(source);
+                notes.push_back(std::move(note));
+                order[notes.back().folderPath].push_back({ ItemType::Note, notes.back().id });
+                matchedIds.insert(notes.back().id);
+                ++created;
+                modelChanged = true;
+                continue;
+            }
+
+            NoteEntry& note = notes[*noteIndex];
+            if (!note.txtSource || !matchedIds.insert(note.id).second) {
+                continue;
+            }
+            TxtSourceState& source = *note.txtSource;
+            const std::string newFolder = EnsureTxtFolderHierarchy(TxtSourceFolderPath(snapshot.relativePath));
+            const std::string newTitle = TxtSourceTitle(snapshot.relativePath);
+            if (source.relativePath != snapshot.relativePath) {
+                source.relativePath = snapshot.relativePath;
+                modelChanged = true;
+            }
+            if (note.folderPath != newFolder) {
+                MoveSourceNoteOrder(note.id, note.folderPath, newFolder);
+                note.folderPath = newFolder;
+                modelChanged = true;
+            }
+            if (!newTitle.empty() && note.title != newTitle) {
+                note.title = newTitle;
+                modelChanged = true;
+            }
+            if (source.missing || source.status != snapshot.status || source.error != snapshot.error) {
+                source.missing = false;
+                source.status = snapshot.status;
+                source.error = snapshot.error;
+                modelChanged = true;
+            }
+            if (snapshot.status != notepadtxt::FileStatus::Ready) {
+                if (!SameTxtVersion(source.version, snapshot.version)) {
+                    source.version = snapshot.version;
+                    modelChanged = true;
+                }
+                modelChanged = true;
+                debuglog::WriteError(
+                    "[notepad][txt] source unavailable id=%s path=%s status=%s error=%lu",
+                    note.id.c_str(),
+                    snapshot.relativePath.c_str(),
+                    TxtFileStatusName(snapshot.status),
+                    snapshot.error);
+                continue;
+            }
+
+            if (source.conflict) {
+                if (!snapshot.bodyReused) {
+                    source.pendingExternalMissing = false;
+                    source.pendingExternalText = std::move(snapshot.text);
+                    source.pendingFormat = snapshot.format;
+                    source.pendingVersion = snapshot.version;
+                    modelChanged = true;
+                }
+                continue;
+            }
+
+            const bool externalContentChanged = !snapshot.bodyReused
+                && (source.version.contentHash != snapshot.version.contentHash || source.writePendingRecovery);
+            if (externalContentChanged && editing && editDirty && selectedNoteId == note.id) {
+                source.conflict = true;
+                source.writePendingRecovery = false;
+                source.pendingExternalMissing = false;
+                source.pendingExternalText = std::move(snapshot.text);
+                source.pendingFormat = snapshot.format;
+                source.pendingVersion = snapshot.version;
+                ++conflicts;
+                modelChanged = true;
+                debuglog::WriteError(
+                    "[notepad][txt] edit conflict id=%s path=%s",
+                    note.id.c_str(),
+                    snapshot.relativePath.c_str());
+                continue;
+            }
+
+            if (externalContentChanged) {
+                note.text = std::move(snapshot.text);
+                note.updatedAt = UnixTimeNow();
+                renderedNoteCache = {};
+                ++updated;
+                modelChanged = true;
+            }
+            if (!SameTxtFormat(source.format, snapshot.format) || !SameTxtVersion(source.version, snapshot.version)
+                || source.writePendingRecovery || source.conflict || !source.pendingExternalText.empty()) {
+                source.format = snapshot.format;
+                source.version = snapshot.version;
+                source.conflict = false;
+                source.writePendingRecovery = false;
+                source.pendingExternalMissing = false;
+                source.pendingExternalText.clear();
+                source.pendingFormat = {};
+                source.pendingVersion = {};
+                modelChanged = true;
+            }
+        }
+
+        if (pending->metrics.complete) {
+            for (NoteEntry& note : notes) {
+                if (!note.txtSource || matchedIds.contains(note.id)) {
+                    continue;
+                }
+                if (!note.txtSource->missing) {
+                    if ((editing && editDirty && selectedNoteId == note.id) || note.txtSource->writePendingRecovery) {
+                        note.txtSource->conflict = true;
+                        note.txtSource->writePendingRecovery = false;
+                        note.txtSource->pendingExternalMissing = true;
+                        note.txtSource->pendingExternalText = note.text;
+                        note.txtSource->pendingFormat = note.txtSource->format;
+                        note.txtSource->pendingVersion = {};
+                        ++conflicts;
+                    }
+                    note.txtSource->missing = true;
+                    note.txtSource->status = notepadtxt::FileStatus::ReadError;
+                    note.txtSource->error = ERROR_FILE_NOT_FOUND;
+                    ++missing;
+                    modelChanged = true;
+                    debuglog::WriteError(
+                        "[notepad][txt] source missing id=%s path=%s",
+                        note.id.c_str(),
+                        note.txtSource->relativePath.c_str());
+                }
+            }
+        }
+
+        if (modelChanged) {
+            QueueSave();
+        }
+        const double applyMs = NotepadPerfNowMs() - beginMs;
+        debuglog::WriteInfo(
+            "[notepad][txt] scan applied generation=%llu created=%zu updated=%zu missing=%zu conflicts=%zu apply=%.2fms complete=%d",
+            static_cast<unsigned long long>(pending->generation),
+            created,
+            updated,
+            missing,
+            conflicts,
+            applyMs,
+            pending->metrics.complete ? 1 : 0);
+    }
+
+    void ApplyTxtSnapshot(NoteEntry& note, const notepadtxt::FileSnapshot& snapshot) {
+        if (!note.txtSource) {
+            return;
+        }
+        TxtSourceState& source = *note.txtSource;
+        source.relativePath = snapshot.relativePath;
+        source.format = snapshot.format;
+        source.version = snapshot.version;
+        source.status = snapshot.status;
+        source.error = snapshot.error;
+        source.missing = false;
+        source.conflict = false;
+        source.writePendingRecovery = false;
+        source.pendingExternalMissing = false;
+        source.pendingExternalText.clear();
+        source.pendingFormat = {};
+        source.pendingVersion = {};
+        source.operationPending = false;
+        note.text = snapshot.text;
+        note.updatedAt = UnixTimeNow();
+        renderedNoteCache = {};
+    }
+
+    void RewriteTxtSourceFolderPrefix(std::string_view oldPath, std::string_view newPath) {
+        for (NoteEntry& note : notes) {
+            if (!note.txtSource) {
+                continue;
+            }
+            const std::string sourceFolder = TxtSourceFolderPath(note.txtSource->relativePath);
+            if (!PathStartsWith(sourceFolder, oldPath)) {
+                continue;
+            }
+            const fs::path sourcePath(Utf8ToWide(note.txtSource->relativePath));
+            const std::string targetFolder = ReplacePathPrefix(sourceFolder, oldPath, newPath);
+            note.txtSource->relativePath = TxtRelativePath(targetFolder, PathToUtf8(sourcePath.filename()));
+        }
+    }
+
+    void ShowTxtOperationPendingStatus() {
+        txtOperationPendingStatusMessage = UiSettings::Instance().Text(UiText::NotepadTxtOperationPending);
+        statusMessage = txtOperationPendingStatusMessage;
+    }
+
+    void ApplyPendingTxtOperations(bool restartScanner = true) {
+        std::vector<notepadtxt::OperationResult> results = txtOperations.TakeResults();
+        if (results.empty()) {
+            return;
+        }
+
+        txtSync.Stop();
+        bool modelChanged = false;
+        for (const notepadtxt::OperationResult& result : results) {
+            const auto pendingIt = pendingTxtActions.find(result.requestId);
+            if (pendingIt == pendingTxtActions.end()) {
+                continue;
+            }
+            const PendingTxtAction action = pendingIt->second;
+            pendingTxtActions.erase(pendingIt);
+            for (const std::string& noteId : action.noteIds) {
+                if (NoteEntry* note = FindNote(noteId); note && note->txtSource) {
+                    note->txtSource->operationPending = false;
+                }
+            }
+            if (result.generation != txtSyncGeneration) {
+                continue;
+            }
+
+            if (!result.success) {
+                txtForceRescanOnRestart = true;
+                unsigned long operationError = ERROR_GEN_FAILURE;
+                for (const notepadtxt::OperationItemResult& item : result.items) {
+                    if (item.error != ERROR_SUCCESS) {
+                        operationError = item.error;
+                    }
+                    NoteEntry* note = FindNote(item.token);
+                    if (!note || !note->txtSource) {
+                        continue;
+                    }
+                    TxtSourceState& source = *note->txtSource;
+                    source.error = item.error;
+                    if ((item.conflict || action.kind == PendingTxtActionKind::Save)
+                        && item.snapshot.status == notepadtxt::FileStatus::Ready
+                        && !item.snapshot.relativePath.empty()) {
+                        source.conflict = true;
+                        source.writePendingRecovery = false;
+                        source.pendingExternalMissing = false;
+                        source.status = notepadtxt::FileStatus::Ready;
+                        source.pendingExternalText = item.snapshot.text;
+                        source.pendingFormat = item.snapshot.format;
+                        source.pendingVersion = item.snapshot.version;
+                    } else if (item.error == ERROR_FILE_NOT_FOUND || item.error == ERROR_PATH_NOT_FOUND) {
+                        source.status = notepadtxt::FileStatus::ReadError;
+                        source.missing = true;
+                        if (action.kind == PendingTxtActionKind::Save) {
+                            source.conflict = true;
+                            source.writePendingRecovery = false;
+                            source.pendingExternalMissing = true;
+                            source.pendingExternalText = action.value;
+                            source.pendingFormat = source.format;
+                            source.pendingVersion = {};
+                        }
+                    }
+                    modelChanged = true;
+                    debuglog::WriteError(
+                        "[notepad][txt] operation item failed id=%llu token=%s source=%s target=%s error=%lu conflict=%d",
+                        static_cast<unsigned long long>(result.requestId),
+                        item.token.c_str(),
+                        item.sourceRelativePath.c_str(),
+                        item.targetRelativePath.c_str(),
+                        item.error,
+                        item.conflict ? 1 : 0);
+                }
+                statusMessage = UiSettings::Instance().Format(UiText::NotepadTxtOperationFailedFormat, operationError);
+                debuglog::WriteError(
+                    "[notepad][txt] operation apply failed id=%llu kind=%d error=%lu",
+                    static_cast<unsigned long long>(result.requestId),
+                    static_cast<int>(result.kind),
+                    operationError);
+                continue;
+            }
+
+            for (const notepadtxt::OperationItemResult& item : result.items) {
+                if (NoteEntry* note = FindNote(item.token); note && note->txtSource && item.success) {
+                    ApplyTxtSnapshot(*note, item.snapshot);
+                    modelChanged = true;
+                }
+            }
+
+            switch (action.kind) {
+            case PendingTxtActionKind::Save:
+                break;
+            case PendingTxtActionKind::RenameNote:
+                RenameNoteModel(action.subject, action.value, false);
+                break;
+            case PendingTxtActionKind::MoveNote:
+                ApplyDropModel(
+                    { ItemType::Note, action.subject },
+                    action.targetDirectory,
+                    action.anchor,
+                    action.placement,
+                    false);
+                break;
+            case PendingTxtActionKind::RenameFolder: {
+                const std::string newPath = JoinFolderPath(ParentPath(action.subject), action.value);
+                RewriteTxtSourceFolderPrefix(action.subject, newPath);
+                RenameFolderModel(action.subject, action.value, false);
+                break;
+            }
+            case PendingTxtActionKind::MoveFolder: {
+                const std::string newPath = JoinFolderPath(action.targetDirectory, BaseName(action.subject));
+                RewriteTxtSourceFolderPrefix(action.subject, newPath);
+                ApplyDropModel(
+                    { ItemType::Folder, action.subject },
+                    action.targetDirectory,
+                    action.anchor,
+                    action.placement,
+                    false);
+                break;
+            }
+            case PendingTxtActionKind::DeleteNote:
+                DeleteNoteModel(action.subject, false);
+                break;
+            case PendingTxtActionKind::DeleteFolder:
+                DeleteFolderModel(action.subject, false);
+                break;
+            }
+        }
+
+        if (modelChanged) {
+            QueueSave();
+        }
+        const bool operationsFinished = pendingTxtActions.empty() && !txtOperations.Busy();
+        if (operationsFinished) {
+            if (!txtOperationPendingStatusMessage.empty()
+                && statusMessage == txtOperationPendingStatusMessage) {
+                statusMessage.clear();
+            }
+            txtOperationPendingStatusMessage.clear();
+        }
+        if (restartScanner && operationsFinished) {
+            StartTxtScanner(txtForceRescanOnRestart);
+            txtForceRescanOnRestart = false;
+        }
+    }
+
+    void EnsureLoaded() {
+        if (!configLoaded) {
+            LoadConfig();
+            configLoaded = true;
+        }
+        ApplyPendingTxtOperations();
+        if (!TxtOperationPending()) {
+            ApplyPendingTxtScan();
+        }
     }
 
     void LoadConfig() {
@@ -762,6 +1467,7 @@ struct NotepadModule::Impl {
                 note.favorite = jsonutil::JsonBoolOr(object, "favorite", false);
                 note.createdAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "created_at", UnixTimeNow());
                 note.updatedAt = jsonutil::JsonNumberOr<std::uint64_t>(object, "updated_at", note.createdAt);
+                note.txtSource = DeserializeTxtSource(jsonutil::JsonObjectOrNull(object, "source"));
                 if (note.id.empty()) {
                     note.id = GenerateNoteId();
                 }
@@ -786,28 +1492,49 @@ struct NotepadModule::Impl {
             selectedNoteId.clear();
         }
         NormalizeModel();
+        StartTxtSync();
         debuglog::WriteInfo("[notepad] config loaded folders=%zu notes=%zu", folders.size(), notes.size());
     }
 
     void NormalizeModel() {
-        for (NoteEntry& note : notes) {
-            note.folderPath = NormalizeFolderPath(note.folderPath);
-            if (!note.folderPath.empty() && !FindFolder(note.folderPath)) {
-                note.folderPath.clear();
-            }
-            if (note.title.empty()) {
-                note.title = UiSettings::Instance().Text(UiText::NotepadUntitled);
-            }
+        for (FolderEntry& folder : folders) {
+            folder.path = NormalizeFolderPath(folder.path);
         }
-
         std::sort(folders.begin(), folders.end(), [](const FolderEntry& lhs, const FolderEntry& rhs) {
             return LowerUtf8(lhs.path) < LowerUtf8(rhs.path);
         });
 
         std::set<std::string> validFolderPaths;
         validFolderPaths.insert("");
+        std::unordered_set<std::string> validFolderLookup;
+        validFolderLookup.reserve(folders.size() + 1);
+        validFolderLookup.insert("");
+        std::unordered_map<std::string, std::string> folderParents;
+        folderParents.reserve(folders.size());
+        std::unordered_map<std::string, std::vector<std::string>> childFolders;
+        childFolders.reserve(folders.size() + 1);
         for (const FolderEntry& folder : folders) {
             validFolderPaths.insert(folder.path);
+            validFolderLookup.insert(folder.path);
+            const std::string parent = ParentPath(folder.path);
+            folderParents.emplace(folder.path, parent);
+            childFolders[parent].push_back(folder.path);
+        }
+
+        std::unordered_map<std::string, const NoteEntry*> notesById;
+        notesById.reserve(notes.size());
+        std::unordered_map<std::string, std::vector<std::string>> childNotes;
+        childNotes.reserve(validFolderPaths.size());
+        for (NoteEntry& note : notes) {
+            note.folderPath = NormalizeFolderPath(note.folderPath);
+            if (!validFolderLookup.contains(note.folderPath)) {
+                note.folderPath.clear();
+            }
+            if (note.title.empty()) {
+                note.title = UiSettings::Instance().Text(UiText::NotepadUntitled);
+            }
+            notesById.emplace(note.id, &note);
+            childNotes[note.folderPath].push_back(note.id);
         }
 
         for (auto it = order.begin(); it != order.end();) {
@@ -822,31 +1549,47 @@ struct NotepadModule::Impl {
         }
 
         for (auto& [directory, items] : order) {
-            std::set<std::string> seenFolders;
-            std::set<std::string> seenNotes;
+            static const std::vector<std::string> kEmptyChildren;
+            const auto folderChildrenIt = childFolders.find(directory);
+            const auto noteChildrenIt = childNotes.find(directory);
+            const std::vector<std::string>& folderChildren = folderChildrenIt == childFolders.end()
+                ? kEmptyChildren
+                : folderChildrenIt->second;
+            const std::vector<std::string>& noteChildren = noteChildrenIt == childNotes.end()
+                ? kEmptyChildren
+                : noteChildrenIt->second;
+            std::unordered_set<std::string> seenFolders;
+            std::unordered_set<std::string> seenNotes;
+            seenFolders.reserve(folderChildren.size());
+            seenNotes.reserve(noteChildren.size());
             std::vector<OrderItem> normalized;
+            normalized.reserve(items.size() + folderChildren.size() + noteChildren.size());
             for (const OrderItem& item : items) {
                 if (item.type == ItemType::Folder) {
-                    const FolderEntry* folder = FindFolder(item.value);
-                    if (folder && ParentPath(folder->path) == directory && seenFolders.insert(folder->path).second) {
-                        normalized.push_back({ ItemType::Folder, folder->path });
+                    const auto parentIt = folderParents.find(item.value);
+                    if (parentIt != folderParents.end()
+                        && parentIt->second == directory
+                        && seenFolders.insert(item.value).second) {
+                        normalized.push_back({ ItemType::Folder, item.value });
                     }
                 } else if (item.type == ItemType::Note) {
-                    const NoteEntry* note = FindNote(item.value);
-                    if (note && note->folderPath == directory && seenNotes.insert(note->id).second) {
-                        normalized.push_back({ ItemType::Note, note->id });
+                    const auto noteIt = notesById.find(item.value);
+                    if (noteIt != notesById.end()
+                        && noteIt->second->folderPath == directory
+                        && seenNotes.insert(item.value).second) {
+                        normalized.push_back({ ItemType::Note, item.value });
                     }
                 }
             }
 
-            for (const FolderEntry& folder : folders) {
-                if (ParentPath(folder.path) == directory && seenFolders.insert(folder.path).second) {
-                    normalized.push_back({ ItemType::Folder, folder.path });
+            for (const std::string& folderPath : folderChildren) {
+                if (seenFolders.insert(folderPath).second) {
+                    normalized.push_back({ ItemType::Folder, folderPath });
                 }
             }
-            for (const NoteEntry& note : notes) {
-                if (note.folderPath == directory && seenNotes.insert(note.id).second) {
-                    normalized.push_back({ ItemType::Note, note.id });
+            for (const std::string& noteId : noteChildren) {
+                if (seenNotes.insert(noteId).second) {
+                    normalized.push_back({ ItemType::Note, noteId });
                 }
             }
             items = std::move(normalized);
@@ -877,6 +1620,9 @@ struct NotepadModule::Impl {
             object["favorite"] = note.favorite;
             object["created_at"] = static_cast<double>(note.createdAt);
             object["updated_at"] = static_cast<double>(note.updatedAt);
+            if (note.txtSource) {
+                object["source"] = jsonutil::JsonValue(SerializeTxtSource(*note.txtSource));
+            }
             noteArray.emplace_back(std::move(object));
         }
         root["notes"] = std::move(noteArray);
@@ -896,7 +1642,7 @@ struct NotepadModule::Impl {
         AppConfig::Instance().QueueSectionReplace(std::string(kNotepadSectionName), SerializeConfig());
     }
 
-    void SelectNote(std::string_view id) {
+    void SelectNote(std::string_view id, bool queueSave = true) {
         SaveEditBufferIfNeeded();
         NoteEntry* note = FindNote(id);
         if (!note) {
@@ -910,7 +1656,9 @@ struct NotepadModule::Impl {
         editBuffer = note->text;
         editCursor = static_cast<int>(editBuffer.size());
         currentFolder = note->folderPath;
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
     }
 
     void SelectFolder(std::string_view path) {
@@ -937,6 +1685,142 @@ struct NotepadModule::Impl {
         QueueSave();
     }
 
+    bool TxtOperationPending() const {
+        return txtOperations.Busy() || !pendingTxtActions.empty();
+    }
+
+    bool PrepareForTxtStructureChange() {
+        if (editing && editDirty) {
+            SaveEditBufferIfNeeded();
+        }
+        if (TxtOperationPending()) {
+            ShowTxtOperationPendingStatus();
+            return false;
+        }
+        return !editDirty;
+    }
+
+    bool HasLiveTxtSourceInTree(std::string_view path) const {
+        return std::any_of(notes.begin(), notes.end(), [&](const NoteEntry& note) {
+            return note.txtSource && !note.txtSource->missing && PathStartsWith(note.folderPath, path);
+        });
+    }
+
+    std::string TxtRelativePath(std::string_view folderPath, std::string_view fileName) const {
+        fs::path path;
+        if (!folderPath.empty()) {
+            path = fs::path(Utf8ToWide(folderPath));
+        }
+        path /= fs::path(Utf8ToWide(fileName));
+        return PathToUtf8(path.lexically_normal());
+    }
+
+    bool TrackTxtRequest(
+        std::uint64_t requestId,
+        PendingTxtAction action,
+        const std::vector<std::string>& noteIds) {
+        if (requestId == 0) {
+            statusMessage = UiSettings::Instance().Format(UiText::NotepadTxtOperationFailedFormat, ERROR_NOT_READY);
+            return false;
+        }
+        const bool firstPendingRequest = pendingTxtActions.empty();
+        action.noteIds = noteIds;
+        pendingTxtActions.emplace(requestId, std::move(action));
+        if (firstPendingRequest) {
+            txtSync.Stop();
+        }
+        for (const std::string& noteId : noteIds) {
+            if (NoteEntry* note = FindNote(noteId); note && note->txtSource) {
+                note->txtSource->operationPending = true;
+            }
+        }
+        ShowTxtOperationPendingStatus();
+        return true;
+    }
+
+    bool QueueTxtWrite(NoteEntry& note, std::string text) {
+        if (!note.txtSource || note.txtSource->operationPending) {
+            ShowTxtOperationPendingStatus();
+            return false;
+        }
+        TxtSourceState& source = *note.txtSource;
+        const std::string previousText = note.text;
+        const std::uint64_t requestId = txtOperations.QueueWrite(
+            note.id,
+            source.relativePath,
+            text,
+            source.format,
+            source.version,
+            source.missing);
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::Save;
+        action.subject = note.id;
+        action.value = previousText;
+        if (!TrackTxtRequest(requestId, std::move(action), { note.id })) {
+            return false;
+        }
+        source.writePendingRecovery = true;
+        note.text = std::move(text);
+        note.updatedAt = UnixTimeNow();
+        QueueSave();
+        return true;
+    }
+
+    bool QueueTxtNoteMove(
+        NoteEntry& note,
+        std::string targetRelativePath,
+        PendingTxtAction action) {
+        if (!note.txtSource || note.txtSource->operationPending) {
+            ShowTxtOperationPendingStatus();
+            return false;
+        }
+        notepadtxt::MoveItem item;
+        item.token = note.id;
+        item.sourceRelativePath = note.txtSource->relativePath;
+        item.targetRelativePath = std::move(targetRelativePath);
+        item.expectedVersion = note.txtSource->version;
+        const std::uint64_t requestId = txtOperations.QueueMove({ std::move(item) });
+        return TrackTxtRequest(requestId, std::move(action), { note.id });
+    }
+
+    bool QueueTxtFolderMove(
+        std::string_view oldPath,
+        std::string_view newPath,
+        PendingTxtAction action) {
+        std::vector<notepadtxt::MoveItem> items;
+        std::vector<std::string> noteIds;
+        for (const NoteEntry& note : notes) {
+            if (!note.txtSource || note.txtSource->missing || !PathStartsWith(note.folderPath, oldPath)) {
+                continue;
+            }
+            const std::string targetFolder = ReplacePathPrefix(note.folderPath, oldPath, newPath);
+            const fs::path sourcePath(Utf8ToWide(note.txtSource->relativePath));
+            notepadtxt::MoveItem item;
+            item.token = note.id;
+            item.sourceRelativePath = note.txtSource->relativePath;
+            item.targetRelativePath = TxtRelativePath(targetFolder, PathToUtf8(sourcePath.filename()));
+            item.expectedVersion = note.txtSource->version;
+            items.push_back(std::move(item));
+            noteIds.push_back(note.id);
+        }
+        if (items.empty()) {
+            return false;
+        }
+        const std::uint64_t requestId = txtOperations.QueueMove(std::move(items));
+        return TrackTxtRequest(requestId, std::move(action), noteIds);
+    }
+
+    bool QueueTxtDelete(
+        std::vector<notepadtxt::DeleteItem> items,
+        std::vector<std::string> noteIds,
+        PendingTxtAction action) {
+        if (items.empty()) {
+            return false;
+        }
+        const std::uint64_t requestId = txtOperations.QueueDelete(std::move(items));
+        return TrackTxtRequest(requestId, std::move(action), noteIds);
+    }
+
     void SaveEditBufferIfNeeded() {
         if (!editing || !editDirty) {
             return;
@@ -945,6 +1829,22 @@ struct NotepadModule::Impl {
         if (!note) {
             editing = false;
             editDirty = false;
+            return;
+        }
+        if (note->txtSource) {
+            if (note->txtSource->conflict) {
+                note->text = editBuffer;
+                note->updatedAt = UnixTimeNow();
+                editDirty = false;
+                QueueSave();
+                statusMessage = UiSettings::Instance().Text(UiText::NotepadTxtConflict);
+                return;
+            }
+            if (!QueueTxtWrite(*note, editBuffer)) {
+                return;
+            }
+            editDirty = false;
+            debuglog::WriteInfo("[notepad][txt] note write queued id=%s len=%zu", note->id.c_str(), note->text.size());
             return;
         }
         note->text = editBuffer;
@@ -989,7 +1889,7 @@ struct NotepadModule::Impl {
         note.updatedAt = note.createdAt;
         notes.push_back(note);
         order[note.folderPath].push_back({ ItemType::Note, note.id });
-        SelectNote(note.id);
+        SelectNote(note.id, false);
         editing = true;
         editBuffer = note.text;
         editDirty = false;
@@ -1006,15 +1906,16 @@ struct NotepadModule::Impl {
         copy.id = GenerateNoteId();
         copy.title += UiSettings::Instance().Text(UiText::NotepadCopySuffix);
         copy.favorite = false;
+        copy.txtSource.reset();
         copy.createdAt = UnixTimeNow();
         copy.updatedAt = copy.createdAt;
         notes.push_back(copy);
         order[copy.folderPath].push_back({ ItemType::Note, copy.id });
-        SelectNote(copy.id);
+        SelectNote(copy.id, false);
         QueueSave();
     }
 
-    void RenameNote(std::string_view id, std::string_view title) {
+    void RenameNoteModel(std::string_view id, std::string_view title, bool queueSave = true) {
         NoteEntry* note = FindNote(id);
         if (!note) {
             return;
@@ -1022,10 +1923,12 @@ struct NotepadModule::Impl {
         const std::string cleanTitle = TrimAscii(title);
         note->title = cleanTitle.empty() ? UiSettings::Instance().Text(UiText::NotepadUntitled) : cleanTitle;
         note->updatedAt = UnixTimeNow();
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
     }
 
-    void RenameFolder(std::string_view path, std::string_view newName) {
+    void RenameFolderModel(std::string_view path, std::string_view newName, bool queueSave = true) {
         const std::string oldPath = NormalizeFolderPath(path);
         FolderEntry* folder = FindFolder(oldPath);
         const std::string cleanName = TrimAscii(newName);
@@ -1059,12 +1962,12 @@ struct NotepadModule::Impl {
         if (selectedFolderPath == oldPath || PathStartsWith(selectedFolderPath, oldPath)) {
             selectedFolderPath = ReplacePathPrefix(selectedFolderPath, oldPath, newPath);
         }
-        NormalizeModel();
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
     }
 
-    void DeleteNote(std::string_view id) {
-        SaveEditBufferIfNeeded();
+    void DeleteNoteModel(std::string_view id, bool queueSave = true) {
         const auto it = std::find_if(notes.begin(), notes.end(), [&](const NoteEntry& note) {
             return note.id == id;
         });
@@ -1079,12 +1982,13 @@ struct NotepadModule::Impl {
             editing = false;
             editBuffer.clear();
         }
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
         debuglog::WriteInfo("[notepad] note deleted id=%s", removedId.c_str());
     }
 
-    void DeleteFolder(std::string_view path) {
-        SaveEditBufferIfNeeded();
+    void DeleteFolderModel(std::string_view path, bool queueSave = true) {
         const std::string removedPath = NormalizeFolderPath(path);
         if (removedPath.empty() || !FindFolder(removedPath)) {
             return;
@@ -1114,8 +2018,9 @@ struct NotepadModule::Impl {
             editing = false;
             editBuffer.clear();
         }
-        NormalizeModel();
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
         debuglog::WriteInfo("[notepad] folder deleted path=%s", removedPath.c_str());
     }
 
@@ -1159,7 +2064,12 @@ struct NotepadModule::Impl {
         order = std::move(rewritten);
     }
 
-    bool ApplyDrop(const OrderItem& dragged, std::string targetDirectory, std::optional<OrderItem> anchor, DropPlacement placement) {
+    bool ApplyDropModel(
+        const OrderItem& dragged,
+        std::string targetDirectory,
+        std::optional<OrderItem> anchor,
+        DropPlacement placement,
+        bool queueSave = true) {
         targetDirectory = NormalizeFolderPath(targetDirectory);
         if (anchor.has_value() && anchor->type == dragged.type && anchor->value == dragged.value && placement != DropPlacement::Inside) {
             return false;
@@ -1173,8 +2083,10 @@ struct NotepadModule::Impl {
             note->folderPath = targetDirectory;
             note->updatedAt = UnixTimeNow();
             InsertOrderItem(targetDirectory, dragged, anchor, placement);
-            SelectNote(note->id);
-            QueueSave();
+            SelectNote(note->id, false);
+            if (queueSave) {
+                QueueSave();
+            }
             return true;
         }
 
@@ -1216,9 +2128,225 @@ struct NotepadModule::Impl {
         }
         InsertOrderItem(targetDirectory, { ItemType::Folder, newPath }, anchor, placement);
         SelectFolder(newPath);
-        NormalizeModel();
-        QueueSave();
+        if (queueSave) {
+            QueueSave();
+        }
         return true;
+    }
+
+    void RenameNote(std::string_view id, std::string_view title) {
+        NoteEntry* note = FindNote(id);
+        if (!note) {
+            return;
+        }
+        if (!note->txtSource) {
+            RenameNoteModel(id, title);
+            return;
+        }
+        if (!PrepareForTxtStructureChange()) {
+            return;
+        }
+        const std::string cleanTitle = SanitizeFileStem(
+            TrimAscii(title),
+            UiSettings::Instance().Text(UiText::NotepadUntitled));
+        const std::string targetRelativePath = TxtRelativePath(note->folderPath, cleanTitle + ".txt");
+        if (targetRelativePath == note->txtSource->relativePath) {
+            note->txtSource->relativePath = targetRelativePath;
+            RenameNoteModel(id, cleanTitle);
+            return;
+        }
+        if (note->txtSource->missing) {
+            note->txtSource->relativePath = targetRelativePath;
+            RenameNoteModel(id, cleanTitle);
+            return;
+        }
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::RenameNote;
+        action.subject = note->id;
+        action.value = cleanTitle;
+        QueueTxtNoteMove(*note, targetRelativePath, std::move(action));
+    }
+
+    void RenameFolder(std::string_view path, std::string_view newName) {
+        const std::string oldPath = NormalizeFolderPath(path);
+        const std::string cleanName = TrimAscii(newName);
+        if (!FindFolder(oldPath) || !IsValidFolderName(cleanName)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadInvalidName);
+            return;
+        }
+        const bool hasLiveTxtSources = HasLiveTxtSourceInTree(oldPath);
+        if (hasLiveTxtSources && SanitizeFileStem(cleanName, "") != cleanName) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadInvalidName);
+            return;
+        }
+        const std::string newPath = JoinFolderPath(ParentPath(oldPath), cleanName);
+        if (newPath != oldPath && FolderNameExists(ParentPath(oldPath), cleanName, oldPath)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadFolderExists);
+            return;
+        }
+        if (newPath == oldPath) {
+            return;
+        }
+        if (!PrepareForTxtStructureChange()) {
+            return;
+        }
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::RenameFolder;
+        action.subject = oldPath;
+        action.value = cleanName;
+        if (hasLiveTxtSources) {
+            if (QueueTxtFolderMove(oldPath, newPath, std::move(action))) {
+                editing = false;
+                editDirty = false;
+            }
+            return;
+        }
+        RenameFolderModel(oldPath, cleanName);
+        RewriteTxtSourceFolderPrefix(oldPath, newPath);
+        QueueSave();
+    }
+
+    void DeleteNote(std::string_view id) {
+        NoteEntry* note = FindNote(id);
+        if (!note) {
+            return;
+        }
+        if (!note->txtSource || note->txtSource->missing) {
+            DeleteNoteModel(id);
+            return;
+        }
+        if (!PrepareForTxtStructureChange()) {
+            return;
+        }
+        notepadtxt::DeleteItem item;
+        item.token = note->id;
+        item.relativePath = note->txtSource->relativePath;
+        item.expectedVersion = note->txtSource->version;
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::DeleteNote;
+        action.subject = note->id;
+        if (QueueTxtDelete({ std::move(item) }, { note->id }, std::move(action))) {
+            editing = false;
+            editDirty = false;
+        }
+    }
+
+    void DeleteFolder(std::string_view path) {
+        const std::string removedPath = NormalizeFolderPath(path);
+        if (removedPath.empty() || !FindFolder(removedPath)) {
+            return;
+        }
+        if (!PrepareForTxtStructureChange()) {
+            return;
+        }
+        std::vector<notepadtxt::DeleteItem> items;
+        std::vector<std::string> noteIds;
+        for (const NoteEntry& note : notes) {
+            if (!note.txtSource || note.txtSource->missing || !PathStartsWith(note.folderPath, removedPath)) {
+                continue;
+            }
+            notepadtxt::DeleteItem item;
+            item.token = note.id;
+            item.relativePath = note.txtSource->relativePath;
+            item.expectedVersion = note.txtSource->version;
+            items.push_back(std::move(item));
+            noteIds.push_back(note.id);
+        }
+        if (items.empty()) {
+            DeleteFolderModel(removedPath);
+            return;
+        }
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::DeleteFolder;
+        action.subject = removedPath;
+        if (QueueTxtDelete(std::move(items), std::move(noteIds), std::move(action))) {
+            editing = false;
+            editDirty = false;
+        }
+    }
+
+    bool ApplyDrop(
+        const OrderItem& dragged,
+        std::string targetDirectory,
+        std::optional<OrderItem> anchor,
+        DropPlacement placement) {
+        targetDirectory = NormalizeFolderPath(targetDirectory);
+        if (dragged.type == ItemType::Note) {
+            NoteEntry* note = FindNote(dragged.value);
+            if (!note || !FolderExists(targetDirectory) || !note->txtSource) {
+                return ApplyDropModel(dragged, std::move(targetDirectory), std::move(anchor), placement);
+            }
+            if (!PrepareForTxtStructureChange()) {
+                return false;
+            }
+            if (note->folderPath == targetDirectory) {
+                return ApplyDropModel(dragged, std::move(targetDirectory), std::move(anchor), placement);
+            }
+            if (note->txtSource->missing) {
+                const bool applied = ApplyDropModel(dragged, targetDirectory, anchor, placement);
+                if (applied) {
+                    const fs::path sourcePath(Utf8ToWide(note->txtSource->relativePath));
+                    note->txtSource->relativePath = TxtRelativePath(targetDirectory, PathToUtf8(sourcePath.filename()));
+                    QueueSave();
+                }
+                return applied;
+            }
+            const fs::path sourcePath(Utf8ToWide(note->txtSource->relativePath));
+            PendingTxtAction action;
+            action.kind = PendingTxtActionKind::MoveNote;
+            action.subject = note->id;
+            action.targetDirectory = targetDirectory;
+            action.anchor = anchor;
+            action.placement = placement;
+            const bool queued = QueueTxtNoteMove(
+                *note,
+                TxtRelativePath(targetDirectory, PathToUtf8(sourcePath.filename())),
+                std::move(action));
+            if (queued) {
+                editing = false;
+                editDirty = false;
+            }
+            return queued;
+        }
+
+        FolderEntry* folder = FindFolder(dragged.value);
+        if (!folder || !FolderExists(targetDirectory)) {
+            return false;
+        }
+        const std::string oldPath = folder->path;
+        if (targetDirectory == oldPath || PathStartsWith(targetDirectory, oldPath)) {
+            return false;
+        }
+        const std::string newPath = JoinFolderPath(targetDirectory, BaseName(oldPath));
+        if (newPath != oldPath && FolderNameExists(targetDirectory, BaseName(oldPath), oldPath)) {
+            return false;
+        }
+        if (newPath == oldPath) {
+            return ApplyDropModel(dragged, targetDirectory, anchor, placement);
+        }
+        if (!PrepareForTxtStructureChange()) {
+            return false;
+        }
+        PendingTxtAction action;
+        action.kind = PendingTxtActionKind::MoveFolder;
+        action.subject = oldPath;
+        action.targetDirectory = targetDirectory;
+        action.anchor = anchor;
+        action.placement = placement;
+        if (HasLiveTxtSourceInTree(oldPath)) {
+            const bool queued = QueueTxtFolderMove(oldPath, newPath, std::move(action));
+            if (queued) {
+                editing = false;
+                editDirty = false;
+            }
+            return queued;
+        }
+        const bool applied = ApplyDropModel(dragged, targetDirectory, anchor, placement);
+        if (applied) {
+            RewriteTxtSourceFolderPrefix(oldPath, newPath);
+            QueueSave();
+        }
+        return applied;
     }
 
     int CountDescendantFolders(std::string_view path) const {
@@ -1513,6 +2641,15 @@ struct NotepadModule::Impl {
         if (DrawToolbarButton(ui_icons::FileImport, "notepad_import_txt", ui.Text(UiText::NotepadImportTxt))) {
             ImportTxtAsNote();
         }
+        ImGui::SameLine();
+        if (DrawToolbarButton(ui_icons::RotateLeft, "notepad_refresh_txt", ui.Text(UiText::NotepadTxtRefresh))) {
+            if (TxtOperationPending()) {
+                ShowTxtOperationPendingStatus();
+            } else {
+                txtSync.RequestFullScan();
+                statusMessage = ui.Text(UiText::NotepadTxtRefresh);
+            }
+        }
 
         ImGui::SetNextItemWidth(-1.0f);
         const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::NotepadSearchHint);
@@ -1777,18 +2914,99 @@ struct NotepadModule::Impl {
             QueueSave();
         }
         ImGui::SameLine();
+        const bool sourceUnavailable = note->txtSource
+            && !note->txtSource->missing
+            && note->txtSource->status != notepadtxt::FileStatus::Ready;
+        const bool editDisabled = TxtOperationPending()
+            || sourceUnavailable
+            || (note->txtSource && note->txtSource->conflict);
+        ImGui::BeginDisabled(editDisabled);
         if (ImGui::Button((std::string(ui_icons::Edit) + " " + ui.Text(UiText::Edit)).c_str())) {
             editing = true;
             editBuffer = note->text;
             editDirty = false;
             editCursor = static_cast<int>(editBuffer.size());
         }
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button((std::string(ui_icons::FileExport) + " " + ui.Text(UiText::NotepadExportTxt)).c_str())) {
             ExportNote(*note);
         }
         ImGui::SameLine();
         ImGui::Checkbox(ui.Text(UiText::NotepadApplyTags), &applyTags);
+
+        if (note->txtSource) {
+            TxtSourceState& source = *note->txtSource;
+            const std::string sourceDescription = std::string(notepadtxt::TextEncodingName(source.format.encoding))
+                + ", " + notepadtxt::NewlineStyleName(source.format.newline)
+                + (source.format.bom ? ", BOM, " : ", ")
+                + source.relativePath;
+            ImGui::TextDisabled("%s", ui.Format(UiText::NotepadTxtSourceFormat, sourceDescription.c_str()).c_str());
+            if (source.operationPending) {
+                ImGui::TextColored(ImVec4(0.90f, 0.75f, 0.25f, 1.0f), "%s", ui.Text(UiText::NotepadTxtOperationPending));
+            } else if (source.missing) {
+                ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::NotepadTxtMissing));
+            } else if (source.status != notepadtxt::FileStatus::Ready) {
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.45f, 0.35f, 1.0f),
+                    "%s",
+                    ui.Format(UiText::NotepadTxtUnavailableFormat, source.error).c_str());
+            }
+            if (source.conflict) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.30f, 1.0f), "%s", ui.Text(UiText::NotepadTxtConflict));
+                const UiText externalChoice = source.pendingExternalMissing
+                    ? UiText::NotepadTxtAcceptDelete
+                    : UiText::NotepadTxtUseFile;
+                if (ImGui::Button(ui.Text(externalChoice))) {
+                    const bool pendingMissing = source.pendingExternalMissing;
+                    note->text = source.pendingExternalText;
+                    note->updatedAt = UnixTimeNow();
+                    if (!pendingMissing) {
+                        source.format = source.pendingFormat;
+                        source.version = source.pendingVersion;
+                        source.status = notepadtxt::FileStatus::Ready;
+                        source.error = ERROR_SUCCESS;
+                        source.missing = false;
+                    }
+                    source.conflict = false;
+                    source.writePendingRecovery = false;
+                    source.pendingExternalMissing = false;
+                    source.pendingExternalText.clear();
+                    source.pendingFormat = {};
+                    source.pendingVersion = {};
+                    editing = false;
+                    editDirty = false;
+                    editBuffer = note->text;
+                    renderedNoteCache = {};
+                    QueueSave();
+                    txtSync.RequestFullScan();
+                    statusMessage.clear();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(ui.Text(UiText::NotepadTxtOverwriteFile))) {
+                    const TxtSourceState previousSource = source;
+                    if (!source.pendingExternalMissing) {
+                        source.format = source.pendingFormat;
+                        source.version = source.pendingVersion;
+                        source.status = notepadtxt::FileStatus::Ready;
+                        source.error = ERROR_SUCCESS;
+                        source.missing = false;
+                    }
+                    source.conflict = false;
+                    source.writePendingRecovery = false;
+                    source.pendingExternalMissing = false;
+                    source.pendingExternalText.clear();
+                    source.pendingFormat = {};
+                    source.pendingVersion = {};
+                    editing = false;
+                    editDirty = false;
+                    editBuffer = note->text;
+                    if (!QueueTxtWrite(*note, note->text)) {
+                        source = previousSource;
+                    }
+                }
+            }
+        }
 
         ImGui::Separator();
         if (!editing) {
