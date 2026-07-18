@@ -2,6 +2,7 @@
 
 #include "tags_module.h"
 #include "binder_tag_selector.h"
+#include "code_variables.h"
 
 #include <atomic>
 #include <cstdint>
@@ -46,7 +47,7 @@ public:
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
-    void Tick();
+    void Tick(bool sampReady);
     bool ExpandExternalTagsEnabled() const;
     void SetExpandExternalTagsEnabled(bool enabled);
     bool ProcessExternalText(std::string& text, ExternalTextPath path) const;
@@ -433,6 +434,7 @@ public:
     enum class TagPerfGroup {
         Builtin,
         Custom,
+        Code,
         MyCar,
         Closest,
         Dialog,
@@ -456,6 +458,7 @@ public:
         std::string hotTagName{};
         double hotTagMs = 0.0;
         int maxDepth = 0;
+        codevars::ExpansionCache codeCache{};
     };
 
     struct TagExpansionPerfBucket {
@@ -508,6 +511,9 @@ public:
     bool DeleteCustomVariable(std::string_view name);
     std::string ValidateCustomVariableName(std::string_view originalName, std::string_view name) const;
     void RefreshCatalogEntries();
+    void EnsureCodeCatalogEntries() const;
+    void RefreshCodeVariableReservedNames();
+    void DrawLuaVariablesTab();
     void RebuildCustomVariableIndex();
     void InvalidateVariablePickerEntriesCache() const;
     void OpenDialogItemPicker(DialogItemPickerSource source);
@@ -884,15 +890,21 @@ private:
     MiscPage currentPage_ = MiscPage::Home;
     std::atomic_bool expandExternalTags_{ true };
     TagRegistry tagRegistry_{};
-    std::vector<CatalogEntry> catalogEntries_{};
+    std::vector<CatalogEntry> builtinCatalogEntries_{};
+    mutable std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
     std::unordered_map<std::string, std::size_t> customVariableIndex_{};
     std::uint64_t catalogEntriesRevision_ = 0;
     std::uint64_t customVariablesRevision_ = 0;
+    mutable std::uint64_t codeCatalogRevision_ = 0;
     mutable std::vector<variables_picker::Entry> variablePickerEntriesCache_{};
     mutable std::uint64_t variablePickerEntriesCatalogRevision_ = 0;
     mutable std::uint64_t variablePickerEntriesCustomRevision_ = 0;
+    mutable std::uint64_t variablePickerEntriesCodeRevision_ = 0;
+    bool reloadingConfig_ = false;
     variables_picker::State variablesPickerState_{};
+    std::string luaHostInstallMessage_{};
+    bool luaHostInstallFailed_ = false;
     mutable std::vector<ActiveVirtualKeyHold> activeVirtualKeyHolds_{};
     mutable std::vector<PendingBindDelayOverride> pendingBindDelayOverrides_{};
     mutable std::vector<PendingKeyHoldWait> pendingKeyHoldWaits_{};

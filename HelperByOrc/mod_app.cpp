@@ -2175,7 +2175,7 @@ void ModApp::Tick() {
     binder_.Tick();
     UpdateHelperMouseSuppression();
     hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
-    tags_.Tick();
+    tags_.Tick(sampUiPipelineReady_);
 
     RefreshSampGate();
     arizonaCefDialogs_.Tick();

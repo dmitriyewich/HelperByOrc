@@ -81,6 +81,8 @@ const char* TagsModule::Impl::TagPerfGroupName(TagPerfGroup group) {
     switch (group) {
     case TagPerfGroup::Custom:
         return "custom";
+    case TagPerfGroup::Code:
+        return "code";
     case TagPerfGroup::MyCar:
         return "mycar";
     case TagPerfGroup::Closest:
@@ -500,6 +502,28 @@ std::optional<std::string> TagsModule::Impl::ResolveSimpleTagNormalized(
         return resolved;
     }
 
+    if (codevars::Runtime::Instance().HasActive(codevars::VariableKind::Simple, normalizedName)) {
+        bool action = false;
+        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
+            codevars::VariableKind::Simple,
+            normalizedName,
+            {},
+            context,
+            trace ? &trace->codeCache : nullptr,
+            &action);
+        if (codeValue.has_value()) {
+            if (trace) {
+                if (action) {
+                    ++trace->actionTags;
+                }
+                RecordTagGroup(*trace, TagPerfGroup::Code);
+                RecordHotTag(*trace, TagKind::Simple, normalizedName, TagsPerfNowMs() - resolverBeginMs);
+            }
+            return codeValue;
+        }
+    }
+
     if (trace) {
         ++trace->unresolvedTags;
     }
@@ -540,6 +564,29 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
             RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
         }
         return resolved;
+    }
+
+    if (codevars::Runtime::Instance().HasActive(codevars::VariableKind::Function, name)) {
+        const std::string expandedParam = ExpandTextRecursive(param, context, depth + 1, trace);
+        bool action = false;
+        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
+            codevars::VariableKind::Function,
+            name,
+            expandedParam,
+            context,
+            trace ? &trace->codeCache : nullptr,
+            &action);
+        if (codeValue.has_value()) {
+            if (trace) {
+                if (action) {
+                    ++trace->actionTags;
+                }
+                RecordTagGroup(*trace, TagPerfGroup::Code);
+                RecordHotTag(*trace, TagKind::Function, name, TagsPerfNowMs() - resolverBeginMs);
+            }
+            return codeValue;
+        }
     }
 
     if (trace) {

@@ -98,8 +98,9 @@ bool TagsModule::Impl::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) co
     return true;
 }
 
-void TagsModule::Impl::Tick() {
+void TagsModule::Impl::Tick(bool sampReady) {
     const std::uint64_t now = GetTickCount64();
+    codevars::Runtime::Instance().Tick(sampReady);
     MaybeLogExternalTagPerf(now);
     UpdateTargetTracker();
     ProcessPendingDialogWaits();

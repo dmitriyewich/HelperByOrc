@@ -20,9 +20,12 @@ constexpr wchar_t kUnifiedConfigFileName[] = L"HelperByOrc.json";
 constexpr wchar_t kProfilesRegistryFileName[] = L"profiles.json";
 constexpr wchar_t kNotepadAssetsFolderName[] = L"notepad";
 constexpr int kConfigSchemaVersion = 1;
-constexpr int kProfilesSchemaVersion = 1;
+constexpr int kProfilesSchemaVersion = 2;
 constexpr char kDefaultProfileId[] = "default";
 constexpr char kDefaultProfileName[] = "Default";
+// Preserve temporarily absent providers while keeping profiles.json bounded.
+constexpr std::size_t kMaxLuaProviderSettings = 512;
+constexpr std::size_t kMaxLuaProviderIdBytes = 192;
 constexpr std::chrono::milliseconds kSnapshotBuildDebounceWindow{ 500 };
 constexpr std::chrono::milliseconds kSnapshotWriterCoalesceWindow{ 200 };
 constexpr std::chrono::milliseconds kSnapshotRetryWindow{ 5000 };
@@ -118,8 +121,25 @@ fs::path ResolveProfilesRoot(HMODULE module) {
     return fallback;
 }
 
+fs::path ResolveLuaVariablesRoot(HMODULE module) {
+    if (const std::optional<fs::path> helperDataPath = helper_paths::ResolveHelperDataDirectory()) {
+        return *helperDataPath / L"vars";
+    }
+
+    const fs::path fallback = ResolveLegacyConfigPath(module).parent_path() / L"vars";
+    debuglog::WriteError("[tags][code] HelperByOrc data path unavailable, falling back to module directory: %ls", fallback.c_str());
+    return fallback;
+}
+
 fs::path ProfileConfigPath(const fs::path& profilesRoot, std::string_view profileId) {
     return profilesRoot / fs::path(std::string(profileId)) / kUnifiedConfigFileName;
+}
+
+bool IsValidLuaProviderSettingId(std::string_view id) {
+    return id.starts_with("lua:")
+        && id.size() > 4
+        && id.size() <= kMaxLuaProviderIdBytes
+        && id.find('\0') == std::string_view::npos;
 }
 
 jsonutil::JsonObject MakeDefaultConfigRoot() {
@@ -422,6 +442,7 @@ void AppConfig::OnProcessAttach(HMODULE module) {
     std::lock_guard lock(mutex_);
     profilesRoot_ = ResolveProfilesRoot(module);
     profilesRegistryPath_ = profilesRoot_ / kProfilesRegistryFileName;
+    luaVariablesRoot_ = ResolveLuaVariablesRoot(module);
     LoadProfilesLocked(module);
     loaded_ = false;
     root_.clear();
@@ -517,6 +538,63 @@ std::filesystem::path AppConfig::ProfilesRoot() const {
 std::filesystem::path AppConfig::ProfilesRegistryPath() const {
     std::lock_guard lock(mutex_);
     return profilesRegistryPath_;
+}
+
+std::filesystem::path AppConfig::LuaVariablesRoot() const {
+    std::lock_guard lock(mutex_);
+    return luaVariablesRoot_;
+}
+
+GlobalLuaVariablesConfig AppConfig::LuaVariablesConfig() const {
+    std::lock_guard lock(mutex_);
+    return GlobalLuaVariablesConfig{ luaVariablesEnabled_, luaProviderSettings_ };
+}
+
+bool AppConfig::SetLuaProviderEnabled(std::string_view providerId, bool enabled, std::string* error) {
+    std::lock_guard lock(mutex_);
+    const std::string id(providerId);
+    if (!IsValidLuaProviderSettingId(id)) {
+        if (error) {
+            *error = "invalid global Lua provider id";
+        }
+        return false;
+    }
+    const auto existing = luaProviderSettings_.find(id);
+    const bool wasEnabled = existing != luaProviderSettings_.end() && existing->second;
+    if (wasEnabled == enabled) {
+        return true;
+    }
+    if (enabled && existing == luaProviderSettings_.end()
+        && luaProviderSettings_.size() >= kMaxLuaProviderSettings) {
+        if (error) {
+            *error = "global Lua provider setting limit exceeded";
+        }
+        return false;
+    }
+
+    const std::optional<bool> previous = existing == luaProviderSettings_.end()
+        ? std::nullopt
+        : std::optional<bool>(existing->second);
+    if (enabled) {
+        luaProviderSettings_[id] = true;
+    } else {
+        luaProviderSettings_.erase(id);
+    }
+    if (SaveProfilesRegistryLocked()) {
+        debuglog::WriteInfo("[profiles][lua] provider=%s enabled=%d", id.c_str(), enabled ? 1 : 0);
+        return true;
+    }
+
+    if (previous) {
+        luaProviderSettings_[id] = *previous;
+    } else {
+        luaProviderSettings_.erase(id);
+    }
+    if (error) {
+        *error = "failed to save global Lua provider settings";
+    }
+    debuglog::WriteError("[profiles][lua] provider setting rolled back id=%s", id.c_str());
+    return false;
 }
 
 std::string AppConfig::ActiveProfileId() const {
@@ -675,7 +753,6 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         RemoveIncompleteProfileDirectory(profilesRoot_, targetPath.parent_path(), "duplicate copy");
         return false;
     }
-
     const std::string previousActiveProfileId = activeProfileId_;
     profiles_.push_back(ConfigProfile{ id, displayName, targetPath, false });
     if (activate) {
@@ -821,6 +898,9 @@ void AppConfig::LoadProfilesLocked(HMODULE module) {
     profiles_.clear();
     activeProfileId_.clear();
     configPath_.clear();
+    profilesRegistryRoot_.clear();
+    luaVariablesEnabled_ = true;
+    luaProviderSettings_.clear();
 
     std::error_code directoryError;
     fs::create_directories(profilesRoot_, directoryError);
@@ -845,7 +925,22 @@ void AppConfig::LoadProfilesLocked(HMODULE module) {
     }
 
     if (registry) {
+        profilesRegistryRoot_ = *registry;
         activeProfileId_ = NormalizeProfileId(jsonutil::JsonStringOr(&*registry, "active_profile", std::string(kDefaultProfileId)));
+        if (const jsonutil::JsonObject* luaVariables = jsonutil::JsonObjectOrNull(&*registry, "lua_variables")) {
+            luaVariablesEnabled_ = jsonutil::JsonBoolOr(luaVariables, "enabled", true);
+            if (const jsonutil::JsonObject* providers = jsonutil::JsonObjectOrNull(luaVariables, "providers")) {
+                for (const auto& [id, value] : *providers) {
+                    const bool* enabled = value.TryBool();
+                    if (enabled
+                        && *enabled
+                        && IsValidLuaProviderSettingId(id)
+                        && luaProviderSettings_.size() < kMaxLuaProviderSettings) {
+                        luaProviderSettings_[id] = true;
+                    }
+                }
+            }
+        }
         if (const jsonutil::JsonArray* profiles = jsonutil::JsonArrayOrNull(&*registry, "profiles")) {
             for (const jsonutil::JsonValue& value : *profiles) {
                 const jsonutil::JsonObject* object = value.TryObject();
@@ -930,9 +1025,18 @@ void AppConfig::LoadProfilesLocked(HMODULE module) {
 }
 
 bool AppConfig::SaveProfilesRegistryLocked() const {
-    jsonutil::JsonObject registry;
+    jsonutil::JsonObject registry = profilesRegistryRoot_;
     registry["schema_version"] = kProfilesSchemaVersion;
     registry["active_profile"] = activeProfileId_;
+
+    jsonutil::JsonObject luaVariables;
+    luaVariables["enabled"] = luaVariablesEnabled_;
+    jsonutil::JsonObject luaProviders;
+    for (const auto& [id, enabled] : luaProviderSettings_) {
+        luaProviders[id] = enabled;
+    }
+    luaVariables["providers"] = jsonutil::JsonValue(std::move(luaProviders));
+    registry["lua_variables"] = jsonutil::JsonValue(std::move(luaVariables));
 
     jsonutil::JsonArray profiles;
     for (const ConfigProfile& profile : profiles_) {

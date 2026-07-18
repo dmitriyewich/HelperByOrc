@@ -4,6 +4,7 @@
 TagsModule::Impl::Impl() = default;
 
 const std::vector<TagsModule::Impl::CatalogEntry>& TagsModule::Impl::CatalogEntries() const {
+    EnsureCodeCatalogEntries();
     return catalogEntries_;
 }
 
@@ -23,6 +24,9 @@ void TagsModule::Impl::OnProcessAttach() {
     debuglog::WriteInfo("TagsModule::OnProcessAttach begin");
     InitializeRegistry();
     LoadConfig();
+    RefreshCodeVariableReservedNames();
+    codevars::Runtime::Instance().OnProcessAttach();
+    EnsureCodeCatalogEntries();
     LoadTransliterationDictionary();
     ResetTargetTracker();
     currentPage_ = MiscPage::Home;
@@ -34,6 +38,9 @@ void TagsModule::Impl::OnProcessAttach() {
 
 void TagsModule::Impl::Shutdown() {
     debuglog::WriteInfo("TagsModule::Shutdown begin");
+    if (!reloadingConfig_) {
+        codevars::Runtime::Instance().Shutdown();
+    }
     for (ActiveVirtualKeyHold& hold : activeVirtualKeyHolds_) {
         ReleaseVirtualKeyHold(hold);
     }
@@ -48,10 +55,14 @@ void TagsModule::Impl::Shutdown() {
     vehicleNameCache_.clear();
     customVariables_.clear();
     customVariableIndex_.clear();
+    builtinCatalogEntries_.clear();
+    catalogEntries_.clear();
     variablePickerEntriesCache_.clear();
     customVariablesRevision_ = 0;
+    codeCatalogRevision_ = 0;
     variablePickerEntriesCatalogRevision_ = 0;
     variablePickerEntriesCustomRevision_ = 0;
+    variablePickerEntriesCodeRevision_ = 0;
     externalTagPerfStats_.send.store(0, std::memory_order_relaxed);
     externalTagPerfStats_.local.store(0, std::memory_order_relaxed);
     externalTagPerfStats_.changed.store(0, std::memory_order_relaxed);
@@ -72,9 +83,13 @@ void TagsModule::Impl::Shutdown() {
 
 void TagsModule::Impl::ReloadConfig() {
     debuglog::WriteInfo("TagsModule::ReloadConfig begin");
+    reloadingConfig_ = true;
     Shutdown();
+    reloadingConfig_ = false;
     InitializeRegistry();
     LoadConfig();
+    RefreshCodeVariableReservedNames();
+    EnsureCodeCatalogEntries();
     LoadTransliterationDictionary();
     debuglog::WriteInfo(
         "TagsModule::ReloadConfig done tags=%llu customVars=%llu",

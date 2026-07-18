@@ -56,16 +56,17 @@ void TagsModule::Impl::SaveConfig() const {
         "TagsModule::SaveConfig queued customVars=%llu expandExternalTags=%d",
         static_cast<unsigned long long>(customVariables_.size()),
         ExpandExternalTagsEnabled() ? 1 : 0);
-    jsonutil::JsonObject section;
     jsonutil::JsonObject customVars;
     for (const auto& [name, value] : customVariables_) {
         customVars[name] = value;
     }
-    section[std::string(kExpandExternalTagsKey)] = ExpandExternalTagsEnabled();
-    section[std::string(kCustomVarsKey)] = jsonutil::JsonValue(std::move(customVars));
-    AppConfig::Instance().QueueSectionReplace(
+    const bool expandExternalTags = ExpandExternalTagsEnabled();
+    AppConfig::Instance().QueueSectionMutation(
         std::string(kTagsSectionName),
-        jsonutil::JsonValue(std::move(section)),
+        [customVars = std::move(customVars), expandExternalTags](jsonutil::JsonObject& section) mutable {
+            section[std::string(kExpandExternalTagsKey)] = expandExternalTags;
+            section[std::string(kCustomVarsKey)] = jsonutil::JsonValue(std::move(customVars));
+        },
         "tags:config");
 }
 
@@ -93,9 +94,33 @@ void TagsModule::Impl::RebuildCustomVariableIndex() {
     InvalidateVariablePickerEntriesCache();
 }
 
+void TagsModule::Impl::RefreshCodeVariableReservedNames() {
+    std::unordered_set<std::string> simpleNames;
+    std::unordered_set<std::string> functionNames;
+    simpleNames.reserve(tagRegistry_.Entries().size() + customVariables_.size());
+    functionNames.reserve(tagRegistry_.Entries().size() + customVariables_.size());
+    for (const TagEntry& entry : tagRegistry_.Entries()) {
+        if (entry.kind == TagKind::Simple) {
+            simpleNames.insert(ToLower(entry.name));
+        } else {
+            functionNames.insert(ToLower(entry.name));
+        }
+    }
+    for (const auto& [name, value] : customVariables_) {
+        UNREFERENCED_PARAMETER(value);
+        const std::string normalized = ToLower(name);
+        simpleNames.insert(normalized);
+        functionNames.insert(normalized);
+    }
+    codevars::Runtime::Instance().SetReservedNames(std::move(simpleNames), std::move(functionNames));
+    codeCatalogRevision_ = 0;
+    InvalidateVariablePickerEntriesCache();
+}
+
 void TagsModule::Impl::InvalidateVariablePickerEntriesCache() const {
     variablePickerEntriesCatalogRevision_ = 0;
     variablePickerEntriesCustomRevision_ = 0;
+    variablePickerEntriesCodeRevision_ = 0;
 }
 
 void TagsModule::Impl::OpenKeyEmulatePicker() {
@@ -673,14 +698,17 @@ void TagsModule::Impl::DrawMiscHomePage() {
 }
 
 const std::vector<variables_picker::Entry>& TagsModule::Impl::BuildVariablePickerEntries() const {
+    EnsureCodeCatalogEntries();
+    const std::uint64_t codeRevision = codevars::Runtime::Instance().CatalogRevision();
     if (variablePickerEntriesCatalogRevision_ == catalogEntriesRevision_
-        && variablePickerEntriesCustomRevision_ == customVariablesRevision_) {
+        && variablePickerEntriesCustomRevision_ == customVariablesRevision_
+        && variablePickerEntriesCodeRevision_ == codeRevision) {
         return variablePickerEntriesCache_;
     }
 
     variablePickerEntriesCache_.clear();
-    variablePickerEntriesCache_.reserve(tagRegistry_.Entries().size() + customVariables_.size());
-    for (const TagEntry& tag : tagRegistry_.Entries()) {
+    variablePickerEntriesCache_.reserve(catalogEntries_.size() + customVariables_.size());
+    for (const CatalogEntry& tag : catalogEntries_) {
         const variables_picker::EntryKind kind = tag.kind == TagKind::Function
             ? variables_picker::EntryKind::Function
             : variables_picker::EntryKind::Simple;
@@ -692,6 +720,7 @@ const std::vector<variables_picker::Entry>& TagsModule::Impl::BuildVariablePicke
         entry.token = tag.token;
         entry.example = tag.example;
         entry.descriptionText = tag.descriptionText;
+        entry.description = tag.description;
         entry.action = tag.action;
         variablePickerEntriesCache_.push_back(std::move(entry));
     }
@@ -711,6 +740,7 @@ const std::vector<variables_picker::Entry>& TagsModule::Impl::BuildVariablePicke
 
     variablePickerEntriesCatalogRevision_ = catalogEntriesRevision_;
     variablePickerEntriesCustomRevision_ = customVariablesRevision_;
+    variablePickerEntriesCodeRevision_ = codeRevision;
     return variablePickerEntriesCache_;
 }
 
@@ -734,6 +764,12 @@ std::string TagsModule::Impl::ValidateCustomVariableName(std::string_view origin
     const std::string loweredOriginal = ToLower(Trim(originalName));
     if (tagRegistry_.Find(TagKind::Simple, loweredName) || tagRegistry_.Find(TagKind::Function, loweredName)) {
         return ui.Text(UiText::VariablesCustomErrorBuiltinConflict);
+    }
+    const std::vector<codevars::CatalogVariable> codeVariables = codevars::Runtime::Instance().Catalog();
+    if (std::any_of(codeVariables.begin(), codeVariables.end(), [&](const codevars::CatalogVariable& variable) {
+            return ToLower(variable.name) == loweredName;
+        })) {
+        return ui.Text(UiText::VariablesCustomErrorCodeConflict);
     }
 
     const auto customIt = customVariableIndex_.find(loweredName);
@@ -778,6 +814,7 @@ bool TagsModule::Impl::UpsertCustomVariable(std::string originalName, std::strin
         return left.first < right.first;
     });
     RebuildCustomVariableIndex();
+    RefreshCodeVariableReservedNames();
     SaveConfig();
     return true;
 }
@@ -796,6 +833,7 @@ bool TagsModule::Impl::DeleteCustomVariable(std::string_view name) {
     }
 
     RebuildCustomVariableIndex();
+    RefreshCodeVariableReservedNames();
     SaveConfig();
     return true;
 }
@@ -934,27 +972,37 @@ void TagsModule::Impl::DrawVariablesPage() {
     ImGui::TextDisabled("%s", ui.Text(UiText::MiscVariablesEntryDesc));
     ImGui::Spacing();
 
-    const std::vector<variables_picker::Entry>& entries = BuildVariablePickerEntries();
-    variables_picker::Options pickerOptions{
-        variables_picker::Mode::Manage,
-        "misc_variables_picker",
-        false,
-        true,
-        false,
-        ImGui::GetContentRegionAvail(),
-    };
-    pickerOptions.drawInspectorExtra = &DrawVariablePickerInspectorExtra;
-    pickerOptions.inspectorExtraContext = this;
-    const variables_picker::Request request = variables_picker::Draw(
-        variablesPickerState_,
-        entries,
-        pickerOptions);
-    HandleVariablePickerRequest(request);
+    if (ImGui::BeginTabBar("##variables_sections")) {
+        if (ImGui::BeginTabItem(ui.Text(UiText::VariablesTabCatalog))) {
+            const std::vector<variables_picker::Entry>& entries = BuildVariablePickerEntries();
+            variables_picker::Options pickerOptions{
+                variables_picker::Mode::Manage,
+                "misc_variables_picker",
+                false,
+                true,
+                false,
+                ImGui::GetContentRegionAvail(),
+            };
+            pickerOptions.drawInspectorExtra = &DrawVariablePickerInspectorExtra;
+            pickerOptions.inspectorExtraContext = this;
+            const variables_picker::Request request = variables_picker::Draw(
+                variablesPickerState_,
+                entries,
+                pickerOptions);
+            HandleVariablePickerRequest(request);
 
-    DrawKeyEmulatePickerPopup();
-    DrawDialogItemPickerPopup();
-    DrawDialogTextPickerPopup();
-    DrawBindSelectorBuilderPopup();
+            DrawKeyEmulatePickerPopup();
+            DrawDialogItemPickerPopup();
+            DrawDialogTextPickerPopup();
+            DrawBindSelectorBuilderPopup();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(ui.Text(UiText::VariablesTabLua))) {
+            DrawLuaVariablesTab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 }
 
 bool TagsModule::Impl::IsMiscHomePage() const {

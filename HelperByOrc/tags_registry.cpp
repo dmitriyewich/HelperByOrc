@@ -97,10 +97,10 @@ std::size_t TagsModule::Impl::TagRegistry::Count(TagKind kind) const {
 }
 
 void TagsModule::Impl::RefreshCatalogEntries() {
-    catalogEntries_.clear();
-    catalogEntries_.reserve(tagRegistry_.Entries().size());
+    builtinCatalogEntries_.clear();
+    builtinCatalogEntries_.reserve(tagRegistry_.Entries().size());
     for (const TagEntry& entry : tagRegistry_.Entries()) {
-        catalogEntries_.push_back(CatalogEntry{
+        builtinCatalogEntries_.push_back(CatalogEntry{
             entry.kind,
             entry.category,
             entry.action,
@@ -108,10 +108,38 @@ void TagsModule::Impl::RefreshCatalogEntries() {
             entry.token,
             entry.example,
             entry.descriptionText,
+            {},
         });
     }
     ++catalogEntriesRevision_;
+    codeCatalogRevision_ = 0;
+    EnsureCodeCatalogEntries();
     InvalidateVariablePickerEntriesCache();
+}
+
+void TagsModule::Impl::EnsureCodeCatalogEntries() const {
+    const std::uint64_t revision = codevars::Runtime::Instance().CatalogRevision();
+    if (codeCatalogRevision_ == revision && catalogEntries_.size() >= builtinCatalogEntries_.size()) {
+        return;
+    }
+
+    catalogEntries_ = builtinCatalogEntries_;
+    const std::vector<codevars::CatalogVariable> codeEntries = codevars::Runtime::Instance().Catalog();
+    catalogEntries_.reserve(catalogEntries_.size() + codeEntries.size());
+    for (const codevars::CatalogVariable& entry : codeEntries) {
+        catalogEntries_.push_back(CatalogEntry{
+            entry.kind == codevars::VariableKind::Function ? TagKind::Function : TagKind::Simple,
+            CatalogCategory::Custom,
+            entry.effect == codevars::VariableEffect::Action,
+            entry.name,
+            entry.token,
+            entry.example,
+            UiText::Count,
+            entry.description,
+        });
+    }
+    codeCatalogRevision_ = revision;
+    variablePickerEntriesCodeRevision_ = 0;
 }
 
 void TagsModule::Impl::InitializeRegistry() {

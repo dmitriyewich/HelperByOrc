@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 struct ConfigProfile {
@@ -21,6 +22,11 @@ struct ConfigProfile {
     std::string name{};
     std::filesystem::path configPath{};
     bool active = false;
+};
+
+struct GlobalLuaVariablesConfig {
+    bool enabled = true;
+    std::unordered_map<std::string, bool> providers{};
 };
 
 class AppConfig {
@@ -44,6 +50,9 @@ public:
     std::filesystem::path ActiveProfileDirectory() const;
     std::filesystem::path ProfilesRoot() const;
     std::filesystem::path ProfilesRegistryPath() const;
+    std::filesystem::path LuaVariablesRoot() const;
+    GlobalLuaVariablesConfig LuaVariablesConfig() const;
+    bool SetLuaProviderEnabled(std::string_view providerId, bool enabled, std::string* error = nullptr);
     std::string ActiveProfileId() const;
     std::vector<ConfigProfile> Profiles() const;
     bool SwitchProfile(std::string_view profileId, std::string* error = nullptr);
@@ -97,8 +106,12 @@ private:
     std::filesystem::path configPath_{};
     std::filesystem::path profilesRoot_{};
     std::filesystem::path profilesRegistryPath_{};
+    std::filesystem::path luaVariablesRoot_{};
     std::string activeProfileId_{};
     std::vector<ConfigProfile> profiles_{};
+    jsonutil::JsonObject profilesRegistryRoot_{};
+    bool luaVariablesEnabled_ = true;
+    std::unordered_map<std::string, bool> luaProviderSettings_{};
     mutable std::mutex mutex_{};
     bool loaded_ = false;
     jsonutil::JsonObject root_{};

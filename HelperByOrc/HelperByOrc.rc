@@ -1,0 +1,3 @@
+#include "resource.h"
+
+IDR_LUA_VARS_HOST RCDATA "lua\\HelperByOrcVarsHost.lua"

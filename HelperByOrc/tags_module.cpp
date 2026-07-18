@@ -58,8 +58,8 @@ bool TagsModule::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const {
     return impl_->ConsumeCurrentDispatchBlocked(runtimeId);
 }
 
-void TagsModule::Tick() {
-    impl_->Tick();
+void TagsModule::Tick(bool sampReady) {
+    impl_->Tick(sampReady);
 }
 
 bool TagsModule::ExpandExternalTagsEnabled() const {
@@ -142,6 +142,8 @@ variables_picker::Category TagsModule::ToPickerCategory(CatalogCategory category
         return variables_picker::Category::Binder;
     case CatalogCategory::Actions:
         return variables_picker::Category::Actions;
+    case CatalogCategory::Custom:
+        return variables_picker::Category::Custom;
     case CatalogCategory::Text:
     default:
         return variables_picker::Category::Text;

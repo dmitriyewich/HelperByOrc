@@ -34,6 +34,7 @@ public:
         Binder,
         Text,
         Actions,
+        Custom,
     };
 
     struct CatalogEntry {
@@ -44,6 +45,7 @@ public:
         std::string token{};
         std::string example{};
         UiText descriptionText = UiText::Count;
+        std::string description{};
     };
 
     struct VirtualKeyPickerEntry {
@@ -129,7 +131,7 @@ public:
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
-    void Tick();
+    void Tick(bool sampReady);
     bool ExpandExternalTagsEnabled() const;
     void SetExpandExternalTagsEnabled(bool enabled);
     bool ProcessExternalText(std::string& text, ExternalTextPath path) const;

@@ -800,6 +800,42 @@
     X(VariablesCustomErrorBadName, "Имя может содержать только A-Z, a-z, 0-9 и _. Длина: 1-64.", "The name may contain only A-Z, a-z, 0-9, and _. Length: 1-64.") \
     X(VariablesCustomErrorBuiltinConflict, "Имя конфликтует со встроенной переменной.", "The name conflicts with a built-in variable.") \
     X(VariablesCustomErrorDuplicate, "Пользовательская переменная с таким именем уже есть.", "A custom variable with this name already exists.") \
+    X(VariablesTabCatalog, "Каталог", "Catalog") \
+    X(VariablesTabLua, "Lua", "Lua") \
+    X(VariablesCodeTitle, "Переменные из Lua", "Lua variables") \
+    X(VariablesCodeDescription, "Подключайте Lua-файлы из общей папки. Каждый новый provider выключен, пока вы явно не включите его.", "Load Lua files from the shared folder. Every new provider stays disabled until you explicitly enable it.") \
+    X(VariablesCodeTrustedWarning, "Lua запускается внутри процесса игры. Включайте только доверенные файлы: лимиты standalone не создают sandbox.", "Lua runs inside the game process. Enable trusted files only: standalone limits do not create a sandbox.") \
+    X(VariablesCodeRuntimeTitle, "Среда выполнения", "Runtime") \
+    X(VariablesCodeActionsTitle, "Действия", "Actions") \
+    X(VariablesCodeBackendLabel, "Backend", "Backend") \
+    X(VariablesCodeHostLabel, "MoonLoader Host", "MoonLoader Host") \
+    X(VariablesCodePathFormat, "Папка: %s", "Folder: %s") \
+    X(VariablesCodeOpenFolder, "Открыть папку", "Open folder") \
+    X(VariablesCodeReload, "Перезагрузить Lua-файлы", "Reload Lua files") \
+    X(VariablesCodeInstallHost, "Установить Host", "Install Host") \
+    X(VariablesCodeUpdateHost, "Обновить Host", "Update Host") \
+    X(VariablesCodeHostInstalled, "HelperByOrcVarsHost.lua установлен. Перезапустите игру или перезагрузите скрипты MoonLoader.", "HelperByOrcVarsHost.lua was installed. Restart the game or reload MoonLoader scripts.") \
+    X(VariablesCodeHostInstallFailed, "Не удалось установить Host: %s", "Failed to install Host: %s") \
+    X(VariablesCodeHostUnavailable, "MoonLoader не обнаружен: используется встроенный standalone LuaJIT.", "MoonLoader was not detected: embedded standalone LuaJIT is used.") \
+    X(VariablesCodeHostOutdated, "Найден другой или устаревший HelperByOrcVarsHost.lua; перед обновлением будет создан .bak.", "A different or outdated HelperByOrcVarsHost.lua was found; a .bak will be created before updating.") \
+    X(VariablesCodeHostRestartRequired, "Standalone уже активен. Для перехода на MoonLoader backend нужен перезапуск игры или полная перезагрузка ASI и Host.", "Standalone is already active. Switching to the MoonLoader backend requires a game restart or a full ASI and Host reload.") \
+    X(VariablesCodeHostStateUnavailable, "недоступен", "unavailable") \
+    X(VariablesCodeHostStateMissing, "не установлен", "not installed") \
+    X(VariablesCodeHostStateCurrent, "актуален", "current") \
+    X(VariablesCodeHostStateOutdated, "нужно обновить", "update required") \
+    X(VariablesCodeProvidersTitle, "Файлы-провайдеры", "Provider files") \
+    X(VariablesCodeProvidersSummary, "Файлов: %s · включено: %s · переменных: %s", "Files: %s · enabled: %s · variables: %s") \
+    X(VariablesCodeEmpty, "В GTA San Andreas User Files\\HelperByOrc\\vars и подпапках нет Lua-файлов.", "There are no Lua files in GTA San Andreas User Files\\HelperByOrc\\vars or its subfolders.") \
+    X(VariablesCodeProviderEnable, "Включить", "Enable") \
+    X(VariablesCodeProviderEnabled, "Включён", "Enabled") \
+    X(VariablesCodeProviderVariablesFormat, "переменных: %s", "variables: %s") \
+    X(VariablesCodeStateDisabled, "выключен", "disabled") \
+    X(VariablesCodeStateWaiting, "ожидает Lua backend", "waiting for Lua backend") \
+    X(VariablesCodeStateLoading, "загрузка", "loading") \
+    X(VariablesCodeStateReady, "готов", "ready") \
+    X(VariablesCodeStateConflict, "конфликт", "conflict") \
+    X(VariablesCodeStateFaulted, "отключён после ошибки", "disabled after error") \
+    X(VariablesCustomErrorCodeConflict, "Имя конфликтует с переменной из Lua provider.", "The name conflicts with a Lua provider variable.") \
     X(NotepadIntro, "Профильный блокнот с папками, разметкой, локальными картинками и live preview.", "Profile-aware notepad with folders, markup, local images, and live preview.") \
     X(NotepadRootName, "Блокнот", "Notepad") \
     X(NotepadNewNote, "Заметка", "Note") \
