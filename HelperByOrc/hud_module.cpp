@@ -1039,9 +1039,10 @@ bool DrawHudSearchBox(const char* id, const char* hint, std::string& value, cons
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, visual.buttonHover);
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, visual.buttonActive);
     ImGui::PushStyleColor(ImGuiCol_Border, WithAlpha(visual.panelBorder, 0.24f));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, visual.mutedText);
     ImGui::SetNextItemWidth(inputWidth);
     bool changed = InputTextWithHintString(id, searchHint.c_str(), value, ImGuiInputTextFlags_AutoSelectAll, 128);
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(5);
     ImGui::PopStyleVar(3);
 
     if (hasClear) {
@@ -1053,6 +1054,37 @@ bool DrawHudSearchBox(const char* id, const char* hint, std::string& value, cons
         }
     }
     return changed;
+}
+
+void PrepareHudPropertyField(UiText label) {
+    ImGui::TextDisabled("%s", UiSettings::Instance().Text(label));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+}
+
+struct HudStyleCapabilities {
+    bool fill = false;
+    bool stroke = false;
+    bool rounding = false;
+    bool text = false;
+    bool shadow = false;
+    bool outline = false;
+};
+
+HudStyleCapabilities StyleCapabilitiesFor(ElementType type) {
+    const bool fill = type == ElementType::Text
+        || type == ElementType::TextMarkup
+        || type == ElementType::Image
+        || type == ElementType::Shape
+        || type == ElementType::Group
+        || type == ElementType::ProgressBar;
+    return HudStyleCapabilities{
+        fill,
+        fill || type == ElementType::Line,
+        fill,
+        type == ElementType::Text || type == ElementType::TextMarkup || type == ElementType::Icon,
+        fill,
+        type == ElementType::Text,
+    };
 }
 
 std::string ColorToHex(const ImVec4& color) {
@@ -1692,6 +1724,10 @@ struct HudModule::Impl {
     bool editorCanvasAutoHeight = true;
     std::string layerSearchQuery;
     std::string propertiesSearchQuery;
+    bool propertiesSearchExpanded = false;
+    std::vector<HudWidget*> widgetRowsScratch;
+    std::vector<HudElement*> layerRowsScratch;
+    std::vector<HudElement*> filteredLayerRowsScratch;
     bool helpWindowOpen = false;
     bool deleteWidgetConfirmPending = false;
     std::string pendingDeleteWidgetId;
@@ -1795,6 +1831,10 @@ struct HudModule::Impl {
         editorCanvasAutoHeight = true;
         layerSearchQuery.clear();
         propertiesSearchQuery.clear();
+        propertiesSearchExpanded = false;
+        widgetRowsScratch.clear();
+        layerRowsScratch.clear();
+        filteredLayerRowsScratch.clear();
         helpWindowOpen = false;
         deleteWidgetConfirmPending = false;
         pendingDeleteWidgetId.clear();
@@ -1849,6 +1889,10 @@ struct HudModule::Impl {
         editorCanvasAutoHeight = true;
         layerSearchQuery.clear();
         propertiesSearchQuery.clear();
+        propertiesSearchExpanded = false;
+        widgetRowsScratch.clear();
+        layerRowsScratch.clear();
+        filteredLayerRowsScratch.clear();
         helpWindowOpen = false;
         deleteWidgetConfirmPending = false;
         pendingDeleteWidgetId.clear();
@@ -2259,9 +2303,11 @@ struct HudModule::Impl {
             if (additive) {
                 selectedElementIds.erase(it);
             }
+            propertyScope = selectedElementIds.empty() ? HudPropertyScope::Widget : HudPropertyScope::Element;
             return;
         }
         selectedElementIds.emplace_back(id);
+        propertyScope = HudPropertyScope::Element;
     }
 
     int NextZ(const HudWidget& widget) const {
@@ -2525,6 +2571,7 @@ struct HudModule::Impl {
         EnsureLoaded();
         selectedWidgetId = widget.id;
         selectedElementIds.clear();
+        propertyScope = HudPropertyScope::Widget;
         widgets.push_back(std::move(widget));
         MarkChanged(true);
     }
@@ -2543,6 +2590,7 @@ struct HudModule::Impl {
         RemapClonedElementIds(copy.elements);
         selectedWidgetId = copy.id;
         selectedElementIds.clear();
+        propertyScope = HudPropertyScope::Widget;
         widgets.push_back(std::move(copy));
         MarkChanged(true);
     }
@@ -2559,6 +2607,7 @@ struct HudModule::Impl {
         widgets.erase(it, widgets.end());
         selectedWidgetId = widgets.empty() ? std::string() : widgets.front().id;
         selectedElementIds.clear();
+        propertyScope = HudPropertyScope::Widget;
         if (placementWidgetId == deletedId) {
             placementMode = false;
             placementWidgetId.clear();
@@ -2588,6 +2637,7 @@ struct HudModule::Impl {
         }
         element.z = NextZ(*widget);
         selectedElementIds = { element.id };
+        propertyScope = HudPropertyScope::Element;
         widget->elements.push_back(std::move(element));
         MarkChanged(true);
     }
@@ -3735,11 +3785,6 @@ struct HudModule::Impl {
         return *cache;
     }
 
-    std::vector<HudElement*> ElementsByZSnapshot(HudWidget& widget, bool descending = false) {
-        const std::vector<HudElement*>& cache = ElementsByZ(widget, descending);
-        return std::vector<HudElement*>(cache.begin(), cache.end());
-    }
-
     void DrawCanvas(HudWidget& widget, IDirect3DDevice9* device, const ImVec2& origin, float scale, bool editor) {
         RefreshWidgetCache(widget);
         for (HudElement* element : ElementsByZ(widget)) {
@@ -3975,11 +4020,8 @@ struct HudModule::Impl {
         return changed;
     }
 
-    void DrawAddElementMenu(const char* popupId) {
+    void DrawAddElementMenuItems() {
         UiSettings& ui = UiSettings::Instance();
-        if (!ImGui::BeginPopup(popupId)) {
-            return;
-        }
         constexpr ElementType types[] = {
             ElementType::Text,
             ElementType::Image,
@@ -3993,21 +4035,45 @@ struct HudModule::Impl {
                 AddElement(type);
             }
         }
+    }
+
+    void DrawAddElementMenu(const char* popupId) {
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
+        }
+        DrawAddElementMenuItems();
         ImGui::EndPopup();
     }
 
-    void DrawPresetMenu(const char* popupId) {
+    void DrawPresetMenuItems() {
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::BeginPopup(popupId)) {
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetWeapon))) AddWidget(MakeWeaponPreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetFreeText))) AddWidget(MakeFreeTextPreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetPlayerStatus))) AddWidget(MakePlayerStatusPreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetVehicle))) AddWidget(MakeVehiclePreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetNoteCard))) AddWidget(MakeNotePreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetTimer))) AddWidget(MakeTimerPreset());
-            if (ImGui::MenuItem(ui.Text(UiText::HudPresetDashboard))) AddWidget(MakeDashboardPreset());
-            ImGui::EndPopup();
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetWeapon))) AddWidget(MakeWeaponPreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetFreeText))) AddWidget(MakeFreeTextPreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetPlayerStatus))) AddWidget(MakePlayerStatusPreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetVehicle))) AddWidget(MakeVehiclePreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetNoteCard))) AddWidget(MakeNotePreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetTimer))) AddWidget(MakeTimerPreset());
+        if (ImGui::MenuItem(ui.Text(UiText::HudPresetDashboard))) AddWidget(MakeDashboardPreset());
+    }
+
+    void DrawCreateMenu(const char* popupId) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!ImGui::BeginPopup(popupId)) {
+            return;
         }
+        if (ImGui::BeginMenu(ui.Text(UiText::HudAddElement), SelectedWidget() != nullptr)) {
+            DrawAddElementMenuItems();
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(ui.Text(UiText::HudAddWidget))) {
+            AddWidget(MakeDefaultWidget());
+        }
+        if (ImGui::BeginMenu(ui.Text(UiText::HudPresets))) {
+            DrawPresetMenuItems();
+            ImGui::EndMenu();
+        }
+        ImGui::EndPopup();
     }
 
     void DuplicateToolbarTarget() {
@@ -4050,6 +4116,13 @@ struct HudModule::Impl {
         if (!ImGui::BeginPopup(popupId)) {
             return;
         }
+        HudWidget* widget = SelectedWidget();
+        if (ImGui::MenuItem(ui.Text(UiText::HudPlaceOnScreen), nullptr, false, widget != nullptr)) {
+            placementMode = true;
+            placementWidgetId = widget->id;
+            placementUndoCaptured = false;
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem(ui.Text(UiText::HudDuplicateWidget))) {
             DuplicateToolbarTarget();
         }
@@ -4186,7 +4259,32 @@ struct HudModule::Impl {
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ScaleUi(7.0f));
         const float buttonH = ImGui::GetFrameHeight();
         const float gap = ScaleUi(5.0f);
-        const bool compact = ImGui::GetContentRegionAvail().x < ScaleUi(980.0f);
+        const float availableActionsWidth = ImGui::GetContentRegionAvail().x;
+        float fullActionsWidth = 0.0f;
+        constexpr UiText fullActionLabels[] = {
+            UiText::HudToolbarCreate,
+            UiText::HudUndo,
+            UiText::HudRedo,
+            UiText::HudToolbarEdit,
+            UiText::HudToolbarFile,
+            UiText::HudHelpTitle,
+        };
+        constexpr const char* fullActionIcons[] = {
+            ui_icons::Plus,
+            nullptr,
+            nullptr,
+            ui_icons::Edit,
+            ui_icons::FileExport,
+            nullptr,
+        };
+        for (std::size_t i = 0; i < std::size(fullActionLabels); ++i) {
+            fullActionsWidth += HudTextActionButtonWidth(fullActionIcons[i], ui.Text(fullActionLabels[i]));
+        }
+        fullActionsWidth += gap * static_cast<float>(std::size(fullActionLabels) - 1);
+        if (placementMode) {
+            fullActionsWidth += gap + HudTextActionButtonWidth(nullptr, ui.Text(UiText::Cancel));
+        }
+        const bool compact = availableActionsWidth < fullActionsWidth;
         auto drawButton = [&](const char* icon, UiText labelId, const char* id, bool enabled, bool primary = false) {
             const char* label = ui.Text(labelId);
             const float width = HudTextActionButtonWidth(icon, label);
@@ -4195,86 +4293,47 @@ struct HudModule::Impl {
             return clicked;
         };
 
-        if (compact) {
-            if (drawButton(ui_icons::Plus, UiText::HudToolbarCreate, "##hud_create_top", true, true)) {
-                ImGui::OpenPopup("##hud_create_top_popup");
-            }
-            if (ImGui::BeginPopup("##hud_create_top_popup")) {
-                if (ImGui::MenuItem(ui.Text(UiText::HudAddWidget))) AddWidget(MakeDefaultWidget());
-                if (ImGui::BeginMenu(ui.Text(UiText::HudAddElement), widget != nullptr)) {
-                    constexpr ElementType types[] = { ElementType::Text, ElementType::Image, ElementType::Shape, ElementType::Line, ElementType::Icon, ElementType::ProgressBar };
-                    for (ElementType type : types) if (ImGui::MenuItem(ui.Text(ElementTypeLabelId(type)))) AddElement(type);
-                    ImGui::EndMenu();
-                }
-                if (ImGui::BeginMenu(ui.Text(UiText::HudPresets))) {
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetWeapon))) AddWidget(MakeWeaponPreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetFreeText))) AddWidget(MakeFreeTextPreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetPlayerStatus))) AddWidget(MakePlayerStatusPreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetVehicle))) AddWidget(MakeVehiclePreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetNoteCard))) AddWidget(MakeNotePreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetTimer))) AddWidget(MakeTimerPreset());
-                    if (ImGui::MenuItem(ui.Text(UiText::HudPresetDashboard))) AddWidget(MakeDashboardPreset());
-                    ImGui::EndMenu();
-                }
-                ImGui::EndPopup();
-            }
-        } else {
-            if (drawButton(ui_icons::Plus, UiText::HudAddWidget, "##hud_add_widget_top", true, true)) AddWidget(MakeDefaultWidget());
-            if (drawButton(ui_icons::Plus, UiText::HudAddElement, "##hud_add_element_top", widget != nullptr, false)) ImGui::OpenPopup("##hud_add_element_top_popup");
-            DrawAddElementMenu("##hud_add_element_top_popup");
-            if (drawButton(ui_icons::Sliders, UiText::HudPresets, "##hud_presets_top", true, false)) ImGui::OpenPopup("##hud_presets_top_popup");
-            DrawPresetMenu("##hud_presets_top_popup");
+        if (drawButton(ui_icons::Plus, UiText::HudToolbarCreate, "##hud_create_top", true, true)) {
+            ImGui::OpenPopup("##hud_create_top_popup");
+        }
+        DrawCreateMenu("##hud_create_top_popup");
+
+        if (!compact) {
+            if (drawButton(nullptr, UiText::HudUndo, "##hud_undo_top", !undoStack.empty(), false)) Undo();
+            if (drawButton(nullptr, UiText::HudRedo, "##hud_redo_top", !redoStack.empty(), false)) Redo();
         }
         if (drawButton(ui_icons::Edit, UiText::HudToolbarEdit, "##hud_edit_menu_top", widget != nullptr, false)) {
             ImGui::OpenPopup("##hud_edit_menu_top_popup");
         }
         DrawEditMenu("##hud_edit_menu_top_popup");
-        const bool wideToolbar = headerWidth >= ScaleUi(1080.0f);
-        if (wideToolbar) {
-            if (drawButton(nullptr, UiText::HudUndo, "##hud_undo_top", !undoStack.empty(), false)) Undo();
-            if (drawButton(nullptr, UiText::HudRedo, "##hud_redo_top", !redoStack.empty(), false)) Redo();
-        }
-        if (drawButton(ui_icons::FileExport, UiText::HudToolbarFile, "##hud_file_menu_top", true, false)) {
-            ImGui::OpenPopup("##hud_file_menu_top_popup");
-        }
-        DrawFileMenu("##hud_file_menu_top_popup");
-        if (drawButton(ui_icons::Sliders, UiText::HudToolbarView, "##hud_view_menu_top", true, false)) {
-            ImGui::OpenPopup("##hud_view_menu_top_popup");
-        }
-        DrawViewMenu("##hud_view_menu_top_popup");
 
-        if (drawButton(nullptr, UiText::HudHelpTitle, "##hud_help_top", true, false)) {
-            helpWindowOpen = true;
+        if (!compact) {
+            if (drawButton(ui_icons::FileExport, UiText::HudToolbarFile, "##hud_file_menu_top", true, false)) {
+                ImGui::OpenPopup("##hud_file_menu_top_popup");
+            }
+            DrawFileMenu("##hud_file_menu_top_popup");
+            if (drawButton(nullptr, UiText::HudHelpTitle, "##hud_help_top", true, false)) {
+                helpWindowOpen = true;
+            }
+        } else {
+            if (drawButton(ui_icons::EllipsisVertical, UiText::HudMoreActions, "##hud_more_top", true, false)) {
+                ImGui::OpenPopup("##hud_more_top_popup");
+            }
+            if (ImGui::BeginPopup("##hud_more_top_popup")) {
+                if (ImGui::MenuItem(ui.Text(UiText::HudUndo), nullptr, false, !undoStack.empty())) Undo();
+                if (ImGui::MenuItem(ui.Text(UiText::HudRedo), nullptr, false, !redoStack.empty())) Redo();
+                ImGui::Separator();
+                if (ImGui::MenuItem(ui.Text(UiText::HudExport), nullptr, false, widget != nullptr)) ExportSelectedWidget();
+                if (ImGui::MenuItem(ui.Text(UiText::HudImport))) ImportWidget();
+                if (ImGui::MenuItem(ui.Text(UiText::HudHelpTitle))) helpWindowOpen = true;
+                ImGui::EndPopup();
+            }
         }
+
         if (placementMode && drawButton(nullptr, UiText::Cancel, "##hud_cancel_placement_top", true, false)) {
             placementMode = false;
             placementWidgetId.clear();
             placementUndoCaptured = false;
-        }
-
-        if (!compact) {
-            const float fitWidth = HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudZoomFit));
-            if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoomFit), "##hud_zoom_fit_top", nullptr, ImVec2(fitWidth, buttonH), visual)) {
-                canvasFitZoom = true;
-                canvasPan = ImVec2(0.0f, 0.0f);
-            }
-            ImGui::SameLine(0.0f, gap);
-            const float zoom100Width = HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudZoom100));
-            if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoom100), "##hud_zoom_100_top", nullptr, ImVec2(zoom100Width, buttonH), visual)) {
-                canvasFitZoom = false;
-                canvasZoom = 1.0f;
-                canvasPan = ImVec2(0.0f, 0.0f);
-            }
-            ImGui::SameLine(0.0f, gap);
-            if (HudFlatIconButton(ui_icons::AngleDown, "##hud_zoom_out_top", ui.Text(UiText::HudZoomOut), ImVec2(buttonH, buttonH), visual)) {
-                canvasFitZoom = false;
-                canvasZoom = std::max(0.10f, canvasZoom - 0.10f);
-            }
-            ImGui::SameLine(0.0f, gap);
-            if (HudFlatIconButton(ui_icons::AngleUp, "##hud_zoom_in_top", ui.Text(UiText::HudZoomIn), ImVec2(buttonH, buttonH), visual)) {
-                canvasFitZoom = false;
-                canvasZoom = std::min(4.0f, canvasZoom + 0.10f);
-            }
         }
         EndHudPanel();
     }
@@ -4315,16 +4374,16 @@ struct HudModule::Impl {
                 const float iconSide = ScaleUi(26.0f);
                 const float gap = ScaleUi(7.0f);
                 std::string duplicateRequest;
-                std::vector<HudWidget*> visibleWidgets;
-                visibleWidgets.reserve(widgets.size());
+                widgetRowsScratch.clear();
+                widgetRowsScratch.reserve(widgets.size());
                 for (HudWidget& candidate : widgets) {
-                    if (needle.empty() || LowerAscii(candidate.name).find(needle) != std::string::npos) visibleWidgets.push_back(&candidate);
+                    if (needle.empty() || LowerAscii(candidate.name).find(needle) != std::string::npos) widgetRowsScratch.push_back(&candidate);
                 }
                 ImGuiListClipper clipper;
-                clipper.Begin(static_cast<int>(visibleWidgets.size()), rowH);
+                clipper.Begin(static_cast<int>(widgetRowsScratch.size()), rowH);
                 while (clipper.Step()) {
                     for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex) {
-                    HudWidget& widget = *visibleWidgets[static_cast<std::size_t>(visibleIndex)];
+                    HudWidget& widget = *widgetRowsScratch[static_cast<std::size_t>(visibleIndex)];
                     rowIndex = visibleIndex;
                     ImGui::PushID(widget.id.c_str());
                     const ImVec2 rowMin = ImGui::GetCursorScreenPos();
@@ -4348,12 +4407,13 @@ struct HudModule::Impl {
                     if (ImGui::InvisibleButton("##widget_select", ImVec2(textMaxW, rowH))) {
                         selectedWidgetId = widget.id;
                         selectedElementIds.clear();
+                        propertyScope = HudPropertyScope::Widget;
                         ResetCanvasInteraction(true);
                         QueueSave();
                     }
 
                     ImGui::SetCursorScreenPos(ImVec2(rowRect.Max.x - actionSide - ScaleUi(5.0f), rowRect.Min.y + ScaleUi(8.0f)));
-                    if (HudFlatIconButton(ui_icons::Sliders, "##widget_actions", ui.Text(UiText::HudMoreActions), ImVec2(actionSide, actionSide), visual)) {
+                    if (HudFlatIconButton(ui_icons::EllipsisVertical, "##widget_actions", ui.Text(UiText::HudMoreActions), ImVec2(actionSide, actionSide), visual)) {
                         ImGui::OpenPopup("##widget_actions_popup");
                     }
                     if (ImGui::BeginPopup("##widget_actions_popup")) {
@@ -4398,34 +4458,97 @@ struct HudModule::Impl {
     void DrawStyleProperties(HudElement& element) {
         UiSettings& ui = UiSettings::Instance();
         bool changed = false;
-        changed |= ImGui::SliderFloat(ui.Text(UiText::HudOpacity), &element.opacity, 0.0f, 1.0f, "%.2f");
-        ImGui::SeparatorText(ui.Text(UiText::HudStyle));
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudFill), &element.style.fillEnabled);
-        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudFillColor), &element.style.fill.x, ImGuiColorEditFlags_NoInputs);
-        changed |= ImGui::SliderFloat(ui.Text(UiText::HudFillAlpha), &element.style.fillAlpha, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudStroke), &element.style.strokeEnabled);
-        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudStrokeColor), &element.style.stroke.x, ImGuiColorEditFlags_NoInputs);
-        changed |= ImGui::SliderFloat(ui.Text(UiText::HudStrokeAlpha), &element.style.strokeAlpha, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudStrokeSize), &element.style.strokeSize, 0.1f, 0.0f, 32.0f, "%.1f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudRounding), &element.style.rounding, 0.5f, 0.0f, 80.0f, "%.1f");
-        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudTextColor), &element.style.text.x, ImGuiColorEditFlags_NoInputs);
-        changed |= ImGui::SliderFloat(ui.Text(UiText::HudTextAlpha), &element.style.textAlpha, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudShadow), &element.style.shadowEnabled);
-        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudShadowColor), &element.style.shadow.x, ImGuiColorEditFlags_NoInputs);
-        changed |= ImGui::SliderFloat(ui.Text(UiText::HudShadowAlpha), &element.style.shadowAlpha, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudShadowOffsetX), &element.style.shadowOffsetX, 0.5f, -120.0f, 120.0f, "%.1f");
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudShadowOffsetY), &element.style.shadowOffsetY, 0.5f, -120.0f, 120.0f, "%.1f");
-        changed |= ImGui::Checkbox(ui.Text(UiText::HudOutline), &element.style.outlineEnabled);
-        changed |= ImGui::ColorEdit3(ui.Text(UiText::HudOutlineColor), &element.style.outline.x, ImGuiColorEditFlags_NoInputs);
-        changed |= ImGui::DragFloat(ui.Text(UiText::HudOutlineSize), &element.style.outlineSize, 0.1f, 0.0f, 12.0f, "%.1f");
+        ImGui::PushID(element.id.c_str());
+        ImGui::PushID("style");
+        const HudStyleCapabilities capabilities = StyleCapabilitiesFor(element.type);
+        PrepareHudPropertyField(UiText::HudOpacity);
+        changed |= ImGui::SliderFloat("##opacity", &element.opacity, 0.0f, 1.0f, "%.2f");
+
+        if (capabilities.fill || capabilities.stroke || capabilities.rounding) {
+            ImGui::SeparatorText(ui.Text(capabilities.fill ? UiText::HudStyleWindow : UiText::HudStroke));
+            if (capabilities.fill) {
+                changed |= ImGui::Checkbox(ui.Text(UiText::HudFill), &element.style.fillEnabled);
+                ImGui::BeginDisabled(!element.style.fillEnabled);
+                PrepareHudPropertyField(UiText::HudFillColor);
+                changed |= ImGui::ColorEdit3("##fill_color", &element.style.fill.x, ImGuiColorEditFlags_NoInputs);
+                PrepareHudPropertyField(UiText::HudFillAlpha);
+                changed |= ImGui::SliderFloat("##fill_alpha", &element.style.fillAlpha, 0.0f, 1.0f, "%.2f");
+                ImGui::EndDisabled();
+            }
+            if (capabilities.stroke) {
+                if (element.type != ElementType::Line) {
+                    changed |= ImGui::Checkbox(ui.Text(UiText::HudStroke), &element.style.strokeEnabled);
+                }
+                ImGui::BeginDisabled(element.type != ElementType::Line && !element.style.strokeEnabled);
+                PrepareHudPropertyField(UiText::HudStrokeColor);
+                changed |= ImGui::ColorEdit3("##stroke_color", &element.style.stroke.x, ImGuiColorEditFlags_NoInputs);
+                PrepareHudPropertyField(UiText::HudStrokeAlpha);
+                changed |= ImGui::SliderFloat("##stroke_alpha", &element.style.strokeAlpha, 0.0f, 1.0f, "%.2f");
+                PrepareHudPropertyField(UiText::HudStrokeSize);
+                changed |= ImGui::DragFloat("##stroke_size", &element.style.strokeSize, 0.1f, 0.0f, 32.0f, "%.1f");
+                ImGui::EndDisabled();
+            }
+            if (capabilities.rounding) {
+                PrepareHudPropertyField(UiText::HudRounding);
+                changed |= ImGui::DragFloat("##rounding", &element.style.rounding, 0.5f, 0.0f, 80.0f, "%.1f");
+            }
+        }
+
+        if (capabilities.text) {
+            ImGui::SeparatorText(ui.Text(UiText::HudStyleTextRows));
+            PrepareHudPropertyField(UiText::HudTextColor);
+            changed |= ImGui::ColorEdit3("##text_color", &element.style.text.x, ImGuiColorEditFlags_NoInputs);
+            PrepareHudPropertyField(UiText::HudTextAlpha);
+            changed |= ImGui::SliderFloat("##text_alpha", &element.style.textAlpha, 0.0f, 1.0f, "%.2f");
+        }
+
+        if (capabilities.shadow || capabilities.outline) {
+            ImGui::SeparatorText(ui.Text(
+                capabilities.shadow && capabilities.outline ? UiText::HudStyleBorderShadow
+                : capabilities.shadow ? UiText::HudShadow
+                                      : UiText::HudOutline));
+            if (capabilities.shadow) {
+                changed |= ImGui::Checkbox(ui.Text(UiText::HudShadow), &element.style.shadowEnabled);
+                ImGui::BeginDisabled(!element.style.shadowEnabled);
+                PrepareHudPropertyField(UiText::HudShadowColor);
+                changed |= ImGui::ColorEdit3("##shadow_color", &element.style.shadow.x, ImGuiColorEditFlags_NoInputs);
+                PrepareHudPropertyField(UiText::HudShadowAlpha);
+                changed |= ImGui::SliderFloat("##shadow_alpha", &element.style.shadowAlpha, 0.0f, 1.0f, "%.2f");
+                PrepareHudPropertyField(UiText::HudShadowOffsetX);
+                changed |= ImGui::DragFloat("##shadow_offset_x", &element.style.shadowOffsetX, 0.5f, -120.0f, 120.0f, "%.1f");
+                PrepareHudPropertyField(UiText::HudShadowOffsetY);
+                changed |= ImGui::DragFloat("##shadow_offset_y", &element.style.shadowOffsetY, 0.5f, -120.0f, 120.0f, "%.1f");
+                ImGui::EndDisabled();
+            }
+            if (capabilities.outline) {
+                changed |= ImGui::Checkbox(ui.Text(UiText::HudOutline), &element.style.outlineEnabled);
+                ImGui::BeginDisabled(!element.style.outlineEnabled);
+                PrepareHudPropertyField(UiText::HudOutlineColor);
+                changed |= ImGui::ColorEdit3("##outline_color", &element.style.outline.x, ImGuiColorEditFlags_NoInputs);
+                PrepareHudPropertyField(UiText::HudOutlineAlpha);
+                changed |= ImGui::SliderFloat("##outline_alpha", &element.style.outlineAlpha, 0.0f, 1.0f, "%.2f");
+                PrepareHudPropertyField(UiText::HudOutlineSize);
+                changed |= ImGui::DragFloat("##outline_size", &element.style.outlineSize, 0.1f, 0.0f, 12.0f, "%.1f");
+                ImGui::EndDisabled();
+            }
+        }
+
         if (element.type == ElementType::Image) {
-            changed |= ImGui::ColorEdit3(ui.Text(UiText::HudTint), &element.style.tint.x, ImGuiColorEditFlags_NoInputs);
-            changed |= ImGui::SliderFloat(ui.Text(UiText::HudTintAlpha), &element.style.tintAlpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText(ui.Text(UiText::HudElementImage));
+            PrepareHudPropertyField(UiText::HudTint);
+            changed |= ImGui::ColorEdit3("##tint_color", &element.style.tint.x, ImGuiColorEditFlags_NoInputs);
+            PrepareHudPropertyField(UiText::HudTintAlpha);
+            changed |= ImGui::SliderFloat("##tint_alpha", &element.style.tintAlpha, 0.0f, 1.0f, "%.2f");
         }
         if (element.type == ElementType::ProgressBar) {
-            changed |= ImGui::ColorEdit3(ui.Text(UiText::HudProgressFill), &element.style.progressFill.x, ImGuiColorEditFlags_NoInputs);
-            changed |= ImGui::SliderFloat(ui.Text(UiText::HudProgressFillAlpha), &element.style.progressFillAlpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText(ui.Text(UiText::HudElementProgress));
+            PrepareHudPropertyField(UiText::HudProgressFill);
+            changed |= ImGui::ColorEdit3("##progress_fill_color", &element.style.progressFill.x, ImGuiColorEditFlags_NoInputs);
+            PrepareHudPropertyField(UiText::HudProgressFillAlpha);
+            changed |= ImGui::SliderFloat("##progress_fill_alpha", &element.style.progressFillAlpha, 0.0f, 1.0f, "%.2f");
         }
+        ImGui::PopID();
+        ImGui::PopID();
         if (changed) {
             MarkChanged();
         }
@@ -4744,10 +4867,13 @@ struct HudModule::Impl {
     void DrawElementDataProperties(HudElement& element) {
         UiSettings& ui = UiSettings::Instance();
         bool changed = false;
+        ImGui::PushID(element.id.c_str());
+        ImGui::PushID("data");
         if (element.type == ElementType::Text) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
+            PrepareHudPropertyField(UiText::HudTextMode);
             DrawTextModeCombo(element);
             ImGui::Spacing();
+            ImGui::TextDisabled("%s", ui.Text(UiText::HudText));
             changed |= InputTextMultilineString(
                 "##hud_element_text",
                 element.data.text,
@@ -4761,12 +4887,13 @@ struct HudModule::Impl {
             }
             DrawVariablesButton(HudInsertTarget::Text);
         } else if (element.type == ElementType::TextMarkup) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::HudTextMode));
+            PrepareHudPropertyField(UiText::HudTextMode);
             DrawTextModeCombo(element);
             ImGui::Spacing();
             if (element.data.sourceMode == SourceMode::Inline) {
                 DrawMarkupToolbar();
                 ImGui::Spacing();
+                ImGui::TextDisabled("%s", ui.Text(UiText::HudText));
                 changed |= InputTextMultilineString(
                     "##hud_markup_text",
                     element.data.text,
@@ -4790,6 +4917,7 @@ struct HudModule::Impl {
                         break;
                     }
                 }
+                PrepareHudPropertyField(UiText::HudSource);
                 if (ImGui::BeginCombo("##hud_note_combo", currentLabel.c_str())) {
                     for (const auto& note : notes) {
                         const std::string label = note.folderPath.empty() ? note.title : note.folderPath + " / " + note.title;
@@ -4811,28 +4939,34 @@ struct HudModule::Impl {
                 }
             }
         } else if (element.type == ElementType::Image) {
+            PrepareHudPropertyField(UiText::HudImagePath);
             changed |= InputTextString("##hud_image_path", element.data.imagePath, 0, 256);
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", ui.Text(UiText::HudImagePath));
-            if (ImGui::Button((std::string(ui_icons::Image) + " " + ui.Text(UiText::HudInsertImage)).c_str())) {
-                if (const std::optional<std::string> image = CopyImageIntoHudProfile()) {
-                    element.data.imagePath = *image;
-                    changed = true;
+            const int imageActionColumns = ImGui::GetContentRegionAvail().x >= ScaleUi(390.0f) ? 2 : 1;
+            if (ImGui::BeginTable("##hud_image_actions", imageActionColumns,
+                    ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                ImGui::TableNextColumn();
+                if (HudTextActionButton(ui_icons::Image, ui.Text(UiText::HudInsertImage), "##hud_insert_image", nullptr,
+                        ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()), HudEditorStyleTokens())) {
+                    if (const std::optional<std::string> image = CopyImageIntoHudProfile()) {
+                        element.data.imagePath = *image;
+                        changed = true;
+                    }
                 }
+                ImGui::TableNextColumn();
+                DrawVariablesButton(HudInsertTarget::ImagePath, ImGui::GetContentRegionAvail().x);
+                ImGui::EndTable();
             }
-            ImGui::SameLine();
-            DrawVariablesButton(HudInsertTarget::ImagePath);
+            PrepareHudPropertyField(UiText::HudImageFit);
             changed |= DrawImageFitCombo(element);
             if (!MarkupRenderer::IsSafeRelativeAssetPath(element.data.imagePath)) {
                 ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudUnsafeImagePath));
             }
         } else if (element.type == ElementType::Icon) {
+            PrepareHudPropertyField(UiText::HudIconName);
             changed |= InputTextString("##hud_icon_name", element.data.icon, 0, 64);
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", ui.Text(UiText::HudIconName));
-            ImGui::SameLine();
             const std::string iconPickerPopup = std::string(ui.Text(UiText::IconPickerTitle)) + "##hud_element_icon_picker";
-            if (ImGui::Button((std::string(ResolveHudIconGlyph(element.data.icon)) + " " + ui.Text(UiText::IconPickerSelect)).c_str())) {
+            const std::string pickerLabel = std::string(ResolveHudIconGlyph(element.data.icon)) + " " + ui.Text(UiText::IconPickerSelect);
+            if (ImGui::Button(pickerLabel.c_str(), ImVec2(-FLT_MIN, 0.0f))) {
                 icon_picker::OpenPopup(iconPickerPopup.c_str());
             }
             std::string selectedIconId;
@@ -4841,30 +4975,33 @@ struct HudModule::Impl {
                 changed = true;
             }
         } else if (element.type == ElementType::ProgressBar) {
+            PrepareHudPropertyField(UiText::HudExpression);
             changed |= InputTextString("##hud_expression", element.data.expression, 0, 256);
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", ui.Text(UiText::HudExpression));
-            DrawVariablesButton(HudInsertTarget::ProgressExpression);
+            DrawVariablesButton(HudInsertTarget::ProgressExpression, ImGui::GetContentRegionAvail().x);
             ImGui::SeparatorText(ui.Text(UiText::HudProgressRange));
-            if (ImGui::BeginTable("##hud_progress_range", 3,
+            const int progressColumns = ImGui::GetContentRegionAvail().x >= ScaleUi(480.0f) ? 3 : 1;
+            if (ImGui::BeginTable("##hud_progress_range", progressColumns,
                     ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
-                const auto rangeField = [&](int column, UiText label, const char* id, float* value) {
-                    ImGui::TableSetColumnIndex(column);
+                const auto rangeField = [&](UiText label, const char* id, float* value) {
+                    ImGui::TableNextColumn();
                     ImGui::TextDisabled("%s", ui.Text(label));
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     changed |= ImGui::DragFloat(id, value, 1.0f, -100000.0f, 100000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
                 };
-                ImGui::TableNextRow();
-                rangeField(0, UiText::HudMin, "##hud_progress_min", &element.data.minValue);
-                rangeField(1, UiText::HudMax, "##hud_progress_max", &element.data.maxValue);
-                rangeField(2, UiText::HudDefaultValue, "##hud_progress_default", &element.data.defaultValue);
+                rangeField(UiText::HudMin, "##hud_progress_min", &element.data.minValue);
+                rangeField(UiText::HudMax, "##hud_progress_max", &element.data.maxValue);
+                rangeField(UiText::HudDefaultValue, "##hud_progress_default", &element.data.defaultValue);
                 ImGui::EndTable();
             }
         }
         if (element.type == ElementType::Text || element.type == ElementType::TextMarkup || element.type == ElementType::Icon) {
-            changed |= ImGui::SliderInt(ui.Text(UiText::HudFontSize), &element.data.fontSize, 8, 96);
+            PrepareHudPropertyField(UiText::HudFontSize);
+            changed |= ImGui::SliderInt("##hud_font_size", &element.data.fontSize, 8, 96);
+            PrepareHudPropertyField(UiText::HudTextAlign);
             changed |= DrawTextAlignCombo(element);
         }
+        ImGui::PopID();
+        ImGui::PopID();
         if (changed) {
             MarkChanged();
         }
@@ -4872,13 +5009,12 @@ struct HudModule::Impl {
 
     void DrawWidgetMainInspector(HudWidget& widget) {
         UiSettings& ui = UiSettings::Instance();
-        const HudEditorVisualStyle visual = HudEditorStyleTokens();
         bool changed = false;
         ImGui::PushID(widget.id.c_str());
         ImGui::PushID("widget_main");
-        ImGui::TextColored(visual.mutedText, "%s", ui.Text(UiText::HudWidgetSection));
         changed |= ImGui::Checkbox(ui.Text(UiText::Enabled), &widget.enabled);
-        changed |= InputTextString(ui.Text(UiText::Name), widget.name, 0, 128);
+        PrepareHudPropertyField(UiText::Name);
+        changed |= InputTextString("##widget_name", widget.name, 0, 128);
         if (changed) {
             MarkChanged();
         }
@@ -4937,14 +5073,8 @@ struct HudModule::Impl {
         bool changed = false;
         ImGui::PushID(element->id.c_str());
         ImGui::PushID("element_main");
-        ImGui::TextColored(HudEditorStyleTokens().mutedText, "%s", ui.Text(UiText::HudElementSection));
-        changed |= InputTextString(ui.Text(UiText::Name), element->name, 0, 128);
-        const HudTextMode textMode = TextModeForElement(*element);
-        if (element->type == ElementType::Text || element->type == ElementType::TextMarkup) {
-            ImGui::TextDisabled("%s", TextModeLabel(textMode, ui));
-        } else {
-            ImGui::TextDisabled("%s", ui.Text(ElementTypeLabelId(element->type)));
-        }
+        PrepareHudPropertyField(UiText::Name);
+        changed |= InputTextString("##element_name", element->name, 0, 128);
 
         if (changed) {
             MarkChanged();
@@ -5081,7 +5211,7 @@ struct HudModule::Impl {
             }
             DrawAddElementMenu("##hud_add_element_layers_popup");
             ImGui::SameLine(0.0f, ScaleUi(4.0f));
-            if (HudFlatIconButton(ui_icons::Sliders, "##hud_layers_more", ui.Text(UiText::HudMoreActions), ImVec2(buttonSide, buttonSide), visual)) {
+            if (HudFlatIconButton(ui_icons::EllipsisVertical, "##hud_layers_more", ui.Text(UiText::HudMoreActions), ImVec2(buttonSide, buttonSide), visual)) {
                 ImGui::OpenPopup("##hud_layers_more_popup");
             }
             if (ImGui::BeginPopup("##hud_layers_more_popup")) {
@@ -5098,9 +5228,22 @@ struct HudModule::Impl {
             }
             ImGui::SetCursorScreenPos(ImVec2(headerMin.x, headerMin.y + headerH + ScaleUi(5.0f)));
 
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            InputTextWithHintString("##hud_layer_search", ui.Text(UiText::HudLayerSearchHint), layerSearchQuery);
+            DrawHudSearchBox("##hud_layer_search", ui.Text(UiText::HudLayerSearchHint), layerSearchQuery, visual);
             ImGui::Spacing();
+
+            const ImGuiPayload* activePayload = ImGui::GetDragDropPayload();
+            if (activePayload && activePayload->IsDataType("HBO_HUD_ELEMENT")) {
+                ImGui::PushStyleColor(ImGuiCol_Button, WithAlpha(visual.accent, 0.18f));
+                ImGui::Button(ui.Text(UiText::HudMoveToRoot), ImVec2(-FLT_MIN, ScaleUi(24.0f)));
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HBO_HUD_ELEMENT")) {
+                        const char* draggedId = static_cast<const char*>(payload->Data);
+                        RemoveElementFromGroup(widget, draggedId ? draggedId : "");
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::PopStyleColor();
+            }
 
             if (widget.elements.empty()) {
                 ImGui::TextWrapped("%s", ui.Text(UiText::HudNoLayers));
@@ -5110,29 +5253,18 @@ struct HudModule::Impl {
                 const float rowH = ScaleUi(32.0f);
                 const float iconSide = ScaleUi(24.0f);
                 const float gap = ScaleUi(5.0f);
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-                ImGui::Button(ui.Text(UiText::HudLayerRoot), ImVec2(-FLT_MIN, ScaleUi(24.0f)));
-                if (ImGui::BeginDragDropTarget()) {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HBO_HUD_ELEMENT")) {
-                        const char* draggedId = static_cast<const char*>(payload->Data);
-                        RemoveElementFromGroup(widget, draggedId ? draggedId : "");
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-                ImGui::PopStyleColor();
-
-                std::vector<HudElement*> ordered;
-                const std::vector<HudElement*> zOrder = ElementsByZSnapshot(widget, true);
-                ordered.reserve(zOrder.size());
+                layerRowsScratch.clear();
+                const std::vector<HudElement*>& zOrder = ElementsByZ(widget, true);
+                layerRowsScratch.reserve(zOrder.size());
                 for (HudElement* root : zOrder) {
                     if (!root->parentId.empty()) {
                         continue;
                     }
-                    ordered.push_back(root);
+                    layerRowsScratch.push_back(root);
                     if (root->type == ElementType::Group) {
                         for (HudElement* child : zOrder) {
                             if (child->parentId == root->id) {
-                                ordered.push_back(child);
+                                layerRowsScratch.push_back(child);
                             }
                         }
                     }
@@ -5140,17 +5272,17 @@ struct HudModule::Impl {
                 const std::string layerNeedle = LowerAscii(TrimAscii(layerSearchQuery));
                 std::string duplicateLayerRequest;
                 std::string deleteLayerRequest;
-                std::vector<HudElement*> visibleLayers;
-                visibleLayers.reserve(ordered.size());
-                for (HudElement* element : ordered) {
+                filteredLayerRowsScratch.clear();
+                filteredLayerRowsScratch.reserve(layerRowsScratch.size());
+                for (HudElement* element : layerRowsScratch) {
                     if (layerNeedle.empty() || LowerAscii(element->name).find(layerNeedle) != std::string::npos
-                        || LowerAscii(ElementTypeToString(element->type)).find(layerNeedle) != std::string::npos) visibleLayers.push_back(element);
+                        || LowerAscii(ElementTypeToString(element->type)).find(layerNeedle) != std::string::npos) filteredLayerRowsScratch.push_back(element);
                 }
                 ImGuiListClipper clipper;
-                clipper.Begin(static_cast<int>(visibleLayers.size()), rowH);
+                clipper.Begin(static_cast<int>(filteredLayerRowsScratch.size()), rowH);
                 while (clipper.Step()) {
                     for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex) {
-                    HudElement* element = visibleLayers[static_cast<std::size_t>(visibleIndex)];
+                    HudElement* element = filteredLayerRowsScratch[static_cast<std::size_t>(visibleIndex)];
                     rowIndex = visibleIndex;
                     ImGui::PushID(element->id.c_str());
                     const ImVec2 rowMin = ImGui::GetCursorScreenPos();
@@ -5171,7 +5303,7 @@ struct HudModule::Impl {
 
                     ImGui::SetCursorScreenPos(ImVec2(x, rowRect.Min.y + ScaleUi(4.0f)));
                     const ImVec4 lockColor = element->locked ? visual.accent : visual.faintText;
-                    if (HudFlatIconButton(ui_icons::Keyboard, "##layer_locked", ui.Text(UiText::HudLocked), ImVec2(iconSide, iconSide), visual, lockColor)) {
+                    if (HudFlatIconButton(ui_icons::Lock, "##layer_locked", ui.Text(UiText::HudLocked), ImVec2(iconSide, iconSide), visual, lockColor)) {
                         element->locked = !element->locked;
                         MarkChanged();
                     }
@@ -5733,6 +5865,71 @@ struct HudModule::Impl {
         }
     }
 
+    void DrawCanvasToolbar(const HudWidget* widget) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        const float buttonH = ImGui::GetFrameHeight();
+        const float gap = ScaleUi(4.0f);
+        const float viewWidth = HudTextActionButtonWidth(ui_icons::Sliders, ui.Text(UiText::HudToolbarView));
+        const float fitWidth = HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudZoomFit));
+        const float zoom100Width = HudTextActionButtonWidth(nullptr, ui.Text(UiText::HudZoom100));
+        const float availableWidth = ImGui::GetContentRegionAvail().x;
+        const float fullActionsWidth = viewWidth + fitWidth + zoom100Width + buttonH * 2.0f + gap * 4.0f;
+        const bool compact = availableWidth < fullActionsWidth + ScaleUi(120.0f);
+        const float actionsWidth = compact ? viewWidth + fitWidth + gap : fullActionsWidth;
+
+        if (!ImGui::BeginTable("##hud_canvas_toolbar", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+            return;
+        }
+        ImGui::TableSetupColumn("##hud_canvas_context", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("##hud_canvas_actions", ImGuiTableColumnFlags_WidthFixed, actionsWidth);
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (widget) {
+            const float labelWidth = std::max(ScaleUi(80.0f), ImGui::GetContentRegionAvail().x - ScaleUi(8.0f));
+            const std::string label = EllipsizeText(widget->name, labelWidth);
+            ImGui::TextUnformatted(label.c_str());
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                ImGui::SetTooltip("%s", ui.Format(UiText::HudCanvasSizeFormat, widget->canvasWidth, widget->canvasHeight).c_str());
+            }
+        } else {
+            ImGui::TextDisabled("%s", ui.Text(UiText::HudCanvas));
+        }
+
+        ImGui::TableNextColumn();
+        if (HudTextActionButton(ui_icons::Sliders, ui.Text(UiText::HudToolbarView), "##hud_canvas_view", nullptr,
+                ImVec2(viewWidth, buttonH), visual)) {
+            ImGui::OpenPopup("##hud_canvas_view_popup");
+        }
+        DrawViewMenu("##hud_canvas_view_popup");
+        ImGui::SameLine(0.0f, gap);
+        if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoomFit), "##hud_canvas_fit", nullptr,
+                ImVec2(fitWidth, buttonH), visual)) {
+            canvasFitZoom = true;
+            canvasPan = ImVec2(0.0f, 0.0f);
+        }
+        if (!compact) {
+            ImGui::SameLine(0.0f, gap);
+            if (HudTextActionButton(nullptr, ui.Text(UiText::HudZoom100), "##hud_canvas_100", nullptr,
+                    ImVec2(zoom100Width, buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = 1.0f;
+                canvasPan = ImVec2(0.0f, 0.0f);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (HudFlatIconButton(ui_icons::AngleDown, "##hud_canvas_zoom_out", ui.Text(UiText::HudZoomOut), ImVec2(buttonH, buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = std::max(0.10f, canvasZoom - 0.10f);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (HudFlatIconButton(ui_icons::AngleUp, "##hud_canvas_zoom_in", ui.Text(UiText::HudZoomIn), ImVec2(buttonH, buttonH), visual)) {
+                canvasFitZoom = false;
+                canvasZoom = std::min(4.0f, canvasZoom + 0.10f);
+            }
+        }
+        ImGui::EndTable();
+    }
+
     void DrawEditorCanvas(HudWidget& widget, IDirect3DDevice9* device) {
         UiSettings& ui = UiSettings::Instance();
         const HudEditorVisualStyle visual = HudEditorStyleTokens();
@@ -5845,6 +6042,7 @@ struct HudModule::Impl {
                     } else if (mouseInCanvas) {
                         if (!io.KeyCtrl) {
                             selectedElementIds.clear();
+                            propertyScope = HudPropertyScope::Widget;
                         }
                         BeginCanvasMarquee(io.KeyCtrl);
                     }
@@ -5959,6 +6157,32 @@ struct HudModule::Impl {
         lastEditorStats.canvasMs += HudPerfNowMs() - beginMs;
     }
 
+    void DrawCanvasPane(HudWidget* widget, IDirect3DDevice9* device, const ImVec2& size) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (BeginHudPanel("hud_editor_canvas_v3", size, visual,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            DrawCanvasToolbar(widget);
+            ImGui::Separator();
+            if (ImGui::BeginChild("##hud_canvas_content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+                if (widget) {
+                    DrawEditorCanvasMeasured(*widget, device);
+                } else {
+                    ImGui::TextWrapped("%s", ui.Text(UiText::HudNoWidgets));
+                    const char* label = ui.Text(UiText::HudAddWidget);
+                    if (HudTextActionButton(ui_icons::Plus, label, "##hud_add_widget_empty_canvas", nullptr,
+                            ImVec2(std::min(HudTextActionButtonWidth(ui_icons::Plus, label), ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()),
+                            visual, true, true)) {
+                        AddWidget(MakeDefaultWidget());
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+        EndHudPanel();
+    }
+
     bool DrawBottomPanelTab(HudBottomPanel panel, UiText labelId, float width, const HudEditorVisualStyle& visual) {
         const bool active = bottomPanel == panel;
         if (HudTextActionButton(
@@ -5978,31 +6202,149 @@ struct HudModule::Impl {
         return false;
     }
 
-    bool PropertyCategoryMatches(HudPropertiesCategory category, std::string_view query) const {
+    bool PropertyCategoryMatches(
+        HudPropertiesCategory category,
+        std::string_view query,
+        const HudElement* element,
+        bool widgetScope,
+        bool multiElementScope) const {
         if (query.empty()) {
             return propertiesCategory == category;
         }
         UiSettings& ui = UiSettings::Instance();
         std::string haystack;
+        const auto add = [&](UiText label) {
+            if (!haystack.empty()) haystack.push_back(' ');
+            haystack += ui.Text(label);
+        };
         switch (category) {
         case HudPropertiesCategory::Content:
-            haystack = std::string(ui.Text(UiText::HudPropertiesContent)) + " " + ui.Text(UiText::HudText) + " "
-                + ui.Text(UiText::Name) + " " + ui.Text(UiText::HudSource) + " " + ui.Text(UiText::HudExpression) + " "
-                + ui.Text(UiText::HudProgressRange) + " " + ui.Text(UiText::HudMin) + " " + ui.Text(UiText::HudMax) + " "
-                + ui.Text(UiText::HudDefaultValue) + " " + ui.Text(UiText::HudFontSize);
+            add(UiText::HudPropertiesContent);
+            add(UiText::Name);
+            if (widgetScope) {
+                add(UiText::Enabled);
+            } else if (!multiElementScope && element) {
+                add(ElementTypeLabelId(element->type));
+                switch (element->type) {
+                case ElementType::Text:
+                    add(UiText::HudTextMode);
+                    add(UiText::HudText);
+                    add(UiText::HudVariables);
+                    add(UiText::HudFontSize);
+                    add(UiText::HudTextAlign);
+                    break;
+                case ElementType::TextMarkup:
+                    add(UiText::HudTextMode);
+                    add(UiText::HudText);
+                    add(UiText::HudSource);
+                    add(UiText::HudVariables);
+                    add(UiText::HudFontSize);
+                    add(UiText::HudTextAlign);
+                    break;
+                case ElementType::Image:
+                    add(UiText::HudImagePath);
+                    add(UiText::HudInsertImage);
+                    add(UiText::HudImageFit);
+                    add(UiText::HudVariables);
+                    break;
+                case ElementType::Icon:
+                    add(UiText::HudIconName);
+                    add(UiText::IconPickerSelect);
+                    add(UiText::HudFontSize);
+                    add(UiText::HudTextAlign);
+                    break;
+                case ElementType::ProgressBar:
+                    add(UiText::HudExpression);
+                    add(UiText::HudVariables);
+                    add(UiText::HudProgressRange);
+                    add(UiText::HudMin);
+                    add(UiText::HudMax);
+                    add(UiText::HudDefaultValue);
+                    break;
+                case ElementType::Shape:
+                case ElementType::Line:
+                case ElementType::Group:
+                    break;
+                }
+            }
             break;
         case HudPropertiesCategory::Geometry:
-            haystack = std::string(ui.Text(UiText::HudPropertiesGeometry)) + " " + ui.Text(UiText::HudPosition) + " " + ui.Text(UiText::HudSize) + " X Y W H";
+            add(UiText::HudPropertiesGeometry);
+            if (widgetScope) {
+                add(UiText::HudPlaceOnScreen);
+                add(UiText::HudCanvasWidth);
+                add(UiText::HudCanvasHeight);
+                add(UiText::HudScalePolicy);
+                add(UiText::HudAnchor);
+                add(UiText::HudOffsetX);
+                add(UiText::HudOffsetY);
+            } else if (multiElementScope) {
+                add(UiText::HudAlignMenu);
+            } else {
+                add(UiText::HudPosition);
+                add(UiText::HudSize);
+                add(UiText::HudX);
+                add(UiText::HudY);
+                add(UiText::HudW);
+                add(UiText::HudH);
+            }
             break;
         case HudPropertiesCategory::Appearance:
-            haystack = std::string(ui.Text(UiText::HudPropertiesAppearance)) + " " + ui.Text(UiText::HudStyle) + " "
-                + ui.Text(UiText::HudOpacity) + " " + ui.Text(UiText::HudFillColor) + " " + ui.Text(UiText::HudTextColor)
-                + " " + ui.Text(UiText::HudStroke) + " " + ui.Text(UiText::HudShadow) + " " + ui.Text(UiText::HudOutline);
+            add(UiText::HudPropertiesAppearance);
+            add(UiText::HudStyle);
+            add(UiText::HudOpacity);
+            if (!multiElementScope && element) {
+                const HudStyleCapabilities capabilities = StyleCapabilitiesFor(element->type);
+                if (capabilities.fill) {
+                    add(UiText::HudFill);
+                    add(UiText::HudFillColor);
+                    add(UiText::HudFillAlpha);
+                }
+                if (capabilities.stroke) {
+                    add(UiText::HudStroke);
+                    add(UiText::HudStrokeColor);
+                    add(UiText::HudStrokeAlpha);
+                    add(UiText::HudStrokeSize);
+                }
+                if (capabilities.rounding) add(UiText::HudRounding);
+                if (capabilities.text) {
+                    add(UiText::HudTextColor);
+                    add(UiText::HudTextAlpha);
+                }
+                if (capabilities.shadow) {
+                    add(UiText::HudShadow);
+                    add(UiText::HudShadowColor);
+                    add(UiText::HudShadowAlpha);
+                    add(UiText::HudShadowOffsetX);
+                    add(UiText::HudShadowOffsetY);
+                }
+                if (capabilities.outline) {
+                    add(UiText::HudOutline);
+                    add(UiText::HudOutlineColor);
+                    add(UiText::HudOutlineAlpha);
+                    add(UiText::HudOutlineSize);
+                }
+                if (element->type == ElementType::Image) {
+                    add(UiText::HudTint);
+                    add(UiText::HudTintAlpha);
+                }
+                if (element->type == ElementType::ProgressBar) {
+                    add(UiText::HudProgressFill);
+                    add(UiText::HudProgressFillAlpha);
+                }
+            }
             break;
         case HudPropertiesCategory::Visibility:
-            haystack = std::string(ui.Text(UiText::HudInspectorVisibility)) + " " + ui.Text(UiText::HudVisibilityConditions)
-                + " " + ui.Text(UiText::HudRefreshMs) + " " + ui.Text(UiText::Enabled) + " " + ui.Text(UiText::HudLocked)
-                + " " + ui.Text(UiText::HudHidden);
+            add(UiText::HudInspectorVisibility);
+            if (!widgetScope) {
+                add(UiText::HudLocked);
+                add(UiText::HudHidden);
+            }
+            if (!multiElementScope) {
+                add(UiText::HudVisibilityConditions);
+                add(UiText::HudConfigureConditions);
+                if (widgetScope) add(UiText::HudRefreshMs);
+            }
             break;
         }
         return LowerUtf8(haystack).find(query) != std::string::npos;
@@ -6043,7 +6385,8 @@ struct HudModule::Impl {
             });
             float opacity = firstOpacity;
             if (mixedOpacity) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
-            const bool opacityChanged = ImGui::SliderFloat(ui.Text(UiText::HudOpacity), &opacity, 0.0f, 1.0f, "%.2f");
+            PrepareHudPropertyField(UiText::HudOpacity);
+            const bool opacityChanged = ImGui::SliderFloat("##hud_multi_opacity", &opacity, 0.0f, 1.0f, "%.2f");
             if (mixedOpacity) ImGui::PopItemFlag();
             if (opacityChanged) {
                 for (HudElement* element : elements) element->opacity = opacity;
@@ -6097,7 +6440,9 @@ struct HudModule::Impl {
             ImGui::EndTable();
         }
         changed |= canvasSizeChanged;
+        PrepareHudPropertyField(UiText::HudScalePolicy);
         changed |= DrawScalePolicyCombo(widget);
+        PrepareHudPropertyField(UiText::HudAnchor);
         changed |= DrawAnchorCombo(widget);
         if (ImGui::BeginTable("##hud_widget_offset_geometry", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
             ImGui::TableNextRow();
@@ -6123,7 +6468,6 @@ struct HudModule::Impl {
     }
 
     void DrawElementGeometryV3(HudWidget& widget) {
-        UiSettings& ui = UiSettings::Instance();
         HudElement* element = PrimarySelectedElement(widget);
         if (!element) return;
         bool changed = false;
@@ -6139,19 +6483,28 @@ struct HudModule::Impl {
 
     void DrawVisibilityV3(HudWidget& widget, HudElement* element) {
         UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
         bool changed = false;
         if (!element) {
             ImGui::PushID(widget.id.c_str());
-            if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions)).c_str())) conditionsPopupPending = true;
+            ImGui::TextWrapped("%s", ui.Text(UiText::HudWidgetVisibilityHint));
+            const char* label = ui.Text(UiText::HudConfigureConditions);
+            if (HudTextActionButton(ui_icons::Sliders, label, "##hud_widget_conditions_action", nullptr,
+                    ImVec2(std::min(HudTextActionButtonWidth(ui_icons::Sliders, label), ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()), visual)) {
+                conditionsPopupPending = true;
+            }
             changed |= DrawConditionFlagsPopup("##hud_widget_conditions_v3", conditionsPopupPending, UiText::HudVisibilityConditions,
                 widget.visibility.conditions, &widget.visibility.conditionsCombine);
-            if (ImGui::InputInt(ui.Text(UiText::HudRefreshMs), &widget.refreshMs, 50, 100)) {
+            PrepareHudPropertyField(UiText::HudRefreshMs);
+            if (ImGui::InputInt("##hud_refresh_ms", &widget.refreshMs, 50, 100)) {
                 widget.refreshMs = std::max(0, widget.refreshMs);
                 widget.nextRefreshAtMs = 0;
                 changed = true;
             }
             if (widget.refreshMs == 0) {
+                ImGui::PushTextWrapPos(0.0f);
                 ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "%s", ui.Text(UiText::HudRefreshZeroWarning));
+                ImGui::PopTextWrapPos();
             }
             ImGui::PopID();
         } else {
@@ -6160,7 +6513,12 @@ struct HudModule::Impl {
             ImGui::SameLine();
             changed |= ImGui::Checkbox(ui.Text(UiText::HudHidden), &element->hidden);
             ImGui::SeparatorText(ui.Text(UiText::HudVisibilityConditions));
-            if (ImGui::Button((std::string(ui_icons::Sliders) + " " + ui.Text(UiText::HudVisibilityConditions)).c_str())) elementConditionsPopupPending = true;
+            ImGui::TextWrapped("%s", ui.Text(UiText::HudLayerVisibilityHint));
+            const char* label = ui.Text(UiText::HudConfigureConditions);
+            if (HudTextActionButton(ui_icons::Sliders, label, "##hud_element_conditions_action", nullptr,
+                    ImVec2(std::min(HudTextActionButtonWidth(ui_icons::Sliders, label), ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()), visual)) {
+                elementConditionsPopupPending = true;
+            }
             changed |= DrawConditionFlagsPopup("##hud_element_conditions_v3", elementConditionsPopupPending, UiText::HudVisibilityConditions,
                 element->visibility.conditions, &element->visibility.conditionsCombine);
             ImGui::PopID();
@@ -6168,49 +6526,61 @@ struct HudModule::Impl {
         if (changed) MarkChanged();
     }
 
+    void DrawInspectorHeader(HudWidget& widget, HudElement* element) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        const bool widgetScope = propertyScope == HudPropertyScope::Widget || !element;
+        const float searchSide = ImGui::GetFrameHeight();
+        const std::string elementContext = selectedElementIds.size() > 1
+            ? ui.Format(UiText::HudSelectedElementsFormat, static_cast<int>(selectedElementIds.size()))
+            : (element ? element->name : std::string{});
+
+        if (ImGui::BeginTable("##hud_inspector_breadcrumb", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("##hud_inspector_title", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("##hud_inspector_search", ImGuiTableColumnFlags_WidthFixed, searchSide);
+            ImGui::TableNextColumn();
+            const auto drawBreadcrumbSegment = [&](UiText scope, const std::string& name, bool active, const char* id) {
+                const float width = std::max(ScaleUi(80.0f), ImGui::GetContentRegionAvail().x - ScaleUi(4.0f));
+                const std::string prefix = std::string(ui.Text(scope)) + ": ";
+                const std::string visible = prefix + EllipsizeText(name, std::max(ScaleUi(40.0f), width - ImGui::CalcTextSize(prefix.c_str()).x));
+                const std::string tooltip = prefix + name;
+                if (active) {
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextColored(visual.headerText, "%s", visible.c_str());
+                } else {
+                    if (HudTextActionButton(nullptr, visible.c_str(), id, tooltip.c_str(),
+                            ImVec2(width, ImGui::GetFrameHeight()), visual)) {
+                        propertyScope = scope == UiText::HudWidgetSection ? HudPropertyScope::Widget : HudPropertyScope::Element;
+                    }
+                }
+                if (active && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    ImGui::SetTooltip("%s: %s", ui.Text(scope), name.c_str());
+                }
+            };
+            drawBreadcrumbSegment(UiText::HudWidgetSection, widget.name, widgetScope, "hud_inspect_widget");
+            if (element) {
+                drawBreadcrumbSegment(UiText::HudElementSection, elementContext, !widgetScope, "hud_inspect_element");
+            }
+            ImGui::TableNextColumn();
+            if (HudFlatIconButton(ui_icons::Search, "##hud_toggle_property_search", ui.Text(UiText::HudPropertiesSearchHint),
+                    ImVec2(searchSide, searchSide), visual)) {
+                propertiesSearchExpanded = !propertiesSearchExpanded;
+                if (!propertiesSearchExpanded) propertiesSearchQuery.clear();
+            }
+            ImGui::EndTable();
+        }
+
+        if (propertiesSearchExpanded || !propertiesSearchQuery.empty()) {
+            DrawHudSearchBox("##hud_properties_search", ui.Text(UiText::HudPropertiesSearchHint), propertiesSearchQuery, visual);
+        }
+    }
+
     void DrawPropertiesV3(HudWidget& widget) {
         UiSettings& ui = UiSettings::Instance();
         const HudEditorVisualStyle visual = HudEditorStyleTokens();
         HudElement* element = PrimarySelectedElement(widget);
         if (!element) propertyScope = HudPropertyScope::Widget;
-
-        const char* widgetScopeLabel = ui.Text(UiText::HudWidgetSection);
-        const std::string elementScopeLabel = selectedElementIds.size() > 1
-            ? ui.Format(UiText::HudSelectedElementsFormat, static_cast<int>(selectedElementIds.size()))
-            : ui.Text(UiText::HudElementSection);
-        const float scopeWidgetWidth = std::max(ScaleUi(110.0f), ImGui::CalcTextSize(widgetScopeLabel).x + ScaleUi(24.0f));
-        const float scopeElementWidth = std::max(ScaleUi(140.0f), ImGui::CalcTextSize(elementScopeLabel.c_str()).x + ScaleUi(24.0f));
-        const bool inlineSearch = ImGui::GetContentRegionAvail().x >= scopeWidgetWidth + (element ? scopeElementWidth : 0.0f) + ScaleUi(260.0f);
-        const int scopeColumns = inlineSearch ? (element ? 3 : 2) : (element ? 2 : 1);
-        if (ImGui::BeginTable("##hud_properties_scope", scopeColumns, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
-            ImGui::TableSetupColumn("##widget_scope", ImGuiTableColumnFlags_WidthFixed, scopeWidgetWidth);
-            if (element) ImGui::TableSetupColumn("##element_scope", ImGuiTableColumnFlags_WidthFixed, scopeElementWidth);
-            if (inlineSearch) ImGui::TableSetupColumn("##property_search", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableNextColumn();
-            if (HudTextActionButton(nullptr, widgetScopeLabel, "##hud_widget_scope", nullptr,
-                    ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()), visual, true,
-                    propertyScope == HudPropertyScope::Widget)) {
-                propertyScope = HudPropertyScope::Widget;
-            }
-            if (element) {
-                ImGui::TableNextColumn();
-                if (HudTextActionButton(nullptr, elementScopeLabel.c_str(), "##hud_element_scope", nullptr,
-                        ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()), visual, true,
-                        propertyScope == HudPropertyScope::Element)) {
-                    propertyScope = HudPropertyScope::Element;
-                }
-            }
-            if (inlineSearch) {
-                ImGui::TableNextColumn();
-                ImGui::SetNextItemWidth(-FLT_MIN);
-                InputTextWithHintString("##hud_properties_search", ui.Text(UiText::HudPropertiesSearchHint), propertiesSearchQuery);
-            }
-            ImGui::EndTable();
-        }
-        if (!inlineSearch) {
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            InputTextWithHintString("##hud_properties_search", ui.Text(UiText::HudPropertiesSearchHint), propertiesSearchQuery);
-        }
+        DrawInspectorHeader(widget, element);
 
         const std::string normalizedSearch = LowerUtf8(TrimAscii(propertiesSearchQuery));
         const bool widgetScope = propertyScope == HudPropertyScope::Widget || !element;
@@ -6223,6 +6593,18 @@ struct HudModule::Impl {
         if (!categoryApplicable(propertiesCategory)) {
             propertiesCategory = widgetScope ? HudPropertiesCategory::Content : HudPropertiesCategory::Geometry;
         }
+        std::array<bool, 4> categoryMatches{};
+        for (std::size_t i = 0; i < categoryMatches.size(); ++i) {
+            categoryMatches[i] = PropertyCategoryMatches(
+                static_cast<HudPropertiesCategory>(i),
+                normalizedSearch,
+                element,
+                widgetScope,
+                multiElementScope);
+        }
+        const auto categoryMatchesSearch = [&](HudPropertiesCategory category) {
+            return categoryMatches[static_cast<std::size_t>(category)];
+        };
 
         if (normalizedSearch.empty()) {
             HudPropertiesCategory categories[4]{};
@@ -6243,7 +6625,8 @@ struct HudModule::Impl {
                 default: return UiText::HudPropertiesContent;
                 }
             };
-            if (ImGui::BeginTable("##hud_properties_categories", categoryCount,
+            const int categoryColumns = std::min(categoryCount, 2);
+            if (ImGui::BeginTable("##hud_properties_categories", categoryColumns,
                     ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
                 for (int i = 0; i < categoryCount; ++i) {
                     ImGui::TableNextColumn();
@@ -6261,12 +6644,8 @@ struct HudModule::Impl {
         }
         ImGui::Separator();
 
-        const float propertyAvailableWidth = ImGui::GetContentRegionAvail().x;
-        const float propertyLabelReserve = std::min(ScaleUi(220.0f), propertyAvailableWidth * 0.38f);
-        ImGui::PushItemWidth(std::max(ScaleUi(120.0f), propertyAvailableWidth - propertyLabelReserve));
-
         auto drawCategory = [&](HudPropertiesCategory category) {
-            if (!PropertyCategoryMatches(category, normalizedSearch)) return;
+            if (!categoryMatchesSearch(category)) return;
             if (!normalizedSearch.empty()) {
                 UiText heading = UiText::HudPropertiesContent;
                 if (category == HudPropertiesCategory::Geometry) heading = UiText::HudPropertiesGeometry;
@@ -6297,10 +6676,10 @@ struct HudModule::Impl {
                 break;
             }
         };
-        const bool anyCategory = (categoryApplicable(HudPropertiesCategory::Content) && PropertyCategoryMatches(HudPropertiesCategory::Content, normalizedSearch))
-            || (categoryApplicable(HudPropertiesCategory::Geometry) && PropertyCategoryMatches(HudPropertiesCategory::Geometry, normalizedSearch))
-            || (categoryApplicable(HudPropertiesCategory::Appearance) && PropertyCategoryMatches(HudPropertiesCategory::Appearance, normalizedSearch))
-            || (categoryApplicable(HudPropertiesCategory::Visibility) && PropertyCategoryMatches(HudPropertiesCategory::Visibility, normalizedSearch));
+        const bool anyCategory = (categoryApplicable(HudPropertiesCategory::Content) && categoryMatchesSearch(HudPropertiesCategory::Content))
+            || (categoryApplicable(HudPropertiesCategory::Geometry) && categoryMatchesSearch(HudPropertiesCategory::Geometry))
+            || (categoryApplicable(HudPropertiesCategory::Appearance) && categoryMatchesSearch(HudPropertiesCategory::Appearance))
+            || (categoryApplicable(HudPropertiesCategory::Visibility) && categoryMatchesSearch(HudPropertiesCategory::Visibility));
         if (!anyCategory) {
             ImGui::TextDisabled("%s", ui.Text(UiText::HudPropertiesNoResults));
         } else {
@@ -6309,7 +6688,6 @@ struct HudModule::Impl {
             if (categoryApplicable(HudPropertiesCategory::Appearance)) drawCategory(HudPropertiesCategory::Appearance);
             if (categoryApplicable(HudPropertiesCategory::Visibility)) drawCategory(HudPropertiesCategory::Visibility);
         }
-        ImGui::PopItemWidth();
     }
 
     void DrawHudHelpWindow() {
@@ -6541,7 +6919,67 @@ struct HudModule::Impl {
         ImGui::EndPopup();
     }
 
-    void DrawEditorWorkspace(IDirect3DDevice9* device) {
+    void DrawInspectorPane(HudWidget* widget, const ImVec2& size) {
+        UiSettings& ui = UiSettings::Instance();
+        const HudEditorVisualStyle visual = HudEditorStyleTokens();
+        if (BeginHudPanel("hud_editor_inspector_v3", size, visual,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            if (ImGui::BeginChild("##hud_inspector_content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None)) {
+                if (widget) {
+                    const double propertiesBeginMs = HudPerfNowMs();
+                    DrawPropertiesV3(*widget);
+                    lastEditorStats.inspectorMs += HudPerfNowMs() - propertiesBeginMs;
+                } else {
+                    ImGui::TextWrapped("%s", ui.Text(UiText::HudNoSelection));
+                }
+            }
+            ImGui::EndChild();
+        }
+        EndHudPanel();
+    }
+
+    void DrawWideEditorWorkspace(HudWidget* widget, IDirect3DDevice9* device,
+        const ImVec2& avail, const hud_v3::WorkspaceLayout& layout) {
+        const float itemSpacing = ImGui::GetStyle().ItemSpacing.y;
+        const float navigationGap = std::max(layout.gap, itemSpacing * 2.0f);
+        const float navigationSplit = hud_v3::CalculateNavigationSplit(
+            avail.y,
+            UiSettings::Instance().CurrentScale(),
+            widgets.size(),
+            navigationGap);
+        const float layersHeight = std::max(1.0f, avail.y - navigationSplit - navigationGap);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
+        if (ImGui::BeginTable("##hud_wide_workspace", 5,
+                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings, avail)) {
+            ImGui::TableSetupColumn("##hud_navigation", ImGuiTableColumnFlags_WidthFixed, layout.navigationWidth);
+            ImGui::TableSetupColumn("##hud_navigation_gap", ImGuiTableColumnFlags_WidthFixed, layout.gap);
+            ImGui::TableSetupColumn("##hud_canvas", ImGuiTableColumnFlags_WidthFixed, layout.canvasWidth);
+            ImGui::TableSetupColumn("##hud_inspector_gap", ImGuiTableColumnFlags_WidthFixed, layout.gap);
+            ImGui::TableSetupColumn("##hud_inspector", ImGuiTableColumnFlags_WidthFixed, layout.inspectorWidth);
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, avail.y);
+
+            ImGui::TableSetColumnIndex(0);
+            if (widget) {
+                DrawWidgetListMeasured(navigationSplit);
+                ImGui::Dummy(ImVec2(0.0f, std::max(0.0f, layout.gap - itemSpacing * 2.0f)));
+                DrawLayersMeasured(*widget, layersHeight);
+            } else {
+                DrawWidgetListMeasured(avail.y);
+            }
+
+            ImGui::TableSetColumnIndex(2);
+            DrawCanvasPane(widget, device, ImVec2(layout.canvasWidth, avail.y));
+
+            ImGui::TableSetColumnIndex(4);
+            DrawInspectorPane(widget, ImVec2(layout.inspectorWidth, avail.y));
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleVar();
+        lastBottomPanelMs = lastEditorStats.widgetListMs + lastEditorStats.layersMs + lastEditorStats.inspectorMs;
+    }
+
+    void DrawCompactEditorWorkspace(IDirect3DDevice9* device) {
         HudWidget* widget = SelectedWidget();
         UiSettings& ui = UiSettings::Instance();
         const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -6560,21 +6998,13 @@ struct HudModule::Impl {
             const float effectiveMinPanelHeight = std::min(minPanelHeight, std::max(0.0f, sharedHeight - 1.0f));
             const float maxCanvasHeight = std::max(1.0f, sharedHeight - effectiveMinPanelHeight);
             const float effectiveMinCanvasHeight = std::min(minCanvasHeight, maxCanvasHeight);
-            const float autoCanvasHeight = std::clamp(avail.y * 0.42f, ScaleUi(240.0f), ScaleUi(420.0f));
+            const float autoCanvasHeight = std::clamp(avail.y * 0.55f, ScaleUi(260.0f), ScaleUi(520.0f));
             const float requestedCanvasHeight = editorCanvasAutoHeight ? autoCanvasHeight : ScaleUi(editorCanvasHeight);
             canvasHeight = std::clamp(requestedCanvasHeight, effectiveMinCanvasHeight, maxCanvasHeight);
             panelContentHeight = std::max(0.0f, sharedHeight - canvasHeight);
         }
 
-        if (BeginHudPanel("hud_editor_canvas_v3", ImVec2(0.0f, canvasHeight), visual,
-                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-            if (widget) DrawEditorCanvasMeasured(*widget, device);
-            else {
-                ImGui::TextWrapped("%s", ui.Text(UiText::HudNoWidgets));
-                if (ImGui::Button(ui.Text(UiText::HudAddWidget))) AddWidget(MakeDefaultWidget());
-            }
-        }
-        EndHudPanel();
+        DrawCanvasPane(widget, device, ImVec2(0.0f, canvasHeight));
 
         if (!bottomPanelCollapsed) {
             ImGui::InvisibleButton("##hud_bottom_splitter", ImVec2(-FLT_MIN, splitterHeight));
@@ -6641,6 +7071,17 @@ struct HudModule::Impl {
         }
         EndHudPanel();
         lastBottomPanelMs = HudPerfNowMs() - panelBeginMs;
+    }
+
+    void DrawEditorWorkspace(IDirect3DDevice9* device) {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const float scale = std::max(0.5f, UiSettings::Instance().CurrentScale());
+        const hud_v3::WorkspaceLayout layout = hud_v3::CalculateWorkspaceLayout(avail.x, scale);
+        if (layout.mode == hud_v3::WorkspaceMode::Wide) {
+            DrawWideEditorWorkspace(SelectedWidget(), device, avail, layout);
+        } else {
+            DrawCompactEditorWorkspace(device);
+        }
     }
 
     void DrawMainTab(IDirect3DDevice9* device) {

@@ -13,7 +13,7 @@
 - Встроенные теги и пользовательские переменные для игровых данных, текста и вычислений.
 - Общие для всех профилей переменные из Lua через MoonLoader Host.
 - Профильный блокнот с разметкой, изображениями, импортом/экспортом и живыми `.txt` из папки профиля.
-- HUD-конструктор с элементами, слоями, группами, условиями и пресетами.
+- HUD-конструктор с HUD-блоками, слоями, группами, условиями и шаблонами.
 - Фильтр сообщений по обычному тексту и регулярным выражениям.
 - Профили с отдельными биндами, заметками, HUD, фильтрами и настройками.
 - Интеграция со стандартным SA:MP и дополнительными интерфейсами Arizona: `_chat.asi` и CEF-диалогами.
@@ -21,8 +21,6 @@
 ## Скриншоты
 
 ![HelperByOrc - Binder](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/binder-list.png)
-
-![HelperByOrc - HUD](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/hud-editor.png)
 
 ![HelperByOrc - фильтр сообщений](https://raw.githubusercontent.com/wiki/dmitriyewich/HelperByOrc/screens/unwanted.png)
 

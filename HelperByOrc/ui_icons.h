@@ -9,6 +9,7 @@ inline constexpr char Star[] = "\xEF\x80\x86";          // U+F006
 inline constexpr char Check[] = "\xEF\x80\x8C";         // U+F00C
 inline constexpr char Xmark[] = "\xEF\x80\x8D";         // U+F00D
 inline constexpr char Gear[] = "\xEF\x80\x93";          // U+F013
+inline constexpr char Lock[] = "\xEF\x80\xA3";          // U+F023
 inline constexpr char Tags[] = "\xEF\x80\xAC";          // U+F02C
 inline constexpr char Book[] = "\xEF\x80\xAD";          // U+F02D
 inline constexpr char Image[] = "\xEF\x80\xBE";         // U+F03E
@@ -30,6 +31,7 @@ inline constexpr char AngleDown[] = "\xEF\x84\x87";     // U+F107
 inline constexpr char Folder[] = "\xEF\x84\x94";        // U+F114
 inline constexpr char Keyboard[] = "\xEF\x84\x9C";      // U+F11C
 inline constexpr char Terminal[] = "\xEF\x84\xA0";      // U+F120
+inline constexpr char EllipsisVertical[] = "\xEF\x85\x82"; // U+F142
 inline constexpr char Compass[] = "\xEF\x85\x8E";       // U+F14E
 inline constexpr char Cubes[] = "\xEF\x86\xB3";         // U+F1B3
 inline constexpr char Sliders[] = "\xEF\x87\x9E";       // U+F1DE
@@ -49,6 +51,7 @@ inline constexpr ImWchar FontAwesomeRanges[] = {
     0xF006, 0xF006,
     0xF00C, 0xF00D,
     0xF013, 0xF013,
+    0xF023, 0xF023,
     0xF02C, 0xF02D,
     0xF03E, 0xF03E,
     0xF044, 0xF044,
@@ -63,6 +66,7 @@ inline constexpr ImWchar FontAwesomeRanges[] = {
     0xF114, 0xF114,
     0xF11C, 0xF11C,
     0xF120, 0xF120,
+    0xF142, 0xF142,
     0xF14E, 0xF14E,
     0xF1B3, 0xF1B3,
     0xF1DE, 0xF1DE,

@@ -22,22 +22,22 @@
     X(TabMiscCompact, "ПР", "MS") \
     X(TabNotepadCompact, "БЛ", "NP") \
     X(TabSettingsCompact, "НС", "ST") \
-    X(HudSearchHint, "Поиск виджетов", "Search widgets") \
-    X(HudWidgets, "Виджеты", "Widgets") \
-    X(HudNoWidgets, "Виджетов пока нет. Добавьте пустой виджет или пресет.", "No widgets yet. Add an empty widget or a preset.") \
-    X(HudNoSelection, "Выберите виджет слева или создайте новый.", "Select a widget on the left or create a new one.") \
-    X(HudAddWidget, "Виджет", "Widget") \
+    X(HudSearchHint, "Поиск HUD-блоков", "Search HUD blocks") \
+    X(HudWidgets, "HUD-блоки", "HUD blocks") \
+    X(HudNoWidgets, "HUD-блоков пока нет. Создайте пустой блок или выберите шаблон.", "No HUD blocks yet. Create an empty block or choose a template.") \
+    X(HudNoSelection, "Выберите HUD-блок слева или создайте новый.", "Select a HUD block on the left or create a new one.") \
+    X(HudAddWidget, "Пустой HUD-блок", "Empty HUD block") \
     X(HudDuplicateWidget, "Дублировать", "Duplicate") \
-    X(HudPresets, "Пресеты", "Presets") \
+    X(HudPresets, "Из шаблона", "From template") \
     X(HudPresetWeapon, "Оружие", "Weapon") \
     X(HudPresetFreeText, "Свободный текст", "Free text") \
-    X(HudDefaultWidgetName, "Новый виджет", "New widget") \
+    X(HudDefaultWidgetName, "Новый HUD-блок", "New HUD block") \
     X(HudSource, "Источник", "Source") \
     X(HudSourceInline, "Свой текст", "Inline text") \
     X(HudSourceNotepad, "Заметка из Блокнота", "Notepad note") \
     X(HudLinkedNoteMissing, "Связанная заметка не найдена.", "Linked note was not found.") \
     X(HudActionTagsDisabled, "Action-теги в HUD не выполняются: команды, скриншоты, фото, управление биндами и диалогами будут пропущены.", "Action tags are disabled in HUD: commands, screenshots, photos, bind control, and dialog actions will be skipped.") \
-    X(HudText, "Текст виджета", "Widget text") \
+    X(HudText, "Текст слоя", "Layer text") \
     X(HudPosition, "Позиция", "Position") \
     X(HudAnchor, "Якорь", "Anchor") \
     X(HudAnchorTopLeft, "Слева сверху", "Top left") \
@@ -52,7 +52,7 @@
     X(HudOffsetX, "Смещение X", "Offset X") \
     X(HudOffsetY, "Смещение Y", "Offset Y") \
     X(HudPlaceOnScreen, "Разместить на экране", "Place on screen") \
-    X(HudPlacementActive, "Перетащите виджет мышью. Esc отменит режим.", "Drag the widget with the mouse. Esc cancels placement.") \
+    X(HudPlacementActive, "Перетащите HUD-блок мышью. Esc отменит режим.", "Drag the HUD block with the mouse. Esc cancels placement.") \
     X(HudSize, "Размер", "Size") \
     X(HudAutoSize, "Авторазмер", "Auto size") \
     X(HudWidth, "Ширина", "Width") \
@@ -66,9 +66,9 @@
     X(HudRounding, "Закругление", "Rounding") \
     X(HudBorder, "Рамка", "Border") \
     X(HudShadow, "Тень", "Shadow") \
-    X(HudStyleWindow, "Окно", "Window") \
-    X(HudStyleTextRows, "Текст и строки", "Text and rows") \
-    X(HudStyleBorderShadow, "Рамка и тень", "Border and shadow") \
+    X(HudStyleWindow, "Фон и рамка", "Background and border") \
+    X(HudStyleTextRows, "Текст", "Text") \
+    X(HudStyleBorderShadow, "Тень и контур", "Shadow and outline") \
     X(HudStyleSeparators, "Разделители", "Separators") \
     X(HudTextColor, "Цвет текста", "Text color") \
     X(HudTextAlpha, "Прозрачность текста", "Text opacity") \
@@ -88,8 +88,11 @@
     X(HudShadowOffsetY, "Смещение тени Y", "Shadow offset Y") \
     X(HudVisibility, "Видимость", "Visibility") \
     X(HudVisibilityConditions, "Условия", "Conditions") \
+    X(HudConfigureConditions, "Настроить условия…", "Configure conditions...") \
+    X(HudWidgetVisibilityHint, "HUD-блок показывается, когда выполнены настроенные условия.", "The HUD block is shown when its configured conditions are met.") \
+    X(HudLayerVisibilityHint, "Слой наследует видимость HUD-блока и может иметь собственные условия.", "The layer inherits HUD block visibility and may have its own conditions.") \
     X(HudRefreshMs, "Обновление (мс)", "Refresh (ms)") \
-    X(HudRefreshZeroWarning, "0 мс обновляет виджет каждый кадр. Это может снизить FPS, особенно при тяжёлых тегах или множестве виджетов.", "0 ms refreshes the widget every frame. This can reduce FPS, especially with expensive tags or many widgets.") \
+    X(HudRefreshZeroWarning, "0 мс обновляет HUD-блок каждый кадр. Это может снизить FPS, особенно при тяжёлых тегах или множестве HUD-блоков.", "0 ms refreshes the HUD block every frame. This can reduce FPS, especially with expensive tags or many HUD blocks.") \
     X(HudPreview, "Предпросмотр", "Preview") \
     X(HudImagesFolder, "Папка картинок", "Images folder") \
     X(HudCanvas, "Холст", "Canvas") \
@@ -100,14 +103,14 @@
     X(HudPropertiesAppearance, "Оформление", "Appearance") \
     X(HudPropertiesSearchHint, "Поиск по свойствам", "Search properties") \
     X(HudPropertiesNoResults, "Подходящих свойств нет. Измените поисковый запрос.", "No matching properties. Change the search query.") \
-    X(HudSelectedElementsFormat, "Элементы: %d", "Elements: %d") \
+    X(HudSelectedElementsFormat, "Выбрано слоёв: %d", "Selected layers: %d") \
     X(HudInspectorVisibility, "Видимость", "Visibility") \
-    X(HudWidgetSection, "Виджет", "Widget") \
-    X(HudElementSection, "Элемент", "Element") \
-    X(HudAddElement, "Элемент", "Element") \
-    X(HudDuplicateElement, "Дублировать элемент", "Duplicate element") \
-    X(HudNoElementSelection, "Выберите слой на canvas или в списке слоёв.", "Select a layer on the canvas or in the layer list.") \
-    X(HudNoLayers, "В этом виджете пока нет элементов. Добавьте первый элемент через «Создать».", "This widget has no elements yet. Add the first element through Create.") \
+    X(HudWidgetSection, "HUD-блок", "HUD block") \
+    X(HudElementSection, "Слой", "Layer") \
+    X(HudAddElement, "Добавить слой", "Add layer") \
+    X(HudDuplicateElement, "Дублировать слой", "Duplicate layer") \
+    X(HudNoElementSelection, "Выберите слой на холсте или в списке слоёв.", "Select a layer on the canvas or in the layer list.") \
+    X(HudNoLayers, "В этом HUD-блоке пока нет слоёв. Нажмите «Добавить слой».", "This HUD block has no layers yet. Choose Add layer.") \
     X(HudElementText, "Текст", "Text") \
     X(HudElementMarkup, "Разметка", "Markup") \
     X(HudElementImage, "Картинка", "Image") \
@@ -116,8 +119,8 @@
     X(HudElementIcon, "Иконка", "Icon") \
     X(HudElementProgress, "Прогресс", "Progress") \
     X(HudElementGroup, "Группа", "Group") \
-    X(HudCanvasWidth, "Ширина canvas", "Canvas width") \
-    X(HudCanvasHeight, "Высота canvas", "Canvas height") \
+    X(HudCanvasWidth, "Ширина холста", "Canvas width") \
+    X(HudCanvasHeight, "Высота холста", "Canvas height") \
     X(HudScalePolicy, "Масштабирование", "Scale policy") \
     X(HudScalePolicyFixed, "Фиксированный", "Fixed") \
     X(HudScalePolicyWidth, "По ширине экрана", "Scale with width") \
@@ -126,21 +129,20 @@
     X(HudGrid, "Сетка", "Grid") \
     X(HudSnap, "Магнит", "Snap") \
     X(HudGuides, "Направляющие", "Guides") \
-    X(HudCanvasInteractionHint, "Drag — перемещение, 8 ручек — размер, пустая область — рамка выделения, средняя кнопка мыши — pan.", "Drag to move, 8 handles to resize, empty area for marquee, middle mouse button to pan.") \
+    X(HudCanvasInteractionHint, "Перетаскивание — перемещение, 8 ручек — размер, пустая область — рамка выделения, средняя кнопка — панорамирование.", "Drag to move, 8 handles to resize, empty area for marquee, middle mouse button to pan.") \
     X(HudCanvasSnapThresholdHint, "Магнит к сетке срабатывает только рядом с линией, без рывков на каждом пикселе.", "Grid snap activates only near a grid line, without snapping every pixel.") \
     X(HudZoomFit, "По размеру", "Fit") \
     X(HudZoom100, "100%", "100%") \
     X(HudZoomIn, "+", "+") \
     X(HudZoomOut, "-", "-") \
-    X(HudCanvasAutoHeight, "Автовысота canvas", "Automatic canvas height") \
-    X(HudCanvasEditorHeight, "Высота canvas", "Canvas height") \
-    X(HudCanvasSplitterHint, "Перетащите для ручной высоты canvas. Двойной щелчок возвращает автовысоту.", "Drag to set the canvas height manually. Double-click to restore automatic height.") \
+    X(HudCanvasAutoHeight, "Автовысота холста", "Automatic canvas height") \
+    X(HudCanvasEditorHeight, "Высота холста", "Canvas height") \
+    X(HudCanvasSplitterHint, "Перетащите для ручной высоты холста. Двойной щелчок возвращает автовысоту.", "Drag to set the canvas height manually. Double-click to restore automatic height.") \
     X(HudUndo, "Отменить", "Undo") \
     X(HudRedo, "Повторить", "Redo") \
     X(HudGroup, "Группа", "Group") \
     X(HudUngroup, "Разгрупп.", "Ungroup") \
     X(HudMoveToRoot, "Убрать из группы", "Move to root") \
-    X(HudLayerRoot, "Корень слоёв — перетащите сюда для выхода из группы", "Layer root — drop here to leave a group") \
     X(HudLayerSearchHint, "Поиск слоёв", "Search layers") \
     X(HudAlignMenu, "Выравнивание", "Align and distribute") \
     X(HudArrangeLeft, "По левому краю", "Align left") \
@@ -156,8 +158,8 @@
     X(HudOpacity, "Прозрачность", "Opacity") \
     X(HudX, "X", "X") \
     X(HudY, "Y", "Y") \
-    X(HudW, "W", "W") \
-    X(HudH, "H", "H") \
+    X(HudW, "Ширина", "Width") \
+    X(HudH, "Высота", "Height") \
     X(HudFill, "Заливка", "Fill") \
     X(HudFillColor, "Цвет заливки", "Fill color") \
     X(HudFillAlpha, "Прозрачность заливки", "Fill opacity") \
@@ -167,6 +169,7 @@
     X(HudStrokeSize, "Толщина обводки", "Stroke size") \
     X(HudOutline, "Контур", "Outline") \
     X(HudOutlineColor, "Цвет контура", "Outline color") \
+    X(HudOutlineAlpha, "Прозрачность контура", "Outline opacity") \
     X(HudOutlineSize, "Толщина контура", "Outline size") \
     X(HudTint, "Тонировка", "Tint") \
     X(HudTintAlpha, "Прозрачность тонировки", "Tint opacity") \
@@ -179,6 +182,7 @@
     X(HudImageFitContain, "Contain", "Contain") \
     X(HudImageFitCover, "Cover", "Cover") \
     X(HudImageFitStretch, "Stretch", "Stretch") \
+    X(HudImageFit, "Заполнение области", "Image fit") \
     X(HudUnsafeImagePath, "Разрешены только относительные пути внутри папки картинок HUD. URL, абсолютные пути и .. запрещены.", "Only relative paths inside the HUD images folder are allowed. URLs, absolute paths, and .. are blocked.") \
     X(HudIconName, "Имя иконки", "Icon name") \
     X(HudExpression, "Выражение", "Expression") \
@@ -190,6 +194,7 @@
     X(HudAlignLeft, "Слева", "Left") \
     X(HudAlignCenter, "По центру", "Center") \
     X(HudAlignRight, "Справа", "Right") \
+    X(HudTextAlign, "Выравнивание текста", "Text alignment") \
     X(HudTextMode, "Режим текста", "Text mode") \
     X(HudTextModePlain, "Простой текст", "Plain text") \
     X(HudTextModeMarkup, "Разметка", "Markup") \
@@ -233,74 +238,74 @@
     X(HudImported, "HUD preset импортирован.", "HUD preset imported.") \
     X(HudImportedMissingAssetsFormat, "HUD preset импортирован. Не найдено картинок: %d.", "HUD preset imported. Missing images: %d.") \
     X(HudImportMissingAssetsTitle, "Отсутствующие файлы HUD", "Missing HUD files") \
-    X(HudImportMissingAssetsConfirmFormat, "В активном профиле отсутствуют %d файлов изображений. Они перечислены ниже. Импортировать виджет всё равно?", "%d image files are missing from the active profile. They are listed below. Import the widget anyway?") \
+    X(HudImportMissingAssetsConfirmFormat, "В активном профиле отсутствуют %d файлов изображений. Они перечислены ниже. Импортировать HUD-блок всё равно?", "%d image files are missing from the active profile. They are listed below. Import the HUD block anyway?") \
     X(HudImportContinue, "Продолжить импорт", "Continue import") \
     X(HudPresetFilesFilter, "Пресеты HelperByOrc HUD", "HelperByOrc HUD presets") \
     X(HudFutureSchemaReadOnly, "HUD создан более новой версией HelperByOrc. Редактирование и сохранение отключены, чтобы не повредить данные.", "This HUD was created by a newer HelperByOrc version. Editing and saving are disabled to protect the data.") \
     X(HudMigrationBackupFailed, "Не удалось создать резервную копию HUD. Старый HUD загружен без перезаписи конфига.", "Failed to create the HUD backup. The old HUD was loaded without overwriting the config.") \
-    X(HudToolbarEdit, "Правка", "Edit") \
-    X(HudToolbarCreate, "Создать", "Create") \
+    X(HudToolbarEdit, "Действия", "Actions") \
+    X(HudToolbarCreate, "Добавить", "Add") \
     X(HudToolbarFile, "Файл", "File") \
-    X(HudToolbarView, "Вид", "View") \
+    X(HudToolbarView, "Холст", "Canvas") \
     X(HudMoreActions, "Ещё", "More") \
-    X(HudCanvasSizeFormat, "Холст: %.0f x %.0f", "Canvas: %.0f x %.0f") \
-    X(HudWidgetMetaFormat, "Холст: %.0f × %.0f · элементов: %d", "Canvas: %.0f × %.0f · elements: %d") \
+    X(HudCanvasSizeFormat, "Холст: %.0f × %.0f", "Canvas: %.0f × %.0f") \
+    X(HudWidgetMetaFormat, "%.0f × %.0f · слоёв: %d", "%.0f × %.0f · layers: %d") \
     X(HudOn, "вкл", "on") \
     X(HudOff, "выкл", "off") \
     X(HudZoomPercentFormat, "%d%%", "%d%%") \
     X(HudCanvasStatusFormat, "Сетка: %s · Направляющие: %s · Шаг: %.0f · Zoom: %s", "Grid: %s · Guides: %s · Step: %.0f · Zoom: %s") \
-    X(HudPanelCollapse, "Свернуть нижнюю панель", "Collapse bottom panel") \
-    X(HudPanelExpand, "Развернуть нижнюю панель", "Expand bottom panel") \
-    X(HudDeleteWidgetConfirmFormat, "Удалить виджет «%s»? Элементы будут удалены вместе с ним. Действие можно отменить через Undo.", "Delete widget “%s”? Its elements will be deleted with it. The action can be reverted with Undo.") \
-    X(HudDeleteWidgetTitle, "Удаление виджета", "Delete widget") \
+    X(HudPanelCollapse, "Свернуть рабочую панель", "Collapse workspace panel") \
+    X(HudPanelExpand, "Развернуть рабочую панель", "Expand workspace panel") \
+    X(HudDeleteWidgetConfirmFormat, "Удалить HUD-блок «%s»? Его слои будут удалены вместе с ним. Действие можно отменить через Undo.", "Delete HUD block “%s”? Its layers will be deleted with it. The action can be reverted with Undo.") \
+    X(HudDeleteWidgetTitle, "Удаление HUD-блока", "Delete HUD block") \
     X(HudHelpTitle, "Справка HUD", "HUD Help") \
     X(HudHelpWorkflow, "Рабочий процесс", "Workflow") \
     X(HudHelpCanvas, "Холст", "Canvas") \
-    X(HudHelpElements, "Элементы и слои", "Elements and layers") \
+    X(HudHelpElements, "Слои и группы", "Layers and groups") \
     X(HudHelpData, "Данные и условия", "Data and visibility") \
     X(HudHelpFiles, "Файлы и миграция", "Files and migration") \
     X(HudHelpIntro, "Краткая практическая справка. Выберите раздел слева — справа останутся только нужные действия и ограничения.", "A concise practical guide. Choose a section on the left to see only the relevant actions and constraints.") \
     X(HudHelpQuickStart, "Быстрый старт", "Quick start") \
-    X(HudHelpStepCreateTitle, "1. Создайте виджет", "1. Create a widget") \
-    X(HudHelpStepCreateBody, "Нажмите «Виджет» для пустого холста или выберите готовую основу в «Пресетах».", "Choose Widget for an empty canvas or start from a ready-made preset.") \
-    X(HudHelpStepElementsTitle, "2. Добавьте элементы", "2. Add elements") \
-    X(HudHelpStepElementsBody, "Текст, разметка, картинка, фигура, иконка, индикатор и группа добавляются через кнопку «Элемент».", "Add text, markup, image, shape, icon, progress bar, or group through the Element button.") \
-    X(HudHelpStepEditTitle, "3. Соберите композицию", "3. Compose the widget") \
-    X(HudHelpStepEditBody, "Перемещайте и меняйте размер на canvas; точные значения задавайте во вкладке «Геометрия».", "Move and resize on the canvas; enter exact values in the Geometry section.") \
+    X(HudHelpStepCreateTitle, "1. Создайте HUD-блок", "1. Create a HUD block") \
+    X(HudHelpStepCreateBody, "Нажмите «Добавить» и создайте пустой HUD-блок или выберите готовый шаблон.", "Choose Add to create an empty HUD block or start from a ready-made template.") \
+    X(HudHelpStepElementsTitle, "2. Добавьте слои", "2. Add layers") \
+    X(HudHelpStepElementsBody, "Текст, разметка, картинка, фигура, иконка, индикатор и группа добавляются через «Добавить» → «Добавить слой».", "Add text, markup, image, shape, icon, progress bar, or group through Add → Add layer.") \
+    X(HudHelpStepEditTitle, "3. Соберите композицию", "3. Compose the HUD block") \
+    X(HudHelpStepEditBody, "Перемещайте и меняйте размер на холсте; точные значения задавайте в разделе «Геометрия».", "Move and resize on the canvas; enter exact values in the Geometry section.") \
     X(HudHelpStepPlaceTitle, "4. Разместите на экране", "4. Place on screen") \
-    X(HudHelpStepPlaceBody, "Откройте свойства виджета и нажмите «Разместить на экране». Положение сохраняется в активном профиле.", "Open widget properties and choose Place on screen. The position is saved in the active profile.") \
+    X(HudHelpStepPlaceBody, "Выберите HUD-блок и откройте «Действия» → «Разместить на экране». Положение сохраняется в активном профиле.", "Select a HUD block and choose Actions → Place on screen. The position is saved in the active profile.") \
     X(HudHelpAutosaveTitle, "Сохранение", "Saving") \
     X(HudHelpAutosaveBody, "Изменения сохраняются после завершения действия. Drag, resize и ввод текста создают по одной Undo-транзакции, а не запись на каждый кадр.", "Changes are saved after an action completes. Drag, resize, and text input create one Undo transaction instead of one entry per frame.") \
     X(HudHelpMouseTitle, "Управление мышью", "Mouse controls") \
-    X(HudHelpMouseLeftTitle, "ЛКМ по элементу", "Left click an element") \
-    X(HudHelpMouseLeftBody, "Выбрать; удерживать и тянуть — переместить. Ctrl + ЛКМ добавляет или убирает элемент из выбора.", "Select; hold and drag to move. Ctrl + left click adds or removes an element from the selection.") \
+    X(HudHelpMouseLeftTitle, "ЛКМ по слою", "Left click a layer") \
+    X(HudHelpMouseLeftBody, "Выбрать; удерживать и тянуть — переместить. Ctrl + ЛКМ добавляет или убирает слой из выбора.", "Select; hold and drag to move. Ctrl + left click adds or removes a layer from the selection.") \
     X(HudHelpMouseHandlesTitle, "Ручки рамки", "Selection handles") \
-    X(HudHelpMouseHandlesBody, "Восемь ручек меняют размер. Заблокированный слой выбрать можно, перемещать и менять его размер нельзя.", "Eight handles resize the element. A locked layer can be selected but cannot be moved or resized.") \
+    X(HudHelpMouseHandlesBody, "Восемь ручек меняют размер. Заблокированный слой выбрать можно, перемещать и менять его размер нельзя.", "Eight handles resize the layer. A locked layer can be selected but cannot be moved or resized.") \
     X(HudHelpMouseEmptyTitle, "ЛКМ по пустому месту", "Left click empty space") \
     X(HudHelpMouseEmptyBody, "Снять выбор; потянуть — выделить рамкой. С Ctrl новое выделение добавляется к текущему.", "Clear selection; drag to marquee-select. Hold Ctrl to add the marquee result to the current selection.") \
     X(HudHelpMouseMiddleTitle, "Средняя кнопка", "Middle mouse button") \
-    X(HudHelpMouseMiddleBody, "Перемещает вид canvas без изменения координат элементов.", "Pans the canvas view without changing element coordinates.") \
+    X(HudHelpMouseMiddleBody, "Перемещает вид холста без изменения координат слоёв.", "Pans the canvas view without changing layer coordinates.") \
     X(HudHelpSnapTitle, "Сетка и направляющие", "Grid and guides") \
-    X(HudHelpSnapBody, "Умная направляющая привязывает края и центры. Если подходящей направляющей нет, применяется шаг сетки. Оба режима меняются в меню «Вид».", "Smart guides snap edges and centers. Grid snapping is used only when no suitable guide exists. Both modes are controlled from View.") \
+    X(HudHelpSnapBody, "Умная направляющая привязывает края и центры. Если подходящей направляющей нет, применяется шаг сетки. Оба режима меняются в меню «Холст» над рабочей областью.", "Smart guides snap edges and centers. Grid snapping is used only when no suitable guide exists. Both modes are controlled from Canvas above the workspace.") \
     X(HudHelpCanvasHeightTitle, "Высота редактора", "Editor height") \
-    X(HudHelpCanvasHeightBody, "Потяните splitter под canvas для ручной высоты. Двойной щелчок по splitter возвращает автоматический режим.", "Drag the splitter below the canvas for a manual height. Double-click the splitter to restore automatic sizing.") \
+    X(HudHelpCanvasHeightBody, "В компактном режиме потяните разделитель под холстом для ручной высоты. Двойной щелчок возвращает автоматический режим.", "In compact mode, drag the splitter below the canvas for a manual height. Double-click restores automatic sizing.") \
     X(HudHelpLayerOrderTitle, "Порядок слоёв", "Layer order") \
     X(HudHelpLayerOrderBody, "Перетаскивание между строками меняет z-порядок. Точный индикатор показывает место вставки.", "Dropping between rows changes z-order. The exact indicator shows the insertion point.") \
     X(HudHelpGroupsTitle, "Группы", "Groups") \
-    X(HudHelpGroupsBody, "Drop на группу добавляет слой, drop в корень выводит из неё. Поддерживается один уровень; дублирование группы копирует прямых детей.", "Drop onto a group to add a layer; drop onto the root to remove it. One level is supported, and duplicating a group copies its direct children.") \
-    X(HudHelpMultiSelectTitle, "Несколько элементов", "Multiple elements") \
-    X(HudHelpMultiSelectBody, "Общие свойства показывают mixed-state. Выравнивание работает для двух и более, распределение — для трёх и более незаблокированных элементов.", "Common properties show mixed state. Alignment needs at least two unlocked elements; distribution needs at least three.") \
+    X(HudHelpGroupsBody, "Drop на группу добавляет слой. Во время перетаскивания над списком появляется цель «Убрать из группы». Поддерживается один уровень; дублирование группы копирует прямых детей.", "Drop onto a group to add a layer. While dragging, a Move to root target appears above the list. One level is supported, and duplicating a group copies its direct children.") \
+    X(HudHelpMultiSelectTitle, "Несколько слоёв", "Multiple layers") \
+    X(HudHelpMultiSelectBody, "Общие свойства показывают разные значения. Выравнивание работает для двух и более, распределение — для трёх и более незаблокированных слоёв.", "Common properties show mixed values. Alignment needs at least two unlocked layers; distribution needs at least three.") \
     X(HudHelpLockHideTitle, "Блокировка и скрытие", "Lock and hide") \
-    X(HudHelpLockHideBody, "Lock защищает геометрию от случайных изменений. Hide исключает элемент из canvas и игрового HUD, но оставляет его в списке слоёв.", "Lock protects geometry from accidental edits. Hide removes the element from canvas and runtime HUD while keeping it in the layer list.") \
+    X(HudHelpLockHideBody, "Блокировка защищает геометрию от случайных изменений. Скрытие убирает слой с холста и игрового HUD, но оставляет его в списке.", "Lock protects geometry from accidental edits. Hide removes the layer from the canvas and runtime HUD while keeping it in the layer list.") \
     X(HudHelpVariablesBody, "Кнопка «Переменные» вставляет выбранный тег в активное поле. В HUD используется pure-режим: action-теги не выполняют команды, скриншоты или бинды.", "Variables inserts the selected tag into the active field. HUD uses pure mode, so action tags cannot execute commands, screenshots, or binds.") \
     X(HudHelpExpressionsTitle, "Выражения", "Expressions") \
     X(HudHelpExpressionsBody, "Индикатор получает число из expression и переводит его в диапазон Минимум—Максимум. При ошибке используется значение по умолчанию.", "A progress bar reads a number from its expression and maps it to Minimum—Maximum. The default value is used when evaluation fails.") \
     X(HudHelpRefreshTitle, "Частота обновления", "Refresh interval") \
     X(HudHelpRefreshBody, "0 мс обновляет динамические данные каждый кадр. Для обычного текста рекомендуется 100–250 мс; статические данные повторно не вычисляются.", "0 ms refreshes dynamic data every frame. Use 100–250 ms for ordinary text; static data is not evaluated repeatedly.") \
     X(HudHelpConditionsTitle, "Условия видимости", "Visibility conditions") \
-    X(HudHelpConditionsBody, "Условия вычисляются один раз за кадр и могут объединяться через «любое» или «все». Скрытый или заблокированный условиями элемент не обновляется до появления.", "Conditions are evaluated once per frame and can use any/all combination. A hidden or condition-blocked element is not refreshed until visible.") \
+    X(HudHelpConditionsBody, "Условия вычисляются один раз за кадр и могут объединяться через «любое» или «все». Скрытый или заблокированный условиями слой не обновляется до появления.", "Conditions are evaluated once per frame and can use any/all combination. A hidden or condition-blocked layer is not refreshed until visible.") \
     X(HudHelpImportTitle, "Импорт и экспорт", "Import and export") \
-    X(HudHelpImportBody, "Импорт принимает preset v2/v3 .helperhud.json. Экспорт создаёт v3 и не изменяет другие виджеты профиля.", "Import accepts v2/v3 .helperhud.json presets. Export creates v3 without changing other profile widgets.") \
+    X(HudHelpImportBody, "Импорт принимает шаблоны v2/v3 .helperhud.json. Экспорт создаёт v3 и не изменяет другие HUD-блоки профиля.", "Import accepts v2/v3 .helperhud.json templates. Export creates v3 without changing other profile HUD blocks.") \
     X(HudHelpAssetsTitle, "Картинки", "Images") \
     X(HudHelpAssetsBody, "JSON не содержит бинарные картинки. Файлы HUD хранятся в hud\\images; абсолютные пути, URL и .. запрещены.", "JSON does not embed image binaries. HUD files live in hud\\images; absolute paths, URLs, and .. are blocked.") \
     X(HudHelpMigrationTitle, "Миграция", "Migration") \
