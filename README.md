@@ -57,7 +57,9 @@ Lua-переменные размещаются в `GTA San Andreas User Files\H
 в `Прочее -> Переменные -> Lua`.
 Без MoonLoader они работают через встроенный LuaJIT. Для MoonLoader API там
 же доступны `Установить Host` / `Обновить Host` для
-`moonloader\HelperByOrcVarsHost.lua`.
+`moonloader\HelperByOrcVarsHost.lua`. Физически используется один host-файл;
+MoonLoader повторно загружает его для каждого включённого provider и создаёт
+отдельные states без копий providers и сгенерированных файлов в `%TEMP%`.
 Lua выполняется как доверенный код внутри процесса, а не sandbox.
 
 Подробный локальный контракт: [переменные из Lua](HelperByOrc/CODE_VARIABLES.md).

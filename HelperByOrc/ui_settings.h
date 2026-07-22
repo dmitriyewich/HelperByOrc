@@ -360,6 +360,7 @@
     X(UnwantedSortStored, "Исходный порядок", "Stored order") \
     X(UnwantedSortName, "По имени", "By name") \
     X(UnwantedSortStatus, "По статусу", "By status") \
+    X(UnwantedSortFormat, "Сортировка: %s", "Sort: %s") \
     X(UnwantedSearchHint, "Поиск правил", "Search rules") \
     X(UnwantedFilterAll, "Все", "All") \
     X(UnwantedFilterEnabled, "Включены", "Enabled") \
@@ -367,8 +368,15 @@
     X(UnwantedFilterRegex, "Шаблоны", "Patterns") \
     X(UnwantedFilterLiteral, "Обычный текст", "Plain text") \
     X(UnwantedFilterErrors, "Ошибки", "Errors") \
+    X(UnwantedFilterByTypeHelp, "Показать только правила типа «%s»", "Show only %s rules") \
     X(UnwantedVisibleRulesFormat, "Показано: %s из %s", "Shown: %s of %s") \
     X(UnwantedBulkActionsFormat, "Выбрано: %s", "Selected: %s") \
+    X(UnwantedColumnSelect, "Выбор", "Select") \
+    X(UnwantedColumnEnabled, "Вкл.", "On") \
+    X(UnwantedColumnRule, "Правило", "Rule") \
+    X(UnwantedColumnActions, "Действия", "Actions") \
+    X(UnwantedSelectRuleHelp, "Добавить правило в групповое выделение", "Add this rule to the bulk selection") \
+    X(UnwantedResetFilters, "Сбросить поиск и фильтры", "Clear search and filters") \
     X(UnwantedNoRules, "Правил пока нет.", "No rules yet.") \
     X(UnwantedNoVisibleRules, "По выбранным условиям правил не найдено.", "No rules match the selected filters.") \
     X(UnwantedTypeLiteral, "Обычный текст", "Plain text") \
@@ -388,6 +396,7 @@
     X(UnwantedRuleEnabled, "Правило включено", "Rule enabled") \
     X(UnwantedRuleName, "Имя правила", "Rule name") \
     X(UnwantedRuleNameHint, "Необязательно. Если оставить пустым, в списке будет показан текст правила", "Optional. If left empty, the rule text is shown in the list") \
+    X(UnwantedRuleType, "Тип правила", "Rule type") \
     X(UnwantedRuleText, "Текст правила", "Rule text") \
     X(UnwantedTester, "Проверка правила", "Test rule") \
     X(UnwantedTesterHint, "Сообщение для проверки", "Message to test") \
@@ -413,9 +422,10 @@
     X(UnwantedHelperGeneralized, "Рекомендуемый вариант", "Recommended") \
     X(UnwantedHelperContains, "Фрагмент сообщения", "Message fragment") \
     X(UnwantedRegexVariants, "Варианты шаблона", "Pattern variants") \
-    X(UnwantedRegexVariantsHint, "Нажмите вариант, чтобы скопировать его. Кнопка «Использовать» перенесёт его в правило.", "Click a variant to copy it. The Use button moves it into the rule.") \
+    X(UnwantedRegexVariantsHint, "«Копировать» отправит шаблон в буфер обмена, «Использовать» перенесёт его в правило.", "Copy sends the pattern to the clipboard; Use moves it into the rule.") \
     X(UnwantedNormalizedPreview, "Текст, который будет проверяться", "Text that will be checked") \
     X(UnwantedDetectedTokens, "Что найдено в сообщении", "Detected message parts") \
+    X(UnwantedDetectedTokensFormat, "Найденные части: %s", "Detected parts: %s") \
     X(UnwantedTokenColor, "Цвет", "Color") \
     X(UnwantedTokenColorHelp, "Цветовые коды вида {FFFFFF} или {FF0000FF} будут подходить независимо от цвета.", "Color codes such as {FFFFFF} or {FF0000FF} may use any color value.") \
     X(UnwantedTokenPlayerId, "ID игрока", "Player ID") \

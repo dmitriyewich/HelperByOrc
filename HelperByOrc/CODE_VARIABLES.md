@@ -34,8 +34,17 @@ MoonLoader не обязателен. Для его API нажмите `Уста
 ```
 
 При замене отличающегося host рядом создаётся `.bak`. Для выбора MoonLoader
-backend host должен загрузиться до standalone fallback; после установки нужен
-перезапуск игры либо полная перезагрузка скриптов MoonLoader и HelperByOrc.
+backend host должен пройти handshake на owner thread до standalone fallback;
+после установки нужен перезапуск игры либо полная перезагрузка скриптов
+MoonLoader и HelperByOrc.
+
+Используется только один файл `HelperByOrcVarsHost.lua`. Controller загружает
+этот же host для каждого provider, а bridge выдаёт новому Lua state одноразовый
+`provider id + generation`. Исходник provider передаётся из ASI и выполняется
+в памяти соответствующего state. Копии providers и сгенерированные wrappers в
+`%TEMP%` не создаются. Поэтому MoonLoader показывает отдельную системную
+загрузку одного и того же host-файла для каждого включённого provider; это не
+повторная загрузка provider и не retry.
 
 ## Backends
 
@@ -45,7 +54,8 @@ backend host должен загрузиться до standalone fallback; по�
   и MoonLoader events недоступны. На provider действует лимит 16 МиБ.
 - `MoonLoader`: каждый provider работает в отдельном настоящем state
   MoonLoader и может использовать его API, `main` и events. Bridge и host
-  сверяют версию протокола до загрузки provider.
+  сверяют версию протокола, owner thread, generation и backend epoch до
+  загрузки provider. Одновременно создаётся не более одного нового state.
 
 Оба backend используют одинаковые правила регистрации, типы, кэш,
 generation isolation и instruction budget. В одном запуске активен только

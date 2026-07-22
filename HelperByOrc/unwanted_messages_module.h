@@ -279,6 +279,7 @@ private:
     void DrawUnsavedConfirmPopup();
     void DrawRulesPane(const ImVec2& size);
     void DrawRulesTable(const std::vector<std::size_t>& visibleIndices);
+    void DrawRuleWorkspace(bool popupMode);
     bool DrawRuleEditor(bool popupMode);
     void DrawTesterPanel();
     void DrawRegexHelperWizard();

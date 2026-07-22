@@ -37,7 +37,7 @@ namespace {
 
 constexpr int LUAJIT_MODE_ALLFUNC = 3;
 constexpr int LUAJIT_MODE_OFF = 0x0000;
-constexpr int kBridgeProtocolVersion = 1;
+constexpr int kBridgeProtocolVersion = 2;
 constexpr char kBridgeProtocolRegistryKey[] = "HelperByOrc.bridge.protocol";
 constexpr int kHookInstructionInterval = 10000;
 constexpr int kHookMaximumCalls = 200;
@@ -89,6 +89,8 @@ LuaApi g_lua;
 std::mutex g_backendMutex;
 lua_bridge::Backend g_backend = lua_bridge::Backend::Waiting;
 std::string g_luaResolveError;
+std::uint64_t g_backendEpoch = 0;
+bool g_protocolMismatchLogged = false;
 std::uint64_t g_backendSelectionDeadlineMs = 0;
 bool g_moonLoaderGraceApplied = false;
 std::uint64_t g_standaloneGeneration = 0;
@@ -215,21 +217,6 @@ void InitializeStandaloneLuaApiLocked() {
     g_luaResolveError.clear();
 }
 
-bool EnsureMoonLoaderLuaApi() {
-    std::lock_guard lock(g_backendMutex);
-    if (g_backend == lua_bridge::Backend::MoonLoader) {
-        return true;
-    }
-    if (g_backend != lua_bridge::Backend::Waiting) {
-        g_luaResolveError = "standalone backend is already active; restart the game after installing the MoonLoader host";
-        return false;
-    }
-    if (g_lua.module) {
-        return true;
-    }
-    return ResolveMoonLoaderLuaApiLocked();
-}
-
 void Pop(lua_State* state, int count) {
     if (count > 0) {
         g_lua.settop(state, -count - 1);
@@ -309,6 +296,42 @@ const void* LuaVmIdentity(lua_State* state) {
     const void* identity = g_lua.topointer(state, -1);
     g_lua.settop(state, top);
     return identity;
+}
+
+enum class LoadClaimState {
+    Empty,
+    Pending,
+    Claimed,
+};
+
+struct ProviderLoadClaim {
+    LoadClaimState state = LoadClaimState::Empty;
+    std::uint64_t token = 0;
+    std::uint64_t backendEpoch = 0;
+    std::uint64_t generation = 0;
+    DWORD ownerThreadId = 0;
+    std::string providerId{};
+    const void* claimedVmIdentity = nullptr;
+};
+
+std::mutex g_hostRoleMutex;
+const void* g_controllerVmIdentity = nullptr;
+ProviderLoadClaim g_providerLoadClaim;
+std::uint64_t g_nextLoadClaimToken = 1;
+
+void ClearProviderLoadClaimLocked() {
+    g_providerLoadClaim = {};
+}
+
+bool IsControllerVmLocked(lua_State* state) {
+    const void* vmIdentity = LuaVmIdentity(state);
+    return vmIdentity && vmIdentity == g_controllerVmIdentity;
+}
+
+void ResetHostRoles() {
+    std::lock_guard lock(g_hostRoleMutex);
+    g_controllerVmIdentity = nullptr;
+    ClearProviderLoadClaimLocked();
 }
 
 bool IsBridgeProtocolVerified(lua_State* state) {
@@ -726,11 +749,231 @@ int BridgeHello(lua_State* state) {
     }
     g_lua.pushnumber(state, static_cast<double>(kBridgeProtocolVersion));
     g_lua.setfield(state, LUA_REGISTRYINDEX, kBridgeProtocolRegistryKey);
+    std::lock_guard lock(g_backendMutex);
     g_lua.pushboolean(state, 1);
     PushString(
         state,
-        g_backend == lua_bridge::Backend::MoonLoader ? "moonloader" : "standalone");
+        g_backend == lua_bridge::Backend::MoonLoader
+            ? "moonloader"
+            : g_backend == lua_bridge::Backend::Standalone ? "standalone" : "unavailable");
     return 2;
+}
+
+int BridgeActivate(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+
+    const DWORD currentThreadId = GetCurrentThreadId();
+    const DWORD ownerThreadId = codevars::Runtime::Instance().OwnerThreadId();
+    const std::uint64_t generation = codevars::Runtime::Instance().Generation();
+    std::uint64_t backendEpoch = 0;
+    {
+        std::lock_guard lock(g_backendMutex);
+        if (g_backend != lua_bridge::Backend::MoonLoader) {
+            return ReturnError(state, "MoonLoader backend is not active");
+        }
+        backendEpoch = g_backendEpoch;
+    }
+    if (ownerThreadId == 0 || currentThreadId != ownerThreadId || generation == 0) {
+        return ReturnError(state, "MoonLoader host is not running on the established owner thread");
+    }
+
+    g_lua.pushboolean(state, 1);
+    g_lua.pushnumber(state, static_cast<double>(generation));
+    g_lua.pushnumber(state, static_cast<double>(backendEpoch));
+    return 3;
+}
+
+int BridgeClaimRole(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    const std::uint64_t requestedEpoch = ReadGeneration(state, 1);
+    const void* vmIdentity = LuaVmIdentity(state);
+    if (requestedEpoch == 0 || !vmIdentity) {
+        return ReturnError(state, "invalid host role claim");
+    }
+
+    const DWORD currentThreadId = GetCurrentThreadId();
+    const DWORD ownerThreadId = codevars::Runtime::Instance().OwnerThreadId();
+    const std::uint64_t generation = codevars::Runtime::Instance().Generation();
+    {
+        std::lock_guard lock(g_backendMutex);
+        if (g_backend != lua_bridge::Backend::MoonLoader || requestedEpoch != g_backendEpoch) {
+            return ReturnError(state, "stale MoonLoader backend epoch");
+        }
+    }
+    if (ownerThreadId == 0 || currentThreadId != ownerThreadId) {
+        return ReturnError(state, "host role must be claimed on the established owner thread");
+    }
+
+    std::lock_guard lock(g_hostRoleMutex);
+    if (g_controllerVmIdentity == vmIdentity) {
+        PushString(state, "controller");
+        return 1;
+    }
+    if (!g_controllerVmIdentity) {
+        g_controllerVmIdentity = vmIdentity;
+        PushString(state, "controller");
+        return 1;
+    }
+    if (g_providerLoadClaim.state != LoadClaimState::Pending
+        || g_providerLoadClaim.backendEpoch != requestedEpoch
+        || g_providerLoadClaim.generation != generation
+        || g_providerLoadClaim.ownerThreadId != currentThreadId) {
+        return ReturnError(state, "host state has no current provider load claim");
+    }
+    if (!IsMainState(state)) {
+        return ReturnError(state, "provider role must be claimed in the script main Lua state");
+    }
+
+    g_providerLoadClaim.state = LoadClaimState::Claimed;
+    g_providerLoadClaim.claimedVmIdentity = vmIdentity;
+    PushString(state, "provider");
+    PushString(state, g_providerLoadClaim.providerId);
+    g_lua.pushnumber(state, static_cast<double>(g_providerLoadClaim.generation));
+    g_lua.pushnumber(state, static_cast<double>(g_providerLoadClaim.token));
+    return 4;
+}
+
+int BridgeBeginProviderLoad(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    std::string providerId;
+    if (!ReadRequiredString(state, 1, codevars::kMaxProviderIdBytes, providerId)) {
+        return ReturnError(state, "invalid provider id");
+    }
+    const std::uint64_t generation = ReadGeneration(state, 2);
+    const std::uint64_t requestedEpoch = ReadGeneration(state, 3);
+    if (generation == 0 || requestedEpoch == 0) {
+        return ReturnError(state, "invalid provider load generation or backend epoch");
+    }
+
+    const DWORD currentThreadId = GetCurrentThreadId();
+    const DWORD ownerThreadId = codevars::Runtime::Instance().OwnerThreadId();
+    const std::uint64_t currentGeneration = codevars::Runtime::Instance().Generation();
+    const std::vector<codevars::LuaPlanEntry> plan = codevars::Runtime::Instance().LuaPlan();
+    {
+        std::lock_guard lock(g_backendMutex);
+        if (g_backend != lua_bridge::Backend::MoonLoader || requestedEpoch != g_backendEpoch) {
+            return ReturnError(state, "stale MoonLoader backend epoch");
+        }
+    }
+    if (ownerThreadId == 0
+        || currentThreadId != ownerThreadId
+        || generation != currentGeneration) {
+        return ReturnError(state, "provider load is not on the current owner thread/generation");
+    }
+    const auto provider = std::find_if(
+        plan.begin(),
+        plan.end(),
+        [&](const codevars::LuaPlanEntry& entry) {
+            return entry.id == providerId && entry.enabled && entry.generation == generation;
+        });
+    if (provider == plan.end()) {
+        return ReturnError(state, "provider is not enabled in the current Lua plan");
+    }
+
+    std::lock_guard lock(g_hostRoleMutex);
+    if (!IsControllerVmLocked(state)) {
+        return ReturnError(state, "only the active Host controller may start a provider");
+    }
+    if (g_providerLoadClaim.state != LoadClaimState::Empty) {
+        return ReturnError(state, "another provider load claim is still active");
+    }
+    if (g_nextLoadClaimToken == 0
+        || static_cast<double>(g_nextLoadClaimToken) > kMaxExactLuaInteger) {
+        g_nextLoadClaimToken = 1;
+    }
+
+    g_providerLoadClaim.state = LoadClaimState::Pending;
+    g_providerLoadClaim.token = g_nextLoadClaimToken++;
+    g_providerLoadClaim.backendEpoch = requestedEpoch;
+    g_providerLoadClaim.generation = generation;
+    g_providerLoadClaim.ownerThreadId = currentThreadId;
+    g_providerLoadClaim.providerId = std::move(providerId);
+    g_lua.pushnumber(state, static_cast<double>(g_providerLoadClaim.token));
+    return 1;
+}
+
+int BridgeProviderLoadStatus(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    const std::uint64_t token = ReadGeneration(state, 1);
+    const std::uint64_t requestedEpoch = ReadGeneration(state, 2);
+    std::lock_guard lock(g_hostRoleMutex);
+    if (!IsControllerVmLocked(state)) {
+        return ReturnError(state, "only the active Host controller may inspect a provider load");
+    }
+    if (token == 0
+        || requestedEpoch == 0
+        || g_providerLoadClaim.state == LoadClaimState::Empty
+        || g_providerLoadClaim.token != token
+        || g_providerLoadClaim.backendEpoch != requestedEpoch) {
+        return ReturnError(state, "provider load claim is no longer current");
+    }
+    PushString(
+        state,
+        g_providerLoadClaim.state == LoadClaimState::Claimed ? "claimed" : "pending");
+    return 1;
+}
+
+int BridgeFinishProviderLoad(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    const std::uint64_t token = ReadGeneration(state, 1);
+    const std::uint64_t requestedEpoch = ReadGeneration(state, 2);
+    std::lock_guard lock(g_hostRoleMutex);
+    if (!IsControllerVmLocked(state)) {
+        return ReturnError(state, "only the active Host controller may finish a provider load");
+    }
+    if (token == 0
+        || requestedEpoch == 0
+        || g_providerLoadClaim.state != LoadClaimState::Claimed
+        || g_providerLoadClaim.token != token
+        || g_providerLoadClaim.backendEpoch != requestedEpoch) {
+        return ReturnError(state, "provider load claim was not claimed");
+    }
+    ClearProviderLoadClaimLocked();
+    return ReturnSuccess(state);
+}
+
+int BridgeCancelProviderLoad(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    const std::uint64_t token = ReadGeneration(state, 1);
+    const std::uint64_t requestedEpoch = ReadGeneration(state, 2);
+    std::lock_guard lock(g_hostRoleMutex);
+    if (!IsControllerVmLocked(state)) {
+        return ReturnError(state, "only the active Host controller may cancel a provider load");
+    }
+    if (token == 0
+        || requestedEpoch == 0
+        || g_providerLoadClaim.state == LoadClaimState::Empty
+        || g_providerLoadClaim.token != token
+        || g_providerLoadClaim.backendEpoch != requestedEpoch) {
+        return ReturnError(state, "provider load claim is no longer current");
+    }
+    ClearProviderLoadClaimLocked();
+    return ReturnSuccess(state);
+}
+
+int BridgeReleaseRole(lua_State* state) {
+    if (!IsBridgeProtocolVerified(state)) {
+        return ReturnError(state, "bridge.hello(protocol_version) is required");
+    }
+    const void* vmIdentity = LuaVmIdentity(state);
+    std::lock_guard lock(g_hostRoleMutex);
+    if (vmIdentity && vmIdentity == g_controllerVmIdentity) {
+        g_controllerVmIdentity = nullptr;
+        ClearProviderLoadClaimLocked();
+    }
+    return ReturnSuccess(state);
 }
 
 int BridgePlan(lua_State* state) {
@@ -769,6 +1012,25 @@ int BridgeAttach(lua_State* state) {
     if (generation == 0 || !IsMainState(state)) {
         return ReturnError(state, "attach must run in the provider main Lua state");
     }
+    bool moonLoaderBackend = false;
+    {
+        std::lock_guard lock(g_backendMutex);
+        moonLoaderBackend = g_backend == lua_bridge::Backend::MoonLoader;
+    }
+    const void* vmIdentity = LuaVmIdentity(state);
+    if (moonLoaderBackend) {
+        const std::uint64_t claimToken = ReadGeneration(state, 3);
+        std::lock_guard lock(g_hostRoleMutex);
+        if (claimToken == 0
+            || !vmIdentity
+            || g_providerLoadClaim.state != LoadClaimState::Claimed
+            || g_providerLoadClaim.claimedVmIdentity != vmIdentity
+            || g_providerLoadClaim.token != claimToken
+            || g_providerLoadClaim.providerId != providerId
+            || g_providerLoadClaim.generation != generation) {
+            return ReturnError(state, "provider state has no matching load claim");
+        }
+    }
 
     std::string error;
     const DWORD threadId = GetCurrentThreadId();
@@ -782,7 +1044,7 @@ int BridgeAttach(lua_State* state) {
 
     auto session = std::make_shared<LuaSession>();
     session->state = state;
-    session->vmIdentity = LuaVmIdentity(state);
+    session->vmIdentity = vmIdentity;
     if (!session->vmIdentity) {
         codevars::Runtime::Instance().DetachProvider(providerId, generation, "Lua VM identity is unavailable");
         return ReturnError(state, "Lua VM identity is unavailable");
@@ -1144,8 +1406,15 @@ void SetFunction(lua_State* state, const char* name, lua_CFunction function) {
 }
 
 void PushBridgeTable(lua_State* state) {
-    g_lua.createtable(state, 0, 14);
+    g_lua.createtable(state, 0, 21);
     SetFunction(state, "hello", &BridgeHello);
+    SetFunction(state, "activate", &BridgeActivate);
+    SetFunction(state, "claim_role", &BridgeClaimRole);
+    SetFunction(state, "begin_provider_load", &BridgeBeginProviderLoad);
+    SetFunction(state, "provider_load_status", &BridgeProviderLoadStatus);
+    SetFunction(state, "finish_provider_load", &BridgeFinishProviderLoad);
+    SetFunction(state, "cancel_provider_load", &BridgeCancelProviderLoad);
+    SetFunction(state, "release_role", &BridgeReleaseRole);
     SetFunction(state, "generation", &BridgeGeneration);
     SetFunction(state, "plan", &BridgePlan);
     SetFunction(state, "attach", &BridgeAttach);
@@ -1244,7 +1513,7 @@ _HELPERBYORC_BRIDGE = nil
 _HELPERBYORC_PROVIDER_ID = nil
 _HELPERBYORC_PROVIDER_GENERATION = nil
 
-local protocol_ok, backend = bridge.hello(1)
+local protocol_ok, backend = bridge.hello(2)
 if not protocol_ok or backend ~= "standalone" then
     error("HelperByOrc standalone bridge protocol mismatch: " .. tostring(backend))
 end
@@ -1490,28 +1759,46 @@ lua_bridge::HostState CachedHostState(bool moonLoaderAvailable, const std::files
 } // namespace
 
 extern "C" __declspec(dllexport) int __cdecl luaopen_helperbyorc_bridge(lua_State* state) {
-    if (!state || !EnsureMoonLoaderLuaApi()) {
+    if (!state) {
         return 0;
     }
+
+    std::lock_guard lock(g_backendMutex);
+    if (g_backend != lua_bridge::Backend::Waiting && g_backend != lua_bridge::Backend::MoonLoader) {
+        return 0;
+    }
+    const DWORD ownerThreadId = codevars::Runtime::Instance().OwnerThreadId();
+    if (ownerThreadId == 0 || GetCurrentThreadId() != ownerThreadId) {
+        return 0;
+    }
+    if (!g_lua.module && !ResolveMoonLoaderLuaApiLocked()) {
+        return 0;
+    }
+
     const double protocol = g_lua.type(state, 1) == LUA_TNUMBER ? g_lua.tonumber(state, 1) : 0.0;
     if (!std::isfinite(protocol)
         || std::floor(protocol) != protocol
         || static_cast<int>(protocol) != kBridgeProtocolVersion) {
-        debuglog::WriteError("[tags][code][lua] rejected MoonLoader host with incompatible bridge protocol");
+        if (!g_protocolMismatchLogged) {
+            g_protocolMismatchLogged = true;
+            debuglog::WriteError("[tags][code][lua] rejected MoonLoader host with incompatible bridge protocol");
+        }
         return 0;
     }
-    {
-        std::lock_guard lock(g_backendMutex);
-        if (g_backend != lua_bridge::Backend::Waiting && g_backend != lua_bridge::Backend::MoonLoader) {
-            return 0;
+    if (g_backend == lua_bridge::Backend::Waiting) {
+        g_backend = lua_bridge::Backend::MoonLoader;
+        ++g_backendEpoch;
+        if (g_backendEpoch == 0 || static_cast<double>(g_backendEpoch) > kMaxExactLuaInteger) {
+            g_backendEpoch = 1;
         }
-        if (g_backend == lua_bridge::Backend::Waiting) {
-            g_backend = lua_bridge::Backend::MoonLoader;
-            debuglog::WriteInfo("[tags][code][lua] selected MoonLoader backend protocol=%d", kBridgeProtocolVersion);
-        }
+        debuglog::WriteInfo(
+            "[tags][code][lua] selected MoonLoader backend protocol=%d epoch=%llu tid=%lu",
+            kBridgeProtocolVersion,
+            static_cast<unsigned long long>(g_backendEpoch),
+            static_cast<unsigned long>(ownerThreadId));
     }
-    if (!IsMainState(state)) {
-        return ReturnError(state, "luaopen_helperbyorc_bridge must run in the script main Lua state");
+    if (g_backend != lua_bridge::Backend::MoonLoader) {
+        return 0;
     }
 
     PushBridgeTable(state);
@@ -1553,6 +1840,7 @@ void Tick() {
                 return;
             }
             InitializeStandaloneLuaApiLocked();
+            ++g_backendEpoch;
             debuglog::WriteInfo("[tags][code][lua] selected standalone LuaJIT backend");
         }
         if (g_backend != Backend::Standalone) {
@@ -1572,6 +1860,7 @@ void Shutdown() {
         CloseStandaloneProviders("game shutdown");
     }
     ReleaseAllSessions("game shutdown");
+    ResetHostRoles();
     {
         std::lock_guard hostLock(g_hostStatusMutex);
         g_cachedHostState = HostState::Unavailable;
