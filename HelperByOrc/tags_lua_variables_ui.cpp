@@ -158,13 +158,9 @@ ImVec4 LuaBackendColor(lua_bridge::Backend backend, const LuaVariablesVisualStyl
     switch (backend) {
     case lua_bridge::Backend::MoonLoader:
         return style.ok;
-    case lua_bridge::Backend::Standalone:
-        return style.accent;
     case lua_bridge::Backend::Waiting:
-        return style.warning;
-    case lua_bridge::Backend::Faulted:
     default:
-        return style.danger;
+        return style.warning;
     }
 }
 
@@ -258,10 +254,6 @@ void TagsModule::Impl::DrawLuaVariablesTab() {
             DrawLuaVariablesWrappedText(visual.mutedText, ui.Text(UiText::VariablesCodeHostUnavailable));
         } else if (bridgeStatus.host == lua_bridge::HostState::Outdated) {
             DrawLuaVariablesWrappedText(visual.mutedText, ui.Text(UiText::VariablesCodeHostOutdated));
-        }
-
-        if (bridgeStatus.backend == lua_bridge::Backend::Standalone && bridgeStatus.moonLoaderAvailable) {
-            DrawLuaVariablesWrappedText(visual.warning, ui.Text(UiText::VariablesCodeHostRestartRequired));
         }
 
         ImGui::Spacing();

@@ -53,7 +53,6 @@
     <MemwrapperDir>$(MSBuildProjectDirectory)\external\memwrapper\memwrapper</MemwrapperDir>
     <BlastHackSampApiDir>$(MSBuildProjectDirectory)\external\SAMP-API</BlastHackSampApiDir>
     <Pcre2Dir>$(MSBuildProjectDirectory)\external\pcre2\src</Pcre2Dir>
-    <LuaJitDir>$(MSBuildProjectDirectory)\external\LuaJIT</LuaJitDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -77,8 +76,6 @@
     <LogoPngGeneratedDir>$(IntDir)generated\</LogoPngGeneratedDir>
     <LogoPngDataPath>$(LogoPngGeneratedDir)logo.generated.png</LogoPngDataPath>
     <LogoPngRcPath>$(LogoPngGeneratedDir)logo.generated.rc</LogoPngRcPath>
-    <LuaJitBuildDir>$(IntDir)LuaJIT</LuaJitBuildDir>
-    <LuaJitLibrary>$(LuaJitBuildDir)\src\lua51.lib</LuaJitLibrary>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -89,7 +86,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);$(LuaJitDir)\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -97,8 +94,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreImportLibrary>true</IgnoreImportLibrary>
       <ModuleDefinitionFile>$(MSBuildProjectDirectory)\HelperByOrc.def</ModuleDefinitionFile>
-      <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;$(LuaJitBuildDir)\src;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);lua51.lib;d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -119,7 +116,7 @@
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>false</OmitFramePointers>
-      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);$(LuaJitDir)\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(PluginSdkDir)\plugin_sa;$(PluginSdkDir)\plugin_sa\game_sa;$(PluginSdkDir)\plugin_sa\game_sa\rw;$(PluginSdkDir)\shared;$(PluginSdkDir)\shared\game;$(PluginSdkDir)\shared\dxsdk;$(PluginSdkDir)\injector;$(PluginSdkDir)\hooking;$(PluginSdkDir)\safetyhook;$(ImGuiDir);$(ImGuiDir)\backends;$(MinHookDir)\include;$(MemwrapperDir);$(BlastHackSampApiDir)\include;$(Pcre2Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Gw %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -131,8 +128,8 @@
       <LinkIncremental>false</LinkIncremental>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <ModuleDefinitionFile>$(MSBuildProjectDirectory)\HelperByOrc.def</ModuleDefinitionFile>
-      <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;$(LuaJitBuildDir)\src;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(PluginSdkLibraryName);lua51.lib;d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(PluginSdkDir)\output\lib;$(PluginSdkDir)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(PluginSdkLibraryName);d3d9.lib;d3dx9.lib;windowscodecs.lib;ole32.lib;Comdlg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -234,13 +231,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <LuaJitSource Include="$(LuaJitDir)\src\**\*;$(LuaJitDir)\dynasm\**\*;$(LuaJitDir)\.relver" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ClInclude Include="app_config.h" />
     <ClInclude Include="arizona_cef_dialogs.h" />
     <ClInclude Include="binder_editor.h" />
+    <ClInclude Include="binder_editor_message_edit.h" />
     <ClInclude Include="binder_module.h" />
     <ClInclude Include="binder_module_impl.h" />
     <ClInclude Include="binder_tag_selector.h" />
@@ -331,16 +325,6 @@
 
   <Target Name="CleanGeneratedLogoPng" BeforeTargets="Clean">
     <Delete Files="$(LogoPngDataPath);$(LogoPngRcPath);$(LogoPngGeneratedDir)logo.bgra" />
-  </Target>
-
-  <Target
-    Name="BuildLuaJit"
-    BeforeTargets="Link"
-    Inputs="@(LuaJitSource)"
-    Outputs="$(LuaJitLibrary)">
-    <MakeDir Directories="$(LuaJitBuildDir)" />
-    <Exec Command="xcopy &quot;$(LuaJitDir)\*&quot; &quot;$(LuaJitBuildDir)\&quot; /E /I /Y /Q" />
-    <Exec WorkingDirectory="$(LuaJitBuildDir)\src" Command="set CL=/wd4244 /wd5287&amp;&amp; call msvcbuild.bat static" />
   </Target>
 
   <Target Name="GeneratePluginSdkProjects" BeforeTargets="BuildPluginSdk" Condition="'$(Platform)'=='Win32' and !Exists('$(PluginSdkDir)\Plugin_SA\Plugin_SA.vcxproj')">

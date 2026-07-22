@@ -1,4 +1,8 @@
 #include "binder_module_impl.h"
+#include "binder_editor_message_edit.h"
+
+#include <cctype>
+#include <iterator>
 
 namespace {
 bool EditableMessagesEqual(const std::vector<HotkeyMessage>& left, const std::vector<HotkeyMessage>& right) {
@@ -29,33 +33,50 @@ bool EditableInputsEqual(const std::vector<HotkeyInput>& left, const std::vector
            });
 }
 
-bool EditableHotkeysEqual(const HotkeyEntry& left, const HotkeyEntry& right) {
-    return left.label == right.label
-        && left.iconId == right.iconId
-        && left.keys == right.keys
-        && left.hotkeyMode == right.hotkeyMode
-        && EditableMessagesEqual(left.messages, right.messages)
-        && EditableInputsEqual(left.inputs, right.inputs)
-        && left.textTrigger.text == right.textTrigger.text
-        && left.textTrigger.enabled == right.textTrigger.enabled
-        && left.textTrigger.pattern == right.textTrigger.pattern
-        && left.textConfirmation.enabled == right.textConfirmation.enabled
-        && left.textConfirmation.key == right.textConfirmation.key
-        && left.textConfirmation.cancelKey == right.textConfirmation.cancelKey
-        && left.textConfirmation.waitForResolution == right.textConfirmation.waitForResolution
-        && left.commandConfirmation.enabled == right.commandConfirmation.enabled
-        && left.commandConfirmation.waitForResolution == right.commandConfirmation.waitForResolution
-        && left.conditions == right.conditions
-        && left.conditionsCombine == right.conditionsCombine
-        && left.repeatMode == right.repeatMode
-        && left.repeatIntervalMs == right.repeatIntervalMs
-        && left.enabled == right.enabled
-        && left.quickMenu == right.quickMenu
-        && left.command == right.command
-        && left.commandEnabled == right.commandEnabled
-        && left.categoryId == right.categoryId
-        && left.folderPath == right.folderPath
-        && left.orderId == right.orderId;
+std::string_view TrimEditorView(std::string_view value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())) != 0) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0) {
+        value.remove_suffix(1);
+    }
+    return value;
+}
+
+UINT NormalizedEditorKey(UINT key, UINT fallback) {
+    return ::hotkeys::IsHotkeyKey(key) ? ::hotkeys::NormalizeKey(key) : fallback;
+}
+
+bool EditorDraftMatchesBaseline(const HotkeyEntry& draft, const HotkeyEntry& baseline) {
+    const std::string_view command = TrimEditorView(draft.command);
+    const std::string_view trigger = TrimEditorView(draft.textTrigger.text);
+    const bool hasCommand = !command.empty();
+    const bool hasTrigger = !trigger.empty();
+
+    return draft.label == baseline.label
+        && draft.iconId == baseline.iconId
+        && draft.keys == baseline.keys
+        && draft.hotkeyMode == baseline.hotkeyMode
+        && EditableMessagesEqual(draft.messages, baseline.messages)
+        && EditableInputsEqual(draft.inputs, baseline.inputs)
+        && trigger == baseline.textTrigger.text
+        && hasTrigger == baseline.textTrigger.enabled
+        && (hasTrigger ? draft.textTrigger.pattern : false) == baseline.textTrigger.pattern
+        && (hasTrigger ? draft.textConfirmation.enabled : false) == baseline.textConfirmation.enabled
+        && NormalizedEditorKey(draft.textConfirmation.key, kDefaultConfirmKey) == baseline.textConfirmation.key
+        && NormalizedEditorKey(draft.textConfirmation.cancelKey, kDefaultCancelKey) == baseline.textConfirmation.cancelKey
+        && draft.textConfirmation.waitForResolution == baseline.textConfirmation.waitForResolution
+        && (hasCommand ? draft.commandConfirmation.enabled : false) == baseline.commandConfirmation.enabled
+        && draft.commandConfirmation.waitForResolution == baseline.commandConfirmation.waitForResolution
+        && draft.repeatMode == baseline.repeatMode
+        && std::max(draft.repeatIntervalMs, 0) == baseline.repeatIntervalMs
+        && draft.enabled == baseline.enabled
+        && draft.quickMenu == baseline.quickMenu
+        && command == baseline.command
+        && hasCommand == baseline.commandEnabled
+        && draft.categoryId == baseline.categoryId
+        && draft.folderPath == baseline.folderPath
+        && draft.orderId == baseline.orderId;
 }
 
 void ClearEditorVariableInsertTarget(binder_editor::State& editor) {
@@ -142,35 +163,27 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
 }
 
 std::vector<HotkeyMessage> BinderModule::Impl::ParseEditorMultiMessages(const std::vector<HotkeyMessage>& reference) const {
-    std::vector<HotkeyMessage> messages;
+    std::vector<std::string> lines;
     std::istringstream stream(NormalizeLineEndings(editor.multiText));
     std::string line;
-    std::size_t lineIndex = 0;
     while (std::getline(stream, line)) {
-        if (line.empty()) {
+        if (binder_editor::message_edit::IsBlankLine(line)) {
             continue;
         }
-
-        HotkeyMessage message;
-        message.text = line;
-        message.intervalMs = std::max(editor.bulkIntervalMs, 0);
-        message.method = editor.bulkMethod;
-        if (lineIndex < reference.size() && reference[lineIndex].text == line) {
-            message.intervalMs = std::max(reference[lineIndex].intervalMs, 0);
-            message.method = reference[lineIndex].method;
-        }
-        messages.push_back(std::move(message));
-        ++lineIndex;
+        lines.push_back(std::move(line));
     }
 
     const bool allReferenceEmpty = !reference.empty() && std::all_of(reference.begin(), reference.end(), [](const HotkeyMessage& item) {
         return Trim(item.text).empty();
     });
-    if (messages.empty() && allReferenceEmpty) {
+    if (lines.empty() && allReferenceEmpty) {
         return reference;
     }
-
-    return messages;
+    return binder_editor::message_edit::ReconcileMessages(
+        lines,
+        reference,
+        editor.bulkIntervalMs,
+        editor.bulkMethod);
 }
 
 void BinderModule::Impl::SyncEditorMessagesToMulti() {
@@ -210,7 +223,7 @@ bool BinderModule::Impl::EditorHasUnsavedChanges() const {
         return false;
     }
 
-    return !EditableHotkeysEqual(BuildEditorComparableDraft(), editor.baseline);
+    return !EditorDraftMatchesBaseline(editor.draft, editor.baseline);
 }
 
 std::pair<int, int> BinderModule::Impl::EditorNeighborIndices() const {
@@ -1396,14 +1409,18 @@ void BinderModule::Impl::DrawEditorDiscardPopup() {
 void BinderModule::Impl::DrawEditorScenarioTab() {
     UiSettings& ui = UiSettings::Instance();
     const ImGuiStyle& style = ImGui::GetStyle();
+    const float scenarioControlHeight = ImGui::GetFrameHeight();
     const float dragHandleWidth = std::ceil(ImGui::CalcTextSize(ui_icons::MoveRows).x + ScaleUi(4.0f));
-    const float dragHandleHeight = ImGui::GetFrameHeight();
+    const float dragHandleHeight = scenarioControlHeight;
     const float dragColumnWidth = std::ceil(dragHandleWidth + style.CellPadding.x * 2.0f);
     const float destinationColumnWidth = std::ceil(
         ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
-    const ImVec2 actionButtonSize(ScaleUi(24.0f), ScaleUi(24.0f));
+    const ImVec2 actionButtonSize(scenarioControlHeight, scenarioControlHeight);
     const float actionButtonsWidth = actionButtonSize.x;
     const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
+    ImVec4 activeRowTint = style.Colors[ImGuiCol_HeaderActive];
+    activeRowTint.w = std::clamp(activeRowTint.w * 0.58f, 0.28f, 0.62f);
+    const ImU32 activeRowColor = ImGui::GetColorU32(activeRowTint);
     const bool onlyEmptyPlaceholder =
         editor.draft.messages.size() == 1 && Trim(editor.draft.messages.front().text).empty();
     const std::size_t visibleMessageCount = onlyEmptyPlaceholder ? 0 : editor.draft.messages.size();
@@ -1419,6 +1436,10 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     int removeIndex = -1;
     int moveSourceIndex = -1;
     int moveTargetIndex = -1;
+    int pasteMessageIndex = -1;
+    int pasteSelectionStartByte = -1;
+    int pasteSelectionEndByte = -1;
+    std::string pasteClipboard{};
     const ImVec2 stepsTableOuterSize(
         ImGui::GetContentRegionAvail().x,
         std::max(ScaleUi(180.0f), ImGui::GetContentRegionAvail().y));
@@ -1441,123 +1462,162 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             UiSettings::Instance().Text(UiText::EditorColumnDestination),
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
             destinationColumnWidth);
-        ImGui::TableSetupColumn(
-            "##actions",
-            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
-            actionsColumnWidth);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, actionsColumnWidth);
         ImGui::TableHeadersRow();
 
-        for (std::size_t i = 0; i < visibleMessageCount; ++i) {
-            HotkeyMessage& message = editor.draft.messages[i];
-            ImGui::TableNextRow();
-            ImGui::PushID(static_cast<int>(i));
-            ImGui::TableSetColumnIndex(0);
-            CenterNextItemHorizontally(dragHandleWidth);
-            IconOnlyButton(ui_icons::MoveRows, "##step_drag", ui.Text(UiText::EditorMoveStep), ImVec2(dragHandleWidth, dragHandleHeight));
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
-                const int payloadIndex = static_cast<int>(i);
-                ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
-                ImGui::Text("%s %d", ui.Text(UiText::EditorScenarioTab), static_cast<int>(i + 1));
-                std::string previewText = Trim(message.text);
-                if (previewText.empty()) {
-                    previewText = "...";
-                } else {
-                    while (previewText.size() > 77) {
-                        previewText = Utf8TrimLastChar(previewText);
-                    }
-                }
-                if (previewText != Trim(message.text)) {
-                    previewText += "...";
-                }
-                ImGui::TextDisabled("%s", previewText.c_str());
-                ImGui::EndDragDropSource();
-            }
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            const int messageIndex = static_cast<int>(i);
-            const bool focusMessageText = editor.scenarioMessageFocusIndex == messageIndex;
-            if (focusMessageText) {
-                ImGui::SetKeyboardFocusHere();
-            }
-            InputTextSetCaretData focusData{ editor.scenarioMessageFocusCaretByte, false };
-            const ImGuiInputTextFlags textFlags = focusMessageText
-                ? ImGuiInputTextFlags_CallbackAlways
-                : 0;
-            InputTextString(
-                "##step_text",
-                message.text,
-                textFlags,
-                256,
-                focusMessageText ? SetInputTextCaretCallback : nullptr,
-                focusMessageText ? &focusData : nullptr);
-            const ImGuiID stepTextId = ImGui::GetItemID();
-            if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
-                int cursorByte = -1;
-                int selectionStartByte = -1;
-                int selectionEndByte = -1;
-                if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(stepTextId)) {
-                    cursorByte = inputState->GetCursorPos();
-                    selectionStartByte = inputState->GetSelectionStart();
-                    selectionEndByte = inputState->GetSelectionEnd();
-                }
-                RememberEditorVariableInsertTarget(
-                    binder_editor::State::VariableInsertTarget::ScenarioMessage,
-                    messageIndex,
-                    cursorByte,
-                    selectionStartByte,
-                    selectionEndByte);
-            }
-            if (focusMessageText && focusData.applied) {
-                editor.scenarioMessageFocusIndex = -1;
-                editor.scenarioMessageFocusCaretByte = -1;
-            }
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
-                    if (payload->Delivery && payload->DataSize == sizeof(int)) {
-                        const int payloadIndex = *static_cast<const int*>(payload->Data);
-                        if (payloadIndex >= 0 && payloadIndex < static_cast<int>(visibleMessageCount)
-                            && payloadIndex != static_cast<int>(i)) {
-                            moveSourceIndex = payloadIndex;
-                            moveTargetIndex = static_cast<int>(i);
+        if (!ImGui::IsDragDropActive()) {
+            editor.scenarioDragMessageIndex = -1;
+        }
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(visibleMessageCount));
+        if (editor.scenarioMessageFocusIndex >= 0) {
+            clipper.IncludeItemByIndex(editor.scenarioMessageFocusIndex);
+        }
+        if (editor.scenarioDragMessageIndex >= 0
+            && editor.scenarioDragMessageIndex < static_cast<int>(visibleMessageCount)) {
+            clipper.IncludeItemByIndex(editor.scenarioDragMessageIndex);
+        }
+        while (clipper.Step()) {
+            for (int rowIndex = clipper.DisplayStart; rowIndex < clipper.DisplayEnd; ++rowIndex) {
+                const std::size_t i = static_cast<std::size_t>(rowIndex);
+                HotkeyMessage& message = editor.draft.messages[i];
+                ImGui::TableNextRow();
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::TableSetColumnIndex(0);
+                CenterNextItemHorizontally(dragHandleWidth);
+                IconOnlyButton(
+                    ui_icons::MoveRows,
+                    "##step_drag",
+                    ui.Text(UiText::EditorMoveStep),
+                    ImVec2(dragHandleWidth, dragHandleHeight));
+                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+                    const int payloadIndex = static_cast<int>(i);
+                    editor.scenarioDragMessageIndex = payloadIndex;
+                    ImGui::SetDragDropPayload("BINDER_EDITOR_STEP", &payloadIndex, sizeof(payloadIndex));
+                    ImGui::Text("%s %d", ui.Text(UiText::EditorScenarioTab), static_cast<int>(i + 1));
+                    std::string previewText = Trim(message.text);
+                    if (previewText.empty()) {
+                        previewText = "...";
+                    } else {
+                        while (previewText.size() > 77) {
+                            previewText = Utf8TrimLastChar(previewText);
                         }
                     }
-                }
-                ImGui::EndDragDropTarget();
-            }
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::InputInt("##step_delay", &message.intervalMs);
-            if (message.intervalMs < 0) {
-                message.intervalMs = 0;
-            }
-
-            ImGui::TableSetColumnIndex(3);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::BeginCombo("##step_method", SendMethodLabel(message.method))) {
-                for (int method = 0; method <= 9; ++method) {
-                    const bool selected = method == message.method;
-                    if (ImGui::Selectable(SendMethodLabel(method), selected)) {
-                        message.method = method;
+                    if (previewText != Trim(message.text)) {
+                        previewText += "...";
                     }
-                    if (selected) {
-                        ImGui::SetItemDefaultFocus();
+                    ImGui::TextDisabled("%s", previewText.c_str());
+                    ImGui::EndDragDropSource();
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                const int messageIndex = static_cast<int>(i);
+                const ImGuiID stepTextId = ImGui::GetID("##step_text");
+                const bool focusMessageText = editor.scenarioMessageFocusIndex == messageIndex;
+                if (focusMessageText) {
+                    ImGui::SetKeyboardFocusHere();
+                }
+                if (ImGui::GetActiveID() == stepTextId
+                    && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+                    const char* clipboardText = ImGui::GetClipboardText();
+                    if (clipboardText && std::string_view(clipboardText).find_first_of("\r\n") != std::string_view::npos) {
+                        pasteMessageIndex = messageIndex;
+                        pasteSelectionStartByte = static_cast<int>(message.text.size());
+                        pasteSelectionEndByte = pasteSelectionStartByte;
+                        if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(stepTextId)) {
+                            pasteSelectionStartByte = inputState->GetSelectionStart();
+                            pasteSelectionEndByte = inputState->GetSelectionEnd();
+                        }
+                        pasteClipboard = NormalizeLineEndings(clipboardText);
+                        ImGui::SetKeyOwner(
+                            ImGuiKey_V,
+                            ImGui::GetID("##step_multiline_paste"),
+                            ImGuiInputFlags_LockThisFrame);
                     }
                 }
-                ImGui::EndCombo();
-            }
+                InputTextSetCaretData focusData{ editor.scenarioMessageFocusCaretByte, false };
+                const ImGuiInputTextFlags textFlags = focusMessageText
+                    ? ImGuiInputTextFlags_CallbackAlways
+                    : 0;
+                InputTextString(
+                    "##step_text",
+                    message.text,
+                    textFlags,
+                    256,
+                    focusMessageText ? SetInputTextCaretCallback : nullptr,
+                    focusMessageText ? &focusData : nullptr);
+                const bool textEditing = ImGui::IsItemActive() || ImGui::IsItemFocused();
+                if (textEditing) {
+                    int cursorByte = -1;
+                    int selectionStartByte = -1;
+                    int selectionEndByte = -1;
+                    if (ImGuiInputTextState* inputState = ImGui::GetInputTextState(stepTextId)) {
+                        cursorByte = inputState->GetCursorPos();
+                        selectionStartByte = inputState->GetSelectionStart();
+                        selectionEndByte = inputState->GetSelectionEnd();
+                    }
+                    RememberEditorVariableInsertTarget(
+                        binder_editor::State::VariableInsertTarget::ScenarioMessage,
+                        messageIndex,
+                        cursorByte,
+                        selectionStartByte,
+                        selectionEndByte);
+                }
+                if (focusMessageText && focusData.applied) {
+                    ImGui::SetScrollHereY(0.5f);
+                    editor.scenarioMessageFocusIndex = -1;
+                    editor.scenarioMessageFocusCaretByte = -1;
+                }
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("BINDER_EDITOR_STEP")) {
+                        if (payload->Delivery && payload->DataSize == sizeof(int)) {
+                            const int payloadIndex = *static_cast<const int*>(payload->Data);
+                            if (payloadIndex >= 0 && payloadIndex < static_cast<int>(visibleMessageCount)
+                                && payloadIndex != static_cast<int>(i)) {
+                                moveSourceIndex = payloadIndex;
+                                moveTargetIndex = static_cast<int>(i);
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
 
-            ImGui::TableSetColumnIndex(4);
-            const float actionButtonsOffsetY = std::max(0.0f, std::floor((ImGui::GetFrameHeight() - actionButtonSize.y) * 0.5f));
-            if (actionButtonsOffsetY > 0.0f) {
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + actionButtonsOffsetY);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputInt("##step_delay", &message.intervalMs);
+                const bool delayEditing = ImGui::IsItemActive() || ImGui::IsItemFocused();
+                if (message.intervalMs < 0) {
+                    message.intervalMs = 0;
+                }
+
+                ImGui::TableSetColumnIndex(3);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                const bool methodOpen = ImGui::BeginCombo("##step_method", SendMethodLabel(message.method));
+                const bool methodEditing = methodOpen || ImGui::IsItemActive() || ImGui::IsItemFocused();
+                if (methodOpen) {
+                    for (int method = 0; method <= 9; ++method) {
+                        const bool selected = method == message.method;
+                        if (ImGui::Selectable(SendMethodLabel(method), selected)) {
+                            message.method = method;
+                        }
+                        if (selected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::TableSetColumnIndex(4);
+                CenterNextItemHorizontally(actionButtonsWidth);
+                if (SmallIconActionButton(ui_icons::Delete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
+                    removeIndex = static_cast<int>(i);
+                }
+                if (textEditing || delayEditing || methodEditing) {
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, activeRowColor);
+                }
+                ImGui::PopID();
             }
-            CenterNextItemHorizontally(actionButtonsWidth);
-            if (SmallIconActionButton(ui_icons::Delete, "##step_delete", ui.Text(UiText::Delete), actionButtonSize)) {
-                removeIndex = static_cast<int>(i);
-            }
-            ImGui::PopID();
         }
 
         ImGui::TableNextRow();
@@ -1622,7 +1682,8 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             editor.scenarioAppendText,
             0,
             256);
-        if (ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        const bool appendEditing = ImGui::IsItemActive() || ImGui::IsItemFocused();
+        if (appendEditing) {
             int cursorByte = -1;
             int selectionStartByte = -1;
             int selectionEndByte = -1;
@@ -1668,18 +1729,54 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         ImGui::EndDisabled();
 
         ImGui::TableSetColumnIndex(4);
-        const float appendButtonOffsetY = std::max(0.0f, std::floor((ImGui::GetFrameHeight() - actionButtonSize.y) * 0.5f));
-        if (appendButtonOffsetY > 0.0f) {
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + appendButtonOffsetY);
-        }
         CenterNextItemHorizontally(actionButtonsWidth);
         if (SmallIconActionButton(ui_icons::Plus, "##step_append_add", ui.Text(UiText::EditorAppendStepTooltip), actionButtonSize)
             && !CommitEditorScenarioAppendText()) {
             editor.scenarioAppendFocusPending = true;
         }
+        if (appendEditing) {
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, activeRowColor);
+        }
         ImGui::PopID();
 
         ImGui::EndTable();
+    }
+
+    if (pasteMessageIndex >= 0
+        && pasteMessageIndex < static_cast<int>(editor.draft.messages.size())) {
+        HotkeyMessage inherited = editor.draft.messages[static_cast<std::size_t>(pasteMessageIndex)];
+        if (auto paste = binder_editor::message_edit::BuildMultilinePaste(
+                inherited.text,
+                pasteSelectionStartByte,
+                pasteSelectionEndByte,
+                pasteClipboard)) {
+            std::vector<HotkeyMessage> replacements =
+                binder_editor::message_edit::BuildMultilinePasteMessages(inherited, *paste);
+
+            auto replaceAt = editor.draft.messages.begin() + pasteMessageIndex;
+            replaceAt = editor.draft.messages.erase(replaceAt);
+            editor.draft.messages.insert(
+                replaceAt,
+                std::make_move_iterator(replacements.begin()),
+                std::make_move_iterator(replacements.end()));
+
+            const int insertedDelta = static_cast<int>(replacements.size()) - 1;
+            editor.scenarioMessageFocusIndex = pasteMessageIndex + paste->focusLine;
+            editor.scenarioMessageFocusCaretByte = paste->caretByte;
+            if (editor.variablesInsertTarget == binder_editor::State::VariableInsertTarget::ScenarioMessage) {
+                if (editor.variablesInsertMessageIndex == pasteMessageIndex) {
+                    editor.variablesInsertMessageIndex = editor.scenarioMessageFocusIndex;
+                    editor.variablesInsertCursorByte = paste->caretByte;
+                    editor.variablesInsertSelectionStartByte = paste->caretByte;
+                    editor.variablesInsertSelectionEndByte = paste->caretByte;
+                } else if (editor.variablesInsertMessageIndex > pasteMessageIndex) {
+                    editor.variablesInsertMessageIndex += insertedDelta;
+                }
+            }
+            moveSourceIndex = -1;
+            moveTargetIndex = -1;
+            removeIndex = -1;
+        }
     }
 
     if (moveSourceIndex >= 0 && moveTargetIndex >= 0 && moveSourceIndex != moveTargetIndex) {
@@ -1703,6 +1800,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
             editor.variablesInsertMessageIndex = remapMovedIndex(editor.variablesInsertMessageIndex);
         }
         editor.scenarioMessageFocusIndex = remapMovedIndex(editor.scenarioMessageFocusIndex);
+        editor.scenarioDragMessageIndex = -1;
     }
     if (removeIndex >= 0 && removeIndex < static_cast<int>(editor.draft.messages.size())) {
         if (editor.draft.messages.size() > 1) {

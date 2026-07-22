@@ -317,6 +317,9 @@
     <ClInclude Include="binder_editor.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>
+    <ClInclude Include="binder_editor_message_edit.h">
+      <Filter>Header Files\Binder</Filter>
+    </ClInclude>
     <ClInclude Include="binder_module.h">
       <Filter>Header Files\Binder</Filter>
     </ClInclude>

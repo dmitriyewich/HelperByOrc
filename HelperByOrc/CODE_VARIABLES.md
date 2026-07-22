@@ -1,10 +1,9 @@
 # Переменные из Lua
 
-HelperByOrc поддерживает общие для всех профилей переменные из Lua. Без
-MoonLoader код выполняется во встроенном LuaJIT; опциональный host переключает
-providers на настоящие Lua states MoonLoader с доступом к его API. Обычные
-строковые переменные из `tags.custom_vars` остаются профильными и работают
-независимо.
+HelperByOrc поддерживает общие для всех профилей переменные из Lua. Providers
+выполняются только в настоящих Lua states MoonLoader через
+`HelperByOrcVarsHost.lua` и имеют доступ к его API. Обычные строковые переменные
+из `tags.custom_vars` остаются профильными и не зависят от MoonLoader.
 
 Lua имеет доступ к процессу игры. Это доверенный код, а не sandbox.
 
@@ -26,17 +25,18 @@ GTA San Andreas User Files\HelperByOrc\vars\*.lua
 `Прочее -> Переменные -> Lua`. Флаги включения хранятся в `profiles.json`.
 Переключение профиля не перезапускает общие Lua providers.
 
-MoonLoader не обязателен. Для его API нажмите `Установить Host` или
-`Обновить Host`; HelperByOrc атомарно установит встроенный скрипт в:
+Для Lua providers обязательны MoonLoader и совместимый Host. Нажмите
+`Установить Host` или `Обновить Host`; HelperByOrc атомарно установит встроенный
+скрипт в:
 
 ```text
 <папка игры>\moonloader\HelperByOrcVarsHost.lua
 ```
 
-При замене отличающегося host рядом создаётся `.bak`. Для выбора MoonLoader
-backend host должен пройти handshake на owner thread до standalone fallback;
-после установки нужен перезапуск игры либо полная перезагрузка скриптов
-MoonLoader и HelperByOrc.
+При замене отличающегося host рядом создаётся `.bak`. Host должен пройти
+handshake на owner thread; без MoonLoader или совместимого Host включённые
+providers остаются в состоянии ожидания. После установки нужен перезапуск игры
+либо полная перезагрузка скриптов MoonLoader и HelperByOrc.
 
 Используется только один файл `HelperByOrcVarsHost.lua`. Controller загружает
 этот же host для каждого provider, а bridge выдаёт новому Lua state одноразовый
@@ -46,20 +46,14 @@ MoonLoader и HelperByOrc.
 загрузку одного и того же host-файла для каждого включённого provider; это не
 повторная загрузка provider и не retry.
 
-## Backends
+## Среда выполнения
 
-- `Standalone LuaJIT`: встроен статически в `HelperByOrc.asi`; доступны
-  стандартные Lua 5.1 библиотеки, включая `io` и `os`. `ffi`, `package.loadlib`
-  и внешние C-loaders отключены. MoonLoader API, `main`, `wait`, `lua_thread`
-  и MoonLoader events недоступны. На provider действует лимит 16 МиБ.
-- `MoonLoader`: каждый provider работает в отдельном настоящем state
-  MoonLoader и может использовать его API, `main` и events. Bridge и host
-  сверяют версию протокола, owner thread, generation и backend epoch до
-  загрузки provider. Одновременно создаётся не более одного нового state.
-
-Оба backend используют одинаковые правила регистрации, типы, кэш,
-generation isolation и instruction budget. В одном запуске активен только
-один backend, поэтому Lua ABI никогда не смешиваются.
+Каждый provider работает в отдельном настоящем state MoonLoader и может
+использовать его API, `main` и events. Bridge и Host сверяют версию протокола,
+owner thread, generation и backend epoch до загрузки provider. Одновременно
+создаётся не более одного нового state. `HelperByOrc.asi` не содержит и не
+линкует отдельный Lua runtime: bridge использует LuaJIT/Lua 5.1 C API уже
+загруженного MoonLoader.
 
 ## Формы и типы
 
@@ -118,8 +112,7 @@ logVariableError("message")
 ```
 
 `publishVariable` применяется к `simple`-переменной с `cache = "event"`.
-В MoonLoader backend пользовательский `main` и events работают в state
-соответствующего файла. В standalone выполняется только top-level регистрация.
+Пользовательский `main` и events работают в state соответствующего файла.
 Регистрация и variable callbacks синхронные: внутри них нельзя вызывать
 `wait`, `yield` или выполнять длительную работу. Для периодического
 обновления используйте `main`/event callback и `cache = "event"`.
@@ -171,16 +164,12 @@ hook прерывает Lua-код. Общий wall-time бюджет callback �
 [tags][code][perf]
 ```
 
-При MoonLoader backend ошибки host и provider scripts также попадают в
-`moonloader.log`.
+Ошибки Host и provider scripts также попадают в `moonloader.log`.
 
 ## Технические источники
 
-- Встроенный LuaJIT: ветка `v2.1`, commit
-  `3c4f9fe2052b8d08a917ac0d5f38563f0297b5a3`; исходники и `COPYRIGHT`
-  находятся в `external/LuaJIT`.
 - Lua 5.1 Reference Manual: https://www.lua.org/manual/5.1/manual.html
-- LuaJIT: https://luajit.org/
+- LuaJIT runtime предоставляет MoonLoader: https://luajit.org/
 - LuaJIT C API extensions: https://luajit.org/ext_c_api.html
 - LuaJIT JIT control: https://luajit.org/ext_jit.html
 - LuaJIT debug-hook limitation: https://luajit.org/faq.html

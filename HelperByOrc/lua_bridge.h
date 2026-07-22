@@ -8,8 +8,6 @@ namespace lua_bridge {
 enum class Backend {
     Waiting,
     MoonLoader,
-    Standalone,
-    Faulted,
 };
 
 enum class HostState {
@@ -28,7 +26,6 @@ struct Status {
     std::string detail{};
 };
 
-void Tick();
 void Shutdown();
 Status CurrentStatus();
 bool InstallOrUpdateMoonLoaderHost(std::string* error = nullptr);

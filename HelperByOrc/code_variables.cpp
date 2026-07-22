@@ -543,7 +543,7 @@ public:
                 : ProviderState::Disabled;
             provider->status.generation = generation;
             provider->status.detail = provider->status.enabled
-                ? "waiting for Lua backend"
+                ? "waiting for MoonLoader host"
                 : "disabled until explicitly enabled";
             provider->sourcePath = path;
             providerOrder.push_back(id);
@@ -786,7 +786,6 @@ void Runtime::Tick(bool sampReady) {
     if (reload) {
         ReloadProfile();
     }
-    lua_bridge::Tick();
     impl_->MaybeLogPerf(GetTickCount64());
 }
 

@@ -1,6 +1,0 @@
-/.relver export-subst
-
-# Keep the upstream snapshot byte-compatible in the working tree while making
-# Git's whitespace checks ignore LuaJIT's intentional trailing whitespace.
-* whitespace=-blank-at-eof,-trailing-space
-*.bat text eol=crlf

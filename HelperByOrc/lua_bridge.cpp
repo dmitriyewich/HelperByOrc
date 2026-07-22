@@ -5,14 +5,6 @@
 #include "lua_bridge.h"
 #include "resource.h"
 
-extern "C" {
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
-}
-
-extern "C" int luaJIT_setmode(lua_State* state, int index, int mode);
-
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
@@ -21,7 +13,6 @@ extern "C" int luaJIT_setmode(lua_State* state, int index, int mode);
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -33,17 +24,31 @@ extern "C" int luaJIT_setmode(lua_State* state, int index, int mode);
 #include <utility>
 #include <vector>
 
+struct lua_State;
+struct lua_Debug;
+
+using lua_Number = double;
+using lua_CFunction = int(__cdecl*)(lua_State*);
+using lua_Hook = void(__cdecl*)(lua_State*, lua_Debug*);
+
 namespace {
 
+constexpr int LUA_REGISTRYINDEX = -10000;
+constexpr int LUA_NOREF = -2;
+constexpr int LUA_REFNIL = -1;
+constexpr int LUA_TNIL = 0;
+constexpr int LUA_TBOOLEAN = 1;
+constexpr int LUA_TNUMBER = 3;
+constexpr int LUA_TSTRING = 4;
+constexpr int LUA_TTABLE = 5;
+constexpr int LUA_TFUNCTION = 6;
+constexpr int LUA_MASKCOUNT = 8;
 constexpr int LUAJIT_MODE_ALLFUNC = 3;
 constexpr int LUAJIT_MODE_OFF = 0x0000;
 constexpr int kBridgeProtocolVersion = 2;
 constexpr char kBridgeProtocolRegistryKey[] = "HelperByOrc.bridge.protocol";
 constexpr int kHookInstructionInterval = 10000;
 constexpr int kHookMaximumCalls = 200;
-constexpr std::uint64_t kStandaloneSelectionDelayMs = 3000;
-constexpr std::uint64_t kMoonLoaderHostGraceMs = 8000;
-constexpr std::size_t kStandaloneStateMemoryLimit = 16 * 1024 * 1024;
 constexpr double kMaxExactLuaInteger = 9007199254740991.0;
 constexpr double kInt64MinAsDouble = -9223372036854775808.0;
 constexpr double kInt64ExclusiveMaxAsDouble = 9223372036854775808.0;
@@ -51,10 +56,6 @@ constexpr std::uint64_t kMaxLuaSourceBytes = 1024 * 1024;
 
 struct LuaApi {
     HMODULE module = nullptr;
-    lua_State*(__cdecl* newstate)(lua_Alloc, void*) = nullptr;
-    void(__cdecl* close)(lua_State*) = nullptr;
-    void(__cdecl* l_openlibs)(lua_State*) = nullptr;
-    int(__cdecl* l_loadbuffer)(lua_State*, const char*, size_t, const char*) = nullptr;
     int(__cdecl* gettop)(lua_State*) = nullptr;
     void(__cdecl* settop)(lua_State*, int) = nullptr;
     void(__cdecl* pushvalue)(lua_State*, int) = nullptr;
@@ -91,9 +92,6 @@ lua_bridge::Backend g_backend = lua_bridge::Backend::Waiting;
 std::string g_luaResolveError;
 std::uint64_t g_backendEpoch = 0;
 bool g_protocolMismatchLogged = false;
-std::uint64_t g_backendSelectionDeadlineMs = 0;
-bool g_moonLoaderGraceApplied = false;
-std::uint64_t g_standaloneGeneration = 0;
 std::mutex g_hostStatusMutex;
 lua_bridge::HostState g_cachedHostState = lua_bridge::HostState::Unavailable;
 std::uint64_t g_hostStatusCheckedAtMs = 0;
@@ -177,44 +175,6 @@ bool ResolveMoonLoaderLuaApiLocked() {
     g_luaResolveError.clear();
     debuglog::WriteInfo("[tags][code][lua] resolved pending MoonLoader Lua 5.1 C API from lua51.dll");
     return true;
-}
-
-void InitializeStandaloneLuaApiLocked() {
-    g_lua = {};
-    g_lua.newstate = &lua_newstate;
-    g_lua.close = &lua_close;
-    g_lua.l_openlibs = &luaL_openlibs;
-    g_lua.l_loadbuffer = &luaL_loadbuffer;
-    g_lua.gettop = &lua_gettop;
-    g_lua.settop = &lua_settop;
-    g_lua.pushvalue = &lua_pushvalue;
-    g_lua.pushnil = &lua_pushnil;
-    g_lua.pushnumber = &lua_pushnumber;
-    g_lua.pushboolean = &lua_pushboolean;
-    g_lua.pushlstring = &lua_pushlstring;
-    g_lua.pushcclosure = &lua_pushcclosure;
-    g_lua.pushthread = &lua_pushthread;
-    g_lua.createtable = &lua_createtable;
-    g_lua.setfield = &lua_setfield;
-    g_lua.getfield = &lua_getfield;
-    g_lua.rawseti = &lua_rawseti;
-    g_lua.rawgeti = &lua_rawgeti;
-    g_lua.type = &lua_type;
-    g_lua.toboolean = &lua_toboolean;
-    g_lua.tonumber = &lua_tonumber;
-    g_lua.tolstring = &lua_tolstring;
-    g_lua.topointer = &lua_topointer;
-    g_lua.pcall = &lua_pcall;
-    g_lua.l_ref = &luaL_ref;
-    g_lua.l_unref = &luaL_unref;
-    g_lua.l_error = &luaL_error;
-    g_lua.gethook = &lua_gethook;
-    g_lua.gethookmask = &lua_gethookmask;
-    g_lua.gethookcount = &lua_gethookcount;
-    g_lua.sethook = &lua_sethook;
-    g_lua.jit_setmode = &luaJIT_setmode;
-    g_backend = lua_bridge::Backend::Standalone;
-    g_luaResolveError.clear();
 }
 
 void Pop(lua_State* state, int count) {
@@ -749,13 +709,8 @@ int BridgeHello(lua_State* state) {
     }
     g_lua.pushnumber(state, static_cast<double>(kBridgeProtocolVersion));
     g_lua.setfield(state, LUA_REGISTRYINDEX, kBridgeProtocolRegistryKey);
-    std::lock_guard lock(g_backendMutex);
     g_lua.pushboolean(state, 1);
-    PushString(
-        state,
-        g_backend == lua_bridge::Backend::MoonLoader
-            ? "moonloader"
-            : g_backend == lua_bridge::Backend::Standalone ? "standalone" : "unavailable");
+    PushString(state, "moonloader");
     return 2;
 }
 
@@ -1012,14 +967,15 @@ int BridgeAttach(lua_State* state) {
     if (generation == 0 || !IsMainState(state)) {
         return ReturnError(state, "attach must run in the provider main Lua state");
     }
-    bool moonLoaderBackend = false;
     {
         std::lock_guard lock(g_backendMutex);
-        moonLoaderBackend = g_backend == lua_bridge::Backend::MoonLoader;
+        if (g_backend != lua_bridge::Backend::MoonLoader) {
+            return ReturnError(state, "MoonLoader backend is not active");
+        }
     }
     const void* vmIdentity = LuaVmIdentity(state);
-    if (moonLoaderBackend) {
-        const std::uint64_t claimToken = ReadGeneration(state, 3);
+    const std::uint64_t claimToken = ReadGeneration(state, 3);
+    {
         std::lock_guard lock(g_hostRoleMutex);
         if (claimToken == 0
             || !vmIdentity
@@ -1430,269 +1386,6 @@ void PushBridgeTable(lua_State* state) {
     SetFunction(state, "log", &BridgeLog);
 }
 
-struct StandaloneAllocator {
-    std::size_t bytes = 0;
-};
-
-struct StandaloneProvider {
-    std::unique_ptr<StandaloneAllocator> allocator{};
-    lua_State* state = nullptr;
-};
-
-std::vector<StandaloneProvider> g_standaloneProviders;
-
-void* __cdecl StandaloneAllocate(void* userData, void* pointer, size_t oldSize, size_t newSize) {
-    auto* allocator = static_cast<StandaloneAllocator*>(userData);
-    if (!allocator) {
-        return nullptr;
-    }
-    if (newSize == 0) {
-        std::free(pointer);
-        allocator->bytes = oldSize <= allocator->bytes ? allocator->bytes - oldSize : 0;
-        return nullptr;
-    }
-    const std::size_t reduced = oldSize <= allocator->bytes ? allocator->bytes - oldSize : 0;
-    if (newSize > kStandaloneStateMemoryLimit - reduced) {
-        return nullptr;
-    }
-    void* result = std::realloc(pointer, newSize);
-    if (result) {
-        allocator->bytes = reduced + newSize;
-    }
-    return result;
-}
-
-bool RunStandaloneChunk(lua_State* state, std::string_view source, std::string_view chunkName, std::string& error) {
-    const int top = g_lua.gettop(state);
-    if (g_lua.l_loadbuffer(state, source.data(), source.size(), std::string(chunkName).c_str()) != 0) {
-        error = LuaString(state, -1);
-        g_lua.settop(state, top);
-        return false;
-    }
-    int status = 0;
-    {
-        HookGuard hook(state);
-        status = g_lua.pcall(state, 0, 0, 0);
-    }
-    if (status != 0) {
-        error = LuaString(state, -1);
-        g_lua.settop(state, top);
-        return false;
-    }
-    g_lua.settop(state, top);
-    return true;
-}
-
-constexpr std::string_view kStandaloneRestrictions = R"lua(
-ffi = nil
-if type(package) == "table" then
-    package.loadlib = nil
-    package.cpath = ""
-    if type(package.preload) == "table" then
-        package.preload.ffi = nil
-        package.preload.buffer = nil
-    end
-    if type(package.loaded) == "table" then
-        package.loaded.ffi = nil
-        package.loaded.buffer = nil
-    end
-    if type(package.loaders) == "table" then
-        package.loaders[3] = function(name)
-            return "\n\tC modules are disabled by HelperByOrc standalone Lua"
-        end
-        package.loaders[4] = package.loaders[3]
-    end
-end
-)lua";
-
-constexpr std::string_view kStandaloneBootstrap = R"lua(
-local bridge = assert(_HELPERBYORC_BRIDGE)
-local provider_id = assert(_HELPERBYORC_PROVIDER_ID)
-local provider_generation = assert(_HELPERBYORC_PROVIDER_GENERATION)
-_HELPERBYORC_BRIDGE = nil
-_HELPERBYORC_PROVIDER_ID = nil
-_HELPERBYORC_PROVIDER_GENERATION = nil
-
-local protocol_ok, backend = bridge.hello(2)
-if not protocol_ok or backend ~= "standalone" then
-    error("HelperByOrc standalone bridge protocol mismatch: " .. tostring(backend))
-end
-
-local attached, attach_error = bridge.attach(provider_id, provider_generation)
-if not attached then
-    error("HelperByOrc provider attach failed: " .. tostring(attach_error))
-end
-
-local current_thisbind_value = nil
-local environment = {}
-setmetatable(environment, {
-    __index = function(_, key)
-        if key == "thisbind_value" then
-            return current_thisbind_value
-        end
-        return _G[key]
-    end,
-    __newindex = function(_, key, value)
-        if key == "thisbind_value" then
-            error("thisbind_value is read-only", 2)
-        end
-        rawset(_G, key, value)
-    end,
-})
-
-local function with_thisbind(thisbind_value, callback, ...)
-    current_thisbind_value = thisbind_value
-    local results = {pcall(callback, ...)}
-    current_thisbind_value = nil
-    if not results[1] then
-        error(results[2], 0)
-    end
-    return unpack(results, 2)
-end
-
-local function disable_callback_jit(callback)
-    if type(jit) == "table" and type(jit.off) == "function" then
-        pcall(jit.off, callback, true)
-    end
-end
-
-environment.registerVariable = function(name, description, callback, options)
-    if type(callback) ~= "function" then
-        error("registerVariable callback must be a function", 2)
-    end
-    disable_callback_jit(callback)
-    local wrapped = function(thisbind_value)
-        return with_thisbind(thisbind_value, callback, thisbind_value)
-    end
-    disable_callback_jit(wrapped)
-    return bridge.register_simple(provider_id, provider_generation, name, description or "", wrapped, options)
-end
-
-environment.registerFunctionalVariable = function(name, description, callback, options)
-    if type(callback) ~= "function" then
-        error("registerFunctionalVariable callback must be a function", 2)
-    end
-    disable_callback_jit(callback)
-    local wrapped = function(parameter, thisbind_value)
-        return with_thisbind(thisbind_value, callback, parameter, thisbind_value)
-    end
-    disable_callback_jit(wrapped)
-    return bridge.register_function(provider_id, provider_generation, name, description or "", wrapped, options)
-end
-
-environment.invalidateVariable = function(name)
-    return bridge.invalidate(provider_id, name)
-end
-
-environment.publishVariable = function(name, value)
-    return bridge.publish(provider_id, name, value)
-end
-
-environment.logVariableInfo = function(message)
-    return bridge.log(provider_id, "info", tostring(message))
-end
-
-environment.logVariableError = function(message)
-    return bridge.log(provider_id, "error", tostring(message))
-end
-
-local source, source_path = bridge.read_source(provider_id, provider_generation)
-if not source then
-    error("HelperByOrc failed to read provider source: " .. tostring(source_path))
-end
-local chunk, syntax_error = loadstring(source, "@" .. source_path)
-if not chunk then
-    error("HelperByOrc provider syntax error: " .. tostring(syntax_error))
-end
-setfenv(chunk, environment)
-
-local loaded_ok, runtime_error = bridge.run_provider_chunk(provider_id, provider_generation, chunk)
-if not loaded_ok then
-    error("HelperByOrc provider load error: " .. tostring(runtime_error))
-end
-local ready, ready_error = bridge.ready(provider_id, provider_generation, function()
-    return _VERSION .. "|LuaJIT standalone"
-end)
-if not ready then
-    error("HelperByOrc standalone self-test failed: " .. tostring(ready_error))
-end
-)lua";
-
-void ReleaseStandaloneState(StandaloneProvider& provider, std::string_view detail) {
-    if (!provider.state) {
-        return;
-    }
-    std::shared_ptr<LuaSession> session;
-    const void* vmIdentity = LuaVmIdentity(provider.state);
-    {
-        std::lock_guard lock(g_sessionsMutex);
-        const auto it = g_sessions.find(vmIdentity);
-        if (it != g_sessions.end()) {
-            session = it->second;
-        }
-    }
-    if (session) {
-        codevars::Runtime::Instance().DetachProvider(session->providerId, session->generation, detail);
-        ReleaseSession(session);
-    }
-    g_lua.close(provider.state);
-    provider.state = nullptr;
-}
-
-void CloseStandaloneProviders(std::string_view detail) {
-    for (StandaloneProvider& provider : g_standaloneProviders) {
-        ReleaseStandaloneState(provider, detail);
-    }
-    g_standaloneProviders.clear();
-    g_standaloneGeneration = 0;
-}
-
-void LoadStandaloneProviders() {
-    CloseStandaloneProviders("standalone reload");
-    const std::vector<codevars::LuaPlanEntry> plan = codevars::Runtime::Instance().LuaPlan();
-    g_standaloneGeneration = codevars::Runtime::Instance().Generation();
-    for (const codevars::LuaPlanEntry& entry : plan) {
-        if (!entry.enabled) {
-            continue;
-        }
-
-        StandaloneProvider provider;
-        provider.allocator = std::make_unique<StandaloneAllocator>();
-        provider.state = g_lua.newstate(&StandaloneAllocate, provider.allocator.get());
-        if (!provider.state) {
-            codevars::Runtime::Instance().MarkProviderFault(entry.id, "standalone Lua state allocation failed");
-            continue;
-        }
-        g_lua.l_openlibs(provider.state);
-
-        std::string error;
-        if (!RunStandaloneChunk(provider.state, kStandaloneRestrictions, "=HelperByOrc restrictions", error)) {
-            codevars::Runtime::Instance().MarkProviderFault(entry.id, "standalone restrictions failed: " + error);
-            ReleaseStandaloneState(provider, "standalone restrictions failed");
-            continue;
-        }
-
-        PushBridgeTable(provider.state);
-        g_lua.setfield(provider.state, LUA_GLOBALSINDEX, "_HELPERBYORC_BRIDGE");
-        PushString(provider.state, entry.id);
-        g_lua.setfield(provider.state, LUA_GLOBALSINDEX, "_HELPERBYORC_PROVIDER_ID");
-        g_lua.pushnumber(provider.state, static_cast<double>(entry.generation));
-        g_lua.setfield(provider.state, LUA_GLOBALSINDEX, "_HELPERBYORC_PROVIDER_GENERATION");
-
-        if (!RunStandaloneChunk(provider.state, kStandaloneBootstrap, "=HelperByOrc standalone host", error)) {
-            codevars::Runtime::Instance().MarkProviderFault(entry.id, error);
-            ReleaseStandaloneState(provider, "standalone provider failed");
-            debuglog::WriteError("[tags][code][lua] standalone provider=%s error=%s", entry.id.c_str(), error.c_str());
-            continue;
-        }
-        g_standaloneProviders.push_back(std::move(provider));
-    }
-    debuglog::WriteInfo(
-        "[tags][code][lua] standalone generation=%llu states=%llu",
-        static_cast<unsigned long long>(g_standaloneGeneration),
-        static_cast<unsigned long long>(g_standaloneProviders.size()));
-}
-
 HMODULE CurrentModule() {
     HMODULE module = nullptr;
     GetModuleHandleExW(
@@ -1764,9 +1457,6 @@ extern "C" __declspec(dllexport) int __cdecl luaopen_helperbyorc_bridge(lua_Stat
     }
 
     std::lock_guard lock(g_backendMutex);
-    if (g_backend != lua_bridge::Backend::Waiting && g_backend != lua_bridge::Backend::MoonLoader) {
-        return 0;
-    }
     const DWORD ownerThreadId = codevars::Runtime::Instance().OwnerThreadId();
     if (ownerThreadId == 0 || GetCurrentThreadId() != ownerThreadId) {
         return 0;
@@ -1811,54 +1501,14 @@ const char* BackendName(Backend backend) {
     switch (backend) {
     case Backend::MoonLoader:
         return "MoonLoader";
-    case Backend::Standalone:
-        return "Standalone LuaJIT";
-    case Backend::Faulted:
-        return "Faulted";
     case Backend::Waiting:
     default:
-        return "Waiting";
-    }
-}
-
-void Tick() {
-    const std::uint64_t now = GetTickCount64();
-    {
-        std::lock_guard lock(g_backendMutex);
-        if (g_backend == Backend::Waiting) {
-            if (g_backendSelectionDeadlineMs == 0) {
-                g_backendSelectionDeadlineMs = now + kStandaloneSelectionDelayMs;
-            }
-            if (!g_moonLoaderGraceApplied && GetModuleHandleW(L"MoonLoader.asi")) {
-                g_backendSelectionDeadlineMs = std::max(
-                    g_backendSelectionDeadlineMs,
-                    now + kMoonLoaderHostGraceMs);
-                g_moonLoaderGraceApplied = true;
-                debuglog::WriteInfo("[tags][code][lua] MoonLoader detected, waiting for HelperByOrcVarsHost.lua");
-            }
-            if (now < g_backendSelectionDeadlineMs) {
-                return;
-            }
-            InitializeStandaloneLuaApiLocked();
-            ++g_backendEpoch;
-            debuglog::WriteInfo("[tags][code][lua] selected standalone LuaJIT backend");
-        }
-        if (g_backend != Backend::Standalone) {
-            return;
-        }
-    }
-
-    const std::uint64_t generation = codevars::Runtime::Instance().Generation();
-    if (generation != g_standaloneGeneration) {
-        LoadStandaloneProviders();
+        return "Waiting for MoonLoader";
     }
 }
 
 void Shutdown() {
     std::lock_guard lock(g_backendMutex);
-    if (g_backend == Backend::Standalone) {
-        CloseStandaloneProviders("game shutdown");
-    }
     ReleaseAllSessions("game shutdown");
     ResetHostRoles();
     {
@@ -1877,15 +1527,13 @@ Status CurrentStatus() {
         std::lock_guard lock(g_backendMutex);
         status.backend = g_backend;
         if (g_backend == Backend::Waiting) {
-            status.detail = status.moonLoaderAvailable
-                ? "waiting for MoonLoader host before standalone fallback"
-                : "waiting for standalone LuaJIT startup";
-        } else if (g_backend == Backend::Standalone) {
-            status.detail = "embedded LuaJIT; MoonLoader APIs are unavailable";
+            status.detail = !g_luaResolveError.empty()
+                ? g_luaResolveError
+                : status.moonLoaderAvailable
+                    ? "waiting for HelperByOrcVarsHost.lua"
+                    : "MoonLoader.asi is not loaded; Lua providers are unavailable";
         } else if (g_backend == Backend::MoonLoader) {
             status.detail = "providers run in MoonLoader Lua states";
-        } else {
-            status.detail = g_luaResolveError;
         }
     }
 

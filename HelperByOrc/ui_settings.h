@@ -814,7 +814,7 @@
     X(VariablesTabLua, "Lua", "Lua") \
     X(VariablesCodeTitle, "Переменные из Lua", "Lua variables") \
     X(VariablesCodeDescription, "Подключайте Lua-файлы из общей папки. Каждый новый provider выключен, пока вы явно не включите его.", "Load Lua files from the shared folder. Every new provider stays disabled until you explicitly enable it.") \
-    X(VariablesCodeTrustedWarning, "Lua запускается внутри процесса игры. Включайте только доверенные файлы: лимиты standalone не создают sandbox.", "Lua runs inside the game process. Enable trusted files only: standalone limits do not create a sandbox.") \
+    X(VariablesCodeTrustedWarning, "Lua запускается MoonLoader внутри процесса игры. Включайте только доверенные файлы.", "Lua runs through MoonLoader inside the game process. Enable trusted files only.") \
     X(VariablesCodeRuntimeTitle, "Среда выполнения", "Runtime") \
     X(VariablesCodeActionsTitle, "Действия", "Actions") \
     X(VariablesCodeBackendLabel, "Backend", "Backend") \
@@ -826,9 +826,8 @@
     X(VariablesCodeUpdateHost, "Обновить Host", "Update Host") \
     X(VariablesCodeHostInstalled, "HelperByOrcVarsHost.lua установлен. Перезапустите игру или перезагрузите скрипты MoonLoader.", "HelperByOrcVarsHost.lua was installed. Restart the game or reload MoonLoader scripts.") \
     X(VariablesCodeHostInstallFailed, "Не удалось установить Host: %s", "Failed to install Host: %s") \
-    X(VariablesCodeHostUnavailable, "MoonLoader не обнаружен: используется встроенный standalone LuaJIT.", "MoonLoader was not detected: embedded standalone LuaJIT is used.") \
+    X(VariablesCodeHostUnavailable, "MoonLoader не обнаружен: Lua providers недоступны.", "MoonLoader was not detected: Lua providers are unavailable.") \
     X(VariablesCodeHostOutdated, "Найден другой или устаревший HelperByOrcVarsHost.lua; перед обновлением будет создан .bak.", "A different or outdated HelperByOrcVarsHost.lua was found; a .bak will be created before updating.") \
-    X(VariablesCodeHostRestartRequired, "Standalone уже активен. Для перехода на MoonLoader backend нужен перезапуск игры или полная перезагрузка ASI и Host.", "Standalone is already active. Switching to the MoonLoader backend requires a game restart or a full ASI and Host reload.") \
     X(VariablesCodeHostStateUnavailable, "недоступен", "unavailable") \
     X(VariablesCodeHostStateMissing, "не установлен", "not installed") \
     X(VariablesCodeHostStateCurrent, "актуален", "current") \
@@ -840,7 +839,7 @@
     X(VariablesCodeProviderEnabled, "Включён", "Enabled") \
     X(VariablesCodeProviderVariablesFormat, "переменных: %s", "variables: %s") \
     X(VariablesCodeStateDisabled, "выключен", "disabled") \
-    X(VariablesCodeStateWaiting, "ожидает Lua backend", "waiting for Lua backend") \
+    X(VariablesCodeStateWaiting, "ожидает MoonLoader Host", "waiting for MoonLoader Host") \
     X(VariablesCodeStateLoading, "загрузка", "loading") \
     X(VariablesCodeStateReady, "готов", "ready") \
     X(VariablesCodeStateConflict, "конфликт", "conflict") \
