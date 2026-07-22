@@ -3,7 +3,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -43,11 +42,6 @@ public:
     void Shutdown();
 
 private:
-    struct MenuAnimationState {
-        float alpha = 0.0f;
-        float shift = 0.0f;
-    };
-
     void HandleOverlayInputCaptureChanged(bool captured);
     void UpdateOverlayCursorMode();
     void MarkHelperMouseButtonsForSuppression(UINT message, WPARAM wparam);
@@ -67,10 +61,10 @@ private:
     void QueueShellStateSave();
     void SaveShellStateIfDirty();
     void ReloadConfigAfterProfileChange();
-    void SetSidebarCollapsed(bool collapsed);
     void EnsureLogoTexture(IDirect3DDevice9* device);
     void ReleaseUiResources();
-    MainTab DrawAnimatedMenu(float width);
+    void HandleMainTabShortcuts();
+    void DrawTitleBarNavigation(const ImVec2& titleMin, const ImVec2& titleMax, float titleHeight);
     void DrawBinderTab() const;
     void DrawHudTab(IDirect3DDevice9* device);
     void DrawMiscTab();
@@ -87,8 +81,6 @@ private:
     HMODULE module_ = nullptr;
     ImGuiOverlay overlay_;
     MainTab currentTab_ = MainTab::Binder;
-    std::array<MenuAnimationState, 5> menuAnimations_{};
-    bool sidebarCollapsed_ = false;
     bool mainWindowInitialized_ = false;
     std::string profileNameBuffer_{};
     std::string profileNameBufferProfileId_{};

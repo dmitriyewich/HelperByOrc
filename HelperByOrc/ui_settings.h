@@ -597,6 +597,7 @@
     X(TagsBuiltinMyWeaponDescription, "Возвращает название текущего оружия локального игрока.", "Returns the local player's current weapon name.") \
     X(TagsBuiltinMyWeaponIdDescription, "Возвращает ID текущего оружия локального игрока.", "Returns the local player's current weapon ID.") \
     X(TagsBuiltinMyWeaponClipDescription, "Возвращает количество патронов в текущей обойме локального игрока.", "Returns the current ammo-in-clip value for the local player's weapon.") \
+    X(TagsBuiltinMyWeaponAmmoDescription, "Возвращает общее количество патронов текущего оружия локального игрока, включая патроны в обойме. Если игрок или текущий слот недоступны, возвращает 0.", "Returns the local player's total ammo for the current weapon, including ammo in the clip. If the player or current slot is unavailable, it returns 0.") \
     X(TagsBuiltinMyMoneyDescription, "Возвращает количество денег на руках у локального игрока.", "Returns the amount of money currently carried by the local player.") \
     X(TagsBuiltinFpsDescription, "Возвращает текущий FPS клиента как целое число.", "Returns the current client FPS as an integer.") \
     X(TagsBuiltinGetVehTypeDescription, "Возвращает тип транспорта, в котором сейчас находится локальный игрок. Если вы не в транспорте, возвращает пустую строку.", "Returns the type of vehicle the local player is currently in. If you are not in a vehicle, it returns an empty string.") \

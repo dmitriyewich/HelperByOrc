@@ -634,6 +634,7 @@ public:
     std::optional<std::string> ResolveBuiltinMyWeaponTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyWeaponIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyWeaponClipTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyWeaponAmmoTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyMoneyTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinFpsTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinGetVehTypeTag(const EvaluationContext& context) const;

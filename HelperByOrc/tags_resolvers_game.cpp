@@ -1360,6 +1360,14 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyWeaponClipTag(const
     return std::to_string(weapon->m_nAmmoInClip);
 }
 
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyWeaponAmmoTag(const EvaluationContext&) const {
+    const CWeapon* const weapon = FindLocalWeapon();
+    if (!weapon) {
+        return std::string("0");
+    }
+    return std::to_string(weapon->m_nAmmoTotal);
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyMoneyTag(const EvaluationContext&) const {
     CPlayerPed* const playerPed = FindPlayerPed();
     if (!playerPed) {

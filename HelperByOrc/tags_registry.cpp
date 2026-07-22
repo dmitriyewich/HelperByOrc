@@ -805,6 +805,17 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterSimple(
         CatalogCategory::Player,
         false,
+        "myweaponammo",
+        "{myweaponammo}",
+        "{myweaponammo}",
+        UiText::TagsBuiltinMyWeaponAmmoDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinMyWeaponAmmoTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "mymoney",
         "{mymoney}",
         "{mymoney}",

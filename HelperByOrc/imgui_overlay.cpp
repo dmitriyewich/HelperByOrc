@@ -1276,9 +1276,14 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     ImGui::CreateContext();
 
     ImGuiIO& io = ImGui::GetIO();
-    // SA:MP overlay: клавиатурная навигация ImGui давала WantCaptureKB + пустой HovWin у BeginMenu.
-    // Для теста отключено; при необходимости вернуть NavEnableKeyboard и ConfigNavCaptureKeyboard = true.
+    // SA:MP overlay не использует клавиатурную навигацию ImGui: она перехватывала ввод
+    // через WantCaptureKeyboard и оставляла BeginMenu без hovered window.
     io.ConfigNavCaptureKeyboard = false;
+    // Встроенный windowing ImGui обрабатывает Ctrl+Tab даже без NavEnableKeyboard.
+    // Этот chord принадлежит переключателю основных вкладок HelperByOrc.
+    ImGuiContext& context = *ImGui::GetCurrentContext();
+    context.ConfigNavWindowingKeyNext = ImGuiKey_None;
+    context.ConfigNavWindowingKeyPrev = ImGuiKey_None;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;

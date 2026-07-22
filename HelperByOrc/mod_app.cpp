@@ -31,16 +31,11 @@
 
 namespace {
 
-constexpr float kSidebarExpandedWidth = 148.0f;
-constexpr float kSidebarCollapsedWidth = 50.0f;
-constexpr float kLogoExpandedSize = 128.0f;
-constexpr float kLogoCollapsedSize = 50.0f;
 constexpr float kWindowMargin = 12.0f;
 constexpr bool kHelperMouseSuppressionTraceEnabled = false;
 constexpr std::string_view kShellSectionName = "shell";
 constexpr char kShellMainWindowName[] = "main_window";
 constexpr ImGuiChildFlags kBorderedChildFlags = ImGuiChildFlags_Borders;
-constexpr ImGuiChildFlags kPlainChildFlags = ImGuiChildFlags_None;
 constexpr int kHelperMouseSuppressionReleaseFrames = 2;
 constexpr std::uint8_t kHelperSuppressibleMouseButtons =
     static_cast<std::uint8_t>(SampHooks::MouseButtonLeft)
@@ -407,13 +402,31 @@ void AccumulateRenderUiPerf(const RenderUiPerf& perf) {
     s_maxNotepadStats = {};
 }
 
-const std::array<TabDefinition, 5> kTabs = {{
+constexpr std::size_t kMainTabCount = 5;
+
+const std::array<TabDefinition, kMainTabCount> kTabs = {{
     { MainTab::Binder, UiText::TabBinder, UiText::TabBinderCompact, ui_icons::Keyboard },
     { MainTab::Hud, UiText::TabHud, UiText::TabHudCompact, ui_icons::Sliders },
     { MainTab::Misc, UiText::TabMisc, UiText::TabMiscCompact, ui_icons::Cubes },
     { MainTab::Notepad, UiText::TabNotepad, UiText::TabNotepadCompact, ui_icons::Book },
     { MainTab::Settings, UiText::TabSettings, UiText::TabSettingsCompact, ui_icons::Gear },
 }};
+
+constexpr bool ShouldUseCompactTitleTabs(float requiredWidth, float availableWidth) noexcept {
+    return requiredWidth > availableWidth;
+}
+
+constexpr std::size_t WrapMainTabIndex(std::size_t current, bool backwards) noexcept {
+    return backwards
+        ? (current + kMainTabCount - 1) % kMainTabCount
+        : (current + 1) % kMainTabCount;
+}
+
+static_assert(!ShouldUseCompactTitleTabs(320.0f, 320.0f));
+static_assert(ShouldUseCompactTitleTabs(320.1f, 320.0f));
+static_assert(WrapMainTabIndex(0, false) == 1);
+static_assert(WrapMainTabIndex(kMainTabCount - 1, false) == 0);
+static_assert(WrapMainTabIndex(0, true) == kMainTabCount - 1);
 
 const std::array<SettingsSectionDefinition, 7> kSettingsSections = {{
     { UiSettingsSection::General, UiText::SettingsSectionGeneral },
@@ -1298,6 +1311,120 @@ ImVec2 ScaleVec(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
+struct TitleBarTabItem {
+    MainTab tab = MainTab::Binder;
+    ImVec2 min{};
+    ImVec2 max{};
+    bool hovered = false;
+    bool active = false;
+    bool pressed = false;
+    bool compactLabel = false;
+    bool showArrow = false;
+};
+
+float MeasureTitleBarTabWidth(
+    MainTab tab,
+    bool compactLabel,
+    bool showArrow,
+    float horizontalPadding,
+    float contentGap) {
+    float width = ImGui::CalcTextSize(GetTabIcon(tab)).x
+        + ImGui::CalcTextSize(" ").x
+        + ImGui::CalcTextSize(GetTabLabel(tab, compactLabel)).x;
+    if (showArrow) {
+        width += contentGap + ImGui::CalcTextSize(ui_icons::AngleDown).x;
+    }
+    return std::ceil(width + horizontalPadding * 2.0f);
+}
+
+TitleBarTabItem RegisterTitleBarTabItem(
+    MainTab tab,
+    const ImVec2& position,
+    const ImVec2& size,
+    bool compactLabel,
+    bool showArrow) {
+    TitleBarTabItem item{};
+    item.tab = tab;
+    item.compactLabel = compactLabel;
+    item.showArrow = showArrow;
+
+    ImGui::SetCursorScreenPos(position);
+    item.pressed = ImGui::InvisibleButton("##main_title_tab", size);
+    item.hovered = ImGui::IsItemHovered();
+    item.active = ImGui::IsItemActive();
+    item.min = ImGui::GetItemRectMin();
+    item.max = ImGui::GetItemRectMax();
+    return item;
+}
+
+void DrawTitleBarTabItem(
+    const TitleBarTabItem& item,
+    bool selected,
+    float horizontalPadding,
+    float contentGap) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float rounding = std::max(Scale(3.0f), style.FrameRounding * 0.5f);
+
+    if (item.active || item.hovered || selected) {
+        const ImGuiCol color = item.active
+            ? ImGuiCol_ButtonActive
+            : (item.hovered ? ImGuiCol_TabHovered : ImGuiCol_TabUnfocusedActive);
+        draw->AddRectFilled(item.min, item.max, ImGui::GetColorU32(color), rounding);
+    }
+
+    if (selected) {
+        const float lineThickness = std::max(Scale(1.5f), 1.0f);
+        draw->AddLine(
+            ImVec2(item.min.x + horizontalPadding, item.max.y - lineThickness * 0.5f),
+            ImVec2(item.max.x - horizontalPadding, item.max.y - lineThickness * 0.5f),
+            ImGui::GetColorU32(ImGuiCol_ButtonActive),
+            lineThickness);
+    }
+
+    const char* icon = GetTabIcon(item.tab);
+    const char* label = GetTabLabel(item.tab, item.compactLabel);
+    const ImVec2 iconSize = ImGui::CalcTextSize(icon);
+    const ImVec2 labelSize = ImGui::CalcTextSize(label);
+    const float textHeight = std::max(iconSize.y, labelSize.y);
+    const float textY = item.min.y + (item.max.y - item.min.y - textHeight) * 0.5f;
+    const ImU32 textColor = ImGui::GetColorU32(
+        (selected || item.hovered || item.active) ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+
+    float textX = item.min.x + horizontalPadding;
+    draw->PushClipRect(item.min, item.max, true);
+    draw->AddText(ImVec2(textX, textY), textColor, icon);
+    textX += iconSize.x + ImGui::CalcTextSize(" ").x;
+    draw->AddText(ImVec2(textX, textY), textColor, label);
+    textX += labelSize.x;
+    if (item.showArrow) {
+        textX += contentGap;
+        draw->AddText(ImVec2(textX, textY), textColor, ui_icons::AngleDown);
+    }
+    draw->PopClipRect();
+}
+
+void DrawMainTabSelectorPopup(bool enabled, float left, float top, MainTab& currentTab) {
+    ImGui::SetNextWindowPos(ImVec2(left, top), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopup("##main_tab_selector")) {
+        return;
+    }
+
+    if (!enabled) {
+        ImGui::CloseCurrentPopup();
+    } else {
+        for (std::size_t i = 0; i < kTabs.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            const std::string label = FormatTabLabelWithIcon(kTabs[i].tab);
+            if (ImGui::MenuItem(label.c_str(), nullptr, currentTab == kTabs[i].tab)) {
+                currentTab = kTabs[i].tab;
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndPopup();
+}
+
 fs::path DebugLogPath(HMODULE module) {
     if (!module) {
         return {};
@@ -1577,14 +1704,16 @@ bool SameWindowRect(const ImVec2& leftPosition, const ImVec2& leftSize, const Im
         && std::abs(leftSize.y - rightSize.y) < kEpsilon;
 }
 
-void DrawLogoZoom(
+void DrawLogoZoomAt(
+    ImDrawList* draw,
+    const ImVec2& position,
     IDirect3DTexture9* texture,
     std::uint32_t textureWidth,
     std::uint32_t textureHeight,
     MainTab tab,
     const ImVec2& size,
     float zoom) {
-    if (!texture || textureWidth == 0 || textureHeight == 0) {
+    if (!draw || !texture || textureWidth == 0 || textureHeight == 0) {
         return;
     }
 
@@ -1605,7 +1734,12 @@ void DrawLogoZoom(
 
     const ImVec2 uv0(x0 / static_cast<float>(textureWidth), y0 / static_cast<float>(textureHeight));
     const ImVec2 uv1(x1 / static_cast<float>(textureWidth), y1 / static_cast<float>(textureHeight));
-    ImGui::Image(reinterpret_cast<ImTextureID>(texture), size, uv0, uv1);
+    draw->AddImage(
+        reinterpret_cast<ImTextureID>(texture),
+        position,
+        ImVec2(position.x + size.x, position.y + size.y),
+        uv0,
+        uv1);
 }
 
 } // namespace
@@ -2305,14 +2439,12 @@ void ModApp::ApplyMainStyle(float scale) const {
 
 void ModApp::LoadShellState() {
     const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kShellSectionName);
-    sidebarCollapsed_ = jsonutil::JsonBoolOr(&section, "sidebar_collapsed", false);
     mainWindowRectLoaded_ = TryReadMainWindowRect(section, mainWindowPos_, mainWindowSize_);
     mainWindowRectKnown_ = mainWindowRectLoaded_;
     mainWindowRectDirty_ = false;
     mainWindowInitialized_ = false;
     debuglog::WriteInfo(
-        "Shell state loaded (sidebar_collapsed=%d main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
-        sidebarCollapsed_ ? 1 : 0,
+        "Shell state loaded (main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
         mainWindowRectLoaded_ ? 1 : 0,
         mainWindowPos_.x,
         mainWindowPos_.y,
@@ -2321,13 +2453,11 @@ void ModApp::LoadShellState() {
 }
 
 void ModApp::QueueShellStateSave() {
-    const bool sidebarCollapsed = sidebarCollapsed_;
     const bool includeMainWindow = mainWindowRectKnown_ && IsUsableMainWindowRect(mainWindowPos_, mainWindowSize_);
     const ImVec2 mainWindowPos = mainWindowPos_;
     const ImVec2 mainWindowSize = mainWindowSize_;
     debuglog::WriteInfo(
-        "Queue shell state save (sidebar_collapsed=%d main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
-        sidebarCollapsed ? 1 : 0,
+        "Queue shell state save (main_window=%d pos=%.1f,%.1f size=%.1f,%.1f)",
         includeMainWindow ? 1 : 0,
         mainWindowPos.x,
         mainWindowPos.y,
@@ -2335,8 +2465,8 @@ void ModApp::QueueShellStateSave() {
         mainWindowSize.y);
     AppConfig::Instance().QueueSectionMutation(
         std::string(kShellSectionName),
-        [sidebarCollapsed, includeMainWindow, mainWindowPos, mainWindowSize](jsonutil::JsonObject& section) {
-            section["sidebar_collapsed"] = sidebarCollapsed;
+        [includeMainWindow, mainWindowPos, mainWindowSize](jsonutil::JsonObject& section) {
+            section.erase("sidebar_collapsed");
             if (includeMainWindow) {
                 WriteMainWindowRect(section, mainWindowPos, mainWindowSize);
             }
@@ -2371,16 +2501,6 @@ void ModApp::ReloadConfigAfterProfileChange() {
         "[profiles] active profile applied id=%s path=%ls",
         AppConfig::Instance().ActiveProfileId().c_str(),
         AppConfig::Instance().ConfigPath().c_str());
-}
-
-void ModApp::SetSidebarCollapsed(bool collapsed) {
-    if (sidebarCollapsed_ == collapsed) {
-        return;
-    }
-
-    debuglog::WriteInfo("Sidebar collapsed changed %d -> %d", sidebarCollapsed_ ? 1 : 0, collapsed ? 1 : 0);
-    sidebarCollapsed_ = collapsed;
-    QueueShellStateSave();
 }
 
 void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
@@ -2484,82 +2604,238 @@ void ModApp::ReleaseUiResources() {
     logoLoadAttempted_ = false;
 }
 
-MainTab ModApp::DrawAnimatedMenu(float width) {
-    const float buttonPadding = Scale(8.0f);
-    const float buttonHeight = Scale(38.0f);
-    const float cornerRadius = Scale(7.0f);
-    constexpr float alphaSpeed = 12.0f;
-    constexpr float shiftSpeed = 8.0f;
-
-    const float maxShift = sidebarCollapsed_ ? 0.0f : Scale(18.0f);
-    const ImVec4 hoverColor(0.35f, 0.52f, 0.74f, 0.33f);
-    const ImVec4 selectedColor(0.17f, 0.32f, 0.46f, 0.74f);
-    const ImVec4 textColor(0.88f, 0.88f, 0.88f, 0.98f);
-    const ImVec4 activeTextColor(1.0f, 1.0f, 1.0f, 1.0f);
-
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+void ModApp::HandleMainTabShortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
-
-    ImGui::BeginGroup();
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, buttonPadding));
-
-    for (std::size_t i = 0; i < kTabs.size(); ++i) {
-        const TabDefinition& tab = kTabs[i];
-        MenuAnimationState& animation = menuAnimations_[i];
-        const bool isSelected = currentTab_ == tab.tab;
-
-        ImGui::PushID(static_cast<int>(i));
-        const ImVec2 itemSize(width, buttonHeight);
-        const ImVec2 itemPosition = ImGui::GetCursorScreenPos();
-        const bool pressed = ImGui::InvisibleButton("##tab", itemSize);
-        const bool hovered = ImGui::IsItemHovered();
-
-        const float targetAlpha = (hovered || isSelected) ? 1.0f : 0.0f;
-        const float targetShift = (hovered || isSelected) ? maxShift : 0.0f;
-        animation.alpha += (targetAlpha - animation.alpha) * std::min(io.DeltaTime * alphaSpeed, 1.0f);
-        animation.shift += (targetShift - animation.shift) * std::min(io.DeltaTime * shiftSpeed, 1.0f);
-
-        if (animation.alpha > 0.01f) {
-            ImVec4 fill = isSelected ? selectedColor : hoverColor;
-            fill.w *= animation.alpha;
-            draw->AddRectFilled(
-                itemPosition,
-                ImVec2(itemPosition.x + itemSize.x, itemPosition.y + itemSize.y),
-                ImGui::GetColorU32(fill),
-                cornerRadius);
-        }
-
-        const char* text = GetTabIcon(tab.tab);
-        std::string expandedLabel;
-        if (!sidebarCollapsed_) {
-            expandedLabel = FormatTabLabelWithIcon(tab.tab);
-            text = expandedLabel.c_str();
-        }
-        const ImVec2 textSize = ImGui::CalcTextSize(text);
-        const float textX = sidebarCollapsed_
-            ? itemPosition.x + (width - textSize.x) * 0.5f
-            : itemPosition.x + Scale(16.0f) + animation.shift;
-        const float textY = itemPosition.y + (buttonHeight - textSize.y) * 0.5f;
-
-        draw->AddText(
-            ImVec2(textX, textY),
-            ImGui::GetColorU32((isSelected || hovered) ? activeTextColor : textColor),
-            text);
-
-        if (sidebarCollapsed_ && hovered) {
-            ImGui::SetTooltip("%s", GetTabLabel(tab.tab));
-        }
-
-        if (pressed) {
-            currentTab_ = tab.tab;
-        }
-
-        ImGui::PopID();
+    if (!io.KeyCtrl
+        || io.KeyAlt
+        || io.KeySuper
+        || io.WantTextInput
+        || ImGui::IsAnyItemActive()
+        || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+        return;
     }
 
-    ImGui::PopStyleVar();
-    ImGui::EndGroup();
-    return currentTab_;
+    constexpr std::array<ImGuiKey, kMainTabCount> numberKeys = {
+        ImGuiKey_1,
+        ImGuiKey_2,
+        ImGuiKey_3,
+        ImGuiKey_4,
+        ImGuiKey_5,
+    };
+    for (std::size_t i = 0; i < numberKeys.size(); ++i) {
+        if (ImGui::IsKeyPressed(numberKeys[i], false)) {
+            currentTab_ = kTabs[i].tab;
+            return;
+        }
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
+        currentTab_ = kTabs[WrapMainTabIndex(ToTabIndex(currentTab_), io.KeyShift)].tab;
+    }
+}
+
+void ModApp::DrawTitleBarNavigation(const ImVec2& titleMin, const ImVec2& titleMax, float titleHeight) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float horizontalPadding = Scale(7.0f);
+    const float tabGap = Scale(2.0f);
+    const float contentGap = Scale(4.0f);
+    const float dragReserve = Scale(56.0f);
+
+    const char* brand = UiSettings::Instance().Text(UiText::AppBrand);
+    const ImVec2 brandSize = ImGui::CalcTextSize(brand);
+    const ImVec2 brandPosition(
+        titleMin.x + style.WindowPadding.x,
+        titleMin.y + (titleHeight - brandSize.y) * 0.5f);
+
+    const float logoSize = std::min(ImGui::GetFontSize(), std::max(0.0f, titleHeight - Scale(4.0f)));
+    const ImVec2 logoPosition(
+        brandPosition.x + brandSize.x + Scale(6.0f),
+        titleMin.y + (titleHeight - logoSize) * 0.5f);
+    const float navigationStart = logoPosition.x + logoSize + Scale(6.0f);
+
+    const char* closeText = "X";
+    const ImVec2 closeTextSize = ImGui::CalcTextSize(closeText);
+    const float closeSide = std::max(
+        titleHeight - Scale(6.0f),
+        std::ceil(std::max(closeTextSize.x, ImGui::GetFontSize()) + Scale(4.0f)));
+    const ImVec2 closePosition(
+        titleMax.x - style.WindowPadding.x - closeSide,
+        titleMin.y + (titleHeight - closeSide) * 0.5f);
+    const float navigationRight = closePosition.x - Scale(4.0f);
+
+    float fullTabsWidth = tabGap * static_cast<float>(kMainTabCount - 1);
+    for (const TabDefinition& tab : kTabs) {
+        fullTabsWidth += MeasureTitleBarTabWidth(
+            tab.tab,
+            false,
+            false,
+            horizontalPadding,
+            contentGap);
+    }
+    const float navigationCapacity = std::max(0.0f, navigationRight - navigationStart - dragReserve);
+    const bool useCompactTabs = ShouldUseCompactTitleTabs(fullTabsWidth, navigationCapacity);
+
+    std::array<TitleBarTabItem, kMainTabCount> tabItems{};
+    std::size_t tabItemCount = 0;
+    float navigationEnd = navigationStart;
+    bool openCompactPopup = false;
+    if (!useCompactTabs) {
+        for (std::size_t i = 0; i < kTabs.size(); ++i) {
+            const MainTab tab = kTabs[i].tab;
+            const float width = MeasureTitleBarTabWidth(
+                tab,
+                false,
+                false,
+                horizontalPadding,
+                contentGap);
+            ImGui::PushID(static_cast<int>(i));
+            TitleBarTabItem& item = tabItems[tabItemCount++];
+            item = RegisterTitleBarTabItem(
+                tab,
+                ImVec2(navigationEnd, titleMin.y),
+                ImVec2(width, titleHeight),
+                false,
+                false);
+            if (item.pressed) {
+                currentTab_ = tab;
+            }
+            if (item.hovered) {
+                ImGui::SetTooltip("Ctrl+%zu | Ctrl+Tab / Ctrl+Shift+Tab", i + 1);
+            }
+            ImGui::PopID();
+            navigationEnd += width + (i + 1 < kTabs.size() ? tabGap : 0.0f);
+        }
+    } else {
+        const float fullCurrentWidth = MeasureTitleBarTabWidth(
+            currentTab_,
+            false,
+            true,
+            horizontalPadding,
+            contentGap);
+        const bool compactLabel = ShouldUseCompactTitleTabs(fullCurrentWidth, navigationCapacity);
+        const float measuredWidth = MeasureTitleBarTabWidth(
+            currentTab_,
+            compactLabel,
+            true,
+            horizontalPadding,
+            contentGap);
+        const float maximumButtonWidth = std::max(
+            1.0f,
+            navigationRight - navigationStart - tabGap);
+        const float buttonWidth = std::min(
+            measuredWidth,
+            maximumButtonWidth);
+
+        ImGui::PushID("compact_main_tab");
+        TitleBarTabItem& item = tabItems[tabItemCount++];
+        item = RegisterTitleBarTabItem(
+            currentTab_,
+            ImVec2(navigationStart, titleMin.y),
+            ImVec2(buttonWidth, titleHeight),
+            compactLabel,
+            true);
+        openCompactPopup = item.pressed;
+        if (item.hovered) {
+            ImGui::SetTooltip("Ctrl+1..5 | Ctrl+Tab / Ctrl+Shift+Tab");
+        }
+        ImGui::PopID();
+        navigationEnd += buttonWidth;
+    }
+    if (openCompactPopup) {
+        ImGui::OpenPopup("##main_tab_selector");
+    }
+
+    ImGui::SetCursorScreenPos(closePosition);
+    const bool closePressed = ImGui::InvisibleButton("##close_main_window", ImVec2(closeSide, closeSide));
+    const bool closeHovered = ImGui::IsItemHovered();
+    const bool closeActive = ImGui::IsItemActive();
+    const ImVec2 closeMin = ImGui::GetItemRectMin();
+    const ImVec2 closeMax = ImGui::GetItemRectMax();
+
+    const auto registerDragRegion = [titleMin, titleHeight](const char* id, float left, float right) {
+        if (right <= left) {
+            return false;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(left, titleMin.y));
+        ImGui::InvisibleButton(id, ImVec2(right - left, titleHeight));
+        return ImGui::IsItemActive();
+    };
+    const bool brandDragActive = registerDragRegion(
+        "##titlebar_brand_drag",
+        titleMin.x,
+        navigationStart - tabGap);
+    const bool freeDragActive = registerDragRegion(
+        "##titlebar_free_drag",
+        navigationEnd + tabGap,
+        closePosition.x - tabGap);
+    const bool draggingTitleBar = brandDragActive || freeDragActive;
+    if (draggingTitleBar && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
+            mainWindowPos_.x += io.MouseDelta.x;
+            mainWindowPos_.y += io.MouseDelta.y;
+            mainWindowRectKnown_ = true;
+            mainWindowRectDirty_ = true;
+        }
+    }
+
+    draw->AddRectFilled(
+        titleMin,
+        titleMax,
+        ImGui::GetColorU32(draggingTitleBar ? ImGuiCol_TitleBgActive : ImGuiCol_TitleBg),
+        Scale(6.0f),
+        ImDrawFlags_RoundCornersTop);
+    draw->AddText(brandPosition, ImGui::GetColorU32(ImGuiCol_Text), brand);
+    if (logoTexture_) {
+        DrawLogoZoomAt(
+            draw,
+            logoPosition,
+            logoTexture_,
+            logoWidth_,
+            logoHeight_,
+            currentTab_,
+            ImVec2(logoSize, logoSize),
+            0.9f);
+    } else {
+        const char* fallbackLogo = UiSettings::Instance().Text(UiText::AppBrandCompact);
+        const ImVec2 fallbackSize = ImGui::CalcTextSize(fallbackLogo);
+        draw->AddText(
+            ImVec2(
+                logoPosition.x + (logoSize - fallbackSize.x) * 0.5f,
+                logoPosition.y + (logoSize - fallbackSize.y) * 0.5f),
+            ImGui::GetColorU32(ImGuiCol_TextDisabled),
+            fallbackLogo);
+    }
+
+    for (std::size_t i = 0; i < tabItemCount; ++i) {
+        DrawTitleBarTabItem(
+            tabItems[i],
+            tabItems[i].tab == currentTab_,
+            horizontalPadding,
+            contentGap);
+    }
+
+    if (closeHovered || closeActive) {
+        draw->AddRectFilled(
+            closeMin,
+            closeMax,
+            ImGui::GetColorU32(closeActive ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered),
+            std::max(Scale(3.0f), style.FrameRounding));
+    }
+    draw->AddText(
+        ImVec2(
+            closeMin.x + (closeSide - closeTextSize.x) * 0.5f,
+            closeMin.y + (closeSide - closeTextSize.y) * 0.5f),
+        ImGui::GetColorU32((closeHovered || closeActive) ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+        closeText);
+
+    if (closePressed) {
+        SaveShellStateIfDirty();
+        overlay_.SetMenuOpen(false);
+    }
+
+    DrawMainTabSelectorPopup(useCompactTabs, navigationStart, titleMax.y, currentTab_);
 }
 
 void ModApp::DrawBinderTab() const {
@@ -3456,120 +3732,17 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         mainWindowSize_ = imguiWindowSize;
         mainWindowRectKnown_ = true;
 
-        ImGuiStyle& style = ImGui::GetStyle();
+        const ImGuiStyle& style = ImGui::GetStyle();
         const ImVec2 pad = style.WindowPadding;
-        const float titleHeight = ImGui::GetFontSize() + style.FramePadding.y * 2.0f;
+        const float titleHeight = ImGui::GetFrameHeight();
         const ImVec2 winPos = ImGui::GetWindowPos();
         const ImVec2 winSize = ImGui::GetWindowSize();
-        ImDrawList* draw = ImGui::GetWindowDrawList();
-
-        ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
-        ImGui::SetNextItemAllowOverlap();
-        ImGui::InvisibleButton("##titlebar", ImVec2(winSize.x, titleHeight));
-
-        const ImVec2 titleMin = ImGui::GetItemRectMin();
-        const ImVec2 titleMax = ImGui::GetItemRectMax();
-        draw->AddRectFilled(
-            titleMin,
-            titleMax,
-            ImGui::GetColorU32(ImGui::IsItemActive() ? style.Colors[ImGuiCol_TitleBgActive] : style.Colors[ImGuiCol_TitleBg]),
-            Scale(6.0f),
-            ImDrawFlags_RoundCornersTop);
-        draw->AddText(
-            ImVec2(titleMin.x + pad.x, titleMin.y + style.FramePadding.y),
-            ImGui::GetColorU32(style.Colors[ImGuiCol_Text]),
-            UiSettings::Instance().Text(UiText::AppBrand));
-        draw->AddText(
-            ImVec2(titleMin.x + Scale(110.0f), titleMin.y + style.FramePadding.y),
-            ImGui::GetColorU32(style.Colors[ImGuiCol_TextDisabled]),
-            FormatTabLabelWithIcon(currentTab_).c_str());
-
-        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
-            if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
-                mainWindowPos_.x += io.MouseDelta.x;
-                mainWindowPos_.y += io.MouseDelta.y;
-                mainWindowRectKnown_ = true;
-                mainWindowRectDirty_ = true;
-            }
-        }
-
-        const char* closeText = "X";
-        const ImVec2 closeTextSize = ImGui::CalcTextSize(closeText);
-        const float closeSide =
-            std::max(titleHeight - Scale(6.0f), std::ceil(std::max(closeTextSize.x, ImGui::GetFontSize()) + Scale(4.0f)));
-        const ImVec2 closePos(titleMax.x - pad.x - closeSide, titleMin.y + (titleHeight - closeSide) * 0.5f);
-        ImGui::SetCursorScreenPos(closePos);
-        const bool closePressed = ImGui::InvisibleButton("##close_main_window", ImVec2(closeSide, closeSide));
-        const bool closeHovered = ImGui::IsItemHovered();
-        const bool closeActive = ImGui::IsItemActive();
-        const ImVec2 closeMin = ImGui::GetItemRectMin();
-        const ImVec2 closeMax = ImGui::GetItemRectMax();
-
-        if (closeHovered || closeActive) {
-            const ImVec4 baseColor = closeActive ? style.Colors[ImGuiCol_ButtonActive] : style.Colors[ImGuiCol_ButtonHovered];
-            draw->AddRectFilled(closeMin, closeMax, ImGui::GetColorU32(baseColor), std::max(Scale(3.0f), style.FrameRounding));
-        }
-
-        draw->AddText(
-            ImVec2(closeMin.x + (closeSide - closeTextSize.x) * 0.5f, closeMin.y + (closeSide - closeTextSize.y) * 0.5f),
-            ImGui::GetColorU32((closeHovered || closeActive) ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled]),
-            closeText);
-
-        if (closePressed) {
-            SaveShellStateIfDirty();
-            overlay_.SetMenuOpen(false);
-        }
-
-        const float sidebarWidth = Scale(sidebarCollapsed_ ? kSidebarCollapsedWidth : kSidebarExpandedWidth);
-        const float logoSize = Scale(sidebarCollapsed_ ? kLogoCollapsedSize : kLogoExpandedSize);
+        const ImVec2 titleMin = winPos;
+        const ImVec2 titleMax(winPos.x + winSize.x, winPos.y + titleHeight);
+        HandleMainTabShortcuts();
+        DrawTitleBarNavigation(titleMin, titleMax, titleHeight);
 
         ImGui::SetCursorPos(ImVec2(pad.x, pad.y + titleHeight));
-        ImGui::BeginGroup();
-
-        if (ImGui::BeginChild("logo_panel", ImVec2(sidebarWidth, logoSize), kPlainChildFlags)) {
-            if (logoTexture_) {
-                DrawLogoZoom(
-                    logoTexture_,
-                    logoWidth_,
-                    logoHeight_,
-                    currentTab_,
-                    ImVec2(logoSize, logoSize),
-                    sidebarCollapsed_ ? 0.9f : 1.2f);
-            } else {
-                ImGui::SetCursorPosY(std::max(0.0f, (logoSize - ImGui::GetTextLineHeight()) * 0.5f));
-                ImGui::TextUnformatted(
-                    UiSettings::Instance().Text(sidebarCollapsed_ ? UiText::AppBrandCompact : UiText::AppBrand));
-            }
-
-            const char* toggleIcon = sidebarCollapsed_ ? ">" : "<";
-            const float toggleSide = std::min(Scale(18.0f), std::max(Scale(14.0f), logoSize - Scale(10.0f)));
-            const float togglePad = Scale(4.0f);
-            const ImVec2 togglePos(
-                std::max(0.0f, sidebarWidth - toggleSide - togglePad),
-                togglePad);
-            ImGui::SetCursorPos(togglePos);
-            ImGui::InvisibleButton("##sidebar_toggle", ImVec2(toggleSide, toggleSide));
-            const bool toggleHovered = ImGui::IsItemHovered();
-            const bool togglePressed = ImGui::IsItemClicked();
-            const ImVec2 toggleMin = ImGui::GetItemRectMin();
-            const ImVec2 toggleTextSize = ImGui::CalcTextSize(toggleIcon);
-            ImGui::GetWindowDrawList()->AddText(
-                ImVec2(toggleMin.x + (toggleSide - toggleTextSize.x) * 0.5f, toggleMin.y + (toggleSide - toggleTextSize.y) * 0.5f),
-                ImGui::GetColorU32(toggleHovered ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled]),
-                toggleIcon);
-            if (togglePressed) {
-                SetSidebarCollapsed(!sidebarCollapsed_);
-            }
-        }
-        ImGui::EndChild();
-
-        if (ImGui::BeginChild("vertical_menu", ImVec2(sidebarWidth, 0.0f), kPlainChildFlags)) {
-            DrawAnimatedMenu(sidebarWidth);
-        }
-        ImGui::EndChild();
-        ImGui::EndGroup();
-
-        ImGui::SameLine();
         if (ImGui::BeginChild("main_content", ImVec2(0.0f, 0.0f), kBorderedChildFlags)) {
             stageBeginMs = UiPerfNowMs();
             switch (currentTab_) {
