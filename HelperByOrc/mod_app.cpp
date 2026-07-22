@@ -5,7 +5,6 @@
 #include "feature_flags.h"
 #include "file_hash_utils.h"
 #include "minhook_utils.h"
-#include "resource.h"
 #include "ui_fonts.h"
 #include "ui_frame_timing.h"
 #include "ui_icons.h"
@@ -18,9 +17,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -1704,44 +1703,6 @@ bool SameWindowRect(const ImVec2& leftPosition, const ImVec2& leftSize, const Im
         && std::abs(leftSize.y - rightSize.y) < kEpsilon;
 }
 
-void DrawLogoZoomAt(
-    ImDrawList* draw,
-    const ImVec2& position,
-    IDirect3DTexture9* texture,
-    std::uint32_t textureWidth,
-    std::uint32_t textureHeight,
-    MainTab tab,
-    const ImVec2& size,
-    float zoom) {
-    if (!draw || !texture || textureWidth == 0 || textureHeight == 0) {
-        return;
-    }
-
-    const float cellWidth = static_cast<float>(textureWidth) / 3.0f;
-    const float cellHeight = static_cast<float>(textureHeight) / 2.0f;
-    const float safeZoom = std::max(0.1f, zoom);
-    const int tabIndex = static_cast<int>(ToTabIndex(tab));
-    const int column = tabIndex % 3;
-    const int row = tabIndex / 3;
-    const float centerX = (static_cast<float>(column) + 0.5f) * cellWidth;
-    const float centerY = (static_cast<float>(row) + 0.5f) * cellHeight;
-    const float zoomWidth = cellWidth / safeZoom;
-    const float zoomHeight = cellHeight / safeZoom;
-    const float x0 = centerX - zoomWidth * 0.5f;
-    const float y0 = centerY - zoomHeight * 0.5f;
-    const float x1 = centerX + zoomWidth * 0.5f;
-    const float y1 = centerY + zoomHeight * 0.5f;
-
-    const ImVec2 uv0(x0 / static_cast<float>(textureWidth), y0 / static_cast<float>(textureHeight));
-    const ImVec2 uv1(x1 / static_cast<float>(textureWidth), y1 / static_cast<float>(textureHeight));
-    draw->AddImage(
-        reinterpret_cast<ImTextureID>(texture),
-        position,
-        ImVec2(position.x + size.x, position.y + size.y),
-        uv0,
-        uv1);
-}
-
 } // namespace
 
 ModApp::ModApp() = default;
@@ -1996,7 +1957,6 @@ void ModApp::Shutdown() {
     sampApi_.onTerminate();
     debuglog::WriteInfo("SampApi terminated");
     ReleaseUiResources();
-    logoTextureLoader_.Reset();
     if (minHookInitialized_) {
         minhook::Uninitialize();
         minHookInitialized_ = false;
@@ -2163,7 +2123,6 @@ DWORD WINAPI ModApp::DeferredOverlayThreadProc(LPVOID param) {
     }
 
     debuglog::WriteInfo("[ui][d3d] deferred overlay thread started");
-    self->logoTextureLoader_.DecodeEmbeddedPng(self->module_, IDR_MAIN_LOGO_PNG);
     while (!self->deferredOverlayStopEvent_ || WaitForSingleObject(self->deferredOverlayStopEvent_, 0) == WAIT_TIMEOUT) {
         if (self->RefreshSampGate()) {
             self->RequestOverlayAttachOnce("SA:MP full-ready gate");
@@ -2503,105 +2462,9 @@ void ModApp::ReloadConfigAfterProfileChange() {
         AppConfig::Instance().ConfigPath().c_str());
 }
 
-void ModApp::EnsureLogoTexture(IDirect3DDevice9* device) {
-    if (logoTexture_ || logoLoadAttempted_ || !device) {
-        return;
-    }
-
-    logoLoadAttempted_ = true;
-    const double totalBeginMs = UiPerfNowMs();
-    const std::uint8_t* source = logoTextureLoader_.Pixels();
-    const std::size_t sourceBytes = logoTextureLoader_.PixelBytes();
-    if (!source || sourceBytes != LogoTextureLoader::kDecodedBytes) {
-        debuglog::WriteError(
-            "[ui][logo] stage=upload pixels-not-ready expected=%zu actual=%zu",
-            LogoTextureLoader::kDecodedBytes,
-            sourceBytes);
-        return;
-    }
-
-    const double createBeginMs = UiPerfNowMs();
-    IDirect3DTexture9* texture = nullptr;
-    const HRESULT textureResult = device->CreateTexture(
-        LogoTextureLoader::kWidth,
-        LogoTextureLoader::kHeight,
-        1,
-        0,
-        D3DFMT_A8R8G8B8,
-        D3DPOOL_MANAGED,
-        &texture,
-        nullptr);
-    const double createMs = UiPerfNowMs() - createBeginMs;
-    if (FAILED(textureResult) || !texture) {
-        debuglog::WriteError(
-            "[ui][logo] stage=create failed hr=0x%08lX size=%ux%u",
-            static_cast<unsigned long>(textureResult),
-            LogoTextureLoader::kWidth,
-            LogoTextureLoader::kHeight);
-        return;
-    }
-
-    const double uploadBeginMs = UiPerfNowMs();
-    D3DLOCKED_RECT lockedRect{};
-    const HRESULT lockResult = texture->LockRect(0, &lockedRect, nullptr, 0);
-    if (FAILED(lockResult) || !lockedRect.pBits) {
-        debuglog::WriteError(
-            "[ui][logo] stage=lock failed hr=0x%08lX",
-            static_cast<unsigned long>(lockResult));
-        texture->Release();
-        return;
-    }
-
-    if (lockedRect.Pitch < 0 || static_cast<std::size_t>(lockedRect.Pitch) < LogoTextureLoader::kRowBytes) {
-        debuglog::WriteError(
-            "[ui][logo] stage=upload invalid-pitch expected=%zu actual=%ld",
-            LogoTextureLoader::kRowBytes,
-            static_cast<long>(lockedRect.Pitch));
-        texture->UnlockRect(0);
-        texture->Release();
-        return;
-    }
-
-    auto* destination = static_cast<std::uint8_t*>(lockedRect.pBits);
-    const std::size_t destinationPitch = static_cast<std::size_t>(lockedRect.Pitch);
-    for (std::size_t row = 0; row < LogoTextureLoader::kHeight; ++row) {
-        std::memcpy(
-            destination + row * destinationPitch,
-            source + row * LogoTextureLoader::kRowBytes,
-            LogoTextureLoader::kRowBytes);
-    }
-
-    const HRESULT unlockResult = texture->UnlockRect(0);
-    const double uploadMs = UiPerfNowMs() - uploadBeginMs;
-    if (FAILED(unlockResult)) {
-        debuglog::WriteError(
-            "[ui][logo] stage=unlock failed hr=0x%08lX",
-            static_cast<unsigned long>(unlockResult));
-        texture->Release();
-        return;
-    }
-
-    logoTexture_ = texture;
-    logoWidth_ = LogoTextureLoader::kWidth;
-    logoHeight_ = LogoTextureLoader::kHeight;
-    debuglog::WriteInfo(
-        "[ui][perf][logo] stage=upload create=%.2fms upload=%.2fms total=%.2fms",
-        createMs,
-        uploadMs,
-        UiPerfNowMs() - totalBeginMs);
-}
-
 void ModApp::ReleaseUiResources() {
     notepad_.ReleaseDeviceResources();
     hud_.ReleaseDeviceResources();
-    if (logoTexture_) {
-        logoTexture_->Release();
-        logoTexture_ = nullptr;
-    }
-
-    logoWidth_ = 0;
-    logoHeight_ = 0;
-    logoLoadAttempted_ = false;
 }
 
 void ModApp::HandleMainTabShortcuts() {
@@ -2644,16 +2507,17 @@ void ModApp::DrawTitleBarNavigation(const ImVec2& titleMin, const ImVec2& titleM
     const float dragReserve = Scale(56.0f);
 
     const char* brand = UiSettings::Instance().Text(UiText::AppBrand);
-    const ImVec2 brandSize = ImGui::CalcTextSize(brand);
-    const ImVec2 brandPosition(
+    ImFont* brandFont = ui_fonts::BoldFont();
+    if (!brandFont) {
+        brandFont = ImGui::GetFont();
+    }
+    const float brandFontSize = ImGui::GetFontSize();
+    const ImVec2 brandSize = brandFont->CalcTextSizeA(brandFontSize, FLT_MAX, 0.0f, brand);
+    const ImVec2 brandPosition = ui_fonts::SnapPixel(ImVec2(
         titleMin.x + style.WindowPadding.x,
-        titleMin.y + (titleHeight - brandSize.y) * 0.5f);
+        titleMin.y + (titleHeight - brandSize.y) * 0.5f));
 
-    const float logoSize = std::min(ImGui::GetFontSize(), std::max(0.0f, titleHeight - Scale(4.0f)));
-    const ImVec2 logoPosition(
-        brandPosition.x + brandSize.x + Scale(6.0f),
-        titleMin.y + (titleHeight - logoSize) * 0.5f);
-    const float navigationStart = logoPosition.x + logoSize + Scale(6.0f);
+    const float navigationStart = ui_fonts::SnapPixel(brandPosition.x + brandSize.x + Scale(8.0f));
 
     const char* closeText = "X";
     const ImVec2 closeTextSize = ImGui::CalcTextSize(closeText);
@@ -2786,27 +2650,12 @@ void ModApp::DrawTitleBarNavigation(const ImVec2& titleMin, const ImVec2& titleM
         ImGui::GetColorU32(draggingTitleBar ? ImGuiCol_TitleBgActive : ImGuiCol_TitleBg),
         Scale(6.0f),
         ImDrawFlags_RoundCornersTop);
-    draw->AddText(brandPosition, ImGui::GetColorU32(ImGuiCol_Text), brand);
-    if (logoTexture_) {
-        DrawLogoZoomAt(
-            draw,
-            logoPosition,
-            logoTexture_,
-            logoWidth_,
-            logoHeight_,
-            currentTab_,
-            ImVec2(logoSize, logoSize),
-            0.9f);
-    } else {
-        const char* fallbackLogo = UiSettings::Instance().Text(UiText::AppBrandCompact);
-        const ImVec2 fallbackSize = ImGui::CalcTextSize(fallbackLogo);
-        draw->AddText(
-            ImVec2(
-                logoPosition.x + (logoSize - fallbackSize.x) * 0.5f,
-                logoPosition.y + (logoSize - fallbackSize.y) * 0.5f),
-            ImGui::GetColorU32(ImGuiCol_TextDisabled),
-            fallbackLogo);
-    }
+    draw->AddText(
+        brandFont,
+        brandFontSize,
+        brandPosition,
+        ImGui::GetColorU32(ImGuiCol_Text),
+        brand);
 
     for (std::size_t i = 0; i < tabItemCount; ++i) {
         DrawTitleBarTabItem(
@@ -3622,19 +3471,15 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     ImGui::GetStyle().FontScaleMain = uiScale;
     io.FontGlobalScale = 1.0f;
     const double styleMs = UiPerfNowMs() - stageBeginMs;
-    const double logoMs = 0.0;
     const double totalMs = UiPerfNowMs() - beginMs;
     static bool s_firstPreparePerfLogged = false;
-    if (!s_firstPreparePerfLogged || totalMs >= kUiModuleSlowFrameMs || logoMs >= 4.0) {
+    if (!s_firstPreparePerfLogged || totalMs >= kUiModuleSlowFrameMs) {
         debuglog::WriteInfo(
-            "[ui][perf][prepare] total=%.2fms scale=%.2fms style=%.2fms logo=%.2fms first=%d logoAttempted=%d logoLoaded=%d display=(%.1f,%.1f)",
+            "[ui][perf][prepare] total=%.2fms scale=%.2fms style=%.2fms first=%d display=(%.1f,%.1f)",
             totalMs,
             scaleMs,
             styleMs,
-            logoMs,
             s_firstPreparePerfLogged ? 0 : 1,
-            logoLoadAttempted_ ? 1 : 0,
-            logoTexture_ ? 1 : 0,
             io.DisplaySize.x,
             io.DisplaySize.y);
         s_firstPreparePerfLogged = true;
@@ -3720,8 +3565,6 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         | ImGuiWindowFlags_NoScrollWithMouse;
 
     if (ImGui::Begin("HelperByOrc##main_window", nullptr, windowFlags)) {
-        EnsureLogoTexture(device);
-
         const ImVec2 imguiWindowPos = ImGui::GetWindowPos();
         const ImVec2 imguiWindowSize = ImGui::GetWindowSize();
         if (!SameWindowRect(mainWindowFramePos, mainWindowFrameSize, imguiWindowPos, imguiWindowSize)

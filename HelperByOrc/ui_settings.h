@@ -9,7 +9,6 @@
 
 #define APP_UI_TEXTS(X) \
     X(AppBrand, "HelperByOrc", "HelperByOrc") \
-    X(AppBrandCompact, "H", "H") \
     X(LanguageRussian, "Русский", "Russian") \
     X(LanguageEnglish, "English", "English") \
     X(TabBinder, "Биндер", "Binder") \
