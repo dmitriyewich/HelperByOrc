@@ -27,57 +27,170 @@ void BinderModule::Impl::ClearQuickMenuConditionSnapshot() {
 
 bool BinderModule::Impl::VisibleQuickMenuEntriesExist() const {
     const ConditionRuntimeContext context = MakeConditionContext(quickMenuOpen);
-    const auto hotkeyVisible = [&](const int index) {
-        if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
-            return false;
-        }
-        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
-            return false;
-        }
-        return !ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context);
-    };
-
-    const auto categoryVisible = [&](const BinderCategory& category) {
-        return category.quickMenu && !ConditionsBlocked(category.conditions, category.conditionsCombine, sampApi, &context);
-    };
-
-    const auto directoryHasVisibleEntries = [&](auto&& self, const BinderCategory& category, const FolderNode* folder) -> bool {
-        const std::vector<ExplorerItem>& items = folder ? folder->items : category.rootItems;
-        for (const ExplorerItem& item : items) {
-            if (item.kind == ExplorerItemKind::Bind) {
-                const int index = FindHotkeyIndexByOrderId(item.key);
-                if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
-                    return true;
-                }
-                continue;
-            }
-
-            FolderNode* child = FindFolderByNameInDirectory(category, const_cast<FolderNode*>(folder), item.key);
-            if (child && FolderVisibleInQuickMenu(*child, context) && self(self, category, child)) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    for (const BinderCategory& category : categories) {
-        if (categoryVisible(category) && directoryHasVisibleEntries(directoryHasVisibleEntries, category, nullptr)) {
-            return true;
-        }
-    }
-    return false;
+    return !BuildQuickMenuVisibilitySnapshot(context).visibleCategories.empty();
 }
 
-bool BinderModule::Impl::FolderVisibleInQuickMenu(
-    const FolderNode& folder,
+BinderModule::Impl::QuickMenuVisibilitySnapshot& BinderModule::Impl::BuildQuickMenuVisibilitySnapshot(
     const ConditionRuntimeContext& context) const {
-    if (!IsFolderEffectivelyEnabled(&folder)
-        || !folder.quickMenu
-        || ConditionsBlocked(folder.conditions, folder.conditionsCombine, sampApi, &context)) {
+    // Frame-local by design: runtime conditions may change between frames.
+    QuickMenuVisibilitySnapshot& snapshot = quickMenuVisibilitySnapshot;
+    snapshot.hotkeyVisibility.assign(hotkeys.size(), static_cast<std::int8_t>(-1));
+    snapshot.visibleCategories.clear();
+    snapshot.visibleCategories.reserve(categories.size());
+
+    bool rebuildHotkeyIndex = snapshot.indexedOrderIds.size() != hotkeys.size();
+    if (!rebuildHotkeyIndex) {
+        for (std::size_t index = 0; index < hotkeys.size(); ++index) {
+            if (snapshot.indexedOrderIds[index] != hotkeys[index].orderId) {
+                rebuildHotkeyIndex = true;
+                break;
+            }
+        }
+    }
+    if (rebuildHotkeyIndex) {
+        snapshot.indexedOrderIds.clear();
+        snapshot.indexedOrderIds.reserve(hotkeys.size());
+        snapshot.hotkeyIndexByOrderId.clear();
+        snapshot.hotkeyIndexByOrderId.reserve(hotkeys.size());
+        for (std::size_t index = 0; index < hotkeys.size(); ++index) {
+            snapshot.indexedOrderIds.push_back(hotkeys[index].orderId);
+            if (!hotkeys[index].orderId.empty()) {
+                snapshot.hotkeyIndexByOrderId.try_emplace(
+                    hotkeys[index].orderId,
+                    static_cast<int>(index));
+            }
+        }
+    }
+
+    snapshot.liveFolders.clear();
+    const auto collectLiveFolders = [&](const auto& self,
+                                        const std::vector<std::unique_ptr<FolderNode>>& folders) -> void {
+        for (const auto& folder : folders) {
+            if (!folder) {
+                continue;
+            }
+            snapshot.liveFolders.push_back(folder.get());
+            self(self, folder->children);
+        }
+    };
+    for (const BinderCategory& category : categories) {
+        collectLiveFolders(collectLiveFolders, category.folders);
+    }
+
+    if (snapshot.liveFolders != snapshot.indexedFolders) {
+        snapshot.indexedFolders = snapshot.liveFolders;
+        snapshot.folderIndexByPointer.clear();
+        snapshot.folderIndexByPointer.reserve(snapshot.indexedFolders.size());
+        for (std::size_t index = 0; index < snapshot.indexedFolders.size(); ++index) {
+            snapshot.folderIndexByPointer.try_emplace(snapshot.indexedFolders[index], index);
+        }
+    }
+    snapshot.folderVisibility.assign(snapshot.indexedFolders.size(), static_cast<std::int8_t>(-1));
+    snapshot.directoryVisibility.assign(snapshot.indexedFolders.size(), static_cast<std::int8_t>(-1));
+
+    for (const BinderCategory& category : categories) {
+        if (!category.quickMenu
+            || ConditionsBlocked(category.conditions, category.conditionsCombine, sampApi, &context)) {
+            continue;
+        }
+        if (QuickMenuDirectoryHasVisibleEntries(category, nullptr, context, snapshot)) {
+            snapshot.visibleCategories.push_back(&category);
+        }
+    }
+    return snapshot;
+}
+
+bool BinderModule::Impl::IsQuickMenuHotkeyVisible(
+    const int index,
+    const ConditionRuntimeContext& context,
+    QuickMenuVisibilitySnapshot& snapshot) const {
+    if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
         return false;
     }
-    return !folder.parent || FolderVisibleInQuickMenu(*folder.parent, context);
+
+    std::int8_t& cached = snapshot.hotkeyVisibility[static_cast<std::size_t>(index)];
+    if (cached >= 0) {
+        return cached != 0;
+    }
+
+    const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
+    const bool visible = IsHotkeyEffectivelyEnabled(hotkey)
+        && hotkey.quickMenu
+        && !ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context);
+    cached = visible ? 1 : 0;
+    return visible;
+}
+
+bool BinderModule::Impl::IsQuickMenuFolderVisible(
+    const FolderNode& folder,
+    const ConditionRuntimeContext& context,
+    QuickMenuVisibilitySnapshot& snapshot) const {
+    const auto indexIt = snapshot.folderIndexByPointer.find(&folder);
+    const std::size_t folderIndex = indexIt != snapshot.folderIndexByPointer.end()
+        ? indexIt->second
+        : snapshot.folderVisibility.size();
+    if (folderIndex < snapshot.folderVisibility.size() && snapshot.folderVisibility[folderIndex] >= 0) {
+        return snapshot.folderVisibility[folderIndex] != 0;
+    }
+
+    const bool visible = IsFolderEffectivelyEnabled(&folder)
+        && folder.quickMenu
+        && !ConditionsBlocked(folder.conditions, folder.conditionsCombine, sampApi, &context)
+        && (!folder.parent || IsQuickMenuFolderVisible(*folder.parent, context, snapshot));
+    if (folderIndex < snapshot.folderVisibility.size()) {
+        snapshot.folderVisibility[folderIndex] = visible ? 1 : 0;
+    }
+    return visible;
+}
+
+bool BinderModule::Impl::QuickMenuDirectoryHasVisibleEntries(
+    const BinderCategory& category,
+    const FolderNode* folder,
+    const ConditionRuntimeContext& context,
+    QuickMenuVisibilitySnapshot& snapshot) const {
+    const auto indexIt = folder ? snapshot.folderIndexByPointer.find(folder) : snapshot.folderIndexByPointer.end();
+    const std::size_t folderIndex = indexIt != snapshot.folderIndexByPointer.end()
+        ? indexIt->second
+        : snapshot.directoryVisibility.size();
+    if (folder) {
+        if (folderIndex < snapshot.directoryVisibility.size()
+            && snapshot.directoryVisibility[folderIndex] >= 0) {
+            return snapshot.directoryVisibility[folderIndex] != 0;
+        }
+    }
+
+    bool visible = false;
+    const std::vector<ExplorerItem>& items = folder ? folder->items : category.rootItems;
+    for (const ExplorerItem& item : items) {
+        if (item.kind == ExplorerItemKind::Bind) {
+            const auto indexIt = snapshot.hotkeyIndexByOrderId.find(item.key);
+            if (indexIt != snapshot.hotkeyIndexByOrderId.end()) {
+                const int index = indexIt->second;
+                if (hotkeys[static_cast<std::size_t>(index)].categoryId == category.id
+                    && IsQuickMenuHotkeyVisible(index, context, snapshot)) {
+                    visible = true;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        FolderNode* child = FindFolderByNameInDirectory(
+            category,
+            const_cast<FolderNode*>(folder),
+            item.key);
+        if (child
+            && IsQuickMenuFolderVisible(*child, context, snapshot)
+            && QuickMenuDirectoryHasVisibleEntries(category, child, context, snapshot)) {
+            visible = true;
+            break;
+        }
+    }
+
+    if (folderIndex < snapshot.directoryVisibility.size()) {
+        snapshot.directoryVisibility[folderIndex] = visible ? 1 : 0;
+    }
+    return visible;
 }
 
 void BinderModule::Impl::CenterQuickMenuCursorOnGameWindow() {
@@ -127,6 +240,8 @@ void BinderModule::Impl::ResetQuickMenuVisualState() {
     quickMenuCloseAfterMouseFrame = false;
     quickMenuMouseClientPosValid = false;
     quickMenuHitItems.clear();
+    quickMenuCategoryTabsRevisionSeen = std::numeric_limits<std::uint64_t>::max();
+    quickMenuRenderedCategoryId.clear();
     quickMenuPos = ImVec2(0.0f, 0.0f);
 }
 
@@ -188,45 +303,20 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
 
     const ConditionRuntimeContext context = MakeConditionContext(true);
+    QuickMenuVisibilitySnapshot& visibility = BuildQuickMenuVisibilitySnapshot(context);
+    const std::vector<const BinderCategory*>& visibleCategories = visibility.visibleCategories;
+
+    const auto findHotkeyIndex = [&](const std::string& orderId) {
+        const auto it = visibility.hotkeyIndexByOrderId.find(orderId);
+        return it == visibility.hotkeyIndexByOrderId.end() ? -1 : it->second;
+    };
     const auto hotkeyVisible = [&](const int index) {
-        if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
-            return false;
-        }
-        const HotkeyEntry& hotkey = hotkeys[static_cast<std::size_t>(index)];
-        if (!IsHotkeyEffectivelyEnabled(hotkey) || !hotkey.quickMenu) {
-            return false;
-        }
-        return !ConditionsBlocked(hotkey.conditions, hotkey.conditionsCombine, sampApi, &context);
+        return IsQuickMenuHotkeyVisible(index, context, visibility);
     };
-
-    const auto categoryVisible = [&](const BinderCategory& category) {
-        return category.quickMenu && !ConditionsBlocked(category.conditions, category.conditionsCombine, sampApi, &context);
+    const auto folderHasVisibleEntries = [&](const BinderCategory& category, const FolderNode& folder) {
+        return IsQuickMenuFolderVisible(folder, context, visibility)
+            && QuickMenuDirectoryHasVisibleEntries(category, &folder, context, visibility);
     };
-
-    const auto directoryHasVisibleEntries = [&](auto&& self, const BinderCategory& category, const FolderNode* folder) -> bool {
-        const std::vector<ExplorerItem>& items = folder ? folder->items : category.rootItems;
-        for (const ExplorerItem& item : items) {
-            if (item.kind == ExplorerItemKind::Bind) {
-                const int index = FindHotkeyIndexByOrderId(item.key);
-                if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
-                    return true;
-                }
-                continue;
-            }
-            FolderNode* child = FindFolderByNameInDirectory(category, const_cast<FolderNode*>(folder), item.key);
-            if (child && FolderVisibleInQuickMenu(*child, context) && self(self, category, child)) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    std::vector<const BinderCategory*> visibleCategories;
-    for (const BinderCategory& category : categories) {
-        if (categoryVisible(category) && directoryHasVisibleEntries(directoryHasVisibleEntries, category, nullptr)) {
-            visibleCategories.push_back(&category);
-        }
-    }
 
     if (visibleCategories.empty()) {
         quickMenuOpen = false;
@@ -247,8 +337,33 @@ void BinderModule::Impl::DrawQuickMenu() {
         }
         ImGui::GetIO().AddMousePosEvent(static_cast<float>(pt.x), static_cast<float>(pt.y));
     };
-    if (quickMenuPos.x == 0.0f && quickMenuPos.y == 0.0f) {
-        quickMenuSize = ScaleUi(static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight));
+    constexpr float kQuickMenuViewportWidthRatio = 0.24f;
+    constexpr float kQuickMenuMaxWidth = 300.0f;
+    constexpr float kQuickMenuViewportMargin = 24.0f;
+    const float availableViewportWidth = std::max(
+        1.0f,
+        io.DisplaySize.x - ScaleUi(kQuickMenuViewportMargin * 2.0f));
+    const float availableViewportHeight = std::max(
+        1.0f,
+        io.DisplaySize.y - ScaleUi(kQuickMenuViewportMargin * 2.0f));
+    const float preferredWidth = quickMenuWidthMode == QuickMenuWidthMode::Fixed
+        ? ScaleUi(static_cast<float>(kQuickMenuWidth))
+        : std::clamp(
+            io.DisplaySize.x * kQuickMenuViewportWidthRatio,
+            ScaleUi(static_cast<float>(kQuickMenuWidth)),
+            ScaleUi(kQuickMenuMaxWidth));
+    const ImVec2 desiredQuickMenuSize(
+        std::min(preferredWidth, availableViewportWidth),
+        std::min(ScaleUi(static_cast<float>(kQuickMenuHeight)), availableViewportHeight));
+    const bool viewportChanged = quickMenuViewportSize.x != io.DisplaySize.x
+        || quickMenuViewportSize.y != io.DisplaySize.y;
+    const bool desiredSizeChanged = quickMenuSize.x != desiredQuickMenuSize.x
+        || quickMenuSize.y != desiredQuickMenuSize.y;
+    if ((quickMenuPos.x == 0.0f && quickMenuPos.y == 0.0f)
+        || viewportChanged
+        || desiredSizeChanged) {
+        quickMenuViewportSize = io.DisplaySize;
+        quickMenuSize = desiredQuickMenuSize;
         quickMenuPos = ImVec2((io.DisplaySize.x - quickMenuSize.x) * 0.5f, (io.DisplaySize.y - quickMenuSize.y) * 0.5f);
     }
 
@@ -294,10 +409,30 @@ void BinderModule::Impl::DrawQuickMenu() {
     };
 
     const auto labelWithId = [](std::string visible, const char* idPrefix, const std::string& id) {
-        visible += "##";
+        visible += "###";
         visible += idPrefix;
         visible += id;
         return visible;
+    };
+    const auto showClippedItemTooltip = [](
+        const std::string_view fullLabel,
+        const std::string_view visibleLabel,
+        const std::string_view fullShortcut,
+        const std::string_view visibleShortcut) {
+        if ((fullLabel == visibleLabel && fullShortcut == visibleShortcut)
+            || !ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            return;
+        }
+
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(fullLabel.data(), fullLabel.data() + fullLabel.size());
+        if (!fullShortcut.empty()) {
+            ImGui::TextDisabled(
+                "%.*s",
+                static_cast<int>(fullShortcut.size()),
+                fullShortcut.data());
+        }
+        ImGui::EndTooltip();
     };
 
     const bool focusWarmup = quickMenuFocusPending || quickMenuFocusReassertFrames > 0;
@@ -308,27 +443,21 @@ void BinderModule::Impl::DrawQuickMenu() {
     }
     const BinderListVisualStyle visual = BinderListStyleTokens();
     constexpr int kQuickMenuStyleVarCount = 8;
-    constexpr int kQuickMenuStyleColorCount = 16;
+    constexpr int kQuickMenuStyleColorCount = 10;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ScaleUi(4.0f, 3.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ScaleUi(4.0f, 4.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, ScaleUi(7.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, ScaleUi(1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, ScaleUi(4.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, ScaleUi(4.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, ScaleUi(16.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, visual.panelBg);
     ImGui::PushStyleColor(ImGuiCol_Border, visual.panelBorder);
     ImGui::PushStyleColor(ImGuiCol_Separator, visual.separator);
     ImGui::PushStyleColor(ImGuiCol_Header, visual.rowSelected);
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, visual.rowHover);
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, visual.rowSelectedHover);
-    ImGui::PushStyleColor(ImGuiCol_Tab, WithAlpha(visual.searchBg, 0.72f));
-    ImGui::PushStyleColor(ImGuiCol_TabHovered, visual.buttonHover);
-    ImGui::PushStyleColor(ImGuiCol_TabSelected, WithAlpha(visual.buttonActive, 0.86f));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, WithAlpha(visual.accent, 0.94f));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmed, WithAlpha(visual.searchBg, 0.46f));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, WithAlpha(visual.buttonActive, 0.58f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, WithAlpha(visual.panelBg, 0.30f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, WithAlpha(visual.panelBorder, 0.64f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, WithAlpha(visual.accent, 0.60f));
@@ -370,12 +499,6 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuFocusPending = false;
     }
 
-    DrawQuickMenuTitleBand(UiSettings::Instance().Text(UiText::QuickMenuWindowTitle), visual);
-
-    if (persistentOpen && ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))) {
-        windowOpen = false;
-    }
-
     const auto findVisibleCategoryById = [&](std::string_view id) -> const BinderCategory* {
         for (const BinderCategory* category : visibleCategories) {
             if (category != nullptr && category->id == id) {
@@ -391,35 +514,21 @@ void BinderModule::Impl::DrawQuickMenu() {
         quickMenuActiveCategoryId = activeCategory->id;
     }
 
-    if (visibleCategories.size() > 1) {
-        const std::string tabBarId = "##quick_menu_category_tabs_" + std::to_string(categoryTabOrderRevision);
-        const bool restoreSelectedCategory = ImGui::IsWindowAppearing();
-        if (ImGui::BeginTabBar(tabBarId.c_str(), ImGuiTabBarFlags_FittingPolicyResizeDown)) {
-            for (const BinderCategory* category : visibleCategories) {
-                if (category == nullptr) {
-                    continue;
-                }
-                const std::string visibleTab = EllipsizeText(category->name, ScaleUi(82.0f));
-                const std::string label = labelWithId(visibleTab, "qm_category_tab_", category->id);
-                const ImGuiTabItemFlags flags = restoreSelectedCategory && category->id == quickMenuActiveCategoryId
-                    ? ImGuiTabItemFlags_SetSelected
-                    : 0;
-                if (ImGui::BeginTabItem(label.c_str(), nullptr, flags)) {
-                    quickMenuActiveCategoryId = category->id;
-                    activeCategory = category;
-                    ImGui::EndTabItem();
-                }
-            }
-            ImGui::EndTabBar();
-        }
-        activeCategory = findVisibleCategoryById(quickMenuActiveCategoryId);
-        if (activeCategory == nullptr) {
-            activeCategory = visibleCategories.front();
-            quickMenuActiveCategoryId = activeCategory->id;
-        }
-    } else {
+    bool categorySelectionConsumed = false;
+    activeCategory = DrawQuickMenuCategoryNavigation(
+        visibleCategories,
+        activeCategory,
+        visual,
+        categorySelectionConsumed);
+    if (activeCategory == nullptr) {
         activeCategory = visibleCategories.front();
         quickMenuActiveCategoryId = activeCategory->id;
+    }
+
+    if (persistentOpen
+        && ImGui::Button(UiSettings::Instance().Text(UiText::Cancel))
+        && !categorySelectionConsumed) {
+        windowOpen = false;
     }
 
     const auto drawShortcutInLastItem = [&](const std::string& shortcut, const float rightX) {
@@ -475,45 +584,62 @@ void BinderModule::Impl::DrawQuickMenu() {
     const auto drawCascadeHotkey = [&](const int index, const char* idPrefix, const int depth) {
         const std::string shortcut = hotkeyShortcut(index);
         const float availableWidth = std::max(ScaleUi(32.0f), ImGui::GetContentRegionAvail().x);
-        const float shortcutReserve = shortcut.empty() ? 0.0f : ImGui::CalcTextSize(shortcut.c_str()).x + ScaleUi(20.0f);
+        const std::string visibleShortcut = depth == 0
+            ? (shortcut.empty()
+                ? std::string()
+                : EllipsizeText(shortcut, std::max(ScaleUi(48.0f), availableWidth * 0.42f)))
+            : cascadePopupShortcut(shortcut);
+        const float shortcutReserve = visibleShortcut.empty()
+            ? 0.0f
+            : ImGui::CalcTextSize(visibleShortcut.c_str()).x + ScaleUi(20.0f);
         const float labelMaxWidth = depth == 0
             ? std::max(ScaleUi(24.0f), availableWidth - shortcutReserve)
             : cascadePopupLabelMaxWidth();
         const float rightX = ImGui::GetCursorScreenPos().x + availableWidth;
+        const std::string fullLabel = hotkeyVisibleLabel(index);
+        const std::string visibleLabel = EllipsizeText(fullLabel, labelMaxWidth);
         const std::string label = labelWithId(
-            EllipsizeText(hotkeyVisibleLabel(index), labelMaxWidth),
+            visibleLabel,
             idPrefix,
             std::to_string(index));
-        const std::string popupShortcut = depth == 0 ? std::string() : cascadePopupShortcut(shortcut);
         const bool activated = depth == 0
             ? ImGui::MenuItem(label.c_str(), nullptr, false, true)
-            : ImGui::MenuItem(label.c_str(), popupShortcut.empty() ? nullptr : popupShortcut.c_str(), false, true);
+            : ImGui::MenuItem(label.c_str(), visibleShortcut.empty() ? nullptr : visibleShortcut.c_str(), false, true);
         recordQuickMenuHit(index);
+        showClippedItemTooltip(fullLabel, visibleLabel, shortcut, visibleShortcut);
         if (activated) {
             selectedHotkeyIndex = index;
             return;
         }
         if (depth == 0) {
-            drawShortcutInLastItem(shortcut, rightX);
+            drawShortcutInLastItem(visibleShortcut, rightX);
         }
     };
 
     const auto drawTreeHotkey = [&](const int index, const char* idPrefix) {
         const std::string shortcut = hotkeyShortcut(index);
         const float availableWidth = std::max(ScaleUi(32.0f), ImGui::GetContentRegionAvail().x);
-        const float shortcutReserve = shortcut.empty() ? 0.0f : ImGui::CalcTextSize(shortcut.c_str()).x + ScaleUi(18.0f);
+        const std::string visibleShortcut = shortcut.empty()
+            ? std::string()
+            : EllipsizeText(shortcut, std::max(ScaleUi(48.0f), availableWidth * 0.42f));
+        const float shortcutReserve = visibleShortcut.empty()
+            ? 0.0f
+            : ImGui::CalcTextSize(visibleShortcut.c_str()).x + ScaleUi(18.0f);
         const float labelMaxWidth = std::max(ScaleUi(24.0f), availableWidth - shortcutReserve);
         const float rightX = ImGui::GetCursorScreenPos().x + availableWidth;
+        const std::string fullLabel = hotkeyVisibleLabel(index);
+        const std::string visibleLabel = EllipsizeText(fullLabel, labelMaxWidth);
         const std::string label = labelWithId(
-            EllipsizeText(hotkeyVisibleLabel(index), labelMaxWidth),
+            visibleLabel,
             idPrefix,
             std::to_string(index));
         const bool activated = ImGui::Selectable(label.c_str(), false);
         recordQuickMenuHit(index);
+        showClippedItemTooltip(fullLabel, visibleLabel, shortcut, visibleShortcut);
         if (activated) {
             selectedHotkeyIndex = index;
         }
-        drawShortcutInLastItem(shortcut, rightX);
+        drawShortcutInLastItem(visibleShortcut, rightX);
     };
 
     const auto drawCascadeDirectory = [&](auto&& self, const BinderCategory& category, FolderNode* folder, const char* idPrefix, const int depth) -> void {
@@ -531,7 +657,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                 return;
             }
             if (item.kind == ExplorerItemKind::Bind) {
-                const int index = FindHotkeyIndexByOrderId(item.key);
+                const int index = findHotkeyIndex(item.key);
                 if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
                     drawSeparatorBeforeRow();
                     drawCascadeHotkey(index, idPrefix, depth);
@@ -540,8 +666,7 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             FolderNode* child = FindFolderByNameInDirectory(category, folder, item.key);
-            if (!child || !FolderVisibleInQuickMenu(*child, context)
-                || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
+            if (!child || !folderHasVisibleEntries(category, *child)) {
                 continue;
             }
             drawSeparatorBeforeRow();
@@ -549,11 +674,15 @@ void BinderModule::Impl::DrawQuickMenu() {
             const float labelMaxWidth = depth == 0
                 ? std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ScaleUi(8.0f))
                 : cascadePopupLabelMaxWidth();
+            const std::string fullLabel = FolderIconGlyph(*child) + " " + child->name;
+            const std::string visibleLabel = EllipsizeText(fullLabel, labelMaxWidth);
             const std::string label = labelWithId(
-                EllipsizeText(FolderIconGlyph(*child) + " " + child->name, labelMaxWidth),
+                visibleLabel,
                 "qm_folder_",
                 path);
-            if (ImGui::BeginMenu(label.c_str())) {
+            const bool folderOpen = ImGui::BeginMenu(label.c_str());
+            showClippedItemTooltip(fullLabel, visibleLabel, {}, {});
+            if (folderOpen) {
                 self(self, category, child, "qm_bind_", depth + 1);
                 ImGui::EndMenu();
             }
@@ -575,7 +704,7 @@ void BinderModule::Impl::DrawQuickMenu() {
                 return;
             }
             if (item.kind == ExplorerItemKind::Bind) {
-                const int index = FindHotkeyIndexByOrderId(item.key);
+                const int index = findHotkeyIndex(item.key);
                 if (index >= 0 && hotkeys[static_cast<std::size_t>(index)].categoryId == category.id && hotkeyVisible(index)) {
                     drawSeparatorBeforeRow();
                     drawTreeHotkey(index, "qm_tree_bind_");
@@ -584,22 +713,25 @@ void BinderModule::Impl::DrawQuickMenu() {
             }
 
             FolderNode* child = FindFolderByNameInDirectory(category, folder, item.key);
-            if (!child || !FolderVisibleInQuickMenu(*child, context)
-                || !directoryHasVisibleEntries(directoryHasVisibleEntries, category, child)) {
+            if (!child || !folderHasVisibleEntries(category, *child)) {
                 continue;
             }
             drawSeparatorBeforeRow();
             const std::string path = category.id + "/" + JoinPath(BuildFolderPath(child));
             const float labelMaxWidth = std::max(ScaleUi(24.0f), ImGui::GetContentRegionAvail().x - ScaleUi(4.0f));
+            const std::string fullLabel = FolderIconGlyph(*child) + " " + child->name;
+            const std::string visibleLabel = EllipsizeText(fullLabel, labelMaxWidth);
             const std::string label = labelWithId(
-                EllipsizeText(FolderIconGlyph(*child) + " " + child->name, labelMaxWidth),
+                visibleLabel,
                 "qm_tree_folder_",
                 path);
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;
             if (depth == 0) {
                 flags |= ImGuiTreeNodeFlags_DefaultOpen;
             }
-            if (ImGui::TreeNodeEx(label.c_str(), flags)) {
+            const bool folderOpen = ImGui::TreeNodeEx(label.c_str(), flags);
+            showClippedItemTooltip(fullLabel, visibleLabel, {}, {});
+            if (folderOpen) {
                 self(self, category, child, depth + 1);
                 ImGui::TreePop();
             }
@@ -623,13 +755,19 @@ void BinderModule::Impl::DrawQuickMenu() {
     const bool closeAfterMouseFrame = quickMenuCloseAfterMouseFrame;
     const bool mouseEventInside = quickMenuMouseEventInside;
     const bool comboHeldNow = IsQuickMenuComboPressed();
-    const int manualHitIndex = findManualQuickMenuHit();
+    if (categorySelectionConsumed) {
+        selectedHotkeyIndex = -1;
+    }
+    const int manualHitIndex = categorySelectionConsumed ? -1 : findManualQuickMenuHit();
     const bool manualHit = manualHitIndex >= 0;
     const bool imguiHovered = quickMenuWindowHovered || ImGui::IsAnyItemHovered();
     if (selectedHotkeyIndex < 0 && manualHit && io.MouseReleased[0]) {
         selectedHotkeyIndex = manualHitIndex;
     }
-    if (mouseEventInside && selectedHotkeyIndex < 0 && (io.MouseClicked[0] || io.MouseReleased[0] || closeAfterMouseFrame)) {
+    if (!categorySelectionConsumed
+        && mouseEventInside
+        && selectedHotkeyIndex < 0
+        && (io.MouseClicked[0] || io.MouseReleased[0] || closeAfterMouseFrame)) {
         TraceQuickMenuInput(
             closeAfterMouseFrame ? "mouse_frame_no_selection" : "mouse_frame_pending",
             quickMenuPos,

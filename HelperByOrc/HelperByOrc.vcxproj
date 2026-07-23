@@ -140,6 +140,7 @@
     <ClCompile Include="binder_model.cpp" />
     <ClCompile Include="binder_module.cpp" />
     <ClCompile Include="binder_quick_menu.cpp" />
+    <ClCompile Include="binder_quick_menu_categories.cpp" />
     <ClCompile Include="binder_runtime.cpp" />
     <ClCompile Include="binder_tag_selector.cpp" />
     <ClCompile Include="binder_tag_actions.cpp" />

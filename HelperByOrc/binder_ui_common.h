@@ -70,46 +70,6 @@ inline BinderListVisualStyle BinderListStyleTokens() {
     return style;
 }
 
-inline void DrawQuickMenuTitleBand(const char* title, const BinderListVisualStyle& visual) {
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const float width = ImGui::GetContentRegionAvail().x;
-    if (width <= 1.0f) {
-        return;
-    }
-
-    const float bandHeight = std::max(ImGui::GetTextLineHeight(), ScaleUi(14.0f));
-    if (title == nullptr || title[0] == '\0') {
-        ImGui::Dummy(ImVec2(width, bandHeight));
-        return;
-    }
-
-    const float textX = pos.x + ScaleUi(1.0f);
-    const float maxTextWidth = std::max(1.0f, width - ScaleUi(12.0f));
-    const std::string visibleTitle = EllipsizeText(title, maxTextWidth);
-    if (visibleTitle.empty()) {
-        ImGui::Dummy(ImVec2(width, bandHeight));
-        return;
-    }
-
-    const ImVec2 textSize = ImGui::CalcTextSize(visibleTitle.c_str());
-    const float textY = pos.y + std::floor((bandHeight - textSize.y) * 0.5f) - ScaleUi(1.0f);
-    const float lineY = std::floor(textY + textSize.y * 0.5f) + 0.5f;
-
-    ImDrawList* drawList = ImGui::GetWindowDrawList();
-    const ImU32 lineColor = ImGui::GetColorU32(WithAlpha(visual.separator, 0.74f));
-    const float rightLineStart = textX + textSize.x + ScaleUi(7.0f);
-    const float rightLineEnd = pos.x + width;
-    if (rightLineEnd > rightLineStart) {
-        drawList->AddLine(ImVec2(rightLineStart, lineY), ImVec2(rightLineEnd, lineY), lineColor, ScaleUi(1.0f));
-    }
-
-    drawList->AddText(
-        ImVec2(textX, textY),
-        ImGui::GetColorU32(WithAlpha(BlendColor(visual.mutedText, visual.headerText, 0.22f), 0.95f)),
-        visibleTitle.c_str());
-    ImGui::Dummy(ImVec2(width, bandHeight));
-}
-
 inline void DrawTwoPanePanelBackground(const ImVec2& size) {
     const BinderListVisualStyle& visual = BinderListStyleTokens();
     const ImVec2 pos = ImGui::GetCursorScreenPos();

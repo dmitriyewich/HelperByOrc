@@ -93,6 +93,9 @@
     <ClCompile Include="binder_quick_menu.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>
+    <ClCompile Include="binder_quick_menu_categories.cpp">
+      <Filter>Source Files\Binder</Filter>
+    </ClCompile>
     <ClCompile Include="binder_runtime.cpp">
       <Filter>Source Files\Binder</Filter>
     </ClCompile>

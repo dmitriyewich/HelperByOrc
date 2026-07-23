@@ -47,6 +47,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -583,6 +584,17 @@ enum class QuickMenuActivationMode {
 enum class QuickMenuStyle {
     Tree = 0,
     Cascade = 1,
+};
+
+enum class QuickMenuWidthMode {
+    Adaptive = 0,
+    Fixed = 1,
+};
+
+enum class QuickMenuCategoryLayout {
+    TitleSelector = 0,
+    TextTabs = 1,
+    Carousel = 2,
 };
 
 enum class BindListStyle {
@@ -1155,6 +1167,37 @@ inline std::string QuickMenuStyleId(QuickMenuStyle style) {
         return "cascade";
     }
     return "cascade";
+}
+
+inline QuickMenuWidthMode NormalizeQuickMenuWidthMode(std::string_view value) {
+    return ToLower(value) == "adaptive" ? QuickMenuWidthMode::Adaptive : QuickMenuWidthMode::Fixed;
+}
+
+inline std::string QuickMenuWidthModeId(QuickMenuWidthMode mode) {
+    return mode == QuickMenuWidthMode::Fixed ? "fixed" : "adaptive";
+}
+
+inline QuickMenuCategoryLayout NormalizeQuickMenuCategoryLayout(std::string_view value) {
+    const std::string normalized = ToLower(value);
+    if (normalized == "text_tabs") {
+        return QuickMenuCategoryLayout::TextTabs;
+    }
+    if (normalized == "carousel") {
+        return QuickMenuCategoryLayout::Carousel;
+    }
+    return QuickMenuCategoryLayout::TitleSelector;
+}
+
+inline std::string QuickMenuCategoryLayoutId(QuickMenuCategoryLayout layout) {
+    switch (layout) {
+    case QuickMenuCategoryLayout::TitleSelector:
+        return "title_selector";
+    case QuickMenuCategoryLayout::TextTabs:
+        return "text_tabs";
+    case QuickMenuCategoryLayout::Carousel:
+        return "carousel";
+    }
+    return "title_selector";
 }
 
 inline std::string NormalizeInputKey(std::string_view value) {
@@ -2047,6 +2090,18 @@ struct BinderModule::Impl {
         int hotkeyIndex = -1;
     };
 
+    struct QuickMenuVisibilitySnapshot {
+        std::vector<std::string> indexedOrderIds{};
+        std::unordered_map<std::string, int> hotkeyIndexByOrderId{};
+        std::vector<const FolderNode*> indexedFolders{};
+        std::vector<const FolderNode*> liveFolders{};
+        std::unordered_map<const FolderNode*, std::size_t> folderIndexByPointer{};
+        std::vector<std::int8_t> hotkeyVisibility{};
+        std::vector<std::int8_t> folderVisibility{};
+        std::vector<std::int8_t> directoryVisibility{};
+        std::vector<const BinderCategory*> visibleCategories{};
+    };
+
     hotkeys::KeyTracker keyTracker{};
     std::vector<UINT> pressedKeys{};
     std::array<bool, 256> asyncKeysDown{};
@@ -2059,6 +2114,8 @@ struct BinderModule::Impl {
     std::vector<UINT> quickMenuHotkey{};
     QuickMenuActivationMode quickMenuActivationMode = QuickMenuActivationMode::Hold;
     QuickMenuStyle quickMenuStyle = QuickMenuStyle::Cascade;
+    QuickMenuWidthMode quickMenuWidthMode = QuickMenuWidthMode::Fixed;
+    QuickMenuCategoryLayout quickMenuCategoryLayout = QuickMenuCategoryLayout::TitleSelector;
     bool quickMenuShowScrollbar = true;
     BindListStyle bindListStyle = BindListStyle::Explorer;
     TwoPaneActivePane twoPaneActivePane = TwoPaneActivePane::Binds;
@@ -2075,6 +2132,10 @@ struct BinderModule::Impl {
     bool quickMenuMouseClientPosValid = false;
     ImVec2 quickMenuMouseClientPos{ 0.0f, 0.0f };
     std::vector<QuickMenuHitItem> quickMenuHitItems{};
+    mutable QuickMenuVisibilitySnapshot quickMenuVisibilitySnapshot{};
+    ImVec2 quickMenuViewportSize{ 0.0f, 0.0f };
+    std::uint64_t quickMenuCategoryTabsRevisionSeen = std::numeric_limits<std::uint64_t>::max();
+    std::string quickMenuRenderedCategoryId{};
     ImVec2 quickMenuPos{ 0.0f, 0.0f };
     ImVec2 quickMenuSize{ static_cast<float>(kQuickMenuWidth), static_cast<float>(kQuickMenuHeight) };
     std::optional<bool> quickMenuSampCursorActiveAtOpen{};
@@ -2214,7 +2275,20 @@ struct BinderModule::Impl {
     void CaptureQuickMenuConditionSnapshot();
     void ClearQuickMenuConditionSnapshot();
     bool VisibleQuickMenuEntriesExist() const;
-    bool FolderVisibleInQuickMenu(const FolderNode& folder, const ConditionRuntimeContext& context) const;
+    QuickMenuVisibilitySnapshot& BuildQuickMenuVisibilitySnapshot(const ConditionRuntimeContext& context) const;
+    bool IsQuickMenuHotkeyVisible(
+        int index,
+        const ConditionRuntimeContext& context,
+        QuickMenuVisibilitySnapshot& snapshot) const;
+    bool IsQuickMenuFolderVisible(
+        const FolderNode& folder,
+        const ConditionRuntimeContext& context,
+        QuickMenuVisibilitySnapshot& snapshot) const;
+    bool QuickMenuDirectoryHasVisibleEntries(
+        const BinderCategory& category,
+        const FolderNode* folder,
+        const ConditionRuntimeContext& context,
+        QuickMenuVisibilitySnapshot& snapshot) const;
     ConditionRuntimeContext MakeConditionContext(bool quickMenuContext = false) const;
     bool IsSilentActivationSource(std::string_view source) const;
     bool IsManualActivationSource(std::string_view source) const;
@@ -2351,6 +2425,11 @@ struct BinderModule::Impl {
     void BeginCapture(CaptureTarget target);
     void DrawCapturePopup(bool insideEditorPopup);
     void DrawQuickMenu();
+    const BinderCategory* DrawQuickMenuCategoryNavigation(
+        const std::vector<const BinderCategory*>& visibleCategories,
+        const BinderCategory* activeCategory,
+        const BinderListVisualStyle& visual,
+        bool& categorySelectionConsumed);
     std::string QuickMenuHotkeyText() const;
     void DrawSettingsSection(bool includeHeader);
     void DrawBinderSettingsSection(bool includeHeader);

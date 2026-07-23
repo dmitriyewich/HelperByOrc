@@ -865,6 +865,54 @@ void BinderModule::Impl::DrawSettingsSection(bool includeHeader) {
         SaveConfig();
     }
 
+    const QuickMenuCategoryLayout quickCategoryLayouts[] = {
+        QuickMenuCategoryLayout::TitleSelector,
+        QuickMenuCategoryLayout::TextTabs,
+        QuickMenuCategoryLayout::Carousel,
+    };
+    const char* quickCategoryLayoutLabels[] = {
+        ui.Text(UiText::QuickMenuCategoryLayoutTitleSelector),
+        ui.Text(UiText::QuickMenuCategoryLayoutTextTabs),
+        ui.Text(UiText::QuickMenuCategoryLayoutCarousel),
+    };
+    int quickCategoryLayout = static_cast<int>(quickMenuCategoryLayout);
+    ImGui::SetNextItemWidth(ScaleUi(180.0f));
+    if (ImGui::Combo(
+            ui.Text(UiText::QuickMenuCategoryLayout),
+            &quickCategoryLayout,
+            quickCategoryLayoutLabels,
+            IM_ARRAYSIZE(quickCategoryLayoutLabels))) {
+        quickMenuCategoryLayout = quickCategoryLayouts[quickCategoryLayout];
+        ResetQuickMenuVisualState();
+        SaveConfig();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::QuickMenuCategoryLayoutHint));
+    }
+
+    const QuickMenuWidthMode quickWidthModes[] = {
+        QuickMenuWidthMode::Adaptive,
+        QuickMenuWidthMode::Fixed,
+    };
+    const char* quickWidthLabels[] = {
+        ui.Text(UiText::QuickMenuWidthAdaptive),
+        ui.Text(UiText::QuickMenuWidthFixed),
+    };
+    int quickWidthMode = quickMenuWidthMode == QuickMenuWidthMode::Fixed ? 1 : 0;
+    ImGui::SetNextItemWidth(ScaleUi(180.0f));
+    if (ImGui::Combo(
+            ui.Text(UiText::QuickMenuWidth),
+            &quickWidthMode,
+            quickWidthLabels,
+            IM_ARRAYSIZE(quickWidthLabels))) {
+        quickMenuWidthMode = quickWidthModes[quickWidthMode];
+        ResetQuickMenuVisualState();
+        SaveConfig();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::QuickMenuWidthHint));
+    }
+
     if (ImGui::Checkbox(ui.Text(UiText::QuickMenuShowScrollbar), &quickMenuShowScrollbar)) {
         SaveConfig();
     }

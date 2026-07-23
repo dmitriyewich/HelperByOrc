@@ -955,7 +955,7 @@
     X(SettingsHotkeysActionNotepadOpenFolder, "Открыть выбранную папку.", "Open the selected folder.") \
     X(SettingsHotkeysActionNotepadModalSaveCancel, "Сохранить или закрыть модальное окно.", "Save or close the modal window.") \
     X(SettingsHotkeysActionHudExitEdit, "Выйти из размещения или inline-редактирования текста.", "Leave placement or inline text editing.") \
-    X(SettingsQuickMenuIntro, "Как открывается быстрое меню биндов.", "How the binder quick menu opens.") \
+    X(SettingsQuickMenuIntro, "Открытие и внешний вид быстрого меню биндов.", "Binder quick menu activation and appearance.") \
     X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
     X(SettingsNotificationsEnabled, "Включить системные уведомления", "Enable system notifications") \
     X(SettingsNotificationsChannel, "Канал", "Channel") \
@@ -1510,6 +1510,15 @@
     X(QuickMenuStyle, "Стиль быстрого меню", "Quick menu style") \
     X(QuickMenuStyleTree, "Стиль 1: дерево", "Style 1: tree") \
     X(QuickMenuStyleCascade, "Стиль 2: каскадное меню", "Style 2: cascaded menu") \
+    X(QuickMenuCategoryLayout, "Отображение категорий", "Category display") \
+    X(QuickMenuCategoryLayoutTitleSelector, "Вариант 1: в заголовке", "Variant 1: title selector") \
+    X(QuickMenuCategoryLayoutTextTabs, "Вариант 2: текстовые вкладки", "Variant 2: text tabs") \
+    X(QuickMenuCategoryLayoutCarousel, "Вариант 3: карусель", "Variant 3: carousel") \
+    X(QuickMenuCategoryLayoutHint, "Вариант 1 используется по умолчанию. Доступны селектор в заголовке, текстовые вкладки и карусель.", "Variant 1 is the default. Choose the title selector, text tabs, or carousel.") \
+    X(QuickMenuWidth, "Ширина быстрого меню", "Quick menu width") \
+    X(QuickMenuWidthAdaptive, "Адаптивная", "Adaptive") \
+    X(QuickMenuWidthFixed, "Фиксированная", "Fixed") \
+    X(QuickMenuWidthHint, "Адаптивная ширина подстраивается под размер окна игры. Фиксированная используется по умолчанию и возвращает исходную ширину. В обоих режимах учитываются масштаб интерфейса и границы экрана.", "Adaptive width follows the game window size. Fixed is the default and restores the original width. Both modes respect interface scaling and screen bounds.") \
     X(QuickMenuShowScrollbar, "Показывать полосу прокрутки", "Show scroll bar") \
     X(QuickMenuShowScrollbarHint, "Скрывает только визуальную полосу справа; прокрутка колесом мыши остаётся рабочей.", "Only hides the visual bar on the right; mouse-wheel scrolling still works.") \
     X(ColumnFolders, "Папки", "Folders") \

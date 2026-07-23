@@ -9,6 +9,8 @@ void BinderModule::Impl::SaveConfig() {
     root["quick_menu_hotkey"] = SerializeUintArray(quickMenuHotkey);
     root["quick_menu_activation_mode"] = QuickMenuActivationModeId(quickMenuActivationMode);
     root["quick_menu_style"] = QuickMenuStyleId(quickMenuStyle);
+    root["quick_menu_width_mode"] = QuickMenuWidthModeId(quickMenuWidthMode);
+    root["quick_menu_category_layout"] = QuickMenuCategoryLayoutId(quickMenuCategoryLayout);
     root["quick_menu_show_scrollbar"] = quickMenuShowScrollbar;
     root["bind_list_style"] = BindListStyleId(bindListStyle);
     root["text_confirmation_wait_timeout_ms"] = textConfirmationWaitTimeoutMs;
@@ -80,6 +82,8 @@ void BinderModule::Impl::LoadConfig() {
     quickMenuHotkey.clear();
     quickMenuActivationMode = QuickMenuActivationMode::Hold;
     quickMenuStyle = QuickMenuStyle::Cascade;
+    quickMenuWidthMode = QuickMenuWidthMode::Fixed;
+    quickMenuCategoryLayout = QuickMenuCategoryLayout::TitleSelector;
     quickMenuShowScrollbar = true;
     bindListStyle = BindListStyle::Explorer;
     textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
@@ -97,6 +101,10 @@ void BinderModule::Impl::LoadConfig() {
         NormalizeQuickMenuActivationMode(jsonutil::JsonStringOr(root, "quick_menu_activation_mode", "hold"));
     quickMenuStyle =
         NormalizeQuickMenuStyle(jsonutil::JsonStringOr(root, "quick_menu_style", "cascade"));
+    quickMenuWidthMode =
+        NormalizeQuickMenuWidthMode(jsonutil::JsonStringOr(root, "quick_menu_width_mode", "fixed"));
+    quickMenuCategoryLayout = NormalizeQuickMenuCategoryLayout(
+        jsonutil::JsonStringOr(root, "quick_menu_category_layout", "title_selector"));
     quickMenuShowScrollbar = jsonutil::JsonBoolOr(root, "quick_menu_show_scrollbar", true);
     bindListStyle =
         NormalizeBindListStyle(jsonutil::JsonStringOr(root, "bind_list_style", "explorer"));
