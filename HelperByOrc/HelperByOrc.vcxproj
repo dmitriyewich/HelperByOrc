@@ -169,6 +169,8 @@
     <ClCompile Include="native_file_dialog.cpp" />
     <ClCompile Include="notification_manager.cpp" />
     <ClCompile Include="notepad_module.cpp" />
+    <ClCompile Include="notepad_builtin_instruction.cpp" />
+    <ClCompile Include="notepad_storage.cpp" />
     <ClCompile Include="notepad_txt_operations.cpp" />
     <ClCompile Include="notepad_txt_sync.cpp" />
     <ClCompile Include="overlay_cursor_controller.cpp" />
@@ -263,6 +265,8 @@
     <ClInclude Include="native_file_dialog.h" />
     <ClInclude Include="notification_manager.h" />
     <ClInclude Include="notepad_module.h" />
+    <ClInclude Include="notepad_builtin_instruction.h" />
+    <ClInclude Include="notepad_storage.h" />
     <ClInclude Include="notepad_txt_operations.h" />
     <ClInclude Include="notepad_txt_sync.h" />
     <ClInclude Include="overlay_cursor_controller.h" />

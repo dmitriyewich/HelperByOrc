@@ -6,6 +6,8 @@
 #include "json_utils.h"
 #include "markup_renderer.h"
 #include "native_file_dialog.h"
+#include "notepad_builtin_instruction.h"
+#include "notepad_storage.h"
 #include "notepad_txt_operations.h"
 #include "notepad_txt_sync.h"
 #include "tags_module.h"
@@ -41,7 +43,7 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr std::string_view kNotepadSectionName = "notepad";
-constexpr int kNotepadSchemaVersion = 2;
+constexpr int kNotepadSchemaVersion = 3;
 constexpr wchar_t kNotepadAssetsFolder[] = L"notepad";
 constexpr wchar_t kNotepadImagesFolder[] = L"images";
 constexpr wchar_t kNotepadExportFolder[] = L"export";
@@ -50,6 +52,7 @@ constexpr char kPayloadFolder[] = "HBO_NOTEPAD_FOLDER";
 constexpr char kModalPopupId[] = "###notepad_modal";
 constexpr char kOrderTypeFolder[] = "folder";
 constexpr char kOrderTypeNote[] = "note";
+constexpr std::size_t kMaximumAllNotesSearchResults = 10000;
 
 enum class ItemType {
     Folder,
@@ -103,6 +106,7 @@ struct NoteEntry {
     bool favorite = false;
     std::uint64_t createdAt = 0;
     std::uint64_t updatedAt = 0;
+    bool builtin = false;
     std::optional<TxtSourceState> txtSource{};
 };
 
@@ -159,6 +163,45 @@ struct CopyLinesCache {
     std::string source{};
     std::vector<std::string> lines{};
     bool valid = false;
+};
+
+struct NoteSearchMatch {
+    int previewLine = 0;
+    int sourceLine = 0;
+    std::string preview{};
+};
+
+struct NoteSearchCache {
+    std::string source{};
+    std::string query{};
+    std::vector<NoteSearchMatch> matches{};
+    int activeIndex = -1;
+    bool valid = false;
+};
+
+struct AllNotesSearchMatch {
+    std::string noteId{};
+    std::string noteTitle{};
+    std::string folderPath{};
+    int previewLine = 0;
+    int sourceLine = 0;
+    std::string preview{};
+};
+
+struct AllNotesSearchCache {
+    std::string query{};
+    std::string draftNoteId{};
+    std::uint64_t modelRevision = 0;
+    std::uint64_t editRevision = 0;
+    std::vector<AllNotesSearchMatch> matches{};
+    int activeIndex = -1;
+    bool truncated = false;
+    bool valid = false;
+};
+
+struct PendingAllNotesSearchReveal {
+    std::string noteId{};
+    int sourceLine = -1;
 };
 
 struct ImGuiStringUserData {
@@ -438,23 +481,6 @@ std::string WideToUtf8(std::wstring_view text) {
     return result;
 }
 
-std::string NormalizeImportedText(std::string text) {
-    if (text.size() >= 3
-        && static_cast<unsigned char>(text[0]) == 0xEF
-        && static_cast<unsigned char>(text[1]) == 0xBB
-        && static_cast<unsigned char>(text[2]) == 0xBF) {
-        text.erase(0, 3);
-    }
-    if (text.empty()) {
-        return text;
-    }
-    if (!MultiByteToWide(text, CP_UTF8, MB_ERR_INVALID_CHARS).empty()) {
-        return text;
-    }
-    const std::wstring wide = MultiByteToWide(text, CP_ACP);
-    return wide.empty() ? text : WideToUtf8(wide);
-}
-
 std::string PathToUtf8(const fs::path& path) {
     return WideToUtf8(path.wstring());
 }
@@ -472,6 +498,64 @@ std::string LowerUtf8(std::string_view text) {
     return WideToUtf8(wide);
 }
 
+bool StartsSameLineDirective(std::string_view rawLine) {
+    constexpr std::string_view directive = "#sameline";
+    std::size_t begin = 0;
+    while (begin < rawLine.size()
+        && std::isspace(static_cast<unsigned char>(rawLine[begin])) != 0) {
+        ++begin;
+    }
+    if (rawLine.size() - begin < directive.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < directive.size(); ++index) {
+        if (std::tolower(static_cast<unsigned char>(rawLine[begin + index]))
+            != directive[index]) {
+            return false;
+        }
+    }
+    const std::size_t boundary = begin + directive.size();
+    return boundary == rawLine.size()
+        || std::isspace(static_cast<unsigned char>(rawLine[boundary])) != 0;
+}
+
+template <typename Callback>
+bool ForEachLogicalPlainLine(std::string_view source, Callback&& callback) {
+    std::stringstream stream{ std::string(source) };
+    std::string rawLine;
+    std::string logicalPlain;
+    int sourceLine = 0;
+    int logicalSourceLine = 0;
+    int previewLine = -1;
+    bool hasLogicalLine = false;
+
+    const auto flush = [&]() {
+        return !hasLogicalLine || callback(previewLine, logicalSourceLine, logicalPlain);
+    };
+    while (std::getline(stream, rawLine)) {
+        const bool continuesPrevious = hasLogicalLine && StartsSameLineDirective(rawLine);
+        if (!continuesPrevious) {
+            if (!flush()) {
+                return false;
+            }
+            ++previewLine;
+            logicalSourceLine = sourceLine;
+            logicalPlain.clear();
+            hasLogicalLine = true;
+        }
+
+        const std::string segment = TrimAscii(MarkupRenderer::StripMarkupLine(rawLine));
+        if (!segment.empty()) {
+            if (!logicalPlain.empty()) {
+                logicalPlain.push_back(' ');
+            }
+            logicalPlain += segment;
+        }
+        ++sourceLine;
+    }
+    return flush();
+}
+
 std::string UpperUtf8(std::string_view text) {
     std::wstring wide = Utf8ToWide(text);
     if (wide.empty()) {
@@ -483,15 +567,6 @@ std::string UpperUtf8(std::string_view text) {
     }
     CharUpperBuffW(wide.data(), static_cast<DWORD>(wide.size()));
     return WideToUtf8(wide);
-}
-
-bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
-    if (needle.empty()) {
-        return true;
-    }
-    const std::string h = LowerUtf8(haystack);
-    const std::string n = LowerUtf8(needle);
-    return h.find(n) != std::string::npos;
 }
 
 int ImGuiStringResizeCallback(ImGuiInputTextCallbackData* data) {
@@ -879,14 +954,22 @@ struct NotepadModule::Impl {
     std::map<std::string, std::vector<OrderItem>> order;
     std::string currentFolder;
     std::string selectedNoteId;
+    std::string builtinInstructionId{ notepadbuiltin::DefaultId() };
     std::string selectedFolderPath;
     ItemType selectedType = ItemType::Note;
-    std::string search;
+    std::string allNotesSearchQuery;
     bool editing = false;
     bool editDirty = false;
     bool applyTags = true;
     bool copyLineMode = false;
+    bool noteSearchOpen = false;
+    bool noteSearchFocus = false;
     std::string editBuffer;
+    std::string noteSearchQuery;
+    NoteSearchCache noteSearchCache{};
+    AllNotesSearchCache allNotesSearchCache{};
+    PendingAllNotesSearchReveal pendingAllNotesSearchReveal{};
+    int noteSearchScrollLine = -1;
     int editCursor = -1;
     PendingModal pendingModal = PendingModal::None;
     bool modalOpenRequested = false;
@@ -901,6 +984,10 @@ struct NotepadModule::Impl {
     CopyLinesCache copyLinesCache{};
     RenderStats lastRenderStats{};
     std::uint64_t idCounter = 0;
+    std::uint64_t modelRevision = 0;
+    std::uint64_t editRevision = 0;
+    bool globalStorageFallback = false;
+    notepadstorage::Store storage{};
     notepadtxt::SyncService txtSync{};
     notepadtxt::OperationService txtOperations{};
     std::uint64_t txtSyncGeneration = 0;
@@ -916,13 +1003,26 @@ struct NotepadModule::Impl {
     }
 
     void Shutdown() {
-        SaveEditBufferIfNeeded();
+        if (!SaveEditBufferIfNeeded()) {
+            if (txtOperations.Flush()) {
+                ApplyPendingTxtOperations();
+                if (!SaveEditBufferIfNeeded()) {
+                    debuglog::WriteError("[notepad] dirty edit could not be queued during shutdown");
+                }
+            } else {
+                debuglog::WriteError("[notepad][txt] operation flush timed out before dirty shutdown save");
+            }
+        }
         if (!txtOperations.Flush()) {
             debuglog::WriteError("[notepad][txt] operation flush timed out during shutdown");
         }
         txtOperations.Stop();
         ApplyPendingTxtOperations(false);
         txtSync.Stop();
+        if (!storage.Flush()) {
+            debuglog::WriteError("[notepad][store] flush timed out during shutdown");
+        }
+        storage.Stop();
         ReleaseDeviceResources();
         configLoaded = false;
         folders.clear();
@@ -932,12 +1032,23 @@ struct NotepadModule::Impl {
         renderedNoteCache = {};
         renderedEditCache = {};
         copyLinesCache = {};
+        noteSearchCache = {};
+        allNotesSearchCache = {};
+        pendingAllNotesSearchReveal = {};
+        allNotesSearchQuery.clear();
+        noteSearchQuery.clear();
+        noteSearchOpen = false;
+        noteSearchFocus = false;
+        noteSearchScrollLine = -1;
+        editRevision = 0;
         lastRenderStats = {};
+        globalStorageFallback = false;
     }
 
     void ReloadConfig() {
         txtOperations.Stop();
         txtSync.Stop();
+        storage.Stop();
         ++txtSyncGeneration;
         pendingTxtActions.clear();
         txtForceRescanOnRestart = false;
@@ -948,6 +1059,7 @@ struct NotepadModule::Impl {
         order.clear();
         currentFolder.clear();
         selectedNoteId.clear();
+        builtinInstructionId = std::string(notepadbuiltin::DefaultId());
         selectedFolderPath.clear();
         editing = false;
         editDirty = false;
@@ -956,11 +1068,32 @@ struct NotepadModule::Impl {
         renderedNoteCache = {};
         renderedEditCache = {};
         copyLinesCache = {};
+        noteSearchCache = {};
+        allNotesSearchCache = {};
+        pendingAllNotesSearchReveal = {};
+        allNotesSearchQuery.clear();
+        noteSearchQuery.clear();
+        noteSearchOpen = false;
+        noteSearchFocus = false;
+        noteSearchScrollLine = -1;
+        editRevision = 0;
         lastRenderStats = {};
+        globalStorageFallback = false;
     }
 
-    void FlushPendingEdits() {
-        SaveEditBufferIfNeeded();
+    bool FlushPendingEdits() {
+        EnsureLoaded();
+        if (!SaveEditBufferIfNeeded()) {
+            if (!txtOperations.Flush()) {
+                debuglog::WriteError("[notepad][txt] operation flush timed out before dirty edit retry");
+                return false;
+            }
+            ApplyPendingTxtOperations();
+            if (!SaveEditBufferIfNeeded()) {
+                debuglog::WriteError("[notepad] dirty edit save retry failed before profile change");
+                return false;
+            }
+        }
         const bool flushed = txtOperations.Flush();
         if (!flushed) {
             debuglog::WriteError("[notepad][txt] operation flush timed out before profile change");
@@ -969,9 +1102,27 @@ struct NotepadModule::Impl {
             txtOperations.Start(NotepadDirectory(), txtSyncGeneration);
             StartTxtScanner(txtForceRescanOnRestart);
             txtForceRescanOnRestart = false;
-            return;
+            return false;
         }
         ApplyPendingTxtOperations();
+        if (storage.IsGlobal() && !storage.Flush()) {
+            debuglog::WriteError("[notepad][store] flush timed out before profile change");
+            return false;
+        }
+        if (!storage.IsGlobal()) {
+            AppConfig::Instance().ProcessPendingWrites();
+            if (globalStorageFallback) {
+                debuglog::WriteError("[notepad][store] profile operation blocked while legacy fallback is active");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void OnProfileChanged() {
+        if (configLoaded && !storage.IsGlobal()) {
+            ReloadConfig();
+        }
     }
 
     void ReleaseDeviceResources() {
@@ -982,8 +1133,14 @@ struct NotepadModule::Impl {
         return AppConfig::Instance().ActiveProfileDirectory();
     }
 
+    fs::path NotepadGlobalDirectory() const {
+        return AppConfig::Instance().ProfilesRoot().parent_path() / kNotepadAssetsFolder;
+    }
+
     fs::path NotepadDirectory() const {
-        return ProfileDirectory() / kNotepadAssetsFolder;
+        return storage.IsGlobal()
+            ? storage.RootDirectory()
+            : ProfileDirectory() / kNotepadAssetsFolder;
     }
 
     fs::path ImagesDirectory() const {
@@ -1201,6 +1358,9 @@ struct NotepadModule::Impl {
             }
         }
         for (const notepadtxt::FileSnapshot& snapshot : pending->files) {
+            if (notepadbuiltin::IsInstructionSource(snapshot.relativePath)) {
+                continue;
+            }
             if (!snapshot.version.identity.empty()) {
                 scanPathsByIdentity[snapshot.version.identity].push_back(TxtSourcePathKey(snapshot.relativePath));
             }
@@ -1213,6 +1373,9 @@ struct NotepadModule::Impl {
         std::size_t conflicts = 0;
         bool modelChanged = false;
         for (notepadtxt::FileSnapshot& snapshot : pending->files) {
+            if (notepadbuiltin::IsInstructionSource(snapshot.relativePath)) {
+                continue;
+            }
             std::optional<std::size_t> noteIndex;
             const auto pathIt = notesByPath.find(TxtSourcePathKey(snapshot.relativePath));
             if (pathIt != notesByPath.end() && pathIt->second.size() == 1) {
@@ -1587,6 +1750,12 @@ struct NotepadModule::Impl {
             LoadConfig();
             configLoaded = true;
         }
+        if (const unsigned long storageError = storage.TakeLastError();
+            storageError != ERROR_SUCCESS) {
+            statusMessage = UiSettings::Instance().Format(
+                UiText::NotepadStoreWriteFailedFormat,
+                storageError);
+        }
         ApplyPendingTxtOperations();
         if (!TxtOperationPending()) {
             ApplyPendingTxtScan();
@@ -1599,15 +1768,47 @@ struct NotepadModule::Impl {
         order.clear();
         currentFolder.clear();
         selectedNoteId.clear();
+        builtinInstructionId = std::string(notepadbuiltin::DefaultId());
         selectedFolderPath.clear();
         editing = false;
         editDirty = false;
         editBuffer.clear();
+        statusMessage.clear();
+        txtOperationPendingStatusMessage.clear();
         renderedNoteCache = {};
         renderedEditCache = {};
+        noteSearchCache = {};
+        allNotesSearchCache = {};
+        pendingAllNotesSearchReveal = {};
+        allNotesSearchQuery.clear();
+        noteSearchQuery.clear();
+        noteSearchOpen = false;
+        noteSearchFocus = false;
+        noteSearchScrollLine = -1;
+        editRevision = 0;
+        globalStorageFallback = false;
+        const jsonutil::JsonObject legacySection =
+            AppConfig::Instance().ReadSectionObject(kNotepadSectionName);
+        const notepadstorage::OpenResult storageResult = storage.Open(
+            NotepadGlobalDirectory(),
+            ProfileDirectory() / kNotepadAssetsFolder,
+            legacySection);
+        const jsonutil::JsonObject& section = storageResult.state;
+        globalStorageFallback = !storageResult.global;
+        if (!storageResult.global && storageResult.error != ERROR_SUCCESS) {
+            statusMessage = UiSettings::Instance().Format(
+                UiText::NotepadGlobalFallbackFormat,
+                storageResult.error);
+            debuglog::WriteError(
+                "[notepad][store] using legacy fallback error=%lu reason=%s",
+                storageResult.error,
+                storageResult.message.c_str());
+        }
+        builtinInstructionId = jsonutil::JsonStringOr(
+            &section,
+            "builtin_instruction_id",
+            std::string(notepadbuiltin::DefaultId()));
         EnsureAssetDirectories();
-
-        const jsonutil::JsonObject section = AppConfig::Instance().ReadSectionObject(kNotepadSectionName);
         if (const jsonutil::JsonArray* folderArray = jsonutil::JsonArrayOrNull(&section, "folders")) {
             for (const jsonutil::JsonValue& value : *folderArray) {
                 const jsonutil::JsonObject* object = value.TryObject();
@@ -1624,6 +1825,7 @@ struct NotepadModule::Impl {
             }
         }
 
+        std::optional<NoteEntry> legacyInstruction;
         if (const jsonutil::JsonArray* noteArray = jsonutil::JsonArrayOrNull(&section, "notes")) {
             for (const jsonutil::JsonValue& value : *noteArray) {
                 const jsonutil::JsonObject* object = value.TryObject();
@@ -1642,11 +1844,36 @@ struct NotepadModule::Impl {
                 if (note.id.empty()) {
                     note.id = GenerateNoteId();
                 }
+                if (note.txtSource && notepadbuiltin::IsInstructionSource(note.txtSource->relativePath)) {
+                    builtinInstructionId = note.id;
+                    legacyInstruction = std::move(note);
+                    continue;
+                }
                 if (!FindNote(note.id)) {
                     notes.push_back(std::move(note));
                 }
             }
         }
+
+        if (builtinInstructionId.empty() || FindNote(builtinInstructionId)) {
+            builtinInstructionId = std::string(notepadbuiltin::DefaultId());
+        }
+        if (FindNote(builtinInstructionId)) {
+            builtinInstructionId = GenerateNoteId();
+        }
+        NoteEntry instruction;
+        instruction.id = builtinInstructionId;
+        instruction.title = std::string(notepadbuiltin::Title());
+        instruction.text = std::string(notepadbuiltin::InstructionText());
+        instruction.favorite = true;
+        instruction.createdAt = legacyInstruction
+            ? legacyInstruction->createdAt
+            : UnixTimeNow();
+        instruction.updatedAt = legacyInstruction
+            ? legacyInstruction->updatedAt
+            : instruction.createdAt;
+        instruction.builtin = true;
+        notes.push_back(std::move(instruction));
 
         if (const jsonutil::JsonObject* orderObject = jsonutil::JsonObjectOrNull(&section, "order")) {
             for (const auto& [key, value] : *orderObject) {
@@ -1664,7 +1891,16 @@ struct NotepadModule::Impl {
         }
         NormalizeModel();
         StartTxtSync();
-        debuglog::WriteInfo("[notepad] config loaded folders=%zu notes=%zu", folders.size(), notes.size());
+        if (storageResult.migrated
+            || jsonutil::JsonNumberOr<int>(&section, "schema_version", 0) < kNotepadSchemaVersion) {
+            QueueSave();
+        }
+        debuglog::WriteInfo(
+            "[notepad] config loaded folders=%zu notes=%zu storage=%s path=%ls",
+            folders.size(),
+            notes.size(),
+            storage.IsGlobal() ? "global" : "legacy",
+            NotepadDirectory().c_str());
     }
 
     void NormalizeModel() {
@@ -1770,6 +2006,7 @@ struct NotepadModule::Impl {
     jsonutil::JsonValue SerializeConfig() const {
         jsonutil::JsonObject root;
         root["schema_version"] = kNotepadSchemaVersion;
+        root["builtin_instruction_id"] = builtinInstructionId;
 
         jsonutil::JsonArray folderArray;
         for (const FolderEntry& folder : folders) {
@@ -1783,6 +2020,9 @@ struct NotepadModule::Impl {
 
         jsonutil::JsonArray noteArray;
         for (const NoteEntry& note : notes) {
+            if (note.builtin) {
+                continue;
+            }
             jsonutil::JsonObject object;
             object["id"] = note.id;
             object["title"] = note.title;
@@ -1808,16 +2048,44 @@ struct NotepadModule::Impl {
         return jsonutil::JsonValue(std::move(root));
     }
 
-    void QueueSave() {
+    void QueueSave(bool searchCorpusChanged = true) {
         NormalizeModel();
-        AppConfig::Instance().QueueSectionReplace(std::string(kNotepadSectionName), SerializeConfig());
+        if (searchCorpusChanged) {
+            ++modelRevision;
+        }
+        jsonutil::JsonValue snapshot = SerializeConfig();
+        if (storage.IsGlobal()) {
+            storage.QueueSave(std::move(snapshot));
+        } else {
+            AppConfig::Instance().QueueSectionReplace(
+                std::string(kNotepadSectionName),
+                std::move(snapshot));
+        }
     }
 
-    void SelectNote(std::string_view id, bool queueSave = true) {
-        SaveEditBufferIfNeeded();
+    void ResetNoteSearch(bool close) {
+        noteSearchCache = {};
+        noteSearchQuery.clear();
+        noteSearchFocus = false;
+        noteSearchScrollLine = -1;
+        if (close) {
+            noteSearchOpen = false;
+        }
+    }
+
+    void SelectNote(
+        std::string_view id,
+        bool queueSave = true,
+        bool resetSearch = true) {
+        if (!SaveEditBufferIfNeeded()) {
+            return;
+        }
         NoteEntry* note = FindNote(id);
         if (!note) {
             return;
+        }
+        if (resetSearch && selectedNoteId != note->id) {
+            ResetNoteSearch(true);
         }
         selectedNoteId = note->id;
         selectedFolderPath.clear();
@@ -1828,23 +2096,28 @@ struct NotepadModule::Impl {
         editCursor = static_cast<int>(editBuffer.size());
         currentFolder = note->folderPath;
         if (queueSave) {
-            QueueSave();
+            QueueSave(false);
         }
     }
 
     void SelectFolder(std::string_view path) {
-        SaveEditBufferIfNeeded();
+        if (!SaveEditBufferIfNeeded()) {
+            return;
+        }
         const std::string normalized = NormalizeFolderPath(path);
         if (!normalized.empty() && !FindFolder(normalized)) {
             return;
         }
         selectedFolderPath = normalized;
         selectedNoteId.clear();
+        ResetNoteSearch(true);
         selectedType = ItemType::Folder;
     }
 
     void OpenFolder(std::string_view path) {
-        SaveEditBufferIfNeeded();
+        if (!SaveEditBufferIfNeeded()) {
+            return;
+        }
         const std::string normalized = NormalizeFolderPath(path);
         if (!normalized.empty() && !FindFolder(normalized)) {
             return;
@@ -1852,8 +2125,9 @@ struct NotepadModule::Impl {
         currentFolder = normalized;
         selectedFolderPath = normalized;
         selectedNoteId.clear();
+        ResetNoteSearch(true);
         selectedType = ItemType::Folder;
-        QueueSave();
+        QueueSave(false);
     }
 
     bool TxtOperationPending() const {
@@ -1861,8 +2135,8 @@ struct NotepadModule::Impl {
     }
 
     bool PrepareForTxtStructureChange() {
-        if (editing && editDirty) {
-            SaveEditBufferIfNeeded();
+        if (!SaveEditBufferIfNeeded()) {
+            return false;
         }
         if (TxtOperationPending()) {
             ShowTxtOperationPendingStatus();
@@ -1992,15 +2266,15 @@ struct NotepadModule::Impl {
         return TrackTxtRequest(requestId, std::move(action), noteIds);
     }
 
-    void SaveEditBufferIfNeeded() {
+    bool SaveEditBufferIfNeeded() {
         if (!editing || !editDirty) {
-            return;
+            return true;
         }
         NoteEntry* note = FindNote(selectedNoteId);
         if (!note) {
             editing = false;
             editDirty = false;
-            return;
+            return true;
         }
         if (note->txtSource) {
             if (note->txtSource->conflict) {
@@ -2009,20 +2283,21 @@ struct NotepadModule::Impl {
                 editDirty = false;
                 QueueSave();
                 statusMessage = UiSettings::Instance().Text(UiText::NotepadTxtConflict);
-                return;
+                return true;
             }
             if (!QueueTxtWrite(*note, editBuffer)) {
-                return;
+                return false;
             }
             editDirty = false;
             debuglog::WriteInfo("[notepad][txt] note write queued id=%s len=%zu", note->id.c_str(), note->text.size());
-            return;
+            return true;
         }
         note->text = editBuffer;
         note->updatedAt = UnixTimeNow();
         editDirty = false;
         QueueSave();
         debuglog::WriteInfo("[notepad] note saved id=%s len=%zu", note->id.c_str(), note->text.size());
+        return true;
     }
 
     void CreateFolder(std::string_view parent, std::string_view name) {
@@ -2070,7 +2345,7 @@ struct NotepadModule::Impl {
 
     void DuplicateNote(std::string_view id) {
         const NoteEntry* original = FindNote(id);
-        if (!original) {
+        if (!original || original->builtin) {
             return;
         }
         NoteEntry copy = *original;
@@ -2088,7 +2363,7 @@ struct NotepadModule::Impl {
 
     void RenameNoteModel(std::string_view id, std::string_view title, bool queueSave = true) {
         NoteEntry* note = FindNote(id);
-        if (!note) {
+        if (!note || note->builtin) {
             return;
         }
         const std::string cleanTitle = TrimAscii(title);
@@ -2143,6 +2418,9 @@ struct NotepadModule::Impl {
             return note.id == id;
         });
         if (it == notes.end()) {
+            return;
+        }
+        if (it->builtin) {
             return;
         }
         const std::string removedId = it->id;
@@ -2444,6 +2722,9 @@ struct NotepadModule::Impl {
         targetDirectory = NormalizeFolderPath(targetDirectory);
         if (dragged.type == ItemType::Note) {
             NoteEntry* note = FindNote(dragged.value);
+            if (note && note->builtin) {
+                return false;
+            }
             if (!note || !FolderExists(targetDirectory) || !note->txtSource) {
                 return ApplyDropModel(dragged, std::move(targetDirectory), std::move(anchor), placement);
             }
@@ -2569,16 +2850,6 @@ struct NotepadModule::Impl {
         return result;
     }
 
-    std::vector<const NoteEntry*> SearchNotes(std::string_view query) const {
-        std::vector<const NoteEntry*> result;
-        for (const NoteEntry& note : notes) {
-            if (ContainsNoCase(note.title, query) || ContainsNoCase(note.text, query) || ContainsNoCase(note.folderPath, query)) {
-                result.push_back(&note);
-            }
-        }
-        return result;
-    }
-
     const std::string& RenderedText(const NoteEntry& note) {
         if (!applyTags || !tagsModule) {
             ++lastRenderStats.previewCacheHits;
@@ -2647,6 +2918,463 @@ struct NotepadModule::Impl {
         lastRenderStats.renderedBytes = renderedEditCache.rendered.size();
         ++lastRenderStats.previewCacheMisses;
         return renderedEditCache.rendered;
+    }
+
+    void OpenNoteSearch() {
+        if (selectedNoteId.empty()) {
+            return;
+        }
+        noteSearchOpen = true;
+        noteSearchFocus = true;
+        copyLineMode = false;
+    }
+
+    void RebuildNoteSearch(std::string_view source) {
+        if (noteSearchCache.valid
+            && noteSearchCache.source == source
+            && noteSearchCache.query == noteSearchQuery) {
+            return;
+        }
+
+        noteSearchCache = {};
+        noteSearchCache.source = std::string(source);
+        noteSearchCache.query = noteSearchQuery;
+        noteSearchCache.valid = true;
+        if (noteSearchQuery.empty()) {
+            return;
+        }
+
+        const std::string loweredQuery = LowerUtf8(noteSearchQuery);
+        if (loweredQuery.empty()) {
+            return;
+        }
+
+        ForEachLogicalPlainLine(
+            source,
+            [&](int previewLine, int sourceLine, const std::string& plain) {
+                const std::string loweredPlain = LowerUtf8(plain);
+                std::size_t position = 0;
+                while ((position = loweredPlain.find(loweredQuery, position)) != std::string::npos) {
+                    NoteSearchMatch match;
+                    match.previewLine = std::max(0, previewLine);
+                    match.sourceLine = sourceLine;
+                    match.preview = plain;
+                    noteSearchCache.matches.push_back(std::move(match));
+                    position += std::max<std::size_t>(1, loweredQuery.size());
+                }
+                return true;
+            });
+
+        if (!noteSearchCache.matches.empty()) {
+            noteSearchCache.activeIndex = 0;
+            noteSearchScrollLine = noteSearchCache.matches.front().previewLine;
+        }
+    }
+
+    void RebuildAllNotesSearch() {
+        const std::string draftNoteId = editing ? selectedNoteId : std::string{};
+        const std::uint64_t draftRevision = editing ? editRevision : 0;
+        if (allNotesSearchCache.valid
+            && allNotesSearchCache.query == allNotesSearchQuery
+            && allNotesSearchCache.modelRevision == modelRevision
+            && allNotesSearchCache.draftNoteId == draftNoteId
+            && allNotesSearchCache.editRevision == draftRevision) {
+            return;
+        }
+
+        std::string restoreNoteId;
+        int restoreSourceLine = -1;
+        if (!pendingAllNotesSearchReveal.noteId.empty()) {
+            restoreNoteId = pendingAllNotesSearchReveal.noteId;
+            restoreSourceLine = pendingAllNotesSearchReveal.sourceLine;
+        } else if (allNotesSearchCache.valid
+            && allNotesSearchCache.query == allNotesSearchQuery
+            && allNotesSearchCache.activeIndex >= 0
+            && allNotesSearchCache.activeIndex
+                < static_cast<int>(allNotesSearchCache.matches.size())) {
+            const AllNotesSearchMatch& active = allNotesSearchCache.matches[
+                static_cast<std::size_t>(allNotesSearchCache.activeIndex)];
+            restoreNoteId = active.noteId;
+            restoreSourceLine = active.sourceLine;
+        }
+
+        allNotesSearchCache = {};
+        allNotesSearchCache.query = allNotesSearchQuery;
+        allNotesSearchCache.modelRevision = modelRevision;
+        allNotesSearchCache.draftNoteId = draftNoteId;
+        allNotesSearchCache.editRevision = draftRevision;
+        allNotesSearchCache.valid = true;
+        if (allNotesSearchQuery.empty()) {
+            return;
+        }
+
+        const std::string loweredQuery = LowerUtf8(allNotesSearchQuery);
+        if (loweredQuery.empty()) {
+            return;
+        }
+
+        for (const NoteEntry& note : notes) {
+            const std::string& source = editing && note.id == selectedNoteId
+                ? editBuffer
+                : note.text;
+            ForEachLogicalPlainLine(
+                source,
+                [&](int previewLine, int sourceLine, const std::string& plain) {
+                    if (LowerUtf8(plain).find(loweredQuery) != std::string::npos) {
+                        AllNotesSearchMatch match;
+                        match.noteId = note.id;
+                        match.noteTitle = note.title;
+                        match.folderPath = note.folderPath;
+                        match.previewLine = std::max(0, previewLine);
+                        match.sourceLine = sourceLine;
+                        match.preview = plain;
+                        allNotesSearchCache.matches.push_back(std::move(match));
+                        if (allNotesSearchCache.matches.size() >= kMaximumAllNotesSearchResults) {
+                            allNotesSearchCache.truncated = true;
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            if (allNotesSearchCache.truncated) {
+                break;
+            }
+        }
+
+        if (!restoreNoteId.empty()) {
+            const auto restored = std::find_if(
+                allNotesSearchCache.matches.begin(),
+                allNotesSearchCache.matches.end(),
+                [&](const AllNotesSearchMatch& match) {
+                    return match.noteId == restoreNoteId
+                        && match.sourceLine == restoreSourceLine;
+                });
+            if (restored != allNotesSearchCache.matches.end()) {
+                allNotesSearchCache.activeIndex = static_cast<int>(
+                    std::distance(allNotesSearchCache.matches.begin(), restored));
+            }
+        }
+    }
+
+    void ApplyPendingAllNotesSearchReveal() {
+        if (pendingAllNotesSearchReveal.noteId.empty()
+            || pendingAllNotesSearchReveal.noteId != selectedNoteId) {
+            return;
+        }
+
+        const auto found = std::find_if(
+            allNotesSearchCache.matches.begin(),
+            allNotesSearchCache.matches.end(),
+            [&](const AllNotesSearchMatch& match) {
+                return match.noteId == pendingAllNotesSearchReveal.noteId
+                    && match.sourceLine == pendingAllNotesSearchReveal.sourceLine;
+            });
+        if (found != allNotesSearchCache.matches.end()) {
+            allNotesSearchCache.activeIndex = static_cast<int>(
+                std::distance(allNotesSearchCache.matches.begin(), found));
+            noteSearchScrollLine = found->previewLine;
+        }
+        pendingAllNotesSearchReveal = {};
+    }
+
+    void ActivateAllNotesSearchMatch(int index) {
+        if (index < 0 || index >= static_cast<int>(allNotesSearchCache.matches.size())) {
+            return;
+        }
+
+        const AllNotesSearchMatch match =
+            allNotesSearchCache.matches[static_cast<std::size_t>(index)];
+        allNotesSearchCache.activeIndex = index;
+        if (match.noteId == selectedNoteId) {
+            ResetNoteSearch(true);
+            pendingAllNotesSearchReveal = {};
+            noteSearchScrollLine = match.previewLine;
+            return;
+        }
+
+        pendingAllNotesSearchReveal = { match.noteId, match.sourceLine };
+        SelectNote(match.noteId);
+        if (selectedNoteId != match.noteId) {
+            pendingAllNotesSearchReveal = {};
+        }
+    }
+
+    void AdvanceAllNotesSearch(int direction) {
+        const int count = static_cast<int>(allNotesSearchCache.matches.size());
+        if (count <= 0) {
+            allNotesSearchCache.activeIndex = -1;
+            noteSearchScrollLine = -1;
+            return;
+        }
+        const int current = allNotesSearchCache.activeIndex;
+        const int target = current < 0
+            ? (direction < 0 ? count - 1 : 0)
+            : (current + direction % count + count) % count;
+        ActivateAllNotesSearchMatch(target);
+    }
+
+    void AdvanceNoteSearch(int direction) {
+        const int count = static_cast<int>(noteSearchCache.matches.size());
+        if (count <= 0) {
+            noteSearchCache.activeIndex = -1;
+            noteSearchScrollLine = -1;
+            return;
+        }
+        const int current = std::clamp(noteSearchCache.activeIndex, 0, count - 1);
+        noteSearchCache.activeIndex = (current + direction % count + count) % count;
+        noteSearchScrollLine = noteSearchCache.matches[static_cast<std::size_t>(
+            noteSearchCache.activeIndex)].previewLine;
+    }
+
+    int ActiveNoteSearchLine() const {
+        if (noteSearchOpen
+            && noteSearchCache.activeIndex >= 0
+            && noteSearchCache.activeIndex < static_cast<int>(noteSearchCache.matches.size())) {
+            return noteSearchCache.matches[static_cast<std::size_t>(
+                noteSearchCache.activeIndex)].previewLine;
+        }
+        if (!allNotesSearchQuery.empty()
+            && allNotesSearchCache.activeIndex >= 0
+            && allNotesSearchCache.activeIndex
+                < static_cast<int>(allNotesSearchCache.matches.size())) {
+            const AllNotesSearchMatch& match = allNotesSearchCache.matches[
+                static_cast<std::size_t>(allNotesSearchCache.activeIndex)];
+            return match.noteId == selectedNoteId ? match.previewLine : -1;
+        }
+        return -1;
+    }
+
+    void CopySearchLine(const std::string& line) {
+        ImGui::SetClipboardText(line.c_str());
+        statusMessage = UiSettings::Instance().Text(UiText::ToastClipboardCopied);
+    }
+
+    void DrawAllNotesSearchResultRow(int index, float rowHeight) {
+        UiSettings& ui = UiSettings::Instance();
+        const AllNotesSearchMatch& match =
+            allNotesSearchCache.matches[static_cast<std::size_t>(index)];
+        const std::string location = match.folderPath.empty()
+            ? ui.Text(UiText::NotepadRootName)
+            : match.folderPath;
+        const std::string title =
+            std::string(ui_icons::Book)
+            + " " + match.noteTitle
+            + " · " + location
+            + " · " + ui.Format(
+                UiText::NotepadSearchLineFormat,
+                match.sourceLine + 1);
+        const std::string rowId =
+            "all_notes_search_"
+            + match.noteId
+            + "_" + std::to_string(match.sourceLine);
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float copyButtonWidth = ScaleUi(30.0f);
+        const float resultWidth = std::max(
+            1.0f,
+            ImGui::GetContentRegionAvail().x
+                - copyButtonWidth
+                - style.ItemSpacing.x);
+
+        ImGui::PushID(EscapeImGuiId(rowId).c_str());
+        const bool pressed = ImGui::Selectable(
+            "##open",
+            index == allNotesSearchCache.activeIndex,
+            ImGuiSelectableFlags_None,
+            ImVec2(resultWidth, rowHeight));
+        const bool hovered = ImGui::IsItemHovered();
+        const ImVec2 rowMin = ImGui::GetItemRectMin();
+        const ImVec2 rowMax = ImGui::GetItemRectMax();
+        ImGui::PopID();
+
+        const float textWidth = std::max(
+            0.0f,
+            rowMax.x - rowMin.x - style.FramePadding.x * 2.0f);
+        const std::string visibleTitle = EllipsizeSingleLine(
+            title,
+            ImGui::GetFont(),
+            ImGui::GetFontSize(),
+            textWidth);
+        const std::string visiblePreview = EllipsizeSingleLine(
+            match.preview,
+            ImGui::GetFont(),
+            ImGui::GetFontSize(),
+            textWidth);
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(rowMin, rowMax, true);
+        drawList->AddText(
+            ImVec2(
+                rowMin.x + style.FramePadding.x,
+                rowMin.y + style.FramePadding.y),
+            ImGui::GetColorU32(ImGuiCol_Text),
+            visibleTitle.data(),
+            visibleTitle.data() + visibleTitle.size());
+        drawList->AddText(
+            ImVec2(
+                rowMin.x + style.FramePadding.x,
+                rowMax.y - style.FramePadding.y - ImGui::GetFontSize()),
+            ImGui::GetColorU32(ImGuiCol_TextDisabled),
+            visiblePreview.data(),
+            visiblePreview.data() + visiblePreview.size());
+        drawList->PopClipRect();
+
+        ImGui::SameLine(0.0f, style.ItemSpacing.x);
+        ImGui::PushID(EscapeImGuiId(rowId + "_copy").c_str());
+        if (ImGui::Button(ui_icons::Copy, ImVec2(copyButtonWidth, rowHeight))) {
+            CopySearchLine(match.preview);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::NotepadCopySearchLine));
+        }
+        ImGui::PopID();
+
+        if (hovered && (visibleTitle != title || visiblePreview != match.preview)) {
+            DrawTextTooltip(title + "\n" + match.preview);
+        }
+        if (pressed) {
+            ActivateAllNotesSearchMatch(index);
+        }
+    }
+
+    void DrawAllNotesSearchResults() {
+        UiSettings& ui = UiSettings::Instance();
+        if (allNotesSearchCache.matches.empty()) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEmptySearch));
+            return;
+        }
+
+        ImGui::TextDisabled(
+            "%s %zu",
+            ui.Text(UiText::NotepadSearchResults),
+            allNotesSearchCache.matches.size());
+        const float rowHeight =
+            ImGui::GetFontSize() * 2.0f
+            + ImGui::GetStyle().FramePadding.y * 2.0f
+            + ScaleUi(2.0f);
+        ImGuiListClipper resultClipper;
+        resultClipper.Begin(
+            static_cast<int>(allNotesSearchCache.matches.size()),
+            rowHeight + ImGui::GetStyle().ItemSpacing.y);
+        while (resultClipper.Step()) {
+            for (int index = resultClipper.DisplayStart;
+                 index < resultClipper.DisplayEnd;
+                 ++index) {
+                DrawAllNotesSearchResultRow(index, rowHeight);
+            }
+        }
+        if (allNotesSearchCache.truncated) {
+            ImGui::TextDisabled(
+                "%s",
+                ui.Format(
+                    UiText::NotepadSearchLimitFormat,
+                    static_cast<int>(kMaximumAllNotesSearchResults)).c_str());
+        }
+    }
+
+    void DrawInNoteSearch(std::string_view source) {
+        UiSettings& ui = UiSettings::Instance();
+        if (!noteSearchOpen) {
+            const std::string openLabel = std::string(ui_icons::Search)
+                + " " + ui.Text(UiText::NotepadSearchInNote);
+            if (ImGui::Button(openLabel.c_str())) {
+                OpenNoteSearch();
+            }
+            return;
+        }
+
+        if (noteSearchFocus) {
+            ImGui::SetKeyboardFocusHere();
+            noteSearchFocus = false;
+        }
+        const float controlsWidth =
+            ScaleUi(104.0f)
+            + ImGui::CalcTextSize("999 / 999").x
+            + ImGui::GetStyle().ItemSpacing.x * 5.0f;
+        const bool compact = ImGui::GetContentRegionAvail().x < ScaleUi(440.0f);
+        ImGui::SetNextItemWidth(compact
+            ? -1.0f
+            : std::max(ScaleUi(120.0f), ImGui::GetContentRegionAvail().x - controlsWidth));
+        InputTextWithHintString(
+            "##notepad_find_in_note",
+            ui.Text(UiText::NotepadSearchInNoteHint),
+            noteSearchQuery,
+            ImGuiInputTextFlags_None,
+            128);
+        const bool searchInputActive = ImGui::IsItemActive();
+        RebuildNoteSearch(source);
+        const int matchCount = static_cast<int>(noteSearchCache.matches.size());
+        const int activeIndex = noteSearchCache.activeIndex;
+
+        if (!compact) {
+            ImGui::SameLine();
+        }
+        ImGui::BeginDisabled(matchCount == 0);
+        if (ImGui::SmallButton((std::string(ui_icons::AngleUp) + "##notepad_find_previous").c_str())) {
+            AdvanceNoteSearch(-1);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::NotepadSearchPrevious));
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton((std::string(ui_icons::AngleDown) + "##notepad_find_next").c_str())) {
+            AdvanceNoteSearch(1);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::NotepadSearchNext));
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        const bool hasActiveMatch = noteSearchCache.activeIndex >= 0
+            && noteSearchCache.activeIndex < matchCount;
+        ImGui::BeginDisabled(!hasActiveMatch);
+        if (ImGui::SmallButton((std::string(ui_icons::Copy) + "##notepad_find_copy").c_str())) {
+            CopySearchLine(noteSearchCache.matches[
+                static_cast<std::size_t>(noteSearchCache.activeIndex)].preview);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::NotepadCopySearchLine));
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if (matchCount == 0) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadSearchInNoteNoMatches));
+        } else if (activeIndex < 0) {
+            ImGui::TextDisabled(
+                "%s %d",
+                ui.Text(UiText::NotepadSearchResults),
+                matchCount);
+        } else {
+            ImGui::TextDisabled(
+                "%s",
+                ui.Format(
+                    UiText::NotepadSearchInNoteCountFormat,
+                    activeIndex + 1,
+                    matchCount).c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton((std::string(ui_icons::Xmark) + "##notepad_find_close").c_str())) {
+            ResetNoteSearch(true);
+            return;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui.Text(UiText::Close));
+        }
+
+        if (searchInputActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            AdvanceNoteSearch(ImGui::GetIO().KeyShift ? -1 : 1);
+        }
+
+        if (activeIndex >= 0
+            && activeIndex < static_cast<int>(noteSearchCache.matches.size())) {
+            const NoteSearchMatch& match = noteSearchCache.matches[static_cast<std::size_t>(activeIndex)];
+            const std::string prefix = std::to_string(match.sourceLine + 1) + ": ";
+            const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+            DrawEllipsizedText(
+                prefix + match.preview,
+                ImGui::GetContentRegionAvail().x,
+                &disabledColor);
+        }
     }
 
     void DrawMainTab(IDirect3DDevice9* device) {
@@ -2719,9 +3447,23 @@ struct NotepadModule::Impl {
 
     void HandleKeyboardShortcuts() {
         const ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl
+            && ImGui::IsKeyPressed(ImGuiKey_F, false)
+            && !selectedNoteId.empty()
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
+            OpenNoteSearch();
+            return;
+        }
+        if (noteSearchOpen
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)
+            && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            ResetNoteSearch(true);
+            return;
+        }
         if (editing && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
-            SaveEditBufferIfNeeded();
-            editing = false;
+            if (SaveEditBufferIfNeeded()) {
+                editing = false;
+            }
         }
         if (ImGui::IsAnyItemActive()) {
             return;
@@ -2802,9 +3544,6 @@ struct NotepadModule::Impl {
             trailingWidth);
         if (item.pressed) {
             SelectNote(note.id);
-            if (!search.empty()) {
-                search.clear();
-            }
         }
         DrawFavoriteMarker(note);
         DrawNoteContextMenu(note);
@@ -2844,19 +3583,34 @@ struct NotepadModule::Impl {
 
         ImGui::SetNextItemWidth(-1.0f);
         const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::NotepadSearchHint);
-        InputTextWithHintString("##notepad_search", searchHint.c_str(), search, 0, 128);
-        if (search.empty()) {
+        InputTextWithHintString(
+            "##notepad_search",
+            searchHint.c_str(),
+            allNotesSearchQuery,
+            ImGuiInputTextFlags_None,
+            128);
+        const bool searchInputActive = ImGui::IsItemActive();
+        if (!allNotesSearchQuery.empty()
+            || !allNotesSearchCache.query.empty()
+            || !pendingAllNotesSearchReveal.noteId.empty()) {
+            RebuildAllNotesSearch();
+            ApplyPendingAllNotesSearchReveal();
+        }
+        if (searchInputActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            AdvanceAllNotesSearch(ImGui::GetIO().KeyShift ? -1 : 1);
+        }
+        if (allNotesSearchQuery.empty()) {
             DrawBreadcrumbs();
         }
 
         if (ImGui::BeginChild("notepad_nav_list", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-            if (search.empty()) {
+            if (allNotesSearchQuery.empty()) {
                 if (DrawFavorites()) {
                     ImGui::Separator();
                 }
                 DrawCurrentFolderRows();
             } else {
-                DrawSearchResults();
+                DrawAllNotesSearchResults();
             }
         }
         ImGui::EndChild();
@@ -2975,6 +3729,12 @@ struct NotepadModule::Impl {
     }
 
     void DrawDragSource(const OrderItem& item, const std::string& label) {
+        if (item.type == ItemType::Note) {
+            const NoteEntry* note = FindNote(item.value);
+            if (note && note->builtin) {
+                return;
+            }
+        }
         if (!ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
             return;
         }
@@ -3031,33 +3791,20 @@ struct NotepadModule::Impl {
         ImGui::EndDragDropTarget();
     }
 
-    void DrawSearchResults() {
-        UiSettings& ui = UiSettings::Instance();
-        const auto results = SearchNotes(search);
-        if (results.empty()) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEmptySearch));
-            return;
-        }
-        ImGui::TextDisabled("%s %zu", ui.Text(UiText::NotepadSearchResults), results.size());
-        for (const NoteEntry* note : results) {
-            std::string label = std::string(ui_icons::Book) + " " + note->title;
-            if (!note->folderPath.empty()) {
-                label += "  [" + note->folderPath + "]";
-            }
-            DrawNoteSelectableRow(*note, "notepad_search_" + note->id, label, selectedNoteId == note->id);
-        }
-    }
-
     bool IsNoteEditDisabled(const NoteEntry& note) const {
         const bool sourceUnavailable = note.txtSource
             && !note.txtSource->missing
             && note.txtSource->status != notepadtxt::FileStatus::Ready;
-        return TxtOperationPending()
+        return note.builtin
+            || TxtOperationPending()
             || sourceUnavailable
             || (note.txtSource && note.txtSource->conflict);
     }
 
     void BeginEditingNote(const NoteEntry& note) {
+        if (note.builtin) {
+            return;
+        }
         if (selectedNoteId != note.id) {
             SelectNote(note.id);
         }
@@ -3073,26 +3820,28 @@ struct NotepadModule::Impl {
             return;
         }
         UiSettings& ui = UiSettings::Instance();
-        if (ImGui::MenuItem(ui.Text(UiText::Edit), nullptr, false, !IsNoteEditDisabled(note))) {
-            BeginEditingNote(note);
-        }
-        if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
-            OpenRenameNoteModal(note.id);
-        }
-        if (ImGui::MenuItem(ui.Text(UiText::ActionDuplicate))) {
-            DuplicateNote(note.id);
-        }
-        if (ImGui::MenuItem(note.favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))) {
-            if (NoteEntry* target = FindNote(note.id)) {
-                target->favorite = !target->favorite;
-                target->updatedAt = UnixTimeNow();
-                QueueSave();
+        if (!note.builtin) {
+            if (ImGui::MenuItem(ui.Text(UiText::Edit), nullptr, false, !IsNoteEditDisabled(note))) {
+                BeginEditingNote(note);
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::FolderRename))) {
+                OpenRenameNoteModal(note.id);
+            }
+            if (ImGui::MenuItem(ui.Text(UiText::ActionDuplicate))) {
+                DuplicateNote(note.id);
+            }
+            if (ImGui::MenuItem(note.favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite))) {
+                if (NoteEntry* target = FindNote(note.id)) {
+                    target->favorite = !target->favorite;
+                    target->updatedAt = UnixTimeNow();
+                    QueueSave();
+                }
             }
         }
         if (ImGui::MenuItem(ui.Text(UiText::NotepadExportTxt))) {
             ExportNote(note);
         }
-        if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
+        if (!note.builtin && ImGui::MenuItem(ui.Text(UiText::Delete))) {
             OpenDeleteNoteModal(note.id);
         }
         ImGui::EndPopup();
@@ -3129,17 +3878,22 @@ struct NotepadModule::Impl {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.15f, 1.0f), "%s", ui_icons::Star);
         }
+        if (note->builtin) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::NotepadBuiltinInstruction));
+        }
 
         const std::string favoriteLabel = std::string(ui_icons::Star) + " "
             + (note->favorite ? ui.Text(UiText::NotepadUnfavorite) : ui.Text(UiText::NotepadFavorite));
         const std::string editLabel = std::string(ui_icons::Edit) + " " + ui.Text(UiText::Edit);
         const std::string exportLabel = std::string(ui_icons::FileExport) + " " + ui.Text(UiText::NotepadExportTxt);
         const std::string applyTagsLabel = ui.Text(UiText::NotepadApplyTags);
+        ImGui::BeginDisabled(note->builtin);
         if (ImGui::Button(favoriteLabel.c_str())) {
             note->favorite = !note->favorite;
             note->updatedAt = UnixTimeNow();
             QueueSave();
         }
+        ImGui::EndDisabled();
         ContinueToolbar(ButtonItemWidth(editLabel));
         ImGui::BeginDisabled(IsNoteEditDisabled(*note));
         if (ImGui::Button(editLabel.c_str())) {
@@ -3256,7 +4010,12 @@ struct NotepadModule::Impl {
         ContinueToolbar(ButtonItemWidth(modeLabel));
         if (ImGui::Button(modeLabel.c_str())) {
             copyLineMode = !copyLineMode;
+            if (copyLineMode) {
+                ResetNoteSearch(true);
+            }
         }
+        ImGui::Spacing();
+        DrawInNoteSearch(RenderedText(note));
         ImGui::Spacing();
         if (ImGui::BeginChild("notepad_preview_read", ImVec2(0.0f, 0.0f), false)) {
             const double previewBeginMs = NotepadPerfNowMs();
@@ -3322,8 +4081,9 @@ struct NotepadModule::Impl {
         const bool savePressed = ImGui::Button(saveLabel.c_str());
         if (savePressed) {
             editDirty = true;
-            SaveEditBufferIfNeeded();
-            editing = false;
+            if (SaveEditBufferIfNeeded()) {
+                editing = false;
+            }
         }
         ContinueToolbar(ButtonItemWidth(cancelLabel));
         if (ImGui::Button(cancelLabel.c_str())) {
@@ -3358,6 +4118,8 @@ struct NotepadModule::Impl {
             InsertTextAtCursor(icon_picker::MarkupToken(selectedIconId) + " ");
         }
         DrawMarkupHelpPopup();
+        DrawInNoteSearch(RenderedEditText());
+        ImGui::Spacing();
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         const bool vertical = avail.x < ScaleUi(760.0f);
@@ -3373,6 +4135,7 @@ struct NotepadModule::Impl {
                 std::min(std::max(ScaleUi(140.0f), avail.y * 0.48f), maxEditorHeight));
             if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, editorHeight), 0, &editCursor)) {
                 editDirty = true;
+                ++editRevision;
             }
             ImGui::TextDisabled("%s", ui.Text(UiText::NotepadLivePreview));
             if (ImGui::BeginChild("notepad_preview_edit_vertical", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
@@ -3387,6 +4150,7 @@ struct NotepadModule::Impl {
                 ImGui::TextDisabled("%s", ui.Text(UiText::NotepadEditor));
                 if (InputTextMultilineString("##notepad_edit", editBuffer, ImVec2(-1.0f, -1.0f), 0, &editCursor)) {
                     editDirty = true;
+                    ++editRevision;
                 }
             }
             ImGui::EndChild();
@@ -3407,6 +4171,26 @@ struct NotepadModule::Impl {
             return;
         }
         ImGui::TextUnformatted(ui.Text(UiText::NotepadMarkupHelpTitle));
+        ImGui::TextDisabled("%s", ui.Text(UiText::NotepadMarkupInsertHint));
+        if (ImGui::SmallButton("#todo")) {
+            InsertLineDirectiveAtCursor("#todo ");
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("#done")) {
+            InsertLineDirectiveAtCursor("#done ");
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("#quote")) {
+            InsertLineDirectiveAtCursor("#quote ");
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("#underline")) {
+            InsertTextAtCursor("#underline ");
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("#strike")) {
+            InsertTextAtCursor("#strike ");
+        }
         ImGui::Separator();
         ImGui::TextUnformatted("{FF0000} text");
         ImGui::TextUnformatted("#center text");
@@ -3416,6 +4200,8 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted("#shadow #outline HUD text #reset plain");
         ImGui::TextUnformatted("#img(example.png, size(320,180))");
         ImGui::TextUnformatted("#bullet text");
+        ImGui::TextUnformatted("#todo text / #done text / #quote text");
+        ImGui::TextUnformatted("#underline text / #strike text / #reset");
         ImGui::TextUnformatted("#hr");
         ImGui::TextUnformatted("##colorFF0000 -> #colorFF0000");
         const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
@@ -3427,7 +4213,11 @@ struct NotepadModule::Impl {
 
     void DrawPreviewText(const std::string& text, IDirect3DDevice9* device) {
         const double beginMs = NotepadPerfNowMs();
-        renderer.DrawText(text, device, ImagesDirectory());
+        MarkupRenderer::DrawOptions options;
+        options.highlightLine = ActiveNoteSearchLine();
+        options.scrollToLine = noteSearchScrollLine;
+        renderer.DrawText(text, device, ImagesDirectory(), options);
+        noteSearchScrollLine = -1;
         const MarkupRenderer::DrawStats stats = renderer.LastDrawStats();
         lastRenderStats.previewLines += stats.totalLines;
         lastRenderStats.previewDrawnLines += stats.drawnLines;
@@ -3438,6 +4228,9 @@ struct NotepadModule::Impl {
 
     void OpenRenameNoteModal(std::string_view id) {
         if (const NoteEntry* note = FindNote(id)) {
+            if (note->builtin) {
+                return;
+            }
             modalTarget = note->id;
             modalBuffer = note->title;
             pendingModal = PendingModal::RenameNote;
@@ -3456,7 +4249,8 @@ struct NotepadModule::Impl {
     }
 
     void OpenDeleteNoteModal(std::string_view id) {
-        if (FindNote(id)) {
+        const NoteEntry* note = FindNote(id);
+        if (note && !note->builtin) {
             modalTarget = std::string(id);
             pendingModal = PendingModal::DeleteNote;
             modalOpenRequested = true;
@@ -3603,13 +4397,45 @@ struct NotepadModule::Impl {
         if (!source.has_value()) {
             return;
         }
+
+        std::error_code sizeError;
+        const std::uintmax_t sourceSize = fs::file_size(*source, sizeError);
+        if (sizeError || sourceSize > notepadtxt::kMaximumFileBytes) {
+            statusMessage = UiSettings::Instance().Text(
+                sizeError ? UiText::NotepadImportFailed : UiText::NotepadImportTooLarge);
+            debuglog::WriteError(
+                "[notepad] TXT import rejected path=%ls bytes=%llu error=%d",
+                source->c_str(),
+                static_cast<unsigned long long>(sizeError ? 0 : sourceSize),
+                sizeError.value());
+            return;
+        }
+
         std::ifstream file(*source, std::ios::binary);
         if (!file) {
             statusMessage = UiSettings::Instance().Text(UiText::NotepadImportFailed);
             return;
         }
-        const std::string content = NormalizeImportedText(
-            std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()));
+
+        std::string bytes(static_cast<std::size_t>(sourceSize), '\0');
+        if (!bytes.empty()) {
+            file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        }
+        if ((!bytes.empty() && file.gcount() != static_cast<std::streamsize>(bytes.size()))
+            || (bytes.empty() && file.bad())) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadImportFailed);
+            debuglog::WriteError("[notepad] TXT import read failed path=%ls", source->c_str());
+            return;
+        }
+
+        std::string content;
+        notepadtxt::TextFormat format{};
+        if (!notepadtxt::DecodeTextBytes(bytes, content, format)) {
+            statusMessage = UiSettings::Instance().Text(UiText::NotepadImportDecodeFailed);
+            debuglog::WriteError("[notepad] TXT import decode failed path=%ls bytes=%zu", source->c_str(), bytes.size());
+            return;
+        }
+
         const std::string title = PathToUtf8(source->stem());
         CreateNote(currentFolder, title.empty() ? UiSettings::Instance().Text(UiText::NotepadUntitled) : title);
         if (NoteEntry* note = FindNote(selectedNoteId)) {
@@ -3676,6 +4502,22 @@ struct NotepadModule::Impl {
         editBuffer.insert(static_cast<std::size_t>(safeCursor), text);
         editCursor = safeCursor + static_cast<int>(text.size());
         editDirty = true;
+        ++editRevision;
+    }
+
+    void InsertLineDirectiveAtCursor(std::string directive) {
+        const std::size_t safeCursor = static_cast<std::size_t>(
+            std::clamp(editCursor, 0, static_cast<int>(editBuffer.size())));
+        const std::size_t previousBreak = safeCursor == 0
+            ? std::string::npos
+            : editBuffer.rfind('\n', safeCursor - 1);
+        const std::size_t lineStart = previousBreak == std::string::npos
+            ? 0
+            : previousBreak + 1;
+        editBuffer.insert(lineStart, directive);
+        editCursor = static_cast<int>(safeCursor + directive.size());
+        editDirty = true;
+        ++editRevision;
     }
 
     void ExportNote(const NoteEntry& note) {
@@ -3723,8 +4565,12 @@ void NotepadModule::ReloadConfig() {
     impl_->ReloadConfig();
 }
 
-void NotepadModule::FlushPendingEdits() {
-    impl_->FlushPendingEdits();
+void NotepadModule::OnProfileChanged() {
+    impl_->OnProfileChanged();
+}
+
+bool NotepadModule::FlushPendingEdits() {
+    return impl_->FlushPendingEdits();
 }
 
 void NotepadModule::ReleaseDeviceResources() {

@@ -850,15 +850,25 @@
     X(VariablesCodeStateConflict, "конфликт", "conflict") \
     X(VariablesCodeStateFaulted, "отключён после ошибки", "disabled after error") \
     X(VariablesCustomErrorCodeConflict, "Имя конфликтует с переменной из Lua provider.", "The name conflicts with a Lua provider variable.") \
-    X(NotepadIntro, "Профильный блокнот с папками, разметкой, локальными картинками и live preview.", "Profile-aware notepad with folders, markup, local images, and live preview.") \
+    X(NotepadIntro, "Общий блокнот с папками, разметкой, локальными картинками и live preview.", "Shared notepad with folders, markup, local images, and live preview.") \
     X(NotepadRootName, "Блокнот", "Notepad") \
     X(NotepadNewNote, "Заметка", "Note") \
     X(NotepadNewFolder, "Папка", "Folder") \
     X(NotepadDefaultFolder, "Новая папка", "New folder") \
     X(NotepadUntitled, "Без названия", "Untitled") \
     X(NotepadCopySuffix, " копия", " copy") \
-    X(NotepadSearchHint, "Поиск заметок", "Search notes") \
+    X(NotepadSearchHint, "Поиск по всем заметкам", "Search all notes") \
     X(NotepadSearchResults, "Найдено:", "Found:") \
+    X(NotepadSearchInNote, "Поиск в заметке (Ctrl+F)", "Find in note (Ctrl+F)") \
+    X(NotepadSearchInNoteHint, "Найти в открытой заметке", "Find in the open note") \
+    X(NotepadSearchInNoteNoMatches, "Совпадений нет", "No matches") \
+    X(NotepadSearchInNoteCountFormat, "%d / %d", "%d / %d") \
+    X(NotepadSearchLineFormat, "строка %d", "line %d") \
+    X(NotepadSearchLimitFormat, "Показаны первые %d найденных строк. Уточните запрос.", "Showing the first %d matching lines. Refine the query.") \
+    X(NotepadCopySearchLine, "Копировать найденную строку", "Copy matching line") \
+    X(NotepadSearchPrevious, "Предыдущее совпадение (Shift+Enter)", "Previous match (Shift+Enter)") \
+    X(NotepadSearchNext, "Следующее совпадение (Enter)", "Next match (Enter)") \
+    X(NotepadBuiltinInstruction, "Встроенная инструкция: всегда доступна и не изменяется.", "Built-in instruction: always available and read-only.") \
     X(NotepadFavorites, "Избранное", "Favorites") \
     X(NotepadEmptyFolder, "В этой папке пока пусто.", "This folder is empty.") \
     X(NotepadEmptySearch, "По запросу ничего не найдено.", "No notes matched the query.") \
@@ -888,7 +898,8 @@
     X(NotepadApplyTags, "Подставлять теги", "Expand tags") \
     X(NotepadMarkupHelp, "Разметка", "Markup") \
     X(NotepadMarkupHelpTitle, "Поддерживаемая разметка", "Supported markup") \
-    X(NotepadMarkupHelpHint, "##команда показывает #команда буквально. Картинки ищутся только в папке профиля notepad/images. Абсолютные пути и .. запрещены.", "##command renders #command literally. Images are resolved only from the profile notepad/images folder. Absolute paths and .. are blocked.") \
+    X(NotepadMarkupInsertHint, "Нажмите на шаблон, чтобы вставить его в редактор.", "Click a template to insert it into the editor.") \
+    X(NotepadMarkupHelpHint, "##команда показывает #команда буквально. Картинки ищутся только в общей папке notepad/images. Абсолютные пути и .. запрещены.", "##command renders #command literally. Images are resolved only from the shared notepad/images folder. Absolute paths and .. are blocked.") \
     X(NotepadModalTitle, "Блокнот", "Notepad") \
     X(NotepadCreateFolderTitle, "Новая папка", "New folder") \
     X(NotepadCreateNoteTitle, "Новая заметка", "New note") \
@@ -903,9 +914,13 @@
     X(NotepadFolderExists, "Папка с таким именем уже есть.", "A folder with this name already exists.") \
     X(NotepadInvalidName, "Некорректное имя.", "Invalid name.") \
     X(NotepadImportFailed, "Не удалось импортировать txt.", "Failed to import txt.") \
+    X(NotepadImportTooLarge, "TXT больше 4 МиБ и не может быть импортирован.", "TXT is larger than 4 MiB and cannot be imported.") \
+    X(NotepadImportDecodeFailed, "Не удалось распознать кодировку TXT.", "Failed to detect the TXT encoding.") \
     X(NotepadExportFailed, "Не удалось экспортировать заметку.", "Failed to export note.") \
+    X(NotepadStoreWriteFailedFormat, "Не удалось сохранить общий Блокнот (ошибка %lu). Данные остаются в памяти; повторите изменение. Смена профиля временно заблокирована.", "Failed to save the shared notepad (error %lu). Data remains in memory; retry a change. Profile changes are temporarily blocked.") \
+    X(NotepadGlobalFallbackFormat, "Общий Блокнот недоступен (ошибка %lu). Временно используются данные активного профиля.", "The shared notepad is unavailable (error %lu). The active profile data is used temporarily.") \
     X(NotepadExportSuccessFormat, "Экспортировано: %s", "Exported: %s") \
-    X(NotepadImageCopied, "Картинка скопирована в профиль и вставлена в заметку.", "Image was copied into the profile and inserted into the note.") \
+    X(NotepadImageCopied, "Картинка скопирована в общую папку Блокнота и вставлена в заметку.", "Image was copied into the shared notepad folder and inserted into the note.") \
     X(NotepadImageInsertFailed, "Не удалось вставить картинку.", "Failed to insert image.") \
     X(NotepadInvalidImagePath, "Некорректный путь к картинке.", "Invalid image path.") \
     X(NotepadMissingImageFormat, "Картинка не найдена: %s", "Image not found: %s") \
@@ -949,6 +964,8 @@
     X(SettingsHotkeysActionCancelCapture, "Отменить захват.", "Cancel capture.") \
     X(SettingsHotkeysActionCaptureMouse, "Кнопки мыши захватываются через кнопку \"Мышь\".", "Mouse buttons are captured through the \"Mouse\" button.") \
     X(SettingsHotkeysActionNotepadSaveEdit, "Сохранить заметку и выйти из редактирования.", "Save the note and leave editing.") \
+    X(SettingsHotkeysActionNotepadSearch, "Открыть поиск внутри выбранной заметки.", "Open search inside the selected note.") \
+    X(SettingsHotkeysActionNotepadSearchNavigate, "Следующее или предыдущее совпадение в открытой заметке.", "Go to the next or previous match in the open note.") \
     X(SettingsHotkeysActionNotepadDelete, "Удалить выбранную заметку или папку.", "Delete the selected note or folder.") \
     X(SettingsHotkeysActionNotepadRename, "Переименовать выбранную заметку или папку.", "Rename the selected note or folder.") \
     X(SettingsHotkeysActionNotepadCancelEdit, "Отменить активное редактирование.", "Cancel active editing.") \

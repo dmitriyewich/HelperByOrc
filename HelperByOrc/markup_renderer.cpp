@@ -56,11 +56,14 @@ struct RichSegment {
     std::string icon{};
     bool isIcon = false;
     bool bullet = false;
+    std::string linePrefix{};
     bool sameLine = false;
     bool inlineContinuation = false;
     bool isHr = false;
     bool shadow = false;
     bool outline = false;
+    bool underline = false;
+    bool strike = false;
     int extraBreaks = 0;
     enum class Align { Left, Center, Right } align = Align::Left;
     enum class Transform { None, Upper, Lower } transform = Transform::None;
@@ -107,6 +110,8 @@ struct InlineStyle {
     int fontSize = 0;
     bool shadow = false;
     bool outline = false;
+    bool underline = false;
+    bool strike = false;
 };
 
 struct TextureCacheEntry {
@@ -305,6 +310,8 @@ void ApplyStyle(RichSegment& segment, const InlineStyle& style) {
     segment.fontSize = style.fontSize;
     segment.shadow = style.shadow;
     segment.outline = style.outline;
+    segment.underline = style.underline;
+    segment.strike = style.strike;
 }
 
 void ResetInlineStyle(InlineStyle& style) {
@@ -316,6 +323,8 @@ void ResetInlineStyle(InlineStyle& style) {
     style.fontSize = 0;
     style.shadow = false;
     style.outline = false;
+    style.underline = false;
+    style.strike = false;
 }
 
 std::vector<std::string> SplitDirectiveArgs(std::string_view raw) {
@@ -571,6 +580,14 @@ bool TryConsumeInlineDirective(
         style.outline = true;
         consumed = 8;
         return true;
+    } else if (lowered.rfind("#underline", 0) == 0 && HasDirectiveBoundary(text, 10)) {
+        style.underline = true;
+        consumed = 10;
+        return true;
+    } else if (lowered.rfind("#strike", 0) == 0 && HasDirectiveBoundary(text, 7)) {
+        style.strike = true;
+        consumed = 7;
+        return true;
     }
 
     return false;
@@ -601,6 +618,7 @@ RichSegment MakeInlineRun(const RichSegment& lineMeta, const InlineStyle& style,
     ApplyStyle(run, style);
     if (!firstRun) {
         run.bullet = false;
+        run.linePrefix.clear();
         run.sameLine = false;
         run.align = RichSegment::Align::Left;
         run.indent = 0.0f;
@@ -673,6 +691,21 @@ bool TryConsumeLineDirective(std::string_view text, RichSegment& lineMeta, std::
     if (lowered.rfind("#bullet", 0) == 0 && HasDirectiveBoundary(text, 7)) {
         lineMeta.bullet = true;
         consumed = 7;
+        return true;
+    }
+    if (lowered.rfind("#todo", 0) == 0 && HasDirectiveBoundary(text, 5)) {
+        lineMeta.linePrefix = "[ ] ";
+        consumed = 5;
+        return true;
+    }
+    if (lowered.rfind("#done", 0) == 0 && HasDirectiveBoundary(text, 5)) {
+        lineMeta.linePrefix = "[x] ";
+        consumed = 5;
+        return true;
+    }
+    if (lowered.rfind("#quote", 0) == 0 && HasDirectiveBoundary(text, 6)) {
+        lineMeta.linePrefix = "> ";
+        consumed = 6;
         return true;
     }
     if (lowered.rfind("#upper", 0) == 0 && HasDirectiveBoundary(text, 6)) {
@@ -862,6 +895,9 @@ std::string SegmentPlainText(const RichSegment& segment) {
     }
     if (segment.bullet) {
         text = "- " + text;
+    }
+    if (!segment.linePrefix.empty()) {
+        text = segment.linePrefix + text;
     }
     return text;
 }
@@ -1064,13 +1100,38 @@ struct MarkupRenderer::Impl {
             parsedLineAdvance.assign(parsedTextCache.size(), 0.0f);
             parsedLineHasImage.clear();
             parsedLineHasImage.reserve(parsedTextCache.size());
-            for (std::vector<RichSegment>& line : parsedTextCache) {
+            for (std::size_t lineIndex = 0; lineIndex < parsedTextCache.size(); ++lineIndex) {
+                std::vector<RichSegment>& line = parsedTextCache[lineIndex];
                 bool hasImage = false;
                 for (RichSegment& segment : line) {
                     segment.displayText = SegmentPlainText(segment);
                     hasImage = hasImage || segment.image.has_value();
                 }
                 parsedLineHasImage.push_back(hasImage);
+
+                if (line.size() != 1 || hasImage || line.front().isHr
+                    || line.front().align != RichSegment::Align::Left) {
+                    continue;
+                }
+                const RichSegment& segment = line.front();
+                const ui_fonts::ScopedFontSize fontScope(
+                    segment.fontSize > 0
+                        ? static_cast<float>(segment.fontSize) * FontDirectiveScale(options)
+                        : 0.0f);
+                const std::string_view display = segment.displayText;
+                const float wrapWidth = options.wrapText
+                    ? std::max(1.0f, ImGui::GetContentRegionAvail().x - segment.indent)
+                    : 0.0f;
+                const float textHeight = display.empty()
+                    ? ImGui::GetTextLineHeight()
+                    : ImGui::CalcTextSize(
+                        display.data(),
+                        display.data() + display.size(),
+                        false,
+                        wrapWidth).y;
+                parsedLineAdvance[lineIndex] = textHeight
+                    + ImGui::GetStyle().ItemSpacing.y
+                    + static_cast<float>(segment.extraBreaks) * ImGui::GetTextLineHeightWithSpacing();
             }
             parsedTextCacheKey = std::move(key);
         }
@@ -1247,6 +1308,28 @@ struct MarkupRenderer::Impl {
                 ImGui::TextUnformatted(text.empty() ? " " : textBegin, text.empty() ? nullptr : textEnd);
             }
             drawnSize = ImGui::GetItemRectSize();
+            if (!text.empty() && (segment.underline || segment.strike)) {
+                const ImVec2 itemMin = ImGui::GetItemRectMin();
+                const ImVec2 itemMax = ImGui::GetItemRectMax();
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                const ImU32 decorationColor = ImGui::GetColorU32(textColor);
+                const float thickness = std::max(1.0f, ScaleUi(1.0f));
+                if (segment.underline) {
+                    drawList->AddLine(
+                        ImVec2(itemMin.x, itemMax.y - thickness),
+                        ImVec2(itemMax.x, itemMax.y - thickness),
+                        decorationColor,
+                        thickness);
+                }
+                if (segment.strike) {
+                    const float y = itemMin.y + (itemMax.y - itemMin.y) * 0.55f;
+                    drawList->AddLine(
+                        ImVec2(itemMin.x, y),
+                        ImVec2(itemMax.x, y),
+                        decorationColor,
+                        thickness);
+                }
+            }
         }
 
         ImGui::PopStyleColor();
@@ -1423,7 +1506,13 @@ struct MarkupRenderer::Impl {
         float maxHeight = 0.0f;
         bool hasDrawn = false;
 
-        if (options.wrapText && segments.size() > 1) {
+        const bool needsChunkedDecorations = std::any_of(
+            segments.begin(),
+            segments.end(),
+            [](const RichSegment& segment) {
+                return segment.underline || segment.strike;
+            });
+        if (options.wrapText && (segments.size() > 1 || needsChunkedDecorations)) {
             DrawWrappedRichLine(
                 segments,
                 device,
@@ -1516,6 +1605,7 @@ struct MarkupRenderer::Impl {
             while (skipEnd < lines.size()
                 && parsedLineAdvance[skipEnd] > 0.0f
                 && !parsedLineHasImage[skipEnd]
+                && static_cast<int>(skipEnd) != options.scrollToLine
                 && outsideClip(firstScreenY + skippedAdvance, parsedLineAdvance[skipEnd])) {
                 skippedAdvance += parsedLineAdvance[skipEnd];
                 ++skipEnd;
@@ -1528,10 +1618,26 @@ struct MarkupRenderer::Impl {
             }
 
             const float lineStartY = ImGui::GetCursorPosY();
+            const ImVec2 lineScreenMin = ImGui::GetCursorScreenPos();
             DrawRichLine(lines[lineIndex], device, imageRoot, contentOrigin, options);
             const float lineAdvance = ImGui::GetCursorPosY() - lineStartY;
             if (!parsedLineHasImage[lineIndex] && lineAdvance > 0.0f) {
                 parsedLineAdvance[lineIndex] = lineAdvance;
+            }
+            if (static_cast<int>(lineIndex) == options.highlightLine) {
+                const ImVec2 lineScreenMax(
+                    lineScreenMin.x + ImGui::GetContentRegionAvail().x,
+                    lineScreenMin.y + std::max(lineAdvance, ImGui::GetTextLineHeightWithSpacing()));
+                ImGui::GetWindowDrawList()->AddRect(
+                    lineScreenMin,
+                    lineScreenMax,
+                    ImGui::GetColorU32(ImVec4(0.31f, 0.64f, 1.0f, 0.85f)),
+                    ScaleUi(3.0f),
+                    0,
+                    std::max(1.0f, ScaleUi(1.0f)));
+            }
+            if (static_cast<int>(lineIndex) == options.scrollToLine) {
+                ImGui::SetScrollHereY(0.35f);
             }
             ++lastDrawStats.drawnLines;
             ++lineIndex;

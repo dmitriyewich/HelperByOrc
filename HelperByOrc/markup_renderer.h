@@ -13,6 +13,8 @@ public:
     struct DrawOptions {
         bool wrapText = true;
         float fontDirectiveScale = 1.0f;
+        int highlightLine = -1;
+        int scrollToLine = -1;
     };
 
     struct DrawStats {

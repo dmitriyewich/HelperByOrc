@@ -177,6 +177,12 @@
     <ClCompile Include="notepad_module.cpp">
       <Filter>Source Files\Notepad</Filter>
     </ClCompile>
+    <ClCompile Include="notepad_builtin_instruction.cpp">
+      <Filter>Source Files\Notepad</Filter>
+    </ClCompile>
+    <ClCompile Include="notepad_storage.cpp">
+      <Filter>Source Files\Notepad</Filter>
+    </ClCompile>
     <ClCompile Include="notepad_txt_operations.cpp">
       <Filter>Source Files\Notepad</Filter>
     </ClCompile>
@@ -405,6 +411,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="notepad_module.h">
+      <Filter>Header Files\Notepad</Filter>
+    </ClInclude>
+    <ClInclude Include="notepad_builtin_instruction.h">
+      <Filter>Header Files\Notepad</Filter>
+    </ClInclude>
+    <ClInclude Include="notepad_storage.h">
       <Filter>Header Files\Notepad</Filter>
     </ClInclude>
     <ClInclude Include="notepad_txt_operations.h">

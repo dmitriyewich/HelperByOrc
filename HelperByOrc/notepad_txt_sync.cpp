@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "debug_log.h"
+#include "notepad_builtin_instruction.h"
 
 #include <algorithm>
 #include <array>
@@ -521,6 +522,11 @@ ScanResult ScanDirectory(
             if (entry.is_directory(directoryError) && !directoryError) {
                 iterator.disable_recursion_pending();
             }
+            iterator.increment(iteratorError);
+            continue;
+        }
+        if (!relative.has_parent_path()
+            && notepadbuiltin::IsInstructionSource(relative.wstring())) {
             iterator.increment(iteratorError);
             continue;
         }

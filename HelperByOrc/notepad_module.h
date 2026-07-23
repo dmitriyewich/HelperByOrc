@@ -67,7 +67,8 @@ public:
     void OnProcessAttach(HMODULE module);
     void Shutdown();
     void ReloadConfig();
-    void FlushPendingEdits();
+    void OnProfileChanged();
+    bool FlushPendingEdits();
     void ReleaseDeviceResources();
     void SetTagsModule(TagsModule* tagsModule);
     void DrawMainTab(IDirect3DDevice9* device);

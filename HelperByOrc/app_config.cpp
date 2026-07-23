@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 
 constexpr wchar_t kUnifiedConfigFileName[] = L"HelperByOrc.json";
 constexpr wchar_t kProfilesRegistryFileName[] = L"profiles.json";
-constexpr wchar_t kNotepadAssetsFolderName[] = L"notepad";
+constexpr char kLegacyNotepadSectionName[] = "notepad";
 constexpr int kConfigSchemaVersion = 1;
 constexpr int kProfilesSchemaVersion = 2;
 constexpr char kDefaultProfileId[] = "default";
@@ -352,85 +352,6 @@ void RemoveIncompleteProfileDirectory(
     }
 }
 
-bool CopyDirectoryIfExists(const fs::path& source, const fs::path& target, std::string* error = nullptr) {
-    std::error_code existsError;
-    const bool sourceExists = fs::exists(source, existsError);
-    if (existsError) {
-        if (error) {
-            *error = "source asset directory is unavailable";
-        }
-        debuglog::WriteError("[profiles] source asset directory stat failed: %ls error=%d", source.c_str(), existsError.value());
-        return false;
-    }
-    if (!sourceExists) {
-        return true;
-    }
-    if (!fs::is_directory(source, existsError) || existsError) {
-        if (error) {
-            *error = "source asset directory is unavailable";
-        }
-        debuglog::WriteError("[profiles] source asset directory unavailable: %ls error=%d", source.c_str(), existsError.value());
-        return false;
-    }
-
-    std::error_code createError;
-    fs::create_directories(target, createError);
-    if (createError) {
-        if (error) {
-            *error = "failed to create target asset directory";
-        }
-        debuglog::WriteError("[profiles] failed to create target asset directory: %ls error=%d", target.c_str(), createError.value());
-        return false;
-    }
-
-    std::error_code iteratorError;
-    for (fs::recursive_directory_iterator it(source, iteratorError), end; it != end && !iteratorError; it.increment(iteratorError)) {
-        const fs::directory_entry& entry = *it;
-        std::error_code relativeError;
-        const fs::path relative = fs::relative(entry.path(), source, relativeError);
-        if (relativeError) {
-            if (error) {
-                *error = "failed to resolve profile asset path";
-            }
-            debuglog::WriteError(
-                "[profiles] failed to resolve profile asset path: source=%ls entry=%ls error=%d",
-                source.c_str(),
-                entry.path().c_str(),
-                relativeError.value());
-            return false;
-        }
-        const fs::path destination = target / relative;
-        std::error_code copyError;
-        if (entry.is_directory(copyError)) {
-            fs::create_directories(destination, copyError);
-        } else if (entry.is_regular_file(copyError)) {
-            fs::create_directories(destination.parent_path(), copyError);
-            if (!copyError) {
-                fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing, copyError);
-            }
-        }
-        if (copyError) {
-            if (error) {
-                *error = "failed to copy profile assets";
-            }
-            debuglog::WriteError(
-                "[profiles] failed to copy profile assets: source=%ls target=%ls error=%d",
-                entry.path().c_str(),
-                destination.c_str(),
-                copyError.value());
-            return false;
-        }
-    }
-    if (iteratorError) {
-        if (error) {
-            *error = "failed to enumerate profile assets";
-        }
-        debuglog::WriteError("[profiles] failed to enumerate profile assets: %ls error=%d", source.c_str(), iteratorError.value());
-        return false;
-    }
-    return true;
-}
-
 } // namespace
 
 AppConfig& AppConfig::Instance() {
@@ -666,6 +587,7 @@ bool AppConfig::CreateProfile(std::string_view name, bool copyCurrentConfig, boo
         EnsureLoadedLocked();
         snapshot = root_;
         snapshot["schema_version"] = kConfigSchemaVersion;
+        snapshot.erase(kLegacyNotepadSectionName);
     }
 
     if (!WriteJsonObjectFile(targetPath, snapshot)) {
@@ -738,6 +660,7 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
     }
     jsonutil::JsonObject snapshot = *sourceConfig;
     snapshot["schema_version"] = kConfigSchemaVersion;
+    snapshot.erase(kLegacyNotepadSectionName);
 
     const std::string id = MakeUniqueProfileId(profiles_, displayName);
     const fs::path targetPath = ProfileConfigPath(profilesRoot_, id);
@@ -745,12 +668,6 @@ bool AppConfig::DuplicateProfile(std::string_view sourceProfileId, std::string_v
         if (error) {
             *error = "failed to write duplicated profile config";
         }
-        return false;
-    }
-    const fs::path sourceAssets = source->configPath.parent_path() / kNotepadAssetsFolderName;
-    const fs::path targetAssets = targetPath.parent_path() / kNotepadAssetsFolderName;
-    if (!CopyDirectoryIfExists(sourceAssets, targetAssets, error)) {
-        RemoveIncompleteProfileDirectory(profilesRoot_, targetPath.parent_path(), "duplicate copy");
         return false;
     }
     const std::string previousActiveProfileId = activeProfileId_;

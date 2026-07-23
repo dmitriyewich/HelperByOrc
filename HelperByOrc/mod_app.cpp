@@ -2453,7 +2453,7 @@ void ModApp::ReloadConfigAfterProfileChange() {
     tags_.ReloadConfig();
     unwanted_.ReloadConfig();
     binder_.ReloadConfig();
-    notepad_.ReloadConfig();
+    notepad_.OnProfileChanged();
     hud_.ReloadConfig();
     sampHooks_.SetApplyDamageProtectionEnabled(UiSettings::Instance().ApplyDamageProtectionEnabled());
     debuglog::WriteInfo(
@@ -2929,6 +2929,8 @@ void ModApp::DrawSettingsHotkeysSection() {
     };
     static constexpr SettingsHotkeyHelpRow kNotepadRows[] = {
         { { "Ctrl+S" }, 1, UiText::SettingsHotkeysActionNotepadSaveEdit },
+        { { "Ctrl+F" }, 1, UiText::SettingsHotkeysActionNotepadSearch },
+        { { "Enter", "Shift+Enter" }, 2, UiText::SettingsHotkeysActionNotepadSearchNavigate },
         { { "Delete" }, 1, UiText::SettingsHotkeysActionNotepadDelete },
         { { "F2" }, 1, UiText::SettingsHotkeysActionNotepadRename },
         { { "Esc" }, 1, UiText::SettingsHotkeysActionNotepadCancelEdit },
@@ -3151,8 +3153,10 @@ void ModApp::DrawSettingsProfilesSection() {
             if (ImGui::Selectable(label.c_str(), selected)) {
                 std::string error;
                 flushShellBeforeProfileChange();
-                notepad_.FlushPendingEdits();
-                if (config.SwitchProfile(profile.id, &error)) {
+                if (!notepad_.FlushPendingEdits()) {
+                    profileUiError_ = ui.Text(UiText::SettingsProfileOperationFailed);
+                    debuglog::WriteError("[profiles] switch blocked by pending notepad save");
+                } else if (config.SwitchProfile(profile.id, &error)) {
                     profileNameBufferProfileId_.clear();
                     profileUiError_.clear();
                     ReloadConfigAfterProfileChange();
@@ -3189,8 +3193,9 @@ void ModApp::DrawSettingsProfilesSection() {
         if (requireProfileName()) {
             std::string error;
             flushShellBeforeProfileChange();
-            notepad_.FlushPendingEdits();
-            if (config.CreateProfile(profileNameBuffer_, false, true, &error)) {
+            if (!notepad_.FlushPendingEdits()) {
+                failProfileOperation("create", "pending notepad save");
+            } else if (config.CreateProfile(profileNameBuffer_, false, true, &error)) {
                 profileNameBufferProfileId_.clear();
                 profileUiError_.clear();
                 ReloadConfigAfterProfileChange();
@@ -3204,8 +3209,9 @@ void ModApp::DrawSettingsProfilesSection() {
         if (requireProfileName()) {
             std::string error;
             flushShellBeforeProfileChange();
-            notepad_.FlushPendingEdits();
-            if (config.DuplicateProfile(activeProfileId, profileNameBuffer_, true, &error)) {
+            if (!notepad_.FlushPendingEdits()) {
+                failProfileOperation("duplicate", "pending notepad save");
+            } else if (config.DuplicateProfile(activeProfileId, profileNameBuffer_, true, &error)) {
                 profileNameBufferProfileId_.clear();
                 profileUiError_.clear();
                 ReloadConfigAfterProfileChange();
@@ -3266,8 +3272,9 @@ void ModApp::DrawSettingsProfilesSection() {
             const std::string previousActiveProfileId = config.ActiveProfileId();
             std::string error;
             flushShellBeforeProfileChange();
-            notepad_.FlushPendingEdits();
-            if (config.DeleteProfile(profileDeleteTargetId_, &error)) {
+            if (!notepad_.FlushPendingEdits()) {
+                failProfileOperation("delete", "pending notepad save");
+            } else if (config.DeleteProfile(profileDeleteTargetId_, &error)) {
                 profileDeleteTargetId_.clear();
                 profileNameBufferProfileId_.clear();
                 profileUiError_.clear();
