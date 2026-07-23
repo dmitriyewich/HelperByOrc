@@ -583,6 +583,13 @@ bool IsInlineDirective(std::string_view text) {
     return TryConsumeInlineDirective(text, style, consumed, iconGlyph);
 }
 
+bool IsLiteralHashEscape(std::string_view text) {
+    return text.size() >= 3
+        && text[0] == '#'
+        && text[1] == '#'
+        && std::isspace(static_cast<unsigned char>(text[2])) == 0;
+}
+
 RichSegment MakeInlineRun(const RichSegment& lineMeta, const InlineStyle& style, bool firstRun) {
     RichSegment run = lineMeta;
     run.text.clear();
@@ -744,8 +751,11 @@ bool TryConsumeBlockDirective(std::string_view text, RichSegment& block, std::si
     return true;
 }
 
-std::size_t FindNextInlineDirective(std::string_view text) {
-    for (std::size_t pos = 1; pos < text.size(); ++pos) {
+std::size_t FindNextInlineToken(std::string_view text, std::size_t startPos) {
+    for (std::size_t pos = startPos; pos < text.size(); ++pos) {
+        if (text[pos] == '#' && IsLiteralHashEscape(text.substr(pos))) {
+            return pos;
+        }
         if ((text[pos] == '#' || text[pos] == '{') && IsInlineDirective(text.substr(pos))) {
             return pos;
         }
@@ -768,6 +778,19 @@ std::vector<RichSegment> ParseRichLine(std::string_view rawLine) {
     bool usedDirectiveBeforeText = false;
 
     while (!rest.empty()) {
+        if (IsLiteralHashEscape(rest)) {
+            rest.remove_prefix(2);
+            const std::size_t literalLen = FindNextInlineToken(rest, 0);
+            std::string literal("#");
+            literal.append(rest.substr(0, literalLen));
+            if (!usedDirectiveBeforeText && runs.empty()) {
+                literal.insert(0, leading);
+            }
+            AppendTextRun(runs, lineMeta, style, std::move(literal));
+            rest.remove_prefix(literalLen);
+            continue;
+        }
+
         std::size_t consumed = 0;
         RichSegment block = lineMeta;
         if (runs.empty() && TryConsumeLineDirective(rest, lineMeta, consumed)) {
@@ -792,7 +815,7 @@ std::vector<RichSegment> ParseRichLine(std::string_view rawLine) {
             continue;
         }
 
-        const std::size_t literalLen = FindNextInlineDirective(rest);
+        const std::size_t literalLen = FindNextInlineToken(rest, 1);
         std::string literal(rest.substr(0, literalLen));
         if (!usedDirectiveBeforeText && runs.empty()) {
             literal = leading + literal;

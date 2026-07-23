@@ -1,9 +1,12 @@
 #pragma once
 
+#include <cmath>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -68,6 +71,27 @@ T JsonNumberOr(const JsonObject* object, const char* key, T fallback) {
     const double* number = it->second.TryNumber();
     if (!number) {
         return fallback;
+    }
+
+    if (!std::isfinite(*number)) {
+        return fallback;
+    }
+    if constexpr (std::is_integral_v<T>) {
+        const long double candidate = static_cast<long double>(*number);
+        if (candidate < static_cast<long double>(std::numeric_limits<T>::lowest())
+            || candidate > static_cast<long double>(std::numeric_limits<T>::max())) {
+            return fallback;
+        }
+        if constexpr (std::numeric_limits<T>::digits > std::numeric_limits<double>::digits) {
+            if (*number >= static_cast<double>(std::numeric_limits<T>::max())) {
+                return fallback;
+            }
+        }
+    } else if constexpr (std::is_floating_point_v<T> && sizeof(T) < sizeof(double)) {
+        if (*number < static_cast<double>(std::numeric_limits<T>::lowest())
+            || *number > static_cast<double>(std::numeric_limits<T>::max())) {
+            return fallback;
+        }
     }
 
     return static_cast<T>(*number);

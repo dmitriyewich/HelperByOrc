@@ -3134,6 +3134,7 @@ void ModApp::DrawSettingsProfilesSection() {
 
     const auto flushShellBeforeProfileChange = [&]() {
         SaveShellStateIfDirty();
+        binder_.FlushPendingSaves();
         hud_.FlushPendingSaves();
         AppConfig::Instance().ProcessPendingWrites();
     };

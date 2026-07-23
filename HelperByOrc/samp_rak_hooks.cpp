@@ -642,6 +642,11 @@ bool SampRakHooks::DispatchSendChat(RakNetBitStreamView& view, const SampCallCon
 }
 
 bool SampRakHooks::DispatchSendDialogResponse(RakNetBitStreamView& view) {
+    constexpr int kFixedPayloadBits = 16 + 8 + 16;
+    if (view.GetNumberOfUnreadBits() < kFixedPayloadBits) {
+        return true;
+    }
+
     const std::uint16_t dialogIdRead = view.ReadUInt16();
     const std::uint8_t buttonRead = view.ReadUInt8();
     const std::uint16_t listboxIdRead = view.ReadUInt16();
@@ -677,6 +682,10 @@ bool SampRakHooks::DispatchSendDialogResponse(RakNetBitStreamView& view) {
 }
 
 bool SampRakHooks::DispatchServerMessage(RakNetBitStreamView& view) {
+    if (view.GetNumberOfUnreadBits() < 32) {
+        return true;
+    }
+
     std::int32_t color = view.ReadInt32();
     std::string textCp1251;
     if (!ReadString32(view, textCp1251)) {
@@ -704,6 +713,10 @@ bool SampRakHooks::DispatchServerMessage(RakNetBitStreamView& view) {
 }
 
 bool SampRakHooks::DispatchPlayerChat(RakNetBitStreamView& view) {
+    if (view.GetNumberOfUnreadBits() < 16) {
+        return true;
+    }
+
     const std::uint16_t playerId = view.ReadUInt16();
     std::string textCp1251;
     if (!ReadString8(view, textCp1251)) {
@@ -723,6 +736,11 @@ bool SampRakHooks::DispatchPlayerChat(RakNetBitStreamView& view) {
 }
 
 bool SampRakHooks::DispatchChatBubble(RakNetBitStreamView& view) {
+    constexpr int kFixedPayloadBits = 16 + 32 + 32 + 32;
+    if (view.GetNumberOfUnreadBits() < kFixedPayloadBits) {
+        return true;
+    }
+
     const std::uint16_t playerId = view.ReadUInt16();
     const std::uint32_t color = view.ReadUInt32();
     const float drawDistance = view.ReadFloat();
@@ -765,6 +783,10 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
 
     std::uint32_t compressor = 0;
     if (reader == 0 || compressorPtrAddress == 0 || !SafeReadUInt32(compressorPtrAddress, compressor) || compressor == 0) {
+        return true;
+    }
+
+    if (view.GetNumberOfUnreadBits() < 24) {
         return true;
     }
 
@@ -895,19 +917,39 @@ bool SampRakHooks::SafeReadUInt32(std::uintptr_t address, std::uint32_t& value) 
 }
 
 bool SampRakHooks::ReadString8(RakNetBitStreamView& view, std::string& value) {
+    if (view.GetNumberOfUnreadBits() < 8) {
+        value.clear();
+        return false;
+    }
+
     const auto length = view.ReadUInt8();
-    value = length > 0 ? view.ReadString(length) : std::string();
+    if (view.GetNumberOfUnreadBits() < static_cast<int>(length) * 8) {
+        value.clear();
+        return false;
+    }
+
+    value = length > 0 ? view.ReadString(length) : std::string{};
     return true;
 }
 
 bool SampRakHooks::ReadString32(RakNetBitStreamView& view, std::string& value) {
+    if (view.GetNumberOfUnreadBits() < 32) {
+        value.clear();
+        return false;
+    }
+
     const auto length = view.ReadInt32();
     if (length < 0 || length > 1 << 20) {
         value.clear();
         return false;
     }
 
-    value = length > 0 ? view.ReadString(length) : std::string();
+    if (view.GetNumberOfUnreadBits() < length * 8) {
+        value.clear();
+        return false;
+    }
+
+    value = length > 0 ? view.ReadString(length) : std::string{};
     return true;
 }
 
@@ -973,16 +1015,29 @@ bool SampRakHooks::HandleIncomingRpc(void* self, unsigned char* data, int length
     BitStream wrapper(data, length, true);
     wrapper.IgnoreBits(8);
     if (data[0] == kIdTimestamp) {
-        wrapper.IgnoreBits(8 * (sizeof(RakNetTime) + sizeof(unsigned char)));
+        constexpr int kTimestampHeaderBits = 8 * (sizeof(RakNetTime) + sizeof(unsigned char));
+        if (wrapper.GetNumberOfUnreadBits() < kTimestampHeaderBits) {
+            return incomingRpcOriginal_(self, data, length, playerId);
+        }
+        wrapper.IgnoreBits(kTimestampHeaderBits);
+    }
+
+    if (wrapper.GetNumberOfUnreadBits() < 8) {
+        return incomingRpcOriginal_(self, data, length, playerId);
     }
 
     const int rpcHeaderOffset = wrapper.GetReadOffset();
     std::uint8_t rpcId = 0;
-    wrapper.Read(rpcId);
+    if (!wrapper.Read(rpcId)) {
+        return incomingRpcOriginal_(self, data, length, playerId);
+    }
 
     std::uint32_t bitsData = 0;
     if (!wrapper.ReadCompressed(bitsData)) {
-        return false;
+        return incomingRpcOriginal_(self, data, length, playerId);
+    }
+    if (bitsData > static_cast<std::uint32_t>(wrapper.GetNumberOfUnreadBits())) {
+        return incomingRpcOriginal_(self, data, length, playerId);
     }
 
     std::vector<unsigned char> payloadBytes(static_cast<std::size_t>(BITS_TO_BYTES(bitsData)));
@@ -991,6 +1046,7 @@ bool SampRakHooks::HandleIncomingRpc(void* self, unsigned char* data, int length
     }
 
     BitStream payloadBitStream(payloadBytes.empty() ? nullptr : payloadBytes.data(), static_cast<unsigned int>(payloadBytes.size()), true);
+    payloadBitStream.SetWriteOffset(static_cast<int>(bitsData));
     RakNetBitStreamView payloadView(&payloadBitStream);
 
     RecordReceiveRpc(rpcId);

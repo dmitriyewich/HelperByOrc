@@ -74,6 +74,7 @@ constexpr int kMinTextConfirmationWaitTimeoutMs = 5000;
 constexpr int kMaxTextConfirmationWaitTimeoutMs = 600000;
 constexpr int kOutgoingGuardTimeoutMs = 2000;
 constexpr int kIncomingChatEchoGuardTimeoutMs = 1000;
+constexpr std::uint64_t kConfigSaveDebounceMs = 250;
 constexpr char kDialogCaptionLocalChatColorTag[] = "{E2C063}";
 constexpr char kDialogSelectionLocalChatColorTag[] = "{E2C063}";
 constexpr char kBindDragPayload[] = "BINDER_HOTKEY_INDEX";
@@ -2036,6 +2037,9 @@ struct BinderModule::Impl {
     int deprecatedHelperBindDisabledCount_ = 0;
     int deprecatedHelperCategoryQuickDisabledCount_ = 0;
     int deprecatedHelperFolderQuickDisabledCount_ = 0;
+    bool configSavePending_ = false;
+    std::uint64_t configSaveRequestedAtMs_ = 0;
+    std::uint32_t pendingConfigMutationCount_ = 0;
 
     std::string bindSearch{};
     std::string twoPaneFolderSearch{};
@@ -2184,6 +2188,7 @@ struct BinderModule::Impl {
     HotkeyEntry MakeDefaultHotkey();
     void RefreshNumbers();
     void SaveConfig();
+    void FlushPendingConfigSave(bool force);
     void LoadConfig();
     bool MigrateDeprecatedHelperCondition(std::vector<bool>& conditions);
     void ApplyDeprecatedHelperBindMigration(HotkeyEntry& hotkey, bool helperOnly);
@@ -2301,7 +2306,7 @@ struct BinderModule::Impl {
         std::string* message = nullptr) const;
     void ResetInputState();
     void Tick();
-    void Shutdown();
+    void Shutdown(bool flushPendingConfig);
     void ReloadConfig();
     bool WantsOverlayRender() const;
     bool WantsInputCapture() const;

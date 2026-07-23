@@ -48,8 +48,12 @@ void BinderModule::SetHelperUiActive(bool helperUiActive) {
     impl_->helperUiActive_ = helperUiActive;
 }
 
+void BinderModule::FlushPendingSaves() {
+    impl_->FlushPendingConfigSave(true);
+}
+
 void BinderModule::Shutdown() {
-    impl_->Shutdown();
+    impl_->Shutdown(true);
 }
 
 void BinderModule::ReloadConfig() {

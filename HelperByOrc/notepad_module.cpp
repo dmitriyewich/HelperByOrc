@@ -3417,6 +3417,7 @@ struct NotepadModule::Impl {
         ImGui::TextUnformatted("#img(example.png, size(320,180))");
         ImGui::TextUnformatted("#bullet text");
         ImGui::TextUnformatted("#hr");
+        ImGui::TextUnformatted("##colorFF0000 -> #colorFF0000");
         const ImVec4 disabledColor = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
         ImGui::PushStyleColor(ImGuiCol_Text, disabledColor);
         ImGui::TextWrapped("%s", ui.Text(UiText::NotepadMarkupHelpHint));

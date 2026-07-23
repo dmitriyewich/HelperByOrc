@@ -1,6 +1,30 @@
 #include "binder_module_impl.h"
 
 void BinderModule::Impl::SaveConfig() {
+    configSavePending_ = true;
+    configSaveRequestedAtMs_ = GetTickCount64();
+    if (pendingConfigMutationCount_ < std::numeric_limits<std::uint32_t>::max()) {
+        ++pendingConfigMutationCount_;
+    }
+}
+
+void BinderModule::Impl::FlushPendingConfigSave(bool force) {
+    if (!configSavePending_) {
+        return;
+    }
+
+    const std::uint64_t nowMs = GetTickCount64();
+    const std::uint64_t pendingAgeMs = nowMs - configSaveRequestedAtMs_;
+    if (!force && pendingAgeMs < kConfigSaveDebounceMs) {
+        return;
+    }
+
+    LARGE_INTEGER frequency{};
+    LARGE_INTEGER startedAt{};
+    const bool perfTimerReady = QueryPerformanceFrequency(&frequency)
+        && frequency.QuadPart > 0
+        && QueryPerformanceCounter(&startedAt);
+
     EnsureCategories();
     ActiveCategory().lastOpenFolderPath = CurrentFolderPath();
     NormalizeExplorerOrders();
@@ -17,18 +41,45 @@ void BinderModule::Impl::SaveConfig() {
     root["active_category_id"] = activeCategoryId;
 
     JsonArray categoryArray;
+    categoryArray.reserve(categories.size());
     for (const BinderCategory& category : categories) {
         categoryArray.push_back(SerializeCategory(category));
     }
     root["categories"] = JsonValue(std::move(categoryArray));
 
     JsonArray hotkeyArray;
+    hotkeyArray.reserve(hotkeys.size());
     for (const HotkeyEntry& hotkey : hotkeys) {
         hotkeyArray.push_back(SerializeHotkey(hotkey));
     }
     root["hotkeys"] = JsonValue(std::move(hotkeyArray));
 
     AppConfig::Instance().QueueSectionReplace(std::string(kBinderConfigSectionName), JsonValue(std::move(root)));
+
+    const std::uint32_t coalescedMutations = pendingConfigMutationCount_;
+    configSavePending_ = false;
+    configSaveRequestedAtMs_ = 0;
+    pendingConfigMutationCount_ = 0;
+
+    double elapsedMs = 0.0;
+    if (perfTimerReady) {
+        LARGE_INTEGER finishedAt{};
+        if (QueryPerformanceCounter(&finishedAt)) {
+            elapsedMs = static_cast<double>(finishedAt.QuadPart - startedAt.QuadPart)
+                * 1000.0
+                / static_cast<double>(frequency.QuadPart);
+        }
+    }
+    if (coalescedMutations > 1 || force || elapsedMs >= 5.0) {
+        debuglog::WriteInfo(
+            "[binder][config] flush mutations=%u force=%d age=%llums serialize=%.2fms categories=%llu hotkeys=%llu",
+            coalescedMutations,
+            force ? 1 : 0,
+            static_cast<unsigned long long>(pendingAgeMs),
+            elapsedMs,
+            static_cast<unsigned long long>(categories.size()),
+            static_cast<unsigned long long>(hotkeys.size()));
+    }
 }
 
 bool BinderModule::Impl::MigrateDeprecatedHelperCondition(std::vector<bool>& conditions) {
@@ -192,6 +243,7 @@ JsonValue BinderModule::Impl::SerializeCategory(const BinderCategory& category) 
     object["last_open_folder_path"] = SerializeStringArray(category.lastOpenFolderPath);
 
     JsonArray folderArray;
+    folderArray.reserve(category.folders.size());
     for (const auto& folder : category.folders) {
         if (folder) {
             folderArray.push_back(SerializeFolder(*folder));
@@ -266,6 +318,7 @@ JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     object["items"] = SerializeExplorerItems(folder.items);
 
     JsonArray childrenArray;
+    childrenArray.reserve(folder.children.size());
     for (const auto& child : folder.children) {
         if (child) {
             childrenArray.push_back(SerializeFolder(*child));
@@ -327,6 +380,7 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
 
 JsonValue BinderModule::Impl::SerializeExplorerItems(const std::vector<ExplorerItem>& items) const {
     JsonArray array;
+    array.reserve(items.size());
     for (const ExplorerItem& item : items) {
         if (item.key.empty()) {
             continue;
@@ -401,6 +455,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     object["command_confirmation"] = JsonValue(std::move(commandConfirmation));
 
     JsonArray messages;
+    messages.reserve(hotkey.messages.size());
     for (const HotkeyMessage& message : hotkey.messages) {
         JsonObject item;
         item["text"] = message.text;
@@ -411,6 +466,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
     object["messages"] = JsonValue(std::move(messages));
 
     JsonArray inputs;
+    inputs.reserve(hotkey.inputs.size());
     for (const HotkeyInput& input : hotkey.inputs) {
         JsonObject item;
         item["key"] = input.key;
@@ -422,6 +478,7 @@ JsonValue BinderModule::Impl::SerializeHotkey(const HotkeyEntry& hotkey) const {
         item["cascade_parent_key"] = input.cascadeParentKey;
 
         JsonArray buttons;
+        buttons.reserve(input.buttons.size());
         for (const InputButton& button : input.buttons) {
             JsonObject buttonObject;
             buttonObject["label"] = button.label;

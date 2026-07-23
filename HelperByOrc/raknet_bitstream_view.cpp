@@ -1,11 +1,27 @@
 #include "raknet_bitstream_view.h"
 
+#include <algorithm>
+#include <limits>
+
+namespace {
+
+BitStream* CreateBitStream(unsigned char* data, unsigned int lengthInBits, bool copyData) {
+    const unsigned int safeLengthInBits = std::min(
+        lengthInBits,
+        static_cast<unsigned int>(std::numeric_limits<int>::max()));
+    auto* bitStream = new BitStream(data, BITS_TO_BYTES(safeLengthInBits), copyData);
+    bitStream->SetWriteOffset(static_cast<int>(safeLengthInBits));
+    return bitStream;
+}
+
+} // namespace
+
 RakNetBitStreamView::RakNetBitStreamView(BitStream* bitStream)
     : bitStream_(bitStream) {
 }
 
 RakNetBitStreamView::RakNetBitStreamView(unsigned char* data, unsigned int lengthInBits, bool copyData)
-    : bitStream_(new BitStream(data, BITS_TO_BYTES(lengthInBits), copyData))
+    : bitStream_(CreateBitStream(data, lengthInBits, copyData))
     , ownsBitStream_(true) {
 }
 

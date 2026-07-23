@@ -251,6 +251,7 @@ void BinderModule::Impl::SyncPressedKeysWithAsyncState() {
 
 void BinderModule::Impl::Tick() {
     EnsureInitialized();
+    FlushPendingConfigSave(false);
     PruneOutgoingGuards();
     PruneIncomingChatEchoGuards();
     ExpireTextConfirmations();
@@ -297,7 +298,15 @@ void BinderModule::Impl::Tick() {
     prevFrameGameInputForeground_ = gameInputForeground_;
 }
 
-void BinderModule::Impl::Shutdown() {
+void BinderModule::Impl::Shutdown(bool flushPendingConfig) {
+    if (flushPendingConfig) {
+        FlushPendingConfigSave(true);
+    } else {
+        configSavePending_ = false;
+        configSaveRequestedAtMs_ = 0;
+        pendingConfigMutationCount_ = 0;
+    }
+
     if (inputDialog && inputDialog->hotkeyIndex >= 0 && inputDialog->hotkeyIndex < static_cast<int>(hotkeys.size())) {
         hotkeys[inputDialog->hotkeyIndex].awaitingInput = false;
     }
@@ -330,7 +339,7 @@ void BinderModule::Impl::Shutdown() {
 
 void BinderModule::Impl::ReloadConfig() {
     debuglog::WriteInfo("BinderModule::ReloadConfig begin");
-    Shutdown();
+    Shutdown(false);
     LoadConfig();
     configLoaded = true;
     EnsureRootFolder();

@@ -888,7 +888,7 @@
     X(NotepadApplyTags, "Подставлять теги", "Expand tags") \
     X(NotepadMarkupHelp, "Разметка", "Markup") \
     X(NotepadMarkupHelpTitle, "Поддерживаемая разметка", "Supported markup") \
-    X(NotepadMarkupHelpHint, "Картинки ищутся только в папке профиля notepad/images. Абсолютные пути и .. запрещены.", "Images are resolved only from the profile notepad/images folder. Absolute paths and .. are blocked.") \
+    X(NotepadMarkupHelpHint, "##команда показывает #команда буквально. Картинки ищутся только в папке профиля notepad/images. Абсолютные пути и .. запрещены.", "##command renders #command literally. Images are resolved only from the profile notepad/images folder. Absolute paths and .. are blocked.") \
     X(NotepadModalTitle, "Блокнот", "Notepad") \
     X(NotepadCreateFolderTitle, "Новая папка", "New folder") \
     X(NotepadCreateNoteTitle, "Новая заметка", "New note") \

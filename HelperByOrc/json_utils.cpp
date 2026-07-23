@@ -1,11 +1,15 @@
 #include "json_utils.h"
 
+#include <cerrno>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
 namespace jsonutil {
 namespace {
+
+constexpr std::size_t kMaxJsonNestingDepth = 128;
 
 std::string EscapeJsonString(std::string_view value) {
     std::string result;
@@ -83,7 +87,7 @@ public:
         SkipWhitespace();
 
         JsonValue value;
-        if (!ParseValue(value, error)) {
+        if (!ParseValue(value, error, 0)) {
             return std::nullopt;
         }
 
@@ -111,7 +115,7 @@ private:
         return false;
     }
 
-    bool ParseValue(JsonValue& out, std::string& error) {
+    bool ParseValue(JsonValue& out, std::string& error, std::size_t depth) {
         if (pos_ >= source_.size()) {
             error = "unexpected end of file";
             return false;
@@ -119,10 +123,18 @@ private:
 
         const char ch = source_[pos_];
         if (ch == '{') {
-            return ParseObject(out, error);
+            if (depth >= kMaxJsonNestingDepth) {
+                error = "maximum nesting depth exceeded";
+                return false;
+            }
+            return ParseObject(out, error, depth + 1);
         }
         if (ch == '[') {
-            return ParseArray(out, error);
+            if (depth >= kMaxJsonNestingDepth) {
+                error = "maximum nesting depth exceeded";
+                return false;
+            }
+            return ParseArray(out, error, depth + 1);
         }
         if (ch == '"') {
             std::string text;
@@ -157,7 +169,7 @@ private:
         return false;
     }
 
-    bool ParseObject(JsonValue& out, std::string& error) {
+    bool ParseObject(JsonValue& out, std::string& error, std::size_t depth) {
         JsonObject object;
         ++pos_;
         SkipWhitespace();
@@ -185,7 +197,7 @@ private:
 
             SkipWhitespace();
             JsonValue value;
-            if (!ParseValue(value, error)) {
+            if (!ParseValue(value, error, depth)) {
                 return false;
             }
 
@@ -209,7 +221,7 @@ private:
         }
     }
 
-    bool ParseArray(JsonValue& out, std::string& error) {
+    bool ParseArray(JsonValue& out, std::string& error, std::size_t depth) {
         JsonArray array;
         ++pos_;
         SkipWhitespace();
@@ -223,7 +235,7 @@ private:
         while (true) {
             SkipWhitespace();
             JsonValue value;
-            if (!ParseValue(value, error)) {
+            if (!ParseValue(value, error, depth)) {
                 return false;
             }
             array.push_back(std::move(value));
@@ -262,6 +274,10 @@ private:
             }
 
             if (ch != '\\') {
+                if (ch < 0x20) {
+                    error = "unescaped control character";
+                    return false;
+                }
                 out.push_back(static_cast<char>(ch));
                 continue;
             }
@@ -294,25 +310,29 @@ private:
                 out.push_back('\t');
                 break;
             case 'u': {
-                if (pos_ + 4 > source_.size()) {
-                    error = "invalid unicode escape";
+                unsigned int codePoint = 0;
+                if (!ParseHexCodeUnit(codePoint, error)) {
                     return false;
                 }
-
-                unsigned int codePoint = 0;
-                for (int i = 0; i < 4; ++i) {
-                    const char hex = source_[pos_++];
-                    codePoint <<= 4;
-                    if (hex >= '0' && hex <= '9') {
-                        codePoint |= static_cast<unsigned int>(hex - '0');
-                    } else if (hex >= 'a' && hex <= 'f') {
-                        codePoint |= static_cast<unsigned int>(hex - 'a' + 10);
-                    } else if (hex >= 'A' && hex <= 'F') {
-                        codePoint |= static_cast<unsigned int>(hex - 'A' + 10);
-                    } else {
-                        error = "invalid unicode escape";
+                if (codePoint >= 0xD800 && codePoint <= 0xDBFF) {
+                    if (pos_ + 2 > source_.size() || source_[pos_] != '\\' || source_[pos_ + 1] != 'u') {
+                        error = "missing low surrogate";
                         return false;
                     }
+                    pos_ += 2;
+                    unsigned int lowSurrogate = 0;
+                    if (!ParseHexCodeUnit(lowSurrogate, error)
+                        || lowSurrogate < 0xDC00
+                        || lowSurrogate > 0xDFFF) {
+                        error = "invalid low surrogate";
+                        return false;
+                    }
+                    codePoint = 0x10000
+                        + ((codePoint - 0xD800) << 10)
+                        + (lowSurrogate - 0xDC00);
+                } else if (codePoint >= 0xDC00 && codePoint <= 0xDFFF) {
+                    error = "unexpected low surrogate";
+                    return false;
                 }
 
                 AppendCodePointUtf8(out, codePoint);
@@ -326,6 +346,32 @@ private:
 
         error = "unterminated string";
         return false;
+    }
+
+    bool ParseHexCodeUnit(unsigned int& out, std::string& error) {
+        if (pos_ + 4 > source_.size()) {
+            error = "invalid unicode escape";
+            return false;
+        }
+
+        unsigned int codeUnit = 0;
+        for (int i = 0; i < 4; ++i) {
+            const char hex = source_[pos_++];
+            codeUnit <<= 4;
+            if (hex >= '0' && hex <= '9') {
+                codeUnit |= static_cast<unsigned int>(hex - '0');
+            } else if (hex >= 'a' && hex <= 'f') {
+                codeUnit |= static_cast<unsigned int>(hex - 'a' + 10);
+            } else if (hex >= 'A' && hex <= 'F') {
+                codeUnit |= static_cast<unsigned int>(hex - 'A' + 10);
+            } else {
+                error = "invalid unicode escape";
+                return false;
+            }
+        }
+
+        out = codeUnit;
+        return true;
     }
 
     bool ParseNumber(double& out, std::string& error) {
@@ -380,8 +426,9 @@ private:
 
         const std::string token(source_.substr(start, pos_ - start));
         char* end = nullptr;
+        errno = 0;
         out = std::strtod(token.c_str(), &end);
-        if (!end || *end != '\0') {
+        if (!end || *end != '\0' || errno == ERANGE || !std::isfinite(out)) {
             error = "invalid number";
             return false;
         }

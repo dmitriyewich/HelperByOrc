@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace notepadtxt {
 namespace {
@@ -936,7 +937,7 @@ struct SyncService::Impl {
             watcherAvailable = true;
         }
 
-        alignas(DWORD) std::array<std::byte, 64 * 1024> buffer{};
+        std::vector<std::byte> buffer(64 * 1024);
         for (;;) {
             DWORD bytesReturned = 0;
             const BOOL success = ReadDirectoryChangesW(
