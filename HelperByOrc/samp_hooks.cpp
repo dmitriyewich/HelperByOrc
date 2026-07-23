@@ -4,6 +4,7 @@
 #include "minhook_utils.h"
 #include "module_signature_scanner.h"
 #include "samp_api.h"
+#include "samp_api/chat/samp_local_chat_entry.h"
 #include "text_encoding.h"
 
 #include <CPad.h>
@@ -28,6 +29,16 @@ constexpr std::string_view kChatAsiAddEntryStackWrapperSignature =
     "FF 74 24 14 FF 74 24 14 FF 74 24 14 FF 74 24 14 FF 74 24 14 E8 ?? ?? ?? ?? 83 C4 14 C2 14 00";
 constexpr std::size_t kMaxChatAsiTransferDepth = 4;
 constexpr std::size_t kMaxChatAsiSignatureCandidates = 8;
+
+int CaptureNativeCallFailure(
+    EXCEPTION_POINTERS* exception,
+    SampHooks::NativeCallFailure* failure) noexcept {
+    if (failure && exception && exception->ExceptionRecord) {
+        failure->code = exception->ExceptionRecord->ExceptionCode;
+        failure->address = exception->ExceptionRecord->ExceptionAddress;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 
 struct ChatAsiWrapperLayout {
     const char* name = "none";
@@ -163,6 +174,38 @@ bool ResolveChatAsiAddEntryDispatch(
     if (firstOpcode == 0x00 || firstOpcode == 0xC2 || firstOpcode == 0xC3 || firstOpcode == 0xCC) {
         dispatch = 0;
         return false;
+    }
+    return true;
+}
+
+bool IsWritableRange(std::uintptr_t address, std::size_t size) {
+    if (address == 0 || size == 0 || address + size < address) {
+        return false;
+    }
+
+    const std::uintptr_t finish = address + size;
+    while (address < finish) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) != sizeof(region)
+            || region.State != MEM_COMMIT
+            || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+            return false;
+        }
+
+        const DWORD protection = region.Protect & 0xFF;
+        if (protection != PAGE_READWRITE
+            && protection != PAGE_WRITECOPY
+            && protection != PAGE_EXECUTE_READWRITE
+            && protection != PAGE_EXECUTE_WRITECOPY) {
+            return false;
+        }
+
+        const std::uintptr_t regionEnd =
+            reinterpret_cast<std::uintptr_t>(region.BaseAddress) + region.RegionSize;
+        if (regionEnd <= address) {
+            return false;
+        }
+        address = regionEnd;
     }
     return true;
 }
@@ -317,6 +360,113 @@ void ClearPadMouseButtons(CPad* pad, std::uint8_t mask) {
 
 } // namespace
 
+bool SampHooks::CallChatAddEntryOriginal(
+    ChatAddEntryFn original,
+    void* chat,
+    int type,
+    const char* text,
+    std::size_t textLength,
+    const char* prefix,
+    unsigned long textColor,
+    unsigned long prefixColor) {
+    bool succeeded = false;
+    ++cchatForwardDepth_;
+    __try {
+        __try {
+            original(chat, type, text, prefix, textColor, prefixColor);
+            succeeded = true;
+        }
+        __except (CaptureChatAddEntryException(GetExceptionInformation())) {
+        }
+    }
+    __finally {
+        --cchatForwardDepth_;
+    }
+    if (succeeded
+        && type == samp_local_chat::kLocalMessageType
+        && textLength > samp_local_chat::kNativeEntryTextBytes) {
+        succeeded = ExtendLatestChatEntryText(
+            chat,
+            text,
+            textLength,
+            chatAddEntryFailureSink_);
+    }
+    return succeeded;
+}
+
+int SampHooks::CaptureChatAddEntryException(EXCEPTION_POINTERS* exception) noexcept {
+    if (!chatAddEntryFailureSink_) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    return CaptureNativeCallFailure(exception, chatAddEntryFailureSink_);
+}
+
+bool SampHooks::ExtendLatestChatEntryText(
+    void* chat,
+    const char* text,
+    std::size_t textLength,
+    NativeCallFailure* failure) noexcept {
+    if (!chat
+        || !text
+        || textLength <= samp_local_chat::kNativeEntryTextBytes
+        || textLength > samp_local_chat::kMaxEntryTextBytes) {
+        return textLength <= samp_local_chat::kNativeEntryTextBytes;
+    }
+
+    const std::uintptr_t destination =
+        reinterpret_cast<std::uintptr_t>(chat)
+        + samp_local_chat::kLatestEntryTextOffset;
+    const std::size_t bytesToWrite = textLength + 1;
+    if (!IsWritableRange(destination, bytesToWrite)) {
+        if (failure) {
+            failure->code = ERROR_WRITE_FAULT;
+            failure->address = reinterpret_cast<const void*>(destination);
+        }
+        return false;
+    }
+
+    NativeCallFailure localFailure{};
+    __try {
+        std::memcpy(reinterpret_cast<void*>(destination), text, textLength);
+        *reinterpret_cast<char*>(destination + textLength) = '\0';
+        return true;
+    }
+    __except (CaptureNativeCallFailure(
+        GetExceptionInformation(),
+        failure ? failure : &localFailure)) {
+        return false;
+    }
+}
+
+void SampHooks::CallChatAddMessageOriginal(
+    ChatAddMessageFn original,
+    void* chat,
+    unsigned long color,
+    const char* text) {
+    ++cchatForwardDepth_;
+    __try {
+        original(chat, color, text);
+    }
+    __finally {
+        --cchatForwardDepth_;
+    }
+}
+
+void SampHooks::CallChatAddChatMessageOriginal(
+    ChatAddChatMessageFn original,
+    void* chat,
+    const char* prefix,
+    unsigned long prefixColor,
+    const char* text) {
+    ++cchatForwardDepth_;
+    __try {
+        original(chat, prefix, prefixColor, text);
+    }
+    __finally {
+        --cchatForwardDepth_;
+    }
+}
+
 void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor) {
     UNREFERENCED_PARAMETER(edx);
 
@@ -363,10 +513,44 @@ void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, c
         }
     }
 
-    if (self_ && self_->chatAddEntryOriginal_) {
-        ++cchatForwardDepth_;
-        self_->chatAddEntryOriginal_(chat, type, forwardedText, prefix, textColor, prefixColor);
-        --cchatForwardDepth_;
+    if (!self_ || !self_->chatAddEntryOriginal_) {
+        return;
+    }
+
+    const std::string_view gameText(forwardedText ? forwardedText : "");
+    std::string truncatedText;
+    std::size_t forwardedLength = gameText.size();
+    if (type == samp_local_chat::kLocalMessageType) {
+        forwardedLength = samp_local_chat::SafeTruncationLength(gameText);
+        if (forwardedLength < gameText.size()) {
+            truncatedText.assign(gameText.data(), forwardedLength);
+            forwardedText = truncatedText.c_str();
+            debuglog::WriteInfo(
+                "SampHooks::ChatAddEntryDetour truncated bytes=%llu to=%llu capacity=%llu",
+                static_cast<unsigned long long>(gameText.size()),
+                static_cast<unsigned long long>(forwardedLength),
+                static_cast<unsigned long long>(samp_local_chat::kMaxEntryTextBytes));
+        } else if (forwardedLength > samp_local_chat::kNativeEntryTextBytes) {
+            debuglog::WriteInfo(
+                "SampHooks::ChatAddEntryDetour extended bytes=%llu capacity=%llu",
+                static_cast<unsigned long long>(forwardedLength),
+                static_cast<unsigned long long>(samp_local_chat::kMaxEntryTextBytes));
+        }
+    }
+
+    if (!CallChatAddEntryOriginal(
+            self_->chatAddEntryOriginal_,
+            chat,
+            type,
+            forwardedText,
+            forwardedLength,
+            prefix,
+            textColor,
+            prefixColor)) {
+        debuglog::WriteError(
+            "SampHooks::ChatAddEntryDetour forward failed type=%d bytes=%llu",
+            type,
+            static_cast<unsigned long long>(forwardedLength));
     }
 }
 
@@ -460,9 +644,7 @@ void __fastcall SampHooks::ChatAddMessageDetour(void* chat, void* edx, unsigned 
     }
 
     if (self_ && self_->chatAddMessageOriginal_) {
-        ++cchatForwardDepth_;
-        self_->chatAddMessageOriginal_(chat, color, forwardedText);
-        --cchatForwardDepth_;
+        CallChatAddMessageOriginal(self_->chatAddMessageOriginal_, chat, color, forwardedText);
     }
 }
 
@@ -502,9 +684,12 @@ void __fastcall SampHooks::ChatAddChatMessageDetour(void* chat, void* edx, const
     }
 
     if (self_ && self_->chatAddChatMessageOriginal_) {
-        ++cchatForwardDepth_;
-        self_->chatAddChatMessageOriginal_(chat, prefix, prefixColor, forwardedText);
-        --cchatForwardDepth_;
+        CallChatAddChatMessageOriginal(
+            self_->chatAddChatMessageOriginal_,
+            chat,
+            prefix,
+            prefixColor,
+            forwardedText);
     }
 }
 
@@ -778,6 +963,52 @@ bool SampHooks::IsInstalled() const {
     return installed_;
 }
 
+bool SampHooks::IsChatAddEntryHookActive() {
+    return self_
+        && self_->installed_
+        && self_->chatAddEntryOriginal_ != nullptr;
+}
+
+bool SampHooks::CallChatAddEntry(
+    std::uintptr_t target,
+    void* chat,
+    int type,
+    const char* text,
+    std::size_t textLength,
+    unsigned long textColor,
+    NativeCallFailure& failure) {
+    failure = {};
+
+    const auto addEntry = reinterpret_cast<ChatAddEntryFn>(target);
+    if (!IsChatAddEntryHookActive()) {
+        __try {
+            addEntry(chat, type, text, nullptr, textColor, 0);
+            if (type == samp_local_chat::kLocalMessageType
+                && textLength > samp_local_chat::kNativeEntryTextBytes) {
+                return ExtendLatestChatEntryText(
+                    chat,
+                    text,
+                    textLength,
+                    &failure);
+            }
+            return true;
+        }
+        __except (CaptureNativeCallFailure(GetExceptionInformation(), &failure)) {
+            return false;
+        }
+    }
+
+    NativeCallFailure* const previousSink = chatAddEntryFailureSink_;
+    chatAddEntryFailureSink_ = &failure;
+    __try {
+        addEntry(chat, type, text, nullptr, textColor, 0);
+    }
+    __finally {
+        chatAddEntryFailureSink_ = previousSink;
+    }
+    return failure.code == 0;
+}
+
 bool SampHooks::IsOutgoingInputTransformActive() {
     return outgoingInputTransformDepth_ > 0;
 }
@@ -956,6 +1187,7 @@ bool SampHooks::Install() {
 
 void SampHooks::CleanupHooks() {
     debuglog::WriteInfo("SampHooks::CleanupHooks begin");
+    installed_ = false;
     minhook::DisableAndRemoveHook(chatAddEntryTarget_, "SampHooks::AddEntry");
     minhook::DisableAndRemoveHook(chatAsiAddEntryDispatchTarget_, "SampHooks::_chat AddEntry dispatch");
     minhook::DisableAndRemoveHook(chatAddMessageTarget_, "SampHooks::AddMessage");

@@ -274,6 +274,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="samp_api.h" />
     <ClInclude Include="samp_call_context.h" />
+    <ClInclude Include="samp_api\chat\samp_local_chat_entry.h" />
     <ClInclude Include="samp_api\chat\samp_api_chat.inl" />
     <ClInclude Include="samp_api\core\samp_api_core.inl" />
     <ClInclude Include="samp_api\dialog\samp_api_dialog.inl" />

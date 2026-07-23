@@ -5,6 +5,8 @@
 #include "file_hash_utils.h"
 #include "minhook_utils.h"
 #include "module_signature_scanner.h"
+#include "samp_api/chat/samp_local_chat_entry.h"
+#include "samp_hooks.h"
 #include "text_encoding.h"
 
 #include <sampapi/0.3.7-R1/CRemotePlayer.h>
@@ -53,7 +55,6 @@ using DialogCloseFn = void(__thiscall*)(void*, int);
 using InputOpenCloseFn = void(__thiscall*)(void*);
 using SendInputFn = void(__thiscall*)(void*, const char*);
 using ProcessInputFn = void(__thiscall*)(void*);
-using AddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
 using SetDialogListItemFn = void(__thiscall*)(void*, int);
 using ChatAsiInputWriterFn = void(__cdecl*)(const char*, std::size_t, unsigned char);
 using ChatAsiInputSubmitFn = void(__cdecl*)(unsigned int);
@@ -77,9 +78,6 @@ struct ModuleSectionRange {
     }
 };
 
-constexpr std::uintptr_t kChatEntryBaseOffset = 0x132;
-constexpr std::size_t kChatEntrySize = 0xFC;
-constexpr int kChatEntryCount = 100;
 constexpr std::size_t kChatAsiWriterScanWindow = 0x80;
 constexpr std::size_t kChatAsiCallbackScanWindow = 0x200;
 constexpr std::size_t kChatAsiSubmitScanWindow = 0x500;
@@ -1665,16 +1663,6 @@ bool CallSetPageSize(SetPageSizeFn fn, void* chat, int pageSize) {
 bool CallSendInput(SendInputFn fn, void* target, const char* text) {
     __try {
         fn(target, text);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
-}
-
-bool CallAddMessage(AddMessageFn fn, void* chat, unsigned long color, const char* text) {
-    __try {
-        fn(chat, color, text);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

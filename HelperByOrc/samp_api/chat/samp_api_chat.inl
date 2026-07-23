@@ -1021,14 +1021,42 @@ bool SampApi::memoryAddMessageSamp(std::string_view text, std::uint32_t color, b
     }
 
     std::uint32_t chat = 0;
-    const auto address = GetAddress(main_offsets.AddMessage);
+    const auto address = GetAddress(main_offsets.AddEntry);
     if (!ResolveChat(chat) || chat == 0 || address == 0) {
         SetError("SAMP chat pointer is null");
         return false;
     }
 
-    const auto addMessage = reinterpret_cast<AddMessageFn>(address);
-    if (!CallAddMessage(addMessage, reinterpret_cast<void*>(chat), color, gameText.c_str())) {
+    const bool hookActive = SampHooks::IsChatAddEntryHookActive();
+    if (!hookActive && gameText.size() > samp_local_chat::kMaxEntryTextBytes) {
+        const std::size_t originalSize = gameText.size();
+        gameText.resize(samp_local_chat::SafeTruncationLength(gameText));
+        debuglog::WriteInfo(
+            "SampApi::memoryAddMessageSamp truncated bytes=%llu to=%llu capacity=%llu",
+            static_cast<unsigned long long>(originalSize),
+            static_cast<unsigned long long>(gameText.size()),
+            static_cast<unsigned long long>(samp_local_chat::kMaxEntryTextBytes));
+    } else if (!hookActive && gameText.size() > samp_local_chat::kNativeEntryTextBytes) {
+        debuglog::WriteInfo(
+            "SampApi::memoryAddMessageSamp route=extended-add-entry bytes=%llu capacity=%llu",
+            static_cast<unsigned long long>(gameText.size()),
+            static_cast<unsigned long long>(samp_local_chat::kMaxEntryTextBytes));
+    }
+
+    SampHooks::NativeCallFailure failure{};
+    if (!SampHooks::CallChatAddEntry(
+            address,
+            reinterpret_cast<void*>(chat),
+            samp_local_chat::kLocalMessageType,
+            gameText.c_str(),
+            gameText.size(),
+            static_cast<unsigned long>(samp_local_chat::RgbaToArgb(color)),
+            failure)) {
+        debuglog::WriteError(
+            "SampApi::memoryAddMessageSamp AddEntry failed bytes=%llu code=0x%08lX address=%p",
+            static_cast<unsigned long long>(gameText.size()),
+            static_cast<unsigned long>(failure.code),
+            failure.address);
         SetError("Failed to add chat message to SAMP");
         return false;
     }
@@ -1055,7 +1083,9 @@ bool SampApi::ClearChatLocal(int lines, std::uint32_t color) {
 
 SampApi::ChatEntry SampApi::pGetChatString(int index) {
     ChatEntry result;
-    if (index < 0 || index >= kChatEntryCount || currentVersion_ == Version::Unknown) {
+    if (index < 0
+        || static_cast<std::size_t>(index) >= samp_local_chat::kChatEntryCount
+        || currentVersion_ == Version::Unknown) {
         return result;
     }
 
@@ -1072,8 +1102,11 @@ SampApi::ChatEntry SampApi::pGetChatString(int index) {
         return result;
     }
 
-    const auto entry = chat + kChatEntryBaseOffset + (static_cast<std::uintptr_t>(index) * kChatEntrySize);
-    if (!IsReadableMemory(entry, kChatEntrySize)) {
+    const auto entry =
+        chat
+        + samp_local_chat::kChatEntryBaseOffset
+        + (static_cast<std::uintptr_t>(index) * samp_local_chat::kChatEntrySize);
+    if (!IsReadableMemory(entry, samp_local_chat::kChatEntrySize)) {
         return result;
     }
 

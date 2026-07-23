@@ -14,6 +14,7 @@
 #include "json_utils.h"
 #include "notification_manager.h"
 #include "samp_api.h"
+#include "samp_api/chat/samp_local_chat_entry.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
 #include "tags_module.h"
@@ -1868,38 +1869,7 @@ inline bool IsUnderOrEqual(const FolderNode* ancestor, const FolderNode* node) {
 }
 
 inline bool TryParseSampColorTag(std::string_view text, std::size_t offset, std::size_t& consumed, std::uint32_t& color) {
-    consumed = 0;
-    color = 0;
-    if (offset >= text.size() || text[offset] != '{') {
-        return false;
-    }
-
-    const std::size_t close = text.find('}', offset + 1);
-    if (close == std::string_view::npos) {
-        return false;
-    }
-
-    const std::size_t hexLength = close - offset - 1;
-    if (hexLength != 6 && hexLength != 8) {
-        return false;
-    }
-
-    std::uint32_t parsed = 0;
-    for (std::size_t i = offset + 1; i < close; ++i) {
-        const unsigned char ch = static_cast<unsigned char>(text[i]);
-        if (!std::isxdigit(ch)) {
-            return false;
-        }
-        parsed = static_cast<std::uint32_t>(parsed * 16 + static_cast<std::uint32_t>(
-            std::isdigit(ch) ? (ch - '0') : (std::tolower(ch) - 'a' + 10)));
-    }
-
-    consumed = close - offset + 1;
-    // SA:MP line colors use 0xRRGGBBAA. Embedded text colors are usually
-    // written as {RRGGBB}, so for local chat we normalize them to full-opacity
-    // RGBA before passing the value to AddChatMessage.
-    color = hexLength == 6 ? ((parsed << 8) | 0xFFu) : parsed;
-    return true;
+    return samp_local_chat::TryParseColorTag(text, offset, consumed, color);
 }
 
 inline std::pair<std::string, std::uint32_t> ParseLeadingChatColor(std::string_view text) {

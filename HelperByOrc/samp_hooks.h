@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -40,6 +41,11 @@ public:
     };
     using MouseButtonBlockCallback = std::function<std::uint8_t()>;
 
+    struct NativeCallFailure {
+        std::uint32_t code = 0;
+        const void* address = nullptr;
+    };
+
     void SetSampApi(SampApi* sampApi);
     void SetOwnerModule(HMODULE module);
     void SetHotkeyBlockCallback(HotkeyBlockCallback callback);
@@ -48,6 +54,15 @@ public:
     void Shutdown();
 
     bool IsInstalled() const;
+    static bool IsChatAddEntryHookActive();
+    static bool CallChatAddEntry(
+        std::uintptr_t target,
+        void* chat,
+        int type,
+        const char* text,
+        std::size_t textLength,
+        unsigned long textColor,
+        NativeCallFailure& failure);
     static bool IsOutgoingInputTransformActive();
     static void PushOutgoingInputTransform();
     static void PopOutgoingInputTransform();
@@ -86,6 +101,28 @@ private:
     static void __cdecl ChatAsiAddEntryDispatchDetour(int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor);
     static void __fastcall ChatAddMessageDetour(void* chat, void* edx, unsigned long color, const char* text);
     static void __fastcall ChatAddChatMessageDetour(void* chat, void* edx, const char* prefix, unsigned long prefixColor, const char* text);
+    static bool CallChatAddEntryOriginal(
+        ChatAddEntryFn original,
+        void* chat,
+        int type,
+        const char* text,
+        std::size_t textLength,
+        const char* prefix,
+        unsigned long textColor,
+        unsigned long prefixColor);
+    static bool ExtendLatestChatEntryText(
+        void* chat,
+        const char* text,
+        std::size_t textLength,
+        NativeCallFailure* failure) noexcept;
+    static int CaptureChatAddEntryException(EXCEPTION_POINTERS* exception) noexcept;
+    static void CallChatAddMessageOriginal(ChatAddMessageFn original, void* chat, unsigned long color, const char* text);
+    static void CallChatAddChatMessageOriginal(
+        ChatAddChatMessageFn original,
+        void* chat,
+        const char* prefix,
+        unsigned long prefixColor,
+        const char* text);
     static void __fastcall DialogShowDetour(std::uintptr_t self, void* edx, int dialogId, int style, const char* title, const char* text, const char* button1, const char* button2, bool serverside);
     static void __fastcall DialogCloseDetour(std::uintptr_t self, void* edx, char button);
     static void __fastcall InputSendDetour(std::uintptr_t self, void* edx, const char* text);
@@ -98,6 +135,7 @@ private:
     static inline SampHooks* self_ = nullptr;
     static inline thread_local int outgoingInputTransformDepth_ = 0;
     static inline thread_local int cchatForwardDepth_ = 0;
+    static inline thread_local NativeCallFailure* chatAddEntryFailureSink_ = nullptr;
 
     SampApi* sampApi_ = nullptr;
     HMODULE ownerModule_ = nullptr;
