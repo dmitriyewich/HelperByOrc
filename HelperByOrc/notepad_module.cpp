@@ -1865,7 +1865,7 @@ struct NotepadModule::Impl {
         instruction.id = builtinInstructionId;
         instruction.title = std::string(notepadbuiltin::Title());
         instruction.text = std::string(notepadbuiltin::InstructionText());
-        instruction.favorite = true;
+        instruction.favorite = false;
         instruction.createdAt = legacyInstruction
             ? legacyInstruction->createdAt
             : UnixTimeNow();

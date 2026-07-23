@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
+#include <limits>
 #include <memory>
 #include <new>
 #include <string>
@@ -20,6 +21,9 @@ namespace {
 
 constexpr std::size_t kMaxLogEntries = 128;
 constexpr std::size_t kMaxQueuedSyntheticIncomingPackets = 16;
+constexpr int kDialogTextBufferBytes = 4096;
+constexpr std::size_t kMaxEncodedStringBytes =
+    static_cast<std::size_t>(kDialogTextBufferBytes - 1);
 constexpr std::uint8_t kIdTimestamp = 40;
 
 std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffset& offset, SampApi::Version version) {
@@ -28,6 +32,22 @@ std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffse
         return 0;
     }
     return reinterpret_cast<std::uintptr_t>(module) + relative;
+}
+
+bool PayloadMatchesOriginal(
+    const std::vector<unsigned char>& originalBytes,
+    std::uint32_t originalBitCount,
+    const BitStream& payload) {
+    if (originalBitCount > static_cast<std::uint32_t>(std::numeric_limits<int>::max())
+        || payload.GetNumberOfBitsUsed() != static_cast<int>(originalBitCount)) {
+        return false;
+    }
+
+    const std::size_t byteCount = static_cast<std::size_t>(BITS_TO_BYTES(originalBitCount));
+    return byteCount == 0
+        || (originalBytes.size() >= byteCount
+            && payload.GetData() != nullptr
+            && std::memcmp(originalBytes.data(), payload.GetData(), byteCount) == 0);
 }
 
 } // namespace
@@ -800,7 +820,7 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
     if (!ReadString8(view, titleCp1251) || !ReadString8(view, button1Cp1251) || !ReadString8(view, button2Cp1251)) {
         return true;
     }
-    if (!ReadEncodedString(view, reader, compressor, 4096, textCp1251)) {
+    if (!ReadEncodedString(view, reader, compressor, kDialogTextBufferBytes, textCp1251)) {
         return true;
     }
 
@@ -837,13 +857,26 @@ bool SampRakHooks::DispatchShowDialog(RakNetBitStreamView& view) {
         return true;
     }
 
+    const std::string titleGame = textencoding::Utf8ToGame(titleUtf8);
+    const std::string button1Game = textencoding::Utf8ToGame(button1Utf8);
+    const std::string button2Game = textencoding::Utf8ToGame(button2Utf8);
+    const std::string textGame = textencoding::Utf8ToGame(textUtf8);
+    const bool textHasNul = textGame.find('\0') != std::string::npos;
+    if (textGame.size() > kMaxEncodedStringBytes || textHasNul) {
+        debuglog::WriteError(
+            "SampRakHooks::DispatchShowDialog changed payload but encoded text is invalid size=%llu hasNul=%d",
+            static_cast<unsigned long long>(textGame.size()),
+            textHasNul ? 1 : 0);
+        return true;
+    }
+
     view.Reset();
     view.WriteUInt16(dialogId);
     view.WriteUInt8(style);
-    WriteString8(view, textencoding::Utf8ToGame(titleUtf8));
-    WriteString8(view, textencoding::Utf8ToGame(button1Utf8));
-    WriteString8(view, textencoding::Utf8ToGame(button2Utf8));
-    if (!WriteEncodedString(view, writer, compressor, textencoding::Utf8ToGame(textUtf8))) {
+    WriteString8(view, titleGame);
+    WriteString8(view, button1Game);
+    WriteString8(view, button2Game);
+    if (!WriteEncodedString(view, writer, compressor, textGame)) {
         return true;
     }
 
@@ -992,14 +1025,26 @@ bool SampRakHooks::WriteEncodedString(
     std::uintptr_t writer,
     std::uintptr_t compressor,
     std::string_view value) {
-    if (!writer || !compressor) {
+    if (!writer
+        || !compressor
+        || value.size() > kMaxEncodedStringBytes
+        || value.find('\0') != std::string_view::npos) {
+        return false;
+    }
+
+    // StringCompressor writes up to 16 Huffman bits per byte plus up to
+    // 17 bits for the compressed uint16_t payload length.
+    const int reserveBits = static_cast<int>(value.size() * 16 + 17);
+    const int usedBits = view.GetNumberOfBitsUsed();
+    if (usedBits < 0
+        || usedBits > std::numeric_limits<int>::max() / 2 - reserveBits) {
         return false;
     }
 
     std::string nullTerminated(value);
-    view.raw()->AddBitsAndReallocate(static_cast<int>(nullTerminated.size() * 16 + 16));
+    view.raw()->AddBitsAndReallocate(reserveBits);
     const auto encode = reinterpret_cast<void(__thiscall*)(std::uintptr_t, const char*, int, BitStream*, int)>(writer);
-    encode(compressor, nullTerminated.c_str(), static_cast<int>(nullTerminated.size()), view.raw(), 0);
+    encode(compressor, nullTerminated.c_str(), static_cast<int>(nullTerminated.size() + 1), view.raw(), 0);
     return true;
 }
 
@@ -1054,10 +1099,26 @@ bool SampRakHooks::HandleIncomingRpc(void* self, unsigned char* data, int length
         return false;
     }
 
+    if (PayloadMatchesOriginal(payloadBytes, bitsData, payloadBitStream)) {
+        return incomingRpcOriginal_(self, data, length, playerId);
+    }
+
+    const int payloadBitsUsed = payloadBitStream.GetNumberOfBitsUsed();
+    constexpr int kMaxSafeRepackedPayloadBits = std::numeric_limits<int>::max() / 2 - 64;
+    if (payloadBitsUsed < 0
+        || payloadBitsUsed > kMaxSafeRepackedPayloadBits
+        || (payloadBitsUsed > 0 && payloadBitStream.GetData() == nullptr)) {
+        debuglog::WriteError(
+            "SampRakHooks::HandleIncomingRpc rejected invalid modified payload rpc=%u bits=%d",
+            static_cast<unsigned int>(rpcId),
+            payloadBitsUsed);
+        return incomingRpcOriginal_(self, data, length, playerId);
+    }
+
     wrapper.SetWriteOffset(rpcHeaderOffset);
     wrapper.Write(rpcId);
 
-    bitsData = static_cast<std::uint32_t>(payloadBitStream.GetNumberOfBitsUsed());
+    bitsData = static_cast<std::uint32_t>(payloadBitsUsed);
     wrapper.WriteCompressed(bitsData);
     if (bitsData > 0) {
         wrapper.WriteBits(payloadBitStream.GetData(), static_cast<int>(bitsData));
