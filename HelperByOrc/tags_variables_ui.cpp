@@ -429,7 +429,7 @@ void TagsModule::Impl::DrawBindSelectorBuilderPopup(const std::function<void(std
             tokenAction(generated);
         } else {
             ImGui::SetClipboardText(generated.c_str());
-            NotifySuccess(ui.Text(UiText::ToastClipboardCopied), 1400.0);
+            NotifyClipboardSuccess(ui.Text(UiText::ToastClipboardCopied), 1400.0);
         }
         ImGui::CloseCurrentPopup();
     }

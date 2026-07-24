@@ -171,6 +171,9 @@
     <ClCompile Include="native_file_dialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="notification_center.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="notification_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -405,6 +408,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="native_file_dialog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="notification_center.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="notification_manager.h">

@@ -2272,6 +2272,7 @@ void ModApp::Tick() {
 
     RefreshSampGate();
     arizonaCefDialogs_.Tick();
+    notifications_.Tick();
 
     UpdateOverlayCursorMode();
 }
@@ -2962,6 +2963,9 @@ void ModApp::DrawSettingsNotificationsSection() {
         settings.enabled = enabled;
         changed = true;
     }
+    if (!settings.enabled) {
+        ImGui::TextWrapped("%s", ui.Text(UiText::SettingsNotificationsDisabledHint));
+    }
 
     ImGui::Spacing();
     ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsChannel));
@@ -2977,6 +2981,10 @@ void ModApp::DrawSettingsNotificationsSection() {
         settings.channel = NotificationChannel::Log;
         changed = true;
     }
+    if (settings.channel == NotificationChannel::Log) {
+        ImGui::TextWrapped("%s", ui.Text(UiText::SettingsNotificationsLogHint));
+    }
+    ImGui::TextWrapped("%s", ui.Text(UiText::SettingsNotificationsForcedHint));
 
     ImGui::Spacing();
     ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsGroups));
@@ -2987,7 +2995,9 @@ void ModApp::DrawSettingsNotificationsSection() {
         { NotificationGroup::BinderErrors, UiText::SettingsNotificationsGroupBinderErrors },
         { NotificationGroup::TagErrors, UiText::SettingsNotificationsGroupTagErrors },
         { NotificationGroup::SampDialogErrors, UiText::SettingsNotificationsGroupSampDialogErrors },
-        { NotificationGroup::Success, UiText::SettingsNotificationsGroupSuccess },
+        { NotificationGroup::BinderSuccess, UiText::SettingsNotificationsGroupBinderSuccess },
+        { NotificationGroup::TagSuccess, UiText::SettingsNotificationsGroupTagSuccess },
+        { NotificationGroup::ClipboardSuccess, UiText::SettingsNotificationsGroupClipboardSuccess },
         { NotificationGroup::Confirmation, UiText::SettingsNotificationsGroupConfirmation },
         { NotificationGroup::BinderEvents, UiText::SettingsNotificationsGroupBinderEvents },
     };
@@ -3011,6 +3021,10 @@ void ModApp::DrawSettingsNotificationsSection() {
         ImGui::EndTable();
     }
 
+    const bool popupSettingsDisabled = settings.channel == NotificationChannel::Log;
+    if (popupSettingsDisabled) {
+        ImGui::BeginDisabled();
+    }
     ImGui::Spacing();
     ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsPosition));
     const NotificationPosition positions[] = {
@@ -3068,6 +3082,9 @@ void ModApp::DrawSettingsNotificationsSection() {
     if (ImGui::SliderFloat(ui.Text(UiText::SettingsNotificationsOpacity), &settings.opacity, 0.20f, 1.0f, "%.2f")) {
         changed = true;
     }
+    if (popupSettingsDisabled) {
+        ImGui::EndDisabled();
+    }
 
     ImGui::Spacing();
     ImGui::SeparatorText(ui.Text(UiText::SettingsNotificationsAntiFlood));
@@ -3086,16 +3103,40 @@ void ModApp::DrawSettingsNotificationsSection() {
         changed = true;
     }
 
+    ImGui::Spacing();
+    bool testCurrentChannel = false;
+    bool previewOsd = false;
+    const int actionColumns = ImGui::GetContentRegionAvail().x < Scale(620.0f) ? 1 : 3;
+    if (ImGui::BeginTable(
+            "##settings_notification_actions",
+            actionColumns,
+            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableNextColumn();
+        testCurrentChannel =
+            ImGui::Button(ui.Text(UiText::SettingsNotificationsTest), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TableNextColumn();
+        previewOsd =
+            ImGui::Button(ui.Text(UiText::SettingsNotificationsPreviewOsd), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TableNextColumn();
+        if (ImGui::Button(ui.Text(UiText::SettingsNotificationsReset), ImVec2(-FLT_MIN, 0.0f))) {
+            settings = NotificationSettings{};
+            changed = true;
+        }
+        ImGui::EndTable();
+    }
+
     if (changed) {
         notifications_.ApplySettings(settings);
     }
-
-    ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::SettingsNotificationsTest))) {
-        notifications_.Notify(
-            NotificationGroup::Success,
-            NotificationSeverity::Success,
+    if (testCurrentChannel) {
+        notifications_.TestCurrentChannel(
             ui.Text(UiText::SettingsNotificationsTestText),
+            settings.durationMs);
+    }
+    if (previewOsd) {
+        notifications_.ShowUserPopup(
+            ui.Text(UiText::SettingsNotificationsPreviewText),
+            NotificationSeverity::Success,
             settings.durationMs);
     }
 }
@@ -3136,6 +3177,7 @@ void ModApp::DrawSettingsProfilesSection() {
 
     const auto flushShellBeforeProfileChange = [&]() {
         SaveShellStateIfDirty();
+        notifications_.FlushPendingSettings();
         binder_.FlushPendingSaves();
         hud_.FlushPendingSaves();
         AppConfig::Instance().ProcessPendingWrites();
@@ -3516,6 +3558,20 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
     }
     const bool quickMenuActive = binder_.IsQuickMenuOpen();
     hud_.SetPlacementInputBlocked(quickMenuActive);
+
+    const bool notificationOnly = !showMainWindow
+        && notifications_.WantsOverlayRender()
+        && !hud_.WantsOverlayRender()
+        && !binder_.WantsOverlayRender();
+    if (notificationOnly) {
+        const double stageBeginMs = UiPerfNowMs();
+        notifications_.DrawOverlay();
+        perf.notificationsMs = UiPerfNowMs() - stageBeginMs;
+        perf.totalMs = UiPerfNowMs() - renderBeginMs;
+        perf.mainWindowShellMs = std::max(0.0, perf.totalMs - perf.notificationsMs);
+        AccumulateRenderUiPerf(perf);
+        return;
+    }
 
     double stageBeginMs = UiPerfNowMs();
     hud_.DrawOverlay(device);

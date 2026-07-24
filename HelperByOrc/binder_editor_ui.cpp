@@ -479,7 +479,7 @@ bool BinderModule::Impl::CopyTextToClipboard(std::string_view text, bool showSuc
 
     if (showSuccessToast) {
         Notify(
-            NotificationGroup::Success,
+            NotificationGroup::ClipboardSuccess,
             NotificationSeverity::Success,
             UiSettings::Instance().Text(UiText::ToastClipboardCopied),
             1400.0);
@@ -1917,7 +1917,7 @@ void BinderModule::Impl::DrawEditorInline() {
             std::vector<std::string> errors;
             if (ValidateEditor(errors)) {
                 SaveEditor();
-                Notify(NotificationGroup::Success, NotificationSeverity::Success, ui.Text(UiText::ToastBindSaved), 1800.0);
+                Notify(NotificationGroup::BinderSuccess, NotificationSeverity::Success, ui.Text(UiText::ToastBindSaved), 1800.0);
             } else {
                 for (const std::string& error : errors) {
                     Notify(NotificationGroup::Validation, NotificationSeverity::Error, error, 2800.0);

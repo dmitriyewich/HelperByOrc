@@ -881,7 +881,7 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinSaveDialogFunctionTag
         if (savedPath.empty()) {
             savedPath = WideToMultiByte(targetPath.filename().native(), CP_UTF8);
         }
-        NotifySuccess(
+        NotifyTagSuccess(
             UiSettings::Instance().Format(UiText::ToastSaveDialogSuccess, savedPath.c_str()),
             2800.0);
     }

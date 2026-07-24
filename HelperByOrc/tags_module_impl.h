@@ -532,7 +532,8 @@ public:
     void ClearPendingDialogWait(std::uint64_t runtimeId);
     void NotifyTagError(std::string_view text, double durationMs = 2800.0) const;
     void NotifyDialogError(std::string_view text, double durationMs = 2800.0) const;
-    void NotifySuccess(std::string_view text, double durationMs = 2200.0) const;
+    void NotifyTagSuccess(std::string_view text, double durationMs = 2200.0) const;
+    void NotifyClipboardSuccess(std::string_view text, double durationMs = 2200.0) const;
     void QueuePendingKeyHoldWait(std::uint64_t runtimeId, unsigned int keyCode, std::uint64_t releaseAtMs) const;
     void ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) const;
     bool HasPendingDialogWait(std::uint64_t runtimeId) const;

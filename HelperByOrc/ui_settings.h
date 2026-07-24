@@ -976,15 +976,20 @@
     X(SettingsDiagnosticsIntro, "Пути, журнал и runtime-состояние для поиска проблем.", "Paths, log, and runtime state for troubleshooting.") \
     X(SettingsNotificationsEnabled, "Включить системные уведомления", "Enable system notifications") \
     X(SettingsNotificationsChannel, "Канал", "Channel") \
-    X(SettingsNotificationsChannelPopup, "Окно", "Popup") \
+    X(SettingsNotificationsChannelPopup, "Экранный OSD", "Screen OSD") \
     X(SettingsNotificationsChannelLog, "Лог", "Log") \
+    X(SettingsNotificationsDisabledHint, "Системные группы отключены. Ошибки проверки данных и явный шаг бинда «Уведомление» всё равно показываются в OSD.", "System groups are disabled. Validation errors and the explicit Bind Notification step are still shown in the OSD.") \
+    X(SettingsNotificationsLogHint, "Параметры экранного OSD не применяются, пока выбран канал «Лог».", "Screen OSD options do not apply while the Log channel is selected.") \
+    X(SettingsNotificationsForcedHint, "Ошибки проверки данных и явный шаг бинда «Уведомление» всегда используют неинтерактивный OSD.", "Validation errors and the explicit Bind Notification step always use the non-interactive OSD.") \
     X(SettingsNotificationsGroups, "Группы уведомлений", "Notification groups") \
     X(SettingsNotificationsGroupBinderErrors, "Ошибки биндов и отправки", "Bind and send errors") \
     X(SettingsNotificationsGroupTagErrors, "Ошибки тегов", "Tag errors") \
-    X(SettingsNotificationsGroupSampDialogErrors, "Ошибки диалогов SA:MP", "SA:MP dialog errors") \
-    X(SettingsNotificationsGroupSuccess, "Успешные действия", "Successful actions") \
+    X(SettingsNotificationsGroupSampDialogErrors, "Ошибки диалогов SA:MP и Arizona", "SA:MP and Arizona dialog errors") \
+    X(SettingsNotificationsGroupBinderSuccess, "Успешные действия биндов", "Successful bind actions") \
+    X(SettingsNotificationsGroupTagSuccess, "Успешные действия тегов", "Successful tag actions") \
+    X(SettingsNotificationsGroupClipboardSuccess, "Копирование в буфер обмена", "Clipboard copies") \
     X(SettingsNotificationsGroupConfirmation, "Подтверждения и отмены", "Confirmations and cancels") \
-    X(SettingsNotificationsGroupBinderEvents, "События", "Events") \
+    X(SettingsNotificationsGroupBinderEvents, "Пауза и продолжение биндов", "Bind pause and resume") \
     X(SettingsNotificationsPosition, "Позиция", "Position") \
     X(SettingsNotificationsPositionTopLeft, "Сверху слева", "Top left") \
     X(SettingsNotificationsPositionTopCenter, "Сверху по центру", "Top center") \
@@ -999,14 +1004,17 @@
     X(SettingsNotificationsOffsetY, "Отступ Y", "Offset Y") \
     X(SettingsNotificationsDisplay, "Отображение", "Display") \
     X(SettingsNotificationsDurationMs, "Время показа, мс", "Duration, ms") \
-    X(SettingsNotificationsWidth, "Ширина окна", "Popup width") \
-    X(SettingsNotificationsOpacity, "Прозрачность", "Opacity") \
+    X(SettingsNotificationsWidth, "Ширина карточки", "Card width") \
+    X(SettingsNotificationsOpacity, "Непрозрачность фона", "Background opacity") \
     X(SettingsNotificationsAntiFlood, "Антифлуд", "Anti-flood") \
     X(SettingsNotificationsDedupeMs, "Схлопывать повторы, мс", "Collapse repeats, ms") \
     X(SettingsNotificationsMaxVisible, "Максимум на экране", "Max visible") \
     X(SettingsNotificationsMaxQueue, "Максимум в очереди", "Max queued") \
-    X(SettingsNotificationsTest, "Тестовое уведомление", "Test notification") \
-    X(SettingsNotificationsTestText, "Тестовое уведомление HelperByOrc.", "HelperByOrc test notification.") \
+    X(SettingsNotificationsTest, "Проверить текущий канал", "Test current channel") \
+    X(SettingsNotificationsTestText, "Проверка текущего канала уведомлений HelperByOrc.", "Testing the current HelperByOrc notification channel.") \
+    X(SettingsNotificationsPreviewOsd, "Предпросмотр OSD", "Preview OSD") \
+    X(SettingsNotificationsPreviewText, "Предпросмотр экранного OSD HelperByOrc.", "HelperByOrc screen OSD preview.") \
+    X(SettingsNotificationsReset, "Сбросить уведомления", "Reset notifications") \
     X(SettingsSummaryProfile, "Профиль", "Profile") \
     X(SettingsSummaryLanguage, "Язык", "Language") \
     X(SettingsSummaryMainWindow, "Главное окно", "Main window") \

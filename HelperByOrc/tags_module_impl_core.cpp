@@ -133,10 +133,18 @@ void TagsModule::Impl::NotifyDialogError(std::string_view text, double durationM
     notificationManager_->Notify(NotificationGroup::SampDialogErrors, NotificationSeverity::Error, text, durationMs);
 }
 
-void TagsModule::Impl::NotifySuccess(std::string_view text, double durationMs) const {
+void TagsModule::Impl::NotifyTagSuccess(std::string_view text, double durationMs) const {
     if (!notificationManager_ || text.empty()) {
         return;
     }
 
-    notificationManager_->Notify(NotificationGroup::Success, NotificationSeverity::Success, text, durationMs);
+    notificationManager_->Notify(NotificationGroup::TagSuccess, NotificationSeverity::Success, text, durationMs);
+}
+
+void TagsModule::Impl::NotifyClipboardSuccess(std::string_view text, double durationMs) const {
+    if (!notificationManager_ || text.empty()) {
+        return;
+    }
+
+    notificationManager_->Notify(NotificationGroup::ClipboardSuccess, NotificationSeverity::Success, text, durationMs);
 }
