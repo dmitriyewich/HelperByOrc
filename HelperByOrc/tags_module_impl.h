@@ -80,6 +80,25 @@ public:
     std::vector<variables_picker::Entry> BuildVariablePickerEntriesForInsert() const;
     void HandleVariablePickerUtilityRequest(const variables_picker::Request& request);
 
+    struct TransparentStringHash {
+        using is_transparent = void;
+
+        std::size_t operator()(std::string_view value) const noexcept {
+            return std::hash<std::string_view>{}(value);
+        }
+    };
+
+    struct TransparentStringEqual {
+        using is_transparent = void;
+
+        bool operator()(std::string_view left, std::string_view right) const noexcept {
+            return left == right;
+        }
+    };
+
+    using StringIndexMap =
+        std::unordered_map<std::string, std::size_t, TransparentStringHash, TransparentStringEqual>;
+
     struct TagEntry {
         using SimpleResolver = std::function<std::optional<std::string>(const Impl&, const EvaluationContext&)>;
         using FunctionResolver =
@@ -123,8 +142,8 @@ public:
 
     private:
         std::vector<TagEntry> entries_{};
-        std::unordered_map<std::string, std::size_t> simpleIndex_{};
-        std::unordered_map<std::string, std::size_t> functionIndex_{};
+        StringIndexMap simpleIndex_{};
+        StringIndexMap functionIndex_{};
     };
 
     enum class MiscPage {
@@ -272,9 +291,12 @@ public:
         ClosestPlayerQueryResult lastLoggedResult{};
         ClosestPlayerDetails nearestDetails{};
         ClosestPlayerDetails driverDetails{};
+        std::uint64_t tickGeneration = 0;
         std::uint64_t updatedAtMs = 0;
         std::uint64_t lastSlowLogAtMs = 0;
         std::uintptr_t localPed = 0;
+        int viewportWidth = 0;
+        int viewportHeight = 0;
         int localId = -1;
         bool valid = false;
         bool snapshotLogged = false;
@@ -310,6 +332,7 @@ public:
         std::string speed{};
         std::string window{};
         MyCarOccupantCollectStats occupantStats{};
+        std::uint64_t tickGeneration = 0;
         std::uint64_t updatedAtMs = 0;
         std::uint64_t lastSlowLogAtMs = 0;
         std::uintptr_t localPed = 0;
@@ -376,24 +399,8 @@ public:
 
     struct ClipboardCache {
         std::string text{};
-        std::uint64_t updatedAtMs = 0;
+        std::uint32_t sequenceNumber = 0;
         bool valid = false;
-    };
-
-    struct TransparentStringHash {
-        using is_transparent = void;
-
-        std::size_t operator()(std::string_view value) const noexcept {
-            return std::hash<std::string_view>{}(value);
-        }
-    };
-
-    struct TransparentStringEqual {
-        using is_transparent = void;
-
-        bool operator()(std::string_view left, std::string_view right) const noexcept {
-            return left == right;
-        }
     };
 
     using TransliterationDictionaryMap =
@@ -444,6 +451,7 @@ public:
     };
 
     struct TagExpansionTrace {
+        bool telemetryEnabled = false;
         TagPerfSource source = TagPerfSource::Unknown;
         std::size_t inputBytes = 0;
         std::size_t outputBytes = 0;
@@ -873,6 +881,7 @@ public:
     static std::string ExtractName(std::string_view nick);
     static std::string ExtractSurname(std::string_view nick);
 
+    static std::string_view TrimView(std::string_view value);
     static std::string Trim(std::string_view value);
     static std::string ToLower(std::string_view value);
     static bool StartsWith(std::string_view value, std::string_view prefix);
@@ -895,7 +904,7 @@ private:
     std::vector<CatalogEntry> builtinCatalogEntries_{};
     mutable std::vector<CatalogEntry> catalogEntries_{};
     std::vector<std::pair<std::string, std::string>> customVariables_{};
-    std::unordered_map<std::string, std::size_t> customVariableIndex_{};
+    StringIndexMap customVariableIndex_{};
     std::uint64_t catalogEntriesRevision_ = 0;
     std::uint64_t customVariablesRevision_ = 0;
     mutable std::uint64_t codeCatalogRevision_ = 0;
@@ -913,6 +922,7 @@ private:
     mutable std::vector<PendingArzDialogQueryWait> pendingArzDialogQueryWaits_{};
     mutable std::vector<ReadyArzDialogQuery> readyArzDialogQueries_{};
     mutable std::vector<std::uint64_t> blockedCurrentDispatchRuntimes_{};
+    std::uint64_t tickGeneration_ = 1;
     mutable ClosestPlayerCache closestPlayerCache_{};
     mutable ClosestPlayerPerfStats closestPlayerPerfStats_{};
     mutable PlayerNamePerfStats playerNamePerfStats_{};

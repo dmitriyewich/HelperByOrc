@@ -3295,7 +3295,7 @@ struct HudModule::Impl {
     }
 
     std::string ExpandText(std::string_view source) const {
-        return tagsModule ? tagsModule->ExpandHudText(std::string(source)) : std::string(source);
+        return tagsModule ? tagsModule->ExpandHudText(source) : std::string(source);
     }
 
     bool StaticCacheHit(const HudElement& element, std::string_view source) const {

@@ -39,6 +39,25 @@ double TagsPerfNowMs() {
     return static_cast<double>(counter.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart);
 }
 
+std::string_view NormalizeTagNameView(std::string_view value, std::string& storage) {
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const unsigned char ch = static_cast<unsigned char>(value[i]);
+        const char lowered = static_cast<char>(std::tolower(ch));
+        if (lowered == value[i]) {
+            continue;
+        }
+
+        storage.assign(value.substr(0, i));
+        storage.reserve(value.size());
+        storage.push_back(lowered);
+        for (++i; i < value.size(); ++i) {
+            storage.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(value[i]))));
+        }
+        return storage;
+    }
+    return value;
+}
+
 bool MightContainAnyTag(std::string_view text) {
     return text.find('{') != std::string_view::npos || text.find('[') != std::string_view::npos;
 }
@@ -470,15 +489,17 @@ void TagsModule::Impl::MaybeLogExternalTagPerf(std::uint64_t nowMs) const {
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveSimpleTag(std::string_view name, const EvaluationContext& context) const {
-    return ResolveSimpleTagNormalized(ToLower(name), context, nullptr);
+    std::string normalizedStorage;
+    return ResolveSimpleTagNormalized(NormalizeTagNameView(name, normalizedStorage), context, nullptr);
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveSimpleTagNormalized(
     std::string_view normalizedName,
     const EvaluationContext& context,
     TagExpansionTrace* trace) const {
-    if (const auto customIt = customVariableIndex_.find(std::string(normalizedName)); customIt != customVariableIndex_.end()) {
-        if (trace) {
+    const bool telemetryEnabled = trace && trace->telemetryEnabled;
+    if (const auto customIt = customVariableIndex_.find(normalizedName); customIt != customVariableIndex_.end()) {
+        if (telemetryEnabled) {
             ++trace->customTags;
             RecordTagGroup(*trace, TagPerfGroup::Custom);
         }
@@ -487,44 +508,42 @@ std::optional<std::string> TagsModule::Impl::ResolveSimpleTagNormalized(
 
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Simple, normalizedName);
         entry && entry->simpleResolver) {
-        if (trace) {
+        if (telemetryEnabled) {
             const bool action = entry->action;
             if (action) {
                 ++trace->actionTags;
             }
             RecordTagGroup(*trace, ClassifyTagPerfGroup(normalizedName, action));
         }
-        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
         const std::optional<std::string> resolved = entry->simpleResolver(*this, context);
-        if (trace) {
+        if (telemetryEnabled) {
             RecordHotTag(*trace, TagKind::Simple, entry->name, TagsPerfNowMs() - resolverBeginMs);
         }
         return resolved;
     }
 
-    if (codevars::Runtime::Instance().HasActive(codevars::VariableKind::Simple, normalizedName)) {
-        bool action = false;
-        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
-        const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
-            codevars::VariableKind::Simple,
-            normalizedName,
-            {},
-            context,
-            trace ? &trace->codeCache : nullptr,
-            &action);
-        if (codeValue.has_value()) {
-            if (trace) {
-                if (action) {
-                    ++trace->actionTags;
-                }
-                RecordTagGroup(*trace, TagPerfGroup::Code);
-                RecordHotTag(*trace, TagKind::Simple, normalizedName, TagsPerfNowMs() - resolverBeginMs);
+    bool action = false;
+    const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
+    const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
+        codevars::VariableKind::Simple,
+        normalizedName,
+        {},
+        context,
+        trace ? &trace->codeCache : nullptr,
+        &action);
+    if (codeValue.has_value()) {
+        if (telemetryEnabled) {
+            if (action) {
+                ++trace->actionTags;
             }
-            return codeValue;
+            RecordTagGroup(*trace, TagPerfGroup::Code);
+            RecordHotTag(*trace, TagKind::Simple, normalizedName, TagsPerfNowMs() - resolverBeginMs);
         }
+        return codeValue;
     }
 
-    if (trace) {
+    if (telemetryEnabled) {
         ++trace->unresolvedTags;
     }
     return std::nullopt;
@@ -536,9 +555,10 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
     const EvaluationContext& context,
     int depth,
     TagExpansionTrace* trace) const {
+    const bool telemetryEnabled = trace && trace->telemetryEnabled;
     if (const TagEntry* entry = tagRegistry_.Find(TagKind::Function, name);
         entry && entry->functionResolver) {
-        if (trace) {
+        if (telemetryEnabled) {
             const bool action = entry->action;
             if (action) {
                 ++trace->actionTags;
@@ -549,47 +569,63 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
             || name == "arzdialogsetinputtext" || name == "arzdialogsendrespond";
         std::optional<std::string> resolved;
         if (rawParam) {
-            const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+            const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
             resolved = entry->functionResolver(*this, param, context, depth);
-            if (trace) {
+            if (telemetryEnabled) {
                 RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
             }
             return resolved;
         }
 
         const std::string expandedParam = ExpandTextRecursive(param, context, depth + 1, trace);
-        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
+        const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
         resolved = entry->functionResolver(*this, expandedParam, context, depth);
-        if (trace) {
+        if (telemetryEnabled) {
             RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
         }
         return resolved;
     }
 
-    if (codevars::Runtime::Instance().HasActive(codevars::VariableKind::Function, name)) {
-        const std::string expandedParam = ExpandTextRecursive(param, context, depth + 1, trace);
-        bool action = false;
-        const double resolverBeginMs = trace ? TagsPerfNowMs() : 0.0;
-        const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
-            codevars::VariableKind::Function,
-            name,
-            expandedParam,
-            context,
-            trace ? &trace->codeCache : nullptr,
-            &action);
-        if (codeValue.has_value()) {
-            if (trace) {
-                if (action) {
-                    ++trace->actionTags;
-                }
-                RecordTagGroup(*trace, TagPerfGroup::Code);
-                RecordHotTag(*trace, TagKind::Function, name, TagsPerfNowMs() - resolverBeginMs);
+    bool action = false;
+    const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
+    struct DeferredExpansion {
+        const Impl* module = nullptr;
+        std::string_view parameter{};
+        const EvaluationContext* context = nullptr;
+        int depth = 0;
+        TagExpansionTrace* trace = nullptr;
+    };
+    const DeferredExpansion deferredExpansion{this, param, &context, depth, trace};
+    const std::optional<std::string> codeValue = codevars::Runtime::Instance().Resolve(
+        codevars::VariableKind::Function,
+        name,
+        {},
+        context,
+        trace ? &trace->codeCache : nullptr,
+        &action,
+        codevars::DeferredParameter{
+            &deferredExpansion,
+            [](const void* rawContext) {
+                const auto& deferred = *static_cast<const DeferredExpansion*>(rawContext);
+                return deferred.module->ExpandTextRecursive(
+                    deferred.parameter,
+                    *deferred.context,
+                    deferred.depth + 1,
+                    deferred.trace);
+            },
+        });
+    if (codeValue.has_value()) {
+        if (telemetryEnabled) {
+            if (action) {
+                ++trace->actionTags;
             }
-            return codeValue;
+            RecordTagGroup(*trace, TagPerfGroup::Code);
+            RecordHotTag(*trace, TagKind::Function, name, TagsPerfNowMs() - resolverBeginMs);
         }
+        return codeValue;
     }
 
-    if (trace) {
+    if (telemetryEnabled) {
         ++trace->unresolvedTags;
     }
     return std::nullopt;
@@ -647,13 +683,14 @@ std::string TagsModule::Impl::ExpandSimpleTags(
             continue;
         }
 
-        if (trace) {
+        if (trace && trace->telemetryEnabled) {
             ++trace->simpleTags;
         }
-        const std::string normalizedName = ToLower(name);
+        std::string normalizedStorage;
+        const std::string_view normalizedName = NormalizeTagNameView(name, normalizedStorage);
         CursorTarget cursorTarget = CursorTarget::SampChat;
         if (TryGetCursorTarget(normalizedName, cursorTarget)) {
-            if (trace) {
+            if (trace && trace->telemetryEnabled) {
                 RecordTagGroup(*trace, TagPerfGroup::Action);
             }
             RecordCursorMarker(cursorTarget, output, context);
@@ -711,13 +748,14 @@ std::string TagsModule::Impl::ExpandFunctionTags(
         }
         if (openParen < text.size() && text[openParen] == ']') {
             const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
-            const std::string normalizedName = ToLower(name);
-            if (trace) {
+            std::string normalizedStorage;
+            const std::string_view normalizedName = NormalizeTagNameView(name, normalizedStorage);
+            if (trace && trace->telemetryEnabled) {
                 ++trace->functionTags;
             }
             CursorTarget cursorTarget = CursorTarget::SampChat;
             if (TryGetCursorTarget(normalizedName, cursorTarget)) {
-                if (trace) {
+                if (trace && trace->telemetryEnabled) {
                     RecordTagGroup(*trace, TagPerfGroup::Action);
                 }
                 pos = openParen + 1;
@@ -758,13 +796,14 @@ std::string TagsModule::Impl::ExpandFunctionTags(
 
         const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
         const std::string_view rawParam = text.substr(openParen + 1, cursor - openParen - 1);
-        const std::string normalizedName = ToLower(name);
-        if (trace) {
+        std::string normalizedStorage;
+        const std::string_view normalizedName = NormalizeTagNameView(name, normalizedStorage);
+        if (trace && trace->telemetryEnabled) {
             ++trace->functionTags;
         }
         CursorTarget cursorTarget = CursorTarget::SampChat;
         if (TryGetCursorTarget(normalizedName, cursorTarget)) {
-            if (trace) {
+            if (trace && trace->telemetryEnabled) {
                 RecordTagGroup(*trace, TagPerfGroup::Action);
             }
             if (const std::optional<std::pair<int, int>> range = ParseCursorFunctionRange(rawParam); range.has_value()) {
@@ -800,18 +839,22 @@ std::string TagsModule::Impl::ExpandTextRecursive(
     int depth,
     TagExpansionTrace* trace) const {
     if (depth > kRecursionLimit) {
-        if (trace) {
+        if (trace && trace->telemetryEnabled) {
             ++trace->recursionLimitHits;
         }
         return std::string(text);
     }
-    if (trace) {
+    if (trace && trace->telemetryEnabled) {
         trace->maxDepth = std::max(trace->maxDepth, depth);
     }
 
-    const std::string withFunctions = text.find('[') == std::string_view::npos
-        ? std::string(text)
-        : ExpandFunctionTags(text, context, depth, trace);
+    if (text.find('[') == std::string_view::npos) {
+        return text.find('{') == std::string_view::npos
+            ? std::string(text)
+            : ExpandSimpleTags(text, context, trace);
+    }
+
+    const std::string withFunctions = ExpandFunctionTags(text, context, depth, trace);
     if (withFunctions.find('{') == std::string::npos) {
         return withFunctions;
     }
@@ -882,6 +925,10 @@ std::string TagsModule::Impl::ExpandText(std::string_view text, const Evaluation
     }
 
     TagExpansionTrace trace;
+    trace.telemetryEnabled = debuglog::GetLevel() == debuglog::Level::Info;
+    if (!trace.telemetryEnabled) {
+        return ExpandTextRecursive(text, effective, 0, &trace);
+    }
     trace.source = ResolveTagPerfSource(effective);
     trace.inputBytes = text.size();
     const double beginMs = TagsPerfNowMs();
@@ -910,6 +957,11 @@ TagsModule::Impl::ExpandedText TagsModule::Impl::ExpandTextWithCursorIntents(
     }
 
     TagExpansionTrace trace;
+    trace.telemetryEnabled = debuglog::GetLevel() == debuglog::Level::Info;
+    if (!trace.telemetryEnabled) {
+        result.text = ExpandTextRecursive(text, effective, 0, &trace);
+        return result;
+    }
     trace.source = ResolveTagPerfSource(effective);
     trace.inputBytes = text.size();
     const double beginMs = TagsPerfNowMs();

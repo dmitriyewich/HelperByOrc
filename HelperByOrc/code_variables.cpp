@@ -209,14 +209,21 @@ std::uint64_t MakeContextDiscriminator(const TagsModule::EvaluationContext& cont
     return hash;
 }
 
-std::string MakeVariableKey(VariableKind kind, std::string_view normalizedName) {
-    std::string key;
-    key.reserve(normalizedName.size() + 2);
-    key.push_back(kind == VariableKind::Simple ? 's' : 'f');
-    key.push_back(':');
-    key.append(normalizedName);
-    return key;
-}
+struct TransparentStringHash {
+    using is_transparent = void;
+
+    std::size_t operator()(std::string_view value) const noexcept {
+        return std::hash<std::string_view>{}(value);
+    }
+};
+
+struct TransparentStringEqual {
+    using is_transparent = void;
+
+    bool operator()(std::string_view left, std::string_view right) const noexcept {
+        return left == right;
+    }
+};
 
 } // namespace
 
@@ -271,12 +278,19 @@ public:
         double hudMaxMs = 0.0;
     };
 
+    using ActiveIndex = std::unordered_map<
+        std::string,
+        std::shared_ptr<VariableRecord>,
+        TransparentStringHash,
+        TransparentStringEqual>;
+
     mutable std::mutex mutex{};
     fs::path luaRoot{};
     std::unordered_map<std::string, std::unique_ptr<ProviderRecord>> providers{};
     std::vector<std::string> providerOrder{};
     std::vector<std::shared_ptr<VariableRecord>> variables{};
-    std::unordered_map<std::string, std::shared_ptr<VariableRecord>> activeIndex{};
+    ActiveIndex activeSimpleIndex{};
+    ActiveIndex activeFunctionIndex{};
     std::unordered_set<std::string> reservedSimpleNames{};
     std::unordered_set<std::string> reservedFunctionNames{};
     mutable std::unordered_map<std::string, CacheEntry> persistentCache{};
@@ -362,7 +376,8 @@ public:
     }
 
     void RebuildIndexLocked() {
-        activeIndex.clear();
+        activeSimpleIndex.clear();
+        activeFunctionIndex.clear();
         std::unordered_map<std::string, std::size_t> nameClaims;
         nameClaims.reserve(variables.size());
         for (const std::shared_ptr<VariableRecord>& variable : variables) {
@@ -420,7 +435,10 @@ public:
                 continue;
             }
             variable->active = true;
-            activeIndex[MakeVariableKey(variable->registration.kind, variable->normalizedName)] = variable;
+            ActiveIndex& activeIndex = variable->registration.kind == VariableKind::Simple
+                ? activeSimpleIndex
+                : activeFunctionIndex;
+            activeIndex[variable->normalizedName] = variable;
             ++activeCount;
         }
 
@@ -444,7 +462,8 @@ public:
         providers.clear();
         providerOrder.clear();
         variables.clear();
-        activeIndex.clear();
+        activeSimpleIndex.clear();
+        activeFunctionIndex.clear();
         persistentCache.clear();
         lastGood.clear();
         ++catalogRevision;
@@ -804,10 +823,8 @@ std::optional<std::string> Runtime::Resolve(
     std::string_view parameter,
     const TagsModule::EvaluationContext& context,
     ExpansionCache* expansionCache,
-    bool* action) const {
-    if (parameter.size() > kMaxParameterBytes) {
-        return std::nullopt;
-    }
+    bool* action,
+    DeferredParameter deferredParameter) const {
     const double lookupBeginMs = PerfNowMs();
 
     const DWORD currentThread = GetCurrentThreadId();
@@ -815,6 +832,13 @@ std::optional<std::string> Runtime::Resolve(
     bool sampReady = false;
     {
         std::lock_guard lock(impl_->mutex);
+        const Impl::ActiveIndex& activeIndex = kind == VariableKind::Simple
+            ? impl_->activeSimpleIndex
+            : impl_->activeFunctionIndex;
+        const auto indexIt = activeIndex.find(normalizedName);
+        if (indexIt == activeIndex.end()) {
+            return std::nullopt;
+        }
         if (impl_->ownerThreadId == 0 || currentThread != impl_->ownerThreadId) {
             ++impl_->perf.threadRejects;
             const std::uint64_t now = GetTickCount64();
@@ -827,16 +851,21 @@ std::optional<std::string> Runtime::Resolve(
             }
             return std::nullopt;
         }
-        const auto indexIt = impl_->activeIndex.find(MakeVariableKey(kind, normalizedName));
-        if (indexIt == impl_->activeIndex.end()) {
-            return std::nullopt;
-        }
         variable = indexIt->second;
         const auto providerIt = impl_->providers.find(variable->registration.providerId);
         if (providerIt == impl_->providers.end() || providerIt->second->status.state != ProviderState::Ready) {
             return std::nullopt;
         }
         sampReady = impl_->sampReady;
+    }
+
+    std::string deferredParameterStorage;
+    if (deferredParameter.resolve) {
+        deferredParameterStorage = deferredParameter.resolve(deferredParameter.context);
+        parameter = deferredParameterStorage;
+    }
+    if (parameter.size() > kMaxParameterBytes) {
+        return std::nullopt;
     }
 
     const bool isAction = variable->registration.effect == VariableEffect::Action;
@@ -883,14 +912,12 @@ std::optional<std::string> Runtime::Resolve(
         std::lock_guard lock(impl_->mutex);
         const auto it = impl_->persistentCache.find(cacheKey);
         if (it != impl_->persistentCache.end()) {
-            const bool hudHit = hud && now >= it->second.updatedAtMs
-                && now - it->second.updatedAtMs < kHudMinimumRefreshMs;
             const bool ttlHit = variable->registration.cachePolicy == CachePolicy::Ttl
                 && variable->registration.ttlMs > 0
                 && now >= it->second.updatedAtMs
                 && now - it->second.updatedAtMs < variable->registration.ttlMs;
             const bool eventHit = variable->registration.cachePolicy == CachePolicy::Event;
-            if (hudHit || ttlHit || eventHit) {
+            if (ttlHit || eventHit) {
                 const double lookupElapsedMs = PerfNowMs() - lookupBeginMs;
                 ++impl_->perf.cacheHits;
                 ++impl_->perf.lookups;
@@ -962,8 +989,7 @@ std::optional<std::string> Runtime::Resolve(
         if (outcome.ok) {
             variable->consecutiveFailures = 0;
             if (variable->registration.cachePolicy == CachePolicy::Ttl
-                || variable->registration.cachePolicy == CachePolicy::Event
-                || hud) {
+                || variable->registration.cachePolicy == CachePolicy::Event) {
                 impl_->StorePersistentLocked(cacheKey, formatted, now);
             } else {
                 impl_->StoreLastGoodLocked(cacheKey, formatted, now);
@@ -1014,15 +1040,10 @@ std::optional<std::string> Runtime::Resolve(
     return formatted;
 }
 
-bool Runtime::HasActive(VariableKind kind, std::string_view normalizedName) const {
-    std::lock_guard lock(impl_->mutex);
-    return impl_->activeIndex.contains(MakeVariableKey(kind, normalizedName));
-}
-
 std::vector<CatalogVariable> Runtime::Catalog() const {
     std::vector<CatalogVariable> result;
     std::lock_guard lock(impl_->mutex);
-    result.reserve(impl_->activeIndex.size());
+    result.reserve(impl_->activeSimpleIndex.size() + impl_->activeFunctionIndex.size());
     for (const std::shared_ptr<Impl::VariableRecord>& variable : impl_->variables) {
         if (!variable || !variable->active) {
             continue;
@@ -1129,6 +1150,11 @@ std::uint64_t Runtime::Generation() const {
 std::uint32_t Runtime::OwnerThreadId() const {
     std::lock_guard lock(impl_->mutex);
     return impl_->ownerThreadId;
+}
+
+bool Runtime::IsCurrentSession(std::uint32_t ownerThreadId, std::uint64_t generation) const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->ownerThreadId == ownerThreadId && impl_->generation == generation;
 }
 
 bool Runtime::SampReady() const {

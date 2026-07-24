@@ -9,12 +9,11 @@
 #include <game_sa/CWeather.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <cwchar>
-#include <iomanip>
-#include <locale>
 #include <optional>
-#include <sstream>
 #include <vector>
 
 namespace {
@@ -84,10 +83,14 @@ std::string FormatCoordinateValue(float value) {
         value = 0.0f;
     }
 
-    std::ostringstream stream;
-    stream.imbue(std::locale::classic());
-    stream << std::fixed << std::setprecision(2) << value;
-    return stream.str();
+    std::array<char, 64> buffer{};
+    const auto [end, error] = std::to_chars(
+        buffer.data(),
+        buffer.data() + buffer.size(),
+        value,
+        std::chars_format::fixed,
+        2);
+    return error == std::errc{} ? std::string(buffer.data(), end) : std::string();
 }
 
 const char* CityNameRu(eLevelName level) {
@@ -222,21 +225,24 @@ std::string WideToUtf8(std::wstring_view text) {
     return utf8;
 }
 
-std::string ReadClipboardUtf8Text() {
-    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(nullptr)) {
-        return {};
+std::optional<std::string> ReadClipboardUtf8Text() {
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        return std::string();
+    }
+    if (!OpenClipboard(nullptr)) {
+        return std::nullopt;
     }
 
     HANDLE handle = GetClipboardData(CF_UNICODETEXT);
     if (!handle) {
         CloseClipboard();
-        return {};
+        return std::nullopt;
     }
 
     const auto* wideText = static_cast<const wchar_t*>(GlobalLock(handle));
     if (!wideText) {
         CloseClipboard();
-        return {};
+        return std::nullopt;
     }
 
     std::size_t length = 0;
@@ -604,16 +610,13 @@ TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
         vehicleContext ? reinterpret_cast<std::uintptr_t>(vehicleContext->playerPed) : 0;
     const std::uintptr_t vehicleAddress =
         vehicleContext ? reinterpret_cast<std::uintptr_t>(vehicleContext->vehicle) : 0;
-    const std::uint64_t now = GetTickCount64();
-
     if (myCarSnapshotCache_.valid
+        && myCarSnapshotCache_.tickGeneration == tickGeneration_
         && myCarSnapshotCache_.localPed == localPedAddress
         && myCarSnapshotCache_.vehicle == vehicleAddress
         && myCarSnapshotCache_.localId == localId
         && myCarSnapshotCache_.sampReady == sampReady
-        && (!requireOccupants || myCarSnapshotCache_.occupantsResolved)
-        && now >= myCarSnapshotCache_.updatedAtMs
-        && now - myCarSnapshotCache_.updatedAtMs <= kMyCarSnapshotCacheTtlMs) {
+        && (!requireOccupants || myCarSnapshotCache_.occupantsResolved)) {
         RecordMyCarSnapshotPerf(
             true,
             requireOccupants,
@@ -624,9 +627,10 @@ TagsModule::Impl::MyCarSnapshotCache& TagsModule::Impl::QueryMyCarSnapshot(
         return myCarSnapshotCache_;
     }
 
-    const std::uint64_t queryStartedAtMs = now;
+    const std::uint64_t queryStartedAtMs = GetTickCount64();
     MyCarSnapshotCache snapshot;
     snapshot.lastSlowLogAtMs = myCarSnapshotCache_.lastSlowLogAtMs;
+    snapshot.tickGeneration = tickGeneration_;
     snapshot.localPed = localPedAddress;
     snapshot.vehicle = vehicleAddress;
     snapshot.localId = localId;
@@ -1152,14 +1156,33 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinCityEnTag(const Evalu
 }
 
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinClipboardTag(const EvaluationContext&) const {
-    const std::uint64_t now = GetTickCount64();
-    if (clipboardCache_.valid && now - clipboardCache_.updatedAtMs <= kClipboardCacheTtlMs) {
+    const DWORD sequenceBeforeRead = GetClipboardSequenceNumber();
+    if (clipboardCache_.valid
+        && sequenceBeforeRead != 0
+        && clipboardCache_.sequenceNumber == sequenceBeforeRead) {
         return clipboardCache_.text;
     }
 
-    clipboardCache_.text = ReadClipboardUtf8Text();
-    clipboardCache_.updatedAtMs = now;
-    clipboardCache_.valid = true;
+    std::optional<std::string> text = ReadClipboardUtf8Text();
+    if (!text.has_value()) {
+        return std::string();
+    }
+
+    DWORD sequenceAfterRead = GetClipboardSequenceNumber();
+    if (sequenceBeforeRead != 0 && sequenceAfterRead != sequenceBeforeRead) {
+        const DWORD retrySequence = sequenceAfterRead;
+        text = ReadClipboardUtf8Text();
+        if (!text.has_value()) {
+            return std::string();
+        }
+        sequenceAfterRead = GetClipboardSequenceNumber();
+        clipboardCache_.valid = retrySequence != 0 && sequenceAfterRead == retrySequence;
+    } else {
+        clipboardCache_.valid = sequenceAfterRead != 0;
+    }
+
+    clipboardCache_.text = std::move(*text);
+    clipboardCache_.sequenceNumber = sequenceAfterRead;
     return clipboardCache_.text;
 }
 
@@ -1251,8 +1274,6 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarOccupantsTag(
     MyCarOccupantField field,
     const EvaluationContext& context) const {
     MyCarSnapshotCache& snapshot = QueryMyCarSnapshot(context, true);
-    std::vector<std::string> values;
-    values.reserve(snapshot.occupants.size());
     const auto shouldIncludeOccupant = [scope](const MyCarSnapshotOccupant& occupant) {
         switch (scope) {
         case MyCarOccupantScope::Players:
@@ -1276,14 +1297,17 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarOccupantsTag(
         ResolveMyCarOccupantNames(snapshot, context);
     }
 
+    std::string result;
     for (const MyCarSnapshotOccupant& occupant : snapshot.occupants) {
         if (!shouldIncludeOccupant(occupant)) {
             continue;
         }
 
-        std::string value;
+        std::string idValue;
+        std::string_view value;
         if (field == MyCarOccupantField::Id) {
-            value = std::to_string(occupant.id);
+            idValue = std::to_string(occupant.id);
+            value = idValue;
         } else {
             switch (field) {
             case MyCarOccupantField::Name:
@@ -1299,22 +1323,16 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinMyCarOccupantsTag(
                 value = occupant.rpNick;
                 break;
             default:
-                value.clear();
                 break;
             }
         }
 
         if (!value.empty()) {
-            values.push_back(std::move(value));
+            if (!result.empty()) {
+                result += ", ";
+            }
+            result.append(value);
         }
-    }
-
-    std::string result;
-    for (const std::string& value : values) {
-        if (!result.empty()) {
-            result += ", ";
-        }
-        result += value;
     }
     return result;
 }

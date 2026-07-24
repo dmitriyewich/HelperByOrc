@@ -31,106 +31,37 @@ std::pair<bool, int> SampApi::TryResolvePlayerIdByPedFast(const void* ped) {
         return { false, -1 };
     }
 
-    const auto pedAddress = reinterpret_cast<std::uintptr_t>(ped);
-    const int localId = Local_ID();
+    std::uint32_t pool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(pool, localId)) {
+        return { false, -1 };
+    }
+
     if (ped == FindPlayerPed()) {
-        if (localId >= 0 && localId <= kMaxSampPlayerId && IsConnected(localId)) {
+        if (localId >= 0 && IsPlayerConnectedInPool(pool, localId, localId)) {
             return { true, localId };
         }
         return { false, -1 };
     }
 
-    std::uint32_t pool = 0;
-    if (!ResolvePedPool(pool) || pool == 0) {
+    // Frame-sensitive callers must not enter getPedID() or repeat the native lookup with a C++ slot scan.
+    const auto address = GetAddress(main_offsets.ID_Find);
+    if (address == 0) {
         return { false, -1 };
     }
 
-    auto isUsablePlayerId = [&](int id) {
-        return id >= 0 && id <= kMaxSampPlayerId && IsConnected(id);
-    };
-
-    const auto address = GetAddress(main_offsets.ID_Find);
-    if (address != 0) {
-        const auto findId = reinterpret_cast<IdFindFn>(address);
-        std::uint16_t rawId = kInvalidSampPlayerId;
-        if (CallIdFind(findId, reinterpret_cast<void*>(pool), ped, rawId)
-            && rawId != kInvalidSampPlayerId) {
-            const int id = static_cast<int>(rawId);
-            if (isUsablePlayerId(id)) {
-                return { true, id };
-            }
-        }
+    const auto findId = reinterpret_cast<IdFindFn>(address);
+    std::uint16_t rawId = kInvalidSampPlayerId;
+    if (!CallIdFind(findId, reinterpret_cast<void*>(pool), ped, rawId)
+        || rawId == kInvalidSampPlayerId) {
+        return { false, -1 };
     }
 
-    auto matchesTargetPed = [&](std::uint32_t gtaPed) {
-        return gtaPed != 0 && static_cast<std::uintptr_t>(gtaPed) == pedAddress;
-    };
-
-    auto tryRemoteDataPed = [&](std::uint32_t remoteData) {
-        if (remoteData == 0) {
-            return false;
-        }
-
-        const std::uint32_t actorOffset = main_offsets.pSAMP_Actor.Get(currentVersion_);
-        std::uint32_t sampPed = 0;
-        if (!SafeRead(remoteData + actorOffset, sampPed) || sampPed == 0) {
-            return false;
-        }
-
-        return matchesTargetPed(ReadGamePedFromSampPed(sampPed, currentVersion_));
-    };
-
-    auto trySampPedField = [&](std::uint32_t owner, std::uint32_t fieldOffset) {
-        if (owner == 0 || fieldOffset == 0) {
-            return false;
-        }
-
-        std::uint32_t sampPed = 0;
-        if (!SafeRead(owner + fieldOffset, sampPed) || sampPed == 0) {
-            return false;
-        }
-
-        return matchesTargetPed(ReadGamePedFromSampPed(sampPed, currentVersion_));
-    };
-
-    auto trySlotRemoteData = [&](int id) {
-        std::uint32_t slotPointer = 0;
-        if (!SafeRead(
-                pool + main_offsets.SAMP_PREMOTEPLAYER_OFFSET.Get(currentVersion_) + (static_cast<std::uint32_t>(id) * 4),
-                slotPointer)
-            || slotPointer == 0) {
-            return false;
-        }
-
-        std::uint32_t remoteData = 0;
-        return ResolveRemotePlayerData(slotPointer, remoteData) && tryRemoteDataPed(remoteData);
-    };
-
-    auto tryRemotePlayerPrimaryPed = [&](int id) {
-        std::uint32_t remotePlayer = 0;
-        if (!ResolveRemotePlayer(id, remotePlayer, false, nullptr) || remotePlayer == 0) {
-            return false;
-        }
-
-        std::uint32_t remoteData = 0;
-        if (ResolveRemotePlayerData(remotePlayer, remoteData) && tryRemoteDataPed(remoteData)) {
-            return true;
-        }
-
-        return trySampPedField(remotePlayer, GetRemotePlayerPedOffset(currentVersion_));
-    };
-
-    for (int id = 0; id <= kMaxSampPlayerId; ++id) {
-        if ((localId >= 0 && id == localId) || !IsConnected(id)) {
-            continue;
-        }
-
-        if (trySlotRemoteData(id) || tryRemotePlayerPrimaryPed(id)) {
-            return { true, id };
-        }
+    const int id = static_cast<int>(rawId);
+    if (!IsPlayerConnectedInPool(pool, localId, id)) {
+        return { false, -1 };
     }
-
-    return { false, -1 };
+    return { true, id };
 }
 
 std::pair<bool, int> SampApi::getPedID(const void* ped) {

@@ -61,7 +61,8 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x0000001C, 0x0000000C, 0x0000000C, 0x0000000C, 0x0000000C, 0x00000000, 0x00000000, 0x0000000C }, // SAMP_INFO_OFFSET_Pools_Veh
     { 0x00216378, 0x00216380, 0x00151578, 0x00151578, 0x001516A0, 0x001516A0, 0x00151828, 0x0018F6C0 }, // SAMP_COLOR_OFFSET
     { 0x00010420, 0x000104C0, 0x00013570, 0x00013570, 0x00013890, 0x000138C0, 0x000138C0, 0x000137C0 }, // ID_Find
-    { 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0 }, // CPlayerPool_IsConnected
+    { 0x00000000, 0x00000022, 0x00000000, 0x00000000, 0x00000000, 0x00002F3A, 0x00002F3A, 0x00000022 }, // CPlayerPool::m_nLargestId
+    { 0x00000FDE, 0x00000FD6, 0x00000FB4, 0x00000FB4, 0x00000FDE, 0x0000002A, 0x0000002A, 0x00000FD6 }, // CPlayerPool::m_bNotEmpty
     { 0x0006A1C0, 0x0006A280, 0x0006E110, 0x0006E110, 0x0006E840, 0x0006E880, 0x0006E880, 0x0006E2B0 }, // CPlayerPool_GetPing
     { 0x0006A200, 0x0006A2C0, 0x0006E150, 0x0006E150, 0x0006E880, 0x0006E8C0, 0x0006E8C0, 0x0006E2F0 }, // CPlayerPool_GetLocalPlayerPing
     { 0x0001B0A0, 0x0001B180, 0x0001E440, 0x0001E440, 0x0001EB40, 0x0001EB90, 0x0001EB90, 0x0001E650 }, // IDcar_Find
@@ -431,26 +432,18 @@ std::uintptr_t SampApi::PedPool() {
 }
 
 std::string SampApi::GetNameID(int id) {
-    if (id < 0 || id > 1003 || !IsConnected(id)) {
+    if (id < 0 || id > kMaxSampPlayerId) {
         return "UNKNOWN";
     }
 
-    const std::uintptr_t pool = PedPool();
-    const auto address = GetAddress(main_offsets.GetName);
-    if (!pool || address == 0) {
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)
+        || !IsPlayerConnectedInPool(playerPool, localId, id)) {
         return "UNKNOWN";
     }
 
-    const auto getName = reinterpret_cast<GetNameFn>(address);
-    const char* rawName = nullptr;
-
-    if (!CallGetName(getName, reinterpret_cast<void*>(pool), static_cast<unsigned short>(id), rawName) || !rawName) {
-        return "UNKNOWN";
-    }
-
-    const std::string value = PrepareIncomingText(
-        SafeReadCString(reinterpret_cast<std::uintptr_t>(rawName), kDefaultSmallStringLimit));
-    return value.empty() ? "UNKNOWN" : value;
+    return GetPlayerNameInPool(playerPool, id, GetAddress(main_offsets.GetName));
 }
 
 std::optional<int> SampApi::GetIDByName(std::string_view name) {
@@ -459,8 +452,28 @@ std::optional<int> SampApi::GetIDByName(std::string_view name) {
         return std::nullopt;
     }
 
-    for (int id = 0; id <= 1003; ++id) {
-        if (IsConnected(id) && GetNameID(id) == target) {
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)) {
+        return std::nullopt;
+    }
+
+    std::int32_t largestId = -1;
+    const std::uintptr_t largestIdAddress = static_cast<std::uintptr_t>(playerPool)
+        + main_offsets.CPlayerPool_LargestId.Get(currentVersion_);
+    if (!SafeRead(largestIdAddress, largestId) || largestId < 0 || largestId > kMaxSampPlayerId) {
+        return std::nullopt;
+    }
+
+    const std::uintptr_t getNameAddress = GetAddress(main_offsets.GetName);
+    if (getNameAddress == 0) {
+        return std::nullopt;
+    }
+
+    const int lastCandidateId = std::max(largestId, localId);
+    for (int id = 0; id <= lastCandidateId; ++id) {
+        if (IsPlayerConnectedInPool(playerPool, localId, id)
+            && GetPlayerNameInPool(playerPool, id, getNameAddress) == target) {
             return id;
         }
     }
@@ -469,44 +482,31 @@ std::optional<int> SampApi::GetIDByName(std::string_view name) {
 }
 
 bool SampApi::IsConnected(int id) {
-    if (id < 0 || id > 1003) {
+    if (id < 0 || id > kMaxSampPlayerId) {
         return false;
     }
 
-    const int localId = Local_ID();
-    if (localId >= 0 && id == localId) {
-        return true;
-    }
-
-    std::uint32_t pool = 0;
-    if (!ResolvePedPool(pool) || pool == 0) {
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)) {
         return false;
     }
 
-    const auto address = GetAddress(main_offsets.CPlayerPool_IsConnected);
-    if (address == 0) {
-        return false;
-    }
-
-    const auto isConnected = reinterpret_cast<PlayerPoolIsConnectedFn>(address);
-    bool connected = false;
-
-    CallPlayerPoolIsConnected(isConnected, reinterpret_cast<void*>(pool), static_cast<unsigned short>(id), connected);
-    return connected;
+    return IsPlayerConnectedInPool(playerPool, localId, id);
 }
 
 std::optional<int> SampApi::GetPlayerPing(int id) {
-    if (id < 0 || id > 1003 || !isSupportedVersion()) {
+    if (id < 0 || id > kMaxSampPlayerId || !isSupportedVersion()) {
         return std::nullopt;
     }
 
-    std::uint32_t pool = 0;
-    if (!ResolvePedPool(pool) || pool == 0) {
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)) {
         return std::nullopt;
     }
 
     int ping = 0;
-    const int localId = Local_ID();
     if (localId >= 0 && id == localId) {
         const auto address = GetAddress(main_offsets.CPlayerPool_GetLocalPlayerPing);
         if (address == 0) {
@@ -514,7 +514,7 @@ std::optional<int> SampApi::GetPlayerPing(int id) {
         }
 
         const auto getLocalPing = reinterpret_cast<PlayerPoolGetLocalPingFn>(address);
-        if (!CallPlayerPoolGetLocalPing(getLocalPing, reinterpret_cast<void*>(pool), ping)) {
+        if (!CallPlayerPoolGetLocalPing(getLocalPing, reinterpret_cast<void*>(playerPool), ping)) {
             return std::nullopt;
         }
         if (ping < 0) {
@@ -523,7 +523,7 @@ std::optional<int> SampApi::GetPlayerPing(int id) {
         return ping;
     }
 
-    if (!IsConnected(id)) {
+    if (!IsPlayerConnectedInPool(playerPool, localId, id)) {
         return std::nullopt;
     }
 
@@ -533,7 +533,11 @@ std::optional<int> SampApi::GetPlayerPing(int id) {
     }
 
     const auto getPing = reinterpret_cast<PlayerPoolGetPingFn>(address);
-    if (!CallPlayerPoolGetPing(getPing, reinterpret_cast<void*>(pool), static_cast<unsigned short>(id), ping)) {
+    if (!CallPlayerPoolGetPing(
+            getPing,
+            reinterpret_cast<void*>(playerPool),
+            static_cast<unsigned short>(id),
+            ping)) {
         return std::nullopt;
     }
 
@@ -880,6 +884,63 @@ bool SampApi::ResolvePedPool(std::uint32_t& pedPool) const {
     }
 
     return SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Player.Get(currentVersion_), pedPool) && pedPool != 0;
+}
+
+bool SampApi::ResolvePlayerPoolState(std::uint32_t& playerPool, int& localId) const {
+    playerPool = 0;
+    localId = -1;
+    if (!ResolvePedPool(playerPool) || playerPool == 0) {
+        return false;
+    }
+
+    std::int16_t rawLocalId = -1;
+    if (SafeRead(
+            static_cast<std::uintptr_t>(playerPool)
+                + main_offsets.SAMP_SLOCALPLAYERID_OFFSET.Get(currentVersion_),
+            rawLocalId)
+        && rawLocalId >= 0 && rawLocalId <= kMaxSampPlayerId) {
+        localId = rawLocalId;
+    }
+    return true;
+}
+
+bool SampApi::IsPlayerConnectedInPool(std::uint32_t playerPool, int localId, int id) const {
+    if (playerPool == 0 || id < 0 || id > kMaxSampPlayerId) {
+        return false;
+    }
+    if (localId >= 0 && id == localId) {
+        return true;
+    }
+
+    std::int32_t connected = 0;
+    const std::uintptr_t connectedAddress = static_cast<std::uintptr_t>(playerPool)
+        + main_offsets.CPlayerPool_ConnectedFlags.Get(currentVersion_)
+        + static_cast<std::uintptr_t>(id) * sizeof(connected);
+    return SafeRead(connectedAddress, connected) && connected != 0;
+}
+
+std::string SampApi::GetPlayerNameInPool(
+    std::uint32_t playerPool,
+    int id,
+    std::uintptr_t getNameAddress) const {
+    if (playerPool == 0 || id < 0 || id > kMaxSampPlayerId || getNameAddress == 0) {
+        return "UNKNOWN";
+    }
+
+    const auto getName = reinterpret_cast<GetNameFn>(getNameAddress);
+    const char* rawName = nullptr;
+    if (!CallGetName(
+            getName,
+            reinterpret_cast<void*>(playerPool),
+            static_cast<unsigned short>(id),
+            rawName)
+        || !rawName) {
+        return "UNKNOWN";
+    }
+
+    const std::string value = PrepareIncomingText(
+        SafeReadCString(reinterpret_cast<std::uintptr_t>(rawName), kDefaultSmallStringLimit));
+    return value.empty() ? "UNKNOWN" : value;
 }
 
 bool SampApi::ResolveLocalPlayer(std::uint32_t& localPlayer) const {

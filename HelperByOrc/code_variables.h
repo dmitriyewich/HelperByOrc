@@ -26,7 +26,6 @@ constexpr std::size_t kMaxProviders = 128;
 constexpr std::size_t kMaxVariablesPerProvider = 128;
 constexpr std::size_t kMaxVariables = 1024;
 constexpr std::size_t kMaxCacheEntries = 4096;
-constexpr std::uint32_t kHudMinimumRefreshMs = 100;
 constexpr std::uint32_t kDefaultCallbackBudgetMs = 8;
 
 enum class VariableKind {
@@ -134,6 +133,11 @@ struct ExpansionCache {
     std::unordered_map<std::string, std::optional<std::string>> values{};
 };
 
+struct DeferredParameter {
+    const void* context = nullptr;
+    std::string (*resolve)(const void*) = nullptr;
+};
+
 class Runtime {
 public:
     static Runtime& Instance();
@@ -154,8 +158,8 @@ public:
         std::string_view parameter,
         const TagsModule::EvaluationContext& context,
         ExpansionCache* expansionCache,
-        bool* action = nullptr) const;
-    bool HasActive(VariableKind kind, std::string_view normalizedName) const;
+        bool* action = nullptr,
+        DeferredParameter deferredParameter = {}) const;
 
     std::vector<CatalogVariable> Catalog() const;
     std::uint64_t CatalogRevision() const;
@@ -165,6 +169,7 @@ public:
     std::vector<LuaPlanEntry> LuaPlan() const;
     std::uint64_t Generation() const;
     std::uint32_t OwnerThreadId() const;
+    bool IsCurrentSession(std::uint32_t ownerThreadId, std::uint64_t generation) const;
     bool SampReady() const;
 
     bool BeginProviderSession(

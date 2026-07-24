@@ -45,7 +45,6 @@ using GetEditboxTextFn = char*(__thiscall*)(void*);
 using SetEditboxTextFn = void(__thiscall*)(void*, char*, int);
 using SetPageSizeFn = void(__thiscall*)(void*, int);
 using IdFindFn = std::uint16_t(__thiscall*)(void*, const void*);
-using PlayerPoolIsConnectedFn = bool(__thiscall*)(void*, unsigned short);
 using PlayerPoolGetPingFn = int(__thiscall*)(void*, unsigned short);
 using PlayerPoolGetLocalPingFn = int(__thiscall*)(void*);
 using ListBoxGetSelectedIndexFn = int(__thiscall*)(void*, int);
@@ -1498,17 +1497,6 @@ bool CallGetEditboxText(GetEditboxTextFn fn, void* editBox, char*& out) {
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         out = nullptr;
-        return false;
-    }
-}
-
-bool CallPlayerPoolIsConnected(PlayerPoolIsConnectedFn fn, void* pool, unsigned short id, bool& out) {
-    __try {
-        out = fn(pool, id);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        out = false;
         return false;
     }
 }

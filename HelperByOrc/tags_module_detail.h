@@ -27,6 +27,8 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -59,11 +61,9 @@ constexpr int kKeyEmulateStartDelayMs = 20;
 constexpr int kKeyEmulateTapMs = 35;
 constexpr int kMaxSampPlayerId = 1003;
 constexpr float kClosestScreenTargetZOffset = 0.9f;
-constexpr std::uint64_t kClosestPlayerCacheTtlMs = 250;
 constexpr double kClosestPlayerSlowQueryLogMs = 4.0;
 constexpr std::uint64_t kClosestPlayerSlowQueryLogThrottleMs = 3000;
 constexpr std::uint64_t kClosestPlayerPerfTelemetryWindowMs = 5000;
-constexpr std::uint64_t kMyCarSnapshotCacheTtlMs = 100;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogMs = 10;
 constexpr std::uint64_t kMyCarSnapshotSlowQueryLogThrottleMs = 3000;
 constexpr std::uint64_t kMyCarPerfTelemetryWindowMs = 5000;
@@ -73,7 +73,6 @@ constexpr std::uint64_t kExternalTagsPerfTelemetryWindowMs = 5000;
 constexpr std::uint64_t kExternalTagsFailureLogThrottleMs = 3000;
 constexpr std::uint64_t kTagExpansionSlowLogThrottleMs = 1000;
 constexpr double kTagExpansionSlowLogMs = 4.0;
-constexpr std::uint64_t kClipboardCacheTtlMs = 500;
 constexpr std::size_t kClipboardTagMaxLength = 4096;
 constexpr unsigned int kAnsiCodePage = CP_ACP;
 constexpr std::uintptr_t kTakeScreenshotAddress = 0x5D0820;
@@ -372,7 +371,7 @@ std::string ToLowerAscii(std::string_view value) {
     return lowered;
 }
 
-std::string TrimAscii(std::string_view value) {
+std::string_view TrimAsciiView(std::string_view value) {
     std::size_t begin = 0;
     while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
         ++begin;
@@ -383,7 +382,11 @@ std::string TrimAscii(std::string_view value) {
         --end;
     }
 
-    return std::string(value.substr(begin, end - begin));
+    return value.substr(begin, end - begin);
+}
+
+std::string TrimAscii(std::string_view value) {
+    return std::string(TrimAsciiView(value));
 }
 
 std::string MakeKeyEmulateTokenImpl(UINT keyCode) {
@@ -705,26 +708,40 @@ std::optional<std::int64_t> ParseTimeOffsetSeconds(std::string_view rawParam) {
         return std::nullopt;
     }
 
-    std::int64_t values[3]{ 0, 0, 0 };
+    std::uint64_t values[3]{ 0, 0, 0 };
     const std::size_t offset = parts.size() == 2 ? 1 : 0;
     for (std::size_t i = 0; i < parts.size(); ++i) {
-        const std::string trimmed = TrimAscii(parts[i]);
+        const std::string_view trimmed = TrimAsciiView(parts[i]);
         if (trimmed.empty()) {
             return std::nullopt;
         }
 
-        std::int64_t parsed = 0;
-        for (const unsigned char ch : trimmed) {
-            if (std::isdigit(ch) == 0) {
-                return std::nullopt;
-            }
-            parsed = parsed * 10 + static_cast<std::int64_t>(ch - '0');
+        std::uint64_t parsed = 0;
+        const auto [end, error] = std::from_chars(
+            trimmed.data(),
+            trimmed.data() + trimmed.size(),
+            parsed,
+            10);
+        if (error != std::errc{} || end != trimmed.data() + trimmed.size()) {
+            return std::nullopt;
         }
 
         values[offset + i] = parsed;
     }
 
-    return values[0] * 3600 + values[1] * 60 + values[2];
+    constexpr std::uint64_t kMaxSeconds =
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    if (values[0] > kMaxSeconds / 3600
+        || values[1] > kMaxSeconds / 60
+        || values[2] > kMaxSeconds) {
+        return std::nullopt;
+    }
+    const std::uint64_t hours = values[0] * 3600;
+    const std::uint64_t minutes = values[1] * 60;
+    if (hours > kMaxSeconds - minutes || hours + minutes > kMaxSeconds - values[2]) {
+        return std::nullopt;
+    }
+    return static_cast<std::int64_t>(hours + minutes + values[2]);
 }
 
 std::optional<std::pair<int, int>> ParseRandomIntegerRange(std::string_view rawValue) {
@@ -784,11 +801,28 @@ std::string FormatCurrentTimeForTimestamp(std::time_t timestamp, std::string_vie
         return {};
     }
 
-    const std::string formatString(format);
-    std::size_t bufferSize = std::max<std::size_t>(128, formatString.size() * 8 + 32);
+    std::array<char, 256> formatBuffer{};
+    std::string dynamicFormat;
+    const char* formatText = nullptr;
+    if (format.size() < formatBuffer.size()) {
+        std::copy(format.begin(), format.end(), formatBuffer.begin());
+        formatText = formatBuffer.data();
+    } else {
+        dynamicFormat.assign(format.begin(), format.end());
+        formatText = dynamicFormat.c_str();
+    }
+
+    std::array<char, 256> stackBuffer{};
+    if (const std::size_t written =
+            std::strftime(stackBuffer.data(), stackBuffer.size(), formatText, &localTime);
+        written != 0) {
+        return std::string(stackBuffer.data(), written);
+    }
+
+    std::size_t bufferSize = std::max<std::size_t>(128, format.size() * 8 + 32);
     for (int attempt = 0; attempt < 6; ++attempt) {
         std::string buffer(bufferSize, '\0');
-        const std::size_t written = std::strftime(buffer.data(), buffer.size(), formatString.c_str(), &localTime);
+        const std::size_t written = std::strftime(buffer.data(), buffer.size(), formatText, &localTime);
         if (written != 0) {
             buffer.resize(written);
             return buffer;

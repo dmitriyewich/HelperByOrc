@@ -72,7 +72,7 @@ const std::vector<TagsModule::Impl::TagEntry>& TagsModule::Impl::TagRegistry::En
 
 const TagsModule::Impl::TagEntry* TagsModule::Impl::TagRegistry::Find(TagKind kind, std::string_view name) const {
     const auto& index = kind == TagKind::Simple ? simpleIndex_ : functionIndex_;
-    const auto it = index.find(std::string(name));
+    const auto it = index.find(name);
     if (it == index.end() || it->second >= entries_.size()) {
         return nullptr;
     }

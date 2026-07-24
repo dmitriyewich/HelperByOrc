@@ -100,6 +100,9 @@ bool TagsModule::Impl::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) co
 
 void TagsModule::Impl::Tick(bool sampReady) {
     const std::uint64_t now = GetTickCount64();
+    if (++tickGeneration_ == 0) {
+        tickGeneration_ = 1;
+    }
     codevars::Runtime::Instance().Tick(sampReady);
     MaybeLogExternalTagPerf(now);
     UpdateTargetTracker();
@@ -444,7 +447,7 @@ void TagsModule::Impl::ProcessPendingDialogWaits() {
     }
 }
 
-std::string TagsModule::Impl::Trim(std::string_view value) {
+std::string_view TagsModule::Impl::TrimView(std::string_view value) {
     std::size_t begin = 0;
     while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
         ++begin;
@@ -455,7 +458,11 @@ std::string TagsModule::Impl::Trim(std::string_view value) {
         --end;
     }
 
-    return std::string(value.substr(begin, end - begin));
+    return value.substr(begin, end - begin);
+}
+
+std::string TagsModule::Impl::Trim(std::string_view value) {
+    return std::string(TrimView(value));
 }
 
 std::string TagsModule::Impl::ToLower(std::string_view value) {
@@ -493,34 +500,28 @@ std::vector<std::string> TagsModule::Impl::SplitCommandArgs(std::string_view val
 }
 
 std::optional<int> TagsModule::Impl::ParseInteger(std::string_view value) {
-    const std::string trimmed = Trim(value);
+    std::string_view trimmed = TrimView(value);
     if (trimmed.empty()) {
         return std::nullopt;
     }
 
-    int sign = 1;
-    std::size_t pos = 0;
     if (trimmed.front() == '+') {
-        pos = 1;
-    } else if (trimmed.front() == '-') {
-        sign = -1;
-        pos = 1;
-    }
-
-    if (pos >= trimmed.size()) {
-        return std::nullopt;
+        trimmed.remove_prefix(1);
+        if (trimmed.empty() || std::isdigit(static_cast<unsigned char>(trimmed.front())) == 0) {
+            return std::nullopt;
+        }
     }
 
     int parsed = 0;
-    for (; pos < trimmed.size(); ++pos) {
-        const unsigned char ch = static_cast<unsigned char>(trimmed[pos]);
-        if (std::isdigit(ch) == 0) {
-            return std::nullopt;
-        }
-        parsed = parsed * 10 + static_cast<int>(ch - '0');
+    const auto [end, error] = std::from_chars(
+        trimmed.data(),
+        trimmed.data() + trimmed.size(),
+        parsed,
+        10);
+    if (error != std::errc{} || end != trimmed.data() + trimmed.size()) {
+        return std::nullopt;
     }
-
-    return parsed * sign;
+    return parsed;
 }
 
 TagsModule::Impl::EvaluationContext TagsModule::Impl::ResolveActiveContext(
@@ -586,16 +587,21 @@ void TagsModule::Impl::MaybeLogPlayerNamePerf(std::uint64_t nowMs) const {
 }
 
 std::string TagsModule::Impl::ResolvePlayerNickById(int id, const EvaluationContext& context) const {
-    const double beginMs = TagResolverPerfNowMs();
+    const bool telemetryEnabled = debuglog::GetLevel() == debuglog::Level::Info;
+    const double beginMs = telemetryEnabled ? TagResolverPerfNowMs() : 0.0;
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion() || id < 0) {
-        RecordPlayerNamePerf(true, false, TagResolverPerfNowMs() - beginMs);
+        if (telemetryEnabled) {
+            RecordPlayerNamePerf(true, false, TagResolverPerfNowMs() - beginMs);
+        }
         return std::string();
     }
 
     const std::string nick = sampApi->GetNameID(id);
     const bool unknown = nick.empty() || nick == "UNKNOWN";
-    RecordPlayerNamePerf(false, unknown, TagResolverPerfNowMs() - beginMs);
+    if (telemetryEnabled) {
+        RecordPlayerNamePerf(false, unknown, TagResolverPerfNowMs() - beginMs);
+    }
     return unknown ? std::string() : nick;
 }
 
@@ -626,13 +632,15 @@ void TagsModule::Impl::ResetTargetTracker() {
 TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(const EvaluationContext& context) const {
     ClosestPlayerCache& snapshot = closestPlayerCache_;
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
-    const std::uint64_t now = GetTickCount64();
+    const bool telemetryEnabled = debuglog::GetLevel() == debuglog::Level::Info;
     const ClosestPlayerQueryStats emptyStats{};
     const auto clearSnapshot = [&snapshot] {
         snapshot.result = ClosestPlayerQueryResult{};
         snapshot.nearestDetails = ClosestPlayerDetails{};
         snapshot.driverDetails = ClosestPlayerDetails{};
         snapshot.localPed = 0;
+        snapshot.viewportWidth = 0;
+        snapshot.viewportHeight = 0;
         snapshot.localId = -1;
         snapshot.valid = false;
     };
@@ -655,15 +663,16 @@ TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(cons
 
     const std::uintptr_t localPedAddress = reinterpret_cast<std::uintptr_t>(localPed);
     if (snapshot.valid
+        && snapshot.tickGeneration == tickGeneration_
         && snapshot.localId == localId
         && snapshot.localPed == localPedAddress
-        && now >= snapshot.updatedAtMs
-        && now - snapshot.updatedAtMs <= kClosestPlayerCacheTtlMs) {
+        && snapshot.viewportWidth == RsGlobal.maximumWidth
+        && snapshot.viewportHeight == RsGlobal.maximumHeight) {
         RecordClosestPlayersPerf(true, true, true, emptyStats, 0.0);
         return snapshot;
     }
 
-    const double queryStartedAtMs = TagResolverPerfNowMs();
+    const double queryStartedAtMs = telemetryEnabled ? TagResolverPerfNowMs() : 0.0;
     const CVector localPosition = localPed->GetPosition();
     if (!IsFinitePosition(localPosition)) {
         clearSnapshot();
@@ -780,12 +789,17 @@ TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(cons
     snapshot.result = result;
     snapshot.nearestDetails = ClosestPlayerDetails{};
     snapshot.driverDetails = ClosestPlayerDetails{};
+    snapshot.tickGeneration = tickGeneration_;
     snapshot.updatedAtMs = GetTickCount64();
     snapshot.localPed = localPedAddress;
+    snapshot.viewportWidth = RsGlobal.maximumWidth;
+    snapshot.viewportHeight = RsGlobal.maximumHeight;
     snapshot.localId = localId;
     snapshot.valid = true;
 
-    const double elapsedMs = std::max(0.0, TagResolverPerfNowMs() - queryStartedAtMs);
+    const double elapsedMs = telemetryEnabled
+        ? std::max(0.0, TagResolverPerfNowMs() - queryStartedAtMs)
+        : 0.0;
     MaybeLogClosestPlayersSnapshot(snapshot, queryStats, elapsedMs, context);
     if (elapsedMs >= kClosestPlayerSlowQueryLogMs
         && (snapshot.lastSlowLogAtMs == 0
@@ -1103,28 +1117,7 @@ void TagsModule::Impl::ReleaseVirtualKeyHold(ActiveVirtualKeyHold& hold) const {
 }
 
 std::string TagsModule::Impl::FormatCurrentTime(std::string_view format) {
-    if (format.empty()) {
-        return {};
-    }
-
-    std::time_t now = std::time(nullptr);
-    std::tm localTime{};
-    if (localtime_s(&localTime, &now) != 0) {
-        return {};
-    }
-
-    const std::string formatString(format);
-    std::size_t bufferSize = std::max<std::size_t>(128, formatString.size() * 8 + 32);
-    for (int attempt = 0; attempt < 6; ++attempt) {
-        std::string buffer(bufferSize, '\0');
-        const std::size_t written = std::strftime(buffer.data(), buffer.size(), formatString.c_str(), &localTime);
-        if (written != 0) {
-            buffer.resize(written);
-            return buffer;
-        }
-        bufferSize *= 2;
-    }
-    return {};
+    return FormatCurrentTimeForTimestamp(std::time(nullptr), format);
 }
 
 std::string TagsModule::Impl::FormatWholeStatValue(float value) {

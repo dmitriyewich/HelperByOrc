@@ -112,7 +112,8 @@ public:
         VersionedOffset SAMP_INFO_OFFSET_Pools_Veh;
         VersionedOffset SAMP_COLOR_OFFSET;
         VersionedOffset ID_Find;
-        VersionedOffset CPlayerPool_IsConnected;
+        VersionedOffset CPlayerPool_LargestId;
+        VersionedOffset CPlayerPool_ConnectedFlags;
         VersionedOffset CPlayerPool_GetPing;
         VersionedOffset CPlayerPool_GetLocalPlayerPing;
         VersionedOffset IDcar_Find;
@@ -352,6 +353,9 @@ private:
     int GetCurrentDialogSelectedIndex();
     bool ResolveSampInfo(std::uint32_t& sampInfo) const;
     bool ResolvePedPool(std::uint32_t& pedPool) const;
+    bool ResolvePlayerPoolState(std::uint32_t& playerPool, int& localId) const;
+    bool IsPlayerConnectedInPool(std::uint32_t playerPool, int localId, int id) const;
+    std::string GetPlayerNameInPool(std::uint32_t playerPool, int id, std::uintptr_t getNameAddress) const;
     bool ResolveLocalPlayer(std::uint32_t& localPlayer) const;
     bool ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace = false, const char* traceLabel = nullptr);
     /// Resolves the `CRemotePlayerData*` (or equivalent) pointer used for health/armour and actor fields.

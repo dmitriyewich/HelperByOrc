@@ -589,8 +589,7 @@ codevars::EvaluationOutcome EvaluateLua(
         return outcome;
     }
     if (GetCurrentThreadId() != session->threadId
-        || session->threadId != codevars::Runtime::Instance().OwnerThreadId()
-        || session->generation != codevars::Runtime::Instance().Generation()) {
+        || !codevars::Runtime::Instance().IsCurrentSession(session->threadId, session->generation)) {
         outcome.error = "Lua callback attempted outside its owner thread or generation";
         return outcome;
     }
