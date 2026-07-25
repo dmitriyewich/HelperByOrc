@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <array>
 #include <string>
@@ -17,6 +18,8 @@
 #include <vector>
 
 class CVehicle;
+class RakNetBitStreamView;
+class SampRakHooks;
 
 class TagsModule::Impl {
 public:
@@ -38,6 +41,7 @@ public:
     void ReloadConfig();
 
     void SetSampApi(SampApi* sampApi);
+    void SetSampRakHooks(SampRakHooks* sampRakHooks);
     void SetBinderModule(BinderModule* binderModule);
     void SetNotificationManager(NotificationManager* notificationManager);
     void SetArizonaCefDialogs(ArizonaCefDialogs* arizonaCefDialogs);
@@ -331,6 +335,13 @@ public:
         std::string health{};
         std::string speed{};
         std::string window{};
+        std::string modelId{};
+        std::string primaryColor{};
+        std::string secondaryColor{};
+        std::string engine{};
+        std::string lights{};
+        std::string sirenOrAlarm{};
+        std::string seat{};
         MyCarOccupantCollectStats occupantStats{};
         std::uint64_t tickGeneration = 0;
         std::uint64_t updatedAtMs = 0;
@@ -344,6 +355,34 @@ public:
         bool occupantsResolved = false;
         bool nameResolved = false;
         bool windowResolved = false;
+    };
+
+    struct OnlineCountCache {
+        std::uintptr_t playerPool = 0;
+        std::uint64_t updatedAtMs = 0;
+        int value = 0;
+        bool valid = false;
+    };
+
+    struct MyCarSampIdCache {
+        std::uintptr_t sessionKey = 0;
+        std::uintptr_t vehicle = 0;
+        std::uint64_t updatedAtMs = 0;
+        int value = -1;
+        bool valid = false;
+    };
+
+    struct DamagePlayerSnapshot {
+        int id = -1;
+        std::string name{};
+        std::string surname{};
+        bool valid = false;
+    };
+
+    enum class DamagePlayerField : std::uint8_t {
+        Id,
+        Name,
+        Surname,
     };
 
     struct VehicleNameCacheEntry {
@@ -612,6 +651,8 @@ public:
     std::optional<std::string> ResolveBuiltinArmourTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinPingTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinScoreTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinOnlineTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyXTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyYTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyZTag(const EvaluationContext& context) const;
@@ -630,10 +671,32 @@ public:
     std::optional<std::string> ResolveBuiltinMyCarHealthTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarSpeedTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarWindowTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarModelIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarColor1Tag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarColor2Tag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarEngineTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarLightsTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarSirenOrAlarmTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyCarSeatTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyStaminaTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyOxygenTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinWeatherTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinWeatherEnTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTargetDistanceTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDistanceTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClosestDriverDistanceTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitMeIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitMeNameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitMeSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitByMeIdTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitByMeNameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinHitByMeSurnameTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyWantedTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyInteriorTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinMyHeadingTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinGameTimeTag(const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinWeatherIdTag(const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinMyCarOccupantsTag(
         MyCarOccupantScope scope,
         MyCarOccupantField field,
@@ -724,6 +787,12 @@ public:
     std::optional<std::string> ResolveBuiltinPingFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinScoreFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinDistanceFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinSkinFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
@@ -743,6 +812,25 @@ public:
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinStrLowFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinStrUpperFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinTrimFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinSubstrFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinSubstrFunctionParts(
+        std::string_view text,
+        std::string_view start,
+        std::optional<std::string_view> length) const;
+    std::optional<std::string> ResolveBuiltinStrlenFunctionTag(
+        std::string_view param,
+        const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinClipboardSetFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
     std::optional<std::string> ResolveBuiltinAddTimeFunctionTag(
@@ -827,6 +915,9 @@ public:
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
     void ResetTargetTracker();
+    void RefreshSampSessionState(bool sampReady);
+    bool HandleOutgoingDamageRpc(std::uint8_t rpcId, RakNetBitStreamView& view);
+    std::string ResolveDamagePlayerValue(bool hitMe, DamagePlayerField field) const;
     std::string ResolveVehicleDisplayName(const CVehicle* vehicle) const;
     ClosestPlayerCache& QueryClosestPlayers(const EvaluationContext& context) const;
     void ResolveClosestPlayerDetails(
@@ -842,6 +933,7 @@ public:
         double elapsedMs,
         const EvaluationContext& context) const;
     MyCarSnapshotCache& QueryMyCarSnapshot(const EvaluationContext& context, bool requireOccupants) const;
+    std::optional<int> ResolveMyCarSampId(const MyCarSnapshotCache& snapshot, const EvaluationContext& context) const;
     void ResolveMyCarOccupantNames(MyCarSnapshotCache& snapshot, const EvaluationContext& context) const;
     void RecordMyCarSnapshotPerf(
         bool cacheHit,
@@ -895,6 +987,7 @@ public:
 
 private:
     SampApi* sampApi_ = nullptr;
+    SampRakHooks* sampRakHooks_ = nullptr;
     BinderModule* binderModule_ = nullptr;
     NotificationManager* notificationManager_ = nullptr;
     ArizonaCefDialogs* arizonaCefDialogs_ = nullptr;
@@ -927,12 +1020,21 @@ private:
     mutable ClosestPlayerPerfStats closestPlayerPerfStats_{};
     mutable PlayerNamePerfStats playerNamePerfStats_{};
     mutable MyCarSnapshotCache myCarSnapshotCache_{};
+    mutable OnlineCountCache onlineCountCache_{};
+    mutable MyCarSampIdCache myCarSampIdCache_{};
     mutable MyCarSnapshotPerfStats myCarSnapshotPerfStats_{};
     mutable std::unordered_map<int, VehicleNameCacheEntry> vehicleNameCache_{};
     mutable TagExpansionPerfStats tagExpansionPerfStats_{};
     mutable ExternalTagPerfStats externalTagPerfStats_{};
     mutable std::uint64_t lastTagExpansionSlowLogAtMs_ = 0;
     mutable ClipboardCache clipboardCache_{};
+    mutable std::mutex damageStateMutex_{};
+    DamagePlayerSnapshot hitMeSnapshot_{};
+    DamagePlayerSnapshot hitByMeSnapshot_{};
+    std::uintptr_t sampSessionKey_ = 0;
+    std::uint64_t nextSampSessionProbeAtMs_ = 0;
+    bool sampSessionActive_ = false;
+    bool sampRakHandlerAttached_ = false;
     TransliterationDictionarySnapshot transliterationDictionary_{};
     TransliterationDictionaryStatus transliterationDictionaryStatus_{};
     std::filesystem::path transliterationDictionaryPath_{};

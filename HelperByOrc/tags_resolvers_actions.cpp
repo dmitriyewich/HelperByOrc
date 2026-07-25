@@ -1,6 +1,55 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
 
+#include <cstring>
+
+namespace {
+
+constexpr unsigned int kCompatibleCp1251 = 1251;
+
+bool WriteClipboardUnicodeText(std::string_view text) {
+    if (text.size() > kClipboardTagMaxLength) {
+        return false;
+    }
+
+    std::wstring wide = Utf8ToWide(text);
+    if (!text.empty() && wide.empty()) {
+        wide = MultiByteToWide(text, kCompatibleCp1251);
+    }
+    if (!text.empty() && wide.empty()) {
+        return false;
+    }
+
+    const std::size_t byteSize = (wide.size() + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, byteSize);
+    if (!memory) {
+        return false;
+    }
+
+    void* const target = GlobalLock(memory);
+    if (!target) {
+        GlobalFree(memory);
+        return false;
+    }
+    std::memcpy(target, wide.c_str(), byteSize);
+    GlobalUnlock(memory);
+
+    if (!OpenClipboard(nullptr)) {
+        GlobalFree(memory);
+        return false;
+    }
+    if (!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT, memory)) {
+        CloseClipboard();
+        GlobalFree(memory);
+        return false;
+    }
+
+    CloseClipboard();
+    return true;
+}
+
+} // namespace
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinScreenTag(const EvaluationContext& context) const {
     if (!context.allowSideEffects) {
         return std::string();
@@ -133,6 +182,22 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinWaitFunctionTag(
     if (context.allowSideEffects && context.runningBindRuntimeId != 0) {
         QueuePendingBindDelayOverride(context.runningBindRuntimeId, *delayMs);
     }
+    return std::string();
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinClipboardSetFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!context.allowSideEffects) {
+        return std::string();
+    }
+
+    if (!WriteClipboardUnicodeText(param)) {
+        debuglog::WriteError("[tags][clipboardset] failed bytes=%zu", param.size());
+        return std::string();
+    }
+
+    clipboardCache_.valid = false;
     return std::string();
 }
 

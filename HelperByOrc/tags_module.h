@@ -15,6 +15,7 @@ class SampApi;
 class BinderModule;
 class NotificationManager;
 class ArizonaCefDialogs;
+class SampRakHooks;
 
 class TagsModule {
 public:
@@ -122,6 +123,7 @@ public:
     void ReloadConfig();
 
     void SetSampApi(SampApi* sampApi);
+    void SetSampRakHooks(SampRakHooks* sampRakHooks);
     void SetBinderModule(BinderModule* binderModule);
     void SetNotificationManager(NotificationManager* notificationManager);
     void SetArizonaCefDialogs(ArizonaCefDialogs* arizonaCefDialogs);

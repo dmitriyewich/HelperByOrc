@@ -1880,5 +1880,189 @@ void TagsModule::Impl::InitializeRegistry() {
             return module.ResolveBinderActionFunctionTag("popup", param, context);
         });
 
+    using SimpleResolverMethod =
+        std::optional<std::string> (Impl::*)(const EvaluationContext&) const;
+    const auto registerSimple = [this](
+                                    CatalogCategory category,
+                                    std::string_view name,
+                                    UiText description,
+                                    SimpleResolverMethod resolver) {
+        const std::string token = '{' + std::string(name) + '}';
+        tagRegistry_.RegisterSimple(
+            category,
+            false,
+            std::string(name),
+            token,
+            token,
+            description,
+            [resolver](const Impl& module, const EvaluationContext& context) {
+                return (module.*resolver)(context);
+            });
+    };
+
+    registerSimple(CatalogCategory::Player, "score", UiText::TagsBuiltinScoreDescription, &Impl::ResolveBuiltinScoreTag);
+    registerSimple(CatalogCategory::Player, "online", UiText::TagsBuiltinOnlineDescription, &Impl::ResolveBuiltinOnlineTag);
+    registerSimple(
+        CatalogCategory::Target,
+        "targetdistance",
+        UiText::TagsBuiltinTargetDistanceDescription,
+        &Impl::ResolveBuiltinTargetDistanceTag);
+    registerSimple(
+        CatalogCategory::Target,
+        "closestdistance",
+        UiText::TagsBuiltinClosestDistanceDescription,
+        &Impl::ResolveBuiltinClosestDistanceTag);
+    registerSimple(
+        CatalogCategory::Target,
+        "closestdriverdistance",
+        UiText::TagsBuiltinClosestDriverDistanceDescription,
+        &Impl::ResolveBuiltinClosestDriverDistanceTag);
+    registerSimple(CatalogCategory::Player, "hitmeid", UiText::TagsBuiltinHitMeIdDescription, &Impl::ResolveBuiltinHitMeIdTag);
+    registerSimple(
+        CatalogCategory::Player,
+        "hitmename",
+        UiText::TagsBuiltinHitMeNameDescription,
+        &Impl::ResolveBuiltinHitMeNameTag);
+    registerSimple(
+        CatalogCategory::Player,
+        "hitmesurname",
+        UiText::TagsBuiltinHitMeSurnameDescription,
+        &Impl::ResolveBuiltinHitMeSurnameTag);
+    registerSimple(
+        CatalogCategory::Player,
+        "hitbymeid",
+        UiText::TagsBuiltinHitByMeIdDescription,
+        &Impl::ResolveBuiltinHitByMeIdTag);
+    registerSimple(
+        CatalogCategory::Player,
+        "hitbymename",
+        UiText::TagsBuiltinHitByMeNameDescription,
+        &Impl::ResolveBuiltinHitByMeNameTag);
+    registerSimple(
+        CatalogCategory::Player,
+        "hitbymesurname",
+        UiText::TagsBuiltinHitByMeSurnameDescription,
+        &Impl::ResolveBuiltinHitByMeSurnameTag);
+    registerSimple(CatalogCategory::Player, "mywanted", UiText::TagsBuiltinMyWantedDescription, &Impl::ResolveBuiltinMyWantedTag);
+    registerSimple(
+        CatalogCategory::World,
+        "myinterior",
+        UiText::TagsBuiltinMyInteriorDescription,
+        &Impl::ResolveBuiltinMyInteriorTag);
+    registerSimple(
+        CatalogCategory::World,
+        "myheading",
+        UiText::TagsBuiltinMyHeadingDescription,
+        &Impl::ResolveBuiltinMyHeadingTag);
+    registerSimple(CatalogCategory::Time, "gametime", UiText::TagsBuiltinGameTimeDescription, &Impl::ResolveBuiltinGameTimeTag);
+    registerSimple(CatalogCategory::World, "weatherid", UiText::TagsBuiltinWeatherIdDescription, &Impl::ResolveBuiltinWeatherIdTag);
+    registerSimple(CatalogCategory::Vehicle, "mycarid", UiText::TagsBuiltinMyCarIdDescription, &Impl::ResolveBuiltinMyCarIdTag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarmodelid",
+        UiText::TagsBuiltinMyCarModelIdDescription,
+        &Impl::ResolveBuiltinMyCarModelIdTag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarcolor1",
+        UiText::TagsBuiltinMyCarColor1Description,
+        &Impl::ResolveBuiltinMyCarColor1Tag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarcolor2",
+        UiText::TagsBuiltinMyCarColor2Description,
+        &Impl::ResolveBuiltinMyCarColor2Tag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarengine",
+        UiText::TagsBuiltinMyCarEngineDescription,
+        &Impl::ResolveBuiltinMyCarEngineTag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarlights",
+        UiText::TagsBuiltinMyCarLightsDescription,
+        &Impl::ResolveBuiltinMyCarLightsTag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarsirenoralarm",
+        UiText::TagsBuiltinMyCarSirenOrAlarmDescription,
+        &Impl::ResolveBuiltinMyCarSirenOrAlarmTag);
+    registerSimple(
+        CatalogCategory::Vehicle,
+        "mycarseat",
+        UiText::TagsBuiltinMyCarSeatDescription,
+        &Impl::ResolveBuiltinMyCarSeatTag);
+
+    using FunctionResolverMethod =
+        std::optional<std::string> (Impl::*)(std::string_view, const EvaluationContext&) const;
+    const auto registerFunction = [this](
+                                      CatalogCategory category,
+                                      bool action,
+                                      std::string_view name,
+                                      std::string example,
+                                      UiText description,
+                                      FunctionResolverMethod resolver) {
+        tagRegistry_.RegisterFunction(
+            category,
+            action,
+            std::string(name),
+            '[' + std::string(name) + "(...)]",
+            std::move(example),
+            description,
+            [resolver](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+                return (module.*resolver)(param, context);
+            });
+    };
+
+    registerFunction(
+        CatalogCategory::Player,
+        false,
+        "score",
+        "[score(15)]",
+        UiText::TagsBuiltinScoreFunctionDescription,
+        &Impl::ResolveBuiltinScoreFunctionTag);
+    registerFunction(
+        CatalogCategory::Target,
+        false,
+        "distance",
+        "[distance({targetid})]",
+        UiText::TagsBuiltinDistanceFunctionDescription,
+        &Impl::ResolveBuiltinDistanceFunctionTag);
+    registerFunction(
+        CatalogCategory::Text,
+        false,
+        "strupper",
+        "[strupper(Текст)]",
+        UiText::TagsBuiltinStrUpperDescription,
+        &Impl::ResolveBuiltinStrUpperFunctionTag);
+    registerFunction(
+        CatalogCategory::Text,
+        false,
+        "trim",
+        "[trim(  Текст  )]",
+        UiText::TagsBuiltinTrimDescription,
+        &Impl::ResolveBuiltinTrimFunctionTag);
+    registerFunction(
+        CatalogCategory::Text,
+        false,
+        "substr",
+        "[substr(Пример;2;3)]",
+        UiText::TagsBuiltinSubstrDescription,
+        &Impl::ResolveBuiltinSubstrFunctionTag);
+    registerFunction(
+        CatalogCategory::Text,
+        false,
+        "strlen",
+        "[strlen(Пример)]",
+        UiText::TagsBuiltinStrlenDescription,
+        &Impl::ResolveBuiltinStrlenFunctionTag);
+    registerFunction(
+        CatalogCategory::Actions,
+        true,
+        "clipboardset",
+        "[clipboardset(Текст)]",
+        UiText::TagsBuiltinClipboardSetDescription,
+        &Impl::ResolveBuiltinClipboardSetFunctionTag);
+
     RefreshCatalogEntries();
 }

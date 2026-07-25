@@ -65,6 +65,9 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x00000FDE, 0x00000FD6, 0x00000FB4, 0x00000FB4, 0x00000FDE, 0x0000002A, 0x0000002A, 0x00000FD6 }, // CPlayerPool::m_bNotEmpty
     { 0x0006A1C0, 0x0006A280, 0x0006E110, 0x0006E110, 0x0006E840, 0x0006E880, 0x0006E880, 0x0006E2B0 }, // CPlayerPool_GetPing
     { 0x0006A200, 0x0006A2C0, 0x0006E150, 0x0006E150, 0x0006E880, 0x0006E8C0, 0x0006E8C0, 0x0006E2F0 }, // CPlayerPool_GetLocalPlayerPing
+    { 0x0006A190, 0x0006A260, 0x0006E0E0, 0x0006E0E0, 0x0006E810, 0x0006E850, 0x0006E850, 0x0006E290 }, // CPlayerPool_GetScore
+    { 0x0006A1F0, 0x0006A2B0, 0x0006E140, 0x0006E140, 0x0006E870, 0x0006E8B0, 0x0006E8B0, 0x0006E2E0 }, // CPlayerPool_GetLocalPlayerScore
+    { 0x00010520, 0x000105C0, 0x00013670, 0x00013670, 0x000139A0, 0x000139F0, 0x000139F0, 0x000138C0 }, // CPlayerPool_GetCount
     { 0x0001B0A0, 0x0001B180, 0x0001E440, 0x0001E440, 0x0001EB40, 0x0001EB90, 0x0001EB90, 0x0001E650 }, // IDcar_Find
     { 0x0000002E, 0x00000026, 0x00000004, 0x00000004, 0x0000002E, 0x00001F8A, 0x00001F8A, 0x00000026 }, // SAMP_PREMOTEPLAYER_OFFSET
     { 0x00000000, 0x0000000C, 0x00000000, 0x00000000, 0x00000010, 0x00000010, 0x00000010, 0x00000008 }, // SAMP_REMOTEPLAYERDATA_OFFSET
@@ -547,6 +550,104 @@ std::optional<int> SampApi::GetPlayerPing(int id) {
     return ping;
 }
 
+std::optional<int> SampApi::GetPlayerScore(int id) {
+    if (id < 0 || id > kMaxSampPlayerId || !isSupportedVersion() || !IsServerConnected()) {
+        return std::nullopt;
+    }
+
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)) {
+        return std::nullopt;
+    }
+
+    int score = 0;
+    if (localId >= 0 && id == localId) {
+        const auto address = GetAddress(main_offsets.CPlayerPool_GetLocalPlayerScore);
+        if (address == 0) {
+            return std::nullopt;
+        }
+
+        const auto getLocalScore = reinterpret_cast<PlayerPoolGetLocalScoreFn>(address);
+        if (!CallPlayerPoolGetLocalScore(getLocalScore, reinterpret_cast<void*>(playerPool), score)) {
+            return std::nullopt;
+        }
+        return score;
+    }
+
+    if (!IsPlayerConnectedInPool(playerPool, localId, id)) {
+        return std::nullopt;
+    }
+
+    const auto address = GetAddress(main_offsets.CPlayerPool_GetScore);
+    if (address == 0) {
+        return std::nullopt;
+    }
+
+    const auto getScore = reinterpret_cast<PlayerPoolGetScoreFn>(address);
+    if (!CallPlayerPoolGetScore(
+            getScore,
+            reinterpret_cast<void*>(playerPool),
+            static_cast<unsigned short>(id),
+            score)) {
+        return std::nullopt;
+    }
+    return score;
+}
+
+std::optional<int> SampApi::GetPlayerCount(bool includeNpc) {
+    if (!isSupportedVersion() || !IsServerConnected()) {
+        return std::nullopt;
+    }
+
+    std::uint32_t playerPool = 0;
+    int localId = -1;
+    if (!ResolvePlayerPoolState(playerPool, localId)) {
+        return std::nullopt;
+    }
+
+    const auto address = GetAddress(main_offsets.CPlayerPool_GetCount);
+    if (address == 0) {
+        return std::nullopt;
+    }
+
+    int count = 0;
+    const auto getCount = reinterpret_cast<PlayerPoolGetCountFn>(address);
+    if (!CallPlayerPoolGetCount(
+            getCount,
+            reinterpret_cast<void*>(playerPool),
+            includeNpc ? TRUE : FALSE,
+            count)
+        || count < 0 || count > kMaxSampPlayerId + 1) {
+        return std::nullopt;
+    }
+    return count;
+}
+
+std::optional<int> SampApi::FindVehicleIdByPointer(const void* vehicle) {
+    if (!vehicle || !isSupportedVersion() || !IsServerConnected()) {
+        return std::nullopt;
+    }
+
+    std::uint32_t vehiclePool = 0;
+    if (!ResolveVehiclePool(vehiclePool)) {
+        return std::nullopt;
+    }
+
+    const auto address = GetAddress(main_offsets.IDcar_Find);
+    if (address == 0) {
+        return std::nullopt;
+    }
+
+    std::uint16_t vehicleId = kInvalidSampVehicleId;
+    const auto find = reinterpret_cast<IdFindFn>(address);
+    if (!CallIdFind(find, reinterpret_cast<void*>(vehiclePool), vehicle, vehicleId)
+        || vehicleId == kInvalidSampVehicleId || vehicleId > kMaxSampVehicleId) {
+        return std::nullopt;
+    }
+    return static_cast<int>(vehicleId);
+}
+
 std::optional<bool> SampApi::GetLocalPassengerDriveByState() const {
     if (!isSupportedVersion()) {
         return std::nullopt;
@@ -884,6 +985,23 @@ bool SampApi::ResolvePedPool(std::uint32_t& pedPool) const {
     }
 
     return SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Player.Get(currentVersion_), pedPool) && pedPool != 0;
+}
+
+bool SampApi::ResolveVehiclePool(std::uint32_t& vehiclePool) const {
+    vehiclePool = 0;
+
+    std::uint32_t sampInfo = 0;
+    if (!ResolveSampInfo(sampInfo) || sampInfo == 0) {
+        return false;
+    }
+
+    std::uint32_t pools = 0;
+    if (!SafeRead(sampInfo + main_offsets.SAMP_INFO_OFFSET_Pools.Get(currentVersion_), pools) || pools == 0) {
+        return false;
+    }
+
+    return SafeRead(pools + main_offsets.SAMP_INFO_OFFSET_Pools_Veh.Get(currentVersion_), vehiclePool)
+        && vehiclePool != 0;
 }
 
 bool SampApi::ResolvePlayerPoolState(std::uint32_t& playerPool, int& localId) const {

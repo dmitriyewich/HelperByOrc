@@ -1738,6 +1738,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
     arizonaCefDialogs_.SetSampRakHooks(&sampRakHooks_);
     arizonaCefDialogs_.OnProcessAttach();
     tags_.SetSampApi(&sampApi_);
+    tags_.SetSampRakHooks(&sampRakHooks_);
     tags_.SetArizonaCefDialogs(&arizonaCefDialogs_);
     tags_.OnProcessAttach();
     sampApi_.attachModules([this](std::string_view text) { return tags_.ExpandText(text); });

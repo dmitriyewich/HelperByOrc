@@ -1,5 +1,6 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
+#include "samp_rak_hooks.h"
 
 TagsModule::Impl::Impl() = default;
 
@@ -29,6 +30,14 @@ void TagsModule::Impl::OnProcessAttach() {
     EnsureCodeCatalogEntries();
     LoadTransliterationDictionary();
     ResetTargetTracker();
+    if (sampRakHooks_ && !sampRakHandlerAttached_) {
+        sampRakHooks_->AddOnSendRpcHandler(
+            [this](std::uint8_t rpcId, RakNetBitStreamView& view) {
+                return HandleOutgoingDamageRpc(rpcId, view);
+            });
+        sampRakHandlerAttached_ = true;
+        debuglog::WriteInfo("[tags][damage] outgoing RPC observer attached");
+    }
     currentPage_ = MiscPage::Home;
     debuglog::WriteInfo(
         "TagsModule::OnProcessAttach done tags=%llu customVars=%llu",
@@ -100,6 +109,11 @@ void TagsModule::Impl::ReloadConfig() {
 void TagsModule::Impl::SetSampApi(SampApi* sampApi) {
     sampApi_ = sampApi;
     debuglog::WriteInfo("TagsModule::SetSampApi assigned=%d", sampApi_ ? 1 : 0);
+}
+
+void TagsModule::Impl::SetSampRakHooks(SampRakHooks* sampRakHooks) {
+    sampRakHooks_ = sampRakHooks;
+    debuglog::WriteInfo("TagsModule::SetSampRakHooks assigned=%d", sampRakHooks_ ? 1 : 0);
 }
 
 void TagsModule::Impl::SetBinderModule(BinderModule* binderModule) {

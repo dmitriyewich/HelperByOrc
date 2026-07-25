@@ -30,6 +30,10 @@ void TagsModule::SetSampApi(SampApi* sampApi) {
     impl_->SetSampApi(sampApi);
 }
 
+void TagsModule::SetSampRakHooks(SampRakHooks* sampRakHooks) {
+    impl_->SetSampRakHooks(sampRakHooks);
+}
+
 void TagsModule::SetBinderModule(BinderModule* binderModule) {
     impl_->SetBinderModule(binderModule);
 }

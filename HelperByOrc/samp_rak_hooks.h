@@ -22,6 +22,7 @@ inline constexpr std::uint8_t ClientMessage = 93;
 inline constexpr std::uint8_t ServerCommand = 50;
 inline constexpr std::uint8_t Chat = 101;
 inline constexpr std::uint8_t ChatBubble = 59;
+inline constexpr std::uint8_t GiveTakeDamage = 115;
 
 } // namespace SampRpcIds
 

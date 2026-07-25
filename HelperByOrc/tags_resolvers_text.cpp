@@ -1,12 +1,71 @@
 #include "tags_module_impl.h"
+#include "tags_module_detail.h"
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
+constexpr unsigned int kCompatibleCp1251 = 1251;
+
+struct CompatibleText {
+    std::wstring wide{};
+    unsigned int codePage = CP_UTF8;
+    bool valid = false;
+};
+
+CompatibleText DecodeCompatibleText(std::string_view text) {
+    CompatibleText decoded;
+    if (text.size() > kClipboardTagMaxLength) {
+        return decoded;
+    }
+
+    decoded.wide = Utf8ToWide(text);
+    if (!text.empty() && decoded.wide.empty()) {
+        decoded.wide = MultiByteToWide(text, kCompatibleCp1251);
+        decoded.codePage = kCompatibleCp1251;
+    }
+    decoded.valid = text.empty() || !decoded.wide.empty();
+    return decoded;
+}
+
+std::string EncodeCompatibleText(const CompatibleText& decoded, std::wstring_view text) {
+    if (!decoded.valid) {
+        return {};
+    }
+    std::string result = WideToMultiByte(text, decoded.codePage);
+    return result.size() <= kClipboardTagMaxLength ? result : std::string();
+}
+
+bool IsHighSurrogate(wchar_t value) {
+    return value >= 0xD800 && value <= 0xDBFF;
+}
+
+bool IsLowSurrogate(wchar_t value) {
+    return value >= 0xDC00 && value <= 0xDFFF;
+}
+
+std::size_t NextCodePoint(std::wstring_view text, std::size_t position) {
+    if (position >= text.size()) {
+        return text.size();
+    }
+    return position + 1 < text.size()
+            && IsHighSurrogate(text[position])
+            && IsLowSurrogate(text[position + 1])
+        ? position + 2
+        : position + 1;
+}
+
+bool IsUnicodeWhitespace(wchar_t value) {
+    WORD type = 0;
+    return GetStringTypeW(CT_CTYPE1, &value, 1, &type) != FALSE
+        && (type & C1_SPACE) != 0;
+}
+
 struct TransliterationMapping {
     std::string_view lower;
     std::string_view upper;
@@ -196,7 +255,7 @@ bool IsAsciiWhitespace(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v';
 }
 
-std::string_view TrimAsciiWhitespace(std::string_view value) {
+std::string_view TrimTransliterationAsciiWhitespace(std::string_view value) {
     std::size_t begin = 0;
     while (begin < value.size() && IsAsciiWhitespace(value[begin])) {
         ++begin;
@@ -485,7 +544,7 @@ std::string LatinToCyrillic(
 }
 
 std::optional<int> ParseArabicNumber(std::string_view rawValue) {
-    const std::string_view value = TrimAsciiWhitespace(rawValue);
+    const std::string_view value = TrimTransliterationAsciiWhitespace(rawValue);
     if (value.empty()) {
         return std::nullopt;
     }
@@ -537,7 +596,7 @@ int RomanDigitValue(char ch) {
 }
 
 std::optional<int> ParseCanonicalRoman(std::string_view rawValue) {
-    const std::string_view trimmed = TrimAsciiWhitespace(rawValue);
+    const std::string_view trimmed = TrimTransliterationAsciiWhitespace(rawValue);
     if (trimmed.empty() || trimmed.size() > 15) {
         return std::nullopt;
     }
@@ -599,4 +658,134 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinFromRomanFunctionTag(
     const EvaluationContext&) const {
     const std::optional<int> value = ParseCanonicalRoman(param);
     return value.has_value() ? std::to_string(*value) : std::string(param);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinStrUpperFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    CompatibleText decoded = DecodeCompatibleText(param);
+    if (!decoded.valid || decoded.wide.empty()) {
+        return std::string();
+    }
+
+    const int required = LCMapStringEx(
+        LOCALE_NAME_INVARIANT,
+        LCMAP_UPPERCASE,
+        decoded.wide.data(),
+        static_cast<int>(decoded.wide.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr,
+        0);
+    if (required <= 0 || required > static_cast<int>(kClipboardTagMaxLength)) {
+        return std::string();
+    }
+
+    std::wstring upper(static_cast<std::size_t>(required), L'\0');
+    if (LCMapStringEx(
+            LOCALE_NAME_INVARIANT,
+            LCMAP_UPPERCASE,
+            decoded.wide.data(),
+            static_cast<int>(decoded.wide.size()),
+            upper.data(),
+            required,
+            nullptr,
+            nullptr,
+            0) != required) {
+        return std::string();
+    }
+    return EncodeCompatibleText(decoded, upper);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinTrimFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    const CompatibleText decoded = DecodeCompatibleText(param);
+    if (!decoded.valid) {
+        return std::string();
+    }
+
+    std::size_t begin = 0;
+    while (begin < decoded.wide.size() && IsUnicodeWhitespace(decoded.wide[begin])) {
+        ++begin;
+    }
+    std::size_t end = decoded.wide.size();
+    while (end > begin && IsUnicodeWhitespace(decoded.wide[end - 1])) {
+        --end;
+    }
+    return EncodeCompatibleText(decoded, std::wstring_view(decoded.wide).substr(begin, end - begin));
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinSubstrFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    if (param.size() > kClipboardTagMaxLength) {
+        return std::string();
+    }
+
+    const std::vector<std::string_view> parts = SplitTopLevelDelimitedParts(param, ';');
+    if (parts.size() != 2 && parts.size() != 3) {
+        return std::string();
+    }
+
+    return ResolveBuiltinSubstrFunctionParts(
+        parts[0],
+        parts[1],
+        parts.size() == 3 ? std::optional<std::string_view>(parts[2]) : std::nullopt);
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinSubstrFunctionParts(
+    std::string_view text,
+    std::string_view startText,
+    std::optional<std::string_view> lengthText) const {
+    if (text.size() > kClipboardTagMaxLength) {
+        return std::string();
+    }
+
+    const std::optional<int> start = ParseInteger(TrimView(startText));
+    const std::optional<int> length =
+        lengthText.has_value() ? ParseInteger(TrimView(*lengthText)) : std::optional<int>{};
+    if (!start.has_value() || *start <= 0
+        || (lengthText.has_value() && (!length.has_value() || *length < 0))) {
+        return std::string();
+    }
+
+    const CompatibleText decoded = DecodeCompatibleText(text);
+    if (!decoded.valid) {
+        return std::string();
+    }
+
+    std::size_t begin = 0;
+    for (int index = 1; index < *start && begin < decoded.wide.size(); ++index) {
+        begin = NextCodePoint(decoded.wide, begin);
+    }
+    if (begin >= decoded.wide.size()) {
+        return std::string();
+    }
+
+    std::size_t end = begin;
+    if (!lengthText.has_value()) {
+        end = decoded.wide.size();
+    } else {
+        for (int index = 0; index < *length && end < decoded.wide.size(); ++index) {
+            end = NextCodePoint(decoded.wide, end);
+        }
+    }
+    return EncodeCompatibleText(decoded, std::wstring_view(decoded.wide).substr(begin, end - begin));
+}
+
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinStrlenFunctionTag(
+    std::string_view param,
+    const EvaluationContext&) const {
+    const CompatibleText decoded = DecodeCompatibleText(param);
+    if (!decoded.valid) {
+        return std::string();
+    }
+
+    std::size_t count = 0;
+    for (std::size_t position = 0; position < decoded.wide.size(); ++count) {
+        position = NextCodePoint(decoded.wide, position);
+    }
+    return std::to_string(count);
 }

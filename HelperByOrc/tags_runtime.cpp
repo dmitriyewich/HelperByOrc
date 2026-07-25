@@ -1,7 +1,10 @@
 #include "tags_module_impl.h"
 #include "tags_module_detail.h"
+#include "samp_rak_hooks.h"
 
 namespace {
+
+constexpr int kGiveTakeDamagePayloadBits = 1 + 16 + 32 + 32 + 32;
 
 double TagResolverPerfNowMs() {
     static const double s_invFrequencyMs = [] {
@@ -105,6 +108,7 @@ void TagsModule::Impl::Tick(bool sampReady) {
     }
     codevars::Runtime::Instance().Tick(sampReady);
     MaybeLogExternalTagPerf(now);
+    RefreshSampSessionState(sampReady);
     UpdateTargetTracker();
     ProcessPendingDialogWaits();
     ProcessPendingArzDialogQueryWaits();
@@ -131,6 +135,104 @@ void TagsModule::Impl::Tick(bool sampReady) {
     }
 
     ProcessPendingKeyHoldWaits();
+}
+
+void TagsModule::Impl::RefreshSampSessionState(bool sampReady) {
+    std::uintptr_t playerPool = 0;
+    if (sampReady && sampApi_) {
+        const std::uint64_t now = GetTickCount64();
+        if (nextSampSessionProbeAtMs_ != 0 && now < nextSampSessionProbeAtMs_) {
+            return;
+        }
+
+        if (sampApi_->IsServerConnected()) {
+            playerPool = sampApi_->PedPool();
+        }
+        nextSampSessionProbeAtMs_ = now + (playerPool != 0 ? 1000 : 250);
+    } else {
+        nextSampSessionProbeAtMs_ = 0;
+    }
+
+    const bool active = playerPool != 0;
+    if (sampSessionActive_ == active && sampSessionKey_ == playerPool) {
+        return;
+    }
+
+    {
+        const std::scoped_lock lock(damageStateMutex_);
+        hitMeSnapshot_ = {};
+        hitByMeSnapshot_ = {};
+    }
+    onlineCountCache_ = {};
+    myCarSampIdCache_ = {};
+    sampSessionActive_ = active;
+    sampSessionKey_ = playerPool;
+
+    debuglog::WriteInfo(
+        "[tags][session] runtime snapshots reset active=%d playerPool=0x%08X",
+        active ? 1 : 0,
+        static_cast<unsigned int>(playerPool));
+}
+
+bool TagsModule::Impl::HandleOutgoingDamageRpc(std::uint8_t rpcId, RakNetBitStreamView& view) {
+    if (rpcId != SampRpcIds::GiveTakeDamage || view.GetNumberOfUnreadBits() < kGiveTakeDamagePayloadBits) {
+        return true;
+    }
+
+    const int initialReadOffset = view.GetReadOffset();
+    const bool takeDamage = view.ReadBool();
+    const std::uint16_t playerId = view.ReadUInt16();
+    const float damage = view.ReadFloat();
+    static_cast<void>(view.ReadInt32());
+    static_cast<void>(view.ReadInt32());
+    view.SetReadOffset(initialReadOffset);
+
+    if (playerId > kMaxSampPlayerId || !std::isfinite(damage) || damage < 0.0f) {
+        return true;
+    }
+
+    SampApi* const sampApi = sampApi_;
+    std::string nick = sampApi ? sampApi->GetNameID(static_cast<int>(playerId)) : std::string();
+    if (nick == "UNKNOWN") {
+        nick.clear();
+    }
+    if (!nick.empty() && nick.front() == '[') {
+        if (const std::size_t tagEnd = nick.find(']'); tagEnd != std::string::npos) {
+            nick.erase(0, tagEnd + 1);
+        }
+    }
+
+    DamagePlayerSnapshot snapshot;
+    snapshot.id = static_cast<int>(playerId);
+    snapshot.name = ExtractName(nick);
+    snapshot.surname = ExtractSurname(nick);
+    snapshot.valid = true;
+
+    const std::scoped_lock lock(damageStateMutex_);
+    if (takeDamage) {
+        hitMeSnapshot_ = std::move(snapshot);
+    } else {
+        hitByMeSnapshot_ = std::move(snapshot);
+    }
+    return true;
+}
+
+std::string TagsModule::Impl::ResolveDamagePlayerValue(bool hitMe, DamagePlayerField field) const {
+    const std::scoped_lock lock(damageStateMutex_);
+    const DamagePlayerSnapshot& snapshot = hitMe ? hitMeSnapshot_ : hitByMeSnapshot_;
+    if (!snapshot.valid) {
+        return {};
+    }
+
+    switch (field) {
+    case DamagePlayerField::Id:
+        return std::to_string(snapshot.id);
+    case DamagePlayerField::Name:
+        return snapshot.name;
+    case DamagePlayerField::Surname:
+        return snapshot.surname;
+    }
+    return {};
 }
 
 void TagsModule::Impl::QueuePendingDialogWait(
@@ -626,6 +728,8 @@ void TagsModule::Impl::ResetTargetTracker() {
     closestPlayerPerfStats_ = ClosestPlayerPerfStats{};
     playerNamePerfStats_ = PlayerNamePerfStats{};
     myCarSnapshotCache_.valid = false;
+    onlineCountCache_ = {};
+    myCarSampIdCache_ = {};
     myCarSnapshotPerfStats_ = MyCarSnapshotPerfStats{};
 }
 
@@ -645,7 +749,8 @@ TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(cons
         snapshot.valid = false;
     };
 
-    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()) {
+    if (!sampApi || !sampApi->sampModule() || !sampApi->isSupportedVersion()
+        || !sampApi->IsServerConnected()) {
         clearSnapshot();
         MaybeLogClosestPlayersSnapshot(snapshot, emptyStats, 0.0, context);
         RecordClosestPlayersPerf(false, false, false, emptyStats, 0.0);

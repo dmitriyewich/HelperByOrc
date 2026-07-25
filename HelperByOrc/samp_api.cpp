@@ -47,6 +47,9 @@ using SetPageSizeFn = void(__thiscall*)(void*, int);
 using IdFindFn = std::uint16_t(__thiscall*)(void*, const void*);
 using PlayerPoolGetPingFn = int(__thiscall*)(void*, unsigned short);
 using PlayerPoolGetLocalPingFn = int(__thiscall*)(void*);
+using PlayerPoolGetScoreFn = int(__thiscall*)(void*, unsigned short);
+using PlayerPoolGetLocalScoreFn = int(__thiscall*)(void*);
+using PlayerPoolGetCountFn = int(__thiscall*)(void*, BOOL);
 using ListBoxGetSelectedIndexFn = int(__thiscall*)(void*, int);
 using ListBoxGetItemFn = const char*(__thiscall*)(void*, int);
 using SetCursorModeFn = char*(__thiscall*)(void*, int, bool);
@@ -94,6 +97,8 @@ constexpr std::uintptr_t kChatAsiCallbackOffsetSelectionStart = 0x28;
 constexpr std::uintptr_t kChatAsiCallbackOffsetSelectionEnd = 0x2C;
 constexpr int kMaxSampPlayerId = 1003;
 constexpr std::uint16_t kInvalidSampPlayerId = 0xFFFF;
+constexpr int kMaxSampVehicleId = 1999;
+constexpr std::uint16_t kInvalidSampVehicleId = 0xFFFF;
 
 ChatAsiInputCallbackFn g_chatAsiInputCallbackOriginal = nullptr;
 SampApi* g_chatAsiInputCallbackOwner = nullptr;
@@ -1515,6 +1520,39 @@ bool CallPlayerPoolGetPing(PlayerPoolGetPingFn fn, void* pool, unsigned short id
 bool CallPlayerPoolGetLocalPing(PlayerPoolGetLocalPingFn fn, void* pool, int& out) {
     __try {
         out = fn(pool);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        out = 0;
+        return false;
+    }
+}
+
+bool CallPlayerPoolGetScore(PlayerPoolGetScoreFn fn, void* pool, unsigned short id, int& out) {
+    __try {
+        out = fn(pool, id);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        out = 0;
+        return false;
+    }
+}
+
+bool CallPlayerPoolGetLocalScore(PlayerPoolGetLocalScoreFn fn, void* pool, int& out) {
+    __try {
+        out = fn(pool);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        out = 0;
+        return false;
+    }
+}
+
+bool CallPlayerPoolGetCount(PlayerPoolGetCountFn fn, void* pool, BOOL includeNpc, int& out) {
+    __try {
+        out = fn(pool, includeNpc);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

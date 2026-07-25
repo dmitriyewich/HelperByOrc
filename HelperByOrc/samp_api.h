@@ -116,6 +116,9 @@ public:
         VersionedOffset CPlayerPool_ConnectedFlags;
         VersionedOffset CPlayerPool_GetPing;
         VersionedOffset CPlayerPool_GetLocalPlayerPing;
+        VersionedOffset CPlayerPool_GetScore;
+        VersionedOffset CPlayerPool_GetLocalPlayerScore;
+        VersionedOffset CPlayerPool_GetCount;
         VersionedOffset IDcar_Find;
         VersionedOffset SAMP_PREMOTEPLAYER_OFFSET;
         VersionedOffset SAMP_REMOTEPLAYERDATA_OFFSET;
@@ -218,6 +221,9 @@ public:
     std::optional<int> GetIDByName(std::string_view name);
     bool IsConnected(int id);
     std::optional<int> GetPlayerPing(int id);
+    std::optional<int> GetPlayerScore(int id);
+    std::optional<int> GetPlayerCount(bool includeNpc = false);
+    std::optional<int> FindVehicleIdByPointer(const void* vehicle);
     std::optional<bool> GetLocalPassengerDriveByState() const;
 
     std::uintptr_t pDialog_func();
@@ -353,6 +359,7 @@ private:
     int GetCurrentDialogSelectedIndex();
     bool ResolveSampInfo(std::uint32_t& sampInfo) const;
     bool ResolvePedPool(std::uint32_t& pedPool) const;
+    bool ResolveVehiclePool(std::uint32_t& vehiclePool) const;
     bool ResolvePlayerPoolState(std::uint32_t& playerPool, int& localId) const;
     bool IsPlayerConnectedInPool(std::uint32_t playerPool, int localId, int id) const;
     std::string GetPlayerNameInPool(std::uint32_t playerPool, int id, std::uintptr_t getNameAddress) const;

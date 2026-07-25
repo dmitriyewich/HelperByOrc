@@ -566,11 +566,34 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
             RecordTagGroup(*trace, ClassifyTagPerfGroup(name, action));
         }
         const bool rawParam = name == "ifandor" || name == "dialogsettext" || name == "dialogresponse"
-            || name == "arzdialogsetinputtext" || name == "arzdialogsendrespond";
+            || name == "arzdialogsetinputtext" || name == "arzdialogsendrespond" || name == "substr";
         std::optional<std::string> resolved;
         if (rawParam) {
             const double resolverBeginMs = telemetryEnabled ? TagsPerfNowMs() : 0.0;
-            resolved = entry->functionResolver(*this, param, context, depth);
+            if (name == "substr") {
+                const std::vector<std::string_view> parts =
+                    param.size() <= kClipboardTagMaxLength
+                    ? SplitTopLevelDelimitedParts(param, ';')
+                    : std::vector<std::string_view>{};
+                if (parts.size() == 2 || parts.size() == 3) {
+                    const std::string expandedText = ExpandTextRecursive(parts[0], context, depth + 1, trace);
+                    const std::string expandedStart = ExpandTextRecursive(parts[1], context, depth + 1, trace);
+                    std::optional<std::string> expandedLength;
+                    if (parts.size() == 3) {
+                        expandedLength = ExpandTextRecursive(parts[2], context, depth + 1, trace);
+                    }
+                    resolved = ResolveBuiltinSubstrFunctionParts(
+                        expandedText,
+                        expandedStart,
+                        expandedLength.has_value()
+                            ? std::optional<std::string_view>(*expandedLength)
+                            : std::nullopt);
+                } else {
+                    resolved = std::string();
+                }
+            } else {
+                resolved = entry->functionResolver(*this, param, context, depth);
+            }
             if (telemetryEnabled) {
                 RecordHotTag(*trace, TagKind::Function, entry->name, TagsPerfNowMs() - resolverBeginMs);
             }
