@@ -62,6 +62,14 @@ bool TagsModule::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const {
     return impl_->ConsumeCurrentDispatchBlocked(runtimeId);
 }
 
+bool TagsModule::ConsumeCurrentDispatchSkipped(std::uint64_t runtimeId) const {
+    return impl_->ConsumeCurrentDispatchSkipped(runtimeId);
+}
+
+bool TagsModule::ConsumeCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const {
+    return impl_->ConsumeCurrentDispatchSkipIfEmpty(runtimeId);
+}
+
 void TagsModule::Tick(bool sampReady) {
     impl_->Tick(sampReady);
 }
@@ -192,6 +200,10 @@ void TagsModule::OpenArizonaDialogTextPicker() {
 
 void TagsModule::OpenBindSelectorBuilder(std::string_view action) {
     impl_->OpenBindSelectorBuilder(action);
+}
+
+void TagsModule::OpenWaitIfBuilder() {
+    impl_->OpenWaitIfBuilder();
 }
 
 void TagsModule::DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction) {

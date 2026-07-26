@@ -1762,6 +1762,14 @@ bool BinderModule::Impl::DoSend(const std::string& text, int method, std::uint64
     if (tagsModule && sourceRuntimeId != 0 && tagsModule->ConsumeCurrentDispatchBlocked(sourceRuntimeId)) {
         return false;
     }
+    if (tagsModule && sourceRuntimeId != 0 && tagsModule->ConsumeCurrentDispatchSkipped(sourceRuntimeId)) {
+        return true;
+    }
+    const bool skipIfEmpty = tagsModule && sourceRuntimeId != 0
+        && tagsModule->ConsumeCurrentDispatchSkipIfEmpty(sourceRuntimeId);
+    if (skipIfEmpty && Trim(expandedText).empty()) {
+        return true;
+    }
 
     if ((method == 1 || method == 2)
         && QueueCommandDispatchFromRunningBind(expandedText, sourceRuntimeId, method)) {

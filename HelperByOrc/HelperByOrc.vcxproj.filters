@@ -240,6 +240,9 @@
     <ClCompile Include="tags_runtime.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="tags_waitif.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="tags_expander.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -280,6 +283,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="variables_picker_ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="waitif_expression.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="external\raknet\BitStream.cpp">
@@ -492,6 +498,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="tags_module_impl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="waitif_expression.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_encoding.h">

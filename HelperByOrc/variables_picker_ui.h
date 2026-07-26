@@ -50,6 +50,7 @@ enum class RequestType {
     OpenDialogTextPicker,
     OpenArizonaDialogTextPicker,
     OpenBindSelectorBuilder,
+    OpenWaitIfBuilder,
     SaveCustom,
     DeleteCustom,
 };

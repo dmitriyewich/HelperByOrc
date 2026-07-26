@@ -22,6 +22,24 @@ bool IsBindBuilderAction(std::string_view value) {
     return std::find(kBindBuilderActions.begin(), kBindBuilderActions.end(), value) != kBindBuilderActions.end();
 }
 
+void SetNextResponsiveWaitIfPopupSize() {
+    const ImGuiViewport* const viewport = ImGui::GetMainViewport();
+    const ImVec2 margin = ScaleUi(24.0f, 24.0f);
+    const ImVec2 maximumSize(
+        std::max(1.0f, viewport->WorkSize.x - margin.x),
+        std::max(1.0f, viewport->WorkSize.y - margin.y));
+    const ImVec2 preferredSize(
+        std::min(ScaleUi(720.0f), maximumSize.x),
+        std::min(ScaleUi(620.0f), maximumSize.y));
+    const ImVec2 minimumSize(
+        std::min(ScaleUi(360.0f), maximumSize.x),
+        std::min(ScaleUi(300.0f), maximumSize.y));
+
+    ImGui::SetNextWindowPos(viewport->GetWorkCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(minimumSize, maximumSize);
+    ImGui::SetNextWindowSize(preferredSize, ImGuiCond_Appearing);
+}
+
 } // namespace
 
 void TagsModule::Impl::LoadConfig() {
@@ -166,11 +184,24 @@ void TagsModule::Impl::OpenBindSelectorBuilder(std::string_view action) {
     bindSelectorBuilder_.openPending = true;
 }
 
+void TagsModule::Impl::OpenWaitIfBuilder() {
+    waitIfBuilder_ = {};
+    const auto& keys = VirtualKeyPickerEntries();
+    const auto enter = std::find_if(keys.begin(), keys.end(), [](const VirtualKeyPickerEntry& key) {
+        return key.code == VK_RETURN;
+    });
+    if (enter != keys.end()) {
+        waitIfBuilder_.keyIndex = static_cast<int>(std::distance(keys.begin(), enter));
+    }
+    waitIfBuilder_.openPending = true;
+}
+
 void TagsModule::Impl::DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction) {
     DrawKeyEmulatePickerPopup();
     DrawDialogItemPickerPopup(tokenAction);
     DrawDialogTextPickerPopup(tokenAction);
     DrawBindSelectorBuilderPopup(tokenAction);
+    DrawWaitIfBuilderPopup(tokenAction);
 }
 
 void TagsModule::Impl::DrawBindSelectorBuilderPopup(const std::function<void(std::string_view)>& tokenAction) {
@@ -438,6 +469,368 @@ void TagsModule::Impl::DrawBindSelectorBuilderPopup(const std::function<void(std
     }
     ImGui::SameLine();
     if (ImGui::Button(ui.Text(UiText::Close), ScaleUi(120.0f, 0.0f))) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void TagsModule::Impl::DrawWaitIfBuilderPopup(const std::function<void(std::string_view)>& tokenAction) {
+    UiSettings& ui = UiSettings::Instance();
+    WaitIfBuilderState& state = waitIfBuilder_;
+    constexpr char kPopupId[] = "##tags_waitif_builder";
+    if (state.openPending) {
+        ImGui::OpenPopup(kPopupId);
+        state.openPending = false;
+    }
+
+    SetNextResponsiveWaitIfPopupSize();
+    if (!ImGui::BeginPopupModal(kPopupId, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+
+    ImGui::TextUnformatted(ui.Text(UiText::WaitIfBuilderTitle));
+    ImGui::Separator();
+    std::string expression;
+    const float footerHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+    const float contentHeight = std::max(1.0f, ImGui::GetContentRegionAvail().y - footerHeight);
+    if (ImGui::BeginChild(
+            "##waitif_builder_content",
+            ImVec2(0.0f, contentHeight),
+            ImGuiChildFlags_None,
+            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        ImGui::TextWrapped("%s", ui.Text(UiText::WaitIfBuilderIntro));
+        ImGui::Spacing();
+        ImGui::Checkbox(ui.Text(UiText::WaitIfBuilderRawMode), &state.rawMode);
+        ImGui::SetItemDefaultFocus();
+        ImGui::Spacing();
+    }
+
+    if (state.rawMode) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderExpression));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        InputTextWithHintString(
+            "##waitif_builder_raw",
+            ui.Text(UiText::WaitIfBuilderRawHint),
+            state.rawExpression,
+            ImGuiInputTextFlags_None,
+            4096);
+        expression = Trim(state.rawExpression);
+    } else {
+        const bool english = ui.Language() == UiLanguage::English;
+        const char* categoryLabelsRu[]{ "Все", "Состояния", "Игрок и транспорт", "Числовые значения", "Клавиши" };
+        const char* categoryLabelsEn[]{ "All", "States", "Player and vehicle", "Numeric values", "Keys" };
+        const char** categoryLabels = english ? categoryLabelsEn : categoryLabelsRu;
+        state.categoryIndex = std::clamp(state.categoryIndex, 0, 4);
+
+        const auto matchesCategory = [&](const WaitIfActionDefinition& definition) {
+            if (state.categoryIndex == 0) {
+                return true;
+            }
+            if (state.categoryIndex == 1) {
+                return definition.kind == WaitIfActionKind::State;
+            }
+            if (state.categoryIndex == 2) {
+                return definition.kind == WaitIfActionKind::PlayerBoolean
+                    || definition.kind == WaitIfActionKind::PlayerBooleanWithValue;
+            }
+            if (state.categoryIndex == 3) {
+                return definition.kind == WaitIfActionKind::PlayerNumber;
+            }
+            return definition.kind == WaitIfActionKind::KeyBoolean;
+        };
+
+        const auto& definitions = WaitIfActionDefinitions();
+        const int previousCategory = state.categoryIndex;
+        const int previousActionIndex = state.actionIndex;
+        ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderCategory));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##waitif_builder_category", categoryLabels[state.categoryIndex])) {
+            for (int i = 0; i < 5; ++i) {
+                const bool selected = state.categoryIndex == i;
+                if (ImGui::Selectable(categoryLabels[i], selected)) {
+                    state.categoryIndex = i;
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        if (previousCategory != state.categoryIndex
+            || state.actionIndex < 0
+            || state.actionIndex >= static_cast<int>(definitions.size())
+            || !matchesCategory(definitions[static_cast<std::size_t>(state.actionIndex)])) {
+            state.actionIndex = 0;
+            while (state.actionIndex < static_cast<int>(definitions.size())
+                && !matchesCategory(definitions[static_cast<std::size_t>(state.actionIndex)])) {
+                ++state.actionIndex;
+            }
+        }
+        state.actionIndex = std::clamp(state.actionIndex, 0, static_cast<int>(definitions.size()) - 1);
+        const WaitIfActionDefinition* definition = &definitions[static_cast<std::size_t>(state.actionIndex)];
+        if (previousActionIndex != state.actionIndex) {
+            state.comparisonValue = definition->defaultValue;
+            constexpr std::array<std::string_view, 6> comparisons{ "==", "!=", ">", ">=", "<", "<=" };
+            const auto found = std::find(comparisons.begin(), comparisons.end(), definition->defaultComparison);
+            state.comparisonIndex = found == comparisons.end()
+                ? 0
+                : static_cast<int>(std::distance(comparisons.begin(), found));
+        }
+        const auto actionLabel = [&](const WaitIfActionDefinition& item) {
+            return std::string(item.name) + " — " + (english ? item.labelEn : item.labelRu);
+        };
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        InputTextWithHintString(
+            "##waitif_builder_action_search",
+            ui.Text(UiText::WaitIfBuilderActionSearch),
+            state.actionSearch,
+            ImGuiInputTextFlags_AutoSelectAll,
+            128);
+        const std::string actionSearch = ToLowerUtf8(Trim(state.actionSearch));
+        const auto matchesSearch = [&](const WaitIfActionDefinition& item) {
+            return actionSearch.empty()
+                || ToLowerUtf8(actionLabel(item)).find(actionSearch) != std::string::npos;
+        };
+
+        const std::string selectedActionLabel = actionLabel(*definition);
+        ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderAction));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(0.0f, ScaleUi(120.0f)),
+            ImVec2(FLT_MAX, ScaleUi(360.0f)));
+        if (ImGui::BeginCombo("##waitif_builder_action", selectedActionLabel.c_str(), ImGuiComboFlags_HeightLarge)) {
+            bool hasMatches = false;
+            for (int i = 0; i < static_cast<int>(definitions.size()); ++i) {
+                const WaitIfActionDefinition& item = definitions[static_cast<std::size_t>(i)];
+                if (!matchesCategory(item) || !matchesSearch(item)) {
+                    continue;
+                }
+                hasMatches = true;
+                const std::string label = actionLabel(item);
+                const bool selected = state.actionIndex == i;
+                if (ImGui::Selectable(label.c_str(), selected)) {
+                    state.actionIndex = i;
+                    definition = &item;
+                    state.comparisonValue = item.defaultValue;
+                    constexpr std::array<std::string_view, 6> comparisons{ "==", "!=", ">", ">=", "<", "<=" };
+                    const auto found = std::find(comparisons.begin(), comparisons.end(), item.defaultComparison);
+                    state.comparisonIndex = found == comparisons.end()
+                        ? 0
+                        : static_cast<int>(std::distance(comparisons.begin(), found));
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            if (!hasMatches) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderActionSearchEmpty));
+            }
+            ImGui::EndCombo();
+        }
+        definition = &definitions[static_cast<std::size_t>(state.actionIndex)];
+
+        std::string playerSelector;
+        if (definition->kind == WaitIfActionKind::PlayerBoolean
+            || definition->kind == WaitIfActionKind::PlayerBooleanWithValue
+            || definition->kind == WaitIfActionKind::PlayerNumber) {
+            const char* playerLabels[]{
+                "{myid}",
+                "{targetid}",
+                "{closestid}",
+                "{closestdriverid}",
+                english ? "Custom ID / nickname / variable" : "Свой ID / ник / переменная",
+            };
+            constexpr std::array<std::string_view, 4> playerTokens{
+                "{myid}",
+                "{targetid}",
+                "{closestid}",
+                "{closestdriverid}",
+            };
+            state.playerSelectorIndex = std::clamp(state.playerSelectorIndex, 0, 4);
+            ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderPlayer));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##waitif_builder_player", playerLabels[state.playerSelectorIndex])) {
+                for (int i = 0; i < 5; ++i) {
+                    const bool selected = state.playerSelectorIndex == i;
+                    if (ImGui::Selectable(playerLabels[i], selected)) {
+                        state.playerSelectorIndex = i;
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            if (state.playerSelectorIndex < static_cast<int>(playerTokens.size())) {
+                playerSelector = playerTokens[static_cast<std::size_t>(state.playerSelectorIndex)];
+            } else {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                InputTextWithHintString(
+                    "##waitif_builder_custom_player",
+                    ui.Text(UiText::WaitIfBuilderCustomPlayer),
+                    state.customPlayerSelector,
+                    ImGuiInputTextFlags_None,
+                    128);
+                std::string custom = Trim(state.customPlayerSelector);
+                const bool alreadyQuoted = custom.size() >= 2
+                    && ((custom.front() == '"' && custom.back() == '"')
+                        || (custom.front() == '\'' && custom.back() == '\''));
+                if (!custom.empty() && !alreadyQuoted) {
+                    int numeric = 0;
+                    const auto parsed = std::from_chars(custom.data(), custom.data() + custom.size(), numeric);
+                    if (parsed.ec != std::errc{} || parsed.ptr != custom.data() + custom.size()) {
+                        std::string quoted{ "\"" };
+                        quoted.reserve(custom.size() + 2);
+                        for (const char ch : custom) {
+                            if (ch == '\\' || ch == '"') {
+                                quoted.push_back('\\');
+                            }
+                            quoted.push_back(ch);
+                        }
+                        quoted.push_back('"');
+                        custom = std::move(quoted);
+                    }
+                }
+                playerSelector = std::move(custom);
+            }
+        }
+
+        if (definition->kind == WaitIfActionKind::PlayerNumber) {
+            constexpr std::array<const char*, 6> comparisons{ "==", "!=", ">", ">=", "<", "<=" };
+            state.comparisonIndex = std::clamp(state.comparisonIndex, 0, static_cast<int>(comparisons.size()) - 1);
+            ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderComparison));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##waitif_builder_comparison", comparisons[static_cast<std::size_t>(state.comparisonIndex)])) {
+                for (int i = 0; i < static_cast<int>(comparisons.size()); ++i) {
+                    const bool selected = state.comparisonIndex == i;
+                    if (ImGui::Selectable(comparisons[static_cast<std::size_t>(i)], selected)) {
+                        state.comparisonIndex = i;
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderValue));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextWithHintString(
+                "##waitif_builder_value",
+                ui.Text(UiText::WaitIfBuilderValue),
+                state.comparisonValue,
+                ImGuiInputTextFlags_None,
+                64);
+            if (!playerSelector.empty() && !Trim(state.comparisonValue).empty()) {
+                expression = std::string(definition->name) + "(" + playerSelector + ") "
+                    + comparisons[static_cast<std::size_t>(state.comparisonIndex)] + " "
+                    + Trim(state.comparisonValue);
+            }
+        } else if (definition->kind == WaitIfActionKind::PlayerBooleanWithValue) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderValue));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            InputTextWithHintString(
+                "##waitif_builder_function_value",
+                ui.Text(UiText::WaitIfBuilderValue),
+                state.comparisonValue,
+                ImGuiInputTextFlags_None,
+                64);
+            if (!playerSelector.empty() && !Trim(state.comparisonValue).empty()) {
+                expression = std::string(definition->name) + "(" + playerSelector + ", "
+                    + Trim(state.comparisonValue) + ")";
+            }
+        } else if (definition->kind == WaitIfActionKind::PlayerBoolean) {
+            if (!playerSelector.empty()) {
+                expression = std::string(definition->name) + "(" + playerSelector + ")";
+            }
+        } else if (definition->kind == WaitIfActionKind::KeyBoolean) {
+            const auto& keys = VirtualKeyPickerEntries();
+            if (!keys.empty()) {
+                state.keyIndex = std::clamp(state.keyIndex, 0, static_cast<int>(keys.size()) - 1);
+                ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderKey));
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::SetNextWindowSizeConstraints(
+                    ImVec2(0.0f, ScaleUi(120.0f)),
+                    ImVec2(FLT_MAX, ScaleUi(360.0f)));
+                if (ImGui::BeginCombo("##waitif_builder_key", keys[static_cast<std::size_t>(state.keyIndex)].label.c_str())) {
+                    ImGuiListClipper clipper;
+                    clipper.Begin(static_cast<int>(keys.size()));
+                    clipper.IncludeItemByIndex(state.keyIndex);
+                    while (clipper.Step()) {
+                        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                            const bool selected = state.keyIndex == i;
+                            if (ImGui::Selectable(keys[static_cast<std::size_t>(i)].label.c_str(), selected)) {
+                                state.keyIndex = i;
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                char keyCode[8]{};
+                std::snprintf(
+                    keyCode,
+                    sizeof(keyCode),
+                    "0x%02X",
+                    keys[static_cast<std::size_t>(state.keyIndex)].code);
+                expression = std::string(definition->name) + "(" + keyCode + ")";
+            }
+        } else {
+            expression = definition->name;
+        }
+
+        ImGui::Checkbox(ui.Text(UiText::WaitIfBuilderNegate), &state.negate);
+        if (state.negate && !expression.empty()) {
+            expression = "not (" + expression + ")";
+        }
+    }
+
+    const std::string generated = expression.empty() ? std::string() : "[waitif(" + expression + ")]";
+    const bool expressionTooLong = expression.size() > 4096;
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("%s", ui.Text(UiText::WaitIfBuilderPreview));
+    if (generated.empty()) {
+        ImGui::TextDisabled("-");
+    } else {
+        ImGui::PushTextWrapPos();
+        ImGui::TextUnformatted(generated.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    if (expressionTooLong) {
+        ImGui::TextWrapped("%s", ui.Text(UiText::WaitIfBuilderExpressionTooLong));
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    const bool canSubmit = !generated.empty() && !expressionTooLong;
+    if (!canSubmit) {
+        ImGui::BeginDisabled();
+    }
+    const float buttonSpacing = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonWidth = std::max(
+        1.0f,
+        (ImGui::GetContentRegionAvail().x - buttonSpacing) * 0.5f);
+    if (ImGui::Button(
+            ui.Text(tokenAction ? UiText::VariablesInsert : UiText::VariablesCopy),
+            ImVec2(buttonWidth, 0.0f))) {
+        if (tokenAction) {
+            tokenAction(generated);
+        } else {
+            ImGui::SetClipboardText(generated.c_str());
+            NotifyClipboardSuccess(ui.Text(UiText::ToastClipboardCopied), 1400.0);
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    if (!canSubmit) {
+        ImGui::EndDisabled();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui.Text(UiText::Close), ImVec2(buttonWidth, 0.0f))) {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -861,6 +1254,9 @@ void TagsModule::Impl::HandleVariablePickerRequest(const variables_picker::Reque
     case variables_picker::RequestType::OpenBindSelectorBuilder:
         OpenBindSelectorBuilder(request.name);
         break;
+    case variables_picker::RequestType::OpenWaitIfBuilder:
+        OpenWaitIfBuilder();
+        break;
     case variables_picker::RequestType::SaveCustom:
         if (UpsertCustomVariable(request.text, request.name, request.value)) {
             const std::string cleanName = Trim(request.name);
@@ -995,6 +1391,7 @@ void TagsModule::Impl::DrawVariablesPage() {
             DrawDialogItemPickerPopup();
             DrawDialogTextPickerPopup();
             DrawBindSelectorBuilderPopup();
+            DrawWaitIfBuilderPopup();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(ui.Text(UiText::VariablesTabLua))) {

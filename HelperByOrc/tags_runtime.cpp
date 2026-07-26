@@ -101,6 +101,43 @@ bool TagsModule::Impl::ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) co
     return true;
 }
 
+bool TagsModule::Impl::ConsumeCurrentDispatchSkipped(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+
+    const auto it =
+        std::find(skippedCurrentDispatchRuntimes_.begin(), skippedCurrentDispatchRuntimes_.end(), runtimeId);
+    if (it == skippedCurrentDispatchRuntimes_.end()) {
+        return false;
+    }
+
+    skippedCurrentDispatchRuntimes_.erase(it);
+    std::erase(skipEmptyCurrentDispatchRuntimes_, runtimeId);
+    std::erase_if(waitIfRuntimeStates_, [&](const WaitIfRuntimeState& state) {
+        return state.runtimeId == runtimeId;
+    });
+    return true;
+}
+
+bool TagsModule::Impl::ConsumeCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+
+    const auto it =
+        std::find(skipEmptyCurrentDispatchRuntimes_.begin(), skipEmptyCurrentDispatchRuntimes_.end(), runtimeId);
+    if (it == skipEmptyCurrentDispatchRuntimes_.end()) {
+        return false;
+    }
+
+    skipEmptyCurrentDispatchRuntimes_.erase(it);
+    std::erase_if(waitIfRuntimeStates_, [&](const WaitIfRuntimeState& state) {
+        return state.runtimeId == runtimeId;
+    });
+    return true;
+}
+
 void TagsModule::Impl::Tick(bool sampReady) {
     const std::uint64_t now = GetTickCount64();
     if (++tickGeneration_ == 0) {
@@ -112,6 +149,7 @@ void TagsModule::Impl::Tick(bool sampReady) {
     UpdateTargetTracker();
     ProcessPendingDialogWaits();
     ProcessPendingArzDialogQueryWaits();
+    PruneWaitIfRuntimeStates();
     if (!activeVirtualKeyHolds_.empty()) {
         for (auto it = activeVirtualKeyHolds_.begin(); it != activeVirtualKeyHolds_.end();) {
             ActiveVirtualKeyHold& hold = *it;
@@ -388,6 +426,59 @@ void TagsModule::Impl::MarkCurrentDispatchBlocked(std::uint64_t runtimeId) const
         == blockedCurrentDispatchRuntimes_.end()) {
         blockedCurrentDispatchRuntimes_.push_back(runtimeId);
     }
+}
+
+void TagsModule::Impl::MarkCurrentDispatchSkipped(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (std::find(skippedCurrentDispatchRuntimes_.begin(), skippedCurrentDispatchRuntimes_.end(), runtimeId)
+        == skippedCurrentDispatchRuntimes_.end()) {
+        skippedCurrentDispatchRuntimes_.push_back(runtimeId);
+    }
+}
+
+void TagsModule::Impl::MarkCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    if (std::find(skipEmptyCurrentDispatchRuntimes_.begin(), skipEmptyCurrentDispatchRuntimes_.end(), runtimeId)
+        == skipEmptyCurrentDispatchRuntimes_.end()) {
+        skipEmptyCurrentDispatchRuntimes_.push_back(runtimeId);
+    }
+}
+
+bool TagsModule::Impl::CurrentDispatchCannotContinue(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return false;
+    }
+    return std::find(
+               blockedCurrentDispatchRuntimes_.begin(),
+               blockedCurrentDispatchRuntimes_.end(),
+               runtimeId)
+            != blockedCurrentDispatchRuntimes_.end()
+        || std::find(
+               skippedCurrentDispatchRuntimes_.begin(),
+               skippedCurrentDispatchRuntimes_.end(),
+               runtimeId)
+            != skippedCurrentDispatchRuntimes_.end();
+}
+
+void TagsModule::Impl::PruneWaitIfRuntimeStates() {
+    if (!binderModule_) {
+        waitIfRuntimeStates_.clear();
+        skipEmptyCurrentDispatchRuntimes_.clear();
+        return;
+    }
+
+    std::erase_if(waitIfRuntimeStates_, [this](const WaitIfRuntimeState& state) {
+        return state.runtimeId == 0 || !binderModule_->IsRuntimeActive(state.runtimeId);
+    });
+    std::erase_if(skipEmptyCurrentDispatchRuntimes_, [this](std::uint64_t runtimeId) {
+        return runtimeId == 0 || !binderModule_->IsRuntimeActive(runtimeId);
+    });
 }
 
 void TagsModule::Impl::ProcessPendingKeyHoldWaits() {

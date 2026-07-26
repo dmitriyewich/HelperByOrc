@@ -697,6 +697,11 @@ void BinderModule::Impl::HandleEditorVariablePickerRequest(const variables_picke
             tagsModule->OpenBindSelectorBuilder(request.name);
         }
         break;
+    case variables_picker::RequestType::OpenWaitIfBuilder:
+        if (tagsModule) {
+            tagsModule->OpenWaitIfBuilder();
+        }
+        break;
     case variables_picker::RequestType::None:
     case variables_picker::RequestType::SaveCustom:
     case variables_picker::RequestType::DeleteCustom:

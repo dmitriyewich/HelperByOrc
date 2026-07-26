@@ -3,6 +3,7 @@
 #include "tags_module.h"
 #include "binder_tag_selector.h"
 #include "code_variables.h"
+#include "waitif_expression.h"
 
 #include <atomic>
 #include <cstdint>
@@ -51,6 +52,8 @@ public:
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
+    bool ConsumeCurrentDispatchSkipped(std::uint64_t runtimeId) const;
+    bool ConsumeCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const;
     void Tick(bool sampReady);
     bool ExpandExternalTagsEnabled() const;
     void SetExpandExternalTagsEnabled(bool enabled);
@@ -80,6 +83,7 @@ public:
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
     void OpenBindSelectorBuilder(std::string_view action);
+    void OpenWaitIfBuilder();
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
     std::vector<variables_picker::Entry> BuildVariablePickerEntriesForInsert() const;
     void HandleVariablePickerUtilityRequest(const variables_picker::Request& request);
@@ -232,6 +236,62 @@ public:
         int outputMode = 0;
         int randomScope = 0;
         std::string search{};
+    };
+
+    enum class WaitIfActionKind {
+        State,
+        PlayerBoolean,
+        PlayerBooleanWithValue,
+        PlayerNumber,
+        KeyBoolean,
+    };
+
+    struct WaitIfActionDefinition {
+        const char* name = "";
+        const char* labelRu = "";
+        const char* labelEn = "";
+        WaitIfActionKind kind = WaitIfActionKind::State;
+        const char* defaultComparison = "";
+        const char* defaultValue = "";
+    };
+
+    struct WaitIfBuilderState {
+        bool openPending = false;
+        bool rawMode = false;
+        int categoryIndex = 0;
+        int actionIndex = 0;
+        int playerSelectorIndex = 0;
+        int comparisonIndex = 0;
+        int keyIndex = 0;
+        bool negate = false;
+        std::string actionSearch{};
+        std::string customPlayerSelector{ "{myid}" };
+        std::string comparisonValue{ "100" };
+        std::string rawExpression{};
+    };
+
+    struct WaitIfKeyState {
+        unsigned int keyCode = 0;
+        bool initialized = false;
+        bool previousDown = false;
+        bool currentDown = false;
+        bool pressed = false;
+        bool released = false;
+    };
+
+    struct WaitIfRuntimeState {
+        std::uint64_t runtimeId = 0;
+        std::string rawExpression{};
+        std::string preparedExpression{};
+        std::string expandedExpression{};
+        std::optional<waitif::CompiledExpression> compiled{};
+        std::vector<WaitIfKeyState> keys{};
+        std::uint64_t startedAtMs = 0;
+        std::uint64_t nextEvaluationAtMs = 0;
+        std::uint64_t keySampleGeneration = 0;
+        bool hasNestedTags = false;
+        bool waitingLogged = false;
+        bool completed = false;
     };
 
     struct PendingDialogWait {
@@ -570,6 +630,7 @@ public:
     void DrawDialogItemPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void DrawDialogTextPickerPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void DrawBindSelectorBuilderPopup(const std::function<void(std::string_view)>& tokenAction = {});
+    void DrawWaitIfBuilderPopup(const std::function<void(std::string_view)>& tokenAction = {});
     void ProcessPendingKeyHoldWaits();
     void ProcessPendingDialogWaits();
     void ProcessPendingArzDialogQueryWaits();
@@ -594,6 +655,11 @@ public:
     bool HasPendingArzDialogQueryWait(std::uint64_t runtimeId) const;
     bool ConsumeReadyArzDialogQuery(std::uint64_t runtimeId, PendingArzDialogQueryKind kind) const;
     void MarkCurrentDispatchBlocked(std::uint64_t runtimeId) const;
+    void MarkCurrentDispatchSkipped(std::uint64_t runtimeId) const;
+    void MarkCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const;
+    bool CurrentDispatchCannotContinue(std::uint64_t runtimeId) const;
+    void PruneWaitIfRuntimeStates();
+    static const std::vector<WaitIfActionDefinition>& WaitIfActionDefinitions();
 
     std::string ExpandTextRecursive(std::string_view text, const EvaluationContext& context, int depth) const;
     std::string ExpandTextRecursive(
@@ -605,7 +671,8 @@ public:
         std::string_view text,
         const EvaluationContext& context,
         int depth,
-        TagExpansionTrace* trace) const;
+        TagExpansionTrace* trace,
+        bool waitIfOnly = false) const;
     std::string ExpandSimpleTags(std::string_view text, const EvaluationContext& context, TagExpansionTrace* trace) const;
     bool TryGetCursorTarget(std::string_view normalizedName, CursorTarget& target) const;
     std::optional<std::pair<int, int>> ParseCursorFunctionRange(std::string_view param) const;
@@ -857,6 +924,10 @@ public:
     std::optional<std::string> ResolveBuiltinWaitFunctionTag(
         std::string_view param,
         const EvaluationContext& context) const;
+    std::optional<std::string> ResolveBuiltinWaitIfFunctionTag(
+        std::string_view rawParam,
+        const EvaluationContext& context,
+        int depth) const;
     std::optional<std::string> ResolveBuiltinCursorFunctionTag(
         CursorTarget target,
         std::string_view param,
@@ -989,6 +1060,8 @@ public:
     void QueuePendingBindDelayOverride(std::uint64_t runtimeId, int delayMs) const;
 
 private:
+    class WaitIfResolver;
+
     SampApi* sampApi_ = nullptr;
     SampRakHooks* sampRakHooks_ = nullptr;
     BinderModule* binderModule_ = nullptr;
@@ -1018,6 +1091,9 @@ private:
     mutable std::vector<PendingArzDialogQueryWait> pendingArzDialogQueryWaits_{};
     mutable std::vector<ReadyArzDialogQuery> readyArzDialogQueries_{};
     mutable std::vector<std::uint64_t> blockedCurrentDispatchRuntimes_{};
+    mutable std::vector<std::uint64_t> skippedCurrentDispatchRuntimes_{};
+    mutable std::vector<std::uint64_t> skipEmptyCurrentDispatchRuntimes_{};
+    mutable std::vector<WaitIfRuntimeState> waitIfRuntimeStates_{};
     std::uint64_t tickGeneration_ = 1;
     mutable ClosestPlayerCache closestPlayerCache_{};
     mutable ClosestPlayerPerfStats closestPlayerPerfStats_{};
@@ -1054,4 +1130,5 @@ private:
     bool dialogItemPickerArizonaQueryStarted_ = false;
     bool dialogTextPickerOpenPending_ = false;
     BindSelectorBuilderState bindSelectorBuilder_{};
+    WaitIfBuilderState waitIfBuilder_{};
 };

@@ -44,6 +44,10 @@ void BinderModule::SetGameInputForeground(bool gameWindowForeground) {
     impl_->gameInputForeground_ = gameWindowForeground;
 }
 
+bool BinderModule::IsGameInputForeground() const {
+    return impl_->gameInputForeground_;
+}
+
 void BinderModule::SetHelperUiActive(bool helperUiActive) {
     impl_->helperUiActive_ = helperUiActive;
 }

@@ -133,6 +133,8 @@ public:
 
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
+    bool ConsumeCurrentDispatchSkipped(std::uint64_t runtimeId) const;
+    bool ConsumeCurrentDispatchSkipIfEmpty(std::uint64_t runtimeId) const;
     void Tick(bool sampReady);
     void SetManualTargetId(int playerId, const void* currentAimPed);
     bool ExpandExternalTagsEnabled() const;
@@ -164,6 +166,7 @@ public:
     void OpenSampDialogTextPicker();
     void OpenArizonaDialogTextPicker();
     void OpenBindSelectorBuilder(std::string_view action);
+    void OpenWaitIfBuilder();
     void DrawVariableHelperPopups(std::function<void(std::string_view)> tokenAction = {});
     std::vector<variables_picker::Entry> BuildVariablePickerEntriesForInsert() const;
     void HandleVariablePickerUtilityRequest(const variables_picker::Request& request);

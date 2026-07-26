@@ -1096,6 +1096,11 @@ bool TryGetHelperAction(const Entry& entry, HelperAction& action) {
         requestType = RequestType::OpenBindSelectorBuilder;
         label = UiText::VariablesBuildBindTag;
         tooltip = UiText::MiscVariablesBindBuilderOpenHint;
+    } else if (entry.name == "waitif") {
+        requestType = RequestType::OpenWaitIfBuilder;
+        icon = ui_icons::Pause;
+        label = UiText::VariablesBuildWaitIf;
+        tooltip = UiText::MiscVariablesWaitIfBuilderOpenHint;
     }
 
     if (requestType == RequestType::None) {

@@ -159,6 +159,17 @@ void TagsModule::Impl::InitializeRegistry() {
     tagRegistry_.RegisterSimple(
         CatalogCategory::Player,
         false,
+        "myid",
+        "{myid}",
+        "{myid}",
+        UiText::TagsBuiltinIdDescription,
+        [](const Impl& module, const EvaluationContext& context) {
+            return module.ResolveBuiltinIdTag(context);
+        });
+
+    tagRegistry_.RegisterSimple(
+        CatalogCategory::Player,
+        false,
         "nick",
         "{nick}",
         "{nick}",
@@ -1537,6 +1548,17 @@ void TagsModule::Impl::InitializeRegistry() {
         UiText::TagsBuiltinWaitDescription,
         [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
             return module.ResolveBuiltinWaitFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Actions,
+        true,
+        "waitif",
+        "[waitif(...)]",
+        "[waitif(getCharHealth({myid}) < 100)]",
+        UiText::TagsBuiltinWaitIfDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int depth) {
+            return module.ResolveBuiltinWaitIfFunctionTag(param, context, depth);
         });
 
     tagRegistry_.RegisterFunction(

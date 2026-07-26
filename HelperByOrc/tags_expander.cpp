@@ -62,6 +62,37 @@ bool MightContainAnyTag(std::string_view text) {
     return text.find('{') != std::string_view::npos || text.find('[') != std::string_view::npos;
 }
 
+bool MightContainWaitIfTag(std::string_view text) {
+    std::size_t position = 0;
+    while ((position = text.find('[', position)) != std::string_view::npos) {
+        constexpr std::string_view name{ "waitif" };
+        if (position + 1 + name.size() <= text.size()) {
+            bool matches = true;
+            for (std::size_t i = 0; i < name.size(); ++i) {
+                unsigned char ch = static_cast<unsigned char>(text[position + 1 + i]);
+                if (ch >= 'A' && ch <= 'Z') {
+                    ch = static_cast<unsigned char>(ch - 'A' + 'a');
+                }
+                if (ch != static_cast<unsigned char>(name[i])) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                const std::size_t suffix = position + 1 + name.size();
+                if (suffix == text.size()
+                    || text[suffix] == '('
+                    || text[suffix] == ']'
+                    || std::isspace(static_cast<unsigned char>(text[suffix])) != 0) {
+                    return true;
+                }
+            }
+        }
+        ++position;
+    }
+    return false;
+}
+
 bool IsSampColorLiteralName(std::string_view name) {
     if (name.size() != 6 && name.size() != 8) {
         return false;
@@ -565,7 +596,7 @@ std::optional<std::string> TagsModule::Impl::ResolveFunctionTag(
             }
             RecordTagGroup(*trace, ClassifyTagPerfGroup(name, action));
         }
-        const bool rawParam = name == "ifandor" || name == "dialogsettext" || name == "dialogresponse"
+        const bool rawParam = name == "ifandor" || name == "waitif" || name == "dialogsettext" || name == "dialogresponse"
             || name == "arzdialogsetinputtext" || name == "arzdialogsendrespond" || name == "substr";
         std::optional<std::string> resolved;
         if (rawParam) {
@@ -736,7 +767,8 @@ std::string TagsModule::Impl::ExpandFunctionTags(
     std::string_view text,
     const EvaluationContext& context,
     int depth,
-    TagExpansionTrace* trace) const {
+    TagExpansionTrace* trace,
+    bool waitIfOnly) const {
     std::string output;
     output.reserve(text.size());
 
@@ -773,6 +805,11 @@ std::string TagsModule::Impl::ExpandFunctionTags(
             const std::string_view name = text.substr(start + 1, nameEnd - start - 1);
             std::string normalizedStorage;
             const std::string_view normalizedName = NormalizeTagNameView(name, normalizedStorage);
+            if (waitIfOnly && normalizedName != "waitif") {
+                output.append(text.substr(start, openParen - start + 1));
+                pos = openParen + 1;
+                continue;
+            }
             if (trace && trace->telemetryEnabled) {
                 ++trace->functionTags;
             }
@@ -791,6 +828,9 @@ std::string TagsModule::Impl::ExpandFunctionTags(
                 output.append(text.substr(start, openParen - start + 1));
             }
             pos = openParen + 1;
+            if (CurrentDispatchCannotContinue(context.runningBindRuntimeId)) {
+                break;
+            }
             continue;
         }
         if (openParen >= text.size() || text[openParen] != '(') {
@@ -800,11 +840,26 @@ std::string TagsModule::Impl::ExpandFunctionTags(
         }
 
         int parenDepth = 1;
+        char quote = '\0';
+        bool escaped = false;
         std::size_t cursor = openParen + 1;
         for (; cursor < text.size(); ++cursor) {
-            if (text[cursor] == '(') {
+            const char ch = text[cursor];
+            if (quote != '\0') {
+                if (escaped) {
+                    escaped = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                } else if (ch == quote) {
+                    quote = '\0';
+                }
+                continue;
+            }
+            if (ch == '\'' || ch == '"') {
+                quote = ch;
+            } else if (ch == '(') {
                 ++parenDepth;
-            } else if (text[cursor] == ')') {
+            } else if (ch == ')') {
                 --parenDepth;
                 if (parenDepth == 0) {
                     break;
@@ -821,6 +876,11 @@ std::string TagsModule::Impl::ExpandFunctionTags(
         const std::string_view rawParam = text.substr(openParen + 1, cursor - openParen - 1);
         std::string normalizedStorage;
         const std::string_view normalizedName = NormalizeTagNameView(name, normalizedStorage);
+        if (waitIfOnly && normalizedName != "waitif") {
+            output.append(text.substr(start, cursor - start + 2));
+            pos = cursor + 2;
+            continue;
+        }
         if (trace && trace->telemetryEnabled) {
             ++trace->functionTags;
         }
@@ -847,6 +907,9 @@ std::string TagsModule::Impl::ExpandFunctionTags(
             output.append(text.substr(start, cursor - start + 2));
         }
         pos = cursor + 2;
+        if (CurrentDispatchCannotContinue(context.runningBindRuntimeId)) {
+            break;
+        }
     }
 
     return output;
@@ -877,7 +940,22 @@ std::string TagsModule::Impl::ExpandTextRecursive(
             : ExpandSimpleTags(text, context, trace);
     }
 
-    const std::string withFunctions = ExpandFunctionTags(text, context, depth, trace);
+    std::string waitIfPreflight;
+    std::string_view functionInput = text;
+    if (context.allowSideEffects
+        && context.runningBindRuntimeId != 0
+        && MightContainWaitIfTag(text)) {
+        waitIfPreflight = ExpandFunctionTags(text, context, depth, trace, true);
+        if (CurrentDispatchCannotContinue(context.runningBindRuntimeId)) {
+            return waitIfPreflight;
+        }
+        functionInput = waitIfPreflight;
+    }
+
+    const std::string withFunctions = ExpandFunctionTags(functionInput, context, depth, trace);
+    if (CurrentDispatchCannotContinue(context.runningBindRuntimeId)) {
+        return withFunctions;
+    }
     if (withFunctions.find('{') == std::string::npos) {
         return withFunctions;
     }
