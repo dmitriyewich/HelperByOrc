@@ -91,3 +91,9 @@ MSBuild HelperByOrc.slnx /t:Build /p:Configuration=Release /p:Platform=Win32 /m
 ## Автор
 
 **[@dmitriyewich](https://github.com/dmitriyewich)** — [HelperByOrc](https://github.com/dmitriyewich/HelperByOrc)
+
+## Лицензия
+
+Собственный код HelperByOrc распространяется по лицензии [MIT](LICENSE).
+Сторонние компоненты в `HelperByOrc/external` сохраняют свои лицензии,
+приложенные в соответствующих каталогах.
