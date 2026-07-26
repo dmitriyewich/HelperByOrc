@@ -64,6 +64,7 @@ public:
 
     struct MainOffsets {
         VersionedOffset SAMP_INFO_OFFSET;
+        VersionedOffset SAMP_INFO_OFFSET_Settings;
         VersionedOffset rakclient_interface;
         VersionedOffset SAMP_DIALOG_INFO_OFFSET;
         VersionedOffset SAMP_DIALOG_ACTIVE_OFFSET;
@@ -122,6 +123,7 @@ public:
         VersionedOffset IDcar_Find;
         VersionedOffset SAMP_PREMOTEPLAYER_OFFSET;
         VersionedOffset SAMP_REMOTEPLAYERDATA_OFFSET;
+        VersionedOffset SAMP_REMOTEPLAYERDATA_SHOW_NAME_TAG_OFFSET;
         VersionedOffset pSAMP_Actor;
         VersionedOffset pGTA_Ped;
         VersionedOffset IsConnected;
@@ -297,6 +299,14 @@ public:
         const char* traceLabel = nullptr,
         bool allowScanFallback = true);
     bool GetPlayerPosition(int id, float& x, float& y, float& z);
+    struct PlayerNameTagRenderState {
+        float drawDistance = 0.0f;
+        bool noNameTagsBehindWalls = false;
+    };
+    /// Returns the server name-tag state only when both the global name-tag
+    /// switch and this remote player's draw-label flag are enabled.
+    /// Unsupported/unreadable layouts fail closed with std::nullopt.
+    std::optional<PlayerNameTagRenderState> GetPlayerNameTagRenderState(int id);
     int getChatMode();
     bool SetPageSize(int pageSize);
     HealthAndArmour GetHealthAndArmour(int id);

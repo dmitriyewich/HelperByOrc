@@ -394,6 +394,67 @@ bool SampApi::ResolveRemotePlayerData(std::uint32_t remotePlayer, std::uint32_t&
     return SafeRead(remotePlayer + offset, remoteData) && remoteData != 0;
 }
 
+std::optional<SampApi::PlayerNameTagRenderState>
+SampApi::GetPlayerNameTagRenderState(int id) {
+    if (!sampModule_ || !versionResolved_ || !supportedVersion_) {
+        return std::nullopt;
+    }
+
+    std::uint32_t sampInfo = 0;
+    if (!ResolveSampInfo(sampInfo) || sampInfo == 0) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t settingsOffset =
+        main_offsets.SAMP_INFO_OFFSET_Settings.Get(currentVersion_);
+    std::uint32_t settings = 0;
+    if (settingsOffset == 0
+        || !SafeRead(sampInfo + settingsOffset, settings)
+        || settings == 0) {
+        return std::nullopt;
+    }
+
+    std::uint8_t showNameTags = 0;
+    std::uint8_t noNameTagsBehindWalls = 0;
+    float drawDistance = 0.0f;
+    if (!SafeRead(
+            settings + SAMP_SERVER_SETTINGS_SHOW_NAME_TAGS_OFFSET,
+            showNameTags)
+        || showNameTags == 0
+        || !SafeRead(
+            settings + SAMP_SERVER_SETTINGS_NAME_TAG_DISTANCE_OFFSET,
+            drawDistance)
+        || !SafeRead(
+            settings + SAMP_SERVER_SETTINGS_NO_NAME_TAGS_BEHIND_WALLS_OFFSET,
+            noNameTagsBehindWalls)
+        || !std::isfinite(drawDistance)
+        || drawDistance <= 0.0f
+        || drawDistance > kMaximumSaneNameTagDrawDistance) {
+        return std::nullopt;
+    }
+
+    std::uint32_t remotePlayer = 0;
+    std::uint32_t remoteData = 0;
+    if (!ResolveRemotePlayer(id, remotePlayer)
+        || !ResolveRemotePlayerData(remotePlayer, remoteData)) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t showNameTagOffset =
+        main_offsets.SAMP_REMOTEPLAYERDATA_SHOW_NAME_TAG_OFFSET.Get(currentVersion_);
+    std::uint32_t showNameTag = 0;
+    if (showNameTagOffset == 0
+        || !SafeRead(remoteData + showNameTagOffset, showNameTag)
+        || showNameTag == 0) {
+        return std::nullopt;
+    }
+
+    return PlayerNameTagRenderState{
+        drawDistance,
+        noNameTagsBehindWalls != 0,
+    };
+}
+
 const void* SampApi::GetPlayerPedPointer(int id, bool trace, const char* traceLabel, bool allowScanFallback) {
     const char* const label = traceLabel ? traceLabel : "trace";
 

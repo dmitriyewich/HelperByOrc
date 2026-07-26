@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 #include <sstream>
@@ -39,6 +40,11 @@
 #include <vector>
 
 namespace {
+
+constexpr std::uint32_t SAMP_SERVER_SETTINGS_NAME_TAG_DISTANCE_OFFSET = 0x27;
+constexpr std::uint32_t SAMP_SERVER_SETTINGS_NO_NAME_TAGS_BEHIND_WALLS_OFFSET = 0x2F;
+constexpr std::uint32_t SAMP_SERVER_SETTINGS_SHOW_NAME_TAGS_OFFSET = 0x38;
+constexpr float kMaximumSaneNameTagDrawDistance = 10000.0f;
 
 using GetNameFn = const char*(__thiscall*)(void*, unsigned short);
 using GetEditboxTextFn = char*(__thiscall*)(void*);

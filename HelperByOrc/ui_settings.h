@@ -1102,6 +1102,11 @@
     X(SettingsMainWindowHotkeyHelp, "Комбинация открывает и закрывает главное окно HelperByOrc.", "This shortcut opens and closes the main HelperByOrc window.") \
     X(SettingsTargetSelectorEnabled, "Ручной выбор цели для {targetid}", "Manual target selection for {targetid}") \
     X(SettingsTargetSelectorHotkeyHelp, "Включает выбор видимого игрока курсором. Горячую клавишу можно изменить справа.", "Enables selecting a visible player with the cursor. You can change the hotkey on the right.") \
+    X(SettingsTargetSelectorConditions, "Условия ручного выбора", "Manual selection conditions") \
+    X(SettingsTargetSelectorDistance, "Дальность выбора", "Selection distance") \
+    X(SettingsTargetSelectorDistanceHelp, "Расстояние считается от камеры игры. По умолчанию: 700 м.", "Distance is measured from the game camera. Default: 700 m.") \
+    X(SettingsTargetSelectorRequireVisibleNameTag, "Только с видимым ником SA:MP", "Only with a visible SA:MP name tag") \
+    X(SettingsTargetSelectorRequireVisibleNameTagHelp, "Исключает игроков, если SA:MP не рисует ник: он отключён, вне серверной дальности или перекрыт стеной/объектом. Видимость модели проверяется точным пикселем.", "Excludes players when SA:MP does not draw the name tag: disabled, outside the server distance, or blocked by a wall/object. Model visibility is checked by the exact cursor pixel.") \
     X(TargetSelectorInstruction, "Наведите курсор на игрока и нажмите ЛКМ. Esc или ПКМ — отмена.", "Hover a player and press LMB. Esc or RMB cancels.") \
     X(TargetSelectorHoverFormat, "%s [%d] — нажмите ЛКМ для выбора", "%s [%d] — press LMB to select") \
     X(TargetSelectorNoTarget, "Под курсором нет видимого игрока.", "There is no visible player under the cursor.") \
@@ -1636,6 +1641,10 @@ enum class UiText {
     Count,
 };
 
+inline constexpr float kDefaultTargetSelectorDistance = 700.0f;
+inline constexpr float kMinTargetSelectorDistance = 10.0f;
+inline constexpr float kMaxTargetSelectorDistance = 2000.0f;
+
 class UiSettings {
 public:
     static UiSettings& Instance();
@@ -1668,6 +1677,10 @@ public:
     void ResetMenuToggleHotkey();
     bool TargetSelectorEnabled() const;
     void SetTargetSelectorEnabled(bool enabled);
+    float TargetSelectorDistance() const;
+    void SetTargetSelectorDistance(float distance);
+    bool TargetSelectorRequireVisibleNameTag() const;
+    void SetTargetSelectorRequireVisibleNameTag(bool required);
     const std::vector<unsigned int>& TargetSelectorHotkey() const;
     void SetTargetSelectorHotkey(const std::vector<unsigned int>& hotkey);
     void ResetTargetSelectorHotkey();
@@ -1690,6 +1703,7 @@ private:
     void QueueSave() const;
     float ComputeAutoScale(const ImVec2& displaySize) const;
     static float NormalizeScaleMultiplier(float multiplier);
+    static float NormalizeTargetSelectorDistance(float distance);
 
     UiLanguage language_ = UiLanguage::Russian;
     bool autoScaleEnabled_ = true;
@@ -1701,6 +1715,8 @@ private:
     bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
     bool targetSelectorEnabled_ = true;
+    float targetSelectorDistance_ = kDefaultTargetSelectorDistance;
+    bool targetSelectorRequireVisibleNameTag_ = false;
     std::vector<unsigned int> targetSelectorHotkey_{};
     UiSettingsSection settingsActiveSection_ = UiSettingsSection::General;
     float currentScale_ = 1.0f;

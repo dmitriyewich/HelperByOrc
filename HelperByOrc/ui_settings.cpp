@@ -216,6 +216,13 @@ void UiSettings::Load() {
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
     targetSelectorEnabled_ = jsonutil::JsonBoolOr(&section, "target_selector_enabled", true);
+    targetSelectorDistance_ = NormalizeTargetSelectorDistance(
+        jsonutil::JsonNumberOr<float>(
+            &section,
+            "target_selector_distance",
+            kDefaultTargetSelectorDistance));
+    targetSelectorRequireVisibleNameTag_ =
+        jsonutil::JsonBoolOr(&section, "target_selector_require_visible_name_tag", false);
     targetSelectorHotkey_ = DeserializeTargetSelectorHotkey(jsonutil::JsonArrayOrNull(&section, "target_selector_hotkey"));
     settingsActiveSection_ = ParseSettingsSection(jsonutil::JsonStringOr(&section, "settings_active_section", "general"));
     currentScale_ = 1.0f;
@@ -359,6 +366,33 @@ void UiSettings::SetTargetSelectorEnabled(bool enabled) {
     QueueSave();
 }
 
+float UiSettings::TargetSelectorDistance() const {
+    return targetSelectorDistance_;
+}
+
+void UiSettings::SetTargetSelectorDistance(float distance) {
+    const float normalized = NormalizeTargetSelectorDistance(distance);
+    if (std::abs(targetSelectorDistance_ - normalized) < 0.01f) {
+        return;
+    }
+
+    targetSelectorDistance_ = normalized;
+    QueueSave();
+}
+
+bool UiSettings::TargetSelectorRequireVisibleNameTag() const {
+    return targetSelectorRequireVisibleNameTag_;
+}
+
+void UiSettings::SetTargetSelectorRequireVisibleNameTag(bool required) {
+    if (targetSelectorRequireVisibleNameTag_ == required) {
+        return;
+    }
+
+    targetSelectorRequireVisibleNameTag_ = required;
+    QueueSave();
+}
+
 const std::vector<unsigned int>& UiSettings::TargetSelectorHotkey() const {
     return targetSelectorHotkey_;
 }
@@ -463,6 +497,8 @@ void UiSettings::QueueSave() const {
     section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
     section["target_selector_enabled"] = targetSelectorEnabled_;
+    section["target_selector_distance"] = static_cast<double>(targetSelectorDistance_);
+    section["target_selector_require_visible_name_tag"] = targetSelectorRequireVisibleNameTag_;
     section["target_selector_hotkey"] = SerializeTargetSelectorHotkey(targetSelectorHotkey_);
     section["settings_active_section"] = SettingsSectionId(settingsActiveSection_);
     AppConfig::Instance().QueueSectionReplace(
@@ -487,4 +523,15 @@ float UiSettings::NormalizeScaleMultiplier(float multiplier) {
     }
 
     return std::clamp(multiplier, kMinScaleMultiplier, kMaxScaleMultiplier);
+}
+
+float UiSettings::NormalizeTargetSelectorDistance(float distance) {
+    if (!std::isfinite(distance)) {
+        return kDefaultTargetSelectorDistance;
+    }
+
+    return std::clamp(
+        distance,
+        kMinTargetSelectorDistance,
+        kMaxTargetSelectorDistance);
 }

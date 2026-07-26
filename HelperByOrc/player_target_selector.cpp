@@ -11,8 +11,11 @@
 #include <CPed.h>
 #include <CPlayerPed.h>
 #include <CPools.h>
+#include <CVehicle.h>
+#include <CWorld.h>
 #include <RenderWare.h>
 #include <common.h>
+#include <ePedBones.h>
 
 #include <imgui.h>
 
@@ -23,7 +26,6 @@
 
 namespace {
 
-constexpr float kSelectionRayDistance = 700.0f;
 constexpr float kSelectionSphereCenterOffset = 1.0f;
 constexpr float kSelectionSphereRadius = 1.5f;
 constexpr int kMaximumSanePedPoolSize = 4096;
@@ -32,7 +34,12 @@ bool IsMouseMessage(UINT message) {
     return message >= WM_MOUSEFIRST && message <= WM_MOUSELAST;
 }
 
-bool ScreenToWorldRay(float screenX, float screenY, CVector& origin, CVector& target) {
+bool ScreenToWorldRay(
+    float screenX,
+    float screenY,
+    float selectionDistance,
+    CVector& origin,
+    CVector& target) {
     if (RsGlobal.maximumWidth <= 0 || RsGlobal.maximumHeight <= 0) {
         return false;
     }
@@ -63,7 +70,7 @@ bool ScreenToWorldRay(float screenX, float screenY, CVector& origin, CVector& ta
     if (!targetselectormath::TryBuildWorldRay(
             cameraPlane,
             *matrix,
-            kSelectionRayDistance,
+            selectionDistance,
             ray)) {
         return false;
     }
@@ -79,6 +86,62 @@ bool IsSelectablePed(CPed* ped, CPed* localPed) {
         && CPools::ms_pPedPool
         && CPools::ms_pPedPool->IsObjectValid(ped)
         && IsPedPointerValid(ped);
+}
+
+__declspec(noinline) bool TryResolveNameTagAnchor(CPed* ped, CVector& anchor) {
+    if (!ped) {
+        return false;
+    }
+
+    bool resolved = false;
+    __try {
+        if (ped->bInVehicle
+            && IsVehiclePointerValid(ped->m_pVehicle)
+            && ped->m_pVehicle->m_pDriver == ped) {
+            anchor = ped->m_pVehicle->GetPosition();
+            resolved = true;
+        } else if (ped->m_pRwClump
+            && GetAnimHierarchyFromSkinClump(ped->m_pRwClump)) {
+            RwV3d head{};
+            ped->GetBonePosition(head, BONE_HEAD, false);
+            anchor = CVector(head.x, head.y, head.z);
+            resolved = true;
+        }
+    } __except (
+        GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION
+            ? EXCEPTION_EXECUTE_HANDLER
+            : EXCEPTION_CONTINUE_SEARCH) {
+        resolved = false;
+    }
+
+    return resolved
+        && std::isfinite(anchor.x)
+        && std::isfinite(anchor.y)
+        && std::isfinite(anchor.z);
+}
+
+__declspec(noinline) bool IsNameTagLineOfSightClear(
+    const CVector& origin,
+    const CVector& target) {
+    bool clear = false;
+    __try {
+        clear = CWorld::GetIsLineOfSightClear(
+            origin,
+            target,
+            true,  // buildings
+            false, // vehicles
+            false, // peds
+            true,  // objects
+            false, // dummies
+            false, // see-through check
+            false); // camera-ignore check
+    } __except (
+        GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION
+            ? EXCEPTION_EXECUTE_HANDLER
+            : EXCEPTION_CONTINUE_SEARCH) {
+        clear = false;
+    }
+    return clear;
 }
 
 } // namespace
@@ -423,7 +486,13 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
 
     CVector rayOrigin;
     CVector rayTarget;
-    if (!ScreenToWorldRay(mouse.x, mouse.y, rayOrigin, rayTarget)) {
+    const UiSettings& settings = UiSettings::Instance();
+    if (!ScreenToWorldRay(
+            mouse.x,
+            mouse.y,
+            settings.TargetSelectorDistance(),
+            rayOrigin,
+            rayTarget)) {
         return false;
     }
 
@@ -488,6 +557,37 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
         return false;
     }
 
+    if (settings.TargetSelectorRequireVisibleNameTag()) {
+        const std::optional<SampApi::PlayerNameTagRenderState> nameTagRenderState =
+            sampApi_->GetPlayerNameTagRenderState(nearestPlayerId);
+        if (!nameTagRenderState) {
+            return false;
+        }
+
+        const CVector& position = nearestPed->GetPosition();
+        const float cameraDeltaX = position.x - rayOrigin.x;
+        const float cameraDeltaY = position.y - rayOrigin.y;
+        const float cameraDeltaZ = position.z - rayOrigin.z;
+        const float cameraDistanceSquared =
+            cameraDeltaX * cameraDeltaX
+            + cameraDeltaY * cameraDeltaY
+            + cameraDeltaZ * cameraDeltaZ;
+        const float nameTagDrawDistanceSquared =
+            nameTagRenderState->drawDistance * nameTagRenderState->drawDistance;
+        if (!std::isfinite(cameraDistanceSquared)
+            || cameraDistanceSquared > nameTagDrawDistanceSquared) {
+            return false;
+        }
+
+        if (nameTagRenderState->noNameTagsBehindWalls) {
+            CVector nameTagAnchor;
+            if (!TryResolveNameTagAnchor(nearestPed, nameTagAnchor)
+                || !IsNameTagLineOfSightClear(rayOrigin, nameTagAnchor)) {
+                return false;
+            }
+        }
+    }
+
     ped = nearestPed;
     playerId = nearestPlayerId;
     return true;
@@ -533,8 +633,10 @@ void PlayerTargetSelector::Activate() {
     rejectedCursorY_ = -1;
     outline_.SetTarget(nullptr);
     debuglog::WriteInfo(
-        "[target-selector] activated hotkey=%s",
-        HotkeyText().c_str());
+        "[target-selector] activated hotkey=%s distance=%.1f requireVisibleNameTag=%d",
+        HotkeyText().c_str(),
+        UiSettings::Instance().TargetSelectorDistance(),
+        UiSettings::Instance().TargetSelectorRequireVisibleNameTag() ? 1 : 0);
 }
 
 void PlayerTargetSelector::Cancel(const char* reason) {

@@ -2992,6 +2992,42 @@ void ModApp::DrawSettingsHotkeysSection() {
         ImGui::EndTable();
     }
 
+    ImGui::Spacing();
+    ImGui::SeparatorText(ui.Text(UiText::SettingsTargetSelectorConditions));
+    ImGui::BeginDisabled(!ui.TargetSelectorEnabled());
+
+    float targetSelectorDistance = ui.TargetSelectorDistance();
+    ImGui::SetNextItemWidth(Scale(300.0f));
+    if (ImGui::SliderFloat(
+            ui.Text(UiText::SettingsTargetSelectorDistance),
+            &targetSelectorDistance,
+            kMinTargetSelectorDistance,
+            kMaxTargetSelectorDistance,
+            "%.0f m",
+            ImGuiSliderFlags_AlwaysClamp)) {
+        ui.SetTargetSelectorDistance(targetSelectorDistance);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        debuglog::WriteInfo(
+            "Settings changed: target_selector_distance=%.1f",
+            ui.TargetSelectorDistance());
+    }
+    DrawDisabledWrappedText(ui.Text(UiText::SettingsTargetSelectorDistanceHelp));
+
+    bool requireVisibleNameTag = ui.TargetSelectorRequireVisibleNameTag();
+    if (ImGui::Checkbox(
+            ui.Text(UiText::SettingsTargetSelectorRequireVisibleNameTag),
+            &requireVisibleNameTag)) {
+        ui.SetTargetSelectorRequireVisibleNameTag(requireVisibleNameTag);
+        debuglog::WriteInfo(
+            "Settings changed: target_selector_require_visible_name_tag=%d",
+            requireVisibleNameTag ? 1 : 0);
+    }
+    DrawDisabledWrappedText(
+        ui.Text(UiText::SettingsTargetSelectorRequireVisibleNameTagHelp));
+
+    ImGui::EndDisabled();
+
     static constexpr SettingsHotkeyHelpRow kBindListRows[] = {
         { { "Esc" }, 1, UiText::SettingsHotkeysActionClearSearch },
         { { "Up", "Down" }, 2, UiText::SettingsHotkeysActionMoveSelection },
