@@ -31,7 +31,6 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x21A10C, 0x21A114, 0x26E8F4, 0x26E8F4, 0x26EA24, 0x26EA24, 0x26EBAC, 0x2ACA3C }, // RefGame
     { 0x00000055, 0x00000055, 0x00000061, 0x00000061, 0x00000061, 0x00000061, 0x00000061, 0x00000055 }, // CGame::m_nCursorMode
     { 0x00064010, 0x000640E0, 0x00067460, 0x00067460, 0x00067BA0, 0x00067BE0, 0x00067BE0, 0x00067650 }, // AddEntry
-    { 0x000638A0, 0x00063970, 0x00066CF0, 0x00066CF0, 0x00067430, 0x00067470, 0x00067470, 0x00066EE0 }, // RenderEntry
     { 0x21A0E4, 0x21A0EC, 0x26E8C8, 0x26E8C8, 0x26E9F8, 0x26E9F8, 0x26EB80, 0x2ACA10 }, // pChat
     { 0x00000020, 0x00000020, 0x00000020, 0x00000020, 0x00000020, 0x00000020, 0x00000020, 0x00000020 }, // CHAT_TEXT_OFFSET
     { 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004, 0x00000004 }, // CHAT_PREFIX_TEXT_OFFSET
@@ -41,15 +40,12 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x000645A0, 0x00064670, 0x000679F0, 0x000679F0, 0x00068130, 0x00068170, 0x00068170, 0x00067BE0 }, // AddMessage
     { 0x21A0E8, 0x21A0F0, 0x26E8CC, 0x26E8CC, 0x26E9FC, 0x26E9FC, 0x26EB84, 0x2ACA14 }, // SAMP_CHAT_INPUT_INFO_OFFSET
     { 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0, 0x000014E0 }, // CInput_Opened (m_bEnabled / opened flag)
-    { 0x00064600, 0x000646D0, 0x00067A50, 0x00067A50, 0x00068190, 0x000681D0, 0x000681D0, 0x00067C40 }, // OnResetDevice
     { 0x000657E0, 0x000658B0, 0x00068D10, 0x00068D10, 0x00069440, 0x00069480, 0x00069480, 0x00068EC0 }, // CInput_Open
     { 0x000658E0, 0x000659B0, 0x00068E10, 0x00068E10, 0x00069540, 0x00069580, 0x00069580, 0x00068FC0 }, // CInput_Close
-    { 0x0006B9FB, 0x00000000, 0x0006F8FB, 0x0006F8FB, 0x00000000, 0x00000000, 0x00069580, 0x00068FC0 }, // CInput_Close_fix
     { 0x000636D0, 0x000637A0, 0x00066B20, 0x00066B20, 0x00067260, 0x000672A0, 0x000672A0, 0x00066D10 }, // SetPageSize
     { 0x00064A51, 0x00064B21, 0x00067EB1, 0x00067EB1, 0x000685E1, 0x00068621, 0x00068621, 0x00068091 }, // PageSize_MAX
-    { 0x000D7AD5, 0x000D7AE5, 0x000E9DB5, 0x000E9DB5, 0x000E9E0D, 0x000E9E0D, 0x000E9E0D, 0x0011BE45 }, // PageSize_StringInfo
-    { 0x00065C60, 0x00065D30, 0x00069190, 0x00069190, 0x000698C0, 0x000698C0, 0x00069900, 0x00069340 }, // CInput_Send
-    { 0x000057F0, 0x000057E0, 0x00005820, 0x00005820, 0x00005A00, 0x00005A00, 0x00005A10, 0x00005860 }, // CInput_SendSay
+    { 0x00065C60, 0x00065D30, 0x00069190, 0x00069190, 0x000698C0, 0x00069900, 0x00069900, 0x00069340 }, // CInput_Send
+    { 0x000057F0, 0x000057E0, 0x00005820, 0x00005820, 0x00005A00, 0x00005A10, 0x00005A10, 0x00005860 }, // CInput_SendSay
     { 0x00065D30, 0x00065E00, 0x00069260, 0x00069260, 0x00069990, 0x000699D0, 0x000699D0, 0x00069410 }, // CInput_ProcessInput
     { 0x0005D850, 0x0005D920, 0x00060BF0, 0x00060BF0, 0x00061320, 0x00061360, 0x00061360, 0x00060DE0 }, // HotkeyDispatcher (SA:MP hotkey switch)
     { 0x0005DA80, 0x0005DB50, 0x00060E20, 0x00060E20, 0x00061550, 0x00061590, 0x00061590, 0x00061010 }, // InputHotkeyHandler (secondary T/F5/Num0/Esc handler)
@@ -70,14 +66,14 @@ const SampApi::MainOffsets SampApi::main_offsets = {
     { 0x0006A1F0, 0x0006A2B0, 0x0006E140, 0x0006E140, 0x0006E870, 0x0006E8B0, 0x0006E8B0, 0x0006E2E0 }, // CPlayerPool_GetLocalPlayerScore
     { 0x00010520, 0x000105C0, 0x00013670, 0x00013670, 0x000139A0, 0x000139F0, 0x000139F0, 0x000138C0 }, // CPlayerPool_GetCount
     { 0x0001B0A0, 0x0001B180, 0x0001E440, 0x0001E440, 0x0001EB40, 0x0001EB90, 0x0001EB90, 0x0001E650 }, // IDcar_Find
-    { 0x0000002E, 0x00000026, 0x00000004, 0x00000004, 0x0000002E, 0x00001F8A, 0x00001F8A, 0x00000026 }, // SAMP_PREMOTEPLAYER_OFFSET
-    { 0x00000000, 0x0000000C, 0x00000000, 0x00000000, 0x00000010, 0x00000010, 0x00000010, 0x00000008 }, // SAMP_REMOTEPLAYERDATA_OFFSET
-    { 0x000000B3, 0x00000008, 0x00000010, 0x00000010, 0x00000004, 0x00000004, 0x00000004, 0x00000010 }, // SAMP_REMOTEPLAYERDATA_SHOW_NAME_TAG_OFFSET
-    { 0x00000000, 0x0000001C, 0x00000000, 0x00000000, 0x000001DD, 0x000001DD, 0x00000000, 0x00000004 }, // pSAMP_Actor / remoteData->sampActor
-    { 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4 }, // pGTA_Ped
-    { 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0, 0x000010B0 }, // IsConnected
-    { 0x000001BC, 0x000001BC, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0 }, // SAMP_REMOTEPLAYERDATA_HEALTH_OFFSET
-    { 0x000001B8, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC }, // SAMP_REMOTEPLAYERDATA_ARMOR_OFFSET
+    { 0x0000002E, 0x00000026, 0x00000004, 0x00000004, 0x0000002E, 0x00001F8A, 0x00001F8A, 0x00000026 }, // CPlayerPool::m_pObject
+    { 0x00000000, 0x0000000C, 0x00000000, 0x00000000, 0x00000010, 0x00000010, 0x00000010, 0x00000008 }, // CPlayerInfo::m_pPlayer
+    { 0x000000B3, 0x00000008, 0x00000010, 0x00000010, 0x00000004, 0x00000004, 0x00000004, 0x00000010 }, // CRemotePlayer::m_bShowNameTag
+    { 0x00000000, 0x0000001C, 0x00000000, 0x00000000, 0x000001DD, 0x000001DD, 0x000001DD, 0x00000004 }, // CRemotePlayer::m_pPed
+    { 0x000000AB, 0x00000000, 0x00000008, 0x00000008, 0x000001E5, 0x000001E5, 0x000001E5, 0x00000000 }, // CRemotePlayer::m_nId
+    { 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4, 0x000002A4 }, // CPed::m_pGamePed
+    { 0x000001BC, 0x000001BC, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0, 0x000001B0 }, // CRemotePlayer::m_fHealth
+    { 0x000001B8, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC, 0x000001AC }, // CRemotePlayer::m_fArmour
     { 0x00084850, 0x000848F0, 0x00088760, 0x00088760, 0x00088EA0, 0x00088ED0, 0x00088E70, 0x000888F0 }, // CDXUTListBox__GetSelectedIndex
     { 0x00086390, 0x00086430, 0x0008A2B0, 0x0008A2B0, 0x0008A9F0, 0x0008AA20, 0x0008A9C0, 0x0008A440 }, // CDXUTListBox__GetItem
     { 0x000863C0, 0x00086460, 0x0008A2E0, 0x0008A2E0, 0x0008AA20, 0x0008AA50, 0x0008A9F0, 0x0008A470 }, // SAMP_SET_DIALOG_LIST_ITEM_OFFSET
@@ -174,7 +170,9 @@ bool SampApi::isSAMPInitilizeLua() {
     }
 
     if (!supportedVersion_) {
-        SetError("SAMP version is not supported by the current offsets");
+        if (lastError_.empty()) {
+            SetError("SAMP version is not supported by the current offsets");
+        }
         return false;
     }
 
@@ -210,20 +208,22 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
         return;
     }
 
-    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(sampModule_);
-    if (dosHeader->e_magic == IMAGE_DOS_SIGNATURE) {
-        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(
-            reinterpret_cast<const std::uint8_t*>(sampModule_) + dosHeader->e_lfanew);
-        if (ntHeaders->Signature == IMAGE_NT_SIGNATURE) {
+    IMAGE_DOS_HEADER dosHeader{};
+    if (SafeRead(base, dosHeader) && dosHeader.e_magic == IMAGE_DOS_SIGNATURE
+        && dosHeader.e_lfanew >= static_cast<LONG>(sizeof(IMAGE_DOS_HEADER))
+        && dosHeader.e_lfanew <= 0x1000) {
+        IMAGE_NT_HEADERS32 ntHeaders{};
+        if (SafeRead(base + static_cast<std::uint32_t>(dosHeader.e_lfanew), ntHeaders)
+            && ntHeaders.Signature == IMAGE_NT_SIGNATURE) {
             debuglog::WriteInfo(
                 "[samp][diag] %s pe imageBase=0x%08X sizeOfImage=0x%X sizeOfHeaders=0x%X timestamp=0x%08X checksum=0x%08X sections=%u",
                 tag,
-                static_cast<unsigned>(ntHeaders->OptionalHeader.ImageBase),
-                static_cast<unsigned>(ntHeaders->OptionalHeader.SizeOfImage),
-                static_cast<unsigned>(ntHeaders->OptionalHeader.SizeOfHeaders),
-                static_cast<unsigned>(ntHeaders->FileHeader.TimeDateStamp),
-                static_cast<unsigned>(ntHeaders->OptionalHeader.CheckSum),
-                static_cast<unsigned>(ntHeaders->FileHeader.NumberOfSections));
+                static_cast<unsigned>(ntHeaders.OptionalHeader.ImageBase),
+                static_cast<unsigned>(ntHeaders.OptionalHeader.SizeOfImage),
+                static_cast<unsigned>(ntHeaders.OptionalHeader.SizeOfHeaders),
+                static_cast<unsigned>(ntHeaders.FileHeader.TimeDateStamp),
+                static_cast<unsigned>(ntHeaders.OptionalHeader.CheckSum),
+                static_cast<unsigned>(ntHeaders.FileHeader.NumberOfSections));
         } else {
             debuglog::WriteError("[samp][diag] %s invalid NT signature", tag);
         }
@@ -231,7 +231,10 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
         debuglog::WriteError("[samp][diag] %s invalid DOS signature", tag);
     }
 
-    if (!versionResolved_ || currentVersion_ == Version::Unknown) {
+    if (!CanUseOffsets()) {
+        debuglog::WriteInfo(
+            "[samp][diag] %s versioned offset diagnostics skipped: exact SAMP variant is not approved",
+            tag);
         return;
     }
 
@@ -373,8 +376,8 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
 bool SampApi::IsSampReadyByFallback(std::string& reason) const {
     reason = "SAMP is not initialized yet";
 
-    if (!sampModule_ || !versionResolved_) {
-        reason = "SAMP readiness probe failed: module/version is not ready";
+    if (!CanUseOffsets()) {
+        reason = "SAMP readiness probe failed: exact variant is not approved";
         return false;
     }
 
@@ -769,57 +772,87 @@ const std::string& SampApi::lastError() const {
 
 bool SampApi::DetectVersion() {
     versionResolved_ = true;
+    currentVersion_ = Version::Unknown;
+    currentEntryPoint_ = nullptr;
+    entryPointAddress_ = 0;
+    supportedVersion_ = false;
+    cursorModeValidationDone_ = false;
+    cursorModeSignatureValid_ = false;
+    cursorModeValidationError_.clear();
 
     if (!sampModule_) {
         SetError("samp.dll is not loaded");
         return false;
     }
 
-    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(sampModule_);
-    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+    const std::uintptr_t moduleBase = ModuleBase();
+    IMAGE_DOS_HEADER dosHeader{};
+    if (!SafeRead(moduleBase, dosHeader) || dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
         SetError("samp.dll has an invalid DOS header");
         return false;
     }
 
-    const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS32*>(
-        reinterpret_cast<const std::uint8_t*>(sampModule_) + dosHeader->e_lfanew);
-    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+    if (dosHeader.e_lfanew < static_cast<LONG>(sizeof(IMAGE_DOS_HEADER))
+        || dosHeader.e_lfanew > 0x1000) {
+        SetError("samp.dll has an invalid PE header offset");
+        return false;
+    }
+
+    IMAGE_NT_HEADERS32 ntHeaders{};
+    if (!SafeRead(moduleBase + static_cast<std::uint32_t>(dosHeader.e_lfanew), ntHeaders)
+        || ntHeaders.Signature != IMAGE_NT_SIGNATURE
+        || ntHeaders.FileHeader.Machine != IMAGE_FILE_MACHINE_I386
+        || ntHeaders.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC
+        || ntHeaders.OptionalHeader.SizeOfImage == 0
+        || ntHeaders.OptionalHeader.AddressOfEntryPoint >= ntHeaders.OptionalHeader.SizeOfImage) {
         SetError("samp.dll has an invalid NT header");
         return false;
     }
 
-    entryPointAddress_ = ntHeaders->OptionalHeader.AddressOfEntryPoint;
+    entryPointAddress_ = ntHeaders.OptionalHeader.AddressOfEntryPoint;
 
     for (const auto& info : entryPoint) {
         if (info.address == entryPointAddress_) {
             currentVersion_ = info.version;
             currentEntryPoint_ = &info;
-            supportedVersion_ = info.supported;
-            cursorModeValidationDone_ = false;
-            cursorModeSignatureValid_ = false;
-            cursorModeValidationError_.clear();
-            ClearError();
-
-            debuglog::WriteInfo(
-                "Detected SAMP version: %s (entry point 0x%X, supported=%s)",
-                info.name,
-                info.address,
-                info.supported ? "yes" : "no");
-            LogModuleFingerprint(sampModule_, "samp.dll");
-            if (info.supported) {
-                ValidateCursorModeFunction();
+            if (!info.supported) {
+                SetError("SAMP version is recognized but not supported");
+                debuglog::WriteError(
+                    "Detected unsupported SAMP version: %s (entry point 0x%X)",
+                    info.name,
+                    info.address);
+                return false;
             }
 
+            std::string variantError;
+            if (!ValidateKnownSampVariant(sampModule_, info.version, ntHeaders, variantError)) {
+                SetError(std::move(variantError));
+                debuglog::WriteError(
+                    "Rejected SAMP version %s (entry point 0x%X): exact variant validation failed",
+                    info.name,
+                    info.address);
+                return false;
+            }
+
+            if (!ValidateCriticalSampSignatures(sampModule_, info.version, variantError)) {
+                SetError(std::move(variantError));
+                debuglog::WriteError(
+                    "Rejected SAMP version %s (entry point 0x%X): loaded-code signature validation failed",
+                    info.name,
+                    info.address);
+                return false;
+            }
+
+            supportedVersion_ = true;
+            ClearError();
+            debuglog::WriteInfo(
+                "Detected exact SAMP version: %s (entry point 0x%X, supported=yes)",
+                info.name,
+                info.address);
+            ValidateCursorModeFunction();
             return true;
         }
     }
-
-    currentVersion_ = Version::Unknown;
-    currentEntryPoint_ = nullptr;
-    supportedVersion_ = false;
-    cursorModeValidationDone_ = false;
-    cursorModeSignatureValid_ = false;
-    cursorModeValidationError_.clear();
 
     debuglog::WriteError("Unknown SAMP entry point: 0x%X", entryPointAddress_);
     SetError("Unknown SAMP version entry point");
@@ -904,12 +937,20 @@ void SampApi::ClearError() {
     lastError_.clear();
 }
 
+bool SampApi::CanUseOffsets() const {
+    return sampModule_
+        && versionResolved_
+        && supportedVersion_
+        && currentVersion_ != Version::Unknown
+        && currentVersion_ != Version::E;
+}
+
 std::uintptr_t SampApi::ModuleBase() const {
     return reinterpret_cast<std::uintptr_t>(sampModule_);
 }
 
 std::uintptr_t SampApi::GetAddress(const VersionedOffset& offset) const {
-    if (!sampModule_) {
+    if (!CanUseOffsets()) {
         return 0;
     }
 
@@ -969,7 +1010,7 @@ int SampApi::GetCurrentDialogSelectedIndex() {
 
 bool SampApi::ResolveSampInfo(std::uint32_t& sampInfo) const {
     sampInfo = 0;
-    return sampModule_ && versionResolved_
+    return CanUseOffsets()
         && SafeRead(ModuleBase() + main_offsets.SAMP_INFO_OFFSET.Get(currentVersion_), sampInfo);
 }
 
@@ -1077,26 +1118,26 @@ bool SampApi::ResolveLocalPlayer(std::uint32_t& localPlayer) const {
 
 bool SampApi::ResolveChat(std::uint32_t& chat) const {
     chat = 0;
-    return sampModule_ && versionResolved_ && SafeRead(ModuleBase() + main_offsets.pChat.Get(currentVersion_), chat)
+    return CanUseOffsets() && SafeRead(ModuleBase() + main_offsets.pChat.Get(currentVersion_), chat)
         && chat != 0;
 }
 
 bool SampApi::ResolveChatInput(std::uint32_t& chatInput) const {
     chatInput = 0;
-    return sampModule_ && versionResolved_
+    return CanUseOffsets()
         && SafeRead(ModuleBase() + main_offsets.SAMP_CHAT_INPUT_INFO_OFFSET.Get(currentVersion_), chatInput)
         && chatInput != 0;
 }
 
 bool SampApi::ResolveDialog(std::uint32_t& dialog) const {
     dialog = 0;
-    return sampModule_ && versionResolved_
+    return CanUseOffsets()
         && SafeRead(ModuleBase() + main_offsets.SAMP_DIALOG_INFO_OFFSET.Get(currentVersion_), dialog) && dialog != 0;
 }
 
 bool SampApi::ResolveScoreboard(std::uint32_t& scoreboard) const {
     scoreboard = 0;
-    return sampModule_ && versionResolved_
+    return CanUseOffsets()
         && SafeRead(ModuleBase() + main_offsets.RefScoreboard.Get(currentVersion_), scoreboard) && scoreboard != 0;
 }
 

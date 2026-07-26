@@ -6,6 +6,7 @@
 #include "text_encoding.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -32,6 +33,24 @@ std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffse
         return 0;
     }
     return reinterpret_cast<std::uintptr_t>(module) + relative;
+}
+
+bool IsExecutableAddress(std::uintptr_t address, HMODULE expectedModule) {
+    MEMORY_BASIC_INFORMATION region{};
+    if (address == 0
+        || !expectedModule
+        || VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) != sizeof(region)
+        || region.State != MEM_COMMIT
+        || region.AllocationBase != expectedModule
+        || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+        return false;
+    }
+
+    const DWORD protection = region.Protect & 0xFFu;
+    return protection == PAGE_EXECUTE
+        || protection == PAGE_EXECUTE_READ
+        || protection == PAGE_EXECUTE_READWRITE
+        || protection == PAGE_EXECUTE_WRITECOPY;
 }
 
 bool PayloadMatchesOriginal(
@@ -346,6 +365,12 @@ std::vector<std::string> SampRakHooks::GetRecentLog() const {
 }
 
 bool SampRakHooks::Install() {
+    if (!sampApi_ || !sampApi_->sampModule() || !sampApi_->isSupportedVersion()) {
+        statusText_ = "exact SAMP variant is not approved for RakNet hooks";
+        debuglog::WriteError("SampRakHooks install failed: exact SAMP variant is not approved");
+        return false;
+    }
+
     std::uintptr_t rakClientInterface = 0;
     if (!TryGetRakClientInterface(rakClientInterface)) {
         statusText_ = "RakClientInterface is not available yet";
@@ -367,18 +392,44 @@ bool SampRakHooks::Install() {
         return false;
     }
 
-    auto** vtable = *reinterpret_cast<void***>(rakClientInterface);
-    if (!vtable) {
-        statusText_ = "RakClientInterface vtable is null";
-        debuglog::WriteError("SampRakHooks install failed: RakClientInterface vtable is null");
+    std::uint32_t vtable = 0;
+    if (!SafeReadUInt32(rakClientInterface, vtable) || vtable == 0) {
+        statusText_ = "RakClientInterface vtable is unavailable";
+        debuglog::WriteError("SampRakHooks install failed: RakClientInterface vtable is unavailable");
         return false;
     }
 
-    const std::uintptr_t sendPacketTarget = reinterpret_cast<std::uintptr_t>(vtable[6]);
-    const std::uintptr_t receivePacketTarget = reinterpret_cast<std::uintptr_t>(vtable[8]);
-    const std::uintptr_t deallocatePacketTarget = reinterpret_cast<std::uintptr_t>(vtable[9]);
-    const std::uintptr_t sendRpcTarget = reinterpret_cast<std::uintptr_t>(vtable[25]);
-    deallocatePacketOriginal_ = reinterpret_cast<DeallocatePacketFn>(vtable[9]);
+    std::uint32_t sendPacketTarget = 0;
+    std::uint32_t receivePacketTarget = 0;
+    std::uint32_t deallocatePacketTarget = 0;
+    std::uint32_t sendRpcTarget = 0;
+    if (!SafeReadUInt32(vtable + 6 * sizeof(std::uint32_t), sendPacketTarget)
+        || !SafeReadUInt32(vtable + 8 * sizeof(std::uint32_t), receivePacketTarget)
+        || !SafeReadUInt32(vtable + 9 * sizeof(std::uint32_t), deallocatePacketTarget)
+        || !SafeReadUInt32(vtable + 25 * sizeof(std::uint32_t), sendRpcTarget)) {
+        statusText_ = "RakClientInterface hook slots are unreadable";
+        debuglog::WriteError("SampRakHooks install failed: RakClientInterface hook slots are unreadable");
+        return false;
+    }
+
+    const std::array<std::pair<const char*, std::uintptr_t>, 5> targets{ {
+        { "IncomingRpcHandler", incomingRpcTarget },
+        { "RakClientInterface::Send", sendPacketTarget },
+        { "RakClientInterface::Receive", receivePacketTarget },
+        { "RakClientInterface::DeallocatePacket", deallocatePacketTarget },
+        { "RakClientInterface::RPC", sendRpcTarget },
+    } };
+    for (const auto& [name, target] : targets) {
+        if (!IsExecutableAddress(target, sampApi_->sampModule())) {
+            statusText_ = std::string("RakNet hook target is not executable: ") + name;
+            debuglog::WriteError(
+                "SampRakHooks install failed: %s target=0x%08X is outside executable samp.dll memory",
+                name,
+                static_cast<unsigned>(target));
+            return false;
+        }
+    }
+    deallocatePacketOriginal_ = reinterpret_cast<DeallocatePacketFn>(deallocatePacketTarget);
 
     const std::uintptr_t sampBase = reinterpret_cast<std::uintptr_t>(sampApi_->sampModule());
     debuglog::WriteInfo("SampRakHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
@@ -532,7 +583,7 @@ void SampRakHooks::DeallocatePacketInternal(void* self, Packet* packet) {
 bool SampRakHooks::TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const {
     rakClientInterface = 0;
 
-    if (!sampApi_ || !sampApi_->sampModule()) {
+    if (!sampApi_ || !sampApi_->sampModule() || !sampApi_->isSupportedVersion()) {
         return false;
     }
 

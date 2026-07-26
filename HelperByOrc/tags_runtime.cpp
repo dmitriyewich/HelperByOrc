@@ -914,7 +914,7 @@ TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(cons
         }
 
         CPed* const candidatePed =
-            reinterpret_cast<CPed*>(const_cast<void*>(sampApi->GetPlayerPedPointer(id, false, nullptr, false)));
+            reinterpret_cast<CPed*>(const_cast<void*>(sampApi->GetPlayerPedPointer(id)));
         if (!candidatePed) {
             ++queryStats.notStreamed;
             continue;

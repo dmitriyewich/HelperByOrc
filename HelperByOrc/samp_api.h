@@ -82,7 +82,6 @@ public:
         VersionedOffset RefGame;
         VersionedOffset CGameCursorMode;
         VersionedOffset AddEntry;
-        VersionedOffset RenderEntry;
         VersionedOffset pChat;
         VersionedOffset CHAT_TEXT_OFFSET;
         VersionedOffset CHAT_PREFIX_TEXT_OFFSET;
@@ -92,13 +91,10 @@ public:
         VersionedOffset AddMessage;
         VersionedOffset SAMP_CHAT_INPUT_INFO_OFFSET;
         VersionedOffset CInput_Opened;
-        VersionedOffset OnResetDevice;
         VersionedOffset CInput_Open;
         VersionedOffset CInput_Close;
-        VersionedOffset CInput_Close_fix;
         VersionedOffset SetPageSize;
         VersionedOffset PageSize_MAX;
-        VersionedOffset PageSize_StringInfo;
         VersionedOffset CInput_Send;
         VersionedOffset CInput_SendSay;
         VersionedOffset CInput_ProcessInput;
@@ -121,14 +117,14 @@ public:
         VersionedOffset CPlayerPool_GetLocalPlayerScore;
         VersionedOffset CPlayerPool_GetCount;
         VersionedOffset IDcar_Find;
-        VersionedOffset SAMP_PREMOTEPLAYER_OFFSET;
-        VersionedOffset SAMP_REMOTEPLAYERDATA_OFFSET;
-        VersionedOffset SAMP_REMOTEPLAYERDATA_SHOW_NAME_TAG_OFFSET;
-        VersionedOffset pSAMP_Actor;
-        VersionedOffset pGTA_Ped;
-        VersionedOffset IsConnected;
-        VersionedOffset SAMP_REMOTEPLAYERDATA_HEALTH_OFFSET;
-        VersionedOffset SAMP_REMOTEPLAYERDATA_ARMOR_OFFSET;
+        VersionedOffset CPlayerPool_PlayerInfoSlots;
+        VersionedOffset CPlayerInfo_RemotePlayer;
+        VersionedOffset CRemotePlayer_ShowNameTag;
+        VersionedOffset CRemotePlayer_Ped;
+        VersionedOffset CRemotePlayer_Id;
+        VersionedOffset SampPed_GamePed;
+        VersionedOffset CRemotePlayer_Health;
+        VersionedOffset CRemotePlayer_Armour;
         VersionedOffset CDXUTListBox__GetSelectedIndex;
         VersionedOffset CDXUTListBox__GetItem;
         VersionedOffset SAMP_SET_DIALOG_LIST_ITEM_OFFSET;
@@ -293,11 +289,7 @@ public:
     int Local_ID();
     std::pair<bool, int> TryResolvePlayerIdByPedFast(const void* ped);
     std::pair<bool, int> getPedID(const void* ped);
-    const void* GetPlayerPedPointer(
-        int id,
-        bool trace = false,
-        const char* traceLabel = nullptr,
-        bool allowScanFallback = true);
+    const void* GetPlayerPedPointer(int id, bool trace = false, const char* traceLabel = nullptr);
     bool GetPlayerPosition(int id, float& x, float& y, float& z);
     struct PlayerNameTagRenderState {
         float drawDistance = 0.0f;
@@ -360,6 +352,7 @@ private:
     bool ValidateCursorModeFunction();
     void SetError(std::string message);
     void ClearError();
+    bool CanUseOffsets() const;
     std::uintptr_t ModuleBase() const;
     std::uintptr_t GetAddress(const VersionedOffset& offset) const;
     std::string PrepareOutgoingText(std::string_view text, bool alreadyDecoded, bool applyTransform) const;
@@ -375,10 +368,6 @@ private:
     std::string GetPlayerNameInPool(std::uint32_t playerPool, int id, std::uintptr_t getNameAddress) const;
     bool ResolveLocalPlayer(std::uint32_t& localPlayer) const;
     bool ResolveRemotePlayer(int id, std::uint32_t& remotePlayer, bool trace = false, const char* traceLabel = nullptr);
-    /// Resolves the `CRemotePlayerData*` (or equivalent) pointer used for health/armour and actor fields.
-    /// When `SAMP_REMOTEPLAYERDATA_OFFSET` is 0 (legacy 0.3.7 R1 / R3 / R3-1 layouts), those fields live inside
-    /// `CRemotePlayer` itself; offset 0 must not be dereferenced as a pointer (that would read `m_pPed`).
-    bool ResolveRemotePlayerData(std::uint32_t remotePlayer, std::uint32_t& remoteData) const;
     bool ResolveChat(std::uint32_t& chat) const;
     bool ResolveChatInput(std::uint32_t& chatInput) const;
     bool ResolveDialog(std::uint32_t& dialog) const;

@@ -9,19 +9,6 @@
 #include "samp_hooks.h"
 #include "text_encoding.h"
 
-#include <sampapi/0.3.7-R1/CRemotePlayer.h>
-#include <sampapi/0.3.7-R1/CPed.h>
-#include <sampapi/0.3.7-R1/CPlayerInfo.h>
-#include <sampapi/0.3.7-R3-1/CRemotePlayer.h>
-#include <sampapi/0.3.7-R3-1/CPed.h>
-#include <sampapi/0.3.7-R3-1/CPlayerInfo.h>
-#include <sampapi/0.3.7-R5-1/CRemotePlayer.h>
-#include <sampapi/0.3.7-R5-1/CPed.h>
-#include <sampapi/0.3.7-R5-1/CPlayerInfo.h>
-#include <sampapi/0.3.DL-1/CRemotePlayer.h>
-#include <sampapi/0.3.DL-1/CPed.h>
-#include <sampapi/0.3.DL-1/CPlayerInfo.h>
-
 #include <memory>
 #include <memwrapper.h>
 
@@ -402,38 +389,203 @@ std::string FileTimeText(const FILETIME& fileTime) {
     return buffer;
 }
 
-void LogModuleFingerprint(HMODULE module, const char* label) {
-    const std::wstring path = ModulePathWide(module);
-    if (path.empty()) {
-        debuglog::WriteInfo("[samp][file] %s path unavailable module=%p", label ? label : "module", module);
-        return;
+struct ModuleFingerprint {
+    std::wstring path;
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    std::uint64_t size = 0;
+    file_hash::Result hashes{};
+};
+
+struct KnownSampVariant {
+    SampApi::Version version = SampApi::Version::Unknown;
+    std::uint64_t fileSize = 0;
+    std::uint32_t timestamp = 0;
+    std::uint32_t sizeOfImage = 0;
+    const char* sha256 = "";
+    const char* name = "";
+};
+
+constexpr std::array<KnownSampVariant, 9> kKnownSampVariants{ {
+    { SampApi::Version::R1, 2199552, 0x5542F47A, 0x330000, "7E30F3C9CD99D5E2932410F486E8139AFFA2DAD19BD65AD9C328F6A4071943F7", "R1" },
+    { SampApi::Version::R2, 2220032, 0x59C30C94, 0x335000, "DE07A850590A43D83A40F9251741C07D3D0D74A217D5A09CB498A32982E8315B", "R2" },
+    { SampApi::Version::R3, 1204224, 0x5C08E5BC, 0x27E000, "81D39AF30EAFE6176DE82C57EF9D2A9EAA92268B18D7B17096F67919A9248040", "R3" },
+    { SampApi::Version::R3_1, 1204224, 0x5C0B4243, 0x27E000, "9C9B2CC31A4CED6967420B1880C096B5C4E7630E227AA379BE4019C21B6FDDC1", "R3-1" },
+    { SampApi::Version::R3_1, 1226984, 0x5C0B4243, 0x27E000, "087ED1D0C29B9A9F24443DACDDBD3E0DDBC0EADC5673E83E8A9280E72E93DFE5", "Arizona R3-1" },
+    { SampApi::Version::R4, 1204224, 0x5DD606CD, 0x27E000, "15DB80C5C9E02E011F16509D081D1CE7C8526238200814EBC16BA1F4F9FF12AB", "R4" },
+    { SampApi::Version::R4_2, 1204224, 0x6094ACAB, 0x27E000, "0B0E409C2FCAF52B74131C05B3B28FCB614C78F79578A691F1B44FCDAB229088", "R4-2" },
+    { SampApi::Version::R5_1, 1204224, 0x6372C39E, 0x27E000, "B72B5DBE725F81864CA3F78BC7063BDA56CC05FC7188AF822FA7A754432553A2", "R5-1" },
+    { SampApi::Version::DL_R1, 1466368, 0x5A6A3130, 0x2BE000, "BCCDB297464BD382625635BE25585DF07A8FA6668BC0015650708E3EB4FFCD4B", "DL-R1" },
+} };
+
+bool ReadModuleFingerprint(HMODULE module, ModuleFingerprint& fingerprint, std::string& error) {
+    fingerprint = {};
+    error.clear();
+    fingerprint.path = ModulePathWide(module);
+    if (fingerprint.path.empty()) {
+        error = "samp.dll path is unavailable";
+        return false;
     }
 
-    WIN32_FILE_ATTRIBUTE_DATA data{};
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
-        debuglog::WriteError(
-            "[samp][file] %s stat failed gle=%lu path=\"%s\"",
-            label ? label : "module",
-            static_cast<unsigned long>(GetLastError()),
-            WideToUtf8(path).c_str());
-        return;
+    if (!GetFileAttributesExW(
+            fingerprint.path.c_str(),
+            GetFileExInfoStandard,
+            &fingerprint.attributes)) {
+        char buffer[128]{};
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "samp.dll stat failed (gle=%lu)",
+            static_cast<unsigned long>(GetLastError()));
+        error = buffer;
+        return false;
     }
 
-    const std::uint64_t size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32u) | data.nFileSizeLow;
-    const file_hash::Result hashes = file_hash::Compute(path, true);
+    fingerprint.size =
+        (static_cast<std::uint64_t>(fingerprint.attributes.nFileSizeHigh) << 32u)
+        | fingerprint.attributes.nFileSizeLow;
+    fingerprint.hashes = file_hash::Compute(fingerprint.path, true);
+    if (!fingerprint.hashes.fnvOk || !fingerprint.hashes.sha256Ok) {
+        char buffer[160]{};
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "samp.dll fingerprint failed (fnvError=%lu shaError=%lu)",
+            fingerprint.hashes.fnvError,
+            fingerprint.hashes.sha256Error);
+        error = buffer;
+        return false;
+    }
+    return true;
+}
+
+void LogModuleFingerprint(const ModuleFingerprint& fingerprint, const char* label) {
+    debuglog::WriteInfo(
+        "[samp][file] %s size=%llu mtime=\"%s\" fnv64=%016llX fnvOk=1 fnvError=0 sha256=%s shaOk=1 shaError=0 path=\"%s\"",
+        label ? label : "module",
+        static_cast<unsigned long long>(fingerprint.size),
+        FileTimeText(fingerprint.attributes.ftLastWriteTime).c_str(),
+        static_cast<unsigned long long>(fingerprint.hashes.fnv1a64),
+        fingerprint.hashes.sha256.c_str(),
+        WideToUtf8(fingerprint.path).c_str());
+}
+
+bool ValidateKnownSampVariant(
+    HMODULE module,
+    SampApi::Version version,
+    const IMAGE_NT_HEADERS32& ntHeaders,
+    std::string& error) {
+    ModuleFingerprint fingerprint;
+    if (!ReadModuleFingerprint(module, fingerprint, error)) {
+        debuglog::WriteError("[samp][variant] validation failed: %s", error.c_str());
+        return false;
+    }
+
+    LogModuleFingerprint(fingerprint, "samp.dll");
+    for (const KnownSampVariant& known : kKnownSampVariants) {
+        if (known.version == version
+            && known.fileSize == fingerprint.size
+            && known.timestamp == ntHeaders.FileHeader.TimeDateStamp
+            && known.sizeOfImage == ntHeaders.OptionalHeader.SizeOfImage
+            && fingerprint.hashes.sha256 == known.sha256) {
+            debuglog::WriteInfo(
+                "[samp][variant] validation ok variant=\"%s\" timestamp=0x%08X sizeOfImage=0x%X",
+                known.name,
+                known.timestamp,
+                known.sizeOfImage);
+            error.clear();
+            return true;
+        }
+    }
+
+    char buffer[384]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "samp.dll exact variant is not approved (version=%d size=%llu timestamp=0x%08X sizeOfImage=0x%X sha256=%s)",
+        static_cast<int>(version),
+        static_cast<unsigned long long>(fingerprint.size),
+        static_cast<unsigned>(ntHeaders.FileHeader.TimeDateStamp),
+        static_cast<unsigned>(ntHeaders.OptionalHeader.SizeOfImage),
+        fingerprint.hashes.sha256.c_str());
+    error = buffer;
+    debuglog::WriteError("[samp][variant] validation failed: %s", error.c_str());
+    return false;
+}
+
+template <std::size_t N>
+bool MatchesSignatureFragment(
+    std::uintptr_t address,
+    std::size_t offset,
+    const std::array<std::uint8_t, N>& expected) {
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        std::uint8_t actual = 0;
+        if (!SafeRead(address + offset + i, actual) || actual != expected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateCriticalSampSignatures(
+    HMODULE module,
+    SampApi::Version version,
+    std::string& error) {
+    const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(module);
+    const std::uint32_t inputSendRva = SampApi::main_offsets.CInput_Send.Get(version);
+    const std::uint32_t hotkeyDispatcherRva =
+        SampApi::main_offsets.HotkeyDispatcher.Get(version);
+    const std::uint32_t rakHandleRpcRva =
+        SampApi::main_offsets.RakHandleRpc.Get(version);
+    if (base == 0 || inputSendRva == 0 || hotkeyDispatcherRva == 0 || rakHandleRpcRva == 0) {
+        error = "critical SAMP signature target is unavailable";
+        return false;
+    }
+
+    // Fragments begin after the first five bytes so ordinary rel32 detours do
+    // not invalidate the exact loaded-code check.
+    constexpr std::array<std::uint8_t, 2> kInputSendFragment1{ 0x6A, 0xFF };
+    constexpr std::array<std::uint8_t, 13> kInputSendFragment2{
+        0x64, 0x89, 0x25, 0x00, 0x00, 0x00, 0x00,
+        0x81, 0xEC, 0x18, 0x01, 0x00, 0x00,
+    };
+    constexpr std::array<std::uint8_t, 14> kHotkeyDispatcherFragment{
+        0xC0, 0xF3, 0x83, 0xF8, 0x6B, 0x0F, 0x87,
+        0x80, 0x01, 0x00, 0x00, 0x0F, 0xB6, 0x80,
+    };
+    constexpr std::array<std::uint8_t, 3> kRakHandleRpcFragment1{ 0x6A, 0xFF, 0x68 };
+    constexpr std::array<std::uint8_t, 20> kRakHandleRpcFragment2{
+        0x64, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x50,
+        0x64, 0x89, 0x25, 0x00, 0x00, 0x00, 0x00,
+        0x81, 0xEC, 0x2C, 0x01, 0x00, 0x00,
+    };
+
+    const std::uintptr_t inputSend = base + inputSendRva;
+    if (!MatchesSignatureFragment(inputSend, 6, kInputSendFragment1)
+        || !MatchesSignatureFragment(inputSend, 19, kInputSendFragment2)) {
+        error = "CInput_Send loaded-code signature mismatch";
+        return false;
+    }
+
+    const std::uintptr_t hotkeyDispatcher = base + hotkeyDispatcherRva;
+    if (!MatchesSignatureFragment(
+            hotkeyDispatcher,
+            5,
+            kHotkeyDispatcherFragment)) {
+        error = "HotkeyDispatcher loaded-code signature mismatch";
+        return false;
+    }
+
+    const std::uintptr_t rakHandleRpc = base + rakHandleRpcRva;
+    if (!MatchesSignatureFragment(rakHandleRpc, 5, kRakHandleRpcFragment1)
+        || !MatchesSignatureFragment(rakHandleRpc, 12, kRakHandleRpcFragment2)) {
+        error = "RakHandleRpc loaded-code signature mismatch";
+        return false;
+    }
 
     debuglog::WriteInfo(
-        "[samp][file] %s size=%llu mtime=\"%s\" fnv64=%016llX fnvOk=%d fnvError=%lu sha256=%s shaOk=%d shaError=%lu path=\"%s\"",
-        label ? label : "module",
-        static_cast<unsigned long long>(size),
-        FileTimeText(data.ftLastWriteTime).c_str(),
-        static_cast<unsigned long long>(hashes.fnv1a64),
-        hashes.fnvOk ? 1 : 0,
-        hashes.fnvError,
-        hashes.sha256Ok ? hashes.sha256.c_str() : "<failed>",
-        hashes.sha256Ok ? 1 : 0,
-        hashes.sha256Error,
-        WideToUtf8(path).c_str());
+        "[samp][variant] loaded-code signatures ok targets=CInput_Send,HotkeyDispatcher,RakHandleRpc");
+    error.clear();
+    return true;
 }
 
 std::string ModuleOwnerSummary(std::uintptr_t address) {
@@ -563,101 +715,6 @@ std::string HexBytes(std::uintptr_t address, std::size_t count) {
         out << byteText;
     }
     return out.str();
-}
-
-std::uint32_t GetRemotePlayerPedOffset(SampApi::Version version) {
-    switch (version) {
-    case SampApi::Version::R1:
-    case SampApi::Version::R2:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CRemotePlayer, m_pPed));
-    case SampApi::Version::R3:
-    case SampApi::Version::R3_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CRemotePlayer, m_pPed));
-    case SampApi::Version::R4:
-    case SampApi::Version::R4_2:
-    case SampApi::Version::R5_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CRemotePlayer, m_pPed));
-    case SampApi::Version::DL_R1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CRemotePlayer, m_pPed));
-    default:
-        return 0;
-    }
-}
-
-std::uint32_t GetPlayerInfoRemotePlayerOffset(SampApi::Version version) {
-    switch (version) {
-    case SampApi::Version::R1:
-    case SampApi::Version::R2:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CPlayerInfo, m_pPlayer));
-    case SampApi::Version::R3:
-    case SampApi::Version::R3_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CPlayerInfo, m_pPlayer));
-    case SampApi::Version::R4:
-    case SampApi::Version::R4_2:
-    case SampApi::Version::R5_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CPlayerInfo, m_pPlayer));
-    case SampApi::Version::DL_R1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CPlayerInfo, m_pPlayer));
-    default:
-        return 0;
-    }
-}
-
-std::uint32_t GetRemotePlayerIdOffset(SampApi::Version version) {
-    switch (version) {
-    case SampApi::Version::R1:
-    case SampApi::Version::R2:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CRemotePlayer, m_nId));
-    case SampApi::Version::R3:
-    case SampApi::Version::R3_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CRemotePlayer, m_nId));
-    case SampApi::Version::R4:
-    case SampApi::Version::R4_2:
-    case SampApi::Version::R5_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CRemotePlayer, m_nId));
-    case SampApi::Version::DL_R1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CRemotePlayer, m_nId));
-    default:
-        return 0;
-    }
-}
-
-bool LooksLikeRemotePlayerPointer(std::uint32_t candidate, SampApi::Version version, int expectedId) {
-    const std::uint32_t idOffset = GetRemotePlayerIdOffset(version);
-    if (candidate < 0x10000 || idOffset == 0 || expectedId < 0 || expectedId > 1003) {
-        return false;
-    }
-
-    std::uint16_t remoteId = 0xFFFF;
-    if (!SafeRead(candidate + idOffset, remoteId)) {
-        return false;
-    }
-
-    return remoteId == static_cast<std::uint16_t>(expectedId);
-}
-
-std::uint32_t GetSampPedGamePedOffset(SampApi::Version version) {
-    const std::uint32_t manualOffset = SampApi::main_offsets.pGTA_Ped.Get(version);
-    if (manualOffset != 0) {
-        return manualOffset;
-    }
-
-    switch (version) {
-    case SampApi::Version::R1:
-    case SampApi::Version::R2:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r1::CPed, m_pGamePed));
-    case SampApi::Version::R3:
-    case SampApi::Version::R3_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r3::CPed, m_pGamePed));
-    case SampApi::Version::R4:
-    case SampApi::Version::R4_2:
-    case SampApi::Version::R5_1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v037r5::CPed, m_pGamePed));
-    case SampApi::Version::DL_R1:
-        return static_cast<std::uint32_t>(offsetof(sampapi::v03dl::CPed, m_pGamePed));
-    default:
-        return 0;
-    }
 }
 
 bool LooksLikeReadablePedPointer(std::uint32_t gtaPed) {
@@ -1421,7 +1478,7 @@ bool FindChatAsiSubmitForBuffer(
 }
 
 std::uint32_t ReadGamePedFromSampPed(std::uint32_t sampPed, SampApi::Version version) {
-    const std::uint32_t gamePedOffset = GetSampPedGamePedOffset(version);
+    const std::uint32_t gamePedOffset = SampApi::main_offsets.SampPed_GamePed.Get(version);
     if (sampPed < 0x10000 || gamePedOffset == 0) {
         return 0;
     }

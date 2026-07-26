@@ -618,7 +618,7 @@ bool PlayerTargetSelector::ValidateHoveredPlayer() const {
         && hoveredPlayerId_ >= 0
         && hoveredPlayerId_ <= 1003
         && sampApi_->IsConnected(hoveredPlayerId_)
-        && sampApi_->GetPlayerPedPointer(hoveredPlayerId_, false, nullptr, false) == hoveredPed_;
+        && sampApi_->GetPlayerPedPointer(hoveredPlayerId_) == hoveredPed_;
 }
 
 void PlayerTargetSelector::Activate() {

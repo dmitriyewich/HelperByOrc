@@ -1988,7 +1988,7 @@ const CPed* FindPlayerPedBySampId(SampApi& sampApi, int id) {
         return nullptr;
     }
 
-    if (const void* resolvedPed = sampApi.GetPlayerPedPointer(id, false, nullptr, false)) {
+    if (const void* resolvedPed = sampApi.GetPlayerPedPointer(id)) {
         return reinterpret_cast<const CPed*>(resolvedPed);
     }
 

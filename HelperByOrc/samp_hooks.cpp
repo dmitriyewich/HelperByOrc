@@ -10,7 +10,6 @@
 #include <CPad.h>
 
 #include <array>
-#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -20,7 +19,6 @@
 
 namespace {
 
-constexpr std::size_t kMaxLogEntries = 64;
 constexpr std::uintptr_t kDamageManagerApplyDamageAddress = 0x6C24B0;
 constexpr std::uintptr_t kPadUpdateMouseAddress = 0x53F3C0;
 constexpr std::string_view kChatAsiAddEntryFrameWrapperSignature =
@@ -497,13 +495,6 @@ void __fastcall SampHooks::ChatAddEntryDetour(void* chat, void* edx, int type, c
             }
         }
 
-        self_->AppendLog(
-            "AddEntry type=%d prefix=%s text=%s color=%08lX prefixColor=%08lX",
-            type,
-            Truncate(prefixUtf8, 48).c_str(),
-            Truncate(textUtf8, 96).c_str(),
-            textColor,
-            prefixColor);
         for (const auto& handler : self_->onChatMessageHandlers_) {
             handler(type, textUtf8, prefixUtf8, textColor, prefixColor);
         }
@@ -588,13 +579,6 @@ void __cdecl SampHooks::ChatAsiAddEntryDispatchDetour(
                 }
             }
         }
-        self_->AppendLog(
-            "_chat AddEntry type=%d prefix=%s text=%s color=%08lX prefixColor=%08lX",
-            type,
-            Truncate(prefixUtf8, 48).c_str(),
-            Truncate(textUtf8, 96).c_str(),
-            textColor,
-            prefixColor);
         for (const auto& handler : self_->onChatMessageHandlers_) {
             handler(type, textUtf8, prefixUtf8, textColor, prefixColor);
         }
@@ -693,38 +677,6 @@ void __fastcall SampHooks::ChatAddChatMessageDetour(void* chat, void* edx, const
     }
 }
 
-void __fastcall SampHooks::DialogShowDetour(std::uintptr_t self, void* edx, int dialogId, int style, const char* title, const char* text, const char* button1, const char* button2, bool serverside) {
-    UNREFERENCED_PARAMETER(edx);
-
-    if (SampHooks::self_ && SampHooks::self_->installed_) {
-        SampHooks::self_->AppendLog(
-            "CDialog_Show id=%d style=%d title=%s button1=%s button2=%s text=%s serverside=%d",
-            dialogId,
-            style,
-            Truncate(textencoding::GameToUtf8(title ? title : ""), 48).c_str(),
-            Truncate(textencoding::GameToUtf8(button1 ? button1 : ""), 24).c_str(),
-            Truncate(textencoding::GameToUtf8(button2 ? button2 : ""), 24).c_str(),
-            Truncate(textencoding::GameToUtf8(text ? text : ""), 96).c_str(),
-            serverside ? 1 : 0);
-    }
-
-    if (SampHooks::self_ && SampHooks::self_->dialogShowOriginal_) {
-        SampHooks::self_->dialogShowOriginal_(self, dialogId, style, title, text, button1, button2, serverside);
-    }
-}
-
-void __fastcall SampHooks::DialogCloseDetour(std::uintptr_t self, void* edx, char button) {
-    UNREFERENCED_PARAMETER(edx);
-
-    if (SampHooks::self_ && SampHooks::self_->installed_) {
-        SampHooks::self_->AppendLog("CDialog_Close button=%d", static_cast<int>(button));
-    }
-
-    if (SampHooks::self_ && SampHooks::self_->dialogCloseOriginal_) {
-        SampHooks::self_->dialogCloseOriginal_(self, button);
-    }
-}
-
 void __fastcall SampHooks::InputSendDetour(std::uintptr_t self, void* edx, const char* text) {
     UNREFERENCED_PARAMETER(edx);
 
@@ -739,7 +691,6 @@ void __fastcall SampHooks::InputSendDetour(std::uintptr_t self, void* edx, const
             SampHooks::self_->sampApi_ ? SampHooks::self_->sampApi_->sampModule() : nullptr,
             SampHooks::self_->ownerModule_);
         textUtf8 = textencoding::GameToUtf8(text ? text : "");
-        SampHooks::self_->AppendLog("CInput_Send text=%s", Truncate(textUtf8, 96).c_str());
         for (const auto& handler : SampHooks::self_->onSendCommandHandlers_) {
             if (!handler(textUtf8, context)) {
                 return;
@@ -769,7 +720,6 @@ void __fastcall SampHooks::InputSendSayDetour(std::uintptr_t self, void* edx, co
             SampHooks::self_->sampApi_ ? SampHooks::self_->sampApi_->sampModule() : nullptr,
             SampHooks::self_->ownerModule_);
         textUtf8 = textencoding::GameToUtf8(text ? text : "");
-        SampHooks::self_->AppendLog("CInput_SendSay text=%s", Truncate(textUtf8, 96).c_str());
         for (const auto& handler : SampHooks::self_->onSendChatHandlers_) {
             if (!handler(textUtf8, context)) {
                 return;
@@ -812,20 +762,9 @@ int __cdecl SampHooks::InputHotkeyHandlerDetour(int key) {
 bool __fastcall SampHooks::ApplyDamageDetour(std::uintptr_t self, void* edx, std::uintptr_t car, int component, float intensity, float arg3) {
     UNREFERENCED_PARAMETER(edx);
 
-    if (SampHooks::self_ && SampHooks::self_->installed_) {
-        SampHooks::self_->AppendLog(
-            "CDamageManager_ApplyDamage component=%d intensity=%.2f arg3=%.2f",
-            component,
-            intensity,
-            arg3);
-    }
-
     if (SampHooks::self_ && SampHooks::self_->installed_
         && SampHooks::self_->applyDamageProtectionEnabled_
         && (component < 1 || component > 4)) {
-        if (SampHooks::self_ && SampHooks::self_->installed_) {
-            SampHooks::self_->AppendLog("CDamageManager_ApplyDamage blocked for component=%d", component);
-        }
         return false;
     }
 
@@ -1025,20 +964,19 @@ const std::string& SampHooks::statusText() const {
     return statusText_;
 }
 
-std::vector<std::string> SampHooks::GetRecentLog() const {
-    std::lock_guard lock(logMutex_);
-    return recentLog_;
-}
-
 bool SampHooks::Install() {
+    if (!sampApi_ || !sampApi_->sampModule() || !sampApi_->isSupportedVersion()) {
+        statusText_ = "exact SAMP variant is not approved for hooks";
+        debuglog::WriteError("SampHooks install failed: exact SAMP variant is not approved");
+        return false;
+    }
+
     const std::uintptr_t sampBase = reinterpret_cast<std::uintptr_t>(sampApi_->sampModule());
     const auto version = sampApi_->currentVersion();
 
     const std::uintptr_t addEntryTarget = sampBase + SampApi::main_offsets.AddEntry.Get(version);
     const std::uintptr_t addMessageTarget = sampBase + SampApi::main_offsets.AddMessage.Get(version);
     const std::uintptr_t addChatMessageTarget = sampBase + SampApi::main_offsets.AddChatMessage.Get(version);
-    const std::uintptr_t dialogShowTarget = sampBase + SampApi::main_offsets.CDialog_Show.Get(version);
-    const std::uintptr_t dialogCloseTarget = sampBase + SampApi::main_offsets.CDialog_Close.Get(version);
     const std::uintptr_t inputSendTarget = sampBase + SampApi::main_offsets.CInput_Send.Get(version);
     const std::uintptr_t inputSendSayTarget = sampBase + SampApi::main_offsets.CInput_SendSay.Get(version);
     const std::uintptr_t hotkeyDispatcherTarget = sampBase + SampApi::main_offsets.HotkeyDispatcher.Get(version);
@@ -1052,8 +990,6 @@ bool SampHooks::Install() {
     debuglog::WriteInfo("SampHooks: addEntryTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addEntryTarget), static_cast<unsigned>(addEntryTarget - sampBase));
     debuglog::WriteInfo("SampHooks: addMessageTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addMessageTarget), static_cast<unsigned>(addMessageTarget - sampBase));
     debuglog::WriteInfo("SampHooks: addChatMessageTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(addChatMessageTarget), static_cast<unsigned>(addChatMessageTarget - sampBase));
-    debuglog::WriteInfo("SampHooks: dialogShowTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogShowTarget), static_cast<unsigned>(dialogShowTarget - sampBase));
-    debuglog::WriteInfo("SampHooks: dialogCloseTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(dialogCloseTarget), static_cast<unsigned>(dialogCloseTarget - sampBase));
     debuglog::WriteInfo("SampHooks: inputSendTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendTarget), static_cast<unsigned>(inputSendTarget - sampBase));
     debuglog::WriteInfo("SampHooks: inputSendSayTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(inputSendSayTarget), static_cast<unsigned>(inputSendSayTarget - sampBase));
     debuglog::WriteInfo("SampHooks: hotkeyDispatcherTarget=0x%08X (offset 0x%X)", static_cast<unsigned>(hotkeyDispatcherTarget), static_cast<unsigned>(hotkeyDispatcherTarget - sampBase));
@@ -1092,7 +1028,6 @@ bool SampHooks::Install() {
     }
 
     if (addEntryTarget == sampBase || addMessageTarget == sampBase || addChatMessageTarget == sampBase
-        || dialogShowTarget == sampBase || dialogCloseTarget == sampBase
         || inputSendTarget == sampBase || inputSendSayTarget == sampBase
         || hotkeyDispatcherTarget == sampBase || inputHotkeyHandlerTarget == sampBase) {
         statusText_ = "some hook offsets are missing for the detected SAMP version";
@@ -1100,12 +1035,30 @@ bool SampHooks::Install() {
         return false;
     }
 
+    const std::array<std::pair<const char*, std::uintptr_t>, 7> sampTargets{ {
+        { "AddEntry", addEntryTarget },
+        { "AddMessage", addMessageTarget },
+        { "AddChatMessage", addChatMessageTarget },
+        { "CInput_Send", inputSendTarget },
+        { "CInput_SendSay", inputSendSayTarget },
+        { "HotkeyDispatcher", hotkeyDispatcherTarget },
+        { "InputHotkeyHandler", inputHotkeyHandlerTarget },
+    } };
+    for (const auto& [name, target] : sampTargets) {
+        if (!IsExecutableRange(target, 1, sampApi_->sampModule())) {
+            statusText_ = std::string("SAMP hook target is not executable: ") + name;
+            debuglog::WriteError(
+                "SampHooks install failed: %s target=0x%08X is outside executable samp.dll memory",
+                name,
+                static_cast<unsigned>(target));
+            return false;
+        }
+    }
+
     chatAddEntryTarget_ = reinterpret_cast<void*>(addEntryTarget);
     chatAsiAddEntryDispatchTarget_ = reinterpret_cast<void*>(chatAsiAddEntryDispatchTarget);
     chatAddMessageTarget_ = reinterpret_cast<void*>(addMessageTarget);
     chatAddChatMessageTarget_ = reinterpret_cast<void*>(addChatMessageTarget);
-    dialogShowTarget_ = reinterpret_cast<void*>(dialogShowTarget);
-    dialogCloseTarget_ = reinterpret_cast<void*>(dialogCloseTarget);
     inputSendTarget_ = reinterpret_cast<void*>(inputSendTarget);
     inputSendSayTarget_ = reinterpret_cast<void*>(inputSendSayTarget);
     hotkeyDispatcherTarget_ = reinterpret_cast<void*>(hotkeyDispatcherTarget);
@@ -1144,14 +1097,6 @@ bool SampHooks::Install() {
         return failInstall("MinHook install failed for AddChatMessage", "SampHooks: MinHook install failed for AddChatMessage");
     }
 
-    if (!minhook::CreateAndEnableHook(dialogShowTarget_, reinterpret_cast<void*>(&DialogShowDetour), &dialogShowOriginal_, "SampHooks::CDialog_Show")) {
-        return failInstall("MinHook install failed for CDialog_Show", "SampHooks: MinHook install failed for CDialog_Show");
-    }
-
-    if (!minhook::CreateAndEnableHook(dialogCloseTarget_, reinterpret_cast<void*>(&DialogCloseDetour), &dialogCloseOriginal_, "SampHooks::CDialog_Close")) {
-        return failInstall("MinHook install failed for CDialog_Close", "SampHooks: MinHook install failed for CDialog_Close");
-    }
-
     if (!minhook::CreateAndEnableHook(inputSendTarget_, reinterpret_cast<void*>(&InputSendDetour), &inputSendOriginal_, "SampHooks::CInput_Send")) {
         return failInstall("MinHook install failed for CInput_Send", "SampHooks: MinHook install failed for CInput_Send");
     }
@@ -1181,7 +1126,6 @@ bool SampHooks::Install() {
     installed_ = true;
     statusText_ = "hooks installed";
     debuglog::WriteInfo("SampHooks: installed for SAMP version %s", sampApi_->currentVersionName());
-    AppendLog("hooks installed for SAMP %s", sampApi_->currentVersionName());
     return true;
 }
 
@@ -1192,8 +1136,6 @@ void SampHooks::CleanupHooks() {
     minhook::DisableAndRemoveHook(chatAsiAddEntryDispatchTarget_, "SampHooks::_chat AddEntry dispatch");
     minhook::DisableAndRemoveHook(chatAddMessageTarget_, "SampHooks::AddMessage");
     minhook::DisableAndRemoveHook(chatAddChatMessageTarget_, "SampHooks::AddChatMessage");
-    minhook::DisableAndRemoveHook(dialogShowTarget_, "SampHooks::CDialog_Show");
-    minhook::DisableAndRemoveHook(dialogCloseTarget_, "SampHooks::CDialog_Close");
     minhook::DisableAndRemoveHook(inputSendTarget_, "SampHooks::CInput_Send");
     minhook::DisableAndRemoveHook(inputSendSayTarget_, "SampHooks::CInput_SendSay");
     minhook::DisableAndRemoveHook(hotkeyDispatcherTarget_, "SampHooks::HotkeyDispatcher");
@@ -1205,8 +1147,6 @@ void SampHooks::CleanupHooks() {
     chatAsiAddEntryDispatchOriginal_ = nullptr;
     chatAddMessageOriginal_ = nullptr;
     chatAddChatMessageOriginal_ = nullptr;
-    dialogShowOriginal_ = nullptr;
-    dialogCloseOriginal_ = nullptr;
     inputSendOriginal_ = nullptr;
     inputSendSayOriginal_ = nullptr;
     hotkeyDispatcherOriginal_ = nullptr;
@@ -1214,29 +1154,4 @@ void SampHooks::CleanupHooks() {
     applyDamageOriginal_ = nullptr;
     padUpdateMouseOriginal_ = nullptr;
     debuglog::WriteInfo("SampHooks::CleanupHooks done");
-}
-
-void SampHooks::AppendLog(const char* format, ...) {
-    char buffer[1024]{};
-
-    va_list args;
-    va_start(args, format);
-    std::vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-
-    std::lock_guard lock(logMutex_);
-    if (recentLog_.size() >= kMaxLogEntries) {
-        recentLog_.erase(recentLog_.begin());
-    }
-    recentLog_.emplace_back(buffer);
-}
-
-std::string SampHooks::Truncate(std::string text, std::size_t maxLength) {
-    if (text.size() <= maxLength) {
-        return text;
-    }
-
-    text.resize(maxLength);
-    text += "...";
-    return text;
 }

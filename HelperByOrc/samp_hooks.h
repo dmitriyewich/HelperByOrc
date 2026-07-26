@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -67,7 +66,6 @@ public:
     static void PushOutgoingInputTransform();
     static void PopOutgoingInputTransform();
     const std::string& statusText() const;
-    std::vector<std::string> GetRecentLog() const;
     void AddChatMessageTransform(ChatMessageTransform handler);
     void AddChatMessageFilter(ChatMessageFilter handler);
     void AddOnChatMessageHandler(ChatMessageHandler handler);
@@ -84,8 +82,6 @@ private:
     using ChatAsiAddEntryDispatchFn = void(__cdecl*)(int, const char*, const char*, unsigned long, unsigned long);
     using ChatAddMessageFn = void(__thiscall*)(void*, unsigned long, const char*);
     using ChatAddChatMessageFn = void(__thiscall*)(void*, const char*, unsigned long, const char*);
-    using CDialogShowFn = void(__thiscall*)(std::uintptr_t, int, int, const char*, const char*, const char*, const char*, bool);
-    using CDialogCloseFn = void(__thiscall*)(std::uintptr_t, char);
     using CInputSendFn = void(__thiscall*)(std::uintptr_t, const char*);
     using CInputSendSayFn = void(__thiscall*)(std::uintptr_t, const char*);
     using HotkeyDispatcherFn = int(__cdecl*)(int);
@@ -95,8 +91,6 @@ private:
 
     bool Install();
     void CleanupHooks();
-    void AppendLog(const char* format, ...);
-    static std::string Truncate(std::string text, std::size_t maxLength);
     static void __fastcall ChatAddEntryDetour(void* chat, void* edx, int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor);
     static void __cdecl ChatAsiAddEntryDispatchDetour(int type, const char* text, const char* prefix, unsigned long textColor, unsigned long prefixColor);
     static void __fastcall ChatAddMessageDetour(void* chat, void* edx, unsigned long color, const char* text);
@@ -123,8 +117,6 @@ private:
         const char* prefix,
         unsigned long prefixColor,
         const char* text);
-    static void __fastcall DialogShowDetour(std::uintptr_t self, void* edx, int dialogId, int style, const char* title, const char* text, const char* button1, const char* button2, bool serverside);
-    static void __fastcall DialogCloseDetour(std::uintptr_t self, void* edx, char button);
     static void __fastcall InputSendDetour(std::uintptr_t self, void* edx, const char* text);
     static void __fastcall InputSendSayDetour(std::uintptr_t self, void* edx, const char* text);
     static int __cdecl HotkeyDispatcherDetour(int key);
@@ -141,8 +133,6 @@ private:
     HMODULE ownerModule_ = nullptr;
     bool installed_ = false;
     std::string statusText_ = "waiting for samp.dll";
-    mutable std::mutex logMutex_;
-    std::vector<std::string> recentLog_;
     std::vector<ChatMessageTransform> chatMessageTransforms_;
     std::vector<ChatMessageFilter> chatMessageFilters_;
     std::vector<ChatMessageHandler> onChatMessageHandlers_;
@@ -157,8 +147,6 @@ private:
     void* chatAsiAddEntryDispatchTarget_ = nullptr;
     void* chatAddMessageTarget_ = nullptr;
     void* chatAddChatMessageTarget_ = nullptr;
-    void* dialogShowTarget_ = nullptr;
-    void* dialogCloseTarget_ = nullptr;
     void* inputSendTarget_ = nullptr;
     void* inputSendSayTarget_ = nullptr;
     void* hotkeyDispatcherTarget_ = nullptr;
@@ -169,8 +157,6 @@ private:
     ChatAsiAddEntryDispatchFn chatAsiAddEntryDispatchOriginal_ = nullptr;
     ChatAddMessageFn chatAddMessageOriginal_ = nullptr;
     ChatAddChatMessageFn chatAddChatMessageOriginal_ = nullptr;
-    CDialogShowFn dialogShowOriginal_ = nullptr;
-    CDialogCloseFn dialogCloseOriginal_ = nullptr;
     CInputSendFn inputSendOriginal_ = nullptr;
     CInputSendSayFn inputSendSayOriginal_ = nullptr;
     HotkeyDispatcherFn hotkeyDispatcherOriginal_ = nullptr;
