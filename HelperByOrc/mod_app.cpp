@@ -1522,6 +1522,12 @@ void DrawSummaryCell(const char* label, const std::string& value) {
     ImGui::TextWrapped("%s", value.empty() ? "-" : value.c_str());
 }
 
+void DrawDisabledWrappedText(const char* text) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", text ? text : "");
+    ImGui::PopStyleColor();
+}
+
 struct SettingsHotkeyHelpRow {
     const char* keys[3]{};
     int keyCount = 0;
@@ -1876,6 +1882,12 @@ void ModApp::OnProcessAttach(HMODULE module) {
     hud_.SetNotepadModule(&notepad_);
     hud_.SetSampApi(&sampApi_);
     overlayCursor_.SetSampApi(&sampApi_);
+    targetSelector_.SetSampApi(&sampApi_);
+    targetSelector_.SetTagsModule(&tags_);
+    targetSelector_.SetNotificationManager(&notifications_);
+    targetSelector_.SetHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
+        return binder_.DescribeMainWindowHotkeyConflict(keys, description);
+    });
     tags_.SetBinderModule(&binder_);
     tags_.SetNotificationManager(&notifications_);
 
@@ -1884,11 +1896,14 @@ void ModApp::OnProcessAttach(HMODULE module) {
     overlay_.SetUpdateCallback([this]() { Tick(); });
     overlay_.SetFrameSurfaceCallback([this]() { return CurrentOverlayFrameSurface(); });
     overlay_.SetWindowMessageCallback([this](UINT message, WPARAM wparam, LPARAM lparam) {
-        const bool quickMenuOpen = binder_.IsQuickMenuOpen();
-        const bool binderWantsRouting = binder_.WantsInputRouting();
         if (overlay_.ShouldSwallowMouseMessage(message, lparam)) {
             MarkHelperMouseButtonsForSuppression(message, wparam);
         }
+        if (targetSelector_.OnWindowMessage(message, wparam, lparam)) {
+            return true;
+        }
+        const bool quickMenuOpen = binder_.IsQuickMenuOpen();
+        const bool binderWantsRouting = binder_.WantsInputRouting();
         hud_.SetPlacementInputBlocked(quickMenuOpen);
         if (quickMenuOpen || binderWantsRouting) {
             return binder_.OnWindowMessage(message, wparam, lparam) || hud_.OnWindowMessage(message, wparam, lparam);
@@ -1896,19 +1911,38 @@ void ModApp::OnProcessAttach(HMODULE module) {
         return hud_.OnWindowMessage(message, wparam, lparam) || binder_.OnWindowMessage(message, wparam, lparam);
     });
     overlay_.SetAuxiliaryUiVisibleCallback([this]() {
-        return hud_.WantsOverlayRender() || binder_.WantsOverlayRender() || notifications_.WantsOverlayRender();
+        return targetSelector_.WantsOverlayRender()
+            || hud_.WantsOverlayRender()
+            || binder_.WantsOverlayRender()
+            || notifications_.WantsOverlayRender();
     });
     overlay_.SetAuxiliaryInputCaptureCallback([this]() {
         const bool quickMenuOpen = binder_.IsQuickMenuOpen();
         hud_.SetPlacementInputBlocked(quickMenuOpen);
-        return quickMenuOpen || binder_.WantsInputCapture() || hud_.WantsInputCapture();
+        return targetSelector_.WantsInputCapture()
+            || quickMenuOpen
+            || binder_.WantsInputCapture()
+            || hud_.WantsInputCapture();
     });
     overlay_.SetAuxiliaryInputRoutingCallback([this]() {
-        return binder_.WantsInputRouting() || hud_.WantsInputCapture();
+        return targetSelector_.WantsInputCapture()
+            || binder_.WantsInputRouting()
+            || hud_.WantsInputCapture();
     });
     overlay_.SetInputPipelineGateCallback([this]() { return sampUiPipelineReady_; });
+    overlay_.SetDeviceLostCallback([this]() { targetSelector_.OnDeviceLost(); });
+    overlay_.SetDeviceResetCallback([this]() { targetSelector_.OnDeviceReset(); });
     overlay_.SetInputCaptureChangedCallback([this](bool captured) { HandleOverlayInputCaptureChanged(captured); });
     overlay_.SetMenuToggleHotkeyConflictCallback([this](const std::vector<unsigned int>& keys, std::string& description) {
+        if (UiSettings::Instance().TargetSelectorEnabled()
+            && hotkeys::CombosConflict(
+                keys,
+                HotkeyMode::ModifierTrigger,
+                UiSettings::Instance().TargetSelectorHotkey(),
+                HotkeyMode::ModifierTrigger)) {
+            description = UiSettings::Instance().Text(UiText::SettingsTargetSelectorEnabled);
+            return true;
+        }
         return binder_.DescribeMainWindowHotkeyConflict(keys, description);
     });
     debuglog::WriteInfo("Overlay callbacks configured");
@@ -1928,6 +1962,7 @@ void ModApp::Shutdown() {
     SaveShellStateIfDirty();
     sampApi_.Refresh();
     overlayCursor_.Shutdown();
+    targetSelector_.Shutdown();
 
     if (!overlay_.Shutdown()) {
         debuglog::WriteError("ModApp shutdown aborted: D3D overlay teardown is not safe");
@@ -2066,6 +2101,14 @@ void ModApp::UpdateOverlayCursorMode() {
         true,
         kSampCursorModeLockCamAndControl,
         90);
+    addSurface(
+        OverlayCursorController::SurfaceId::TargetSelection,
+        targetSelector_.WantsInputCapture(),
+        true,
+        true,
+        true,
+        kSampCursorModeLockCamAndControl,
+        85);
     addSurface(
         OverlayCursorController::SurfaceId::HudPlacement,
         hudInputCapture,
@@ -2264,14 +2307,22 @@ bool ModApp::RefreshSampGate() {
 void ModApp::Tick() {
     AppConfig::Instance().ProcessPendingWrites();
     incomingMessageRouter_.Tick();
+    RefreshSampGate();
+    const bool helperUiBlocked = overlay_.IsMenuOpen()
+        || binder_.WantsOverlayRender()
+        || hud_.WantsInputCapture();
+    targetSelector_.Tick(
+        sampUiPipelineReady_,
+        overlay_.IsGameWindowForeground(),
+        helperUiBlocked);
     binder_.SetGameInputForeground(overlay_.IsGameWindowForeground());
     binder_.SetHelperUiActive(overlay_.IsMenuOpen());
+    binder_.SetTargetSelectionActive(targetSelector_.IsActive());
     binder_.Tick();
     UpdateHelperMouseSuppression();
     hud_.SetPlacementInputBlocked(binder_.IsQuickMenuOpen());
     tags_.Tick(sampUiPipelineReady_);
 
-    RefreshSampGate();
     arizonaCefDialogs_.Tick();
     notifications_.Tick();
 
@@ -2280,12 +2331,14 @@ void ModApp::Tick() {
 
 ImGuiOverlay::FrameSurface ModApp::CurrentOverlayFrameSurface() {
     const bool menuOpen = overlay_.IsMenuOpen();
+    const bool targetSelectorVisible = targetSelector_.WantsOverlayRender();
     const bool quickMenuOpen = binder_.IsQuickMenuOpen();
     const bool hudVisible = hud_.WantsOverlayRender();
     const bool notificationVisible = notifications_.WantsOverlayRender();
     const bool binderOverlayVisible = binder_.WantsOverlayRender();
     const bool otherAuxVisible = notificationVisible || (binderOverlayVisible && !quickMenuOpen);
     const int visibleSurfaces = (menuOpen ? 1 : 0)
+        + (targetSelectorVisible ? 1 : 0)
         + (quickMenuOpen ? 1 : 0)
         + (hudVisible ? 1 : 0)
         + (otherAuxVisible ? 1 : 0);
@@ -2448,6 +2501,7 @@ void ModApp::SaveShellStateIfDirty() {
 
 void ModApp::ReloadConfigAfterProfileChange() {
     overlay_.CancelMenuToggleHotkeyCapture();
+    targetSelector_.OnProfileChanged();
     UiSettings::Instance().Load();
     notifications_.LoadConfig();
     debuglog::SetLevel(ToDebugLogLevel(UiSettings::Instance().LogLevel()));
@@ -2889,7 +2943,7 @@ void ModApp::DrawSettingsHotkeysSection() {
 
         ImGui::TableSetColumnIndex(0);
         ImGui::TextWrapped("%s", ui.Text(UiText::SettingsMainWindowHotkey));
-        ImGui::TextDisabled("%s", ui.Text(UiText::SettingsMainWindowHotkeyHelp));
+        DrawDisabledWrappedText(ui.Text(UiText::SettingsMainWindowHotkeyHelp));
 
         ImGui::TableSetColumnIndex(1);
         ImGui::AlignTextToFramePadding();
@@ -2905,6 +2959,36 @@ void ModApp::DrawSettingsHotkeysSection() {
             ui.ResetMenuToggleHotkey();
             debuglog::WriteInfo("Settings changed: open_menu_hotkey reset");
         }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        bool targetSelectorEnabled = ui.TargetSelectorEnabled();
+        if (ImGui::Checkbox(ui.Text(UiText::SettingsTargetSelectorEnabled), &targetSelectorEnabled)) {
+            ui.SetTargetSelectorEnabled(targetSelectorEnabled);
+            debuglog::WriteInfo(
+                "Settings changed: target_selector_enabled=%d",
+                targetSelectorEnabled ? 1 : 0);
+        }
+        DrawDisabledWrappedText(ui.Text(UiText::SettingsTargetSelectorHotkeyHelp));
+
+        ImGui::BeginDisabled(!targetSelectorEnabled);
+        ImGui::TableSetColumnIndex(1);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s", ui.Format(UiText::HotkeyFormat, targetSelector_.HotkeyText().c_str()).c_str());
+
+        ImGui::TableSetColumnIndex(2);
+        ImGui::PushID("target_selector_hotkey");
+        if (ImGui::Button(ui.Text(UiText::ChangeHotkey))) {
+            targetSelector_.BeginHotkeyCapture();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ui.Text(UiText::SettingsResetHotkey))) {
+            targetSelector_.CancelHotkeyCapture();
+            ui.ResetTargetSelectorHotkey();
+            debuglog::WriteInfo("Settings changed: target_selector_hotkey reset");
+        }
+        ImGui::PopID();
+        ImGui::EndDisabled();
         ImGui::EndTable();
     }
 
@@ -3544,6 +3628,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
 
     ImGuiIO& io = ImGui::GetIO();
     const float uiScale = UiSettings::Instance().CurrentScale();
+    targetSelector_.DrawOverlay(device);
 
     const bool showMainWindow = overlay_.IsMenuOpen();
     perf.menuOpen = showMainWindow;
@@ -3682,6 +3767,7 @@ void ModApp::RenderUi(IDirect3DDevice9* device) {
         SaveShellStateIfDirty();
     }
     overlay_.DrawMenuToggleHotkeyCapturePopup();
+    targetSelector_.DrawHotkeyCapturePopup();
 
     stageBeginMs = UiPerfNowMs();
     binder_.DrawOverlay();

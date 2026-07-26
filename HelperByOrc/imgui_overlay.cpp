@@ -725,9 +725,11 @@ HRESULT __stdcall ImGuiOverlay::PresentDetour(
 HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* presentationParameters) {
     AcquireSRWLockShared(&detourRundownLock_);
     ImGuiOverlay* self = self_;
-    const bool canUseImGui = self
-        && !self->shuttingDown_.load(std::memory_order_acquire)
-        && self->imguiInitialized_;
+    const bool canUseSelf = self && !self->shuttingDown_.load(std::memory_order_acquire);
+    const bool canUseImGui = canUseSelf && self->imguiInitialized_;
+    if (canUseSelf && self->deviceLostCallback_) {
+        self->deviceLostCallback_();
+    }
     if (canUseImGui) {
         static uint64_t s_lastResetBeginTraceMs = 0;
         const uint64_t now = GetTickCount64();
@@ -745,8 +747,15 @@ HRESULT __stdcall ImGuiOverlay::ResetDetour(IDirect3DDevice9* device, D3DPRESENT
     }
 
     const HRESULT result = original(device, presentationParameters);
+    if (SUCCEEDED(result)) {
+        if (canUseImGui) {
+            ImGui_ImplDX9_CreateDeviceObjects();
+        }
+        if (canUseSelf && self->deviceResetCallback_) {
+            self->deviceResetCallback_();
+        }
+    }
     if (SUCCEEDED(result) && canUseImGui) {
-        ImGui_ImplDX9_CreateDeviceObjects();
         static uint64_t s_lastResetOkTraceMs = 0;
         const uint64_t now = GetTickCount64();
         if (now - s_lastResetOkTraceMs >= kResetTraceIntervalMs) {
@@ -800,6 +809,14 @@ void ImGuiOverlay::SetFrameSurfaceCallback(FrameSurfaceCallback callback) {
 
 void ImGuiOverlay::SetInputPipelineGateCallback(GateCallback callback) {
     inputPipelineGateCallback_ = std::move(callback);
+}
+
+void ImGuiOverlay::SetDeviceLostCallback(DeviceCallback callback) {
+    deviceLostCallback_ = std::move(callback);
+}
+
+void ImGuiOverlay::SetDeviceResetCallback(DeviceCallback callback) {
+    deviceResetCallback_ = std::move(callback);
 }
 
 void ImGuiOverlay::SetInputCaptureChangedCallback(InputCaptureChangedCallback callback) {

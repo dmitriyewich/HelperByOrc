@@ -134,6 +134,7 @@ public:
     std::optional<int> ConsumePendingBindDelayOverride(std::uint64_t runtimeId) const;
     bool ConsumeCurrentDispatchBlocked(std::uint64_t runtimeId) const;
     void Tick(bool sampReady);
+    void SetManualTargetId(int playerId, const void* currentAimPed);
     bool ExpandExternalTagsEnabled() const;
     void SetExpandExternalTagsEnabled(bool enabled);
     bool ProcessExternalText(std::string& text, ExternalTextPath path) const;

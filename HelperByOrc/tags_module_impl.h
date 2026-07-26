@@ -198,10 +198,12 @@ public:
     struct TargetTrackerState {
         int currentId = -1;
         int lastId = -1;
+        std::uintptr_t manualSelectionAimPed = 0;
         std::uintptr_t lastLoggedPed = 0;
         int lastLoggedResolvedId = -1;
         bool lastLoggedValid = false;
         bool sessionActive = false;
+        bool manualSelectionActive = false;
     };
 
     enum class PendingDialogWaitKind {
@@ -914,6 +916,7 @@ public:
     EvaluationContext ResolveActiveContext(std::string_view defaultSource = {}, std::string_view defaultText = {}) const;
     void DrawKeyEmulatePickerPopup();
     void UpdateTargetTracker();
+    void SetManualTargetId(int playerId, const void* currentAimPed);
     void ResetTargetTracker();
     void RefreshSampSessionState(bool sampReady);
     bool HandleOutgoingDamageRpc(std::uint8_t rpcId, RakNetBitStreamView& view);

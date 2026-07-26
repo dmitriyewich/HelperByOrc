@@ -47,6 +47,7 @@ public:
     /// Вызывать каждый кадр до `Tick`: `false`, если фокус не на окне GTA/его дочерних (иначе `GetAsyncKeyState` тянет клавиши из чужих окон).
     void SetGameInputForeground(bool gameWindowForeground);
     void SetHelperUiActive(bool helperUiActive);
+    void SetTargetSelectionActive(bool active);
     void FlushPendingSaves();
     void Shutdown();
     void ReloadConfig();

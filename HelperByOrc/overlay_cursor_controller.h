@@ -25,6 +25,7 @@ public:
     enum class SurfaceId {
         MainMenu,
         QuickMenu,
+        TargetSelection,
         HudPlacement,
         Modal,
         Notifications,

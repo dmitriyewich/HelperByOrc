@@ -66,6 +66,10 @@ void TagsModule::Tick(bool sampReady) {
     impl_->Tick(sampReady);
 }
 
+void TagsModule::SetManualTargetId(int playerId, const void* currentAimPed) {
+    impl_->SetManualTargetId(playerId, currentAimPed);
+}
+
 bool TagsModule::ExpandExternalTagsEnabled() const {
     return impl_->ExpandExternalTagsEnabled();
 }

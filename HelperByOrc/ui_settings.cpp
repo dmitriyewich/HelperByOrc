@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -25,6 +26,7 @@ constexpr float kMinAutoScale = 0.85f;
 constexpr float kMaxAutoScale = 1.35f;
 constexpr std::string_view kUiSectionName = "ui";
 constexpr unsigned int kDefaultMenuToggleHotkey[] = { VK_CONTROL, 'Z' };
+constexpr unsigned int kDefaultTargetSelectorHotkey[] = { 'Q' };
 
 struct UiTextEntry {
     const char* ru = "";
@@ -124,6 +126,10 @@ std::vector<unsigned int> DefaultMenuToggleHotkey() {
     return std::vector<unsigned int>(std::begin(kDefaultMenuToggleHotkey), std::end(kDefaultMenuToggleHotkey));
 }
 
+std::vector<unsigned int> DefaultTargetSelectorHotkey() {
+    return std::vector<unsigned int>(std::begin(kDefaultTargetSelectorHotkey), std::end(kDefaultTargetSelectorHotkey));
+}
+
 bool HasTriggerHotkeyKey(const std::vector<unsigned int>& keys) {
     return hotkeys::HasTriggerKey(keys);
 }
@@ -161,6 +167,36 @@ jsonutil::JsonArray SerializeMenuToggleHotkey(const std::vector<unsigned int>& k
     return array;
 }
 
+std::vector<unsigned int> DeserializeTargetSelectorHotkey(const jsonutil::JsonArray* array) {
+    if (!array) {
+        return DefaultTargetSelectorHotkey();
+    }
+
+    std::vector<unsigned int> hotkey;
+    hotkey.reserve(array->size());
+    for (const jsonutil::JsonValue& value : *array) {
+        if (const double* number = value.TryNumber()) {
+            hotkey.push_back(static_cast<unsigned int>(*number));
+        }
+    }
+
+    std::vector<unsigned int> normalized = hotkeys::NormalizeCombo(hotkey, HotkeyMode::ModifierTrigger);
+    return HasTriggerHotkeyKey(normalized) ? std::move(normalized) : DefaultTargetSelectorHotkey();
+}
+
+jsonutil::JsonArray SerializeTargetSelectorHotkey(const std::vector<unsigned int>& keys) {
+    std::vector<unsigned int> normalized = hotkeys::NormalizeCombo(keys, HotkeyMode::ModifierTrigger);
+    if (!HasTriggerHotkeyKey(normalized)) {
+        normalized = DefaultTargetSelectorHotkey();
+    }
+
+    jsonutil::JsonArray array;
+    for (const unsigned int key : normalized) {
+        array.emplace_back(static_cast<int>(key));
+    }
+    return array;
+}
+
 } // namespace
 
 UiSettings& UiSettings::Instance() {
@@ -179,6 +215,8 @@ void UiSettings::Load() {
     logLevel_ = ParseLogLevel(jsonutil::JsonStringOr(&section, "log_level", "info"));
     applyDamageProtectionEnabled_ = jsonutil::JsonBoolOr(&section, "apply_damage_protection", true);
     menuToggleHotkey_ = DeserializeMenuToggleHotkey(jsonutil::JsonArrayOrNull(&section, "open_menu_hotkey"));
+    targetSelectorEnabled_ = jsonutil::JsonBoolOr(&section, "target_selector_enabled", true);
+    targetSelectorHotkey_ = DeserializeTargetSelectorHotkey(jsonutil::JsonArrayOrNull(&section, "target_selector_hotkey"));
     settingsActiveSection_ = ParseSettingsSection(jsonutil::JsonStringOr(&section, "settings_active_section", "general"));
     currentScale_ = 1.0f;
 }
@@ -308,6 +346,40 @@ void UiSettings::ResetMenuToggleHotkey() {
     SetMenuToggleHotkey(DefaultMenuToggleHotkey());
 }
 
+bool UiSettings::TargetSelectorEnabled() const {
+    return targetSelectorEnabled_;
+}
+
+void UiSettings::SetTargetSelectorEnabled(bool enabled) {
+    if (targetSelectorEnabled_ == enabled) {
+        return;
+    }
+
+    targetSelectorEnabled_ = enabled;
+    QueueSave();
+}
+
+const std::vector<unsigned int>& UiSettings::TargetSelectorHotkey() const {
+    return targetSelectorHotkey_;
+}
+
+void UiSettings::SetTargetSelectorHotkey(const std::vector<unsigned int>& hotkey) {
+    std::vector<unsigned int> normalized = hotkeys::NormalizeCombo(hotkey, HotkeyMode::ModifierTrigger);
+    if (!HasTriggerHotkeyKey(normalized)) {
+        normalized = DefaultTargetSelectorHotkey();
+    }
+    if (targetSelectorHotkey_ == normalized) {
+        return;
+    }
+
+    targetSelectorHotkey_ = std::move(normalized);
+    QueueSave();
+}
+
+void UiSettings::ResetTargetSelectorHotkey() {
+    SetTargetSelectorHotkey(DefaultTargetSelectorHotkey());
+}
+
 UiSettingsSection UiSettings::SettingsActiveSection() const {
     return settingsActiveSection_;
 }
@@ -390,6 +462,8 @@ void UiSettings::QueueSave() const {
     section["log_level"] = LogLevelId(logLevel_);
     section["apply_damage_protection"] = applyDamageProtectionEnabled_;
     section["open_menu_hotkey"] = SerializeMenuToggleHotkey(menuToggleHotkey_);
+    section["target_selector_enabled"] = targetSelectorEnabled_;
+    section["target_selector_hotkey"] = SerializeTargetSelectorHotkey(targetSelectorHotkey_);
     section["settings_active_section"] = SettingsSectionId(settingsActiveSection_);
     AppConfig::Instance().QueueSectionReplace(
         std::string(kUiSectionName),

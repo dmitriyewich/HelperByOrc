@@ -48,6 +48,10 @@ void BinderModule::SetHelperUiActive(bool helperUiActive) {
     impl_->helperUiActive_ = helperUiActive;
 }
 
+void BinderModule::SetTargetSelectionActive(bool active) {
+    impl_->targetSelectionActive_ = active;
+}
+
 void BinderModule::FlushPendingSaves() {
     impl_->FlushPendingConfigSave(true);
 }

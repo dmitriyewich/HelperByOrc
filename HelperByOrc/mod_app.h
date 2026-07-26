@@ -18,6 +18,7 @@
 #include "notification_manager.h"
 #include "notepad_module.h"
 #include "overlay_cursor_controller.h"
+#include "player_target_selector.h"
 #include "samp_api.h"
 #include "samp_hooks.h"
 #include "samp_rak_hooks.h"
@@ -96,6 +97,7 @@ private:
     std::uint64_t nextSampStuckTraceAtMs_ = 0;
     ExternalCursorDetector externalCursorDetector_{};
     OverlayCursorController overlayCursor_{};
+    PlayerTargetSelector targetSelector_{};
     bool sampUiPipelineReady_ = false;
     std::uint64_t sampUiPipelineLastProbeMs_ = 0;
     HANDLE deferredOverlayThread_ = nullptr;

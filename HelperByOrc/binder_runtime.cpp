@@ -537,14 +537,23 @@ bool BinderModule::Impl::DescribeConflictWithMenuToggleHotkey(
     if (candidate.empty() || !::hotkeys::HasTriggerKey(menuHotkey)) {
         return false;
     }
-    if (!::hotkeys::CombosConflict(candidate, mode, menuHotkey, HotkeyMode::ModifierTrigger)) {
-        return false;
+    if (::hotkeys::CombosConflict(candidate, mode, menuHotkey, HotkeyMode::ModifierTrigger)) {
+        description = UiSettings::Instance().Format(
+            UiText::HotkeyConflictMainWindowFormat,
+            ::hotkeys::ToString(menuHotkey).c_str());
+        return true;
     }
 
-    description = UiSettings::Instance().Format(
-        UiText::HotkeyConflictMainWindowFormat,
-        ::hotkeys::ToString(menuHotkey).c_str());
-    return true;
+    const bool targetSelectorEnabled = UiSettings::Instance().TargetSelectorEnabled();
+    const auto targetSelectorHotkey = ::hotkeys::NormalizeCombo(
+        UiSettings::Instance().TargetSelectorHotkey(),
+        HotkeyMode::ModifierTrigger);
+    if (targetSelectorEnabled
+        && ::hotkeys::CombosConflict(candidate, mode, targetSelectorHotkey, HotkeyMode::ModifierTrigger)) {
+        description = UiSettings::Instance().Text(UiText::SettingsTargetSelectorEnabled);
+        return true;
+    }
+    return false;
 }
 
 bool BinderModule::Impl::DescribeQuickMenuConflictWithMenuToggleHotkey(
@@ -561,14 +570,23 @@ bool BinderModule::Impl::DescribeQuickMenuConflictWithMenuToggleHotkey(
     if (!::hotkeys::HasTriggerKey(menuHotkey)) {
         return false;
     }
-    if (!::hotkeys::ContainsCombo(menuHotkey, quickMenuCombo, HotkeyMode::ModifierTrigger)) {
-        return false;
+    if (::hotkeys::ContainsCombo(menuHotkey, quickMenuCombo, HotkeyMode::ModifierTrigger)) {
+        description = UiSettings::Instance().Format(
+            UiText::HotkeyConflictMainWindowFormat,
+            ::hotkeys::ToString(menuHotkey).c_str());
+        return true;
     }
 
-    description = UiSettings::Instance().Format(
-        UiText::HotkeyConflictMainWindowFormat,
-        ::hotkeys::ToString(menuHotkey).c_str());
-    return true;
+    const bool targetSelectorEnabled = UiSettings::Instance().TargetSelectorEnabled();
+    const auto targetSelectorHotkey = ::hotkeys::NormalizeCombo(
+        UiSettings::Instance().TargetSelectorHotkey(),
+        HotkeyMode::ModifierTrigger);
+    if (targetSelectorEnabled
+        && ::hotkeys::ContainsCombo(targetSelectorHotkey, quickMenuCombo, HotkeyMode::ModifierTrigger)) {
+        description = UiSettings::Instance().Text(UiText::SettingsTargetSelectorEnabled);
+        return true;
+    }
+    return false;
 }
 
 std::vector<UINT> BinderModule::Impl::CurrentQuickMenuHotkey() const {
@@ -639,7 +657,18 @@ void BinderModule::Impl::ProcessHotkeys() {
         return;
     }
 
-    if (quickMenuOpen || IsQuickMenuComboPressed() || inputDialog.has_value() || IsMainWindowHotkeyPressed()) {
+    const bool targetSelectorEnabled = UiSettings::Instance().TargetSelectorEnabled();
+    const bool targetSelectorHotkeyPressed = targetSelectorEnabled
+        && ::hotkeys::ComboMatch(
+            pressedKeys,
+            UiSettings::Instance().TargetSelectorHotkey(),
+            HotkeyMode::ModifierTrigger);
+    if (quickMenuOpen
+        || IsQuickMenuComboPressed()
+        || inputDialog.has_value()
+        || IsMainWindowHotkeyPressed()
+        || targetSelectionActive_
+        || targetSelectorHotkeyPressed) {
         return;
     }
 

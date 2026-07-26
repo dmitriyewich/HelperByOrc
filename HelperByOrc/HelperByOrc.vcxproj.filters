@@ -195,6 +195,12 @@
     <ClCompile Include="overlay_cursor_controller.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ped_outline_renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="player_target_selector.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="raknet_bitstream_view.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -432,6 +438,18 @@
       <Filter>Header Files\Notepad</Filter>
     </ClInclude>
     <ClInclude Include="overlay_cursor_controller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ped_outline_performance.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ped_outline_renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="player_target_selector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="player_target_selector_math.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="minhook_utils.h">

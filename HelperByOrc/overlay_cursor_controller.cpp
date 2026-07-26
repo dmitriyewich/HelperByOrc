@@ -350,6 +350,8 @@ const char* OverlayCursorController::SurfaceName(SurfaceId id) {
         return "main-menu";
     case SurfaceId::QuickMenu:
         return "quick-menu";
+    case SurfaceId::TargetSelection:
+        return "target-selection";
     case SurfaceId::HudPlacement:
         return "hud-placement";
     case SurfaceId::Modal:

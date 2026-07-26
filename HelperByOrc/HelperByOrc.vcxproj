@@ -175,6 +175,8 @@
     <ClCompile Include="notepad_txt_operations.cpp" />
     <ClCompile Include="notepad_txt_sync.cpp" />
     <ClCompile Include="overlay_cursor_controller.cpp" />
+    <ClCompile Include="ped_outline_renderer.cpp" />
+    <ClCompile Include="player_target_selector.cpp" />
     <ClCompile Include="raknet_bitstream_view.cpp" />
     <ClCompile Include="samp_api.cpp" />
     <ClCompile Include="samp_hooks.cpp" />
@@ -272,6 +274,10 @@
     <ClInclude Include="notepad_txt_operations.h" />
     <ClInclude Include="notepad_txt_sync.h" />
     <ClInclude Include="overlay_cursor_controller.h" />
+    <ClInclude Include="ped_outline_performance.h" />
+    <ClInclude Include="ped_outline_renderer.h" />
+    <ClInclude Include="player_target_selector.h" />
+    <ClInclude Include="player_target_selector_math.h" />
     <ClInclude Include="raknet_bitstream_view.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="samp_api.h" />

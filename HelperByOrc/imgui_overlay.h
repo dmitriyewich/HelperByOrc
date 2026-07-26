@@ -35,6 +35,7 @@ public:
     using VisibilityCallback = std::function<bool()>;
     using FrameSurfaceCallback = std::function<FrameSurface()>;
     using GateCallback = std::function<bool()>;
+    using DeviceCallback = std::function<void()>;
     using InputCaptureChangedCallback = std::function<void(bool)>;
     using HotkeyConflictCallback = std::function<bool(const std::vector<unsigned int>& keys, std::string& description)>;
 
@@ -47,6 +48,8 @@ public:
     void SetAuxiliaryInputRoutingCallback(VisibilityCallback callback);
     void SetFrameSurfaceCallback(FrameSurfaceCallback callback);
     void SetInputPipelineGateCallback(GateCallback callback);
+    void SetDeviceLostCallback(DeviceCallback callback);
+    void SetDeviceResetCallback(DeviceCallback callback);
     void SetInputCaptureChangedCallback(InputCaptureChangedCallback callback);
     void SetMenuToggleHotkeyConflictCallback(HotkeyConflictCallback callback);
     void SetMenuOpen(bool open);
@@ -146,6 +149,8 @@ private:
     VisibilityCallback auxiliaryInputRoutingCallback_;
     FrameSurfaceCallback frameSurfaceCallback_;
     GateCallback inputPipelineGateCallback_;
+    DeviceCallback deviceLostCallback_;
+    DeviceCallback deviceResetCallback_;
     InputCaptureChangedCallback inputCaptureChangedCallback_;
     HotkeyConflictCallback menuToggleHotkeyConflictCallback_;
     bool inputCaptureActive_ = false;

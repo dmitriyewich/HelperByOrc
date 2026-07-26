@@ -2002,6 +2002,7 @@ struct BinderModule::Impl {
     bool rakHooksBound = false;
     bool gameInputForeground_ = true;
     bool helperUiActive_ = false;
+    bool targetSelectionActive_ = false;
     bool prevFrameGameInputForeground_ = true;
     bool deprecatedHelperConditionMigrated_ = false;
     int deprecatedHelperBindDisabledCount_ = 0;

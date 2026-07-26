@@ -529,13 +529,13 @@
     X(TagsBuiltinThisbindFolderDescription, "Возвращает полный путь папки текущего запущенного бинда.\n\nРезультат:\n- уровень «Без папки» — пустая строка;\n- папка — Папка;\n- вложенная папка — Папка/Подпапка.\n\nМожно передать в [bindrandom(\"{thisbindfolder}\")]. Для ссылки на сам текущий бинд используйте {thisbind}.", "Returns the full folder path of the currently running bind.\n\nResult:\n- No folder — empty string;\n- folder — Folder;\n- nested folder — Folder/Subfolder.\n\nIt can be passed to [bindrandom(\"{thisbindfolder}\")]. Use {thisbind} to reference the current bind itself.") \
     X(TagsBuiltinThiscategoryDescription, "Возвращает категорию, из которой запущен текущий бинд. Это runtime-категория запуска, а не выбранная вкладка интерфейса.\n\nИспользуйте как 3-й аргумент после имени бинда и пути папки: [bindstart(\"Имя бинда\" \"Папка/Подпапка\" \"{thiscategory}\")]. Для уровня «Без папки»: [bindstart(\"Имя бинда\" \"\" \"{thiscategory}\")].\n\nВне запущенного бинда возвращает пустую строку.", "Returns the category from which the current bind was started. This is the runtime launch category, not the selected UI tab.\n\nUse it as the third argument after bind name and folder path: [bindstart(\"Bind name\" \"Folder/Subfolder\" \"{thiscategory}\")]. For No folder: [bindstart(\"Bind name\" \"\" \"{thiscategory}\")].\n\nReturns an empty string outside a running bind.") \
     X(TagsBuiltinBindStopAllDescription, "Останавливает все запущенные бинды после текущей строки и ничего не вставляет в текст.\n\nСинтаксис: {bindstopall}. Аргументы «Категория», «Папка/Подпапка» и «Имя бинда» здесь не используются: действие всегда относится ко всем активным биндам. Работает только внутри выполняющегося бинда; если активных биндов нет, это не ошибка.", "Stops all running binds after the current line and inserts no text.\n\nSyntax: {bindstopall}. Category, Folder/Subfolder, and Bind name arguments are not used: the action always targets all active binds. Works only inside a running bind; having no active binds is not an error.") \
-    X(TagsBuiltinTargetIdDescription, "Возвращает ID игрока, в которого вы целились последним.", "Returns the ID of the player you aimed at most recently.") \
-    X(TagsBuiltinTargetNickDescription, "Возвращает ник игрока, в которого вы целились последним.", "Returns the nickname of the player you aimed at most recently.") \
-    X(TagsBuiltinTargetRpNickDescription, "Возвращает RP-ник последней цели: Walcher_Flett станет Walcher Flett.", "Returns the RP nickname of the last target: Walcher_Flett becomes Walcher Flett.") \
-    X(TagsBuiltinTargetNameDescription, "Возвращает имя из ника последней цели до символа подчёркивания.", "Returns the first name from the last target nickname before the underscore.") \
-    X(TagsBuiltinTargetSurnameDescription, "Возвращает фамилию из ника последней цели после символа подчёркивания.", "Returns the surname from the last target nickname after the underscore.") \
-    X(TagsBuiltinTargetHealthDescription, "Возвращает здоровье игрока, в которого вы целились последним. Если цель недоступна или значение не удалось получить, возвращает пустую строку.", "Returns the health of the player you aimed at most recently. If the target is unavailable or the value cannot be read, it returns an empty string.") \
-    X(TagsBuiltinTargetArmourDescription, "Возвращает броню игрока, в которого вы целились последним. Если цель недоступна или значение не удалось получить, возвращает пустую строку.", "Returns the armour of the player you aimed at most recently. If the target is unavailable or the value cannot be read, it returns an empty string.") \
+    X(TagsBuiltinTargetIdDescription, "Возвращает ID игрока, которого вы выбрали вручную или в которого целились последним.", "Returns the ID of the player you selected manually or aimed at most recently.") \
+    X(TagsBuiltinTargetNickDescription, "Возвращает ник игрока, которого вы выбрали вручную или в которого целились последним.", "Returns the nickname of the player you selected manually or aimed at most recently.") \
+    X(TagsBuiltinTargetRpNickDescription, "Возвращает RP-ник последней выбранной вручную или прицелом цели: Walcher_Flett станет Walcher Flett.", "Returns the RP nickname of the last manually selected or aimed-at target: Walcher_Flett becomes Walcher Flett.") \
+    X(TagsBuiltinTargetNameDescription, "Возвращает имя из ника последней выбранной вручную или прицелом цели до символа подчёркивания.", "Returns the first name from the nickname of the last manually selected or aimed-at target before the underscore.") \
+    X(TagsBuiltinTargetSurnameDescription, "Возвращает фамилию из ника последней выбранной вручную или прицелом цели после символа подчёркивания.", "Returns the surname from the nickname of the last manually selected or aimed-at target after the underscore.") \
+    X(TagsBuiltinTargetHealthDescription, "Возвращает здоровье последней выбранной вручную или прицелом цели. Если цель недоступна или значение не удалось получить, возвращает пустую строку.", "Returns the health of the last manually selected or aimed-at target. If the target is unavailable or the value cannot be read, it returns an empty string.") \
+    X(TagsBuiltinTargetArmourDescription, "Возвращает броню последней выбранной вручную или прицелом цели. Если цель недоступна или значение не удалось получить, возвращает пустую строку.", "Returns the armour of the last manually selected or aimed-at target. If the target is unavailable or the value cannot be read, it returns an empty string.") \
     X(TagsBuiltinClosestIdDescription, "Возвращает ID ближайшего по 3D-дистанции другого застримленного игрока. Общий снимок closest обновляется не чаще одного раза в 250 мс.", "Returns the ID of the other streamed player with the shortest 3D distance. The shared closest snapshot is updated at most once every 250 ms.") \
     X(TagsBuiltinClosestIdToCenterDescription, "Возвращает ID игрока, чья спроецированная точка корпуса находится ближе всего к геометрическому центру текущего viewport. Учитываются только точки внутри viewport; радиуса и проверки препятствий нет.", "Returns the player ID whose projected torso point is closest to the geometric center of the current viewport. Only points inside the viewport are considered; there is no radius or obstacle check.") \
     X(TagsBuiltinClosestNameDescription, "Возвращает имя из ника ближайшего по 3D-дистанции другого застримленного игрока.", "Returns the first name from the nickname of the other streamed player with the shortest 3D distance.") \
@@ -551,7 +551,7 @@
     X(TagsBuiltinPingDescription, "Возвращает ping локального игрока как число без ms. Если SA:MP ещё не готов или значение недоступно, возвращает пустую строку.", "Returns the local player's ping as a number without ms. If SA:MP is not ready yet or the value is unavailable, it returns an empty string.") \
     X(TagsBuiltinScoreDescription, "Возвращает текущий SA:MP score локального игрока. Если SA:MP ещё не готов, возвращает пустую строку.", "Returns the local player's current SA:MP score. If SA:MP is not ready yet, it returns an empty string.") \
     X(TagsBuiltinOnlineDescription, "Возвращает число подключённых игроков, включая локального игрока и исключая NPC. Значение кэшируется на 250 мс.", "Returns the connected player count including the local player and excluding NPCs. The value is cached for 250 ms.") \
-    X(TagsBuiltinTargetDistanceDescription, "Возвращает текущую 3D-дистанцию до последней цели с одним знаком после точки. Если цель не застримлена или отключилась, возвращает пустую строку.", "Returns the current 3D distance to the last target with one decimal place. If the target is unstreamed or disconnected, it returns an empty string.") \
+    X(TagsBuiltinTargetDistanceDescription, "Возвращает текущую 3D-дистанцию до последней выбранной вручную или прицелом цели с одним знаком после точки. Если цель не застримлена или отключилась, возвращает пустую строку.", "Returns the current 3D distance to the last manually selected or aimed-at target with one decimal place. If the target is unstreamed or disconnected, it returns an empty string.") \
     X(TagsBuiltinClosestDistanceDescription, "Возвращает 3D-дистанцию до ближайшего застримленного игрока с одним знаком после точки из общего closest-снимка текущего tick.", "Returns the 3D distance to the nearest streamed player with one decimal place from the shared closest snapshot for the current tick.") \
     X(TagsBuiltinClosestDriverDistanceDescription, "Возвращает 3D-дистанцию до ближайшего застримленного игрока-водителя с одним знаком после точки из общего closest-снимка.", "Returns the 3D distance to the nearest streamed driver with one decimal place from the shared closest snapshot.") \
     X(TagsBuiltinHitMeIdDescription, "Возвращает ID игрока из последнего исходящего SA:MP damage RPC, где локальный игрок сообщил о полученном уроне. Состояние очищается при смене сессии.", "Returns the player ID from the latest outgoing SA:MP damage RPC where the local player reported taking damage. State is cleared when the session changes.") \
@@ -1080,6 +1080,14 @@
     X(SettingsScaleHint, "Автомасштаб берёт за основу 1920x1080 и подстраивает UI под текущее разрешение. Его можно отключить или скорректировать множителем.", "Auto scale uses 1920x1080 as the reference and adapts the UI to the current resolution. You can disable it or fine-tune it with the multiplier.") \
     X(SettingsMainWindowHotkey, "Хоткей открытия главного окна", "Main window hotkey") \
     X(SettingsMainWindowHotkeyHelp, "Комбинация открывает и закрывает главное окно HelperByOrc.", "This shortcut opens and closes the main HelperByOrc window.") \
+    X(SettingsTargetSelectorEnabled, "Ручной выбор цели для {targetid}", "Manual target selection for {targetid}") \
+    X(SettingsTargetSelectorHotkeyHelp, "Включает выбор видимого игрока курсором. Горячую клавишу можно изменить справа.", "Enables selecting a visible player with the cursor. You can change the hotkey on the right.") \
+    X(TargetSelectorInstruction, "Наведите курсор на игрока и нажмите ЛКМ. Esc или ПКМ — отмена.", "Hover a player and press LMB. Esc or RMB cancels.") \
+    X(TargetSelectorHoverFormat, "%s [%d] — нажмите ЛКМ для выбора", "%s [%d] — press LMB to select") \
+    X(TargetSelectorNoTarget, "Под курсором нет видимого игрока.", "There is no visible player under the cursor.") \
+    X(TargetSelectorSelectedFormat, "Выбран %s [%d].", "Selected %s [%d].") \
+    X(TargetSelectorUnavailable, "Ручной выбор targetid сейчас недоступен.", "Manual targetid selection is currently unavailable.") \
+    X(TargetSelectorOutlineFailed, "Обводка отключена из-за ошибки рендера. Подробности записаны в лог.", "The outline was disabled after a render error. Details were written to the log.") \
     X(SettingsResetHotkey, "Сбросить", "Reset") \
     X(SettingsProfilesSection, "Профили", "Profiles") \
     X(SettingsProfilesIntro, "Каждый профиль хранит отдельный HelperByOrc.json. Переключение сразу перезагружает настройки UI, биндер и переменные.", "Each profile stores a separate HelperByOrc.json. Switching reloads UI settings, binder data, and variables immediately.") \
@@ -1638,6 +1646,11 @@ public:
     const std::vector<unsigned int>& MenuToggleHotkey() const;
     void SetMenuToggleHotkey(const std::vector<unsigned int>& hotkey);
     void ResetMenuToggleHotkey();
+    bool TargetSelectorEnabled() const;
+    void SetTargetSelectorEnabled(bool enabled);
+    const std::vector<unsigned int>& TargetSelectorHotkey() const;
+    void SetTargetSelectorHotkey(const std::vector<unsigned int>& hotkey);
+    void ResetTargetSelectorHotkey();
 
     UiSettingsSection SettingsActiveSection() const;
     void SetSettingsActiveSection(UiSettingsSection section);
@@ -1667,6 +1680,8 @@ private:
     UiLogLevel logLevel_ = UiLogLevel::Info;
     bool applyDamageProtectionEnabled_ = true;
     std::vector<unsigned int> menuToggleHotkey_{};
+    bool targetSelectorEnabled_ = true;
+    std::vector<unsigned int> targetSelectorHotkey_{};
     UiSettingsSection settingsActiveSection_ = UiSettingsSection::General;
     float currentScale_ = 1.0f;
 };

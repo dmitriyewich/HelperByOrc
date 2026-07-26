@@ -733,6 +733,21 @@ void TagsModule::Impl::ResetTargetTracker() {
     myCarSnapshotPerfStats_ = MyCarSnapshotPerfStats{};
 }
 
+void TagsModule::Impl::SetManualTargetId(int playerId, const void* currentAimPed) {
+    if (playerId < 0 || playerId > 1003) {
+        return;
+    }
+
+    targetTracker_.currentId = playerId;
+    targetTracker_.lastId = playerId;
+    targetTracker_.manualSelectionAimPed = reinterpret_cast<std::uintptr_t>(currentAimPed);
+    targetTracker_.manualSelectionActive = true;
+    debuglog::WriteInfo(
+        "[tags][target] manual selection id=%d aimPed=0x%08X",
+        playerId,
+        static_cast<unsigned int>(targetTracker_.manualSelectionAimPed));
+}
+
 TagsModule::Impl::ClosestPlayerCache& TagsModule::Impl::QueryClosestPlayers(const EvaluationContext& context) const {
     ClosestPlayerCache& snapshot = closestPlayerCache_;
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
@@ -1147,6 +1162,17 @@ void TagsModule::Impl::UpdateTargetTracker() {
     };
 
     CPed* targetedPed = playerPed->m_pPlayerTargettedPed;
+    if (targetTracker_.manualSelectionActive) {
+        const std::uintptr_t targetedAddress = reinterpret_cast<std::uintptr_t>(targetedPed);
+        if (targetedAddress == targetTracker_.manualSelectionAimPed) {
+            targetTracker_.currentId = targetTracker_.lastId;
+            return;
+        }
+        targetTracker_.manualSelectionActive = false;
+        targetTracker_.manualSelectionAimPed = 0;
+        debuglog::WriteInfo("[tags][target] manual selection released after aim target changed");
+    }
+
     if (!targetedPed) {
         logTargetState(nullptr, -1, false, "none");
         return;
