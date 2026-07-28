@@ -265,6 +265,38 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinDialogWaitOpenTag(con
 
     SampApi* sampApi = context.sampApi ? context.sampApi : sampApi_;
     const bool dialogActive = sampApi && sampApi->sampModule() && sampApi->isSupportedVersion() && sampApi->isDialogActive();
+    if (const std::optional<ArzDialogTransitionBaseline> baseline =
+            FindArzDialogTransitionBaseline(context.runningBindRuntimeId);
+        baseline.has_value()) {
+        const int activeDialogId = dialogActive ? sampApi->SAMP_DIALOG_ID() : -1;
+        const std::uint64_t currentGeneration =
+            arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogGeneration() : 0;
+        const bool idAdvanced =
+            baseline->dialogId >= 0 && activeDialogId >= 0 && activeDialogId != baseline->dialogId;
+        const bool generationAdvanced =
+            baseline->dialogGeneration != 0 && currentGeneration != 0 && currentGeneration != baseline->dialogGeneration;
+        if (dialogActive && (idAdvanced || generationAdvanced)) {
+            debuglog::WriteInfo(
+                "[tags][arz-dialog] transition already ready runtime=%llu oldId=%d newId=%d oldGeneration=%llu newGeneration=%llu",
+                static_cast<unsigned long long>(context.runningBindRuntimeId),
+                baseline->dialogId,
+                activeDialogId,
+                static_cast<unsigned long long>(baseline->dialogGeneration),
+                static_cast<unsigned long long>(currentGeneration));
+            const_cast<Impl*>(this)->ClearArzDialogTransitionBaseline(context.runningBindRuntimeId);
+            return std::string();
+        }
+
+        binderModule_->PauseRuntime(context.runningBindRuntimeId);
+        const_cast<Impl*>(this)->QueuePendingDialogWait(
+            context.runningBindRuntimeId,
+            PendingDialogWaitKind::NextArizona,
+            GetTickCount64() + kDialogWaitOpenTimeoutMs,
+            baseline->dialogId,
+            baseline->dialogGeneration);
+        return std::string();
+    }
+
     if (dialogActive) {
         return std::string();
     }
@@ -1060,8 +1092,14 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogItemFunction
     }
 
     const int dialogId = arizonaCefDialogs_->LastDialogId();
+    const std::uint64_t dialogGeneration = arizonaCefDialogs_->LastDialogGeneration();
     if (dialogId < 0 || !arizonaCefDialogs_->SendRespond(dialogId, 1, targetIndex, std::string_view{})) {
         NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogItemFailed), 2800.0);
+    } else if (context.runningBindRuntimeId != 0) {
+        const_cast<Impl*>(this)->RememberArzDialogTransitionBaseline(
+            context.runningBindRuntimeId,
+            dialogId,
+            dialogGeneration);
     }
 
     return std::string();

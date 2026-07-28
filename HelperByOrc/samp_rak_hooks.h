@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -93,6 +94,11 @@ private:
 
     bool Install();
     void CleanupHooks();
+    bool InstallRakClientVtableHooks(
+        std::uintptr_t vtable,
+        const std::array<std::uint32_t, 4>& targets);
+    bool RestoreRakClientVtableHooks();
+    void ClearRakClientOriginals();
     bool TryGetRakClientInterface(std::uintptr_t& rakClientInterface) const;
     bool HandleIncomingRpc(void* self, unsigned char* data, int length, PlayerID playerId);
     Packet* PopQueuedIncomingPacket();
@@ -156,17 +162,16 @@ private:
     std::vector<SendChatHandler> onSendChatHandlers_;
     std::vector<SendDialogResponseHandler> onSendDialogResponseHandlers_;
 
-    std::uintptr_t rakClientInterface_ = 0;
-    DeallocatePacketFn deallocatePacketOriginal_ = nullptr;
+    std::array<std::uintptr_t, 4> rakClientVtableSlots_{};
+    // Once published, a detour can already be loaded by another thread even
+    // after its slot is restored. Keep its predecessor valid until process exit.
+    bool rakClientDetourExposed_ = false;
+    bool retainedRakClientOwnerLogged_ = false;
     mutable std::mutex syntheticPacketsMutex_;
     std::deque<std::vector<unsigned char>> queuedIncomingPackets_;
     std::unordered_set<Packet*> syntheticPackets_;
 
     void* incomingRpcTarget_ = nullptr;
-    void* sendPacketTarget_ = nullptr;
-    void* receivePacketTarget_ = nullptr;
-    void* deallocatePacketTarget_ = nullptr;
-    void* sendRpcTarget_ = nullptr;
     IncomingRpcHandlerFn incomingRpcOriginal_ = nullptr;
     SendPacketFn sendPacketOriginal_ = nullptr;
     ReceivePacketFn receivePacketOriginal_ = nullptr;

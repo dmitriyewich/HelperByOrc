@@ -26,6 +26,7 @@ constexpr int kDialogTextBufferBytes = 4096;
 constexpr std::size_t kMaxEncodedStringBytes =
     static_cast<std::size_t>(kDialogTextBufferBytes - 1);
 constexpr std::uint8_t kIdTimestamp = 40;
+constexpr std::array<std::size_t, 4> kRakClientVtableSlots{ 6, 8, 9, 25 };
 
 std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffset& offset, SampApi::Version version) {
     const std::uint32_t relative = offset.Get(version);
@@ -35,22 +36,146 @@ std::uintptr_t GetVersionedAddress(HMODULE module, const SampApi::VersionedOffse
     return reinterpret_cast<std::uintptr_t>(module) + relative;
 }
 
-bool IsExecutableAddress(std::uintptr_t address, HMODULE expectedModule) {
+bool IsExecutableProtection(DWORD protection) {
+    const DWORD baseProtection = protection & 0xFFu;
+    return baseProtection == PAGE_EXECUTE
+        || baseProtection == PAGE_EXECUTE_READ
+        || baseProtection == PAGE_EXECUTE_READWRITE
+        || baseProtection == PAGE_EXECUTE_WRITECOPY;
+}
+
+bool IsWritableProtection(DWORD protection) {
+    const DWORD baseProtection = protection & 0xFFu;
+    return baseProtection == PAGE_READWRITE
+        || baseProtection == PAGE_WRITECOPY
+        || baseProtection == PAGE_EXECUTE_READWRITE
+        || baseProtection == PAGE_EXECUTE_WRITECOPY;
+}
+
+bool QueryCommittedRegion(std::uintptr_t address, MEMORY_BASIC_INFORMATION& region) {
+    region = {};
+    return address != 0
+        && VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) == sizeof(region)
+        && region.State == MEM_COMMIT
+        && (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) == 0;
+}
+
+bool IsExecutableAddressInModule(std::uintptr_t address, HMODULE expectedModule) {
     MEMORY_BASIC_INFORMATION region{};
-    if (address == 0
-        || !expectedModule
-        || VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) != sizeof(region)
-        || region.State != MEM_COMMIT
-        || region.AllocationBase != expectedModule
-        || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+    return expectedModule
+        && QueryCommittedRegion(address, region)
+        && region.Type == MEM_IMAGE
+        && region.AllocationBase == expectedModule
+        && IsExecutableProtection(region.Protect);
+}
+
+bool IsExecutableVtableTarget(std::uintptr_t address) {
+    MEMORY_BASIC_INFORMATION region{};
+    // The exact RakClient object is allowed to expose another mod's compatible
+    // proxy or an Arizona-generated thunk. We chain through its vtable instead
+    // of patching that external code.
+    return QueryCommittedRegion(address, region)
+        && (region.Type == MEM_IMAGE || region.Type == MEM_PRIVATE)
+        && IsExecutableProtection(region.Protect);
+}
+
+std::string DescribeAddressOwner(std::uintptr_t address) {
+    MEMORY_BASIC_INFORMATION region{};
+    if (!QueryCommittedRegion(address, region)) {
+        return "unmapped";
+    }
+
+    if (region.Type == MEM_IMAGE && region.AllocationBase) {
+        char path[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameA(
+            static_cast<HMODULE>(region.AllocationBase),
+            path,
+            static_cast<DWORD>(std::size(path)));
+        if (length > 0 && length < std::size(path)) {
+            const char* name = std::strrchr(path, '\\');
+            return name ? name + 1 : path;
+        }
+        return "image";
+    }
+
+    char buffer[128]{};
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%s(base=0x%08X,size=0x%X,protect=0x%X)",
+        region.Type == MEM_PRIVATE ? "private" : "mapped",
+        static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(region.AllocationBase)),
+        static_cast<unsigned>(region.RegionSize),
+        static_cast<unsigned>(region.Protect));
+    return buffer;
+}
+
+bool CompareExchangeVtableSlot(
+    std::uintptr_t slotAddress,
+    std::uintptr_t expected,
+    std::uintptr_t replacement,
+    std::uintptr_t& observed) {
+    observed = 0;
+    if (slotAddress == 0 || (slotAddress % alignof(void*)) != 0) {
         return false;
     }
 
-    const DWORD protection = region.Protect & 0xFFu;
-    return protection == PAGE_EXECUTE
-        || protection == PAGE_EXECUTE_READ
-        || protection == PAGE_EXECUTE_READWRITE
-        || protection == PAGE_EXECUTE_WRITECOPY;
+    MEMORY_BASIC_INFORMATION region{};
+    if (!QueryCommittedRegion(slotAddress, region)) {
+        return false;
+    }
+
+    const std::uintptr_t regionEnd =
+        reinterpret_cast<std::uintptr_t>(region.BaseAddress) + region.RegionSize;
+    if (slotAddress > regionEnd || regionEnd - slotAddress < sizeof(void*)) {
+        return false;
+    }
+
+    DWORD oldProtection = 0;
+    const bool changeProtection = !IsWritableProtection(region.Protect);
+    const DWORD writableProtection =
+        IsExecutableProtection(region.Protect)
+        ? PAGE_EXECUTE_READWRITE
+        : PAGE_READWRITE;
+    if (changeProtection
+        && !VirtualProtect(
+            reinterpret_cast<void*>(slotAddress),
+            sizeof(void*),
+            writableProtection,
+            &oldProtection)) {
+        return false;
+    }
+
+    auto* const slot = reinterpret_cast<void* volatile*>(slotAddress);
+    void* const previous = InterlockedCompareExchangePointer(
+        slot,
+        reinterpret_cast<void*>(replacement),
+        reinterpret_cast<void*>(expected));
+    observed = reinterpret_cast<std::uintptr_t>(previous);
+
+    if (changeProtection) {
+        DWORD ignored = 0;
+        if (!VirtualProtect(
+                reinterpret_cast<void*>(slotAddress),
+                sizeof(void*),
+                oldProtection,
+                &ignored)) {
+            if (observed == expected) {
+                InterlockedCompareExchangePointer(
+                    slot,
+                    reinterpret_cast<void*>(expected),
+                    reinterpret_cast<void*>(replacement));
+            }
+            VirtualProtect(
+                reinterpret_cast<void*>(slotAddress),
+                sizeof(void*),
+                oldProtection,
+                &ignored);
+            return false;
+        }
+    }
+
+    return observed == expected;
 }
 
 bool PayloadMatchesOriginal(
@@ -214,16 +339,13 @@ void SampRakHooks::Refresh() {
         return;
     }
 
-    debuglog::WriteInfo("SampRakHooks::Refresh install requested for SAMP %s", sampApi_->currentVersionName());
     Install();
 }
 
 void SampRakHooks::Shutdown() {
     debuglog::WriteInfo("SampRakHooks::Shutdown begin");
-    CleanupHooks();
     installed_ = false;
-    rakClientInterface_ = 0;
-    deallocatePacketOriginal_ = nullptr;
+    CleanupHooks();
     {
         std::lock_guard lock(syntheticPacketsMutex_);
         queuedIncomingPackets_.clear();
@@ -371,6 +493,34 @@ bool SampRakHooks::Install() {
         return false;
     }
 
+    const bool hasTrackedVtableSlots = std::any_of(
+            rakClientVtableSlots_.begin(),
+            rakClientVtableSlots_.end(),
+            [](std::uintptr_t slot) { return slot != 0; });
+    if (hasTrackedVtableSlots) {
+        if (!RestoreRakClientVtableHooks()) {
+            const std::string blockedStatus =
+                "waiting for later RakClient hook owner to release HelperByOrc detour";
+            if (statusText_ != blockedStatus) {
+                debuglog::WriteError(
+                    "SampRakHooks install delayed: a later vtable hook owner still references a HelperByOrc detour");
+            }
+            statusText_ = blockedStatus;
+            return false;
+        }
+    }
+    if (rakClientDetourExposed_) {
+        const std::string blockedStatus =
+            "RakClient hook retry requires process restart after a partial detach";
+        if (statusText_ != blockedStatus) {
+            debuglog::WriteError(
+                "SampRakHooks install blocked: a previously published detour may still be in flight");
+        }
+        statusText_ = blockedStatus;
+        return false;
+    }
+    ClearRakClientOriginals();
+
     std::uintptr_t rakClientInterface = 0;
     if (!TryGetRakClientInterface(rakClientInterface)) {
         statusText_ = "RakClientInterface is not available yet";
@@ -412,24 +562,37 @@ bool SampRakHooks::Install() {
         return false;
     }
 
-    const std::array<std::pair<const char*, std::uintptr_t>, 5> targets{ {
-        { "IncomingRpcHandler", incomingRpcTarget },
+    if (!IsExecutableAddressInModule(incomingRpcTarget, sampApi_->sampModule())) {
+        statusText_ = "Incoming RPC hook target is outside exact samp.dll";
+        debuglog::WriteError(
+            "SampRakHooks install failed: IncomingRpcHandler target=0x%08X is outside executable samp.dll memory",
+            static_cast<unsigned>(incomingRpcTarget));
+        return false;
+    }
+
+    const std::array<std::pair<const char*, std::uint32_t>, 4> namedTargets{ {
         { "RakClientInterface::Send", sendPacketTarget },
         { "RakClientInterface::Receive", receivePacketTarget },
         { "RakClientInterface::DeallocatePacket", deallocatePacketTarget },
         { "RakClientInterface::RPC", sendRpcTarget },
     } };
-    for (const auto& [name, target] : targets) {
-        if (!IsExecutableAddress(target, sampApi_->sampModule())) {
-            statusText_ = std::string("RakNet hook target is not executable: ") + name;
+    for (const auto& [name, target] : namedTargets) {
+        if (!IsExecutableVtableTarget(target)) {
+            statusText_ = std::string("RakClient vtable target is not executable: ") + name;
             debuglog::WriteError(
-                "SampRakHooks install failed: %s target=0x%08X is outside executable samp.dll memory",
+                "SampRakHooks install failed: %s target=0x%08X is not committed executable image/private memory",
                 name,
                 static_cast<unsigned>(target));
             return false;
         }
     }
-    deallocatePacketOriginal_ = reinterpret_cast<DeallocatePacketFn>(deallocatePacketTarget);
+
+    const std::array<std::uint32_t, 4> rakClientTargets{
+        sendPacketTarget,
+        receivePacketTarget,
+        deallocatePacketTarget,
+        sendRpcTarget,
+    };
 
     const std::uintptr_t sampBase = reinterpret_cast<std::uintptr_t>(sampApi_->sampModule());
     debuglog::WriteInfo("SampRakHooks: sampBase=0x%08X", static_cast<unsigned>(sampBase));
@@ -440,10 +603,6 @@ bool SampRakHooks::Install() {
     debuglog::WriteInfo("SampRakHooks: sendRpcTarget=0x%08X", static_cast<unsigned>(sendRpcTarget));
 
     incomingRpcTarget_ = reinterpret_cast<void*>(incomingRpcTarget);
-    sendPacketTarget_ = reinterpret_cast<void*>(sendPacketTarget);
-    receivePacketTarget_ = reinterpret_cast<void*>(receivePacketTarget);
-    deallocatePacketTarget_ = reinterpret_cast<void*>(deallocatePacketTarget);
-    sendRpcTarget_ = reinterpret_cast<void*>(sendRpcTarget);
 
     const auto failInstall = [this](const char* statusText, const char* logMessage) {
         statusText_ = statusText;
@@ -456,49 +615,224 @@ bool SampRakHooks::Install() {
         return failInstall("MinHook install failed for IncomingRpcHandler", "SampRakHooks: MinHook install failed for IncomingRpcHandler");
     }
 
-    if (!minhook::CreateAndEnableHook(sendPacketTarget_, reinterpret_cast<void*>(&SendPacketDetour), &sendPacketOriginal_, "SampRakHooks::SendPacket")) {
-        return failInstall("MinHook install failed for RakClientInterface::Send(BitStream)", "SampRakHooks: MinHook install failed for SendPacket");
+    std::uintptr_t verifiedInterface = 0;
+    std::uint32_t verifiedVtable = 0;
+    std::array<std::uint32_t, 4> verifiedTargets{};
+    if (!TryGetRakClientInterface(verifiedInterface)
+        || verifiedInterface != rakClientInterface
+        || !SafeReadUInt32(verifiedInterface, verifiedVtable)
+        || verifiedVtable != vtable
+        || !SafeReadUInt32(vtable + kRakClientVtableSlots[0] * sizeof(std::uint32_t), verifiedTargets[0])
+        || !SafeReadUInt32(vtable + kRakClientVtableSlots[1] * sizeof(std::uint32_t), verifiedTargets[1])
+        || !SafeReadUInt32(vtable + kRakClientVtableSlots[2] * sizeof(std::uint32_t), verifiedTargets[2])
+        || !SafeReadUInt32(vtable + kRakClientVtableSlots[3] * sizeof(std::uint32_t), verifiedTargets[3])
+        || verifiedTargets != rakClientTargets) {
+        return failInstall(
+            "RakClientInterface changed before vtable hook install",
+            "SampRakHooks: RakClientInterface changed after snapshot validation and before vtable hook install");
     }
 
-    if (!minhook::CreateAndEnableHook(receivePacketTarget_, reinterpret_cast<void*>(&ReceivePacketDetour), &receivePacketOriginal_, "SampRakHooks::ReceivePacket")) {
-        return failInstall("MinHook install failed for RakClientInterface::Receive", "SampRakHooks: MinHook install failed for ReceivePacket");
+    if (!InstallRakClientVtableHooks(vtable, rakClientTargets)) {
+        return failInstall(
+            "RakClientInterface vtable hook install failed",
+            "SampRakHooks: RakClientInterface vtable hook install failed");
     }
 
-    if (!minhook::CreateAndEnableHook(deallocatePacketTarget_, reinterpret_cast<void*>(&DeallocatePacketDetour), &deallocatePacketDetourOriginal_, "SampRakHooks::DeallocatePacket")) {
-        return failInstall("MinHook install failed for RakClientInterface::DeallocatePacket", "SampRakHooks: MinHook install failed for DeallocatePacket");
+    verifiedInterface = 0;
+    verifiedVtable = 0;
+    if (!TryGetRakClientInterface(verifiedInterface)
+        || verifiedInterface != rakClientInterface
+        || !SafeReadUInt32(verifiedInterface, verifiedVtable)
+        || verifiedVtable != vtable) {
+        return failInstall(
+            "RakClientInterface changed during vtable hook install",
+            "SampRakHooks: RakClientInterface changed during vtable hook install");
     }
 
-    if (!minhook::CreateAndEnableHook(sendRpcTarget_, reinterpret_cast<void*>(&SendRpcDetour), &sendRpcOriginal_, "SampRakHooks::SendRpc")) {
-        return failInstall("MinHook install failed for RakClientInterface::RPC(BitStream)", "SampRakHooks: MinHook install failed for SendRpc");
-    }
-
-    rakClientInterface_ = rakClientInterface;
     installed_ = true;
     statusText_ = "RakNet hooks installed";
 
+    debuglog::WriteInfo(
+        "SampRakHooks: installed first validated RakClient snapshot interface=0x%08X vtable=0x%08X",
+        static_cast<unsigned>(rakClientInterface),
+        static_cast<unsigned>(vtable));
+    for (std::size_t i = 0; i < namedTargets.size(); ++i) {
+        debuglog::WriteInfo(
+            "SampRakHooks: installed predecessor %s slot=%llu target=0x%08X owner=%s",
+            namedTargets[i].first,
+            static_cast<unsigned long long>(kRakClientVtableSlots[i]),
+            static_cast<unsigned>(namedTargets[i].second),
+            DescribeAddressOwner(namedTargets[i].second).c_str());
+    }
     debuglog::WriteInfo("SampRakHooks: installed for SAMP version %s", sampApi_->currentVersionName());
     AppendLog("RakNet hooks installed for SAMP %s", sampApi_->currentVersionName());
     return true;
 }
 
-void SampRakHooks::CleanupHooks() {
-    debuglog::WriteInfo("SampRakHooks::CleanupHooks begin");
-    minhook::DisableAndRemoveHook(incomingRpcTarget_, "SampRakHooks::IncomingRpcHandler");
-    minhook::DisableAndRemoveHook(sendPacketTarget_, "SampRakHooks::SendPacket");
-    minhook::DisableAndRemoveHook(receivePacketTarget_, "SampRakHooks::ReceivePacket");
-    minhook::DisableAndRemoveHook(deallocatePacketTarget_, "SampRakHooks::DeallocatePacket");
-    minhook::DisableAndRemoveHook(sendRpcTarget_, "SampRakHooks::SendRpc");
+bool SampRakHooks::InstallRakClientVtableHooks(
+    std::uintptr_t vtable,
+    const std::array<std::uint32_t, 4>& targets) {
+    // Vtable chaining preserves pre-existing SAMPFUNCS/Arizona hooks and does
+    // not require decoding or modifying their image/private target code.
+    const std::array<std::uintptr_t, 4> replacements{
+        reinterpret_cast<std::uintptr_t>(&SendPacketDetour),
+        reinterpret_cast<std::uintptr_t>(&ReceivePacketDetour),
+        reinterpret_cast<std::uintptr_t>(&DeallocatePacketDetour),
+        reinterpret_cast<std::uintptr_t>(&SendRpcDetour),
+    };
+    const std::array<std::uintptr_t, 4> originals{
+        static_cast<std::uintptr_t>(targets[0]),
+        static_cast<std::uintptr_t>(targets[1]),
+        static_cast<std::uintptr_t>(targets[2]),
+        static_cast<std::uintptr_t>(targets[3]),
+    };
+    const std::array<std::uintptr_t, 4> slots{
+        vtable + kRakClientVtableSlots[0] * sizeof(std::uint32_t),
+        vtable + kRakClientVtableSlots[1] * sizeof(std::uint32_t),
+        vtable + kRakClientVtableSlots[2] * sizeof(std::uint32_t),
+        vtable + kRakClientVtableSlots[3] * sizeof(std::uint32_t),
+    };
 
-    incomingRpcOriginal_ = nullptr;
+    sendPacketOriginal_ = reinterpret_cast<SendPacketFn>(originals[0]);
+    receivePacketOriginal_ = reinterpret_cast<ReceivePacketFn>(originals[1]);
+    deallocatePacketDetourOriginal_ = reinterpret_cast<DeallocatePacketFn>(originals[2]);
+    sendRpcOriginal_ = reinterpret_cast<SendRpcFn>(originals[3]);
+
+    rakClientVtableSlots_ = {};
+    std::size_t installedCount = 0;
+    for (; installedCount < slots.size(); ++installedCount) {
+        rakClientVtableSlots_[installedCount] = slots[installedCount];
+        std::uintptr_t observed = 0;
+        if (!CompareExchangeVtableSlot(
+                slots[installedCount],
+                originals[installedCount],
+                replacements[installedCount],
+                observed)) {
+            debuglog::WriteError(
+                "SampRakHooks: vtable slot=%llu patch failed expected=0x%08X observed=0x%08X",
+                static_cast<unsigned long long>(kRakClientVtableSlots[installedCount]),
+                static_cast<unsigned>(originals[installedCount]),
+                static_cast<unsigned>(observed));
+            if (observed == originals[installedCount]) {
+                rakClientDetourExposed_ = true;
+            }
+            if (observed != originals[installedCount]) {
+                rakClientVtableSlots_[installedCount] = 0;
+            }
+            break;
+        }
+        rakClientDetourExposed_ = true;
+    }
+
+    if (installedCount != slots.size()) {
+        if (RestoreRakClientVtableHooks() && !rakClientDetourExposed_) {
+            ClearRakClientOriginals();
+        } else {
+            debuglog::WriteError(
+                "SampRakHooks: vtable rollback retained pass-through originals because a published detour may still be referenced");
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool SampRakHooks::RestoreRakClientVtableHooks() {
+    const std::array<std::uintptr_t, 4> replacements{
+        reinterpret_cast<std::uintptr_t>(&SendPacketDetour),
+        reinterpret_cast<std::uintptr_t>(&ReceivePacketDetour),
+        reinterpret_cast<std::uintptr_t>(&DeallocatePacketDetour),
+        reinterpret_cast<std::uintptr_t>(&SendRpcDetour),
+    };
+    const std::array<std::uintptr_t, 4> originals{
+        reinterpret_cast<std::uintptr_t>(sendPacketOriginal_),
+        reinterpret_cast<std::uintptr_t>(receivePacketOriginal_),
+        reinterpret_cast<std::uintptr_t>(deallocatePacketDetourOriginal_),
+        reinterpret_cast<std::uintptr_t>(sendRpcOriginal_),
+    };
+
+    bool allDetached = true;
+    for (std::size_t i = 0; i < rakClientVtableSlots_.size(); ++i) {
+        const std::uintptr_t slot = rakClientVtableSlots_[i];
+        if (slot == 0 || originals[i] == 0) {
+            continue;
+        }
+
+        std::uint32_t current = 0;
+        if (!SafeReadUInt32(slot, current)) {
+            if (!retainedRakClientOwnerLogged_) {
+                debuglog::WriteError(
+                    "SampRakHooks: vtable restore slot=%llu is unreadable",
+                    static_cast<unsigned long long>(kRakClientVtableSlots[i]));
+                retainedRakClientOwnerLogged_ = true;
+            }
+            allDetached = false;
+            continue;
+        }
+        if (current == originals[i]) {
+            rakClientVtableSlots_[i] = 0;
+            continue;
+        }
+        if (current != replacements[i]) {
+            if (!retainedRakClientOwnerLogged_) {
+                debuglog::WriteInfo(
+                    "SampRakHooks: vtable restore skipped slot=%llu owner changed current=0x%08X",
+                    static_cast<unsigned long long>(kRakClientVtableSlots[i]),
+                    static_cast<unsigned>(current));
+                retainedRakClientOwnerLogged_ = true;
+            }
+            allDetached = false;
+            continue;
+        }
+
+        std::uintptr_t observed = 0;
+        if (!CompareExchangeVtableSlot(
+                slot,
+                replacements[i],
+                originals[i],
+                observed)) {
+            if (!retainedRakClientOwnerLogged_) {
+                debuglog::WriteError(
+                    "SampRakHooks: vtable restore slot=%llu failed observed=0x%08X",
+                    static_cast<unsigned long long>(kRakClientVtableSlots[i]),
+                    static_cast<unsigned>(observed));
+            }
+            retainedRakClientOwnerLogged_ = true;
+            allDetached = false;
+            continue;
+        }
+        rakClientVtableSlots_[i] = 0;
+    }
+    if (allDetached) {
+        retainedRakClientOwnerLogged_ = false;
+    }
+    return allDetached;
+}
+
+void SampRakHooks::ClearRakClientOriginals() {
     sendPacketOriginal_ = nullptr;
     receivePacketOriginal_ = nullptr;
     deallocatePacketDetourOriginal_ = nullptr;
     sendRpcOriginal_ = nullptr;
+}
+
+void SampRakHooks::CleanupHooks() {
+    debuglog::WriteInfo("SampRakHooks::CleanupHooks begin");
+    const bool rakClientDetoursDetached = RestoreRakClientVtableHooks();
+    minhook::DisableAndRemoveHook(incomingRpcTarget_, "SampRakHooks::IncomingRpcHandler");
+    incomingRpcTarget_ = nullptr;
+
+    incomingRpcOriginal_ = nullptr;
+    if (rakClientDetoursDetached && !rakClientDetourExposed_) {
+        ClearRakClientOriginals();
+    } else {
+        debuglog::WriteInfo(
+            "SampRakHooks::CleanupHooks retained RakClient pass-through originals until process exit");
+    }
     {
         std::lock_guard lock(syntheticPacketsMutex_);
         queuedIncomingPackets_.clear();
     }
-    deallocatePacketTarget_ = nullptr;
     debuglog::WriteInfo("SampRakHooks::CleanupHooks done");
 }
 
@@ -572,11 +906,6 @@ void SampRakHooks::DeallocatePacketInternal(void* self, Packet* packet) {
 
     if (deallocatePacketDetourOriginal_) {
         deallocatePacketDetourOriginal_(self, packet);
-        return;
-    }
-
-    if (deallocatePacketOriginal_) {
-        deallocatePacketOriginal_(self, packet);
     }
 }
 

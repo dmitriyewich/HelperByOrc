@@ -63,6 +63,7 @@ void TagsModule::Impl::Shutdown() {
     skipEmptyCurrentDispatchRuntimes_.clear();
     waitIfRuntimeStates_.clear();
     pendingDialogWaits_.clear();
+    arzDialogTransitionBaselines_.clear();
     clipboardCache_ = {};
     vehicleNameCache_.clear();
     customVariables_.clear();

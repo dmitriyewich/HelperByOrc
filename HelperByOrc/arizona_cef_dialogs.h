@@ -42,6 +42,7 @@ public:
     bool HasPendingListItemsQuery() const;
 
     int LastDialogId() const;
+    std::uint64_t LastDialogGeneration() const;
     int LastDialogStyle() const;
     std::string LastDialogTitle() const;
     std::string LastDialogButton1() const;
@@ -83,6 +84,14 @@ private:
         std::uint64_t deadlineAtMs = 0;
     };
 
+    struct PendingClose {
+        bool active = false;
+        int button = 0;
+        std::uint8_t token = 0;
+        int dialogId = -1;
+        std::uint64_t dialogGeneration = 0;
+    };
+
     bool HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStreamView& view);
     bool HandleShowDialog(
         std::uint16_t& dialogId,
@@ -95,6 +104,7 @@ private:
 
     bool EvalCef(std::string_view code, bool logFailure) const;
     bool EvalAnon(std::string_view code, bool logFailure) const;
+    bool QueueCloseAction(int button, std::uint8_t token) const;
     std::uint32_t BeginQuery(std::string_view code, QueryKind kind, int timeoutMs);
     std::string Query(std::string_view code, QueryKind kind, int timeoutMs, std::string fallback);
     void CompleteQuery(std::uint32_t requestId, std::string value);
@@ -113,6 +123,7 @@ private:
 
     mutable std::mutex mutex_;
     DialogInfo lastDialogInfo_{};
+    std::uint64_t dialogGeneration_ = 0;
     RespondInfo lastRespond_{};
     std::string cachedInputText_{};
     std::string cachedListItem_{ "0" };
@@ -120,6 +131,8 @@ private:
     bool cachedInputFieldPresentKnown_ = false;
     bool cachedInputFieldPresent_ = false;
     std::uint64_t nextInputFieldProbeAtMs_ = 0;
+    std::uint8_t nextCloseToken_ = 0;
+    PendingClose pendingClose_{};
     std::uint32_t nextRequestId_ = 0;
     std::map<std::uint32_t, PendingQuery> pendingQueries_{};
 };

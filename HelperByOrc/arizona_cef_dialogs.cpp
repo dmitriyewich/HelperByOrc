@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwctype>
 #include <string>
 #include <utility>
 
@@ -22,8 +23,13 @@ constexpr std::uint8_t kArizonaCefPacketId = 220;
 constexpr std::uint8_t kCefEvalPacketType = 17;
 constexpr std::uint8_t kCefSendMessagePacketType = 18;
 constexpr std::string_view kQueryPrefix = "helperbyorc-arizona-cef-dialogs";
+constexpr std::string_view kCloseEventPrefix = "hbo|";
 constexpr int kDefaultQueryTimeoutMs = 500;
 constexpr int kMaxQueryTimeoutMs = 3000;
+constexpr std::size_t kEvalAnonWrapperBytes = 12;
+constexpr std::size_t kCefEvalPacketOverheadBytes = 8;
+constexpr std::size_t kMaxCloseReadyPacketBytes = 681;
+constexpr std::size_t kMaxCloseActionPacketBytes = 320;
 
 void AppendJsUnicodeEscape(std::string& out, wchar_t ch) {
     char buffer[7]{};
@@ -135,6 +141,79 @@ std::string MakeJsStringLiteral(std::string_view value) {
     return result;
 }
 
+std::uint32_t MakeDialogTextFingerprint(std::string_view value) {
+    if (value.empty()) {
+        return 0;
+    }
+
+    const int wideLength = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        value.data(),
+        static_cast<int>(value.size()),
+        nullptr,
+        0);
+    if (wideLength <= 0) {
+        return 0;
+    }
+
+    std::wstring wide(static_cast<std::size_t>(wideLength), L'\0');
+    if (MultiByteToWideChar(
+            CP_UTF8,
+            MB_ERR_INVALID_CHARS,
+            value.data(),
+            static_cast<int>(value.size()),
+            wide.data(),
+            wideLength)
+        <= 0) {
+        return 0;
+    }
+
+    auto isHex = [](wchar_t ch) {
+        return (ch >= L'0' && ch <= L'9')
+            || (ch >= L'a' && ch <= L'f')
+            || (ch >= L'A' && ch <= L'F');
+    };
+    auto colorTagLength = [&](std::size_t offset) -> std::size_t {
+        for (const std::size_t hexLength : { std::size_t{ 6 }, std::size_t{ 8 } }) {
+            const std::size_t close = offset + hexLength + 1;
+            if (close >= wide.size() || wide[offset] != L'{' || wide[close] != L'}') {
+                continue;
+            }
+            if (std::all_of(wide.begin() + offset + 1, wide.begin() + close, isHex)) {
+                return hexLength + 2;
+            }
+        }
+        return 0;
+    };
+
+    constexpr std::uint32_t kFnvOffset = 2166136261u;
+    constexpr std::uint32_t kFnvPrime = 16777619u;
+    std::uint32_t hash = kFnvOffset;
+    bool hasText = false;
+    bool pendingSpace = false;
+    for (std::size_t index = 0; index < wide.size();) {
+        const std::size_t tagLength = colorTagLength(index);
+        if (tagLength != 0) {
+            index += tagLength;
+            continue;
+        }
+
+        const wchar_t ch = wide[index++];
+        if (std::iswspace(ch)) {
+            pendingSpace = hasText;
+            continue;
+        }
+        if (pendingSpace) {
+            hash = (hash ^ static_cast<std::uint16_t>(L' ')) * kFnvPrime;
+            pendingSpace = false;
+        }
+        hash = (hash ^ static_cast<std::uint16_t>(ch)) * kFnvPrime;
+        hasText = true;
+    }
+    return hasText ? hash : 0;
+}
+
 std::string MakeInputQueryCode() {
     return R"JS(
 var d = document.querySelector('.dialog');
@@ -227,6 +306,7 @@ void ArizonaCefDialogs::Shutdown() {
         std::lock_guard lock(mutex_);
         shutdown_ = true;
         pendingQueries_.clear();
+        pendingClose_ = {};
         cachedInputFieldPresentKnown_ = false;
         cachedInputFieldPresent_ = false;
         nextInputFieldProbeAtMs_ = 0;
@@ -349,23 +429,74 @@ bool ArizonaCefDialogs::CloseWithButton(int button) {
         return false;
     }
 
-    const std::string js = std::string(R"JS(
-var d = document.querySelector('.dialog');
-if (!d) return;
-if ()JS")
+    int expectedDialogId = -1;
+    std::uint64_t expectedDialogGeneration = 0;
+    std::uint8_t closeToken = 0;
+    std::string expectedTitle;
+    {
+        std::lock_guard lock(mutex_);
+        expectedDialogId = lastDialogInfo_.id;
+        expectedDialogGeneration = dialogGeneration_;
+        expectedTitle = lastDialogInfo_.title;
+        nextCloseToken_ = static_cast<std::uint8_t>((nextCloseToken_ + 1) % 10);
+        closeToken = nextCloseToken_;
+        pendingClose_ = PendingClose{
+            true,
+            button,
+            closeToken,
+            expectedDialogId,
+            expectedDialogGeneration,
+        };
+    }
+    const std::uint32_t expectedTitleFingerprint = MakeDialogTextFingerprint(expectedTitle);
+
+    // Arizona can accept a synthetic packet without executing an oversized CEF
+    // eval. Keep the observer stage within the same proven budget as live DOM
+    // queries, then queue the actual button action as a separate short eval.
+    const std::string js = std::string(R"JS(var t=)JS")
+        + std::to_string(expectedTitleFingerprint)
+        + R"JS(,p=)JS"
         + std::to_string(button)
-        + R"JS() {
-    var primary = d.querySelector('.dialog__button--primary:not(.dialog__button--disabled)');
-    if (primary) { primary.click(); return; }
-} else {
-    var secondary = d.querySelector('.dialog__button--secondary:not(.dialog__button--disabled)');
-    if (secondary) { secondary.click(); return; }
-    var close = d.querySelector('.dialog__header-close');
-    if (close) { close.click(); return; }
-    if (window.cef && window.cef.doDialogResponse) window.cef.doDialogResponse();
-}
-)JS";
-    return EvalAnon(js, true);
+        + R"JS(,n=)JS"
+        + std::to_string(closeToken)
+        + R"JS(,m=e=>window.cef.SendMessage('hbo|'+e+p+n,0),h=e=>{for(var s=(e&&e.textContent||'').replace(/\s+/g,' ').trim(),v=2166136261,j=0;j<s.length;j++)v=Math.imul(v^s.charCodeAt(j),16777619);return s?v>>>0:0},f=()=>{for(var a=document.querySelectorAll('.dialog'),i=a.length;i--;){var d=a[i];if(d.clientHeight&&(!t||h(d.querySelector('.dialog__header-text'))==t))return 1}},x=window._hbo;x&&x();m('s');if(f())m('r');else{var o=new MutationObserver(()=>{if(f()){o.disconnect();clearTimeout(q);m('r')}}),q=setTimeout(()=>{o.disconnect();m('t')},1500);window._hbo=()=>{o.disconnect();clearTimeout(q)};o.observe(document,{subtree:1,childList:1})})JS";
+
+    const std::size_t scriptBytes = js.size() + kEvalAnonWrapperBytes;
+    const std::size_t packetBytes = scriptBytes + kCefEvalPacketOverheadBytes;
+    if (packetBytes > kMaxCloseReadyPacketBytes) {
+        {
+            std::lock_guard lock(mutex_);
+            if (pendingClose_.active && pendingClose_.token == closeToken) {
+                pendingClose_ = {};
+            }
+        }
+        debuglog::WriteError(
+            "ArizonaCefDialogs close readiness rejected id=%d generation=%llu scriptBytes=%llu packetBytes=%llu packetLimit=%llu",
+            expectedDialogId,
+            static_cast<unsigned long long>(expectedDialogGeneration),
+            static_cast<unsigned long long>(scriptBytes),
+            static_cast<unsigned long long>(packetBytes),
+            static_cast<unsigned long long>(kMaxCloseReadyPacketBytes));
+        return false;
+    }
+
+    const bool queued = EvalAnon(js, true);
+    if (!queued) {
+        std::lock_guard lock(mutex_);
+        if (pendingClose_.active && pendingClose_.token == closeToken) {
+            pendingClose_ = {};
+        }
+    } else {
+        debuglog::WriteInfo(
+            "ArizonaCefDialogs close readiness queued id=%d generation=%llu button=%d token=%u scriptBytes=%llu packetBytes=%llu observerTimeoutMs=1500",
+            expectedDialogId,
+            static_cast<unsigned long long>(expectedDialogGeneration),
+            button,
+            closeToken,
+            static_cast<unsigned long long>(scriptBytes),
+            static_cast<unsigned long long>(packetBytes));
+    }
+    return queued;
 }
 
 bool ArizonaCefDialogs::SetListItem(int index) {
@@ -460,6 +591,11 @@ int ArizonaCefDialogs::LastDialogId() const {
     return lastDialogInfo_.id;
 }
 
+std::uint64_t ArizonaCefDialogs::LastDialogGeneration() const {
+    std::lock_guard lock(mutex_);
+    return dialogGeneration_;
+}
+
 int ArizonaCefDialogs::LastDialogStyle() const {
     std::lock_guard lock(mutex_);
     return lastDialogInfo_.style;
@@ -533,6 +669,114 @@ bool ArizonaCefDialogs::HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStr
     }
 
     const std::string message = textencoding::GameToUtf8(view.ReadString(length));
+    if (StartsWith(message, kCloseEventPrefix)) {
+        const std::string_view eventCode(
+            message.data() + kCloseEventPrefix.size(),
+            message.size() - kCloseEventPrefix.size());
+        if (eventCode.size() != 3
+            || (eventCode[1] != '0' && eventCode[1] != '1')
+            || eventCode[2] < '0'
+            || eventCode[2] > '9') {
+            debuglog::WriteError("ArizonaCefDialogs close script sent invalid event");
+            return false;
+        }
+
+        const int requestedButton = eventCode[1] == '1' ? 1 : 0;
+        const std::uint8_t closeToken = static_cast<std::uint8_t>(eventCode[2] - '0');
+        int dialogId = -1;
+        std::uint64_t generation = 0;
+        bool currentClose = false;
+        {
+            std::lock_guard lock(mutex_);
+            dialogId = lastDialogInfo_.id;
+            generation = dialogGeneration_;
+            currentClose = pendingClose_.active
+                && pendingClose_.button == requestedButton
+                && pendingClose_.token == closeToken
+                && pendingClose_.dialogId == dialogId
+                && pendingClose_.dialogGeneration == generation;
+            if (eventCode[0] == 'r' && currentClose) {
+                pendingClose_ = {};
+            } else if (eventCode[0] == 't' && currentClose) {
+                pendingClose_ = {};
+            }
+        }
+        if (eventCode[0] == 'r') {
+            if (!currentClose) {
+                debuglog::WriteError(
+                    "ArizonaCefDialogs stale close readiness ignored id=%d generation=%llu button=%d token=%u",
+                    dialogId,
+                    static_cast<unsigned long long>(generation),
+                    requestedButton,
+                    closeToken);
+                return false;
+            }
+
+            const bool actionQueued = QueueCloseAction(requestedButton, closeToken);
+            if (actionQueued) {
+                debuglog::WriteInfo(
+                    "ArizonaCefDialogs close action queued id=%d generation=%llu action=%s token=%u",
+                    dialogId,
+                    static_cast<unsigned long long>(generation),
+                    requestedButton == 1 ? "primary-enter" : "secondary-callback",
+                    closeToken);
+            } else {
+                debuglog::WriteError(
+                    "ArizonaCefDialogs close action queue failed id=%d generation=%llu action=%s token=%u",
+                    dialogId,
+                    static_cast<unsigned long long>(generation),
+                    requestedButton == 1 ? "primary-enter" : "secondary-callback",
+                    closeToken);
+            }
+            return false;
+        }
+        if (eventCode[0] == 't' && !currentClose) {
+            debuglog::WriteInfo(
+                "ArizonaCefDialogs stale close timeout ignored id=%d generation=%llu button=%d token=%u",
+                dialogId,
+                static_cast<unsigned long long>(generation),
+                requestedButton,
+                closeToken);
+            return false;
+        }
+
+        const char* event = nullptr;
+        bool failed = false;
+        switch (eventCode[0]) {
+        case 's':
+            event = "started";
+            break;
+        case 'c':
+            event = "clicked";
+            break;
+        case 't':
+            event = "timeout";
+            failed = true;
+            break;
+        default:
+            debuglog::WriteError("ArizonaCefDialogs close script sent unknown event");
+            return false;
+        }
+
+        const char* action = requestedButton == 1 ? "primary" : "secondary";
+        if (failed) {
+            debuglog::WriteError(
+                "ArizonaCefDialogs close script failed id=%d generation=%llu event=%s action=%s",
+                dialogId,
+                static_cast<unsigned long long>(generation),
+                event,
+                action);
+        } else {
+            debuglog::WriteInfo(
+                "ArizonaCefDialogs close script event id=%d generation=%llu event=%s action=%s",
+                dialogId,
+                static_cast<unsigned long long>(generation),
+                event,
+                action);
+        }
+        return false;
+    }
+
     const std::string prefix = std::string(kQueryPrefix) + "|";
     if (!StartsWith(message, prefix)) {
         return true;
@@ -542,7 +786,12 @@ bool ArizonaCefDialogs::HandleOutgoingPacket(std::uint8_t packetId, RakNetBitStr
     std::string error;
     const std::optional<jsonutil::JsonValue> parsed = jsonutil::ParseJson(payload, error);
     if (!parsed.has_value()) {
-        debuglog::WriteError("ArizonaCefDialogs query response JSON parse failed: %s", error.c_str());
+        debuglog::WriteError(
+            "ArizonaCefDialogs query response JSON parse failed wireBytes=%u utf8Bytes=%llu jsonBytes=%llu: %s",
+            static_cast<unsigned>(length),
+            static_cast<unsigned long long>(message.size()),
+            static_cast<unsigned long long>(payload.size()),
+            error.c_str());
         return false;
     }
 
@@ -577,12 +826,16 @@ bool ArizonaCefDialogs::HandleShowDialog(
     std::string& text) {
     {
         std::lock_guard lock(mutex_);
+        if (++dialogGeneration_ == 0) {
+            dialogGeneration_ = 1;
+        }
         lastDialogInfo_.id = dialogId;
         lastDialogInfo_.style = style;
         lastDialogInfo_.title = title;
         lastDialogInfo_.button1 = button1;
         lastDialogInfo_.button2 = button2;
         lastDialogInfo_.text = text;
+        pendingClose_ = {};
         cachedInputText_.clear();
         cachedListItem_ = "0";
         cachedListItemsJson_.clear();
@@ -610,6 +863,7 @@ bool ArizonaCefDialogs::HandleSendDialogResponse(
         lastRespond_.button = button;
         lastRespond_.list = NormalizeListItem(listItem);
         lastRespond_.input = input;
+        pendingClose_ = {};
     }
 
     debuglog::WriteInfo(
@@ -661,6 +915,33 @@ bool ArizonaCefDialogs::EvalAnon(std::string_view code, bool logFailure) const {
     return EvalCef(wrapped, logFailure);
 }
 
+bool ArizonaCefDialogs::QueueCloseAction(int button, std::uint8_t token) const {
+    if ((button != 0 && button != 1) || token > 9) {
+        return false;
+    }
+
+    std::string js = button == 1
+        ? std::string(R"JS(var e=new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true});if(e.keyCode!=13)Object.defineProperty(e,'keyCode',{get:()=>13});window.dispatchEvent(e);)JS")
+        : std::string(R"JS(if(window.cef&&typeof window.cef.doDialogResponse=='function')window.cef.doDialogResponse();else{var d=document.querySelector('.dialog'),z=d&&d.querySelector('.dialog__button--secondary,.dialog__header-close');if(!z)return;z.click()})JS");
+    js += "window.cef&&window.cef.SendMessage('hbo|c";
+    js.push_back(button == 1 ? '1' : '0');
+    js.push_back(static_cast<char>('0' + token));
+    js += "',0)";
+
+    const std::size_t scriptBytes = js.size() + kEvalAnonWrapperBytes;
+    const std::size_t packetBytes = scriptBytes + kCefEvalPacketOverheadBytes;
+    if (packetBytes > kMaxCloseActionPacketBytes) {
+        debuglog::WriteError(
+            "ArizonaCefDialogs close action rejected button=%d scriptBytes=%llu packetBytes=%llu packetLimit=%llu",
+            button,
+            static_cast<unsigned long long>(scriptBytes),
+            static_cast<unsigned long long>(packetBytes),
+            static_cast<unsigned long long>(kMaxCloseActionPacketBytes));
+        return false;
+    }
+    return EvalAnon(js, true);
+}
+
 std::uint32_t ArizonaCefDialogs::BeginQuery(std::string_view code, QueryKind kind, int timeoutMs) {
     const int clampedTimeoutMs = ClampQueryTimeout(timeoutMs);
     std::uint32_t requestId = 0;
@@ -685,9 +966,12 @@ if (!window.cef || !window.cef.SendMessage) return;
 var data = { requestId: )JS"
         + std::to_string(requestId)
         + R"JS(, value: value };
+var json = JSON.stringify(data).replace(/[^\x00-\x7F]/g, function (character) {
+    return '\\u' + ('0000' + character.charCodeAt(0).toString(16)).slice(-4);
+});
 window.cef.SendMessage()JS"
         + MakeJsStringLiteral(std::string(kQueryPrefix) + "|")
-        + R"JS( + JSON.stringify(data), 0);
+        + R"JS( + json, 0);
 )JS";
 
     if (!EvalAnon(js, false)) {

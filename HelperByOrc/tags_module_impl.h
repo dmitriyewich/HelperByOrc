@@ -212,6 +212,7 @@ public:
 
     enum class PendingDialogWaitKind {
         Open,
+        NextArizona,
         Close,
         SpecificId,
     };
@@ -299,6 +300,13 @@ public:
         PendingDialogWaitKind kind = PendingDialogWaitKind::Open;
         std::uint64_t deadlineAtMs = 0;
         int expectedDialogId = -1;
+        std::uint64_t expectedDialogGeneration = 0;
+    };
+
+    struct ArzDialogTransitionBaseline {
+        std::uint64_t runtimeId = 0;
+        int dialogId = -1;
+        std::uint64_t dialogGeneration = 0;
     };
 
     enum class PendingArzDialogQueryKind {
@@ -638,8 +646,15 @@ public:
         std::uint64_t runtimeId,
         PendingDialogWaitKind kind,
         std::uint64_t deadlineAtMs,
-        int expectedDialogId = -1);
+        int expectedDialogId = -1,
+        std::uint64_t expectedDialogGeneration = 0);
     void ClearPendingDialogWait(std::uint64_t runtimeId);
+    void RememberArzDialogTransitionBaseline(
+        std::uint64_t runtimeId,
+        int dialogId,
+        std::uint64_t dialogGeneration);
+    std::optional<ArzDialogTransitionBaseline> FindArzDialogTransitionBaseline(std::uint64_t runtimeId) const;
+    void ClearArzDialogTransitionBaseline(std::uint64_t runtimeId);
     void NotifyTagError(std::string_view text, double durationMs = 2800.0) const;
     void NotifyDialogError(std::string_view text, double durationMs = 2800.0) const;
     void NotifyTagSuccess(std::string_view text, double durationMs = 2200.0) const;
@@ -1120,6 +1135,7 @@ private:
     std::string transliterationDictionaryPathUtf8_{};
     bool transliterationDictionaryOpenFailed_ = false;
     std::vector<PendingDialogWait> pendingDialogWaits_{};
+    std::vector<ArzDialogTransitionBaseline> arzDialogTransitionBaselines_{};
     TargetTrackerState targetTracker_{};
     std::string keyPickerSearchQuery_{};
     std::string dialogItemPickerSearchQuery_{};

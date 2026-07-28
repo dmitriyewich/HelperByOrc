@@ -2181,7 +2181,12 @@ bool ImGuiOverlay::HandleTextInputMessage(UINT message, WPARAM wparam, LPARAM lp
 
         return false;
     }
-    case WM_CHAR:
+    case WM_CHAR: {
+        // Alt+NumPad posts WM_CHAR after Alt is released; its scan code maps back to VK_MENU.
+        // Let the ImGui backend decode that message once using the window keyboard code page.
+        const UINT scanCode = static_cast<UINT>((lparam >> 16) & 0xFF);
+        return MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK) != VK_MENU;
+    }
     case WM_SYSCHAR:
     case WM_IME_CHAR:
     case WM_IME_COMPOSITION:

@@ -277,7 +277,8 @@ void TagsModule::Impl::QueuePendingDialogWait(
     std::uint64_t runtimeId,
     PendingDialogWaitKind kind,
     std::uint64_t deadlineAtMs,
-    int expectedDialogId) {
+    int expectedDialogId,
+    std::uint64_t expectedDialogGeneration) {
     if (runtimeId == 0) {
         return;
     }
@@ -290,10 +291,12 @@ void TagsModule::Impl::QueuePendingDialogWait(
         it->kind = kind;
         it->deadlineAtMs = deadlineAtMs;
         it->expectedDialogId = expectedDialogId;
+        it->expectedDialogGeneration = expectedDialogGeneration;
         return;
     }
 
-    pendingDialogWaits_.push_back(PendingDialogWait{ runtimeId, kind, deadlineAtMs, expectedDialogId });
+    pendingDialogWaits_.push_back(
+        PendingDialogWait{ runtimeId, kind, deadlineAtMs, expectedDialogId, expectedDialogGeneration });
 }
 
 void TagsModule::Impl::ClearPendingDialogWait(std::uint64_t runtimeId) {
@@ -306,6 +309,56 @@ void TagsModule::Impl::ClearPendingDialogWait(std::uint64_t runtimeId) {
             return wait.runtimeId == runtimeId;
         }),
         pendingDialogWaits_.end());
+}
+
+void TagsModule::Impl::RememberArzDialogTransitionBaseline(
+    std::uint64_t runtimeId,
+    int dialogId,
+    std::uint64_t dialogGeneration) {
+    if (runtimeId == 0 || dialogId < 0 || dialogGeneration == 0) {
+        return;
+    }
+
+    if (auto it = std::find_if(
+            arzDialogTransitionBaselines_.begin(),
+            arzDialogTransitionBaselines_.end(),
+            [&](const ArzDialogTransitionBaseline& baseline) { return baseline.runtimeId == runtimeId; });
+        it != arzDialogTransitionBaselines_.end()) {
+        it->dialogId = dialogId;
+        it->dialogGeneration = dialogGeneration;
+    } else {
+        arzDialogTransitionBaselines_.push_back(
+            ArzDialogTransitionBaseline{ runtimeId, dialogId, dialogGeneration });
+    }
+
+    debuglog::WriteInfo(
+        "[tags][arz-dialog] transition armed runtime=%llu id=%d generation=%llu",
+        static_cast<unsigned long long>(runtimeId),
+        dialogId,
+        static_cast<unsigned long long>(dialogGeneration));
+}
+
+std::optional<TagsModule::Impl::ArzDialogTransitionBaseline>
+TagsModule::Impl::FindArzDialogTransitionBaseline(std::uint64_t runtimeId) const {
+    if (runtimeId == 0) {
+        return std::nullopt;
+    }
+
+    const auto it = std::find_if(
+        arzDialogTransitionBaselines_.begin(),
+        arzDialogTransitionBaselines_.end(),
+        [&](const ArzDialogTransitionBaseline& baseline) { return baseline.runtimeId == runtimeId; });
+    return it == arzDialogTransitionBaselines_.end() ? std::nullopt : std::optional(*it);
+}
+
+void TagsModule::Impl::ClearArzDialogTransitionBaseline(std::uint64_t runtimeId) {
+    if (runtimeId == 0) {
+        return;
+    }
+
+    std::erase_if(arzDialogTransitionBaselines_, [&](const ArzDialogTransitionBaseline& baseline) {
+        return baseline.runtimeId == runtimeId;
+    });
 }
 
 void TagsModule::Impl::QueuePendingKeyHoldWait(std::uint64_t runtimeId, unsigned int keyCode, std::uint64_t releaseAtMs) const {
@@ -344,7 +397,8 @@ void TagsModule::Impl::ClearPendingKeyHoldWaitsByKeyCode(unsigned int keyCode) c
             || !binderModule_->IsRuntimeActive(runtimeId)
             || !binderModule_->IsRuntimePaused(runtimeId)
             || HasPendingKeyHoldWait(runtimeId)
-            || HasPendingDialogWait(runtimeId)) {
+            || HasPendingDialogWait(runtimeId)
+            || HasPendingArzDialogQueryWait(runtimeId)) {
             continue;
         }
 
@@ -506,14 +560,22 @@ void TagsModule::Impl::ProcessPendingKeyHoldWaits() {
         if (binderModule_->IsRuntimeActive(runtimeId)
             && binderModule_->IsRuntimePaused(runtimeId)
             && !HasPendingKeyHoldWait(runtimeId)
-            && !HasPendingDialogWait(runtimeId)) {
+            && !HasPendingDialogWait(runtimeId)
+            && !HasPendingArzDialogQueryWait(runtimeId)) {
             binderModule_->ResumeRuntime(runtimeId);
         }
     }
 }
 
 void TagsModule::Impl::ProcessPendingArzDialogQueryWaits() {
-    if (pendingArzDialogQueryWaits_.empty() || !binderModule_) {
+    if (!binderModule_) {
+        return;
+    }
+
+    std::erase_if(readyArzDialogQueries_, [this](const ReadyArzDialogQuery& ready) {
+        return ready.runtimeId == 0 || !binderModule_->IsRuntimeActive(ready.runtimeId);
+    });
+    if (pendingArzDialogQueryWaits_.empty()) {
         return;
     }
 
@@ -561,12 +623,21 @@ void TagsModule::Impl::ProcessPendingArzDialogQueryWaits() {
 }
 
 void TagsModule::Impl::ProcessPendingDialogWaits() {
-    if (pendingDialogWaits_.empty() || !binderModule_) {
+    if (!binderModule_) {
+        return;
+    }
+
+    std::erase_if(arzDialogTransitionBaselines_, [this](const ArzDialogTransitionBaseline& baseline) {
+        return baseline.runtimeId == 0 || !binderModule_->IsRuntimeActive(baseline.runtimeId);
+    });
+    if (pendingDialogWaits_.empty()) {
         return;
     }
 
     const bool dialogActive = sampApi_ && sampApi_->sampModule() && sampApi_->isSupportedVersion() && sampApi_->isDialogActive();
     const int activeDialogId = dialogActive ? sampApi_->SAMP_DIALOG_ID() : -1;
+    const std::uint64_t currentDialogGeneration =
+        arizonaCefDialogs_ ? arizonaCefDialogs_->LastDialogGeneration() : 0;
     const std::uint64_t now = GetTickCount64();
     for (auto it = pendingDialogWaits_.begin(); it != pendingDialogWaits_.end();) {
         const std::uint64_t runtimeId = it->runtimeId;
@@ -575,9 +646,55 @@ void TagsModule::Impl::ProcessPendingDialogWaits() {
             continue;
         }
 
+        if (it->kind == PendingDialogWaitKind::NextArizona) {
+            const bool idAdvanced =
+                it->expectedDialogId >= 0 && activeDialogId >= 0 && activeDialogId != it->expectedDialogId;
+            const bool generationAdvanced = it->expectedDialogGeneration != 0
+                && currentDialogGeneration != 0
+                && currentDialogGeneration != it->expectedDialogGeneration;
+            if (dialogActive && (idAdvanced || generationAdvanced)) {
+                debuglog::WriteInfo(
+                    "[tags][arz-dialog] transition ready runtime=%llu oldId=%d newId=%d oldGeneration=%llu newGeneration=%llu",
+                    static_cast<unsigned long long>(runtimeId),
+                    it->expectedDialogId,
+                    activeDialogId,
+                    static_cast<unsigned long long>(it->expectedDialogGeneration),
+                    static_cast<unsigned long long>(currentDialogGeneration));
+                ClearArzDialogTransitionBaseline(runtimeId);
+                if (binderModule_->IsRuntimePaused(runtimeId)
+                    && !HasPendingKeyHoldWait(runtimeId)
+                    && !HasPendingArzDialogQueryWait(runtimeId)) {
+                    binderModule_->ResumeRuntime(runtimeId);
+                }
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (it->deadlineAtMs != 0 && now >= it->deadlineAtMs) {
+                debuglog::WriteError(
+                    "[tags][arz-dialog] transition timed out runtime=%llu id=%d generation=%llu",
+                    static_cast<unsigned long long>(runtimeId),
+                    it->expectedDialogId,
+                    static_cast<unsigned long long>(it->expectedDialogGeneration));
+                ClearArzDialogTransitionBaseline(runtimeId);
+                NotifyDialogError(UiSettings::Instance().Text(UiText::ToastDialogWaitOpenTimedOut), 3000.0);
+                binderModule_->StopRuntime(runtimeId);
+                it = pendingDialogWaits_.erase(it);
+                continue;
+            }
+
+            if (!binderModule_->IsRuntimePaused(runtimeId)) {
+                binderModule_->PauseRuntime(runtimeId);
+            }
+            ++it;
+            continue;
+        }
+
         if (it->kind == PendingDialogWaitKind::Open) {
             if (dialogActive) {
-                if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
+                if (binderModule_->IsRuntimePaused(runtimeId)
+                    && !HasPendingKeyHoldWait(runtimeId)
+                    && !HasPendingArzDialogQueryWait(runtimeId)) {
                     binderModule_->ResumeRuntime(runtimeId);
                 }
                 it = pendingDialogWaits_.erase(it);
@@ -600,7 +717,9 @@ void TagsModule::Impl::ProcessPendingDialogWaits() {
 
         if (it->kind == PendingDialogWaitKind::SpecificId) {
             if (dialogActive && activeDialogId == it->expectedDialogId) {
-                if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
+                if (binderModule_->IsRuntimePaused(runtimeId)
+                    && !HasPendingKeyHoldWait(runtimeId)
+                    && !HasPendingArzDialogQueryWait(runtimeId)) {
                     binderModule_->ResumeRuntime(runtimeId);
                 }
                 it = pendingDialogWaits_.erase(it);
@@ -626,7 +745,9 @@ void TagsModule::Impl::ProcessPendingDialogWaits() {
         }
 
         if (!dialogActive) {
-            if (binderModule_->IsRuntimePaused(runtimeId) && !HasPendingKeyHoldWait(runtimeId)) {
+            if (binderModule_->IsRuntimePaused(runtimeId)
+                && !HasPendingKeyHoldWait(runtimeId)
+                && !HasPendingArzDialogQueryWait(runtimeId)) {
                 binderModule_->ResumeRuntime(runtimeId);
             }
             it = pendingDialogWaits_.erase(it);
