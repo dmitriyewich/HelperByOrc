@@ -986,6 +986,14 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogCloseWithBut
     if (!context.allowSideEffects) {
         return std::string();
     }
+
+    const bool runningBindActive = context.runningBindRuntimeId != 0
+        && binderModule_
+        && binderModule_->IsRuntimeActive(context.runningBindRuntimeId);
+    if (runningBindActive) {
+        const_cast<Impl*>(this)->ClearArzDialogTransitionBaseline(context.runningBindRuntimeId);
+    }
+
     if (!arizonaCefDialogs_ || !arizonaCefDialogs_->IsDialogActive()) {
         NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCefUnavailable), 2800.0);
         return std::string();
@@ -998,8 +1006,14 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinArzDialogCloseWithBut
         return std::string();
     }
 
-    if (!arizonaCefDialogs_->CloseWithButton(*button)) {
+    ArizonaCefDialogs::DialogIdentity dialogIdentity;
+    if (!arizonaCefDialogs_->CloseWithButton(*button, runningBindActive ? &dialogIdentity : nullptr)) {
         NotifyDialogError(UiSettings::Instance().Text(UiText::ToastArzDialogCloseFailed), 2800.0);
+    } else if (runningBindActive) {
+        const_cast<Impl*>(this)->RememberArzDialogTransitionBaseline(
+            context.runningBindRuntimeId,
+            dialogIdentity.id,
+            dialogIdentity.generation);
     }
     return std::string();
 }

@@ -424,7 +424,7 @@ if (typeof i.setSelectionRange === 'function') {
     return EvalAnon(js, true);
 }
 
-bool ArizonaCefDialogs::CloseWithButton(int button) {
+bool ArizonaCefDialogs::CloseWithButton(int button, DialogIdentity* identity) {
     if (button != 0 && button != 1) {
         return false;
     }
@@ -433,20 +433,31 @@ bool ArizonaCefDialogs::CloseWithButton(int button) {
     std::uint64_t expectedDialogGeneration = 0;
     std::uint8_t closeToken = 0;
     std::string expectedTitle;
+    bool identityUnavailable = false;
     {
         std::lock_guard lock(mutex_);
         expectedDialogId = lastDialogInfo_.id;
         expectedDialogGeneration = dialogGeneration_;
-        expectedTitle = lastDialogInfo_.title;
-        nextCloseToken_ = static_cast<std::uint8_t>((nextCloseToken_ + 1) % 10);
-        closeToken = nextCloseToken_;
-        pendingClose_ = PendingClose{
-            true,
-            button,
-            closeToken,
-            expectedDialogId,
-            expectedDialogGeneration,
-        };
+        identityUnavailable = identity && (expectedDialogId < 0 || expectedDialogGeneration == 0);
+        if (!identityUnavailable) {
+            if (identity) {
+                *identity = DialogIdentity{ expectedDialogId, expectedDialogGeneration };
+            }
+            expectedTitle = lastDialogInfo_.title;
+            nextCloseToken_ = static_cast<std::uint8_t>((nextCloseToken_ + 1) % 10);
+            closeToken = nextCloseToken_;
+            pendingClose_ = PendingClose{
+                true,
+                button,
+                closeToken,
+                expectedDialogId,
+                expectedDialogGeneration,
+            };
+        }
+    }
+    if (identityUnavailable) {
+        debuglog::WriteError("ArizonaCefDialogs::CloseWithButton failed: cached dialog identity is unavailable");
+        return false;
     }
     const std::uint32_t expectedTitleFingerprint = MakeDialogTextFingerprint(expectedTitle);
 

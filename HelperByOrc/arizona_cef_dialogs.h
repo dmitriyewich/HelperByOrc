@@ -17,6 +17,11 @@ struct JsonValue;
 
 class ArizonaCefDialogs {
 public:
+    struct DialogIdentity {
+        int id = -1;
+        std::uint64_t generation = 0;
+    };
+
     void SetSampApi(SampApi* sampApi);
     void SetSampRakHooks(SampRakHooks* sampRakHooks);
     void OnProcessAttach();
@@ -26,7 +31,7 @@ public:
     bool IsDialogActive() const;
     bool SetInputText(std::string_view text);
     bool SetInputCursor(int start, int finish);
-    bool CloseWithButton(int button);
+    bool CloseWithButton(int button, DialogIdentity* identity = nullptr);
     bool SetListItem(int index);
     bool SendRespond(int id, int button, int listItem, std::string_view inputText);
     std::optional<bool> CachedInputFieldPresent() const;
