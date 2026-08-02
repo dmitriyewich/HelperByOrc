@@ -84,6 +84,10 @@ std::string BinderModule::GetThiscategoryTagValue(std::uint64_t runtimeId) const
     return impl_->BuildThiscategoryTagValue(runtimeId);
 }
 
+std::string BinderModule::GetChatTriggerCapture(std::uint64_t runtimeId, std::string_view selector) const {
+    return impl_->BuildChatTriggerCaptureValue(runtimeId, selector);
+}
+
 binder_tags::Catalog BinderModule::GetBindSelectorCatalog() const {
     return impl_->BuildBindSelectorCatalog();
 }

@@ -3,22 +3,92 @@
 #include "binder_module_impl.h"
 #include "binder_tag_selector.h"
 #include "text_pattern_input.h"
+#include "text_pattern_ui_support.h"
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace binder_editor {
 namespace {
 
 constexpr char kPatternHelperPopupId[] = "binder_text_pattern_helper";
-constexpr char kPatternReferencePopupId[] = "binder_text_pattern_reference";
+
+enum class PatternWorkspaceMode {
+    Automatic = 0,
+    Manual,
+    Capture,
+    Reference,
+};
+
+ImVec2 FitModalMinimum(const ImVec2& preferredMinimum, const ImVec2& maximum) {
+    return {
+        std::min(preferredMinimum.x, maximum.x),
+        std::min(preferredMinimum.y, maximum.y),
+    };
+}
+
+PatternWorkspaceMode CurrentWorkspaceMode(const TextPatternHelperState& helper) {
+    return static_cast<PatternWorkspaceMode>(std::clamp(
+        helper.workspaceMode,
+        static_cast<int>(PatternWorkspaceMode::Automatic),
+        static_cast<int>(PatternWorkspaceMode::Reference)));
+}
+
+void DrawPatternModeBar(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
+    const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    float previousRight = 0.0f;
+    bool first = true;
+    const auto drawMode = [&](PatternWorkspaceMode mode, UiText label) {
+        const char* text = ui.Text(label);
+        const float width = ImGui::CalcTextSize(text).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        if (!first && previousRight + ImGui::GetStyle().ItemSpacing.x + width <= rowRight) {
+            ImGui::SameLine();
+        }
+        const bool selected = CurrentWorkspaceMode(helper) == mode;
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+        if (ImGui::Button(text)) {
+            helper.workspaceMode = static_cast<int>(mode);
+        }
+        if (selected) {
+            ImGui::PopStyleColor();
+        }
+        previousRight = ImGui::GetItemRectMax().x;
+        first = false;
+    };
+
+    drawMode(PatternWorkspaceMode::Automatic, UiText::PatternModeAutomatic);
+    drawMode(PatternWorkspaceMode::Manual, UiText::PatternModeManual);
+    drawMode(PatternWorkspaceMode::Capture, UiText::PatternModeCapture);
+    drawMode(PatternWorkspaceMode::Reference, UiText::PatternModeReference);
+}
 
 struct PreparedSample {
     std::string normalized;
     bool timestampRemoved = false;
 };
+
+struct CapturePreset {
+    UiText label = UiText::Count;
+    std::string_view pattern{};
+    bool custom = false;
+};
+
+constexpr std::array<CapturePreset, 6> kCapturePresets{{
+    {UiText::EditorPatternCaptureLatinWord, "[A-Za-z]+", false},
+    {UiText::EditorPatternCapturePlayerId, "[0-9]{1,4}", false},
+    {UiText::EditorPatternCaptureInteger, "-?[0-9]+", false},
+    {UiText::EditorPatternCaptureNonSpace, "\\S+", false},
+    {UiText::EditorPatternCaptureLineText, "[^\\r\\n]+", false},
+    {UiText::EditorPatternCaptureCustom, {}, true},
+}};
 
 PreparedSample PrepareSample(std::string_view sample) {
     const text_pattern_input::ChatlogSample chatlog = text_pattern_input::ExtractChatlogPayload(sample);
@@ -140,50 +210,79 @@ void InsertTriggerText(State& editor, std::string_view value) {
     helper.validationReady = false;
 }
 
+bool IsValidCaptureName(std::string_view name) {
+    if (name.empty() || name.size() > 64) {
+        return false;
+    }
+    const auto isAsciiLetter = [](char ch) {
+        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+    };
+    if (!isAsciiLetter(name.front())) {
+        return false;
+    }
+    return std::all_of(name.begin() + 1, name.end(), [&](char ch) {
+        return isAsciiLetter(ch) || (ch >= '0' && ch <= '9') || ch == '_';
+    });
+}
+
+std::string CapturePattern(const TextPatternHelperState& helper) {
+    const int presetIndex = std::clamp(
+        helper.capturePreset,
+        0,
+        static_cast<int>(kCapturePresets.size()) - 1);
+    const CapturePreset& preset = kCapturePresets[static_cast<std::size_t>(presetIndex)];
+    return preset.custom ? helper.captureCustomPattern : std::string(preset.pattern);
+}
+
+std::string SelectedTriggerText(const State& editor) {
+    const TextPatternHelperState& helper = editor.textPatternHelper;
+    const std::string& target = editor.draft.textTrigger.text;
+    int selectionStart = helper.selectionStartByte;
+    int selectionEnd = helper.selectionEndByte;
+    if (selectionStart < 0 || selectionEnd < 0 || selectionStart == selectionEnd) {
+        return {};
+    }
+    if (selectionStart > selectionEnd) {
+        std::swap(selectionStart, selectionEnd);
+    }
+    const int textLength = static_cast<int>(target.size());
+    selectionStart = std::clamp(selectionStart, 0, textLength);
+    selectionEnd = std::clamp(selectionEnd, 0, textLength);
+    if (selectionStart == selectionEnd) {
+        return {};
+    }
+    return target.substr(
+        static_cast<std::size_t>(selectionStart),
+        static_cast<std::size_t>(selectionEnd - selectionStart));
+}
+
+std::string BuildCaptureGroup(const State& editor) {
+    const TextPatternHelperState& helper = editor.textPatternHelper;
+    const std::string selected = SelectedTriggerText(editor);
+    const std::string content = selected.empty() ? CapturePattern(helper) : selected;
+    if (!IsValidCaptureName(helper.captureGroupName) || content.empty()) {
+        return {};
+    }
+    return "(?<" + helper.captureGroupName + '>' + content + ')';
+}
+
 const char* TokenLabel(text_pattern_builder::TokenKind kind) {
     UiSettings& ui = UiSettings::Instance();
-    switch (kind) {
-    case text_pattern_builder::TokenKind::PlayerId: return ui.Text(UiText::UnwantedTokenPlayerId);
-    case text_pattern_builder::TokenKind::BracketPrefix: return ui.Text(UiText::UnwantedTokenBracketPrefix);
-    case text_pattern_builder::TokenKind::Nickname: return ui.Text(UiText::UnwantedTokenNickname);
-    case text_pattern_builder::TokenKind::Integer: return ui.Text(UiText::UnwantedTokenInteger);
-    case text_pattern_builder::TokenKind::Decimal: return ui.Text(UiText::UnwantedTokenDecimal);
-    case text_pattern_builder::TokenKind::Percentage: return ui.Text(UiText::UnwantedTokenPercentage);
-    case text_pattern_builder::TokenKind::CompactAmount: return ui.Text(UiText::UnwantedTokenCompactAmount);
-    case text_pattern_builder::TokenKind::Money: return ui.Text(UiText::UnwantedTokenMoney);
-    case text_pattern_builder::TokenKind::Clock: return ui.Text(UiText::UnwantedTokenClock);
-    case text_pattern_builder::TokenKind::Duration: return ui.Text(UiText::UnwantedTokenDuration);
-    case text_pattern_builder::TokenKind::Domain: return ui.Text(UiText::UnwantedTokenDomain);
-    case text_pattern_builder::TokenKind::Color:
-    default:
-        return "?";
-    }
+    const UiText text = text_pattern_ui::TokenLabel(kind);
+    return text == UiText::Count ? "?" : ui.Text(text);
 }
 
 const char* TokenHelp(text_pattern_builder::TokenKind kind) {
     UiSettings& ui = UiSettings::Instance();
-    switch (kind) {
-    case text_pattern_builder::TokenKind::PlayerId: return ui.Text(UiText::UnwantedTokenPlayerIdHelp);
-    case text_pattern_builder::TokenKind::BracketPrefix: return ui.Text(UiText::UnwantedTokenBracketPrefixHelp);
-    case text_pattern_builder::TokenKind::Nickname: return ui.Text(UiText::UnwantedTokenNicknameHelp);
-    case text_pattern_builder::TokenKind::Integer: return ui.Text(UiText::UnwantedTokenIntegerHelp);
-    case text_pattern_builder::TokenKind::Decimal: return ui.Text(UiText::UnwantedTokenDecimalHelp);
-    case text_pattern_builder::TokenKind::Percentage: return ui.Text(UiText::UnwantedTokenPercentageHelp);
-    case text_pattern_builder::TokenKind::CompactAmount: return ui.Text(UiText::UnwantedTokenCompactAmountHelp);
-    case text_pattern_builder::TokenKind::Money: return ui.Text(UiText::UnwantedTokenMoneyHelp);
-    case text_pattern_builder::TokenKind::Clock: return ui.Text(UiText::UnwantedTokenClockHelp);
-    case text_pattern_builder::TokenKind::Duration: return ui.Text(UiText::UnwantedTokenDurationHelp);
-    case text_pattern_builder::TokenKind::Domain: return ui.Text(UiText::UnwantedTokenDomainHelp);
-    case text_pattern_builder::TokenKind::Color:
-    default:
-        return "";
-    }
+    const UiText text = text_pattern_ui::TokenHelp(kind);
+    return text == UiText::Count ? "" : ui.Text(text);
 }
 
 void Regenerate(State& editor) {
     TextPatternHelperState& helper = editor.textPatternHelper;
     helper.options.colors = false;
     const std::string normalized = PrepareSample(helper.sample).normalized;
+    text_pattern_constructor_ui::SetPreparedSample(helper.constructor, normalized);
     const text_pattern_builder::Result built = text_pattern_builder::Build(normalized, helper.options);
     helper.exact = built.exact;
     helper.recommended = built.recommended;
@@ -245,12 +344,18 @@ void RefreshValidation(State& editor) {
     helper.validationSample = helper.sample;
     helper.validationPatternEnabled = editor.draft.textTrigger.pattern;
     helper.validationLanguage = language;
-    helper.validationNormalizedSample = PrepareSample(helper.sample).normalized;
     helper.validationError.clear();
     helper.validationWarning.clear();
     helper.validationMatched = false;
+    helper.validationRegexMatched = false;
     helper.validationTested = helper.testRequested || !helper.sample.empty();
+    helper.validationTimestampRemoved = false;
+    helper.validationProgram.reset();
+    helper.validationCaptures = {};
 
+    const PreparedSample preparedSample = PrepareSample(helper.sample);
+    helper.validationNormalizedSample = preparedSample.normalized;
+    helper.validationTimestampRemoved = preparedSample.timestampRemoved;
     const std::string normalizedPattern = binder_internal::NormalizeTriggerText(editor.draft.textTrigger.text);
     if (normalizedPattern.empty()) {
         return;
@@ -283,14 +388,37 @@ void RefreshValidation(State& editor) {
         text_pattern_ui::AppendWarning(helper.validationWarning, ui.Text(UiText::EditorPatternMatchesEmpty));
     }
 
-    const text_pattern::MatchResult match = compiled.program->Match(helper.validationNormalizedSample);
+    helper.validationProgram = std::shared_ptr<text_pattern::Program>(std::move(compiled.program));
+    const text_pattern::MatchResult match =
+        helper.validationProgram->Match(helper.validationNormalizedSample, &helper.validationCaptures);
     if (match.status == text_pattern::MatchStatus::Match) {
         helper.validationMatched = true;
+        helper.validationRegexMatched = true;
     } else if (match.status == text_pattern::MatchStatus::NoMatch) {
         helper.validationMatched = helper.validationNormalizedSample == normalizedPattern;
     } else {
         helper.validationError = ui.Text(UiText::EditorPatternTestStopped);
     }
+}
+
+bool CurrentPatternHasCaptureName(const State& editor, std::string_view captureName) {
+    const TextPatternHelperState& helper = editor.textPatternHelper;
+    if (captureName.empty()
+        || !editor.draft.textTrigger.pattern
+        || !helper.validationReady
+        || !helper.validationPatternEnabled
+        || helper.validationPattern != editor.draft.textTrigger.text
+        || !helper.validationProgram) {
+        return false;
+    }
+    for (std::size_t groupIndex = 1;
+         groupIndex <= helper.validationProgram->CaptureCount();
+         ++groupIndex) {
+        if (helper.validationProgram->CaptureName(groupIndex) == captureName) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void DrawOptions(State& editor) {
@@ -330,11 +458,11 @@ void DrawOptions(State& editor) {
 void DrawVariants(State& editor) {
     TextPatternHelperState& helper = editor.textPatternHelper;
     UiSettings& ui = UiSettings::Instance();
-    if (helper.recommended.empty() && helper.exact.empty() && helper.contains.empty()) {
+    if (helper.exact.empty() && helper.contains.empty()) {
         return;
     }
 
-    ImGui::Text("%s", ui.Text(UiText::UnwantedRegexVariants));
+    ImGui::SeparatorText(ui.Text(UiText::TextPatternOtherVariants));
     const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
         | ImGuiTableFlags_RowBg
         | ImGuiTableFlags_BordersInnerH
@@ -366,42 +494,373 @@ void DrawVariants(State& editor) {
         ImGui::EndDisabled();
         ImGui::PopID();
     };
-    drawVariant(UiText::UnwantedHelperGeneralized, helper.recommended, helper.recommendedValid);
     drawVariant(UiText::UnwantedHelperExact, helper.exact, helper.exactValid);
     drawVariant(UiText::UnwantedHelperContains, helper.contains, helper.containsValid);
     ImGui::EndTable();
 }
 
-void DrawReferencePopup(State& editor) {
+void DrawQuickPatternSection(State& editor) {
     TextPatternHelperState& helper = editor.textPatternHelper;
     UiSettings& ui = UiSettings::Instance();
-    const std::string title = std::string(ui.Text(UiText::UnwantedRegexReference)) + "###" + kPatternReferencePopupId;
-    if (helper.referencePending) {
-        ImGui::OpenPopup(title.c_str());
-        helper.referencePending = false;
+
+    if (!helper.recommended.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperGeneralized));
+        ImGui::TextWrapped("%s", helper.recommended.c_str());
+        ImGui::BeginDisabled(!helper.recommendedValid);
+        if (ImGui::Button(
+                ui.Text(UiText::UnwantedUseInDraft),
+                binder_internal::ScaleUi(150.0f, 0.0f))) {
+            SetTriggerText(editor, helper.recommended);
+        }
+        ImGui::EndDisabled();
     }
-    if (!helper.referenceOpen) {
+    if (!helper.builderWarning.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s", helper.builderWarning.c_str());
+    }
+
+    if (ImGui::CollapsingHeader(ui.Text(UiText::TextPatternAdvanced))) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedGeneralizations));
+        DrawOptions(editor);
+        if (!helper.tokens.empty()) {
+            ImGui::SeparatorText(ui.Text(UiText::UnwantedDetectedTokens));
+            for (const text_pattern_builder::Token& token : helper.tokens) {
+                ImGui::PushID(static_cast<int>(token.offset));
+                ImGui::TextDisabled("%s", TokenLabel(token.kind));
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    ImGui::SetTooltip("%s", TokenHelp(token.kind));
+                }
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s  ->  %s", token.source.c_str(), token.pattern.c_str());
+                ImGui::PopID();
+            }
+        }
+        DrawVariants(editor);
+    }
+
+}
+
+void DrawManualPatternSection(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    const text_pattern_constructor_ui::DrawResult manual =
+        text_pattern_constructor_ui::DrawInline(helper.constructor, "binder_manual");
+    if (manual.applied) {
+        SetTriggerText(editor, manual.pattern);
+    }
+}
+
+void DrawAdvancedCaptureBuilder(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
+    const bool nameValid = IsValidCaptureName(helper.captureGroupName);
+
+    const int presetIndex = std::clamp(
+        helper.capturePreset,
+        0,
+        static_cast<int>(kCapturePresets.size()) - 1);
+    ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureType));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo(
+            "##binder_capture_type",
+            ui.Text(kCapturePresets[static_cast<std::size_t>(presetIndex)].label))) {
+        for (std::size_t index = 0; index < kCapturePresets.size(); ++index) {
+            const bool selected = helper.capturePreset == static_cast<int>(index);
+            if (ImGui::Selectable(ui.Text(kCapturePresets[index].label), selected)) {
+                helper.capturePreset = static_cast<int>(index);
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    const CapturePreset& activePreset =
+        kCapturePresets[static_cast<std::size_t>(std::clamp(
+            helper.capturePreset,
+            0,
+            static_cast<int>(kCapturePresets.size()) - 1))];
+    if (activePreset.custom) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        binder_internal::InputTextWithHintString(
+            "##binder_capture_custom_pattern",
+            ui.Text(UiText::EditorPatternCaptureCustomPattern),
+            helper.captureCustomPattern,
+            ImGuiInputTextFlags_AutoSelectAll,
+            256);
+    }
+
+    const std::string group = BuildCaptureGroup(editor);
+    const std::string variable = nameValid
+        ? "[chatwordsex(" + helper.captureGroupName + ")]"
+        : std::string{};
+    const ImGuiTableFlags previewFlags = ImGuiTableFlags_SizingStretchProp
+        | ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_BordersInnerH
+        | ImGuiTableFlags_NoSavedSettings;
+    if (ImGui::BeginTable("##binder_capture_preview", 2, previewFlags)) {
+        ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, binder_internal::ScaleUi(150.0f));
+        ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureGroupPreview));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextWrapped("%s", group.c_str());
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureVariablePreview));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextWrapped("%s", variable.c_str());
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureSelectionHint));
+
+    const bool canInsert = !group.empty();
+    ImGui::BeginDisabled(!canInsert);
+    if (ImGui::Button(
+            ui.Text(UiText::EditorPatternCaptureInsert),
+            binder_internal::ScaleUi(160.0f, 0.0f))) {
+        InsertTriggerText(editor, group);
+        RefreshValidation(editor);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const bool captureApplied = nameValid
+        && CurrentPatternHasCaptureName(editor, helper.captureGroupName);
+    ImGui::PushID("capture_copy_advanced");
+    ImGui::BeginDisabled(!captureApplied);
+    if (ImGui::Button(ui.Text(UiText::EditorPatternCaptureCopy))) {
+        ImGui::SetClipboardText(variable.c_str());
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+    if (canInsert && !captureApplied) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureApplyFirst));
+    }
+}
+
+void DrawCaptureBuilder(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
+
+    ImGui::TextWrapped("%s", ui.Text(UiText::EditorPatternCaptureHint));
+    ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureName));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    binder_internal::InputTextWithHintString(
+        "##binder_capture_name",
+        ui.Text(UiText::EditorPatternCaptureNameHint),
+        helper.captureGroupName,
+        ImGuiInputTextFlags_AutoSelectAll,
+        64);
+    const bool nameValid = IsValidCaptureName(helper.captureGroupName);
+    if (!nameValid) {
+        ImGui::TextColored(
+            ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
+            "%s",
+            ui.Text(UiText::EditorPatternCaptureNameInvalid));
+    }
+
+    if (helper.constructor.preparedSample.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperInputHint));
+    } else {
+        const text_pattern_constructor_ui::DrawResult capture =
+            text_pattern_constructor_ui::DrawInline(
+                helper.constructor,
+                "binder_capture",
+                text_pattern_constructor_ui::DrawMode::Capture,
+                nameValid ? std::string_view(helper.captureGroupName) : std::string_view{});
+        if (capture.applied) {
+            SetTriggerText(editor, capture.pattern);
+            RefreshValidation(editor);
+        }
+    }
+
+    const std::string variable = nameValid
+        ? "[chatwordsex(" + helper.captureGroupName + ")]"
+        : std::string{};
+    const bool captureApplied = nameValid
+        && CurrentPatternHasCaptureName(editor, helper.captureGroupName);
+    if (captureApplied) {
+        ImGui::TextDisabled(
+            "%s: %s",
+            ui.Text(UiText::EditorPatternCaptureVariablePreview),
+            variable.c_str());
+    } else if (nameValid && !helper.constructor.pattern.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureApplyFirst));
+    }
+    ImGui::PushID("capture_copy_primary");
+    ImGui::BeginDisabled(!captureApplied);
+    if (ImGui::Button(ui.Text(UiText::EditorPatternCaptureCopy))) {
+        ImGui::SetClipboardText(variable.c_str());
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+}
+
+void DrawCaptureResults(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
+
+    if (!ImGui::CollapsingHeader(ui.Text(UiText::EditorPatternCaptureResults))) {
+        return;
+    }
+    ImGui::TextWrapped("%s", ui.Text(UiText::EditorPatternCaptureResultsHint));
+    if (!editor.draft.textTrigger.pattern || !helper.validationProgram) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureNeedsPattern));
+        return;
+    }
+    if (!helper.validationRegexMatched || !helper.validationError.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureNeedsMatch));
         return;
     }
 
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSizeConstraints(
-        binder_internal::ScaleUi(560.0f, 380.0f),
-        ImVec2(viewport->WorkSize.x * 0.94f, viewport->WorkSize.y * 0.94f));
-    ImGui::SetNextWindowSize(
-        ImVec2(viewport->WorkSize.x * 0.68f, viewport->WorkSize.y * 0.72f),
-        ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+    const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
+        | ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_BordersInnerH
+        | ImGuiTableFlags_BordersInnerV
+        | ImGuiTableFlags_Resizable
+        | ImGuiTableFlags_NoSavedSettings;
+    if (!ImGui::BeginTable("##binder_capture_results", 4, flags)) {
         return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        helper.referenceOpen = false;
-        helper.referencePending = false;
-        ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+    ImGui::TableSetupColumn(
+        ui.Text(UiText::EditorPatternCaptureColumnGroup),
+        ImGuiTableColumnFlags_WidthFixed,
+        binder_internal::ScaleUi(70.0f));
+    ImGui::TableSetupColumn(
+        ui.Text(UiText::EditorPatternCaptureColumnName),
+        ImGuiTableColumnFlags_WidthFixed,
+        binder_internal::ScaleUi(120.0f));
+    ImGui::TableSetupColumn(
+        ui.Text(UiText::EditorPatternCaptureColumnValue),
+        ImGuiTableColumnFlags_WidthStretch,
+        1.0f);
+    ImGui::TableSetupColumn(
+        ui.Text(UiText::EditorPatternCaptureColumnVariable),
+        ImGuiTableColumnFlags_WidthStretch,
+        1.25f);
+    ImGui::TableHeadersRow();
+
+    const std::size_t captureCount = helper.validationProgram->CaptureCount();
+    for (std::size_t groupIndex = 0; groupIndex <= captureCount; ++groupIndex) {
+        ImGui::PushID(static_cast<int>(groupIndex));
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("%zu", groupIndex);
+
+        ImGui::TableSetColumnIndex(1);
+        const std::string_view groupName = helper.validationProgram->CaptureName(groupIndex);
+        if (groupIndex == 0) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureWholeMatch));
+        } else if (groupName.empty()) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureUnnamed));
+        } else {
+            ImGui::TextWrapped("%.*s", static_cast<int>(groupName.size()), groupName.data());
+        }
+
+        ImGui::TableSetColumnIndex(2);
+        const std::string_view value = helper.validationProgram->Capture(
+            helper.validationNormalizedSample,
+            helper.validationCaptures,
+            groupIndex);
+        ImGui::TextWrapped(
+            "%.*s",
+            static_cast<int>(value.size()),
+            value.empty() ? "" : value.data());
+
+        ImGui::TableSetColumnIndex(3);
+        const std::string numericVariable = "[chatwordsex(" + std::to_string(groupIndex) + ")]";
+        if (ImGui::SmallButton(numericVariable.c_str())) {
+            ImGui::SetClipboardText(numericVariable.c_str());
+        }
+        if (!groupName.empty()) {
+            const std::string namedVariable = "[chatwordsex(" + std::string(groupName) + ")]";
+            const float namedWidth = ImGui::CalcTextSize(namedVariable.c_str()).x
+                + ImGui::GetStyle().FramePadding.x * 2.0f;
+            if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + namedWidth
+                <= ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x) {
+                ImGui::SameLine();
+            }
+            if (ImGui::SmallButton(namedVariable.c_str())) {
+                ImGui::SetClipboardText(namedVariable.c_str());
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndTable();
+}
+
+void DrawValidationStatus(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
+
+    if (helper.validationTimestampRemoved) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
+    }
+    if (ImGui::Button(ui.Text(UiText::UnwantedTestAction), binder_internal::ScaleUi(120.0f, 0.0f))) {
+        helper.testRequested = true;
+        helper.validationReady = false;
+    }
+    RefreshValidation(editor);
+    if (!helper.validationError.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.36f, 1.0f), "%s", helper.validationError.c_str());
+    } else if (helper.validationTested) {
+        ImGui::SameLine();
+        const ImVec4 color = helper.validationMatched
+            ? ImVec4(0.42f, 0.84f, 0.55f, 1.0f)
+            : ImVec4(0.92f, 0.62f, 0.38f, 1.0f);
+        ImGui::TextColored(
+            color,
+            "%s",
+            ui.Text(helper.validationMatched ? UiText::EditorPatternMatched : UiText::EditorPatternNoMatch));
+    }
+    if (!helper.validationWarning.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s", helper.validationWarning.c_str());
+    }
+}
+
+void DrawPatternResult(State& editor) {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SeparatorText(ui.Text(UiText::TextPatternResult));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    DrawBoundTriggerInput(editor, "##binder_pattern_result", ui.Text(UiText::EditorTriggerExample), true);
+    DrawValidationStatus(editor);
+}
+
+void RefreshReferenceFilter(TextPatternHelperState& helper) {
+    UiSettings& ui = UiSettings::Instance();
+    const int language = static_cast<int>(ui.Language());
+    if (helper.referenceFilterLanguage == language
+        && helper.referenceFilterSearch == helper.referenceSearch) {
         return;
     }
 
+    helper.referenceFilterLanguage = language;
+    helper.referenceFilterSearch = helper.referenceSearch;
+    helper.referenceVisibleItems.clear();
+    const std::span<const text_pattern_ui::ReferenceItem> items = text_pattern_ui::ReferenceItems();
+    helper.referenceVisibleItems.reserve(items.size());
+    for (std::size_t itemIndex = 0; itemIndex < items.size(); ++itemIndex) {
+        const text_pattern_ui::ReferenceItem& item = items[itemIndex];
+        if (item.requiresRawColorCodes) {
+            continue;
+        }
+        if (helper.referenceFilterSearch.empty()) {
+            helper.referenceVisibleItems.push_back(itemIndex);
+            continue;
+        }
+        const std::string searchable = std::string(item.expression)
+            + "\n" + ui.Text(item.category)
+            + "\n" + ui.Text(item.description);
+        if (binder_tags::ContainsNoCaseUtf8(searchable, helper.referenceFilterSearch)) {
+            helper.referenceVisibleItems.push_back(itemIndex);
+        }
+    }
+}
+
+void DrawReferencePanel(State& editor) {
+    TextPatternHelperState& helper = editor.textPatternHelper;
+    UiSettings& ui = UiSettings::Instance();
     ImGui::TextWrapped("%s", ui.Text(UiText::EditorPatternReferenceHint));
     const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::UnwantedRegexReferenceSearch);
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -411,8 +870,46 @@ void DrawReferencePopup(State& editor) {
         helper.referenceSearch,
         ImGuiInputTextFlags_AutoSelectAll,
         256);
+    RefreshReferenceFilter(helper);
+    const std::span<const text_pattern_ui::ReferenceItem> items = text_pattern_ui::ReferenceItems();
+    const auto appendItem = [&](const text_pattern_ui::ReferenceItem& item) {
+        InsertTriggerText(editor, item.expression);
+    };
 
-    bool anyVisible = false;
+    const bool anyVisible = !helper.referenceVisibleItems.empty();
+    const bool compact = ImGui::GetContentRegionAvail().x < binder_internal::ScaleUi(680.0f);
+    if (compact) {
+        if (ImGui::BeginChild(
+                "##binder_pattern_reference_cards",
+                ImVec2(0.0f, binder_internal::ScaleUi(300.0f)),
+                ImGuiChildFlags_Borders)) {
+            for (const std::size_t itemIndex : helper.referenceVisibleItems) {
+                const text_pattern_ui::ReferenceItem& item = items[itemIndex];
+                ImGui::PushID(item.expression);
+                ImGui::TextDisabled("%s", ui.Text(item.category));
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", item.expression);
+                ImGui::TextWrapped("%s", ui.Text(item.description));
+                if (ImGui::Button(ui.Text(UiText::UnwantedCopy), binder_internal::ScaleUi(100.0f, 0.0f))) {
+                    ImGui::SetClipboardText(item.expression);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(
+                        ui.Text(UiText::UnwantedRegexReferenceAppend),
+                        binder_internal::ScaleUi(120.0f, 0.0f))) {
+                    appendItem(item);
+                }
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+            if (!anyVisible) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexReferenceNoResults));
+            }
+        }
+        ImGui::EndChild();
+        return;
+    }
+
     const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchProp
         | ImGuiTableFlags_RowBg
         | ImGuiTableFlags_BordersInnerH
@@ -420,55 +917,44 @@ void DrawReferencePopup(State& editor) {
         | ImGuiTableFlags_Resizable
         | ImGuiTableFlags_ScrollY
         | ImGuiTableFlags_NoSavedSettings;
-    if (ImGui::BeginTable("##binder_pattern_reference_table", 4, flags, ImVec2(0.0f, -binder_internal::ScaleUi(42.0f)))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceCategory), ImGuiTableColumnFlags_WidthFixed, binder_internal::ScaleUi(105.0f));
-        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceExpression), ImGuiTableColumnFlags_WidthStretch, 0.85f);
-        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceDescription), ImGuiTableColumnFlags_WidthStretch, 1.6f);
-        ImGui::TableSetupColumn("##append", ImGuiTableColumnFlags_WidthFixed, binder_internal::ScaleUi(105.0f));
-        ImGui::TableHeadersRow();
-        for (const text_pattern_ui::ReferenceItem& item : text_pattern_ui::ReferenceItems()) {
-            if (item.requiresRawColorCodes) {
-                continue;
-            }
-            const std::string searchable = std::string(item.expression)
-                + "\n" + ui.Text(item.category)
-                + "\n" + ui.Text(item.description);
-            if (!helper.referenceSearch.empty()
-                && !binder_tags::ContainsNoCaseUtf8(searchable, helper.referenceSearch)) {
-                continue;
-            }
-            anyVisible = true;
-            ImGui::PushID(item.expression);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextDisabled("%s", ui.Text(item.category));
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextWrapped("%s", item.expression);
-            if (ImGui::IsItemClicked()) {
-                ImGui::SetClipboardText(item.expression);
-            }
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TextWrapped("%s", ui.Text(item.description));
-            ImGui::TableSetColumnIndex(3);
-            if (ImGui::Button(ui.Text(UiText::UnwantedRegexReferenceAppend), ImVec2(-FLT_MIN, 0.0f))) {
-                InsertTriggerText(editor, item.expression);
-            }
-            ImGui::PopID();
-        }
-        if (!anyVisible) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexReferenceNoResults));
-        }
-        ImGui::EndTable();
+    if (!ImGui::BeginTable(
+            "##binder_pattern_reference_table",
+            4,
+            flags,
+            ImVec2(0.0f, binder_internal::ScaleUi(300.0f)))) {
+        return;
     }
-    if (ImGui::Button(ui.Text(UiText::Close), binder_internal::ScaleUi(120.0f, 0.0f))) {
-        helper.referenceOpen = false;
-        helper.referencePending = false;
-        ImGui::CloseCurrentPopup();
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceCategory), ImGuiTableColumnFlags_WidthFixed, binder_internal::ScaleUi(105.0f));
+    ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceExpression), ImGuiTableColumnFlags_WidthStretch, 0.85f);
+    ImGui::TableSetupColumn(ui.Text(UiText::UnwantedRegexReferenceDescription), ImGuiTableColumnFlags_WidthStretch, 1.6f);
+    ImGui::TableSetupColumn("##append", ImGuiTableColumnFlags_WidthFixed, binder_internal::ScaleUi(105.0f));
+    ImGui::TableHeadersRow();
+    for (const std::size_t itemIndex : helper.referenceVisibleItems) {
+        const text_pattern_ui::ReferenceItem& item = items[itemIndex];
+        ImGui::PushID(item.expression);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled("%s", ui.Text(item.category));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextWrapped("%s", item.expression);
+        if (ImGui::IsItemClicked()) {
+            ImGui::SetClipboardText(item.expression);
+        }
+        ImGui::TableSetColumnIndex(2);
+        ImGui::TextWrapped("%s", ui.Text(item.description));
+        ImGui::TableSetColumnIndex(3);
+        if (ImGui::Button(ui.Text(UiText::UnwantedRegexReferenceAppend), ImVec2(-FLT_MIN, 0.0f))) {
+            appendItem(item);
+        }
+        ImGui::PopID();
     }
-    ImGui::EndPopup();
+    if (!anyVisible) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexReferenceNoResults));
+    }
+    ImGui::EndTable();
 }
 
 } // namespace
@@ -491,20 +977,19 @@ void DrawTextPatternHelperPopup(State& editor) {
     }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 helperMaximum(viewport->WorkSize.x * 0.94f, viewport->WorkSize.y * 0.94f);
     ImGui::SetNextWindowSizeConstraints(
-        binder_internal::ScaleUi(520.0f, 400.0f),
-        ImVec2(viewport->WorkSize.x * 0.94f, viewport->WorkSize.y * 0.94f));
+        FitModalMinimum(binder_internal::ScaleUi(520.0f, 400.0f), helperMaximum),
+        helperMaximum);
     ImGui::SetNextWindowSize(
-        ImVec2(std::min(binder_internal::ScaleUi(760.0f), viewport->WorkSize.x * 0.90f),
-            std::min(binder_internal::ScaleUi(680.0f), viewport->WorkSize.y * 0.88f)),
+        ImVec2(std::min(binder_internal::ScaleUi(820.0f), viewport->WorkSize.x * 0.90f),
+            std::min(binder_internal::ScaleUi(720.0f), viewport->WorkSize.y * 0.88f)),
         ImGuiCond_Appearing);
     bool open = true;
     if (!ImGui::BeginPopupModal(title.c_str(), &open, ImGuiWindowFlags_NoSavedSettings)) {
         return;
     }
     if (!open || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        helper.referenceOpen = false;
-        helper.referencePending = false;
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
@@ -515,24 +1000,6 @@ void DrawTextPatternHelperPopup(State& editor) {
         if (ImGui::Checkbox(ui.Text(UiText::EditorPatternEnabled), &editor.draft.textTrigger.pattern)) {
             helper.validationReady = false;
         }
-        ImGui::SameLine();
-        const std::string referenceLabel = std::string(ui_icons::Book) + " " + ui.Text(UiText::UnwantedRegexReference);
-        if (ImGui::Button(referenceLabel.c_str())) {
-            helper.referenceOpen = true;
-            helper.referencePending = true;
-        }
-        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCurrent));
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        DrawBoundTriggerInput(editor, "##binder_pattern_current", ui.Text(UiText::EditorTriggerExample), true);
-
-        RefreshValidation(editor);
-        if (!helper.validationError.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.36f, 1.0f), "%s", helper.validationError.c_str());
-        } else if (!helper.validationWarning.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s", helper.validationWarning.c_str());
-        }
-
-        ImGui::Separator();
         ImGui::Text("%s", ui.Text(UiText::EditorPatternSample));
         ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternSampleHint));
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -548,60 +1015,44 @@ void DrawTextPatternHelperPopup(State& editor) {
         } else if (helper.outputLanguage != static_cast<int>(ui.Language()) && !helper.sample.empty()) {
             Regenerate(editor);
         }
-
-        const PreparedSample preparedSample = PrepareSample(helper.sample);
-        if (preparedSample.timestampRemoved) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
-        }
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedNormalizedPreview));
-        ImGui::TextWrapped("%s", preparedSample.normalized.c_str());
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedGeneralizations));
-        DrawOptions(editor);
-
-        if (!helper.tokens.empty()) {
-            ImGui::Spacing();
-            ImGui::Text("%s", ui.Text(UiText::UnwantedDetectedTokens));
-            for (const text_pattern_builder::Token& token : helper.tokens) {
-                ImGui::PushID(static_cast<int>(token.offset));
-                ImGui::TextDisabled("%s", TokenLabel(token.kind));
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-                    ImGui::SetTooltip("%s", TokenHelp(token.kind));
-                }
-                ImGui::SameLine();
-                ImGui::TextWrapped("%s  ->  %s", token.source.c_str(), token.pattern.c_str());
-                ImGui::PopID();
-            }
-        }
-        if (!helper.builderWarning.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s", helper.builderWarning.c_str());
-        }
-        DrawVariants(editor);
+        RefreshValidation(editor);
 
         ImGui::Separator();
-        if (ImGui::Button(ui.Text(UiText::UnwantedTestAction), binder_internal::ScaleUi(120.0f, 0.0f))) {
-            helper.testRequested = true;
-            helper.validationReady = false;
+        DrawPatternModeBar(editor);
+        ImGui::Spacing();
+        const PatternWorkspaceMode workspaceMode = CurrentWorkspaceMode(helper);
+        switch (workspaceMode) {
+        case PatternWorkspaceMode::Automatic:
+            DrawQuickPatternSection(editor);
+            break;
+        case PatternWorkspaceMode::Manual:
+            if (helper.constructor.preparedSample.empty()) {
+                ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperInputHint));
+            } else {
+                DrawManualPatternSection(editor);
+            }
+            break;
+        case PatternWorkspaceMode::Capture:
+            DrawCaptureBuilder(editor);
+            break;
+        case PatternWorkspaceMode::Reference:
+            DrawReferencePanel(editor);
+            break;
         }
-        RefreshValidation(editor);
-        if (helper.validationTested && helper.validationError.empty()) {
-            ImGui::SameLine();
-            const ImVec4 color = helper.validationMatched
-                ? ImVec4(0.42f, 0.84f, 0.55f, 1.0f)
-                : ImVec4(0.92f, 0.62f, 0.38f, 1.0f);
-            ImGui::TextColored(
-                color,
-                "%s",
-                ui.Text(helper.validationMatched ? UiText::EditorPatternMatched : UiText::EditorPatternNoMatch));
+
+        DrawPatternResult(editor);
+        if (workspaceMode == PatternWorkspaceMode::Capture) {
+            if (ImGui::CollapsingHeader(ui.Text(UiText::EditorPatternCaptureAdvanced))) {
+                DrawAdvancedCaptureBuilder(editor);
+            }
+            DrawCaptureResults(editor);
         }
     }
     ImGui::EndChild();
 
     if (ImGui::Button(ui.Text(UiText::Close), binder_internal::ScaleUi(120.0f, 0.0f))) {
-        helper.referenceOpen = false;
-        helper.referencePending = false;
         ImGui::CloseCurrentPopup();
     }
-    DrawReferencePopup(editor);
     ImGui::EndPopup();
 }
 

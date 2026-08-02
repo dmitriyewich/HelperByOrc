@@ -410,7 +410,7 @@
     X(UnwantedTesterNormalizedFormat, "После подготовки текста (%s симв.): «%s»", "After text preparation (%s chars): “%s”") \
     X(UnwantedTesterEmptyHint, "Пустое поле проверяет пустое сообщение. Для сообщения только из пробелов введите пробелы и нажмите «Проверить».", "An empty field tests an empty message. For a spaces-only message, enter spaces and click Test.") \
     X(UnwantedRegexHelper, "Помощник по шаблонам", "Pattern helper") \
-    X(UnwantedHelperFlowHint, "Вставьте сообщение или полную строку чатлога и отметьте, какие части могут меняться.", "Paste a message or a full chatlog line and choose which parts may change.") \
+    X(UnwantedHelperFlowHint, "Вставьте пример сообщения или полную строку чатлога.", "Paste a sample message or a full chatlog line.") \
     X(UnwantedHelperInputHint, "Вставьте пример сообщения", "Paste a sample message") \
     X(TextPatternChatlogTimestampRemoved, "Время чатлога распознано и удалено перед проверкой.", "The chatlog timestamp was detected and removed before testing.") \
     X(UnwantedGeneralizations, "Какие части могут меняться", "Parts that may change") \
@@ -439,21 +439,73 @@
     X(UnwantedTokenNickname, "Ник", "Nickname") \
     X(UnwantedTokenNicknameHelp, "Ник вида Name_Surname. Конкретный ник сможет меняться.", "A name such as Name_Surname. The actual player name may change.") \
     X(UnwantedTokenInteger, "Целое число", "Integer") \
-    X(UnwantedTokenIntegerHelp, "Любое целое число, включая отрицательное.", "Any whole number, including a negative one.") \
+    X(UnwantedTokenIntegerHelp, "Любое целое число. Знак допускается, только если он есть в примере.", "Any whole number. A sign is allowed only when present in the sample.") \
     X(UnwantedTokenDecimal, "Дробное число", "Decimal") \
     X(UnwantedTokenDecimalHelp, "Любое дробное число с точкой или запятой.", "Any decimal number using a dot or comma.") \
+    X(UnwantedTokenGroupedNumber, "Число с разделителями", "Grouped number") \
+    X(UnwantedTokenGroupedNumberHelp, "Число с группами тысяч: 1 000 000, 1.000.000 или 1'000'000.", "A number grouped by thousands: 1 000 000, 1.000.000, or 1'000'000.") \
     X(UnwantedTokenPercentage, "Процент", "Percentage") \
     X(UnwantedTokenPercentageHelp, "Любое число со знаком процента, например 25%.", "Any percentage, for example 25%.") \
     X(UnwantedTokenCompactAmount, "Число с k", "Number with k") \
-    X(UnwantedTokenCompactAmountHelp, "Числа вида 1.5k или 2k26.", "Numbers such as 1.5k or 2k26.") \
+    X(UnwantedTokenCompactAmountHelp, "Числа вида 1.5k, 2k26, 100к или 100кк.", "Numbers such as 1.5k, 2k26, 100к, or 100кк.") \
     X(UnwantedTokenMoney, "Деньги", "Money") \
     X(UnwantedTokenMoneyHelp, "Сумма со знаком $, включая варианты $10, $1.5k и $2k26.", "An amount with $, including $10, $1.5k, and $2k26.") \
     X(UnwantedTokenClock, "Время", "Clock") \
     X(UnwantedTokenClockHelp, "Время суток от 00:00 до 23:59.", "A time of day from 00:00 through 23:59.") \
+    X(UnwantedTokenClockSeconds, "Время с секундами", "Clock with seconds") \
+    X(UnwantedTokenClockSecondsHelp, "Время суток от 00:00:00 до 23:59:59.", "A time of day from 00:00:00 through 23:59:59.") \
     X(UnwantedTokenDuration, "Длительность", "Duration") \
     X(UnwantedTokenDurationHelp, "Продолжительность вида 5:30 или 125:59.", "A duration such as 5:30 or 125:59.") \
+    X(UnwantedTokenDurationWords, "Длительность словами", "Written duration") \
+    X(UnwantedTokenDurationWordsHelp, "Число и единица времени, например 5 минут, 10 сек. или 2 часа.", "A number and time unit, such as 5 minutes, 10 sec., or 2 hours.") \
+    X(UnwantedTokenDateDmy, "Дата день-месяц-год", "Day-month-year date") \
+    X(UnwantedTokenDateDmyHelp, "Дата вида 31.03.2026, 31/03/26 или 31-03-2026.", "A date such as 31.03.2026, 31/03/26, or 31-03-2026.") \
+    X(UnwantedTokenDateYmd, "Дата год-месяц-день", "Year-month-day date") \
+    X(UnwantedTokenDateYmdHelp, "Дата вида 2026-07-31.", "A date such as 2026-07-31.") \
     X(UnwantedTokenDomain, "Сайт или ссылка", "Site or link") \
     X(UnwantedTokenDomainHelp, "Адрес сайта или ссылка. Конкретный адрес, порт и путь смогут меняться.", "A website address or link. Its address, port, and path may change.") \
+    X(TextPatternTokenBracketInner, "Текст внутри [...]", "Text inside [...]") \
+    X(TextPatternTokenBracketInnerHelp, "Любой непустой текст внутри уже существующих квадратных скобок, без самих скобок.", "Any non-empty text inside existing square brackets, excluding the brackets.") \
+    X(TextPatternTokenUnicodePhrase, "Фраза", "Phrase") \
+    X(TextPatternTokenUnicodePhraseHelp, "Буквы любых языков, цифры, пробелы, _ и -, от 1 до 64 символов.", "Letters in any language, digits, spaces, _ and -, from 1 through 64 characters.") \
+    X(TextPatternTokenNonSpace, "Текст без пробелов", "Text without spaces") \
+    X(TextPatternTokenNonSpaceHelp, "Один или больше любых непробельных символов.", "One or more non-whitespace characters.") \
+    X(TextPatternTokenLineText, "Текст одной строки", "Single-line text") \
+    X(TextPatternTokenLineTextHelp, "От 1 до 256 любых символов, кроме перевода строки. Это широкий вариант.", "From 1 through 256 characters except line breaks. This is a broad option.") \
+    X(TextPatternTokenDoubleQuoted, "Текст в двойных кавычках", "Double-quoted text") \
+    X(TextPatternTokenDoubleQuotedHelp, "Любой непустой однострочный текст в двойных кавычках.", "Any non-empty single-line text in double quotes.") \
+    X(TextPatternTokenSingleQuoted, "Текст в одинарных кавычках", "Single-quoted text") \
+    X(TextPatternTokenSingleQuotedHelp, "Любой непустой однострочный текст в одинарных кавычках.", "Any non-empty single-line text in single quotes.") \
+    X(TextPatternTokenParenthesized, "Текст в круглых скобках", "Parenthesized text") \
+    X(TextPatternTokenParenthesizedHelp, "Любой непустой однострочный текст в круглых скобках.", "Any non-empty single-line text in parentheses.") \
+    X(TextPatternTokenSlashCommand, "Команда /...", "Slash command") \
+    X(TextPatternTokenSlashCommandHelp, "Команда из /, латинских букв, цифр и _, длиной до 32 символов.", "A command made of /, ASCII letters, digits, and _, up to 32 characters.") \
+    X(TextPatternTokenHorizontalWhitespace, "Пробелы и табуляция", "Spaces and tabs") \
+    X(TextPatternTokenHorizontalWhitespaceHelp, "Один или больше горизонтальных пробельных символов.", "One or more horizontal whitespace characters.") \
+    X(TextPatternTokenLiteral, "Точный выделенный текст", "Exact selected text") \
+    X(TextPatternTokenLiteralHelp, "Специальные знаки экранируются; подойдёт только этот выделенный текст.", "Special characters are escaped; only the exact selected text will match.") \
+    X(PatternModeAutomatic, "Автоматически", "Automatic") \
+    X(PatternModeManual, "Выбрать часть", "Select a part") \
+    X(PatternModeCapture, "Извлечь текст", "Extract text") \
+    X(PatternModeReference, "Справочник PCRE2", "PCRE2 reference") \
+    X(TextPatternAdvanced, "Дополнительно", "Advanced") \
+    X(TextPatternOtherVariants, "Другие варианты", "Other variants") \
+    X(TextPatternSelectionHint, "Выделите изменяемую часть строки и нажмите «Подобрать выражение» или ПКМ.", "Select the variable part of the line, then choose Suggest expression or right-click.") \
+    X(TextPatternSelectionSuggest, "Подобрать выражение", "Suggest expression") \
+    X(TextPatternSelectionRequired, "Сначала выделите непустой фрагмент строки.", "Select a non-empty text fragment first.") \
+    X(TextPatternSelectionInvalid, "Не удалось прочитать выделение. Выберите фрагмент заново.", "The selection could not be read. Select the text again.") \
+    X(TextPatternBuildFailed, "Не удалось собрать шаблон. Сбросьте выбранные части и добавьте их заново.", "The pattern could not be built. Reset the selected parts and add them again.") \
+    X(TextPatternSuggestion, "Выражение для выделенной части", "Expression for the selected part") \
+    X(TextPatternSelectionRecommended, "Рекомендуется", "Recommended") \
+    X(TextPatternSelectionExact, "Оставить точным", "Keep exact") \
+    X(TextPatternSelectionBroad, "Другой вариант", "Other option") \
+    X(TextPatternSelectionAdd, "Сделать изменяемым", "Make variable") \
+    X(TextPatternSelectionRemoveAll, "Сбросить ручные части", "Reset manual parts") \
+    X(TextPatternSelectedParts, "Выбранные части", "Selected parts") \
+    X(TextPatternRemovePart, "Удалить", "Remove") \
+    X(TextPatternPreview, "Предпросмотр шаблона", "Pattern preview") \
+    X(TextPatternResult, "Результат", "Result") \
+    X(TextPatternCaptureFromSelection, "Извлечь выбранное", "Extract selection") \
     X(UnwantedUseInDraft, "Использовать", "Use") \
     X(UnwantedCopy, "Копировать", "Copy") \
     X(UnwantedDeleteSelectedQuestion, "Удалить выбранные правила: %s?", "Delete selected rules: %s?") \
@@ -474,7 +526,7 @@
     X(UnwantedHelperInvalidUtf8, "Пример содержит повреждённые символы. Вставьте сообщение заново.", "The sample contains invalid characters. Paste the message again.") \
     X(UnwantedHelperExactFallback, "Не удалось безопасно заменить изменяемые части. Показано точное правило.", "The changing parts could not be replaced safely. An exact rule is shown instead.") \
     X(UnwantedRegexReference, "Справочник шаблонов", "Pattern reference") \
-    X(UnwantedRegexReferenceHint, "Здесь собраны готовые элементы для ручного редактирования правила. Нажмите элемент, чтобы скопировать, или «Вставить», чтобы добавить его в правило.", "Ready-to-use elements for manual rule editing. Click an item to copy it, or use Append to add it to the rule.") \
+    X(UnwantedRegexReferenceHint, "Здесь собраны готовые элементы для ручного редактирования правила. Используйте «Копировать» или «Вставить» рядом с нужным выражением.", "Ready-to-use elements for manual rule editing. Use Copy or Append next to the expression you need.") \
     X(UnwantedRegexReferenceSearch, "Поиск по выражениям и описаниям", "Search expressions and descriptions") \
     X(UnwantedRegexReferenceCategory, "Раздел", "Category") \
     X(UnwantedRegexReferenceExpression, "Элемент", "Item") \
@@ -528,6 +580,7 @@
     X(TagsBuiltinThisbindNameDescription, "Возвращает только имя текущего запущенного бинда — без кавычек, папки и категории. Подходит для сообщений, уведомлений и логов.\n\nНе используйте как единственную ссылку в bind...-действии, если имена могут повторяться; для текущего бинда используйте {thisbind}, для связи с другим биндом — @bind-N.", "Returns only the current running bind name, without quotes, folder, or category. Suitable for messages, notifications, and logs.\n\nDo not use it as the only bind-action reference when names may repeat; use {thisbind} for the current bind and @bind-N for another bind.") \
     X(TagsBuiltinThisbindFolderDescription, "Возвращает полный путь папки текущего запущенного бинда.\n\nРезультат:\n- уровень «Без папки» — пустая строка;\n- папка — Папка;\n- вложенная папка — Папка/Подпапка.\n\nМожно передать в [bindrandom(\"{thisbindfolder}\")]. Для ссылки на сам текущий бинд используйте {thisbind}.", "Returns the full folder path of the currently running bind.\n\nResult:\n- No folder — empty string;\n- folder — Folder;\n- nested folder — Folder/Subfolder.\n\nIt can be passed to [bindrandom(\"{thisbindfolder}\")]. Use {thisbind} to reference the current bind itself.") \
     X(TagsBuiltinThiscategoryDescription, "Возвращает категорию, из которой запущен текущий бинд. Это runtime-категория запуска, а не выбранная вкладка интерфейса.\n\nИспользуйте как 3-й аргумент после имени бинда и пути папки: [bindstart(\"Имя бинда\" \"Папка/Подпапка\" \"{thiscategory}\")]. Для уровня «Без папки»: [bindstart(\"Имя бинда\" \"\" \"{thiscategory}\")].\n\nВне запущенного бинда возвращает пустую строку.", "Returns the category from which the current bind was started. This is the runtime launch category, not the selected UI tab.\n\nUse it as the third argument after bind name and folder path: [bindstart(\"Bind name\" \"Folder/Subfolder\" \"{thiscategory}\")]. For No folder: [bindstart(\"Bind name\" \"\" \"{thiscategory}\")].\n\nReturns an empty string outside a running bind.") \
+    X(TagsBuiltinChatWordsExDescription, "Возвращает точный текст capture-группы PCRE2-шаблона, который запустил текущий бинд по текстовому триггеру.\n\nАргумент — номер группы, например [chatwordsex(1)], либо точное имя из (?<surname>...), например [chatwordsex(surname)]. Группа 0 содержит всё совпадение. Несовпавшая optional-группа, неизвестный номер/имя, обычный текстовый триггер и любой контекст вне такого запущенного бинда дают пустую строку. Значение фиксируется при запуске и не меняется от следующих сообщений.", "Returns the exact text of a capture group from the PCRE2 text trigger that started the current bind.\n\nThe argument is a group number such as [chatwordsex(1)] or the exact name from (?<surname>...), such as [chatwordsex(surname)]. Group 0 contains the whole match. An unmatched optional group, an unknown number/name, a plain text trigger, or any context outside such a running bind returns an empty string. The value is captured at startup and is not changed by later messages.") \
     X(TagsBuiltinBindStopAllDescription, "Останавливает все запущенные бинды после текущей строки и ничего не вставляет в текст.\n\nСинтаксис: {bindstopall}. Аргументы «Категория», «Папка/Подпапка» и «Имя бинда» здесь не используются: действие всегда относится ко всем активным биндам. Работает только внутри выполняющегося бинда; если активных биндов нет, это не ошибка.", "Stops all running binds after the current line and inserts no text.\n\nSyntax: {bindstopall}. Category, Folder/Subfolder, and Bind name arguments are not used: the action always targets all active binds. Works only inside a running bind; having no active binds is not an error.") \
     X(TagsBuiltinTargetIdDescription, "Возвращает ID игрока, которого вы выбрали вручную или в которого целились последним.", "Returns the ID of the player you selected manually or aimed at most recently.") \
     X(TagsBuiltinTargetNickDescription, "Возвращает ник игрока, которого вы выбрали вручную или в которого целились последним.", "Returns the nickname of the player you selected manually or aimed at most recently.") \
@@ -1491,9 +1544,37 @@
     X(EditorTriggerExample, "Например: Голова, [Гг]олова, \\Aдом\\d+\\z", "For example: Head, [Hh]ead, \\Ahouse\\d+\\z") \
     X(EditorPatternHelperTitle, "Шаблон текстового триггера", "Text trigger pattern") \
     X(EditorPatternEnabled, "Использовать шаблон PCRE2", "Use a PCRE2 pattern") \
-    X(EditorPatternCurrent, "Текст триггера / текущий шаблон", "Trigger text / current pattern") \
     X(EditorPatternSample, "Пример и проверка", "Example and test") \
-    X(EditorPatternSampleHint, "Можно вставить полную строку чатлога: время будет удалено. Цветовые коды удаляются так же, как в игре.", "You can paste a full chatlog line: its timestamp will be removed. Color codes are removed exactly as they are in game.") \
+    X(EditorPatternSampleHint, "Можно вставить строку чатлога: время и цветовые коды будут удалены.", "You can paste a chatlog line: timestamps and color codes will be removed.") \
+    X(EditorPatternCaptureHint, "Задайте имя и выберите текст, который нужно передать в бинд.", "Set a name and select the text to pass into the bind.") \
+    X(EditorPatternCaptureName, "Имя группы", "Group name") \
+    X(EditorPatternCaptureNameHint, "Например: surname или id", "For example: surname or id") \
+    X(EditorPatternCaptureNameInvalid, "Имя: латинская буква, затем латинские буквы, цифры или _. Максимум 64 символа.", "Name: an ASCII letter followed by ASCII letters, digits, or _. Maximum 64 characters.") \
+    X(EditorPatternCaptureAdvanced, "Расширенная настройка PCRE2", "Advanced PCRE2 setup") \
+    X(EditorPatternCaptureType, "Что извлекаем", "What to extract") \
+    X(EditorPatternCaptureLatinWord, "Латинское слово", "Latin word") \
+    X(EditorPatternCapturePlayerId, "ID игрока (1-4 цифры)", "Player ID (1-4 digits)") \
+    X(EditorPatternCaptureInteger, "Целое число", "Integer") \
+    X(EditorPatternCaptureNonSpace, "Текст без пробелов", "Text without spaces") \
+    X(EditorPatternCaptureLineText, "Текст до конца строки", "Text to end of line") \
+    X(EditorPatternCaptureCustom, "Свой PCRE2-фрагмент", "Custom PCRE2 fragment") \
+    X(EditorPatternCaptureCustomPattern, "PCRE2-фрагмент внутри группы", "PCRE2 fragment inside the group") \
+    X(EditorPatternCaptureSelectionHint, "Если в поле шаблона выделен фрагмент, кнопка обернёт его группой. Без выделения готовая группа вставится в позицию курсора.", "If a fragment is selected in the pattern field, the button wraps it in a group. Without a selection, the ready group is inserted at the cursor.") \
+    X(EditorPatternCaptureGroupPreview, "Группа", "Group") \
+    X(EditorPatternCaptureVariablePreview, "Переменная бинда", "Bind variable") \
+    X(EditorPatternCaptureInsert, "Вставить группу", "Insert group") \
+    X(EditorPatternCaptureApplyFirst, "Сначала примените группу к текущему шаблону — после этого переменную можно будет скопировать.", "Apply the group to the current pattern first; then the variable can be copied.") \
+    X(EditorPatternCaptureCopy, "Копировать переменную", "Copy variable") \
+    X(EditorPatternCaptureResults, "Группы в результате проверки", "Groups from the test match") \
+    X(EditorPatternCaptureResultsHint, "Номер и имя равнозначны. Нажмите готовую переменную, чтобы скопировать её. Именованные группы устойчивее к добавлению новых скобок в начало шаблона.", "Number and name are equivalent. Click a ready variable to copy it. Named groups remain stable when new parentheses are added before them.") \
+    X(EditorPatternCaptureNeedsPattern, "Включите PCRE2-шаблон и добавьте capture-группу.", "Enable the PCRE2 pattern and add a capture group.") \
+    X(EditorPatternCaptureNeedsMatch, "Текущий шаблон должен успешно совпасть с примером, чтобы показать значения групп.", "The current pattern must successfully match the sample to show group values.") \
+    X(EditorPatternCaptureColumnGroup, "Группа", "Group") \
+    X(EditorPatternCaptureColumnName, "Имя", "Name") \
+    X(EditorPatternCaptureColumnValue, "Значение", "Value") \
+    X(EditorPatternCaptureColumnVariable, "Готовая переменная", "Ready variable") \
+    X(EditorPatternCaptureWholeMatch, "всё совпадение", "whole match") \
+    X(EditorPatternCaptureUnnamed, "без имени", "unnamed") \
     X(EditorPatternReferenceHint, "Готовые элементы PCRE2. Нажмите выражение, чтобы скопировать его, или «Вставить», чтобы заменить выделение в тексте триггера либо добавить элемент в позицию курсора.", "Ready-to-use PCRE2 elements. Click an expression to copy it, or use Append to replace the trigger selection or insert it at the cursor.") \
     X(EditorPatternMatchesEmpty, "Этот шаблон совпадает даже с пустым сообщением и может запускать бинд слишком часто.", "This pattern also matches an empty message and may trigger the bind too often.") \
     X(EditorPatternTestStopped, "Проверка остановлена безопасным лимитом. Упростите шаблон.", "Testing stopped at a safety limit. Simplify the pattern.") \

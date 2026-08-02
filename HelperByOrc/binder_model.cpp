@@ -1699,6 +1699,7 @@ void BinderModule::Impl::DuplicateHotkeyAt(int index) {
     duplicated.pendingConfirmationCancelKey = kDefaultCancelKey;
     duplicated.pendingTriggerText.clear();
     duplicated.pendingTriggerSource.clear();
+    duplicated.pendingTriggerCaptures = {};
     duplicated.lastActivatedAtMs = 0.0;
     duplicated.debounceUntilMs = 0.0;
     duplicated.textConfirmationDeadlineMs = 0.0;

@@ -799,6 +799,7 @@ struct RunningBind {
     double nextAtMs = 0.0;
     std::string activationSource;
     std::string activationText;
+    TextTriggerCaptures triggerCaptures;
     std::string bindCommand;
     bool paused = false;
     double remainingDelayMs = 0.0;
@@ -897,6 +898,7 @@ struct InputDialogState {
     std::vector<InputDialogField> fields;
     std::string activationSource;
     std::string activationText;
+    TextTriggerCaptures triggerCaptures;
     std::string bindCommand;
     int activeFieldIndex = 0;
     bool popupOpened = false;
@@ -2308,6 +2310,7 @@ struct BinderModule::Impl {
     std::string BuildThisbindNameTagValue(std::uint64_t runtimeId) const;
     std::string BuildThisbindFolderTagValue(std::uint64_t runtimeId) const;
     std::string BuildThiscategoryTagValue(std::uint64_t runtimeId) const;
+    std::string BuildChatTriggerCaptureValue(std::uint64_t runtimeId, std::string_view selector) const;
     bool IsRuntimeActive(std::uint64_t runtimeId) const;
     bool IsRuntimePaused(std::uint64_t runtimeId) const;
     bool PauseRuntime(std::uint64_t runtimeId);
@@ -2336,6 +2339,7 @@ struct BinderModule::Impl {
         int startDelayMs,
         std::string activationSource,
         std::string activationText,
+        TextTriggerCaptures triggerCaptures,
         std::string bindCommand);
     void PruneOutgoingGuards();
     void RegisterOutgoingGuard(std::string kind, std::string text);
@@ -2353,19 +2357,24 @@ struct BinderModule::Impl {
         HotkeyEntry& hotkey,
         std::string_view sourceKind,
         const std::string& sourceText,
-        bool waitForResolution);
+        bool waitForResolution,
+        TextTriggerCaptures* triggerCaptures = nullptr);
     bool OnOutgoingCommand(const std::string& text);
     bool OnOutgoingChat(const std::string& text);
     void OnIncomingMessage(const IncomingMessageEvent& message);
     void ExpireTextConfirmations();
     bool ActivatePendingTextConfirmations(UINT keyCode);
-    bool MatchTextTrigger(const std::string& source, HotkeyEntry& hotkey);
+    bool MatchTextTrigger(
+        const std::string& source,
+        HotkeyEntry& hotkey,
+        TextTriggerCaptures* captures);
     bool TryDispatchTextTriggerMatch(
         int index,
         HotkeyEntry& hotkey,
         const std::string& sourceText,
         std::string_view sourceKind,
-        double now);
+        double now,
+        TextTriggerCaptures triggerCaptures);
     bool OnTextTriggerEvent(const std::string& sourceText, std::string_view sourceKind);
     std::string ApplyInputValues(std::string text, const std::map<std::string, std::string>& values) const;
     std::vector<int> ResolveBindTagTargets(
@@ -2382,8 +2391,18 @@ struct BinderModule::Impl {
     bool RequestBindLinesPopup(int index);
     std::string BuildInputValue(const InputDialogField& field) const;
     std::vector<int> FilterButtons(const InputDialogState& dialog, std::size_t fieldIndex) const;
-    bool TryEnqueueHotkey(HotkeyEntry& hotkey, int startDelayMs, std::string_view source, const std::string& sourceText);
-    bool TryEnqueueHotkey(int index, int startDelayMs, std::string_view source, const std::string& sourceText);
+    bool TryEnqueueHotkey(
+        HotkeyEntry& hotkey,
+        int startDelayMs,
+        std::string_view source,
+        const std::string& sourceText,
+        TextTriggerCaptures triggerCaptures = {});
+    bool TryEnqueueHotkey(
+        int index,
+        int startDelayMs,
+        std::string_view source,
+        const std::string& sourceText,
+        TextTriggerCaptures triggerCaptures = {});
     void SendExpandedText(const std::string& expandedText, int method, const TagsModule::CursorIntents* cursorIntents = nullptr);
     bool DoSend(const std::string& text, int method, std::uint64_t sourceRuntimeId = 0);
     int RemapHotkeysFolderPrefix(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);

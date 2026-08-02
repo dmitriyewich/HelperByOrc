@@ -1018,6 +1018,15 @@ std::optional<std::string> TagsModule::Impl::ResolveBuiltinThiscategoryTag(const
     return binderModule_->GetThiscategoryTagValue(context.runningBindRuntimeId);
 }
 
+std::optional<std::string> TagsModule::Impl::ResolveBuiltinChatWordsExFunctionTag(
+    std::string_view param,
+    const EvaluationContext& context) const {
+    if (!binderModule_ || context.runningBindRuntimeId == 0) {
+        return std::string();
+    }
+    return binderModule_->GetChatTriggerCapture(context.runningBindRuntimeId, param);
+}
+
 std::optional<std::string> TagsModule::Impl::ResolveBuiltinBindStopAllTag(const EvaluationContext& context) const {
     if (!context.allowSideEffects || !binderModule_ || context.runningBindRuntimeId == 0) {
         return std::string();

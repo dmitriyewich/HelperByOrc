@@ -91,8 +91,8 @@ void SetNextResponsiveEditorPopupSize(const ImVec2& preferredSize, const ImVec2&
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
     const ImVec2 margin = ScaleUi(24.0f, 24.0f);
     const ImVec2 maximumSize(
-        std::max(ScaleUi(320.0f), displaySize.x - margin.x),
-        std::max(ScaleUi(240.0f), displaySize.y - margin.y));
+        std::max(1.0f, displaySize.x - margin.x),
+        std::max(1.0f, displaySize.y - margin.y));
     const ImVec2 clampedMinimum(
         std::min(minimumSize.x, maximumSize.x),
         std::min(minimumSize.y, maximumSize.y));
@@ -100,6 +100,42 @@ void SetNextResponsiveEditorPopupSize(const ImVec2& preferredSize, const ImVec2&
     ImGui::SetNextWindowSize(
         ImVec2(std::min(preferredSize.x, maximumSize.x), std::min(preferredSize.y, maximumSize.y)),
         ImGuiCond_Appearing);
+}
+
+struct ParameterToolbarLayout {
+    bool wrapAfterLeadingAction = false;
+    float selectorWidth = 1.0f;
+};
+
+constexpr ParameterToolbarLayout CalculateParameterToolbarLayout(
+    const float availableWidth,
+    const float leadingActionWidth,
+    const float selectorMinimumWidth,
+    const float selectorMaximumWidth,
+    const float trailingActionsWidth,
+    const float spacing) {
+    const float singleLineRemainder = std::max(1.0f, availableWidth - leadingActionWidth - spacing);
+    const bool wrap = singleLineRemainder < selectorMinimumWidth + spacing + trailingActionsWidth;
+    const float rowWidth = wrap ? std::max(1.0f, availableWidth) : singleLineRemainder;
+    const float selectorMaximumForRow = std::max(1.0f, rowWidth - trailingActionsWidth - spacing);
+    const float preferredSelectorWidth =
+        std::clamp(rowWidth * 0.45f, selectorMinimumWidth, selectorMaximumWidth);
+    return { wrap, std::min(preferredSelectorWidth, selectorMaximumForRow) };
+}
+
+static_assert(!CalculateParameterToolbarLayout(840.0f, 100.0f, 210.0f, 440.0f, 112.0f, 8.0f).wrapAfterLeadingAction);
+static_assert(CalculateParameterToolbarLayout(430.0f, 120.0f, 210.0f, 440.0f, 112.0f, 8.0f).wrapAfterLeadingAction);
+static_assert(CalculateParameterToolbarLayout(240.0f, 120.0f, 210.0f, 440.0f, 112.0f, 8.0f).selectorWidth <= 120.0f);
+
+float MeasureEditorButtonWidth(const char* label) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    return std::ceil(ImGui::CalcTextSize(label ? label : "").x + style.FramePadding.x * 2.0f);
+}
+
+void TextDisabledWrapped(const char* text) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", text ? text : "");
+    ImGui::PopStyleColor();
 }
 } // namespace
 
@@ -120,6 +156,7 @@ void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor.draft.pendingConfirmationCancelKey = kDefaultCancelKey;
     editor.draft.pendingTriggerText.clear();
     editor.draft.pendingTriggerSource.clear();
+    editor.draft.pendingTriggerCaptures = {};
     editor.draft.lastActivatedAtMs = 0.0;
     editor.draft.debounceUntilMs = 0.0;
     editor.draft.textTrigger.InvalidateRuntimeCache();
@@ -419,6 +456,7 @@ void BinderModule::Impl::SaveEditor() {
     saved.pendingConfirmationCancelKey = kDefaultCancelKey;
     saved.pendingTriggerText.clear();
     saved.pendingTriggerSource.clear();
+    saved.pendingTriggerCaptures = {};
     saved.lastActivatedAtMs = 0.0;
     saved.debounceUntilMs = 0.0;
     if (saved.categoryId.empty() || !FindCategoryById(saved.categoryId)) {
@@ -764,7 +802,7 @@ bool BinderModule::Impl::DrawEditorVariableKeyPickerPopup() {
     ImGui::EndChild();
 
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", ui.Text(UiText::EditorVariablesKeyPickerInsertHint));
+    TextDisabledWrapped(ui.Text(UiText::EditorVariablesKeyPickerInsertHint));
     ImGui::Spacing();
     if (ImGui::Button(ui.Text(UiText::Cancel))) {
         editor.variablesKeyPickerSearch.clear();
@@ -886,7 +924,10 @@ void BinderModule::Impl::DrawInputEditor() {
         return issues;
     };
 
-    if (ImGui::Button(ui.Text(UiText::AddField))) {
+    const float parameterToolbarWidth = ImGui::GetContentRegionAvail().x;
+    const bool addField = ImGui::Button(ui.Text(UiText::AddField));
+    const float addFieldButtonWidth = ImGui::GetItemRectSize().x;
+    if (addField) {
         HotkeyInput input;
         input.key = "FIELD_" + std::to_string(editor.draft.inputs.size() + 1);
         input.label = ui.Format(UiText::FieldLabelFormat, static_cast<int>(editor.draft.inputs.size() + 1));
@@ -903,7 +944,6 @@ void BinderModule::Impl::DrawInputEditor() {
     clampSelectedInput();
     std::vector<InputKeyIssue> inputIssues = buildInputKeyIssues();
 
-    ImGui::SameLine();
     const int currentIndexBeforeActions = editor.selectedInputIndex;
     const std::string currentTitle = inputDisplayName(
         editor.draft.inputs[static_cast<std::size_t>(currentIndexBeforeActions)],
@@ -913,8 +953,18 @@ void BinderModule::Impl::DrawInputEditor() {
         currentTitle.c_str(),
         currentIndexBeforeActions + 1,
         static_cast<int>(editor.draft.inputs.size()));
-    const float selectorWidth = std::clamp(ImGui::GetContentRegionAvail().x * 0.45f, ScaleUi(210.0f), ScaleUi(440.0f));
-    ImGui::SetNextItemWidth(selectorWidth);
+    const float actionButtonsWidth = actionButtonSize.x * 4.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+    const ParameterToolbarLayout toolbarLayout = CalculateParameterToolbarLayout(
+        parameterToolbarWidth,
+        addFieldButtonWidth,
+        ScaleUi(210.0f),
+        ScaleUi(440.0f),
+        actionButtonsWidth,
+        ImGui::GetStyle().ItemSpacing.x);
+    if (!toolbarLayout.wrapAfterLeadingAction) {
+        ImGui::SameLine();
+    }
+    ImGui::SetNextItemWidth(toolbarLayout.selectorWidth);
     if (ImGui::BeginCombo("##binder_input_selector", selectorPreview.c_str())) {
         for (std::size_t i = 0; i < editor.draft.inputs.size(); ++i) {
             const std::string itemTitle = inputDisplayName(editor.draft.inputs[i], static_cast<int>(i));
@@ -1101,15 +1151,27 @@ void BinderModule::Impl::DrawInputEditor() {
 
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextUnformatted(
-        ui.Format(UiText::ParameterVariantsCountFormat, static_cast<int>(input.buttons.size())).c_str());
-    ImGui::SameLine();
+    const std::string variantsCount =
+        ui.Format(UiText::ParameterVariantsCountFormat, static_cast<int>(input.buttons.size()));
+    const float variantsRowWidth = ImGui::GetContentRegionAvail().x;
+    const float bulkEditButtonWidth = MeasureEditorButtonWidth(ui.Text(UiText::ParameterBulkEdit));
+    const float addButtonWidth = MeasureEditorButtonWidth(ui.Text(UiText::AddButton));
+    const float variantsActionsWidth = bulkEditButtonWidth + ImGui::GetStyle().ItemSpacing.x + addButtonWidth;
+    const bool variantsActionsInline =
+        variantsRowWidth + 0.5f >= ImGui::CalcTextSize(variantsCount.c_str()).x + ImGui::GetStyle().ItemSpacing.x + variantsActionsWidth;
+    const bool variantsButtonsInline = variantsRowWidth + 0.5f >= variantsActionsWidth;
+    ImGui::TextUnformatted(variantsCount.c_str());
+    if (variantsActionsInline) {
+        ImGui::SameLine();
+    }
     if (ImGui::Button(ui.Text(UiText::ParameterBulkEdit))) {
         editor.selectedButtonsText = SerializeButtonsText(input.buttons);
         editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex)] = editor.selectedButtonsText;
         ImGui::OpenPopup("###binder_parameter_bulk_popup");
     }
-    ImGui::SameLine();
+    if (variantsButtonsInline) {
+        ImGui::SameLine();
+    }
     if (ImGui::Button(ui.Text(UiText::AddButton))) {
         input.buttons.push_back(InputButton{});
         editor.selectedInputButtonIndex = static_cast<int>(input.buttons.size() - 1);
@@ -1242,9 +1304,8 @@ void BinderModule::Impl::DrawInputEditor() {
 
     const std::string bulkPopupTitle = std::string(ui.Text(UiText::ParameterBulkTitle)) + "###binder_parameter_bulk_popup";
     bool bulkPopupOpen = true;
-    const float bulkPopupMaxWidth = std::max(ScaleUi(360.0f), ImGui::GetIO().DisplaySize.x - ScaleUi(24.0f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(ScaleUi(720.0f), bulkPopupMaxWidth), 0.0f), ImGuiCond_Appearing);
-    if (ImGui::BeginPopupModal(bulkPopupTitle.c_str(), &bulkPopupOpen, ImGuiWindowFlags_AlwaysAutoResize)) {
+    SetNextResponsiveEditorPopupSize(ScaleUi(720.0f, 500.0f), ScaleUi(420.0f, 320.0f));
+    if (ImGui::BeginPopupModal(bulkPopupTitle.c_str(), &bulkPopupOpen, ImGuiWindowFlags_NoSavedSettings)) {
         if (!bulkPopupOpen) {
             editor.selectedButtonsText = SerializeButtonsText(input.buttons);
             editor.inputButtonsBulkDrafts[static_cast<std::size_t>(currentIndex)] = editor.selectedButtonsText;
@@ -1418,8 +1479,17 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     const float dragHandleWidth = std::ceil(ImGui::CalcTextSize(ui_icons::MoveRows).x + ScaleUi(4.0f));
     const float dragHandleHeight = scenarioControlHeight;
     const float dragColumnWidth = std::ceil(dragHandleWidth + style.CellPadding.x * 2.0f);
+    float widestDestinationLabelWidth = ImGui::CalcTextSize(ui.Text(UiText::EditorColumnDestination)).x;
+    for (int method = 0; method <= 9; ++method) {
+        widestDestinationLabelWidth =
+            std::max(widestDestinationLabelWidth, ImGui::CalcTextSize(SendMethodLabel(method)).x);
+    }
     const float destinationColumnWidth = std::ceil(
-        ImGui::CalcTextSize(ui.Text(UiText::SendDirect)).x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight());
+        (widestDestinationLabelWidth + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight()) * 0.5f);
+    const float legacyPauseControlWidth = ScaleUi(110.0f);
+    const float pauseColumnWidth = std::max(
+        1.0f,
+        legacyPauseControlWidth - (scenarioControlHeight + style.ItemInnerSpacing.x) * 2.0f);
     const ImVec2 actionButtonSize(scenarioControlHeight, scenarioControlHeight);
     const float actionButtonsWidth = actionButtonSize.x;
     const float actionsColumnWidth = std::ceil(actionButtonsWidth + style.CellPadding.x * 2.0f);
@@ -1434,8 +1504,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         editor.scenarioMessageFocusCaretByte = -1;
     }
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("%s", ui.Text(UiText::EditorScenarioHint));
+    TextDisabledWrapped(ui.Text(UiText::EditorScenarioHint));
     ImGui::Spacing();
 
     int removeIndex = -1;
@@ -1445,9 +1514,10 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
     int pasteSelectionStartByte = -1;
     int pasteSelectionEndByte = -1;
     std::string pasteClipboard{};
+    const float scenarioTableHeight = std::max(1.0f, ImGui::GetContentRegionAvail().y);
     const ImVec2 stepsTableOuterSize(
         ImGui::GetContentRegionAvail().x,
-        std::max(ScaleUi(180.0f), ImGui::GetContentRegionAvail().y));
+        scenarioTableHeight);
     if (ImGui::BeginTable(
             "##binder_editor_steps",
             5,
@@ -1462,7 +1532,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
         ImGui::TableSetupColumn(
             UiSettings::Instance().Text(UiText::EditorColumnPauseMs),
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
-            ScaleUi(110.0f));
+            pauseColumnWidth);
         ImGui::TableSetupColumn(
             UiSettings::Instance().Text(UiText::EditorColumnDestination),
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
@@ -1590,7 +1660,7 @@ void BinderModule::Impl::DrawEditorScenarioTab() {
 
                 ImGui::TableSetColumnIndex(2);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::InputInt("##step_delay", &message.intervalMs);
+                ImGui::InputInt("##step_delay", &message.intervalMs, 0, 0);
                 const bool delayEditing = ImGui::IsItemActive() || ImGui::IsItemFocused();
                 if (message.intervalMs < 0) {
                     message.intervalMs = 0;
@@ -1875,7 +1945,7 @@ void BinderModule::Impl::DrawEditorMultiInputPopup() {
         ImGui::TableSetColumnIndex(1);
         ImGui::TextDisabled("%s", ui.Text(UiText::EditorColumnPauseMs));
         ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::InputInt("##binder_editor_bulk_interval_popup", &editor.bulkIntervalMs)) {
+        if (ImGui::InputInt("##binder_editor_bulk_interval_popup", &editor.bulkIntervalMs, 0, 0)) {
             bulkChanged = true;
         }
         if (editor.bulkIntervalMs < 0) {
@@ -1896,7 +1966,7 @@ void BinderModule::Impl::DrawEditorMultiInputPopup() {
     if (bulkChanged || textChanged) {
         ApplyEditorMultiToDraft(bulkChanged);
     }
-    ImGui::TextDisabled("%s", ui.Text(UiText::EditorMultiInputHint));
+    TextDisabledWrapped(ui.Text(UiText::EditorMultiInputHint));
     ImGui::Spacing();
     const float doneWidth = ScaleUi(120.0f);
     const float cursorX = ImGui::GetCursorPosX();

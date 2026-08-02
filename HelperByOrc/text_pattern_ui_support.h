@@ -1,5 +1,6 @@
 #pragma once
 
+#include "text_pattern_builder.h"
 #include "ui_settings.h"
 
 #include <cstddef>
@@ -17,6 +18,8 @@ struct ReferenceItem {
 };
 
 std::span<const ReferenceItem> ReferenceItems();
+UiText TokenLabel(text_pattern_builder::TokenKind kind);
+UiText TokenHelp(text_pattern_builder::TokenKind kind);
 bool ContainsBroadWildcard(std::string_view pattern);
 std::size_t Utf8CharacterOffset(std::string_view value, std::size_t byteOffset);
 std::string FormatCompilePosition(std::string_view pattern, std::size_t byteOffset);

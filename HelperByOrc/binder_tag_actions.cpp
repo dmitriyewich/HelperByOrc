@@ -145,6 +145,24 @@ std::string BinderModule::Impl::BuildThiscategoryTagValue(std::uint64_t runtimeI
     return desc.hotkeyIndex < 0 ? std::string{} : desc.category;
 }
 
+std::string BinderModule::Impl::BuildChatTriggerCaptureValue(
+    std::uint64_t runtimeId,
+    std::string_view selector) const {
+    const RunningBind* const running = FindRunningBind(runtimeId);
+    if (!running || !running->triggerCaptures.program) {
+        return {};
+    }
+
+    const std::string normalizedSelector = Trim(selector);
+    if (normalizedSelector.empty()) {
+        return {};
+    }
+    return std::string(running->triggerCaptures.program->Capture(
+        running->triggerCaptures.subject,
+        running->triggerCaptures.snapshot,
+        normalizedSelector));
+}
+
 bool BinderModule::Impl::IsRuntimeActive(std::uint64_t runtimeId) const {
     if (runtimeId == 0) {
         return false;

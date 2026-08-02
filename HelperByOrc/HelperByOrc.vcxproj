@@ -200,6 +200,7 @@
     <ClCompile Include="ui_settings.cpp" />
     <ClCompile Include="unwanted_messages_module.cpp" />
     <ClCompile Include="text_pattern_builder.cpp" />
+    <ClCompile Include="text_pattern_constructor_ui.cpp" />
     <ClCompile Include="text_pattern_engine.cpp" />
     <ClCompile Include="text_pattern_input.cpp" />
     <ClCompile Include="text_pattern_ui_support.cpp" />
@@ -301,6 +302,7 @@
     <ClInclude Include="ui_settings.h" />
     <ClInclude Include="unwanted_messages_module.h" />
     <ClInclude Include="text_pattern_builder.h" />
+    <ClInclude Include="text_pattern_constructor_ui.h" />
     <ClInclude Include="text_pattern_engine.h" />
     <ClInclude Include="text_pattern_input.h" />
     <ClInclude Include="text_pattern_ui_support.h" />

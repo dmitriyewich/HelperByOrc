@@ -2,6 +2,7 @@
 
 #include "json_utils.h"
 #include "text_pattern_builder.h"
+#include "text_pattern_constructor_ui.h"
 #include "text_pattern_engine.h"
 
 #include <cstdint>
@@ -283,7 +284,8 @@ private:
     bool DrawRuleEditor(bool popupMode);
     void DrawTesterPanel();
     void DrawRegexHelperWizard();
-    void DrawRegexReferencePopup();
+    void DrawRegexReferencePanel();
+    void RefreshRegexReferenceFilter();
     void DrawSettingsPopup();
     void DrawDeleteConfirmPopup();
 
@@ -325,7 +327,6 @@ private:
     bool deleteSelectedConfirmOpen_ = false;
     bool editPopupOpen_ = false;
     bool editPopupRequestOpen_ = false;
-    bool regexReferenceOpen_ = false;
     bool unsavedConfirmOpen_ = false;
     bool reloadRequested_ = false;
     std::function<void(bool)> chatAsiCompatibilityHandler_;
@@ -347,6 +348,7 @@ private:
 
     std::string testText_{};
     std::string helperSample_{};
+    int helperWorkspaceMode_ = 0;
     bool helperColors_ = true;
     bool helperNumbers_ = true;
     bool helperMoney_ = true;
@@ -359,10 +361,14 @@ private:
     std::string helperGeneralized_{};
     std::string helperContains_{};
     std::vector<unwanted_regex_builder::Token> helperTokens_{};
+    text_pattern_constructor_ui::State helperConstructor_{};
     std::string helperWarning_{};
     bool helperGeneralizedValid_ = false;
     bool helperExactValid_ = false;
     bool helperContainsValid_ = false;
     std::string regexReferenceSearch_{};
+    int regexReferenceFilterLanguage_ = -1;
+    std::string regexReferenceFilterSearch_{};
+    std::vector<std::size_t> regexReferenceVisibleItems_{};
     bool editPopupForceClose_ = false;
 };

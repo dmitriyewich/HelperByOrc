@@ -407,6 +407,18 @@ void CenterNextItem(float itemWidth) {
     }
 }
 
+float MeasureButtonWidth(const char* label, float minimumWidth = 0.0f) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float contentWidth = ImGui::CalcTextSize(label ? label : "").x + style.FramePadding.x * 2.0f;
+    return std::ceil(std::max(minimumWidth, contentWidth));
+}
+
+float MeasureCheckboxWidth(const char* label) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float labelWidth = ImGui::CalcTextSize(label ? label : "").x;
+    return std::ceil(ImGui::GetFrameHeight() + (labelWidth > 0.0f ? style.ItemInnerSpacing.x + labelWidth : 0.0f));
+}
+
 } // namespace
 
 void NormalizeDraftForOpen(State& editor) {
@@ -457,14 +469,28 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
     const float frameHeight = ImGui::GetFrameHeight();
     const float hotkeyButtonWidth = ScaleUi(156.0f);
     const float hotkeyColumnWidth = hotkeyButtonWidth + style.ItemSpacing.x + frameHeight;
-    const float commandColumnWidth = ScaleUi(210.0f);
+    const float settingsButtonMinWidth =
+        MeasureButtonWidth(ui.Text(UiText::EditorConfirmationSettings), ScaleUi(72.0f));
+    const float commandControlsWidth =
+        MeasureCheckboxWidth(ui.Text(UiText::EditorToggleCommandConfirm))
+        + style.ItemSpacing.x
+        + settingsButtonMinWidth;
+    const float commandColumnWidth = std::ceil(std::max(
+        ScaleUi(210.0f),
+        commandControlsWidth + style.CellPadding.x * 2.0f));
+    const float conditionsColumnWidth = std::ceil(std::max(
+        ScaleUi(124.0f),
+        MeasureButtonWidth(conditionsLabel.c_str()) + style.CellPadding.x * 2.0f));
+    const float multiInputColumnWidth = std::ceil(std::max(
+        ScaleUi(136.0f),
+        MeasureButtonWidth(ui.Text(UiText::EditorOpenMultiInput)) + style.CellPadding.x * 2.0f));
     const ImVec2 launchTableSize(ImGui::GetContentRegionAvail().x, 0.0f);
 
     if (ImGui::BeginTable("##binder_editor_launch_line1", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings, launchTableSize)) {
         ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("conditions", ImGuiTableColumnFlags_WidthFixed, ScaleUi(124.0f));
+        ImGui::TableSetupColumn("conditions", ImGuiTableColumnFlags_WidthFixed, conditionsColumnWidth);
         ImGui::TableSetupColumn("quick", ImGuiTableColumnFlags_WidthFixed, frameHeight + style.CellPadding.x * 2.0f);
-        ImGui::TableSetupColumn("multi", ImGuiTableColumnFlags_WidthFixed, ScaleUi(136.0f));
+        ImGui::TableSetupColumn("multi", ImGuiTableColumnFlags_WidthFixed, multiInputColumnWidth);
         ImGui::TableNextRow();
 
         ImGui::TableSetColumnIndex(0);
@@ -585,11 +611,26 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
         const std::string patternButtonLabel = std::string(
             editor.draft.textTrigger.pattern ? ui_icons::ToggleOn : ui_icons::ToggleOff)
             + " " + ui.Text(UiText::EditorTogglePattern);
+        const float triggerAvailableWidth = ImGui::GetContentRegionAvail().x;
+        const float patternButtonMinWidth = MeasureButtonWidth(patternButtonLabel.c_str());
+        const float textConfirmationWidth = MeasureCheckboxWidth(ui.Text(UiText::EditorToggleTextConfirm));
+        const bool compactTriggerControls =
+            triggerAvailableWidth + 0.5f < patternButtonMinWidth + style.ItemSpacing.x + textConfirmationWidth;
         if (editor.draft.textTrigger.pattern) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         }
-        if (ImGui::Button(patternButtonLabel.c_str())) {
-            editor.textPatternHelper.popupPending = true;
+        if (compactTriggerControls) {
+            if (IconButton(
+                    editor.draft.textTrigger.pattern ? ui_icons::ToggleOn : ui_icons::ToggleOff,
+                    "##binder_editor_pattern_compact",
+                    ui.Text(UiText::EditorTriggerPatternTooltip),
+                    ImVec2(frameHeight, frameHeight))) {
+                editor.textPatternHelper.popupPending = true;
+            }
+        } else {
+            if (ImGui::Button(patternButtonLabel.c_str())) {
+                editor.textPatternHelper.popupPending = true;
+            }
         }
         if (editor.draft.textTrigger.pattern) {
             ImGui::PopStyleColor();
@@ -597,28 +638,49 @@ void DrawLaunchPanel(State& editor, const LaunchPanelActions& actions) {
         DrawTextTooltip(ui.Text(UiText::EditorTriggerPatternTooltip));
         ImGui::SameLine();
         ImGui::BeginDisabled(!editor.draft.textTrigger.enabled);
-        DrawCheckboxWithTooltip(
-            ui.Text(UiText::EditorToggleTextConfirm),
-            editor.draft.textConfirmation.enabled,
-            ui.Text(UiText::TextConfirmation));
+        if (compactTriggerControls) {
+            ImGui::Checkbox("##binder_editor_text_confirm_compact", &editor.draft.textConfirmation.enabled);
+            DrawTextTooltip(ui.Text(UiText::TextConfirmation));
+        } else {
+            DrawCheckboxWithTooltip(
+                ui.Text(UiText::EditorToggleTextConfirm),
+                editor.draft.textConfirmation.enabled,
+                ui.Text(UiText::TextConfirmation));
+        }
         ImGui::EndDisabled();
 
         ImGui::TableSetColumnIndex(2);
-        const float commandLineStartX = ImGui::GetCursorPosX();
+        const bool compactCommandControls =
+            ImGui::GetContentRegionAvail().x + 0.5f < commandControlsWidth;
         ImGui::BeginDisabled(!editor.draft.commandEnabled);
-        DrawCheckboxWithTooltip(
-            ui.Text(UiText::EditorToggleCommandConfirm),
-            editor.draft.commandConfirmation.enabled,
-            ui.Text(UiText::CommandConfirmation));
+        if (compactCommandControls) {
+            ImGui::Checkbox("##binder_editor_command_confirm_compact", &editor.draft.commandConfirmation.enabled);
+            DrawTextTooltip(ui.Text(UiText::CommandConfirmation));
+        } else {
+            DrawCheckboxWithTooltip(
+                ui.Text(UiText::EditorToggleCommandConfirm),
+                editor.draft.commandConfirmation.enabled,
+                ui.Text(UiText::CommandConfirmation));
+        }
         ImGui::EndDisabled();
         const bool hasConfirmation = editor.draft.textConfirmation.enabled || editor.draft.commandConfirmation.enabled;
         ImGui::SameLine();
-        const float settingsButtonWidth = std::max(
-            ScaleUi(72.0f),
-            commandColumnWidth - (ImGui::GetCursorPosX() - commandLineStartX));
         ImGui::BeginDisabled(!hasConfirmation);
-        if (ImGui::Button(ui.Text(UiText::EditorConfirmationSettings), ImVec2(settingsButtonWidth, 0.0f)) && hasConfirmation) {
-            editor.confirmationSettingsPopupPending = true;
+        const float settingsAvailableWidth = ImGui::GetContentRegionAvail().x;
+        if (settingsAvailableWidth + 0.5f >= settingsButtonMinWidth) {
+            if (ImGui::Button(ui.Text(UiText::EditorConfirmationSettings), ImVec2(-FLT_MIN, 0.0f)) && hasConfirmation) {
+                editor.confirmationSettingsPopupPending = true;
+            }
+        } else {
+            const float compactButtonWidth = std::max(1.0f, std::min(frameHeight, settingsAvailableWidth));
+            if (IconButton(
+                    ui_icons::Gear,
+                    "##binder_editor_confirmation_settings_compact",
+                    ui.Text(UiText::EditorConfirmationSettings),
+                    ImVec2(compactButtonWidth, frameHeight))
+                && hasConfirmation) {
+                editor.confirmationSettingsPopupPending = true;
+            }
         }
         ImGui::EndDisabled();
         DrawTextTooltip(hasConfirmation ? ui.Text(UiText::EditorConfirmationHint) : ui.Text(UiText::EditorConfirmationSettingsDisabledTooltip));
@@ -638,7 +700,7 @@ void DrawConfirmationSettingsPopup(State& editor, const LaunchPanelActions& acti
     }
 
     bool open = true;
-    const float confirmationMaxWidth = std::max(ScaleUi(320.0f), ImGui::GetIO().DisplaySize.x - ScaleUi(24.0f));
+    const float confirmationMaxWidth = std::max(1.0f, ImGui::GetIO().DisplaySize.x - ScaleUi(24.0f));
     ImGui::SetNextWindowSize(ImVec2(std::min(ScaleUi(520.0f), confirmationMaxWidth), 0.0f), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(title.c_str(), &open, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
@@ -682,7 +744,12 @@ void DrawConfirmationSettingsPopup(State& editor, const LaunchPanelActions& acti
     ImGui::Spacing();
     ImGui::TextDisabled("%s", ui.Text(UiText::EditorConfirmationHint));
     ImGui::Spacing();
-    if (ImGui::Button(ui.Text(UiText::Close), ScaleUi(120.0f, 0.0f))) {
+    const float closeButtonWidth = std::max(
+        1.0f,
+        std::min(
+            ImGui::GetContentRegionAvail().x,
+            MeasureButtonWidth(ui.Text(UiText::Close), ScaleUi(120.0f))));
+    if (ImGui::Button(ui.Text(UiText::Close), ImVec2(closeButtonWidth, 0.0f))) {
         ImGui::CloseCurrentPopup();
     }
 
@@ -716,7 +783,9 @@ void DrawInline(State& editor, const ShellActions& actions) {
     const std::string nextLabel = std::string(ui.Text(UiText::EditorNextBind)) + " " + std::string(ui_icons::ChevronRight);
     const std::string variablesLabel = std::string(ui_icons::Tags) + " " + ui.Text(UiText::EditorVariables);
     const std::string saveLabel = std::string(ui_icons::SaveDisk) + " " + ui.Text(UiText::Save);
-    const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float itemSpacingX = style.ItemSpacing.x;
+    const float frameHeight = ImGui::GetFrameHeight();
 
     const auto requestAction = [&](State::PendingAction action, int targetIndex = -1) {
         if (actions.requestAction) {
@@ -741,7 +810,10 @@ void DrawInline(State& editor, const ShellActions& actions) {
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, headerBg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(12.0f, 6.0f));
-    if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, ScaleUi(52.0f)), ImGuiChildFlags_Borders)) {
+    const float headerHeight = std::max(
+        ScaleUi(52.0f),
+        frameHeight + ImGui::GetTextLineHeight() * 0.75f + ScaleUi(12.0f));
+    if (ImGui::BeginChild("##binder_editor_header", ImVec2(0.0f, headerHeight), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTable("##binder_editor_header_table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
             ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch, 0.56f);
             ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch, 0.44f);
@@ -771,7 +843,7 @@ void DrawInline(State& editor, const ShellActions& actions) {
             std::string headerBreadcrumb;
             {
                 const ui_fonts::ScopedFontSize fontScope(ui_fonts::FontSizeForScale(0.75f));
-                headerBreadcrumb = EllipsizeText(breadcrumb, std::max(0.0f, ImGui::GetContentRegionAvail().x * 2.0f));
+                headerBreadcrumb = EllipsizeText(breadcrumb, std::max(0.0f, ImGui::GetContentRegionAvail().x));
                 ImGui::TextDisabled("%s", headerBreadcrumb.c_str());
             }
             if (headerBreadcrumb != breadcrumb && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
@@ -780,27 +852,52 @@ void DrawInline(State& editor, const ShellActions& actions) {
 
             ImGui::TableSetColumnIndex(1);
             const float headerAvailableWidth = ImGui::GetContentRegionAvail().x;
-            const float desiredPreviousButtonWidth = ScaleUi(148.0f);
-            const float desiredNextButtonWidth = ScaleUi(136.0f);
-            const float headerButtonScale = std::min(
-                1.0f,
-                std::max(0.0f, headerAvailableWidth - itemSpacingX)
-                    / (desiredPreviousButtonWidth + desiredNextButtonWidth));
-            const float previousButtonWidth = desiredPreviousButtonWidth * headerButtonScale;
-            const float nextButtonWidth = desiredNextButtonWidth * headerButtonScale;
-            const float headerActionWidth = previousButtonWidth + nextButtonWidth + itemSpacingX;
-            alignRight(headerActionWidth);
-            ImGui::BeginDisabled(prevIndex < 0);
-            if (ImGui::Button(previousLabel.c_str(), ImVec2(previousButtonWidth, 0.0f))) {
-                requestAction(State::PendingAction::Navigate, prevIndex);
+            const float desiredPreviousButtonWidth =
+                MeasureButtonWidth(previousLabel.c_str(), ScaleUi(148.0f));
+            const float desiredNextButtonWidth =
+                MeasureButtonWidth(nextLabel.c_str(), ScaleUi(136.0f));
+            const bool compactHeaderActions =
+                headerAvailableWidth + 0.5f < desiredPreviousButtonWidth + desiredNextButtonWidth + itemSpacingX;
+            if (compactHeaderActions) {
+                const float compactButtonWidth = std::max(
+                    1.0f,
+                    std::min(frameHeight, (std::max(0.0f, headerAvailableWidth - itemSpacingX)) * 0.5f));
+                const float compactActionWidth = compactButtonWidth * 2.0f + itemSpacingX;
+                alignRight(compactActionWidth);
+                ImGui::BeginDisabled(prevIndex < 0);
+                if (IconButton(
+                        ui_icons::ChevronLeft,
+                        "##binder_editor_previous_compact",
+                        ui.Text(UiText::EditorPreviousBind),
+                        ImVec2(compactButtonWidth, frameHeight))) {
+                    requestAction(State::PendingAction::Navigate, prevIndex);
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled(nextIndex < 0);
+                if (IconButton(
+                        ui_icons::ChevronRight,
+                        "##binder_editor_next_compact",
+                        ui.Text(UiText::EditorNextBind),
+                        ImVec2(compactButtonWidth, frameHeight))) {
+                    requestAction(State::PendingAction::Navigate, nextIndex);
+                }
+                ImGui::EndDisabled();
+            } else {
+                const float headerActionWidth = desiredPreviousButtonWidth + desiredNextButtonWidth + itemSpacingX;
+                alignRight(headerActionWidth);
+                ImGui::BeginDisabled(prevIndex < 0);
+                if (ImGui::Button(previousLabel.c_str(), ImVec2(desiredPreviousButtonWidth, 0.0f))) {
+                    requestAction(State::PendingAction::Navigate, prevIndex);
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled(nextIndex < 0);
+                if (ImGui::Button(nextLabel.c_str(), ImVec2(desiredNextButtonWidth, 0.0f))) {
+                    requestAction(State::PendingAction::Navigate, nextIndex);
+                }
+                ImGui::EndDisabled();
             }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::BeginDisabled(nextIndex < 0);
-            if (ImGui::Button(nextLabel.c_str(), ImVec2(nextButtonWidth, 0.0f))) {
-                requestAction(State::PendingAction::Navigate, nextIndex);
-            }
-            ImGui::EndDisabled();
 
             ImGui::EndTable();
         }
@@ -822,7 +919,8 @@ void DrawInline(State& editor, const ShellActions& actions) {
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, panelBg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ScaleUi(8.0f, 10.0f));
-    if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -ScaleUi(50.0f)), ImGuiChildFlags_Borders)) {
+    const float footerReserveHeight = std::max(ScaleUi(50.0f), frameHeight + ScaleUi(14.0f));
+    if (ImGui::BeginChild("##binder_editor_work", ImVec2(0.0f, -footerReserveHeight), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTabBar("##binder_editor_work_tabs")) {
             if (ImGui::BeginTabItem(
                     ui.Text(UiText::EditorScenarioTab),
@@ -867,30 +965,59 @@ void DrawInline(State& editor, const ShellActions& actions) {
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            if (ImGui::Button(variablesLabel.c_str(), ScaleUi(170.0f, 0.0f))) {
+            const float variablesButtonWidth = std::max(
+                1.0f,
+                std::min(
+                    ImGui::GetContentRegionAvail().x,
+                    MeasureButtonWidth(variablesLabel.c_str(), ScaleUi(170.0f))));
+            if (ImGui::Button(variablesLabel.c_str(), ImVec2(variablesButtonWidth, 0.0f))) {
                 editor.variablesPopupPending = true;
             }
 
             ImGui::TableSetColumnIndex(1);
             const float footerAvailableWidth = ImGui::GetContentRegionAvail().x;
-            const float desiredSaveButtonWidth = ScaleUi(190.0f);
-            const float desiredCancelButtonWidth = ScaleUi(130.0f);
-            const float footerButtonScale = std::min(
-                1.0f,
-                std::max(0.0f, footerAvailableWidth - itemSpacingX)
-                    / (desiredSaveButtonWidth + desiredCancelButtonWidth));
-            const float saveButtonWidth = desiredSaveButtonWidth * footerButtonScale;
-            const float cancelButtonWidth = desiredCancelButtonWidth * footerButtonScale;
-            const float footerActionWidth = saveButtonWidth + cancelButtonWidth + itemSpacingX;
-            alignRight(footerActionWidth);
-            pushPrimaryButtonStyle();
-            if (ImGui::Button(saveLabel.c_str(), ImVec2(saveButtonWidth, 0.0f)) && actions.saveRequested) {
-                actions.saveRequested();
-            }
-            popPrimaryButtonStyle();
-            ImGui::SameLine();
-            if (ImGui::Button(ui.Text(UiText::Cancel), ImVec2(cancelButtonWidth, 0.0f))) {
-                requestAction(State::PendingAction::Close);
+            const float desiredSaveButtonWidth =
+                MeasureButtonWidth(saveLabel.c_str(), ScaleUi(190.0f));
+            const float desiredCancelButtonWidth =
+                MeasureButtonWidth(ui.Text(UiText::Cancel), ScaleUi(130.0f));
+            const bool compactFooterActions =
+                footerAvailableWidth + 0.5f < desiredSaveButtonWidth + desiredCancelButtonWidth + itemSpacingX;
+            if (compactFooterActions) {
+                const float compactButtonWidth = std::max(
+                    1.0f,
+                    std::min(frameHeight, (std::max(0.0f, footerAvailableWidth - itemSpacingX)) * 0.5f));
+                const float compactActionWidth = compactButtonWidth * 2.0f + itemSpacingX;
+                alignRight(compactActionWidth);
+                pushPrimaryButtonStyle();
+                if (IconButton(
+                        ui_icons::SaveDisk,
+                        "##binder_editor_save_compact",
+                        ui.Text(UiText::Save),
+                        ImVec2(compactButtonWidth, frameHeight))
+                    && actions.saveRequested) {
+                    actions.saveRequested();
+                }
+                popPrimaryButtonStyle();
+                ImGui::SameLine();
+                if (IconButton(
+                        ui_icons::Xmark,
+                        "##binder_editor_cancel_compact",
+                        ui.Text(UiText::Cancel),
+                        ImVec2(compactButtonWidth, frameHeight))) {
+                    requestAction(State::PendingAction::Close);
+                }
+            } else {
+                const float footerActionWidth = desiredSaveButtonWidth + desiredCancelButtonWidth + itemSpacingX;
+                alignRight(footerActionWidth);
+                pushPrimaryButtonStyle();
+                if (ImGui::Button(saveLabel.c_str(), ImVec2(desiredSaveButtonWidth, 0.0f)) && actions.saveRequested) {
+                    actions.saveRequested();
+                }
+                popPrimaryButtonStyle();
+                ImGui::SameLine();
+                if (ImGui::Button(ui.Text(UiText::Cancel), ImVec2(desiredCancelButtonWidth, 0.0f))) {
+                    requestAction(State::PendingAction::Close);
+                }
             }
 
             ImGui::EndTable();

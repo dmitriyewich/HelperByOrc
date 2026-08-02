@@ -57,6 +57,7 @@ public:
     std::string GetThisbindNameTagValue(std::uint64_t runtimeId) const;
     std::string GetThisbindFolderTagValue(std::uint64_t runtimeId) const;
     std::string GetThiscategoryTagValue(std::uint64_t runtimeId) const;
+    std::string GetChatTriggerCapture(std::uint64_t runtimeId, std::string_view selector) const;
     binder_tags::Catalog GetBindSelectorCatalog() const;
     bool IsRuntimeActive(std::uint64_t runtimeId) const;
     bool IsRuntimePaused(std::uint64_t runtimeId) const;

@@ -939,6 +939,7 @@ void BinderModule::Impl::StopHotkeyByRuntimeId(std::uint64_t runtimeId) {
         hotkey.pendingConfirmationCancelKey = kDefaultCancelKey;
         hotkey.pendingTriggerText.clear();
         hotkey.pendingTriggerSource.clear();
+        hotkey.pendingTriggerCaptures = {};
     }
 
     runningBinds.erase(
@@ -1034,10 +1035,19 @@ void BinderModule::Impl::StartRunningBind(
     int startDelayMs,
     std::string activationSource,
     std::string activationText,
+    TextTriggerCaptures triggerCaptures,
     std::string bindCommand) {
     const bool alreadyRunning = FindRunningBind(hotkey.runtimeId) != nullptr;
     if (hotkey.runtimeId == 0 || alreadyRunning) {
         return;
+    }
+
+    if (triggerCaptures.program) {
+        debuglog::WriteInfo(
+            "[binder][chatwordsex] capture snapshot armed runtime=%llu groups=%llu subject_bytes=%llu",
+            static_cast<unsigned long long>(hotkey.runtimeId),
+            static_cast<unsigned long long>(triggerCaptures.program->CaptureCount()),
+            static_cast<unsigned long long>(triggerCaptures.subject.size()));
     }
 
     const BinderCategory* category = FindCategoryById(hotkey.categoryId);
@@ -1050,6 +1060,7 @@ void BinderModule::Impl::StartRunningBind(
         static_cast<double>(GetTickCount64() + std::max(startDelayMs, 0)),
         std::move(activationSource),
         std::move(activationText),
+        std::move(triggerCaptures),
         std::move(bindCommand),
         false,
         0.0,
@@ -1267,7 +1278,8 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
     HotkeyEntry& hotkey,
     std::string_view sourceKind,
     const std::string& sourceText,
-    bool waitForResolution) {
+    bool waitForResolution,
+    TextTriggerCaptures* triggerCaptures) {
     std::string conditionMessage;
     if (!IsHotkeyEffectivelyEnabled(hotkey) || hotkey.waitingTextConfirmation || hotkey.awaitingInput
         || ConditionsBlockHotkeyStart(hotkey, sourceKind, &conditionMessage)) {
@@ -1284,6 +1296,7 @@ bool BinderModule::Impl::TryBeginPendingConfirmation(
         : kDefaultCancelKey;
     hotkey.pendingTriggerText = sourceText;
     hotkey.pendingTriggerSource = std::string(sourceKind);
+    hotkey.pendingTriggerCaptures = triggerCaptures ? std::move(*triggerCaptures) : TextTriggerCaptures{};
     if (waitForResolution && sourceKind != "command") {
         hotkey.textConfirmationDeadlineMs = now + textConfirmationWaitTimeoutMs;
     } else {
@@ -1364,9 +1377,11 @@ void BinderModule::Impl::OnIncomingMessage(const IncomingMessageEvent& message) 
         }
 
         const std::string* matchedSource = nullptr;
-        if (MatchTextTrigger(normalizedText, hotkey)) {
+        TextTriggerCaptures triggerCaptures;
+        if (MatchTextTrigger(normalizedText, hotkey, &triggerCaptures)) {
             matchedSource = &normalizedText;
-        } else if (!normalizedPrefixedText.empty() && MatchTextTrigger(normalizedPrefixedText, hotkey)) {
+        } else if (!normalizedPrefixedText.empty()
+            && MatchTextTrigger(normalizedPrefixedText, hotkey, &triggerCaptures)) {
             matchedSource = &normalizedPrefixedText;
         }
 
@@ -1374,7 +1389,13 @@ void BinderModule::Impl::OnIncomingMessage(const IncomingMessageEvent& message) 
             continue;
         }
 
-        TryDispatchTextTriggerMatch(static_cast<int>(i), hotkey, *matchedSource, "incoming_server", now);
+        TryDispatchTextTriggerMatch(
+            static_cast<int>(i),
+            hotkey,
+            *matchedSource,
+            "incoming_server",
+            now,
+            std::move(triggerCaptures));
     }
 }
 
@@ -1392,6 +1413,7 @@ void BinderModule::Impl::ExpireTextConfirmations() {
             hotkey.pendingConfirmationCancelKey = kDefaultCancelKey;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
+            hotkey.pendingTriggerCaptures = {};
             Notify(
                 NotificationGroup::Confirmation,
                 NotificationSeverity::Warning,
@@ -1418,19 +1440,27 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
             hotkey.pendingConfirmationCancelKey = kDefaultCancelKey;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
+            hotkey.pendingTriggerCaptures = {};
             continue;
         }
 
         if (keyCode == hotkey.pendingConfirmationKey) {
             const std::string pendingText = hotkey.pendingTriggerText;
             const std::string pendingSource = hotkey.pendingTriggerSource;
+            TextTriggerCaptures pendingCaptures = std::move(hotkey.pendingTriggerCaptures);
             hotkey.waitingTextConfirmation = false;
             hotkey.textConfirmationDeadlineMs = 0.0;
             hotkey.pendingConfirmationKey = kDefaultConfirmKey;
             hotkey.pendingConfirmationCancelKey = kDefaultCancelKey;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
-            TryEnqueueHotkey(static_cast<int>(i), 0, pendingSource, pendingText);
+            hotkey.pendingTriggerCaptures = {};
+            TryEnqueueHotkey(
+                static_cast<int>(i),
+                0,
+                pendingSource,
+                pendingText,
+                std::move(pendingCaptures));
             handled = true;
         } else if (keyCode == hotkey.pendingConfirmationCancelKey) {
             const char* confirmationLabel = ConfirmationSourceLabel(hotkey.pendingTriggerSource);
@@ -1440,6 +1470,7 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
             hotkey.pendingConfirmationCancelKey = kDefaultCancelKey;
             hotkey.pendingTriggerText.clear();
             hotkey.pendingTriggerSource.clear();
+            hotkey.pendingTriggerCaptures = {};
             Notify(
                 NotificationGroup::Confirmation,
                 NotificationSeverity::Warning,
@@ -1454,7 +1485,13 @@ bool BinderModule::Impl::ActivatePendingTextConfirmations(UINT keyCode) {
     return handled;
 }
 
-bool BinderModule::Impl::MatchTextTrigger(const std::string& source, HotkeyEntry& hotkey) {
+bool BinderModule::Impl::MatchTextTrigger(
+    const std::string& source,
+    HotkeyEntry& hotkey,
+    TextTriggerCaptures* captures) {
+    if (captures) {
+        *captures = {};
+    }
     TextTrigger& trigger = hotkey.textTrigger;
     if (!trigger.enabled || Trim(trigger.text).empty()) {
         return false;
@@ -1472,8 +1509,19 @@ bool BinderModule::Impl::MatchTextTrigger(const std::string& source, HotkeyEntry
     }
 
     if (trigger.runtimePattern) {
-        return trigger.runtimePattern->Match(normalizedSource).status == text_pattern::MatchStatus::Match
-            || normalizedSource == normalizedTarget;
+        text_pattern::CaptureSnapshot snapshot;
+        const text_pattern::MatchResult match = trigger.runtimePattern->Match(
+            normalizedSource,
+            captures ? &snapshot : nullptr);
+        if (match.status == text_pattern::MatchStatus::Match) {
+            if (captures) {
+                captures->program = trigger.runtimePattern;
+                captures->snapshot = std::move(snapshot);
+                captures->subject = normalizedSource;
+            }
+            return true;
+        }
+        return normalizedSource == normalizedTarget;
     }
     if (trigger.runtimePatternInvalid) {
         return normalizedSource == normalizedTarget;
@@ -1487,7 +1535,8 @@ bool BinderModule::Impl::TryDispatchTextTriggerMatch(
     HotkeyEntry& hotkey,
     const std::string& sourceText,
     std::string_view sourceKind,
-    double now) {
+    double now,
+    TextTriggerCaptures triggerCaptures) {
     if (TryToggleRunningHotkeyActivation(index, sourceKind, now)) {
         return true;
     }
@@ -1501,11 +1550,16 @@ bool BinderModule::Impl::TryDispatchTextTriggerMatch(
 
     hotkey.debounceUntilMs = now + kHotkeyDebounceMs;
     if (hotkey.textConfirmation.enabled
-        && TryBeginPendingConfirmation(hotkey, sourceKind, sourceText, hotkey.textConfirmation.waitForResolution)) {
+        && TryBeginPendingConfirmation(
+            hotkey,
+            sourceKind,
+            sourceText,
+            hotkey.textConfirmation.waitForResolution,
+            &triggerCaptures)) {
         return true;
     }
 
-    TryEnqueueHotkey(index, 0, sourceKind, sourceText);
+    TryEnqueueHotkey(index, 0, sourceKind, sourceText, std::move(triggerCaptures));
     return true;
 }
 
@@ -1514,10 +1568,19 @@ bool BinderModule::Impl::OnTextTriggerEvent(const std::string& sourceText, std::
     bool handled = false;
     for (std::size_t i = 0; i < hotkeys.size(); ++i) {
         HotkeyEntry& hotkey = hotkeys[i];
-        if (!IsHotkeyEffectivelyEnabled(hotkey) || !MatchTextTrigger(sourceText, hotkey)) {
+        TextTriggerCaptures triggerCaptures;
+        if (!IsHotkeyEffectivelyEnabled(hotkey)
+            || !MatchTextTrigger(sourceText, hotkey, &triggerCaptures)) {
             continue;
         }
-        handled = TryDispatchTextTriggerMatch(static_cast<int>(i), hotkey, sourceText, sourceKind, now) || handled;
+        handled = TryDispatchTextTriggerMatch(
+            static_cast<int>(i),
+            hotkey,
+            sourceText,
+            sourceKind,
+            now,
+            std::move(triggerCaptures))
+            || handled;
     }
     return handled;
 }
@@ -1526,19 +1589,26 @@ bool BinderModule::Impl::TryEnqueueHotkey(
     HotkeyEntry& hotkey,
     int startDelayMs,
     std::string_view source,
-    const std::string& sourceText) {
+    const std::string& sourceText,
+    TextTriggerCaptures triggerCaptures) {
     const auto it = std::find_if(hotkeys.begin(), hotkeys.end(), [&](const HotkeyEntry& item) { return &item == &hotkey; });
     if (it == hotkeys.end()) {
         return false;
     }
-    return TryEnqueueHotkey(static_cast<int>(std::distance(hotkeys.begin(), it)), startDelayMs, source, sourceText);
+    return TryEnqueueHotkey(
+        static_cast<int>(std::distance(hotkeys.begin(), it)),
+        startDelayMs,
+        source,
+        sourceText,
+        std::move(triggerCaptures));
 }
 
 bool BinderModule::Impl::TryEnqueueHotkey(
     int index,
     int startDelayMs,
     std::string_view source,
-    const std::string& sourceText) {
+    const std::string& sourceText,
+    TextTriggerCaptures triggerCaptures) {
     if (index < 0 || index >= static_cast<int>(hotkeys.size())) {
         return false;
     }
@@ -1581,6 +1651,7 @@ bool BinderModule::Impl::TryEnqueueHotkey(
         dialog.startDelayMs = startDelayMs;
         dialog.activationSource = std::string(source);
         dialog.activationText = sourceText;
+        dialog.triggerCaptures = std::move(triggerCaptures);
         dialog.bindCommand = hotkey.command;
         dialog.fields.reserve(hotkey.inputs.size());
         for (const HotkeyInput& input : hotkey.inputs) {
@@ -1597,7 +1668,14 @@ bool BinderModule::Impl::TryEnqueueHotkey(
         return false;
     }
 
-    StartRunningBind(hotkey, {}, startDelayMs, std::string(source), sourceText, hotkey.command);
+    StartRunningBind(
+        hotkey,
+        {},
+        startDelayMs,
+        std::string(source),
+        sourceText,
+        std::move(triggerCaptures),
+        hotkey.command);
     hotkey.awaitingInput = false;
     return true;
 }

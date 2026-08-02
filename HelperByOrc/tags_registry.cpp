@@ -1783,6 +1783,17 @@ void TagsModule::Impl::InitializeRegistry() {
 
     tagRegistry_.RegisterFunction(
         CatalogCategory::Binder,
+        false,
+        "chatwordsex",
+        "[chatwordsex(...)]",
+        "[chatwordsex(surname)]",
+        UiText::TagsBuiltinChatWordsExDescription,
+        [](const Impl& module, std::string_view param, const EvaluationContext& context, int) {
+            return module.ResolveBuiltinChatWordsExFunctionTag(param, context);
+        });
+
+    tagRegistry_.RegisterFunction(
+        CatalogCategory::Binder,
         true,
         "binddisable",
         "[binddisable(...)]",

@@ -5,7 +5,11 @@
 #include <pcre2.h>
 
 #include <array>
+#include <charconv>
+#include <cstdint>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace text_pattern {
 namespace {
@@ -29,6 +33,8 @@ struct Program::Impl {
     pcre2_code* code = nullptr;
     pcre2_match_data* matchData = nullptr;
     pcre2_match_context* matchContext = nullptr;
+    std::uint32_t captureCount = 0;
+    std::vector<std::string> captureNames{};
 
     ~Impl() {
         if (matchContext) {
@@ -50,6 +56,18 @@ Program::Program(Program&&) noexcept = default;
 Program& Program::operator=(Program&&) noexcept = default;
 
 MatchResult Program::Match(std::string_view subject) const {
+    return Match(subject, nullptr);
+}
+
+void CaptureSnapshot::Clear() {
+    programIdentity_ = nullptr;
+    ranges_.clear();
+}
+
+MatchResult Program::Match(std::string_view subject, CaptureSnapshot* captures) const {
+    if (captures) {
+        captures->Clear();
+    }
     if (!impl_ || !impl_->code || !impl_->matchData || !impl_->matchContext) {
         return {MatchStatus::Error, PCRE2_ERROR_NULL};
     }
@@ -63,6 +81,23 @@ MatchResult Program::Match(std::string_view subject) const {
         impl_->matchData,
         impl_->matchContext);
     if (result >= 0) {
+        if (captures) {
+            const PCRE2_SIZE* const offsets = pcre2_get_ovector_pointer(impl_->matchData);
+            const std::size_t offsetCount = pcre2_get_ovector_count(impl_->matchData);
+            captures->ranges_.resize(static_cast<std::size_t>(impl_->captureCount) + 1);
+            for (std::size_t groupIndex = 0; groupIndex <= impl_->captureCount; ++groupIndex) {
+                CaptureSnapshot::Range& range = captures->ranges_[groupIndex];
+                if (groupIndex >= offsetCount
+                    || offsets[groupIndex * 2] == PCRE2_UNSET
+                    || offsets[groupIndex * 2 + 1] == PCRE2_UNSET) {
+                    range = {};
+                    continue;
+                }
+                range.begin = static_cast<std::size_t>(offsets[groupIndex * 2]);
+                range.end = static_cast<std::size_t>(offsets[groupIndex * 2 + 1]);
+            }
+            captures->programIdentity_ = impl_.get();
+        }
         return {MatchStatus::Match, 0};
     }
 
@@ -104,6 +139,63 @@ MatchResult Program::Match(std::string_view subject) const {
 
 bool Program::MatchesEmpty() const {
     return Match({}).status == MatchStatus::Match;
+}
+
+std::size_t Program::CaptureCount() const {
+    return impl_ ? impl_->captureCount : 0;
+}
+
+std::string_view Program::CaptureName(std::size_t groupIndex) const {
+    if (!impl_ || groupIndex >= impl_->captureNames.size()) {
+        return {};
+    }
+    return impl_->captureNames[groupIndex];
+}
+
+std::string_view Program::Capture(
+    std::string_view subject,
+    const CaptureSnapshot& captures,
+    std::size_t groupIndex) const {
+    if (!impl_
+        || captures.programIdentity_ != impl_.get()
+        || groupIndex >= captures.ranges_.size()) {
+        return {};
+    }
+    const CaptureSnapshot::Range& range = captures.ranges_[groupIndex];
+    if (range.begin == std::string_view::npos
+        || range.end == std::string_view::npos
+        || range.begin > range.end
+        || range.end > subject.size()) {
+        return {};
+    }
+    return subject.substr(range.begin, range.end - range.begin);
+}
+
+std::string_view Program::Capture(
+    std::string_view subject,
+    const CaptureSnapshot& captures,
+    std::string_view selector) const {
+    if (selector.empty()) {
+        return {};
+    }
+
+    std::size_t groupIndex = 0;
+    const char* const begin = selector.data();
+    const char* const end = begin + selector.size();
+    const std::from_chars_result parsed = std::from_chars(begin, end, groupIndex);
+    if (parsed.ec == std::errc{} && parsed.ptr == end) {
+        return Capture(subject, captures, groupIndex);
+    }
+
+    if (!impl_) {
+        return {};
+    }
+    for (std::size_t index = 1; index < impl_->captureNames.size(); ++index) {
+        if (impl_->captureNames[index] == selector) {
+            return Capture(subject, captures, index);
+        }
+    }
+    return {};
 }
 
 CompileResult Compile(std::string_view pattern, bool nocase) {
@@ -162,6 +254,50 @@ CompileResult Compile(std::string_view pattern, bool nocase) {
             : depthLimitResult != 0 ? depthLimitResult : heapLimitResult;
         result.error = ErrorMessage(errorCode);
         return result;
+    }
+
+    std::uint32_t captureCount = 0;
+    const int captureInfoResult = pcre2_pattern_info(code, PCRE2_INFO_CAPTURECOUNT, &captureCount);
+    if (captureInfoResult != 0) {
+        result.error = ErrorMessage(captureInfoResult);
+        return result;
+    }
+    impl->captureCount = captureCount;
+
+    std::uint32_t nameCount = 0;
+    const int nameCountResult = pcre2_pattern_info(code, PCRE2_INFO_NAMECOUNT, &nameCount);
+    if (nameCountResult != 0) {
+        result.error = ErrorMessage(nameCountResult);
+        return result;
+    }
+    if (nameCount > 0) {
+        impl->captureNames.resize(static_cast<std::size_t>(captureCount) + 1);
+        std::uint32_t entrySize = 0;
+        PCRE2_SPTR nameTable = nullptr;
+        const int entrySizeResult = pcre2_pattern_info(code, PCRE2_INFO_NAMEENTRYSIZE, &entrySize);
+        const int nameTableResult = pcre2_pattern_info(code, PCRE2_INFO_NAMETABLE, &nameTable);
+        if (entrySizeResult != 0 || nameTableResult != 0 || !nameTable || entrySize < 3) {
+            const int infoError = entrySizeResult != 0 ? entrySizeResult : nameTableResult;
+            result.error = infoError != 0 ? ErrorMessage(infoError) : "PCRE2 invalid name table";
+            return result;
+        }
+
+        for (std::uint32_t nameIndex = 0; nameIndex < nameCount; ++nameIndex) {
+            const PCRE2_SPTR entry = nameTable + static_cast<std::size_t>(nameIndex) * entrySize;
+            const std::size_t groupIndex =
+                (static_cast<std::size_t>(entry[0]) << 8) | static_cast<std::size_t>(entry[1]);
+            if (groupIndex >= impl->captureNames.size()) {
+                result.error = "PCRE2 invalid named capture index";
+                return result;
+            }
+            std::size_t nameLength = 0;
+            while (nameLength + 2 < entrySize && entry[nameLength + 2] != 0) {
+                ++nameLength;
+            }
+            impl->captureNames[groupIndex].assign(
+                reinterpret_cast<const char*>(entry + 2),
+                nameLength);
+        }
     }
     result.program = std::unique_ptr<Program>(new Program(std::move(impl)));
     return result;

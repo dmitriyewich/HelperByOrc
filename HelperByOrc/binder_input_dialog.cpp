@@ -280,6 +280,7 @@ void BinderModule::Impl::DrawInputDialog() {
             inputDialog->startDelayMs,
             inputDialog->activationSource,
             inputDialog->activationText,
+            std::move(inputDialog->triggerCaptures),
             inputDialog->bindCommand);
         hotkey.awaitingInput = false;
         inputDialog.reset();

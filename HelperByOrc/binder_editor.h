@@ -3,9 +3,12 @@
 #include "binder_types.h"
 #include "icon_picker_ui.h"
 #include "text_pattern_builder.h"
+#include "text_pattern_constructor_ui.h"
 #include "variables_picker_ui.h"
 
+#include <cstddef>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,8 +21,7 @@ struct TextPatternHelperState {
     }
 
     bool popupPending = false;
-    bool referenceOpen = false;
-    bool referencePending = false;
+    int workspaceMode = 0;
     bool testRequested = false;
     bool restoreHelperFocus = false;
     int cursorByte = -1;
@@ -33,11 +35,15 @@ struct TextPatternHelperState {
     std::string recommended{};
     std::string contains{};
     std::vector<text_pattern_builder::Token> tokens{};
+    text_pattern_constructor_ui::State constructor{};
     std::string builderWarning{};
     bool exactValid = false;
     bool recommendedValid = false;
     bool containsValid = false;
     std::string referenceSearch{};
+    int referenceFilterLanguage = -1;
+    std::string referenceFilterSearch{};
+    std::vector<std::size_t> referenceVisibleItems{};
     bool validationReady = false;
     std::string validationPattern{};
     std::string validationSample{};
@@ -46,7 +52,14 @@ struct TextPatternHelperState {
     std::string validationError{};
     std::string validationWarning{};
     bool validationMatched = false;
+    bool validationRegexMatched = false;
     bool validationTested = false;
+    bool validationTimestampRemoved = false;
+    std::shared_ptr<text_pattern::Program> validationProgram{};
+    text_pattern::CaptureSnapshot validationCaptures{};
+    std::string captureGroupName{"value"};
+    std::string captureCustomPattern{R"(\S+)"};
+    int capturePreset = 0;
 };
 
 struct State {

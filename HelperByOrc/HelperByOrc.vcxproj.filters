@@ -270,6 +270,9 @@
     <ClCompile Include="text_pattern_builder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="text_pattern_constructor_ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="text_pattern_engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -519,6 +522,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_pattern_builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="text_pattern_constructor_ui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_pattern_engine.h">

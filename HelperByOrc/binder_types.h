@@ -66,6 +66,12 @@ struct TextTrigger {
     }
 };
 
+struct TextTriggerCaptures {
+    std::shared_ptr<const text_pattern::Program> program;
+    text_pattern::CaptureSnapshot snapshot;
+    std::string subject;
+};
+
 struct TextConfirmation {
     bool enabled = false;
     UINT key = kBinderDefaultConfirmKey;
@@ -113,6 +119,7 @@ struct HotkeyEntry {
     UINT pendingConfirmationCancelKey = kBinderDefaultCancelKey;
     std::string pendingTriggerText;
     std::string pendingTriggerSource;
+    TextTriggerCaptures pendingTriggerCaptures;
 };
 
 struct ButtonsTextParseStats {
