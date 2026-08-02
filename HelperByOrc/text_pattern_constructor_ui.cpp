@@ -179,7 +179,8 @@ void DrawReplacementList(State& state) {
     const bool compactSelectedParts = ImGui::GetContentRegionAvail().x < ui.Scale(520.0f);
     if (compactSelectedParts) {
         for (std::size_t index = 0; index < state.selectedParts.size(); ++index) {
-            const text_pattern_builder::Replacement& replacement = state.selectedParts[index].replacement;
+            const SelectedPart& part = state.selectedParts[index];
+            const text_pattern_builder::Replacement& replacement = part.replacement;
             const bool sourceValid = replacement.offset <= state.preparedSample.size()
                 && replacement.length <= state.preparedSample.size() - replacement.offset;
             const std::string_view source = sourceValid
@@ -194,6 +195,9 @@ void DrawReplacementList(State& state) {
                     "%.*s",
                     static_cast<int>(source.size()),
                     source.empty() ? "" : source.data());
+                if (!part.captureName.empty()) {
+                    ImGui::TextDisabled("[chatwordsex(%s)]", part.captureName.c_str());
+                }
                 ImGui::TextDisabled("%s", replacement.pattern.c_str());
                 if (ImGui::Button(ui.Text(UiText::TextPatternRemovePart))) {
                     removeIndex = index;
@@ -212,7 +216,8 @@ void DrawReplacementList(State& state) {
             ImGui::TableSetupColumn("pattern", ImGuiTableColumnFlags_WidthStretch, 1.15f);
             ImGui::TableSetupColumn("remove", ImGuiTableColumnFlags_WidthFixed, ui.Scale(86.0f));
             for (std::size_t index = 0; index < state.selectedParts.size(); ++index) {
-                const text_pattern_builder::Replacement& replacement = state.selectedParts[index].replacement;
+                const SelectedPart& part = state.selectedParts[index];
+                const text_pattern_builder::Replacement& replacement = part.replacement;
                 const bool sourceValid = replacement.offset <= state.preparedSample.size()
                     && replacement.length <= state.preparedSample.size() - replacement.offset;
                 const std::string_view source = sourceValid
@@ -225,6 +230,9 @@ void DrawReplacementList(State& state) {
                     "%.*s",
                     static_cast<int>(source.size()),
                     source.empty() ? "" : source.data());
+                if (!part.captureName.empty()) {
+                    ImGui::TextDisabled("[chatwordsex(%s)]", part.captureName.c_str());
+                }
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextWrapped("%s", replacement.pattern.c_str());
                 ImGui::TableSetColumnIndex(2);
@@ -239,6 +247,24 @@ void DrawReplacementList(State& state) {
     if (removeIndex < state.selectedParts.size()) {
         RemoveReplacement(state, removeIndex);
     }
+}
+
+std::string NextAvailableCaptureName(const State& state) {
+    for (std::size_t ordinal = 1; ordinal <= state.selectedParts.size() + 1; ++ordinal) {
+        std::string candidate = ordinal == 1
+            ? "value"
+            : "value" + std::to_string(ordinal);
+        const bool alreadyUsed = std::any_of(
+            state.selectedParts.begin(),
+            state.selectedParts.end(),
+            [&](const SelectedPart& part) {
+                return part.captureName == candidate;
+            });
+        if (!alreadyUsed) {
+            return candidate;
+        }
+    }
+    return "value";
 }
 
 } // namespace
@@ -350,10 +376,15 @@ DrawResult DrawInline(
                     replacement = "(?<" + std::string(captureName) + '>' + replacement + ')';
                     replacementCaptureName = captureName;
                 }
+                const std::string addedCaptureName = replacementCaptureName;
                 AddReplacement(
                     state,
                     std::move(replacement),
                     std::move(replacementCaptureName));
+                if (!addedCaptureName.empty()) {
+                    result.addedCaptureName = addedCaptureName;
+                    result.nextCaptureName = NextAvailableCaptureName(state);
+                }
             }
             ImGui::EndDisabled();
         }

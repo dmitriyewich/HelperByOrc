@@ -58,6 +58,7 @@ struct TextPatternHelperState {
     std::shared_ptr<text_pattern::Program> validationProgram{};
     text_pattern::CaptureSnapshot validationCaptures{};
     std::string captureGroupName{"value"};
+    std::string lastCaptureGroupName{};
     std::string captureCustomPattern{R"(\S+)"};
     int capturePreset = 0;
 };

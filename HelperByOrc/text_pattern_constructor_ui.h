@@ -16,6 +16,8 @@ enum class DrawMode {
 struct DrawResult {
     bool applied = false;
     std::string pattern{};
+    std::string addedCaptureName{};
+    std::string nextCaptureName{};
 };
 
 struct SelectedPart {

@@ -1546,8 +1546,8 @@
     X(EditorPatternEnabled, "Использовать шаблон PCRE2", "Use a PCRE2 pattern") \
     X(EditorPatternSample, "Пример и проверка", "Example and test") \
     X(EditorPatternSampleHint, "Можно вставить строку чатлога: время и цветовые коды будут удалены.", "You can paste a chatlog line: timestamps and color codes will be removed.") \
-    X(EditorPatternCaptureHint, "Задайте имя и выберите текст, который нужно передать в бинд.", "Set a name and select the text to pass into the bind.") \
-    X(EditorPatternCaptureName, "Имя группы", "Group name") \
+    X(EditorPatternCaptureHint, "Выделяйте нужные части по очереди. Для каждой будет создана отдельная переменная бинда.", "Select the required parts one by one. Each part gets its own bind variable.") \
+    X(EditorPatternCaptureName, "Имя следующей группы", "Next group name") \
     X(EditorPatternCaptureNameHint, "Например: surname или id", "For example: surname or id") \
     X(EditorPatternCaptureNameInvalid, "Имя: латинская буква, затем латинские буквы, цифры или _. Максимум 64 символа.", "Name: an ASCII letter followed by ASCII letters, digits, or _. Maximum 64 characters.") \
     X(EditorPatternCaptureAdvanced, "Расширенная настройка PCRE2", "Advanced PCRE2 setup") \

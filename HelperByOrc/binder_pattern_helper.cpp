@@ -668,23 +668,37 @@ void DrawCaptureBuilder(State& editor) {
                 "binder_capture",
                 text_pattern_constructor_ui::DrawMode::Capture,
                 nameValid ? std::string_view(helper.captureGroupName) : std::string_view{});
+        if (!capture.addedCaptureName.empty()) {
+            helper.lastCaptureGroupName = capture.addedCaptureName;
+            if (!capture.nextCaptureName.empty()) {
+                helper.captureGroupName = capture.nextCaptureName;
+            }
+        }
         if (capture.applied) {
             SetTriggerText(editor, capture.pattern);
             RefreshValidation(editor);
         }
     }
 
-    const std::string variable = nameValid
-        ? "[chatwordsex(" + helper.captureGroupName + ")]"
-        : std::string{};
-    const bool captureApplied = nameValid
+    const bool currentCaptureNameValid = IsValidCaptureName(helper.captureGroupName);
+    const bool currentCaptureApplied = currentCaptureNameValid
         && CurrentPatternHasCaptureName(editor, helper.captureGroupName);
+    std::string_view copyCaptureName = helper.captureGroupName;
+    if (!currentCaptureApplied) {
+        copyCaptureName = helper.lastCaptureGroupName;
+    }
+    const bool captureApplied = currentCaptureApplied
+        || (IsValidCaptureName(copyCaptureName)
+            && CurrentPatternHasCaptureName(editor, copyCaptureName));
+    const std::string variable = captureApplied
+        ? "[chatwordsex(" + std::string(copyCaptureName) + ")]"
+        : std::string{};
     if (captureApplied) {
         ImGui::TextDisabled(
             "%s: %s",
             ui.Text(UiText::EditorPatternCaptureVariablePreview),
             variable.c_str());
-    } else if (nameValid && !helper.constructor.pattern.empty()) {
+    } else if (!helper.constructor.pattern.empty()) {
         ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternCaptureApplyFirst));
     }
     ImGui::PushID("capture_copy_primary");
