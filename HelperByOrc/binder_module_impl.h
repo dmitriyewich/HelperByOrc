@@ -1682,10 +1682,13 @@ inline bool FolderNameUnique(
     return true;
 }
 
-inline void ExpandFolderBranch(FolderNode* folder) {
+inline bool ExpandFolderBranch(FolderNode* folder) {
+    bool changed = false;
     for (FolderNode* current = folder; current; current = current->parent) {
+        changed = changed || !current->open;
         current->open = true;
     }
+    return changed;
 }
 
 
@@ -2095,6 +2098,8 @@ struct BinderModule::Impl {
     QuickMenuCategoryLayout quickMenuCategoryLayout = QuickMenuCategoryLayout::TitleSelector;
     bool quickMenuShowScrollbar = true;
     BindListStyle bindListStyle = BindListStyle::Explorer;
+    bool saveLastOpenFolder = true;
+    bool saveFolderOpenState = false;
     TwoPaneActivePane twoPaneActivePane = TwoPaneActivePane::Binds;
     int textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     bool quickMenuOpen = false;
@@ -2163,6 +2168,8 @@ struct BinderModule::Impl {
     void SaveConfig();
     void FlushPendingConfigSave(bool force);
     void LoadConfig();
+    void QueueFolderOpenStateSave();
+    void SetFolderOpenState(FolderNode* folder, bool open);
     bool MigrateDeprecatedHelperCondition(std::vector<bool>& conditions);
     void ApplyDeprecatedHelperBindMigration(HotkeyEntry& hotkey, bool helperOnly);
     void LogDeprecatedHelperConditionMigration() const;

@@ -1044,6 +1044,10 @@
     X(SettingsBinderListStyle, "Стиль списка биндов", "Bind list style") \
     X(SettingsBinderListStyleExplorer, "Проводник", "Explorer") \
     X(SettingsBinderListStyleTwoPane, "Две панели", "Two-pane") \
+    X(SettingsBinderSaveLastOpenFolder, "Сохранять последнюю открытую папку", "Save last opened folder") \
+    X(SettingsBinderSaveLastOpenFolderHint, "Сохраняет последнюю открытую папку или подпапку каждой категории между запусками игры для обоих стилей списка. По умолчанию включено; если выключить, при новом запуске каждая категория откроется с корня.", "Preserves the last opened folder or subfolder of each category between game launches for both list styles. Enabled by default; when disabled, each category starts at its root on a new launch.") \
+    X(SettingsBinderSaveFolderOpenState, "Сохранять состояние папок", "Save folder expansion state") \
+    X(SettingsBinderSaveFolderOpenStateHint, "Сохраняет свёрнутое и развёрнутое состояние папок и подпапок между запусками игры для обоих стилей списка. По умолчанию выключено: при новом запуске все папки развёрнуты.", "Preserves collapsed and expanded folder and subfolder state between game launches for both list styles. Disabled by default: all folders start expanded on a new launch.") \
     X(SettingsBinderTextConfirmationTimeoutSec, "Таймер подтверждения триггера, сек", "Trigger confirmation timeout, sec") \
     X(SettingsBinderTextConfirmationTimeoutHint, "Если бинд ждёт подтверждение по текстовому триггеру дольше этого времени, ожидание сбрасывается и бинд не запускается. Диапазон: 5-600 секунд.", "If a bind waits for text-trigger confirmation longer than this value, the pending confirmation is cleared and the bind is not started. Range: 5-600 seconds.") \
     X(SettingsHotkeysIntro, "Комбинации для открытия основных окон HelperByOrc.", "Shortcuts for opening HelperByOrc windows.") \

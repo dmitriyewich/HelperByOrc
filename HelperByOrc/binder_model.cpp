@@ -597,7 +597,24 @@ void BinderModule::Impl::OpenFolder(FolderNode* folder, const bool pushHistory) 
     currentFolder = folder;
     ActiveCategory().lastOpenFolderPath = newPath;
     ClearExplorerSelection();
-    SaveConfig();
+    if (saveLastOpenFolder) {
+        SaveConfig();
+    }
+}
+
+void BinderModule::Impl::QueueFolderOpenStateSave() {
+    if (saveFolderOpenState) {
+        SaveConfig();
+    }
+}
+
+void BinderModule::Impl::SetFolderOpenState(FolderNode* folder, const bool open) {
+    if (!folder || folder->open == open) {
+        return;
+    }
+
+    folder->open = open;
+    QueueFolderOpenStateSave();
 }
 
 void BinderModule::Impl::OpenFolderPath(const std::vector<std::string>& path, const bool pushHistory) {
@@ -1542,8 +1559,8 @@ std::string BinderModule::Impl::NextFolderNameForParent(FolderNode* parent) cons
 void BinderModule::Impl::BeginInlineCreateFolder(FolderNode* parent) {
     bindSearch.clear();
     twoPaneFolderSearch.clear();
-    for (FolderNode* ancestor = parent; ancestor != nullptr; ancestor = ancestor->parent) {
-        ancestor->open = true;
+    if (ExpandFolderBranch(parent)) {
+        QueueFolderOpenStateSave();
     }
     folderInlineEdit = {};
     folderInlineEdit.mode = FolderInlineEditMode::Create;
@@ -1560,8 +1577,8 @@ void BinderModule::Impl::BeginInlineRenameFolder(FolderNode* folder) {
 
     bindSearch.clear();
     twoPaneFolderSearch.clear();
-    for (FolderNode* ancestor = folder->parent; ancestor != nullptr; ancestor = ancestor->parent) {
-        ancestor->open = true;
+    if (ExpandFolderBranch(folder->parent)) {
+        QueueFolderOpenStateSave();
     }
     folderInlineEdit = {};
     folderInlineEdit.mode = FolderInlineEditMode::Rename;

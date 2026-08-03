@@ -37,6 +37,8 @@ void BinderModule::Impl::FlushPendingConfigSave(bool force) {
     root["quick_menu_category_layout"] = QuickMenuCategoryLayoutId(quickMenuCategoryLayout);
     root["quick_menu_show_scrollbar"] = quickMenuShowScrollbar;
     root["bind_list_style"] = BindListStyleId(bindListStyle);
+    root["save_last_open_folder"] = saveLastOpenFolder;
+    root["save_folder_open_state"] = saveFolderOpenState;
     root["text_confirmation_wait_timeout_ms"] = textConfirmationWaitTimeoutMs;
     root["active_category_id"] = activeCategoryId;
 
@@ -137,6 +139,8 @@ void BinderModule::Impl::LoadConfig() {
     quickMenuCategoryLayout = QuickMenuCategoryLayout::TitleSelector;
     quickMenuShowScrollbar = true;
     bindListStyle = BindListStyle::Explorer;
+    saveLastOpenFolder = true;
+    saveFolderOpenState = false;
     textConfirmationWaitTimeoutMs = kDefaultTextConfirmationWaitTimeoutMs;
     quickMenuActiveCategoryId.clear();
     const jsonutil::JsonValue sharedSection = AppConfig::Instance().ReadSection(kBinderConfigSectionName);
@@ -159,6 +163,8 @@ void BinderModule::Impl::LoadConfig() {
     quickMenuShowScrollbar = jsonutil::JsonBoolOr(root, "quick_menu_show_scrollbar", true);
     bindListStyle =
         NormalizeBindListStyle(jsonutil::JsonStringOr(root, "bind_list_style", "explorer"));
+    saveLastOpenFolder = jsonutil::JsonBoolOr(root, "save_last_open_folder", true);
+    saveFolderOpenState = jsonutil::JsonBoolOr(root, "save_folder_open_state", false);
     textConfirmationWaitTimeoutMs = std::clamp(
         jsonutil::JsonNumberOr<int>(
             root,
@@ -180,8 +186,10 @@ void BinderModule::Impl::LoadConfig() {
     if (legacyFormat) {
         BinderCategory category = MakeDefaultCategory();
         category.rootItems = DeserializeExplorerItems(jsonutil::JsonArrayOrNull(root, "root_order"));
-        category.lastOpenFolderPath =
-            DeserializeStringArray(jsonutil::JsonArrayOrNull(root, "last_open_folder_path"));
+        if (saveLastOpenFolder) {
+            category.lastOpenFolderPath =
+                DeserializeStringArray(jsonutil::JsonArrayOrNull(root, "last_open_folder_path"));
+        }
 
         if (const JsonArray* folderArray = jsonutil::JsonArrayOrNull(root, "folders")) {
             for (const JsonValue& item : *folderArray) {
@@ -240,7 +248,9 @@ JsonValue BinderModule::Impl::SerializeCategory(const BinderCategory& category) 
     object["conditions"] = SerializeBoolArray(category.conditions);
     object["conditions_combine"] = ConditionCombineModeId(category.conditionsCombine);
     object["root_order"] = SerializeExplorerItems(category.rootItems);
-    object["last_open_folder_path"] = SerializeStringArray(category.lastOpenFolderPath);
+    if (saveLastOpenFolder) {
+        object["last_open_folder_path"] = SerializeStringArray(category.lastOpenFolderPath);
+    }
 
     JsonArray folderArray;
     folderArray.reserve(category.folders.size());
@@ -291,8 +301,10 @@ BinderCategory BinderModule::Impl::DeserializeCategory(const JsonObject& object)
     category.conditionsCombine =
         NormalizeConditionCombineMode(jsonutil::JsonStringOr(&object, "conditions_combine", "require_any"));
     category.rootItems = DeserializeExplorerItems(jsonutil::JsonArrayOrNull(&object, "root_order"));
-    category.lastOpenFolderPath =
-        DeserializeStringArray(jsonutil::JsonArrayOrNull(&object, "last_open_folder_path"));
+    if (saveLastOpenFolder) {
+        category.lastOpenFolderPath =
+            DeserializeStringArray(jsonutil::JsonArrayOrNull(&object, "last_open_folder_path"));
+    }
 
     if (const JsonArray* folderArray = jsonutil::JsonArrayOrNull(&object, "folders")) {
         for (const JsonValue& item : *folderArray) {
@@ -316,6 +328,9 @@ JsonValue BinderModule::Impl::SerializeFolder(const FolderNode& folder) const {
     object["conditions"] = SerializeBoolArray(folder.conditions);
     object["conditions_combine"] = ConditionCombineModeId(folder.conditionsCombine);
     object["items"] = SerializeExplorerItems(folder.items);
+    if (saveFolderOpenState) {
+        object["open"] = folder.open;
+    }
 
     JsonArray childrenArray;
     childrenArray.reserve(folder.children.size());
@@ -364,6 +379,9 @@ std::unique_ptr<FolderNode> BinderModule::Impl::DeserializeFolder(const JsonObje
         "conditions_combine",
         jsonutil::JsonStringOr(&object, "quick_conditions_combine", "require_all")));
     folder->items = DeserializeExplorerItems(jsonutil::JsonArrayOrNull(&object, "items"));
+    folder->open = saveFolderOpenState
+        ? jsonutil::JsonBoolOr(&object, "open", true)
+        : true;
 
     if (const JsonArray* children = jsonutil::JsonArrayOrNull(&object, "children")) {
         for (const JsonValue& childValue : *children) {

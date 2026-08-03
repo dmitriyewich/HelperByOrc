@@ -943,6 +943,20 @@ void BinderModule::Impl::DrawBinderSettingsSection(bool includeHeader) {
         SaveConfig();
     }
 
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsBinderSaveLastOpenFolder), &saveLastOpenFolder)) {
+        SaveConfig();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::SettingsBinderSaveLastOpenFolderHint));
+    }
+
+    if (ImGui::Checkbox(ui.Text(UiText::SettingsBinderSaveFolderOpenState), &saveFolderOpenState)) {
+        SaveConfig();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", ui.Text(UiText::SettingsBinderSaveFolderOpenStateHint));
+    }
+
     int timeoutSeconds = textConfirmationWaitTimeoutMs / 1000;
     ImGui::SetNextItemWidth(ScaleUi(150.0f));
     if (ImGui::DragInt(

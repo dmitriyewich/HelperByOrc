@@ -153,8 +153,7 @@ void BinderModule::Impl::DrawTwoPaneFolderKeyboardShortcuts() {
         MoveTwoPaneFolderSelection(1, filter);
     } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (currentFolder && !currentFolder->open) {
-            currentFolder->open = true;
-            SaveConfig();
+            SetFolderOpenState(currentFolder, true);
         }
     } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
         NavigateUp();
@@ -467,15 +466,13 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
         const bool doubleClicked = rowItemHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
         if (clicked) {
             if (hasChildren && ImGui::IsMouseHoveringRect(arrowRect.Min, arrowRect.Max, true)) {
-                folder.open = !folder.open;
-                SaveConfig();
+                SetFolderOpenState(&folder, !folder.open);
             } else {
                 OpenFolder(&folder, false);
             }
         }
         if (doubleClicked && hasChildren) {
-            folder.open = !folder.open;
-            SaveConfig();
+            SetFolderOpenState(&folder, !folder.open);
         }
 
         std::optional<FolderDropZone> dropPreview{};
@@ -629,7 +626,6 @@ void BinderModule::Impl::DrawTwoPaneFolderNode(FolderNode& folder, const int dep
                 ImGui::CloseCurrentPopup();
             }
             if (ImGui::MenuItem(ui.Text(UiText::FolderAdd))) {
-                folder.open = true;
                 OpenFolder(&folder, false);
                 BeginInlineCreateFolder(&folder);
                 ImGui::CloseCurrentPopup();
@@ -699,9 +695,6 @@ void BinderModule::Impl::DrawTwoPaneFolderPane() {
             ui.Text(UiText::FolderAdd),
             "##two_pane_add_folder",
             ui.Text(UiText::BinderAddFolderTooltip))) {
-        if (currentFolder) {
-            currentFolder->open = true;
-        }
         BeginInlineCreateFolder(currentFolder);
     }
     DrawBinderListSearchBox(
