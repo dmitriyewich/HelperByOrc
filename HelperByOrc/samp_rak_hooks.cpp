@@ -357,6 +357,16 @@ void SampRakHooks::Shutdown() {
         }
         syntheticPackets_.clear();
     }
+    {
+        std::lock_guard lock(incomingMessageHistoryMutex_);
+        for (IncomingMessageHistoryEntry& entry : incomingMessageHistory_) {
+            entry = {};
+        }
+        incomingMessageHistoryStart_ = 0;
+        incomingMessageHistoryCount_ = 0;
+        nextIncomingMessageSequence_ = 1;
+        incomingMessageHistoryRevision_.fetch_add(1, std::memory_order_release);
+    }
     statusText_ = "RakNet hooks disabled";
     debuglog::WriteInfo("SampRakHooks::Shutdown done");
 }
@@ -484,6 +494,33 @@ SampRakHooks::Stats SampRakHooks::stats() const {
 std::vector<std::string> SampRakHooks::GetRecentLog() const {
     std::lock_guard lock(logMutex_);
     return recentLog_;
+}
+
+std::uint64_t SampRakHooks::IncomingMessageHistoryRevision() const noexcept {
+    return incomingMessageHistoryRevision_.load(std::memory_order_acquire);
+}
+
+bool SampRakHooks::CopyIncomingMessageHistoryIfChanged(
+    std::uint64_t knownRevision,
+    std::uint64_t& outRevision,
+    std::vector<IncomingMessageHistoryEntry>& outEntries) const {
+    if (knownRevision == IncomingMessageHistoryRevision()) {
+        return false;
+    }
+
+    std::lock_guard lock(incomingMessageHistoryMutex_);
+    const std::uint64_t currentRevision = incomingMessageHistoryRevision_.load(std::memory_order_relaxed);
+    if (knownRevision == currentRevision) {
+        return false;
+    }
+
+    outEntries.resize(incomingMessageHistoryCount_);
+    for (std::size_t offset = 0; offset < incomingMessageHistoryCount_; ++offset) {
+        const std::size_t index = (incomingMessageHistoryStart_ + offset) % kIncomingMessageHistoryCapacity;
+        outEntries[offset] = incomingMessageHistory_[index];
+    }
+    outRevision = currentRevision;
+    return true;
 }
 
 bool SampRakHooks::Install() {
@@ -665,6 +702,9 @@ bool SampRakHooks::Install() {
             DescribeAddressOwner(namedTargets[i].second).c_str());
     }
     debuglog::WriteInfo("SampRakHooks: installed for SAMP version %s", sampApi_->currentVersionName());
+    debuglog::WriteInfo(
+        "SampRakHooks: incoming message history active capacity=%zu",
+        kIncomingMessageHistoryCapacity);
     AppendLog("RakNet hooks installed for SAMP %s", sampApi_->currentVersionName());
     return true;
 }
@@ -1093,6 +1133,7 @@ bool SampRakHooks::DispatchServerMessage(RakNetBitStreamView& view) {
     }
 
     std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
+    RememberIncomingMessage(IncomingMessageHistorySource::ServerMessage, textUtf8);
     for (const auto& filter : serverMessageFilters_) {
         if (!filter(color, textUtf8)) {
             return false;
@@ -1125,6 +1166,7 @@ bool SampRakHooks::DispatchPlayerChat(RakNetBitStreamView& view) {
 
     const std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
     const std::string playerName = sampApi_ ? sampApi_->GetNameID(playerId) : std::string("UNKNOWN");
+    RememberIncomingMessage(IncomingMessageHistorySource::PlayerChat, textUtf8, playerId, playerName);
     for (const auto& filter : playerChatFilters_) {
         if (!filter(playerId, playerName, textUtf8)) {
             return false;
@@ -1153,6 +1195,7 @@ bool SampRakHooks::DispatchChatBubble(RakNetBitStreamView& view) {
 
     const std::string textUtf8 = textencoding::GameToUtf8(textCp1251);
     const std::string playerName = sampApi_ ? sampApi_->GetNameID(playerId) : std::string("UNKNOWN");
+    RememberIncomingMessage(IncomingMessageHistorySource::ChatBubble, textUtf8, playerId, playerName);
     for (const auto& filter : chatBubbleFilters_) {
         if (!filter(playerId, playerName, color, drawDistance, durationMs, textUtf8)) {
             return false;
@@ -1282,6 +1325,34 @@ void SampRakHooks::AppendLog(const char* format, ...) {
         recentLog_.erase(recentLog_.begin());
     }
     recentLog_.emplace_back(buffer);
+}
+
+void SampRakHooks::RememberIncomingMessage(
+    IncomingMessageHistorySource source,
+    std::string_view text,
+    int playerId,
+    std::string_view playerName) {
+    if (text.empty()) {
+        return;
+    }
+
+    std::lock_guard lock(incomingMessageHistoryMutex_);
+    std::size_t index = 0;
+    if (incomingMessageHistoryCount_ < kIncomingMessageHistoryCapacity) {
+        index = (incomingMessageHistoryStart_ + incomingMessageHistoryCount_) % kIncomingMessageHistoryCapacity;
+        ++incomingMessageHistoryCount_;
+    } else {
+        index = incomingMessageHistoryStart_;
+        incomingMessageHistoryStart_ = (incomingMessageHistoryStart_ + 1) % kIncomingMessageHistoryCapacity;
+    }
+
+    IncomingMessageHistoryEntry& entry = incomingMessageHistory_[index];
+    entry.sequence = nextIncomingMessageSequence_++;
+    entry.source = source;
+    entry.playerId = playerId;
+    entry.playerName.assign(playerName);
+    entry.text.assign(text);
+    incomingMessageHistoryRevision_.fetch_add(1, std::memory_order_release);
 }
 
 void SampRakHooks::RecordSendRpc(std::uint8_t id) {

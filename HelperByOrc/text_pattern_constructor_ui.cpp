@@ -64,7 +64,14 @@ void Rebuild(State& state) {
     std::vector<text_pattern_builder::Replacement> replacements;
     replacements.reserve(state.selectedParts.size());
     for (const SelectedPart& part : state.selectedParts) {
-        replacements.push_back(part.replacement);
+        if (!part.enabled) {
+            continue;
+        }
+        text_pattern_builder::Replacement replacement = part.replacement;
+        if (!part.captureName.empty()) {
+            replacement.pattern = "(?<" + part.captureName + '>' + replacement.pattern + ')';
+        }
+        replacements.push_back(std::move(replacement));
     }
     state.pattern = text_pattern_builder::BuildWithReplacements(
         state.preparedSample,
@@ -160,14 +167,6 @@ bool DrawSuggestionPicker(State& state) {
     return true;
 }
 
-void RemoveReplacement(State& state, std::size_t index) {
-    if (index >= state.selectedParts.size()) {
-        return;
-    }
-    state.selectedParts.erase(state.selectedParts.begin() + static_cast<std::ptrdiff_t>(index));
-    Rebuild(state);
-}
-
 void DrawReplacementList(State& state) {
     UiSettings& ui = UiSettings::Instance();
     if (state.selectedParts.empty()) {
@@ -245,26 +244,8 @@ void DrawReplacementList(State& state) {
         }
     }
     if (removeIndex < state.selectedParts.size()) {
-        RemoveReplacement(state, removeIndex);
+        RemovePart(state, removeIndex);
     }
-}
-
-std::string NextAvailableCaptureName(const State& state) {
-    for (std::size_t ordinal = 1; ordinal <= state.selectedParts.size() + 1; ++ordinal) {
-        std::string candidate = ordinal == 1
-            ? "value"
-            : "value" + std::to_string(ordinal);
-        const bool alreadyUsed = std::any_of(
-            state.selectedParts.begin(),
-            state.selectedParts.end(),
-            [&](const SelectedPart& part) {
-                return part.captureName == candidate;
-            });
-        if (!alreadyUsed) {
-            return candidate;
-        }
-    }
-    return "value";
 }
 
 } // namespace
@@ -275,6 +256,41 @@ void SetPreparedSample(State& state, std::string sample) {
     }
     state = {};
     state.preparedSample = std::move(sample);
+}
+
+void SetAutomaticParts(State& state, std::span<const text_pattern_builder::Token> tokens) {
+    state.selectedParts.erase(
+        std::remove_if(
+            state.selectedParts.begin(),
+            state.selectedParts.end(),
+            [](const SelectedPart& part) { return part.automatic; }),
+        state.selectedParts.end());
+
+    for (const text_pattern_builder::Token& token : tokens) {
+        const std::size_t tokenEnd = token.offset + token.length;
+        const bool overlapsManualPart = std::any_of(
+            state.selectedParts.begin(),
+            state.selectedParts.end(),
+            [&](const SelectedPart& part) {
+                const std::size_t partEnd = part.replacement.offset + part.replacement.length;
+                return part.replacement.offset < tokenEnd && token.offset < partEnd;
+            });
+        if (overlapsManualPart) {
+            continue;
+        }
+        state.selectedParts.push_back(SelectedPart{
+            text_pattern_builder::Replacement{
+                token.offset,
+                token.length,
+                token.pattern,
+            },
+            token.kind,
+            {},
+            true,
+            true,
+        });
+    }
+    Rebuild(state);
 }
 
 void RefreshSelection(State& state) {
@@ -299,7 +315,11 @@ void RefreshSelection(State& state) {
     SelectRecommendedSuggestion(state);
 }
 
-void AddReplacement(State& state, std::string pattern, std::string captureName) {
+void AddReplacement(
+    State& state,
+    std::string pattern,
+    std::string captureName,
+    text_pattern_builder::TokenKind kind) {
     int selectionStart = state.selectionStartByte;
     int selectionEnd = state.selectionEndByte;
     if (selectionStart > selectionEnd) {
@@ -329,9 +349,46 @@ void AddReplacement(State& state, std::string pattern, std::string captureName) 
             end - start,
             std::move(pattern),
         },
+        kind,
         std::move(captureName),
+        false,
+        true,
     });
     Rebuild(state);
+}
+
+void SetPartEnabled(State& state, std::size_t index, bool enabled) {
+    if (index >= state.selectedParts.size() || state.selectedParts[index].enabled == enabled) {
+        return;
+    }
+    state.selectedParts[index].enabled = enabled;
+    Rebuild(state);
+}
+
+void RemovePart(State& state, std::size_t index) {
+    if (index >= state.selectedParts.size()) {
+        return;
+    }
+    state.selectedParts.erase(state.selectedParts.begin() + static_cast<std::ptrdiff_t>(index));
+    Rebuild(state);
+}
+
+std::string NextAvailableCaptureName(const State& state) {
+    for (std::size_t ordinal = 1; ordinal <= state.selectedParts.size() + 1; ++ordinal) {
+        std::string candidate = ordinal == 1
+            ? "value"
+            : "value" + std::to_string(ordinal);
+        const bool alreadyUsed = std::any_of(
+            state.selectedParts.begin(),
+            state.selectedParts.end(),
+            [&](const SelectedPart& part) {
+                return part.captureName == candidate;
+            });
+        if (!alreadyUsed) {
+            return candidate;
+        }
+    }
+    return "value";
 }
 
 DrawResult DrawInline(
@@ -373,14 +430,14 @@ DrawResult DrawInline(
                 std::string replacement = selected->pattern;
                 std::string replacementCaptureName;
                 if (mode == DrawMode::Capture) {
-                    replacement = "(?<" + std::string(captureName) + '>' + replacement + ')';
                     replacementCaptureName = captureName;
                 }
                 const std::string addedCaptureName = replacementCaptureName;
                 AddReplacement(
                     state,
                     std::move(replacement),
-                    std::move(replacementCaptureName));
+                    std::move(replacementCaptureName),
+                    selected->kind);
                 if (!addedCaptureName.empty()) {
                     result.addedCaptureName = addedCaptureName;
                     result.nextCaptureName = NextAvailableCaptureName(state);

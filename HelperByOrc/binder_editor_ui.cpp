@@ -141,6 +141,7 @@ void TextDisabledWrapped(const char* text) {
 
 void BinderModule::Impl::StartEditing(int index, bool isNew) {
     editor = {};
+    editor.sampRakHooks = sampRakHooks;
     editor.active = true;
     editor.isNew = isNew;
     editor.hotkeyIndex = index;

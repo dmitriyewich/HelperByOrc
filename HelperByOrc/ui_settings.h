@@ -324,28 +324,29 @@
     X(MiscHomeIntro, "Во вкладке собраны отдельные служебные разделы. Нажмите на карточку нужного модуля, чтобы открыть его экран.", "This tab groups standalone utility sections. Click a module card to open its screen.") \
     X(MiscVariablesEntryDesc, "Открывает рабочий каталог переменных с поиском, категориями, описаниями и пользовательскими переменными.", "Opens the variables picker with search, categories, descriptions, and custom variables.") \
     X(MiscOpenSectionAction, "Открыть", "Open") \
-    X(UnwantedTitle, "Игнорирование сообщений", "Message Filter") \
+    X(UnwantedTitle, "Фильтр сообщений", "Message Filter") \
     X(UnwantedEntryDesc, "Скрывает нежелательные сообщения в чате и не даёт им запускать текстовые бинды.", "Hides unwanted chat messages and prevents them from triggering text binds.") \
-    X(UnwantedHome, "Главная", "Home") \
     X(UnwantedModuleToggleTitle, "Фильтр сообщений", "Message filter") \
     X(UnwantedModuleToggleDesc, "Включает или выключает все правила. Список правил при этом сохраняется.", "Turns all rules on or off. Your rule list remains saved.") \
-    X(UnwantedModuleOn, "Фильтр включён", "Filter enabled") \
-    X(UnwantedModuleOff, "Фильтр выключен", "Filter disabled") \
-    X(UnwantedCreateCardDesc, "Вставьте пример сообщения — Helper подготовит подходящее правило.", "Paste a sample message and Helper will prepare a suitable rule.") \
+    X(UnwantedModuleOn, "Включён", "Enabled") \
+    X(UnwantedModuleOff, "Выключен", "Disabled") \
     X(UnwantedCreateOpen, "Создать правило", "Create rule") \
-    X(UnwantedRulesOpen, "Показать правила", "Show rules") \
-    X(UnwantedRulesCardStats, "Правил: %s | включено: %s | ошибок: %s | дублей: %s", "Rules: %s | enabled: %s | errors: %s | duplicates: %s") \
-    X(UnwantedSessionTitle, "За этот запуск", "This launch") \
-    X(UnwantedBlockedCount, "Скрыто сообщений: %s", "Messages hidden: %s") \
-    X(UnwantedReload, "Загрузить настройки заново", "Reload settings") \
-    X(UnwantedLastBlocked, "Последнее скрытое сообщение: %s", "Last hidden message: %s") \
+    X(UnwantedReload, "Перечитать настройки из файла", "Reload settings from file") \
     X(UnwantedLastBlockedEmpty, "Пока нет заблокированных сообщений.", "No blocked messages yet.") \
-    X(UnwantedNewRule, "Новое правило", "New rule") \
-    X(UnwantedTools, "Настройки", "Settings") \
-    X(UnwantedCompatibility, "Совместимость", "Compatibility") \
+    X(UnwantedAddRule, "Добавить правило", "Add rule") \
+    X(UnwantedBlockedThisLaunch, "За запуск: скрыто %s", "This launch: hidden %s") \
+    X(UnwantedRulesSummary, "%s правил · %s активно · %s проблем", "%s rules · %s active · %s problems") \
+    X(UnwantedLastBlockedCompact, "Последнее: %s", "Last: %s") \
+    X(MessageHistoryOpen, "Выбрать из последних сообщений", "Choose from recent messages") \
+    X(MessageHistoryTitle, "Последние сообщения", "Recent messages") \
+    X(MessageHistoryHint, "Выберите точный текст, полученный через RakNet. Имя и ID показаны только для ориентира и не добавляются в выбранную строку.", "Choose the exact text received through RakNet. The name and ID are shown only for context and are not added to the selected string.") \
+    X(MessageHistoryEmpty, "За этот запуск входящих сообщений ещё нет.", "No incoming messages have been received during this launch yet.") \
+    X(MessageHistoryUnavailable, "RakNet hooks пока недоступны.", "RakNet hooks are not available yet.") \
+    X(MessageHistorySourceServer, "Сервер", "Server") \
+    X(MessageHistorySourceChat, "Чат", "Chat") \
+    X(MessageHistorySourceBubble, "Облачко", "Bubble") \
     X(UnwantedChatAsiCompatibility, "Совместимость с _chat.asi", "_chat.asi compatibility") \
     X(UnwantedChatAsiCompatibilityHelp, "Скрывает сообщения, которые _chat.asi добавляет в обход обычного чата. Адреса находятся автоматически. Если _chat.asi не установлен или изменился и не распознан, Helper продолжит работать через стандартный чат.", "Hides messages that _chat.asi adds outside the standard chat path. Addresses are detected automatically. If _chat.asi is missing or changed and cannot be recognized, Helper continues through the standard chat path.") \
-    X(UnwantedNormalizer, "Подготовка текста", "Text preparation") \
     X(UnwantedNormalizerDesc, "Эти настройки одинаково применяются к сообщениям в игре, помощнику и проверке правила.", "These settings apply equally to in-game messages, the helper, and rule testing.") \
     X(UnwantedStripColors, "Не учитывать цветовые коды", "Ignore color codes") \
     X(UnwantedStripColorsHelp, "Выключено: подходят правила как с цветовыми кодами, так и без них. Включено: проверяется только видимый текст без кодов {FFFFFF} и {FF0000FF}.", "Off: rules with or without color codes can match. On: only visible text without codes such as {FFFFFF} and {FF0000FF} is checked.") \
@@ -355,66 +356,93 @@
     X(UnwantedTrimHelp, "Убирает пробелы только в начале и конце сообщения.", "Removes spaces only at the beginning and end of a message.") \
     X(UnwantedMaxPatternLength, "Максимальная длина правила", "Maximum rule length") \
     X(UnwantedRules, "Правила", "Rules") \
-    X(UnwantedSelectAll, "Выделить все", "Select all") \
-    X(UnwantedClearSelection, "Снять выделение", "Clear selection") \
+    X(UnwantedSelectionMode, "Выбрать", "Select") \
+    X(UnwantedSelectShown, "Выбрать показанные: %s", "Select shown: %s") \
+    X(UnwantedExitSelection, "Завершить выбор", "Finish selecting") \
     X(UnwantedDeleteSelected, "Удалить выбранные", "Delete selected") \
     X(UnwantedEnableSelected, "Включить выбранные", "Enable selected") \
     X(UnwantedDisableSelected, "Выключить выбранные", "Disable selected") \
     X(UnwantedSortByType, "По типу", "By type") \
-    X(UnwantedSortStored, "Исходный порядок", "Stored order") \
+    X(UnwantedSortStored, "Вручную", "Manual") \
     X(UnwantedSortName, "По имени", "By name") \
     X(UnwantedSortStatus, "По статусу", "By status") \
     X(UnwantedSortFormat, "Сортировка: %s", "Sort: %s") \
-    X(UnwantedSearchHint, "Поиск правил", "Search rules") \
+    X(UnwantedSearchHint, "Поиск по названию, примеру или тексту правила", "Search rule names, samples, or text") \
     X(UnwantedFilterAll, "Все", "All") \
     X(UnwantedFilterEnabled, "Включены", "Enabled") \
     X(UnwantedFilterDisabled, "Выключены", "Disabled") \
-    X(UnwantedFilterRegex, "Шаблоны", "Patterns") \
-    X(UnwantedFilterLiteral, "Обычный текст", "Plain text") \
-    X(UnwantedFilterErrors, "Ошибки", "Errors") \
-    X(UnwantedFilterByTypeHelp, "Показать только правила типа «%s»", "Show only %s rules") \
+    X(UnwantedFilterProblems, "Проблемы", "Problems") \
+    X(UnwantedTypeFilter, "Тип правила", "Rule type") \
+    X(UnwantedTypeFilterAll, "Все типы", "All types") \
     X(UnwantedVisibleRulesFormat, "Показано: %s из %s", "Shown: %s of %s") \
     X(UnwantedBulkActionsFormat, "Выбрано: %s", "Selected: %s") \
     X(UnwantedColumnSelect, "Выбор", "Select") \
     X(UnwantedColumnEnabled, "Вкл.", "On") \
     X(UnwantedColumnRule, "Правило", "Rule") \
+    X(UnwantedColumnType, "Тип", "Type") \
+    X(UnwantedColumnStatus, "Состояние", "Status") \
+    X(UnwantedColumnTypeStatus, "Тип / состояние", "Type / status") \
     X(UnwantedColumnActions, "Действия", "Actions") \
     X(UnwantedSelectRuleHelp, "Добавить правило в групповое выделение", "Add this rule to the bulk selection") \
     X(UnwantedResetFilters, "Сбросить поиск и фильтры", "Clear search and filters") \
     X(UnwantedNoRules, "Правил пока нет.", "No rules yet.") \
     X(UnwantedNoVisibleRules, "По выбранным условиям правил не найдено.", "No rules match the selected filters.") \
-    X(UnwantedTypeLiteral, "Обычный текст", "Plain text") \
+    X(UnwantedTypeLiteral, "Фраза", "Phrase") \
     X(UnwantedTypeLiteralHelp, "Скрывает сообщение, если в нём найден указанный текст. Подходит для большинства простых правил.", "Hides a message when it contains the specified text. Best for most simple rules.") \
-    X(UnwantedTypeRegex, "Шаблон", "Pattern") \
+    X(UnwantedTypeRegex, "По примеру", "By example") \
     X(UnwantedTypeRegexHelp, "Позволяет заменять изменяющиеся части сообщения: числа, ники, время и другие фрагменты. Помощник подготовит шаблон автоматически.", "Lets variable parts of a message change, such as numbers, names, and time. The helper can build the pattern automatically.") \
-    X(UnwantedNoCase, "Не учитывать регистр", "Ignore letter case") \
+    X(UnwantedNoCase, "Не различать большие и маленькие буквы", "Ignore letter case") \
     X(UnwantedNoCaseHelp, "Большие и маленькие буквы считаются одинаковыми. Кириллица поддерживается.", "Uppercase and lowercase letters are treated as equal. Cyrillic is supported.") \
     X(UnwantedWholeWord, "Только целое слово", "Whole word only") \
-    X(UnwantedNoFlags, "Обычный режим", "Default mode") \
     X(UnwantedInvalidRule, "Ошибка", "Error") \
-    X(UnwantedWarning, "Проверьте", "Check") \
-    X(UnwantedRuleOk, "Готово", "Ready") \
-    X(UnwantedNoSelection, "Выберите правило слева или создайте новое.", "Select a rule on the left or create a new one.") \
+    X(UnwantedWarning, "Предупреждение", "Warning") \
+    X(UnwantedRuleOk, "Активно", "Active") \
+    X(UnwantedRuleDisabled, "Выключено", "Disabled") \
+    X(UnwantedRuleLiteralSummary, "Скрывает сообщения с текстом «%s»", "Hides messages containing “%s”") \
+    X(UnwantedRuleSampleSummary, "По примеру: %s", "From sample: %s") \
+    X(UnwantedRuleExactSummary, "Точное сообщение: %s", "Exact message: %s") \
+    X(UnwantedRulePatternFallback, "Технический шаблон: %s", "Technical pattern: %s") \
+    X(UnwantedDuplicateAction, "Дублировать", "Duplicate") \
+    X(UnwantedCopyPattern, "Копировать шаблон", "Copy pattern") \
     X(UnwantedCreateRuleTitle, "Создание правила", "Create rule") \
     X(UnwantedEditRuleTitle, "Редактирование правила", "Edit rule") \
+    X(UnwantedCreateRuleSubtitle, "Достаточно вставить пример сообщения", "Paste a sample message to get started") \
     X(UnwantedRuleEnabled, "Правило включено", "Rule enabled") \
     X(UnwantedRuleName, "Имя правила", "Rule name") \
     X(UnwantedRuleNameHint, "Необязательно. Если оставить пустым, в списке будет показан текст правила", "Optional. If left empty, the rule text is shown in the list") \
     X(UnwantedRuleType, "Тип правила", "Rule type") \
     X(UnwantedRuleText, "Текст правила", "Rule text") \
-    X(UnwantedTester, "Проверка правила", "Test rule") \
+    X(UnwantedTester, "3. Проверить на другом сообщении", "3. Test another message") \
     X(UnwantedTesterHint, "Сообщение для проверки", "Message to test") \
-    X(UnwantedTestAction, "Проверить", "Test") \
     X(UnwantedTesterMatched, "Это сообщение будет скрыто.", "This message will be hidden.") \
     X(UnwantedTesterNoMatch, "Это сообщение не будет скрыто.", "This message will not be hidden.") \
+    X(UnwantedTesterNeutral, "Введите другое сообщение для проверки.", "Enter another message to test.") \
+    X(UnwantedTesterRuleError, "Правило содержит ошибку.", "The rule contains an error.") \
+    X(UnwantedEditorMessageStep, "1. Сообщение, которое нужно скрыть", "1. Message to hide") \
+    X(UnwantedEditorModeStep, "Способ подготовки", "Preparation method") \
+    X(UnwantedEditorResultStep, "2. Результат", "2. Result") \
+    X(UnwantedEditorAutomatic, "Автоматически", "Automatic") \
+    X(UnwantedEditorManual, "Выбрать изменяемые части", "Select variable parts") \
+    X(UnwantedEditorAdvancedSettings, "Дополнительные настройки", "Advanced settings") \
+    X(UnwantedEditorTechnicalPattern, "Технический шаблон PCRE2", "Technical PCRE2 pattern") \
+    X(UnwantedEditorResultReady, "Правило готово", "Rule ready") \
+    X(UnwantedEditorResultHint, "Будут скрываться сообщения, подходящие под этот пример:", "Messages matching this example will be hidden:") \
+    X(UnwantedSaveChanges, "Сохранить", "Save") \
+    X(UnwantedContinueEditing, "Продолжить редактирование", "Continue editing") \
+    X(UnwantedSettingsBasic, "Обработка сообщений", "Message processing") \
+    X(UnwantedSettingsDiagnostics, "Совместимость и диагностика", "Compatibility and diagnostics") \
+    X(UnwantedSettingsSaved, "Изменения сохраняются автоматически", "Changes are saved automatically") \
+    X(UnwantedSettingsSavedNow, "Сохранено", "Saved") \
+    X(UnwantedSettingsReset, "Вернуть стандартные настройки", "Restore default settings") \
+    X(UnwantedChatAsiStatus, "Статус: %s", "Status: %s") \
+    X(UnwantedChatAsiDetected, "_chat.asi обнаружен, совместимость включена", "_chat.asi detected, compatibility enabled") \
+    X(UnwantedChatAsiDisabled, "_chat.asi обнаружен, совместимость выключена", "_chat.asi detected, compatibility disabled") \
+    X(UnwantedChatAsiStandard, "_chat.asi не обнаружен, используется обычный чат", "_chat.asi not detected, standard chat is used") \
     X(UnwantedTesterNormalizedFormat, "После подготовки текста (%s симв.): «%s»", "After text preparation (%s chars): “%s”") \
-    X(UnwantedTesterEmptyHint, "Пустое поле проверяет пустое сообщение. Для сообщения только из пробелов введите пробелы и нажмите «Проверить».", "An empty field tests an empty message. For a spaces-only message, enter spaces and click Test.") \
-    X(UnwantedRegexHelper, "Помощник по шаблонам", "Pattern helper") \
     X(UnwantedHelperFlowHint, "Вставьте пример сообщения или полную строку чатлога.", "Paste a sample message or a full chatlog line.") \
     X(UnwantedHelperInputHint, "Вставьте пример сообщения", "Paste a sample message") \
     X(TextPatternChatlogTimestampRemoved, "Время чатлога распознано и удалено перед проверкой.", "The chatlog timestamp was detected and removed before testing.") \
     X(UnwantedGeneralizations, "Какие части могут меняться", "Parts that may change") \
-    X(UnwantedHelperColors, "Цветовые коды", "Color codes") \
     X(UnwantedHelperNumbers, "Числа", "Numbers") \
     X(UnwantedHelperMoney, "Суммы денег", "Money amounts") \
     X(UnwantedHelperTime, "Время", "Time") \
@@ -422,13 +450,7 @@
     X(UnwantedHelperPlayerId, "[id]", "[id]") \
     X(UnwantedHelperDomain, "Сайты и ссылки", "Sites and links") \
     X(UnwantedHelperBracketTag, "Префикс [Текст]", "[Text] prefix") \
-    X(UnwantedHelperExact, "Точное сообщение", "Exact message") \
-    X(UnwantedHelperGeneralized, "Рекомендуемый вариант", "Recommended") \
-    X(UnwantedHelperContains, "Фрагмент сообщения", "Message fragment") \
-    X(UnwantedRegexVariants, "Варианты шаблона", "Pattern variants") \
-    X(UnwantedRegexVariantsHint, "«Копировать» отправит шаблон в буфер обмена, «Использовать» перенесёт его в правило.", "Copy sends the pattern to the clipboard; Use moves it into the rule.") \
     X(UnwantedNormalizedPreview, "Текст, который будет проверяться", "Text that will be checked") \
-    X(UnwantedDetectedTokens, "Что найдено в сообщении", "Detected message parts") \
     X(UnwantedDetectedTokensFormat, "Найденные части: %s", "Detected parts: %s") \
     X(UnwantedTokenColor, "Цвет", "Color") \
     X(UnwantedTokenColorHelp, "Цветовые коды вида {FFFFFF} или {FF0000FF} будут подходить независимо от цвета.", "Color codes such as {FFFFFF} or {FF0000FF} may use any color value.") \
@@ -509,6 +531,10 @@
     X(UnwantedUseInDraft, "Использовать", "Use") \
     X(UnwantedCopy, "Копировать", "Copy") \
     X(UnwantedDeleteSelectedQuestion, "Удалить выбранные правила: %s?", "Delete selected rules: %s?") \
+    X(UnwantedDeleteSelectionScope, "Будут удалены только показанные и выбранные правила.", "Only shown and selected rules will be deleted.") \
+    X(UnwantedDeleteRulesAction, "Удалить: %s", "Delete: %s") \
+    X(UnwantedDeleteRuleQuestion, "Удалить правило «%s»?", "Delete rule “%s”?") \
+    X(UnwantedDeleteRuleSummary, "Оно скрывает сообщения по примеру:\n%s", "It hides messages matching this sample:\n%s") \
     X(UnwantedErrorTooLong, "Правило слишком длинное. Максимум: %s.", "The rule is too long. Maximum: %s.") \
     X(UnwantedErrorEmpty, "Введите текст правила.", "Enter the rule text.") \
     X(UnwantedErrorUnknownType, "Тип правила «%s» не поддерживается. Выберите тип заново.", "Rule type “%s” is not supported. Select the type again.") \
@@ -1546,12 +1572,53 @@
     X(EditorTriggerHint, "Срабатывает по входящему или исходящему сообщению. Перед сравнением удаляются цветовые коды, нормализуются окончания строк и пробелы по краям.", "Triggers on incoming or outgoing messages. Color codes are removed, line endings are normalized, and surrounding whitespace is trimmed before matching.") \
     X(EditorTriggerPatternTooltip, "Открыть помощник PCRE2.\n\nОбычный триггер сравнивает всю подготовленную строку с учётом регистра. Шаблон ищет фрагмент; для полной строки используйте \\A в начале и \\z в конце. Доступны Unicode-классы, группы и lookaround. Проверка ограничена по ресурсам, чтобы сложное выражение не подвешивало игру.", "Open the PCRE2 helper.\n\nA plain trigger compares the full prepared string case-sensitively. A pattern searches for a fragment; use \\A at the start and \\z at the end for the full string. Unicode classes, groups, and lookaround are supported. Matching is resource-limited so a complex expression cannot hang the game.") \
     X(EditorTriggerExample, "Например: Голова, [Гг]олова, \\Aдом\\d+\\z", "For example: Head, [Hh]ead, \\Ahouse\\d+\\z") \
-    X(EditorPatternHelperTitle, "Шаблон текстового триггера", "Text trigger pattern") \
-    X(EditorPatternEnabled, "Использовать шаблон PCRE2", "Use a PCRE2 pattern") \
-    X(EditorPatternSample, "Пример и проверка", "Example and test") \
-    X(EditorPatternSampleHint, "Можно вставить строку чатлога: время и цветовые коды будут удалены.", "You can paste a chatlog line: timestamps and color codes will be removed.") \
-    X(EditorPatternCaptureHint, "Выделяйте нужные части по очереди. Для каждой будет создана отдельная переменная бинда.", "Select the required parts one by one. Each part gets its own bind variable.") \
-    X(EditorPatternCaptureName, "Имя следующей группы", "Next group name") \
+    X(EditorPatternHelperTitle, "Настройка текстового триггера", "Text trigger setup") \
+    X(EditorPatternIntro, "Бинд запустится, когда в чате появится подходящее сообщение.", "The bind will start when a matching message appears in chat.") \
+    X(EditorPatternIntroTechnical, "Технический шаблон будет создан автоматически.", "The technical pattern will be created automatically.") \
+    X(EditorPatternStepMessage, "1. Сообщение из чата", "1. Chat message") \
+    X(EditorPatternMessageHint, "Вставьте сообщение или полную строку чатлога", "Paste a message or a full chatlog line") \
+    X(EditorPatternNormalizationHint, "Время чатлога и цветовые коды удаляются перед проверкой.", "Chatlog timestamps and color codes are removed before testing.") \
+    X(EditorPatternTimestampRemoved, "Время удалено", "Timestamp removed") \
+    X(EditorPatternColorsRemoved, "Цвета не учитываются", "Colors ignored") \
+    X(EditorPatternStepVariableParts, "2. Что может меняться", "2. What can change") \
+    X(EditorPatternPartsHint, "Оставьте отмеченными части, которые могут отличаться в других сообщениях.", "Keep the parts that may differ in other messages selected.") \
+    X(EditorPatternNoParts, "Изменяемые части не найдены. Получится точный текстовый триггер.", "No variable parts were found. An exact text trigger will be created.") \
+    X(EditorPatternManualAction, "Указать вручную", "Select manually") \
+    X(EditorPatternManualDone, "Готово", "Done") \
+    X(EditorPatternManualIntro, "Выделите фрагмент, который может меняться.", "Select the fragment that may change.") \
+    X(EditorPatternManualStepSelect, "1. Выберите часть сообщения", "1. Select a message part") \
+    X(EditorPatternManualStepAction, "2. Что сделать с выбранной частью", "2. Configure the selected part") \
+    X(EditorPatternSelectedLabel, "Выбрано", "Selected") \
+    X(EditorPatternTypeLabel, "Тип части", "Part type") \
+    X(EditorPatternSaveValue, "Сохранить значение для использования внутри бинда", "Save the value for use inside the bind") \
+    X(EditorPatternVariableName, "Имя переменной", "Variable name") \
+    X(EditorPatternVariableUsage, "Использование в тексте бинда", "Use in bind text") \
+    X(EditorPatternAddPart, "Добавить изменяемую часть", "Add variable part") \
+    X(EditorPatternAddedParts, "3. Добавленные части", "3. Added parts") \
+    X(EditorPatternStepPreview, "3. Как будет работать", "3. How it will work") \
+    X(EditorPatternExampleMatches, "Этот пример подходит", "This example matches") \
+    X(EditorPatternPreviewHint, "Бинд сработает на сообщения такого вида:", "The bind will trigger for messages like this:") \
+    X(EditorPatternCustomPreview, "Используется шаблон, изменённый в дополнительных настройках. Основной пример подходит, но изменяемые части определяются самим PCRE2.", "A pattern edited in advanced settings is active. The main example matches, but PCRE2 itself defines the variable parts.") \
+    X(EditorPatternAdvancedTitle, "PCRE2 и дополнительные настройки", "PCRE2 and advanced settings") \
+    X(EditorPatternAdvancedForExperts, "Для опытных", "For advanced users") \
+    X(EditorPatternReady, "Триггер готов к применению", "The trigger is ready to apply") \
+    X(EditorPatternNeedMessage, "Вставьте сообщение из чата", "Paste a chat message") \
+    X(EditorPatternInvalid, "В шаблоне есть ошибка", "The pattern contains an error") \
+    X(EditorPatternNoMatchDetailed, "Это сообщение не подходит к текущему шаблону.", "This message does not match the current pattern.") \
+    X(EditorPatternWarning, "Шаблон может срабатывать на лишние сообщения", "The pattern may match extra messages") \
+    X(EditorPatternCancel, "Отмена", "Cancel") \
+    X(EditorPatternApply, "Применить", "Apply") \
+    X(EditorPatternRestoreRecommended, "Восстановить рекомендуемый шаблон", "Restore recommended pattern") \
+    X(EditorPatternReferenceOpen, "Открыть справочник выражений", "Open expression reference") \
+    X(EditorPatternReferenceClose, "Закрыть справочник выражений", "Close expression reference") \
+    X(EditorPatternAlternateTest, "Проверить другое сообщение", "Test another message") \
+    X(EditorPatternAlternateHint, "Это поле не меняет основной пример.", "This field does not change the main example.") \
+    X(EditorPatternAlternateMatches, "Сообщение подходит", "The message matches") \
+    X(EditorPatternAlternateNoMatch, "Сообщение не подходит", "The message does not match") \
+    X(EditorPatternVariantExact, "Только такое сообщение", "Only this exact message") \
+    X(EditorPatternVariantRecommended, "Сообщение целиком с изменяемыми частями", "Full message with variable parts") \
+    X(EditorPatternVariantContains, "Сообщение содержит этот фрагмент", "Message contains this fragment") \
+    X(EditorPatternVariantSelect, "Выбрать", "Select") \
     X(EditorPatternCaptureNameHint, "Например: surname или id", "For example: surname or id") \
     X(EditorPatternCaptureNameInvalid, "Имя: латинская буква, затем латинские буквы, цифры или _. Максимум 64 символа.", "Name: an ASCII letter followed by ASCII letters, digits, or _. Maximum 64 characters.") \
     X(EditorPatternCaptureAdvanced, "Расширенная настройка PCRE2", "Advanced PCRE2 setup") \
@@ -1571,8 +1638,6 @@
     X(EditorPatternCaptureCopy, "Копировать переменную", "Copy variable") \
     X(EditorPatternCaptureResults, "Группы в результате проверки", "Groups from the test match") \
     X(EditorPatternCaptureResultsHint, "Номер и имя равнозначны. Нажмите готовую переменную, чтобы скопировать её. Именованные группы устойчивее к добавлению новых скобок в начало шаблона.", "Number and name are equivalent. Click a ready variable to copy it. Named groups remain stable when new parentheses are added before them.") \
-    X(EditorPatternCaptureNeedsPattern, "Включите PCRE2-шаблон и добавьте capture-группу.", "Enable the PCRE2 pattern and add a capture group.") \
-    X(EditorPatternCaptureNeedsMatch, "Текущий шаблон должен успешно совпасть с примером, чтобы показать значения групп.", "The current pattern must successfully match the sample to show group values.") \
     X(EditorPatternCaptureColumnGroup, "Группа", "Group") \
     X(EditorPatternCaptureColumnName, "Имя", "Name") \
     X(EditorPatternCaptureColumnValue, "Значение", "Value") \
@@ -1582,8 +1647,6 @@
     X(EditorPatternReferenceHint, "Готовые элементы PCRE2. Нажмите выражение, чтобы скопировать его, или «Вставить», чтобы заменить выделение в тексте триггера либо добавить элемент в позицию курсора.", "Ready-to-use PCRE2 elements. Click an expression to copy it, or use Append to replace the trigger selection or insert it at the cursor.") \
     X(EditorPatternMatchesEmpty, "Этот шаблон совпадает даже с пустым сообщением и может запускать бинд слишком часто.", "This pattern also matches an empty message and may trigger the bind too often.") \
     X(EditorPatternTestStopped, "Проверка остановлена безопасным лимитом. Упростите шаблон.", "Testing stopped at a safety limit. Simplify the pattern.") \
-    X(EditorPatternMatched, "Триггер сработает.", "The trigger will fire.") \
-    X(EditorPatternNoMatch, "Триггер не сработает.", "The trigger will not fire.") \
     X(EditorScenarioHint, "Перетащите ручку слева, чтобы изменить порядок шагов. Пустые строки удаляются при сохранении.", "Drag the handle on the left to reorder steps. Empty rows are removed when saving.") \
     X(EditorAppendStepHint, "Введите сообщение для нового шага", "Type a message for a new step") \
     X(EditorAppendStepTooltip, "Введите текст: строка сразу станет новым шагом. При вставке нескольких строк каждая непустая строка станет отдельным шагом. Пауза и метод копируются из предыдущего шага.", "Type text: the row immediately becomes a new step. When pasting multiple lines, each non-empty line becomes a separate step. Delay and method are copied from the previous step.") \

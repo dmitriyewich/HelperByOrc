@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 #include <sstream>
 #include <utility>
@@ -26,14 +27,13 @@
 namespace {
 
 constexpr std::string_view kUnwantedSectionName = "unwanted";
-constexpr int kUnwantedSchemaVersion = 2;
+constexpr int kUnwantedSchemaVersion = 3;
 constexpr int kMaxConfigPatternLength = 65535;
 constexpr std::uint64_t kPerfTelemetryWindowMs = 5000;
 
 enum class RegexWorkspaceMode {
     Automatic = 0,
     Manual,
-    Reference,
 };
 
 using text_pattern_ui::AppendWarning;
@@ -123,47 +123,11 @@ ImVec2 ScaleUi(float x, float y) {
     return UiSettings::Instance().Scale(ImVec2(x, y));
 }
 
-ImVec2 FitModalMinimum(const ImVec2& preferredMinimum, const ImVec2& maximum) {
-    return ImVec2(
-        std::min(preferredMinimum.x, maximum.x),
-        std::min(preferredMinimum.y, maximum.y));
-}
-
 RegexWorkspaceMode CurrentRegexWorkspaceMode(int value) {
     return static_cast<RegexWorkspaceMode>(std::clamp(
         value,
         static_cast<int>(RegexWorkspaceMode::Automatic),
-        static_cast<int>(RegexWorkspaceMode::Reference)));
-}
-
-void DrawRegexModeBar(int& value) {
-    UiSettings& ui = UiSettings::Instance();
-    const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    float previousRight = 0.0f;
-    bool first = true;
-    const auto drawMode = [&](RegexWorkspaceMode mode, UiText label) {
-        const char* text = ui.Text(label);
-        const float width = ImGui::CalcTextSize(text).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        if (!first && previousRight + ImGui::GetStyle().ItemSpacing.x + width <= rowRight) {
-            ImGui::SameLine();
-        }
-        const bool selected = CurrentRegexWorkspaceMode(value) == mode;
-        if (selected) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-        if (ImGui::Button(text)) {
-            value = static_cast<int>(mode);
-        }
-        if (selected) {
-            ImGui::PopStyleColor();
-        }
-        previousRight = ImGui::GetItemRectMax().x;
-        first = false;
-    };
-
-    drawMode(RegexWorkspaceMode::Automatic, UiText::PatternModeAutomatic);
-    drawMode(RegexWorkspaceMode::Manual, UiText::PatternModeManual);
-    drawMode(RegexWorkspaceMode::Reference, UiText::PatternModeReference);
+        static_cast<int>(RegexWorkspaceMode::Manual)));
 }
 
 ImVec4 WithAlpha(ImVec4 color, float alpha) {
@@ -268,6 +232,40 @@ bool UnwantedPrimaryButton(const char* icon, const char* label, const char* id, 
     return clicked;
 }
 
+float UnwantedButtonWidth(const char* icon, const char* label, float minimum = 0.0f) {
+    std::string visibleText;
+    if (icon && icon[0] != '\0') {
+        visibleText = icon;
+        if (label && label[0] != '\0') {
+            visibleText.push_back(' ');
+        }
+    }
+    if (label) {
+        visibleText += label;
+    }
+
+    const float contentWidth = ImGui::CalcTextSize(visibleText.c_str()).x
+        + ImGui::GetStyle().FramePadding.x * 2.0f;
+    return std::max(minimum, contentWidth);
+}
+
+void CenterTableCellVertically(float rowHeight, float contentHeight) {
+    const float offset = std::max(
+        0.0f,
+        (rowHeight - contentHeight) * 0.5f - ImGui::GetStyle().CellPadding.y);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offset);
+}
+
+bool UnwantedDangerButton(const char* label, const char* id, const ImVec2& size) {
+    const UnwantedVisualStyle visual = UnwantedStyleTokens();
+    ImGui::PushStyleColor(ImGuiCol_Button, WithAlpha(visual.danger, 0.30f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, WithAlpha(visual.danger, 0.48f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, WithAlpha(visual.danger, 0.68f));
+    const bool clicked = UnwantedTextButton(nullptr, label, id, size);
+    ImGui::PopStyleColor(3);
+    return clicked;
+}
+
 bool FilterChip(const char* label, bool active) {
     const UnwantedVisualStyle visual = UnwantedStyleTokens();
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ScaleUi(8.0f));
@@ -323,6 +321,60 @@ std::string TrimAscii(std::string_view value) {
     }
 
     return std::string(value.substr(start, end - start));
+}
+
+bool TryExactRegexDisplayText(std::string_view rawPattern, std::string& displayText) {
+    const std::string pattern = TrimAscii(rawPattern);
+    if (pattern.size() < 4 || !pattern.starts_with("\\A") || !pattern.ends_with("\\z")) {
+        return false;
+    }
+
+    const std::string_view body(pattern.data() + 2, pattern.size() - 4);
+    std::string decoded;
+    decoded.reserve(body.size());
+    for (std::size_t i = 0; i < body.size();) {
+        const unsigned char ch = static_cast<unsigned char>(body[i]);
+        if (ch == '\r' || ch == '\n') {
+            return false;
+        }
+        if (ch != '\\') {
+            if (std::string_view(".^$|?*+()[]{}").find(static_cast<char>(ch)) != std::string_view::npos) {
+                return false;
+            }
+            decoded.push_back(static_cast<char>(ch));
+            ++i;
+            continue;
+        }
+
+        if (i + 1 >= body.size()) {
+            return false;
+        }
+        const unsigned char escaped = static_cast<unsigned char>(body[i + 1]);
+        if (escaped == 'Q') {
+            const std::size_t quoteEnd = body.find("\\E", i + 2);
+            if (quoteEnd == std::string_view::npos) {
+                return false;
+            }
+            const std::string_view quoted = body.substr(i + 2, quoteEnd - i - 2);
+            if (quoted.find_first_of("\r\n") != std::string_view::npos) {
+                return false;
+            }
+            decoded.append(quoted);
+            i = quoteEnd + 2;
+            continue;
+        }
+        if (std::isalnum(escaped) != 0 || escaped == '_') {
+            return false;
+        }
+        decoded.push_back(static_cast<char>(escaped));
+        i += 2;
+    }
+
+    if (decoded.empty()) {
+        return false;
+    }
+    displayText = std::move(decoded);
+    return true;
 }
 
 const char* RuntimeWarningDisplay(std::string_view status) {
@@ -531,6 +583,66 @@ bool DecodeNextUtf8(std::string_view value, std::size_t byteOffset, std::uint32_
     return DecodeUtf8At(value, byteOffset, codepoint, size);
 }
 
+std::string Utf8Preview(std::string_view value, std::size_t maxCharacters) {
+    const std::string trimmed = TrimAscii(value);
+    std::size_t offset = 0;
+    std::size_t characters = 0;
+    while (offset < trimmed.size() && characters < maxCharacters) {
+        std::uint32_t codepoint = 0;
+        std::size_t size = 0;
+        DecodeUtf8At(trimmed, offset, codepoint, size);
+        offset += std::max<std::size_t>(size, 1);
+        ++characters;
+    }
+    if (offset >= trimmed.size()) {
+        return trimmed;
+    }
+    return trimmed.substr(0, offset) + "...";
+}
+
+std::string SuggestRuleName(std::string_view rawSample) {
+    std::string sample = TrimAscii(text_pattern_input::ExtractChatlogPayload(rawSample).payload);
+    std::size_t colorLength = 0;
+    while (TryColorTag(sample, 0, colorLength)) {
+        sample = TrimAscii(std::string_view(sample).substr(colorLength));
+    }
+    if (sample.empty()) {
+        return {};
+    }
+
+    if (sample.front() == '[') {
+        const std::size_t close = sample.find(']');
+        if (close != std::string::npos && close > 1 && close <= 64) {
+            const std::string prefix = Utf8Preview(std::string_view(sample).substr(1, close - 1), 24);
+            const std::string rest = Utf8Preview(std::string_view(sample).substr(close + 1), 32);
+            return rest.empty() ? prefix : prefix + ": " + rest;
+        }
+    }
+
+    for (std::size_t offset = 0; offset + 1 < sample.size(); ++offset) {
+        if (sample[offset] != '/') {
+            continue;
+        }
+        const bool commandStart = offset == 0
+            || std::isspace(static_cast<unsigned char>(sample[offset - 1])) != 0
+            || sample[offset - 1] == '(' || sample[offset - 1] == '[';
+        if (!commandStart || std::isalnum(static_cast<unsigned char>(sample[offset + 1])) == 0) {
+            continue;
+        }
+        std::size_t end = offset + 2;
+        while (end < sample.size()) {
+            const unsigned char current = static_cast<unsigned char>(sample[end]);
+            if (std::isalnum(current) == 0 && sample[end] != '_' && sample[end] != '-') {
+                break;
+            }
+            ++end;
+        }
+        return sample.substr(offset, end - offset);
+    }
+
+    return Utf8Preview(sample, 40);
+}
+
 bool IsWordCodepoint(std::uint32_t cp) {
     if ((cp >= '0' && cp <= '9') || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || cp == '_') {
         return true;
@@ -571,9 +683,17 @@ void UnwantedMessagesModule::SetChatAsiCompatibilityHandler(std::function<void(b
     ApplyChatAsiCompatibilitySetting();
 }
 
+void UnwantedMessagesModule::SetSampRakHooks(SampRakHooks* hooks) {
+    sampRakHooks_ = hooks;
+}
+
 void UnwantedMessagesModule::Shutdown() {
+    sampRakHooks_ = nullptr;
+    messageHistoryPicker_ = {};
     rules_.clear();
     selectedRuleIds_.clear();
+    selectionMode_ = false;
+    focusRuleSearch_ = false;
     scrollToRuleId_.clear();
     helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Automatic);
     page_ = Page::Closed;
@@ -812,7 +932,7 @@ bool UnwantedMessagesModule::DrawMiscCard() {
     ImGui::PopStyleColor();
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        page_ = Page::Home;
+        page_ = Page::Rules;
         return true;
     }
     return false;
@@ -832,15 +952,12 @@ void UnwantedMessagesModule::DrawMainPage() {
     }
     RefreshLocalizedDiagnostics();
     switch (page_) {
-    case Page::Create:
-        DrawCreatePage(reload);
+    case Page::Editor:
+        DrawEditorPage();
         break;
     case Page::Rules:
-        DrawRulesPage(reload);
-        break;
-    case Page::Home:
     default:
-        DrawHomePage(reload);
+        DrawRulesPage();
         break;
     }
     DrawDeleteConfirmPopup();
@@ -855,153 +972,110 @@ void UnwantedMessagesModule::DrawMainPage() {
     }
 }
 
-bool UnwantedMessagesModule::DrawPageHeader(const char* subtitle, bool& reload) {
+bool UnwantedMessagesModule::RuleHasProblem(const Rule& rule) const {
+    return !rule.error.empty()
+        || rule.duplicate
+        || !rule.warning.empty()
+        || runtimeWarningsView_.find(rule.id) != runtimeWarningsView_.end();
+}
+
+void UnwantedMessagesModule::DrawRulesHeader() {
     UiSettings& ui = UiSettings::Instance();
-    const bool narrow = ImGui::GetContentRegionAvail().x < ScaleUi(620.0f);
-    const float headerHeight = narrow ? ScaleUi(84.0f) : ScaleUi(58.0f);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float availableWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - ScaleUi(18.0f));
+    const float frameHeight = ImGui::GetFrameHeight();
+    const float backWidth = UnwantedButtonWidth(
+        ui_icons::ChevronLeft,
+        ui.Text(UiText::EditorBack),
+        ScaleUi(112.0f));
+    const float settingsWidth = UnwantedButtonWidth(ui_icons::Gear, "", ScaleUi(42.0f));
+    const float addWidth = UnwantedButtonWidth(
+        ui_icons::Plus,
+        ui.Text(UiText::UnwantedAddRule),
+        ScaleUi(174.0f));
+    const char* stateText = ui.Text(settings_.enabled ? UiText::UnwantedModuleOn : UiText::UnwantedModuleOff);
+    const float toggleWidth = frameHeight
+        + style.ItemInnerSpacing.x
+        + ImGui::CalcTextSize(ui.Text(UiText::UnwantedModuleToggleTitle)).x
+        + style.ItemSpacing.x
+        + ImGui::CalcTextSize(stateText).x;
+    const float actionsWidth = toggleWidth + addWidth + settingsWidth + style.ItemSpacing.x * 2.0f;
+    const float leadingWidth = backWidth
+        + style.ItemSpacing.x
+        + ImGui::CalcTextSize(ui.Text(UiText::UnwantedTitle)).x;
+    const bool inlineActions = availableWidth >= leadingWidth + actionsWidth + ScaleUi(16.0f);
+    const bool splitActions = !inlineActions && actionsWidth > availableWidth;
+    const int rowCount = inlineActions ? 1 : (splitActions ? 3 : 2);
+    const float headerHeight = frameHeight * static_cast<float>(rowCount)
+        + style.ItemSpacing.y * static_cast<float>(rowCount - 1)
+        + ScaleUi(16.0f);
     if (!BeginUnwantedPanel("##unwanted_page_header", ImVec2(0.0f, headerHeight))) {
         EndUnwantedPanel();
-        return false;
+        return;
     }
 
-    if (UnwantedTextButton(ui_icons::ChevronLeft, ui.Text(UiText::EditorBack), "##unwanted_page_back", ScaleUi(112.0f, 0.0f))) {
-        const Page target = page_ == Page::Home ? Page::Closed : Page::Home;
-        if (page_ == Page::Create && ruleDraft_.active && ruleDraft_.dirty) {
-            pendingPageAfterDiscard_ = target;
-            unsavedConfirmOpen_ = true;
-        } else {
-            page_ = target;
-            if (target != Page::Create) {
-                ruleDraft_ = {};
-            }
-        }
-        EndUnwantedPanel();
-        return true;
+    const float firstRowY = ImGui::GetCursorPosY();
+    const float contentMinX = ImGui::GetCursorPosX();
+    const float contentMaxX = ImGui::GetWindowWidth() - style.WindowPadding.x;
+    if (UnwantedTextButton(
+            ui_icons::ChevronLeft,
+            ui.Text(UiText::EditorBack),
+            "##unwanted_page_back",
+            ImVec2(backWidth, 0.0f))) {
+        page_ = Page::Closed;
     }
-    const float buttonWidth = narrow ? ScaleUi(118.0f) : ScaleUi(138.0f);
-    if (!narrow) {
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
+
+    if (inlineActions) {
+        ImGui::SameLine(std::max(
+            ImGui::GetCursorPosX() + ScaleUi(8.0f),
+            contentMaxX - actionsWidth));
+    } else {
+        ImGui::SetCursorPos(ImVec2(contentMinX, firstRowY + frameHeight + style.ItemSpacing.y));
+    }
+
+    bool enabled = settings_.enabled;
+    if (ImGui::Checkbox("##unwanted_module_enabled", &enabled)) {
+        settings_.enabled = enabled;
+        PublishRuntimeSnapshot();
+        SaveSettings();
+    }
+    ImGui::SameLine();
+    ImGui::TextUnformatted(ui.Text(UiText::UnwantedModuleToggleTitle));
+    DrawUnwantedTooltip(ui.Text(UiText::UnwantedModuleToggleDesc));
+    ImGui::SameLine();
+    ImGui::TextDisabled(
+        "%s",
+        ui.Text(settings_.enabled ? UiText::UnwantedModuleOn : UiText::UnwantedModuleOff));
+    if (splitActions) {
+        ImGui::SetCursorPos(ImVec2(contentMinX, firstRowY + (frameHeight + style.ItemSpacing.y) * 2.0f));
+    } else {
         ImGui::SameLine();
-        ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
-        if (subtitle && subtitle[0] != '\0') {
-            ImGui::SameLine();
-            ImGui::TextDisabled("/ %s", subtitle);
-        }
     }
-    ImGui::SameLine(std::max(
-        ImGui::GetCursorPosX() + ScaleUi(8.0f),
-        ImGui::GetWindowWidth() - buttonWidth - ScaleUi(10.0f)));
-    if (UnwantedTextButton(ui_icons::Gear, ui.Text(UiText::UnwantedTools), "##unwanted_settings", ImVec2(buttonWidth, 0.0f))) {
+    if (UnwantedPrimaryButton(
+            ui_icons::Plus,
+            ui.Text(UiText::UnwantedAddRule),
+            "##unwanted_add_rule",
+            ImVec2(addWidth, 0.0f))) {
+        StartCreateRule({}, RuleType::Regex);
+        page_ = Page::Editor;
+    }
+    ImGui::SameLine();
+    if (UnwantedTextButton(ui_icons::Gear, "", "##unwanted_settings", ImVec2(settingsWidth, 0.0f))) {
         ImGui::OpenPopup("##unwanted_settings_popup");
-    }
-    if (narrow) {
-        ImGui::Spacing();
-        ImGui::Text("%s", ui.Text(UiText::UnwantedTitle));
-        if (subtitle && subtitle[0] != '\0') {
-            ImGui::SameLine();
-            ImGui::TextDisabled("/ %s", subtitle);
-        }
     }
     DrawSettingsPopup();
     EndUnwantedPanel();
     ImGui::Spacing();
-    (void)reload;
-    return false;
 }
 
-void UnwantedMessagesModule::DrawHomePage(bool& reload) {
+void UnwantedMessagesModule::DrawRulesSummary() {
     UiSettings& ui = UiSettings::Instance();
-    const UnwantedVisualStyle visual = UnwantedStyleTokens();
-    if (DrawPageHeader(ui.Text(UiText::UnwantedHome), reload)) {
-        return;
-    }
-
-    const std::size_t invalid = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) { return !rule.error.empty(); });
     const std::size_t enabled = std::count_if(rules_.begin(), rules_.end(), [](const Rule& rule) { return rule.enabled; });
-    const std::size_t duplicates = DuplicateRuleCount();
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const bool horizontal = avail.x >= ScaleUi(700.0f);
-    const float gap = ScaleUi(10.0f);
-    const float width = horizontal ? (avail.x - gap) * 0.5f : avail.x;
-    const float actionHeight = ScaleUi(116.0f);
-
-    const auto beginCard = [&](const char* id, const ImVec4& accent, float height) {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, WithAlpha(visual.panelBg, 0.96f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ScaleUi(9.0f));
-        const bool visible = ImGui::BeginChild(id, ImVec2(width, height), ImGuiChildFlags_FrameStyle);
-        if (visible) {
-            const ImVec2 min = ImGui::GetWindowPos();
-            ImGui::GetWindowDrawList()->AddRectFilled(
-                min,
-                ImVec2(min.x + ScaleUi(5.0f), min.y + ImGui::GetWindowHeight()),
-                ImGui::GetColorU32(accent),
-                ScaleUi(9.0f),
-                ImDrawFlags_RoundCornersLeft);
-        }
-        return visible;
-    };
-    const auto endCard = [&] {
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-    };
-
-    const float statusHeight = horizontal ? ScaleUi(78.0f) : ScaleUi(98.0f);
-    if (BeginUnwantedPanel("##unwanted_toggle_card", ImVec2(0.0f, statusHeight))) {
-        ImGui::TextColored(settings_.enabled ? visual.ok : visual.danger, "%s", ui.Text(UiText::UnwantedModuleToggleTitle));
-        const float toggleWidth = ImGui::GetFrameHeight()
-            + ImGui::GetStyle().ItemInnerSpacing.x
-            + ImGui::CalcTextSize(ui.Text(settings_.enabled ? UiText::UnwantedModuleOn : UiText::UnwantedModuleOff)).x;
-        if (horizontal && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + toggleWidth
-                <= ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x) {
-            ImGui::SameLine(std::max(
-                ImGui::GetCursorPosX(),
-                ImGui::GetWindowWidth() - toggleWidth - ImGui::GetStyle().WindowPadding.x));
-        }
-        bool enabledSetting = settings_.enabled;
-        if (ImGui::Checkbox(ui.Text(settings_.enabled ? UiText::UnwantedModuleOn : UiText::UnwantedModuleOff), &enabledSetting)) {
-            settings_.enabled = enabledSetting;
-            PublishRuntimeSnapshot();
-            SaveSettings();
-        }
-        ImGui::PushTextWrapPos(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x);
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedModuleToggleDesc));
-        ImGui::PopTextWrapPos();
-    }
-    EndUnwantedPanel();
-    ImGui::Spacing();
-
-    if (beginCard("##unwanted_create_card", visual.accent, actionHeight)) {
-        ImGui::TextColored(visual.accent, "%s", ui.Text(UiText::UnwantedNewRule));
-        ImGui::PushStyleColor(ImGuiCol_Text, visual.mutedText);
-        ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedCreateCardDesc));
-        ImGui::PopStyleColor();
-        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ScaleUi(42.0f));
-        if (UnwantedPrimaryButton(ui_icons::Plus, ui.Text(UiText::UnwantedCreateOpen), "##open_create", ImVec2(-1.0f, 0.0f))) {
-            StartCreateRule({}, RuleType::Regex);
-            page_ = Page::Create;
-        }
-    }
-    endCard();
-    if (horizontal) ImGui::SameLine(0.0f, gap); else ImGui::Spacing();
-
-    if (beginCard("##unwanted_rules_card", visual.mutedText, actionHeight)) {
-        ImGui::TextColored(visual.mutedText, "%s", ui.Text(UiText::UnwantedRules));
-        ImGui::PushStyleColor(ImGuiCol_Text, visual.mutedText);
-        ImGui::TextWrapped("%s", ui.Format(
-            UiText::UnwantedRulesCardStats,
-            std::to_string(rules_.size()).c_str(),
-            std::to_string(enabled).c_str(),
-            std::to_string(invalid).c_str(),
-            std::to_string(duplicates).c_str()).c_str());
-        ImGui::PopStyleColor();
-        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ScaleUi(42.0f));
-        if (UnwantedTextButton(ui_icons::Bars, ui.Text(UiText::UnwantedRulesOpen), "##open_rules", ImVec2(-1.0f, 0.0f))) {
-            page_ = Page::Rules;
-        }
-    }
-    endCard();
-
-    ImGui::Spacing();
+    const std::size_t problems = static_cast<std::size_t>(std::count_if(
+        rules_.begin(), rules_.end(), [this](const Rule& rule) { return RuleHasProblem(rule); }));
     MatchResult lastBlockedView;
     std::uint64_t blockedCountView = 0;
     {
@@ -1009,53 +1083,49 @@ void UnwantedMessagesModule::DrawHomePage(bool& reload) {
         lastBlockedView = lastBlocked_;
         blockedCountView = blockedCount_;
     }
-    const float sessionHeight = horizontal ? ScaleUi(82.0f) : ScaleUi(112.0f);
-    if (BeginUnwantedPanel("##unwanted_session_summary", ImVec2(0.0f, sessionHeight))) {
-        ImGui::Text("%s", ui.Text(UiText::UnwantedSessionTitle));
+    if (BeginUnwantedPanel("##unwanted_session_summary", ImVec2(0.0f, ScaleUi(66.0f)))) {
+        ImGui::Text("%s", ui.Format(
+            UiText::UnwantedRulesSummary,
+            std::to_string(rules_.size()).c_str(),
+            std::to_string(enabled).c_str(),
+            std::to_string(problems).c_str()).c_str());
+        const std::string blocked = ui.Format(
+            UiText::UnwantedBlockedThisLaunch,
+            std::to_string(blockedCountView).c_str());
+        const float blockedWidth = ImGui::CalcTextSize(blocked.c_str()).x;
+        if (ImGui::GetContentRegionAvail().x > blockedWidth + ScaleUi(40.0f)) {
+            ImGui::SameLine(ImGui::GetWindowWidth() - blockedWidth - ImGui::GetStyle().WindowPadding.x);
+        }
+        ImGui::Text("%s", blocked.c_str());
         if (lastBlockedView.matched) {
-            ImGui::TextWrapped("%s", ui.Format(
-                UiText::UnwantedLastBlocked,
-                lastBlockedView.candidate.c_str()).c_str());
+            const std::string last = ui.Format(UiText::UnwantedLastBlockedCompact, lastBlockedView.candidate.c_str());
+            ImGui::TextDisabled("%s", last.c_str());
+            DrawUnwantedTooltip(lastBlockedView.candidate.c_str());
         } else {
             ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedLastBlockedEmpty));
         }
-        ImGui::TextDisabled("%s", ui.Format(UiText::UnwantedBlockedCount, std::to_string(blockedCountView).c_str()).c_str());
     }
     EndUnwantedPanel();
+    ImGui::Spacing();
 }
 
-void UnwantedMessagesModule::DrawCreatePage(bool& reload) {
-    UiSettings& ui = UiSettings::Instance();
-    if (DrawPageHeader(ui.Text(UiText::UnwantedCreateRuleTitle), reload)) {
-        return;
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
-        if (ruleDraft_.active && ruleDraft_.dirty) {
-            pendingPageAfterDiscard_ = Page::Home;
-            unsavedConfirmOpen_ = true;
-        } else {
-            ruleDraft_ = {};
-            page_ = Page::Home;
-        }
-        return;
-    }
-    if (!ruleDraft_.active || !ruleDraft_.createMode) {
+void UnwantedMessagesModule::DrawRulesPage() {
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool ctrl = (io.KeyMods & ImGuiMod_Ctrl) != 0;
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) {
         StartCreateRule({}, RuleType::Regex);
-    }
-
-    if (BeginUnwantedPanel("##unwanted_create_workspace", ImVec2(0.0f, 0.0f))) {
-        DrawRuleWorkspace(false);
-    }
-    EndUnwantedPanel();
-}
-
-void UnwantedMessagesModule::DrawRulesPage(bool& reload) {
-    UiSettings& ui = UiSettings::Instance();
-    if (DrawPageHeader(ui.Text(UiText::UnwantedRules), reload)) {
+        page_ = Page::Editor;
         return;
     }
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+        focusRuleSearch_ = true;
+    }
+    DrawRulesHeader();
+    if (page_ == Page::Closed) {
+        return;
+    }
+    DrawRulesSummary();
     DrawRulesPane(ImGui::GetContentRegionAvail());
-    DrawRuleEditorPopup();
 }
 
 jsonutil::JsonValue UnwantedMessagesModule::SerializeConfig() const {
@@ -1082,6 +1152,9 @@ jsonutil::JsonValue UnwantedMessagesModule::SerializeConfig() const {
         if (!rule.name.empty()) {
             item["name"] = rule.name;
         }
+        if (!rule.sample.empty()) {
+            item["sample"] = rule.sample;
+        }
         item["enabled"] = rule.enabled;
         item["type"] = rule.invalidType ? rule.rawType : RuleTypeName(rule.type);
         item["text"] = rule.text;
@@ -1098,11 +1171,13 @@ void UnwantedMessagesModule::LoadFromConfig(const jsonutil::JsonObject& section)
     settings_ = Settings{};
     rules_.clear();
     selectedRuleIds_.clear();
+    selectionMode_ = false;
+    focusRuleSearch_ = false;
     activeRuleId_.clear();
     scrollToRuleId_.clear();
     helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Automatic);
     ruleDraft_ = {};
-    lastTesterMatch_ = {};
+    draftTesterCache_ = {};
     nextRuleSerial_ = 1;
     diagnosticsLanguage_ = -1;
     draftValidationCache_ = {};
@@ -1164,6 +1239,7 @@ void UnwantedMessagesModule::LoadFromConfig(const jsonutil::JsonObject& section)
         occupiedIds.insert(rule.id);
         rule.enabled = jsonutil::JsonBoolOr(object, "enabled", true);
         rule.name = jsonutil::JsonStringOr(object, "name", {});
+        rule.sample = jsonutil::JsonStringOr(object, "sample", {});
         rule.rawType = jsonutil::JsonStringOr(object, "type", "literal");
         rule.invalidType = rule.rawType != "literal" && rule.rawType != "regex";
         rule.type = rule.rawType == "regex" ? RuleType::Regex : RuleType::Literal;
@@ -1323,11 +1399,16 @@ void UnwantedMessagesModule::RebuildRuleViewCache() {
     }
     for (Rule& rule : rules_) {
         rule.duplicate = counts[duplicateKey(rule)] > 1;
-        const std::string& sortName = rule.name.empty() ? rule.text : rule.name;
+        rule.exactDisplayText.clear();
+        if (rule.type == RuleType::Regex) {
+            TryExactRegexDisplayText(rule.text, rule.exactDisplayText);
+        }
+        const std::string& fallbackName = rule.exactDisplayText.empty() ? rule.text : rule.exactDisplayText;
+        const std::string& sortName = rule.name.empty() ? fallbackName : rule.name;
         rule.sortNameLower = Utf8ToLower(sortName);
         rule.searchBlobLower = Utf8ToLower(
-            rule.id + "\n" + rule.name + "\n" + rule.text + "\n" + RuleTypeName(rule.type)
-            + "\n" + rule.error + "\n" + rule.warning);
+            rule.id + "\n" + rule.name + "\n" + rule.sample + "\n" + rule.text + "\n" + RuleTypeName(rule.type)
+            + "\n" + rule.exactDisplayText + "\n" + rule.error + "\n" + rule.warning);
     }
 }
 
@@ -1541,41 +1622,9 @@ void UnwantedMessagesModule::ApplyRuntimeEvaluation(
 
 void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
     UiSettings& ui = UiSettings::Instance();
-    const UnwantedVisualStyle visual = UnwantedStyleTokens();
     if (!BeginUnwantedPanel("##unwanted_rules_pane", size)) {
         EndUnwantedPanel();
         return;
-    }
-
-    const std::string count = std::to_string(rules_.size());
-    ImGui::Text("%s", ui.Text(UiText::UnwantedRules));
-    ImGui::SameLine();
-    TextBadge(count.c_str(), visual.mutedText);
-    ImGui::SameLine();
-    if (selectedRuleIds_.empty()) {
-        if (ImGui::Button(ui.Text(UiText::UnwantedSelectAll), ScaleUi(122.0f, 0.0f))) {
-            SelectAllRules();
-        }
-    } else if (ImGui::Button(
-                   ui.Format(UiText::UnwantedBulkActionsFormat, std::to_string(selectedRuleIds_.size()).c_str()).c_str(),
-                   ScaleUi(152.0f, 0.0f))) {
-        ImGui::OpenPopup("##unwanted_bulk_actions");
-    }
-    if (ImGui::BeginPopup("##unwanted_bulk_actions")) {
-        if (ImGui::MenuItem(ui.Text(UiText::UnwantedEnableSelected))) {
-            SetSelectedRulesEnabled(true);
-        }
-        if (ImGui::MenuItem(ui.Text(UiText::UnwantedDisableSelected))) {
-            SetSelectedRulesEnabled(false);
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem(ui.Text(UiText::UnwantedClearSelection))) {
-            ClearSelection();
-        }
-        if (ImGui::MenuItem(ui.Text(UiText::UnwantedDeleteSelected))) {
-            deleteSelectedConfirmOpen_ = true;
-        }
-        ImGui::EndPopup();
     }
 
     const std::string searchHint = std::string(ui_icons::Search) + " " + ui.Text(UiText::UnwantedSearchHint);
@@ -1585,6 +1634,10 @@ void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
     ImGui::SetNextItemWidth(inlineSort
         ? std::max(ScaleUi(180.0f), toolbarWidth - sortWidth - ImGui::GetStyle().ItemSpacing.x)
         : -1.0f);
+    if (focusRuleSearch_) {
+        ImGui::SetKeyboardFocusHere();
+        focusRuleSearch_ = false;
+    }
     InputTextWithHintString("##unwanted_rule_search", searchHint.c_str(), ruleSearch_, ImGuiInputTextFlags_AutoSelectAll, 128);
     const char* sortLabel = ui.Text(UiText::UnwantedSortStored);
     if (ruleSort_ == RuleSort::Name) sortLabel = ui.Text(UiText::UnwantedSortName);
@@ -1603,29 +1656,39 @@ void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
         ImGui::EndCombo();
     }
 
+    std::size_t enabledCount = 0;
+    std::size_t problemCount = 0;
+    for (const Rule& rule : rules_) {
+        enabledCount += rule.enabled ? 1u : 0u;
+        problemCount += RuleHasProblem(rule) ? 1u : 0u;
+    }
+    const std::size_t disabledCount = rules_.size() - enabledCount;
     const float wrapRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     bool firstChip = true;
-    const auto drawChip = [&](RuleFilter filter, UiText label) {
-        const float width = ImGui::CalcTextSize(ui.Text(label)).x + ScaleUi(22.0f);
-        if (!firstChip && ImGui::GetCursorScreenPos().x + width > wrapRight) {
-            ImGui::NewLine();
-            firstChip = true;
-        }
+    const auto drawChip = [&](RuleFilter filter, UiText label, std::size_t count) {
+        const std::string text = std::string(ui.Text(label)) + " " + std::to_string(count);
+        const float width = ImGui::CalcTextSize(text.c_str()).x + ScaleUi(22.0f);
         if (!firstChip) {
-            ImGui::SameLine();
+            if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= wrapRight) {
+                ImGui::SameLine();
+            }
         }
-        if (FilterChip(ui.Text(label), ruleFilter_ == filter)) {
+        if (FilterChip(text.c_str(), ruleFilter_ == filter)) {
             ruleFilter_ = filter;
         }
         firstChip = false;
     };
 
-    drawChip(RuleFilter::All, UiText::UnwantedFilterAll);
-    drawChip(RuleFilter::Enabled, UiText::UnwantedFilterEnabled);
-    drawChip(RuleFilter::Disabled, UiText::UnwantedFilterDisabled);
-    drawChip(RuleFilter::Regex, UiText::UnwantedFilterRegex);
-    drawChip(RuleFilter::Literal, UiText::UnwantedFilterLiteral);
-    drawChip(RuleFilter::Errors, UiText::UnwantedFilterErrors);
+    drawChip(RuleFilter::All, UiText::UnwantedFilterAll, rules_.size());
+    drawChip(RuleFilter::Enabled, UiText::UnwantedFilterEnabled, enabledCount);
+    drawChip(RuleFilter::Disabled, UiText::UnwantedFilterDisabled, disabledCount);
+    drawChip(RuleFilter::Problems, UiText::UnwantedFilterProblems, problemCount);
+    const float preferredTypeFilterWidth = ScaleUi(190.0f);
+    if (!firstChip
+        && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + preferredTypeFilterWidth <= wrapRight) {
+        ImGui::SameLine();
+    }
+    DrawRuleTypeFilter(std::min(preferredTypeFilterWidth, ImGui::GetContentRegionAvail().x));
 
     ImGui::Spacing();
     std::vector<std::size_t> visible;
@@ -1656,14 +1719,81 @@ void UnwantedMessagesModule::DrawRulesPane(const ImVec2& size) {
         });
     }
 
-    ImGui::TextDisabled(
-        "%s",
-        ui.Format(
-            UiText::UnwantedVisibleRulesFormat,
-            std::to_string(visible.size()).c_str(),
-            std::to_string(rules_.size()).c_str()).c_str());
+    const float actionRowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    const auto placeActionInlineIfFits = [&](float nextWidth) {
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + nextWidth <= actionRowRight) {
+            ImGui::SameLine();
+        }
+    };
+    if (selectionMode_) {
+        RetainVisibleSelection(visible);
+        const bool allShownSelected = !visible.empty() && std::all_of(
+            visible.begin(), visible.end(), [this](std::size_t index) {
+                return index < rules_.size() && IsRuleSelected(rules_[index].id);
+            });
+        bool selectShown = allShownSelected;
+        if (ImGui::Checkbox(
+                ui.Format(UiText::UnwantedSelectShown, std::to_string(visible.size()).c_str()).c_str(),
+                &selectShown)) {
+            SelectVisibleRules(visible, selectShown);
+        }
+        const std::string selectedText = ui.Format(
+            UiText::UnwantedBulkActionsFormat,
+            std::to_string(selectedRuleIds_.size()).c_str());
+        placeActionInlineIfFits(ImGui::CalcTextSize(selectedText.c_str()).x);
+        ImGui::TextDisabled("%s", selectedText.c_str());
+        if (!selectedRuleIds_.empty()) {
+            placeActionInlineIfFits(UnwantedButtonWidth(nullptr, ui.Text(UiText::UnwantedEnableSelected)));
+            if (ImGui::Button(ui.Text(UiText::UnwantedEnableSelected))) {
+                SetSelectedRulesEnabled(true);
+            }
+            placeActionInlineIfFits(UnwantedButtonWidth(nullptr, ui.Text(UiText::UnwantedDisableSelected)));
+            if (ImGui::Button(ui.Text(UiText::UnwantedDisableSelected))) {
+                SetSelectedRulesEnabled(false);
+            }
+            placeActionInlineIfFits(UnwantedButtonWidth(nullptr, ui.Text(UiText::UnwantedDeleteSelected)));
+            if (ImGui::Button(ui.Text(UiText::UnwantedDeleteSelected))) {
+                deleteSelectedConfirmOpen_ = true;
+            }
+        }
+        placeActionInlineIfFits(UnwantedButtonWidth(nullptr, ui.Text(UiText::UnwantedExitSelection)));
+        if (ImGui::Button(ui.Text(UiText::UnwantedExitSelection))) {
+            selectionMode_ = false;
+            ClearSelection();
+        }
+    } else if (ImGui::Button(ui.Text(UiText::UnwantedSelectionMode))) {
+        selectionMode_ = true;
+        ClearSelection();
+    }
+    const std::string visibleText = ui.Format(
+        UiText::UnwantedVisibleRulesFormat,
+        std::to_string(visible.size()).c_str(),
+        std::to_string(rules_.size()).c_str());
+    placeActionInlineIfFits(ImGui::CalcTextSize(visibleText.c_str()).x);
+    ImGui::TextDisabled("%s", visibleText.c_str());
     DrawRulesTable(visible);
     EndUnwantedPanel();
+}
+
+void UnwantedMessagesModule::DrawRuleTypeFilter(float width) {
+    UiSettings& ui = UiSettings::Instance();
+    const char* label = ui.Text(UiText::UnwantedTypeFilterAll);
+    if (ruleTypeFilter_ == RuleTypeFilter::Literal) label = ui.Text(UiText::UnwantedTypeLiteral);
+    if (ruleTypeFilter_ == RuleTypeFilter::Regex) label = ui.Text(UiText::UnwantedTypeRegex);
+    const std::string preview = std::string(ui.Text(UiText::UnwantedTypeFilter)) + ": " + label;
+    ImGui::SetNextItemWidth(std::max(1.0f, width));
+    if (ImGui::BeginCombo("##unwanted_type_filter", preview.c_str())) {
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedTypeFilterAll), ruleTypeFilter_ == RuleTypeFilter::All)) {
+            ruleTypeFilter_ = RuleTypeFilter::All;
+        }
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedTypeLiteral), ruleTypeFilter_ == RuleTypeFilter::Literal)) {
+            ruleTypeFilter_ = RuleTypeFilter::Literal;
+        }
+        if (ImGui::Selectable(ui.Text(UiText::UnwantedTypeRegex), ruleTypeFilter_ == RuleTypeFilter::Regex)) {
+            ruleTypeFilter_ = RuleTypeFilter::Regex;
+        }
+        ImGui::EndCombo();
+    }
 }
 
 void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visibleIndices) {
@@ -1678,7 +1808,7 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
                 "##unwanted_empty_create",
                 ScaleUi(180.0f, 0.0f))) {
             StartCreateRule({}, RuleType::Regex);
-            page_ = Page::Create;
+            page_ = Page::Editor;
         }
         return;
     }
@@ -1688,6 +1818,7 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
         if (ImGui::Button(ui.Text(UiText::UnwantedResetFilters), ScaleUi(210.0f, 0.0f))) {
             ruleSearch_.clear();
             ruleFilter_ = RuleFilter::All;
+            ruleTypeFilter_ = RuleTypeFilter::All;
         }
         return;
     }
@@ -1698,16 +1829,58 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
         | ImGuiTableFlags_NoSavedSettings
         | ImGuiTableFlags_BordersInnerH
         | ImGuiTableFlags_BordersOuter;
-    const int columnCount = 4;
+    const float tableWidth = ImGui::GetContentRegionAvail().x;
+    const bool splitTypeAndStatus = tableWidth >= ScaleUi(900.0f);
+    const int columnCount = (selectionMode_ ? 1 : 0) + (splitTypeAndStatus ? 5 : 4);
     if (!ImGui::BeginTable("##unwanted_rules_table", columnCount, flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y))) {
         return;
     }
 
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const auto fixedTextColumnWidth = [&](std::initializer_list<const char*> labels, float minimum) {
+        float width = minimum;
+        for (const char* label : labels) {
+            width = std::max(width, ImGui::CalcTextSize(label).x + style.CellPadding.x * 2.0f + ScaleUi(8.0f));
+        }
+        return width;
+    };
+    const float typeColumnWidth = fixedTextColumnWidth(
+        {ui.Text(UiText::UnwantedColumnType), ui.Text(UiText::UnwantedTypeLiteral), ui.Text(UiText::UnwantedTypeRegex)},
+        ScaleUi(88.0f));
+    const float statusColumnWidth = fixedTextColumnWidth(
+        {ui.Text(UiText::UnwantedColumnStatus),
+         ui.Text(UiText::UnwantedRuleOk),
+         ui.Text(UiText::UnwantedRuleDisabled),
+         ui.Text(UiText::UnwantedInvalidRule),
+         ui.Text(UiText::UnwantedWarning),
+         ui.Text(UiText::UnwantedDuplicate)},
+        ScaleUi(112.0f));
+    const float typeStatusColumnWidth = fixedTextColumnWidth(
+        {ui.Text(UiText::UnwantedColumnTypeStatus)},
+        std::max(typeColumnWidth, statusColumnWidth));
+    const float actionsColumnWidth = fixedTextColumnWidth(
+        {ui.Text(UiText::UnwantedColumnActions)},
+        ScaleUi(72.0f));
+
     ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnSelect), ImGuiTableColumnFlags_WidthFixed, ScaleUi(54.0f));
+    if (selectionMode_) {
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnSelect), ImGuiTableColumnFlags_WidthFixed, ScaleUi(42.0f));
+    }
     ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnEnabled), ImGuiTableColumnFlags_WidthFixed, ScaleUi(42.0f));
     ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnRule), ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnActions), ImGuiTableColumnFlags_WidthFixed, ScaleUi(96.0f));
+    if (splitTypeAndStatus) {
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnType), ImGuiTableColumnFlags_WidthFixed, typeColumnWidth);
+        ImGui::TableSetupColumn(ui.Text(UiText::UnwantedColumnStatus), ImGuiTableColumnFlags_WidthFixed, statusColumnWidth);
+    } else {
+        ImGui::TableSetupColumn(
+            ui.Text(UiText::UnwantedColumnTypeStatus),
+            ImGuiTableColumnFlags_WidthFixed,
+            typeStatusColumnWidth);
+    }
+    ImGui::TableSetupColumn(
+        ui.Text(UiText::UnwantedColumnActions),
+        ImGuiTableColumnFlags_WidthFixed,
+        actionsColumnWidth);
     ImGui::TableHeadersRow();
 
     int scrollTargetRow = -1;
@@ -1732,69 +1905,83 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
             const std::size_t index = visibleIndices[static_cast<std::size_t>(row)];
             Rule& rule = rules_[index];
             const bool active = !ruleDraft_.createMode && activeRuleId_ == rule.id;
+            const float rowHeight = ScaleUi(54.0f);
+            const float ruleCellHeight = ScaleUi(46.0f);
             ImGui::PushID(rule.id.c_str());
-            ImGui::TableNextRow();
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
 
-            ImGui::TableSetColumnIndex(0);
-            bool selected = IsRuleSelected(rule.id);
-            if (ImGui::Checkbox("##selected", &selected)) {
-                SetRuleSelected(rule.id, selected);
+            int column = 0;
+            if (selectionMode_) {
+                ImGui::TableSetColumnIndex(column++);
+                CenterTableCellVertically(rowHeight, ImGui::GetFrameHeight());
+                bool selected = IsRuleSelected(rule.id);
+                if (ImGui::Checkbox("##selected", &selected)) {
+                    SetRuleSelected(rule.id, selected);
+                }
+                DrawUnwantedTooltip(ui.Text(UiText::UnwantedSelectRuleHelp));
             }
-            DrawUnwantedTooltip(ui.Text(UiText::UnwantedSelectRuleHelp));
 
-            ImGui::TableSetColumnIndex(1);
+            ImGui::TableSetColumnIndex(column++);
+            CenterTableCellVertically(rowHeight, ImGui::GetFrameHeight());
             if (ImGui::Checkbox("##enabled", &rule.enabled)) {
                 PublishRuntimeSnapshot();
                 SaveConfig();
             }
             DrawUnwantedTooltip(ui.Text(UiText::UnwantedRuleEnabled));
 
-            ImGui::TableSetColumnIndex(2);
-            const char* typeLabel = rule.type == RuleType::Regex
-                ? ui.Text(UiText::UnwantedTypeRegex)
-                : ui.Text(UiText::UnwantedTypeLiteral);
-            const RuleFilter typeFilter = rule.type == RuleType::Regex ? RuleFilter::Regex : RuleFilter::Literal;
-            if (FilterChip(typeLabel, ruleFilter_ == typeFilter)) {
-                ruleFilter_ = typeFilter;
-            }
-            DrawUnwantedTooltip(ui.Format(UiText::UnwantedFilterByTypeHelp, typeLabel).c_str());
-            ImGui::SameLine();
-            std::string visibleLabel = rule.name.empty() ? (rule.text.empty() ? rule.id : rule.text) : rule.name + "  —  " + rule.text;
-            if (ImGui::Selectable("##rule_select", active, ImGuiSelectableFlags_SpanAvailWidth)) {
+            ImGui::TableSetColumnIndex(column++);
+            CenterTableCellVertically(rowHeight, ruleCellHeight);
+            const std::string visibleTitle = RuleDisplayTitle(rule);
+            const std::string visibleSummary = RuleDisplaySummary(rule);
+            if (ImGui::Selectable(
+                    "##rule_select",
+                    active,
+                    ImGuiSelectableFlags_SpanAvailWidth | ImGuiSelectableFlags_AllowDoubleClick,
+                    ImVec2(0.0f, ruleCellHeight))) {
                 StartEditRule(rule.id);
+                page_ = Page::Editor;
             }
             const ImVec2 labelMin = ImGui::GetItemRectMin();
             const ImVec2 labelMax = ImGui::GetItemRectMax();
             ImDrawList* rowDrawList = ImGui::GetWindowDrawList();
-            rowDrawList->PushClipRect(labelMin, labelMax, true);
-            rowDrawList->AddText(
-                ImVec2(
-                    labelMin.x + ImGui::GetStyle().FramePadding.x,
-                    labelMin.y + std::max(0.0f, (labelMax.y - labelMin.y - ImGui::GetFontSize()) * 0.5f)),
-                ImGui::GetColorU32(ImGuiCol_Text),
-                visibleLabel.data(),
-                visibleLabel.data() + visibleLabel.size());
-            rowDrawList->PopClipRect();
+            const float textMinX = labelMin.x + style.FramePadding.x;
+            const float textMaxX = labelMax.x - style.FramePadding.x;
+            const ImVec2 titleMin(textMinX, labelMin.y + ScaleUi(3.0f));
+            const ImVec2 titleMax(textMaxX, titleMin.y + ImGui::GetTextLineHeight());
+            const ImVec2 summaryMin(textMinX, labelMin.y + ScaleUi(25.0f));
+            const ImVec2 summaryMax(textMaxX, summaryMin.y + ImGui::GetTextLineHeight());
+            ImGui::RenderTextEllipsis(
+                rowDrawList,
+                titleMin,
+                titleMax,
+                titleMax.x,
+                visibleTitle.c_str(),
+                nullptr,
+                nullptr);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::RenderTextEllipsis(
+                rowDrawList,
+                summaryMin,
+                summaryMax,
+                summaryMax.x,
+                visibleSummary.c_str(),
+                nullptr,
+                nullptr);
+            ImGui::PopStyleColor();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-                ImGui::SetTooltip("%s", rule.text.empty() ? rule.id.c_str() : rule.text.c_str());
+                ImGui::SetTooltip("%s\n\n%s", visibleSummary.c_str(), rule.text.c_str());
             }
 
-            std::string mode;
-            if (rule.nocase) {
-                mode = ui.Text(UiText::UnwantedNoCase);
-            }
-            if (rule.wholeWord) {
-                if (!mode.empty()) mode += " · ";
-                mode += ui.Text(UiText::UnwantedWholeWord);
-            }
-            if (mode.empty()) {
-                mode = ui.Text(UiText::UnwantedNoFlags);
-            }
-
+            const char* typeLabel = rule.type == RuleType::Regex
+                ? ui.Text(UiText::UnwantedTypeRegex)
+                : ui.Text(UiText::UnwantedTypeLiteral);
             const char* statusLabel = ui.Text(UiText::UnwantedRuleOk);
             ImVec4 statusColor = visual.ok;
             const char* statusTooltip = nullptr;
-            if (!rule.error.empty()) {
+            if (!rule.enabled) {
+                statusLabel = ui.Text(UiText::UnwantedRuleDisabled);
+                statusColor = visual.faintText;
+            } else if (!rule.error.empty()) {
                 statusLabel = ui.Text(UiText::UnwantedInvalidRule);
                 statusColor = visual.danger;
                 statusTooltip = rule.error.c_str();
@@ -1811,42 +1998,63 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
                 statusColor = visual.warn;
                 statusTooltip = rule.warning.c_str();
             }
+
+            ImGui::TableSetColumnIndex(column++);
+            const float badgeHeight = BadgeSize(typeLabel).y;
+            if (splitTypeAndStatus) {
+                CenterTableCellVertically(rowHeight, badgeHeight);
+                TextBadge(typeLabel, visual.mutedText);
+                ImGui::TableSetColumnIndex(column++);
+                CenterTableCellVertically(rowHeight, ImGui::GetTextLineHeight());
+            } else {
+                CenterTableCellVertically(
+                    rowHeight,
+                    badgeHeight + style.ItemSpacing.y + ImGui::GetTextLineHeight());
+                TextBadge(typeLabel, visual.mutedText);
+            }
             ImGui::TextColored(statusColor, "%s", statusLabel);
             if (statusTooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
                 ImGui::SetTooltip("%s", statusTooltip);
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("· %s", mode.c_str());
             if (row == scrollTargetRow && rule.id == scrollToRuleId_) {
                 ImGui::SetScrollHereY(0.5f);
                 scrollToRuleId_.clear();
             }
 
-            ImGui::TableSetColumnIndex(3);
-            if (UnwantedTextButton(ui_icons::Edit, "", "##edit_rule_button", ScaleUi(34.0f, 0.0f))) {
-                StartEditRule(rule.id);
-            }
-            DrawUnwantedTooltip(ui.Text(UiText::Edit));
-            ImGui::SameLine();
-            if (UnwantedTextButton(ui_icons::Bars, "", "##rule_actions_button", ScaleUi(34.0f, 0.0f))) {
+            ImGui::TableSetColumnIndex(column);
+            CenterTableCellVertically(rowHeight, ImGui::GetFrameHeight());
+            if (UnwantedTextButton(ui_icons::Bars, "", "##rule_actions_button", ScaleUi(40.0f, 0.0f))) {
                 ImGui::OpenPopup("##rule_actions");
             }
             DrawUnwantedTooltip(ui.Text(UiText::UnwantedColumnActions));
             if (ImGui::BeginPopup("##rule_actions")) {
                 if (ImGui::MenuItem(ui.Text(UiText::Edit))) {
                     StartEditRule(rule.id);
+                    page_ = Page::Editor;
                 }
-                if (ImGui::MenuItem(ui.Text(UiText::MoveUp), nullptr, false, index > 0)) {
+                if (ImGui::MenuItem(ui.Text(UiText::UnwantedDuplicateAction))) {
+                    const std::string id = rule.id;
+                    ImGui::EndPopup();
+                    ImGui::PopID();
+                    ImGui::EndTable();
+                    DuplicateRule(id);
+                    return;
+                }
+                const bool manualSort = ruleSort_ == RuleSort::Stored;
+                if (ImGui::MenuItem(ui.Text(UiText::MoveUp), nullptr, false, manualSort && index > 0)) {
                     std::swap(rules_[index], rules_[index - 1]);
                     PublishRuntimeSnapshot();
                     SaveConfig();
                 }
-                if (ImGui::MenuItem(ui.Text(UiText::MoveDown), nullptr, false, index + 1 < rules_.size())) {
+                if (ImGui::MenuItem(ui.Text(UiText::MoveDown), nullptr, false, manualSort && index + 1 < rules_.size())) {
                     std::swap(rules_[index], rules_[index + 1]);
                     PublishRuntimeSnapshot();
                     SaveConfig();
                 }
                 ImGui::Separator();
+                if (ImGui::MenuItem(ui.Text(UiText::UnwantedCopyPattern))) {
+                    ImGui::SetClipboardText(rule.text.c_str());
+                }
                 if (ImGui::MenuItem(ui.Text(UiText::Delete))) {
                     selectedRuleIds_.clear();
                     selectedRuleIds_.insert(rules_[index].id);
@@ -1866,49 +2074,199 @@ void UnwantedMessagesModule::DrawRulesTable(const std::vector<std::size_t>& visi
     ImGui::EndTable();
 }
 
-void UnwantedMessagesModule::DrawRuleWorkspace(bool popupMode) {
+void UnwantedMessagesModule::DrawEditorPage() {
     UiSettings& ui = UiSettings::Instance();
-    ImGui::PushID(popupMode ? "unwanted_popup_workspace" : "unwanted_create_workspace_content");
+    if (!ruleDraft_.active) {
+        StartCreateRule({}, RuleType::Regex);
+    }
 
-    const ImGuiTreeNodeFlags helperFlags = ruleDraft_.createMode ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
-    if (ImGui::CollapsingHeader(ui.Text(UiText::UnwantedRegexHelper), helperFlags)) {
-        ImGui::Indent(ScaleUi(10.0f));
-        DrawRegexHelperWizard();
-        ImGui::Unindent(ScaleUi(10.0f));
+    const auto requestBack = [&] {
+        if (ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = Page::Rules;
+            unsavedConfirmOpen_ = true;
+        } else {
+            ruleDraft_ = {};
+            activeRuleId_.clear();
+            page_ = Page::Rules;
+        }
+    };
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)
+        && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+        requestBack();
+        return;
+    }
+
+    if (BeginUnwantedPanel("##unwanted_editor_header", ImVec2(0.0f, ScaleUi(58.0f)))) {
+        if (UnwantedTextButton(
+                ui_icons::ChevronLeft,
+                ui.Text(UiText::UnwantedRules),
+                "##unwanted_editor_back",
+                ScaleUi(128.0f, 0.0f))) {
+            requestBack();
+        }
+        ImGui::SameLine();
+        const float titleOffset = ImGui::GetCursorPosX();
+        ImGui::Text("%s", ui.Text(
+            ruleDraft_.createMode ? UiText::UnwantedCreateRuleTitle : UiText::UnwantedEditRuleTitle));
+        ImGui::SetCursorPosX(titleOffset);
+        if (ruleDraft_.createMode) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedCreateRuleSubtitle));
+        } else if (const Rule* editingRule = FindRuleById(ruleDraft_.id)) {
+            ImGui::TextDisabled("%s", RuleDisplayTitle(*editingRule).c_str());
+        }
+    }
+    EndUnwantedPanel();
+    ImGui::Spacing();
+
+    const float footerHeight = ScaleUi(68.0f);
+    const float contentHeight = std::max(ScaleUi(120.0f), ImGui::GetContentRegionAvail().y - footerHeight);
+    if (ImGui::BeginChild("##unwanted_editor_scroll", ImVec2(0.0f, contentHeight), ImGuiChildFlags_None)) {
+        DrawRuleMessageStep();
+        ImGui::Spacing();
+        DrawRuleResultStep();
+        ImGui::Spacing();
+        ImGui::SeparatorText(ui.Text(UiText::UnwantedTester));
+        DrawTesterPanel();
+        ImGui::Spacing();
+        DrawRuleAdvancedSettings();
+    }
+    ImGui::EndChild();
+    DrawEditorFooter();
+}
+
+void UnwantedMessagesModule::DrawRuleMessageStep() {
+    UiSettings& ui = UiSettings::Instance();
+    ImGui::SeparatorText(ui.Text(UiText::UnwantedEditorMessageStep));
+    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperFlowHint));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    bool sampleChanged = InputTextWithHintString(
+        "##unwanted_editor_sample",
+        ui.Text(UiText::UnwantedHelperInputHint),
+        helperSample_,
+        ImGuiInputTextFlags_AutoSelectAll,
+        1024);
+    if (ImGui::Button(ui.Text(UiText::MessageHistoryOpen))) {
+        rak_message_history_ui::RequestOpen(messageHistoryPicker_);
+    }
+    if (std::optional<std::string> selectedMessage = rak_message_history_ui::DrawPicker(
+            sampRakHooks_,
+            messageHistoryPicker_,
+            "unwanted_editor_message_history")) {
+        helperSample_ = std::move(*selectedMessage);
+        sampleChanged = true;
+    }
+    if (sampleChanged) {
+        ruleDraft_.sample = std::string(text_pattern_input::ExtractChatlogPayload(helperSample_).payload);
+        if (ruleDraft_.name.empty() || ruleDraft_.nameAutoGenerated) {
+            ruleDraft_.name = SuggestRuleName(ruleDraft_.sample);
+            ruleDraft_.nameAutoGenerated = !ruleDraft_.name.empty();
+        }
+        RegenerateHelperOutput();
+        if (CurrentRegexWorkspaceMode(helperWorkspaceMode_) == RegexWorkspaceMode::Automatic) {
+            ApplyAutomaticHelperToDraft();
+        }
+        ruleDraft_.dirty = true;
+        draftTesterCache_.ready = false;
+    }
+    const text_pattern_input::ChatlogSample prepared = text_pattern_input::ExtractChatlogPayload(helperSample_);
+    if (prepared.timestampRemoved) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
     }
 
     ImGui::Spacing();
-    DrawRuleEditor(popupMode);
-    ImGui::PopID();
-}
-
-bool UnwantedMessagesModule::DrawRuleEditor(bool popupMode) {
-    UiSettings& ui = UiSettings::Instance();
-    const UnwantedVisualStyle visual = UnwantedStyleTokens();
-
-    if (!ruleDraft_.active) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedNoSelection));
-        if (ImGui::Button(ui.Text(UiText::UnwantedNewRule), ScaleUi(150.0f, 0.0f))) {
-            StartCreateRule();
-        }
-        return false;
+    ImGui::SeparatorText(ui.Text(UiText::UnwantedEditorModeStep));
+    const bool automatic = CurrentRegexWorkspaceMode(helperWorkspaceMode_) == RegexWorkspaceMode::Automatic;
+    if (FilterChip(ui.Text(UiText::UnwantedEditorAutomatic), automatic)) {
+        helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Automatic);
+        RegenerateHelperOutput();
+        ApplyAutomaticHelperToDraft();
+    }
+    ImGui::SameLine();
+    const bool manual = CurrentRegexWorkspaceMode(helperWorkspaceMode_) == RegexWorkspaceMode::Manual;
+    if (FilterChip(ui.Text(UiText::UnwantedEditorManual), manual)) {
+        helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Manual);
+    }
+    if (!helperWarning_.empty()) {
+        ImGui::TextColored(UnwantedStyleTokens().warn, "%s", helperWarning_.c_str());
     }
 
-    ImGui::Text("%s", ui.Text(ruleDraft_.createMode ? UiText::UnwantedCreateRuleTitle : UiText::UnwantedEditRuleTitle));
-    if (!ruleDraft_.createMode) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", ruleDraft_.id.c_str());
+    if (manual) {
+        if (helperConstructor_.preparedSample.empty()) {
+            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperInputHint));
+        } else {
+            const text_pattern_constructor_ui::DrawResult result =
+                text_pattern_constructor_ui::DrawInline(helperConstructor_, "unwanted_manual");
+            if (result.applied) {
+                ruleDraft_.type = RuleType::Regex;
+                ruleDraft_.wholeWord = false;
+                ruleDraft_.text = result.pattern;
+                ruleDraft_.sample = std::string(text_pattern_input::ExtractChatlogPayload(helperSample_).payload);
+                ruleDraft_.dirty = true;
+                draftValidationCache_.ready = false;
+                draftTesterCache_.ready = false;
+            }
+        }
+    } else if (!helperTokens_.empty()) {
+        ImGui::TextDisabled("%s", ui.Format(
+            UiText::UnwantedDetectedTokensFormat,
+            std::to_string(helperTokens_.size()).c_str()).c_str());
+        for (const unwanted_regex_builder::Token& token : helperTokens_) {
+            ImGui::PushID(static_cast<int>(token.offset));
+            const UiText tokenLabel = text_pattern_ui::TokenLabel(token.kind);
+            TextBadge(tokenLabel == UiText::Count ? "?" : ui.Text(tokenLabel), UnwantedStyleTokens().accent);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", token.source.c_str());
+            ImGui::PopID();
+        }
+    } else if (!helperSample_.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::EditorPatternNoParts));
+    }
+}
+
+void UnwantedMessagesModule::DrawRuleResultStep() {
+    UiSettings& ui = UiSettings::Instance();
+    const UnwantedVisualStyle visual = UnwantedStyleTokens();
+    ImGui::SeparatorText(ui.Text(UiText::UnwantedEditorResultStep));
+
+    std::string error;
+    std::string warning;
+    ValidateDraft(error, warning);
+    const ImVec4 statusColor = !error.empty() ? visual.danger : !warning.empty() ? visual.warn : visual.ok;
+    const char* status = !error.empty()
+        ? error.c_str()
+        : !warning.empty() ? warning.c_str() : ui.Text(UiText::UnwantedEditorResultReady);
+    ImGui::TextColored(statusColor, "%s", status);
+    if (!ruleDraft_.sample.empty()) {
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedEditorResultHint));
+        ImGui::TextWrapped("%s", ruleDraft_.sample.c_str());
+    }
+    if (ImGui::CollapsingHeader(ui.Text(UiText::UnwantedEditorTechnicalPattern))) {
+        ImGui::TextWrapped("%s", ruleDraft_.text.c_str());
+        if (ImGui::Button(ui.Text(UiText::UnwantedCopy))) {
+            ImGui::SetClipboardText(ruleDraft_.text.c_str());
+        }
+    }
+}
+
+void UnwantedMessagesModule::DrawRuleAdvancedSettings() {
+    UiSettings& ui = UiSettings::Instance();
+    if (!ImGui::CollapsingHeader(ui.Text(UiText::UnwantedEditorAdvancedSettings))) {
+        return;
     }
 
     bool changed = false;
     ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRuleName));
     ImGui::SetNextItemWidth(-1.0f);
-    changed |= InputTextWithHintString(
+    const bool nameChanged = InputTextWithHintString(
         "##unwanted_rule_name",
         ui.Text(UiText::UnwantedRuleNameHint),
         ruleDraft_.name,
         ImGuiInputTextFlags_AutoSelectAll,
         128);
+    changed |= nameChanged;
+    if (nameChanged) {
+        ruleDraft_.nameAutoGenerated = false;
+    }
 
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedRuleEnabled), &ruleDraft_.enabled);
     ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRuleType));
@@ -1954,379 +2312,204 @@ bool UnwantedMessagesModule::DrawRuleEditor(bool popupMode) {
         ruleDraft_.type == RuleType::Regex ? UiText::UnwantedTypeRegexHelp : UiText::UnwantedTypeLiteralHelp));
     if (changed) {
         ruleDraft_.dirty = true;
-        lastTesterMatch_ = {};
+        draftValidationCache_.ready = false;
+        draftTesterCache_.ready = false;
     }
 
-    std::string draftError;
-    std::string draftWarning;
-    ValidateDraft(draftError, draftWarning);
+    const std::string referenceTitle = std::string(ui.Text(UiText::UnwantedRegexReference)) + "###unwanted_editor_reference";
+    if (ruleDraft_.type == RuleType::Regex && ImGui::CollapsingHeader(referenceTitle.c_str())) {
+        DrawRegexReferencePanel();
+    }
+}
 
-    if (!draftError.empty()) {
-        ImGui::TextColored(visual.danger, "%s", draftError.c_str());
-    } else if (!draftWarning.empty()) {
-        ImGui::TextColored(visual.warn, "%s", draftWarning.c_str());
-    } else {
-        ImGui::TextColored(visual.ok, "%s", ui.Text(UiText::UnwantedRuleOk));
+void UnwantedMessagesModule::DrawEditorFooter() {
+    UiSettings& ui = UiSettings::Instance();
+    const UnwantedVisualStyle visual = UnwantedStyleTokens();
+    std::string error;
+    std::string warning;
+    ValidateDraft(error, warning);
+    if (!BeginUnwantedPanel("##unwanted_editor_footer", ImVec2(0.0f, ScaleUi(60.0f)))) {
+        EndUnwantedPanel();
+        return;
     }
 
-    bool saved = false;
-    ImGui::BeginDisabled(!draftError.empty() || (!ruleDraft_.dirty && !ruleDraft_.createMode));
-    if (UnwantedPrimaryButton(ui_icons::Check, ui.Text(UiText::Save), "##unwanted_save_rule", ScaleUi(132.0f, 0.0f))) {
-        saved = SaveDraftRule();
-    }
-    ImGui::EndDisabled();
-    if (saved) {
-        return true;
+    if (!ruleDraft_.createMode && UnwantedDangerButton(
+            ui.Text(UiText::Delete),
+            "##unwanted_delete_rule",
+            ImVec2(ScaleUi(132.0f), 0.0f))) {
+        selectedRuleIds_.clear();
+        selectedRuleIds_.insert(ruleDraft_.id);
+        deleteSelectedConfirmOpen_ = true;
     }
     if (!ruleDraft_.createMode) {
         ImGui::SameLine();
-        if (UnwantedTextButton(ui_icons::Delete, ui.Text(UiText::Delete), "##unwanted_delete_rule", ScaleUi(132.0f, 0.0f))) {
-            selectedRuleIds_.clear();
-            selectedRuleIds_.insert(ruleDraft_.id);
-            deleteSelectedConfirmOpen_ = true;
-        }
     }
-    if (popupMode) {
-        ImGui::SameLine();
-        if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(132.0f, 0.0f))) {
-            if (ruleDraft_.dirty) {
-                pendingPageAfterDiscard_ = Page::Rules;
-                unsavedConfirmOpen_ = true;
-            } else {
-                editPopupOpen_ = false;
-                ruleDraft_ = {};
-                ImGui::CloseCurrentPopup();
-            }
-        }
-    }
+    ImGui::TextColored(
+        !error.empty() ? visual.danger : !warning.empty() ? visual.warn : visual.ok,
+        "%s",
+        !error.empty() ? error.c_str() : !warning.empty() ? warning.c_str() : ui.Text(UiText::UnwantedRuleOk));
 
-    ImGui::Spacing();
-    const std::string testerSection = std::string(ui.Text(UiText::UnwantedTester)) + "###unwanted_tester_section";
-    if (ImGui::CollapsingHeader(testerSection.c_str())) {
-        ImGui::Indent(ScaleUi(10.0f));
-        DrawTesterPanel();
-        ImGui::Unindent(ScaleUi(10.0f));
+    const float buttonWidth = ScaleUi(132.0f);
+    const float totalWidth = buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - totalWidth - ImGui::GetStyle().WindowPadding.x));
+    if (ImGui::Button(ui.Text(UiText::Cancel), ImVec2(buttonWidth, 0.0f))) {
+        if (ruleDraft_.dirty) {
+            pendingPageAfterDiscard_ = Page::Rules;
+            unsavedConfirmOpen_ = true;
+        } else {
+            ruleDraft_ = {};
+            activeRuleId_.clear();
+            page_ = Page::Rules;
+        }
     }
-    return draftError.empty();
+    ImGui::SameLine();
+    const bool saveShortcut = (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl) != 0
+        && ImGui::IsKeyPressed(ImGuiKey_S, false);
+    ImGui::BeginDisabled(!error.empty());
+    if (UnwantedPrimaryButton(
+            ui_icons::Check,
+            ui.Text(UiText::Save),
+            "##unwanted_save_rule",
+            ImVec2(buttonWidth, 0.0f)) || saveShortcut) {
+        SaveDraftRule();
+    }
+    ImGui::EndDisabled();
+    EndUnwantedPanel();
 }
 
 void UnwantedMessagesModule::DrawTesterPanel() {
     UiSettings& ui = UiSettings::Instance();
     const UnwantedVisualStyle visual = UnwantedStyleTokens();
-
-    const float actionWidth = ScaleUi(132.0f);
-    const float availableWidth = ImGui::GetContentRegionAvail().x;
-    const bool inlineAction = availableWidth >= ScaleUi(360.0f);
-    if (inlineAction) {
-        ImGui::SetNextItemWidth(std::max(
-            ScaleUi(160.0f),
-            availableWidth - actionWidth - ImGui::GetStyle().ItemSpacing.x));
-    } else {
-        ImGui::SetNextItemWidth(-1.0f);
-    }
-    const bool testerTextChanged = InputTextWithHintString(
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (InputTextWithHintString(
         "##unwanted_test_text",
         ui.Text(UiText::UnwantedTesterHint),
         testText_,
         ImGuiInputTextFlags_AutoSelectAll,
-        1024);
-    if (testerTextChanged) {
-        lastTesterMatch_ = {};
+        1024)) {
+        draftTesterCache_.ready = false;
     }
-    if (inlineAction) {
-        ImGui::SameLine();
-    }
-    const bool testRequested = UnwantedTextButton(
-        ui_icons::Check,
-        ui.Text(UiText::UnwantedTestAction),
-        "##unwanted_test",
-        ImVec2(actionWidth, 0.0f));
-    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(testText_);
-    UnwantedMessageContext testContext;
-    testContext.text.assign(chatlogSample.payload);
-    const std::vector<std::string> candidates = BuildCandidates(testContext, settings_);
-    const std::string& normalized = candidates.front();
-    if (chatlogSample.timestampRemoved) {
+    RefreshDraftTester();
+    if (text_pattern_input::ExtractChatlogPayload(testText_).timestampRemoved) {
         ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
     }
-    ImGui::TextDisabled(
-        "%s",
-        ui.Format(
+    if (!draftTesterCache_.normalized.empty()) {
+        ImGui::TextDisabled("%s", ui.Format(
             UiText::UnwantedTesterNormalizedFormat,
-            std::to_string(Utf8CharacterOffset(normalized, normalized.size())).c_str(),
-            normalized.c_str()).c_str());
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedTesterEmptyHint));
-    ImGui::PopStyleColor();
-
-    if (testRequested) {
-        lastTesterMatch_ = {};
-        bool matched = false;
-        std::string matchedCandidate;
-        if (ruleDraft_.active) {
-            if (ruleDraft_.type == RuleType::Literal) {
-                PreparedRule temporary;
-                temporary.type = RuleType::Literal;
-                temporary.text = TrimAscii(ruleDraft_.text);
-                temporary.nocase = ruleDraft_.nocase;
-                temporary.wholeWord = ruleDraft_.wholeWord;
-                temporary.literalNeedle = temporary.nocase ? Utf8ToLower(temporary.text) : temporary.text;
-                for (const std::string& candidate : candidates) {
-                    const std::string folded = temporary.nocase ? Utf8ToLower(candidate) : std::string{};
-                    if (MatchLiteral(temporary, candidate, folded)) {
-                        matched = true;
-                        matchedCandidate = candidate;
-                        break;
-                    }
-                }
-            } else {
-                unwanted_regex::CompileResult compiled = unwanted_regex::Compile(TrimAscii(ruleDraft_.text), ruleDraft_.nocase);
-                if (compiled.program) {
-                    for (const std::string& candidate : candidates) {
-                        if (compiled.program->Match(candidate).status == unwanted_regex::MatchStatus::Match) {
-                            matched = true;
-                            matchedCandidate = candidate;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (matched) {
-            lastTesterMatch_.matched = true;
-            lastTesterMatch_.ruleId = ruleDraft_.createMode ? "__draft__" : ruleDraft_.id;
-            lastTesterMatch_.candidate = std::move(matchedCandidate);
-        }
+            std::to_string(Utf8CharacterOffset(
+                draftTesterCache_.normalized,
+                draftTesterCache_.normalized.size())).c_str(),
+            draftTesterCache_.normalized.c_str()).c_str());
     }
-
-    if (lastTesterMatch_.matched) {
-        ImGui::TextColored(
-            visual.ok,
-            "%s",
-            ui.Text(UiText::UnwantedTesterMatched));
-    } else {
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedTesterNoMatch));
+    switch (draftTesterCache_.result) {
+    case TesterResult::Match:
+        ImGui::TextColored(visual.ok, "%s", ui.Text(UiText::UnwantedTesterMatched));
+        break;
+    case TesterResult::NoMatch:
+        ImGui::TextColored(visual.warn, "%s", ui.Text(UiText::UnwantedTesterNoMatch));
+        break;
+    case TesterResult::RuleError:
+        ImGui::TextColored(visual.danger, "%s", ui.Text(UiText::UnwantedTesterRuleError));
+        break;
+    case TesterResult::Neutral:
+    default:
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedTesterNeutral));
+        break;
     }
 }
 
-void UnwantedMessagesModule::DrawRegexHelperWizard() {
-    UiSettings& ui = UiSettings::Instance();
-    const UnwantedVisualStyle visual = UnwantedStyleTokens();
-
-    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperFlowHint));
-    ImGui::SetNextItemWidth(-1.0f);
-    bool changed = InputTextWithHintString(
-        "##unwanted_helper_sample",
-        ui.Text(UiText::UnwantedHelperInputHint),
-        helperSample_,
-        ImGuiInputTextFlags_AutoSelectAll,
-        1024);
-    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(helperSample_);
-    if (chatlogSample.timestampRemoved) {
-        ImGui::TextDisabled("%s", ui.Text(UiText::TextPatternChatlogTimestampRemoved));
-    }
-
-    if (changed) {
-        RegenerateHelperOutput();
-    }
-    if (!helperSample_.empty() && helperExact_.empty() && helperGeneralized_.empty() && helperContains_.empty()) {
-        RegenerateHelperOutput();
-    }
-
-    ImGui::Separator();
-    DrawRegexModeBar(helperWorkspaceMode_);
-    ImGui::Spacing();
-    const RegexWorkspaceMode workspaceMode = CurrentRegexWorkspaceMode(helperWorkspaceMode_);
-    if (workspaceMode == RegexWorkspaceMode::Reference) {
-        DrawRegexReferencePanel();
+void UnwantedMessagesModule::RefreshDraftTester() {
+    const bool sameNormalizer = draftTesterCache_.normalizer.stripColors == settings_.normalizer.stripColors
+        && draftTesterCache_.normalizer.collapseWhitespace == settings_.normalizer.collapseWhitespace
+        && draftTesterCache_.normalizer.trim == settings_.normalizer.trim;
+    if (draftTesterCache_.ready
+        && draftTesterCache_.testText == testText_
+        && draftTesterCache_.pattern == ruleDraft_.text
+        && draftTesterCache_.type == ruleDraft_.type
+        && draftTesterCache_.nocase == ruleDraft_.nocase
+        && draftTesterCache_.wholeWord == ruleDraft_.wholeWord
+        && sameNormalizer) {
         return;
     }
-    if (workspaceMode == RegexWorkspaceMode::Manual) {
-        if (helperConstructor_.preparedSample.empty()) {
-            ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedHelperInputHint));
+
+    draftTesterCache_ = {};
+    draftTesterCache_.ready = true;
+    draftTesterCache_.testText = testText_;
+    draftTesterCache_.pattern = ruleDraft_.text;
+    draftTesterCache_.type = ruleDraft_.type;
+    draftTesterCache_.nocase = ruleDraft_.nocase;
+    draftTesterCache_.wholeWord = ruleDraft_.wholeWord;
+    draftTesterCache_.normalizer = settings_.normalizer;
+    if (testText_.empty()) {
+        draftTesterCache_.result = TesterResult::Neutral;
+        return;
+    }
+
+    std::string error;
+    std::string warning;
+    if (!ValidateDraft(error, warning)) {
+        draftTesterCache_.result = TesterResult::RuleError;
+        return;
+    }
+
+    const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(testText_);
+    UnwantedMessageContext context;
+    context.text.assign(chatlogSample.payload);
+    const std::vector<std::string> candidates = BuildCandidates(context, settings_);
+    if (!candidates.empty()) {
+        draftTesterCache_.normalized = candidates.front();
+    }
+
+    bool matched = false;
+    if (ruleDraft_.type == RuleType::Literal) {
+        PreparedRule temporary;
+        temporary.type = RuleType::Literal;
+        temporary.text = TrimAscii(ruleDraft_.text);
+        temporary.nocase = ruleDraft_.nocase;
+        temporary.wholeWord = ruleDraft_.wholeWord;
+        temporary.literalNeedle = temporary.nocase ? Utf8ToLower(temporary.text) : temporary.text;
+        for (const std::string& candidate : candidates) {
+            const std::string folded = temporary.nocase ? Utf8ToLower(candidate) : std::string{};
+            if (MatchLiteral(temporary, candidate, folded)) {
+                matched = true;
+                break;
+            }
+        }
+    } else {
+        unwanted_regex::CompileResult compiled = unwanted_regex::Compile(
+            TrimAscii(ruleDraft_.text), ruleDraft_.nocase);
+        if (!compiled.program) {
+            draftTesterCache_.result = TesterResult::RuleError;
             return;
         }
-        const text_pattern_constructor_ui::DrawResult manual =
-            text_pattern_constructor_ui::DrawInline(helperConstructor_, "unwanted_manual");
-        if (manual.applied) {
-            ruleDraft_.type = RuleType::Regex;
-            ruleDraft_.wholeWord = false;
-            ruleDraft_.text = manual.pattern;
-            ruleDraft_.dirty = true;
-            lastTesterMatch_ = {};
-        }
-        return;
-    }
-    if (helperSample_.empty()) {
-        return;
-    }
-
-    const auto drawRecognitionOptions = [&]() {
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedGeneralizations));
-        const float optionsRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-        bool firstOption = true;
-        float previousOptionRight = 0.0f;
-        bool optionsChanged = false;
-        const auto drawOption = [&](bool& value, UiText label, UiText help) {
-            const float width = ImGui::GetFrameHeight()
-                + ImGui::GetStyle().ItemInnerSpacing.x
-                + ImGui::CalcTextSize(ui.Text(label)).x;
-            if (!firstOption && previousOptionRight + ImGui::GetStyle().ItemSpacing.x + width <= optionsRight) {
-                ImGui::SameLine();
-            }
-            optionsChanged |= ImGui::Checkbox(ui.Text(label), &value);
-            DrawUnwantedTooltip(ui.Text(help));
-            previousOptionRight = ImGui::GetItemRectMax().x;
-            firstOption = false;
-        };
-        drawOption(helperColors_, UiText::UnwantedHelperColors, UiText::UnwantedTokenColorHelp);
-        drawOption(helperNumbers_, UiText::UnwantedHelperNumbers, UiText::UnwantedTokenIntegerHelp);
-        drawOption(helperMoney_, UiText::UnwantedHelperMoney, UiText::UnwantedTokenMoneyHelp);
-        drawOption(helperTime_, UiText::UnwantedHelperTime, UiText::UnwantedTokenClockHelp);
-        drawOption(helperNick_, UiText::UnwantedHelperNick, UiText::UnwantedTokenNicknameHelp);
-        drawOption(helperPlayerId_, UiText::UnwantedHelperPlayerId, UiText::UnwantedTokenPlayerIdHelp);
-        drawOption(helperDomain_, UiText::UnwantedHelperDomain, UiText::UnwantedTokenDomainHelp);
-        drawOption(helperBracketTag_, UiText::UnwantedHelperBracketTag, UiText::UnwantedTokenBracketPrefixHelp);
-
-        if (optionsChanged) {
-            RegenerateHelperOutput();
-        }
-    };
-
-    if (!helperGeneralized_.empty()) {
-        TextBadge(ui.Text(UiText::UnwantedHelperGeneralized), visual.accent);
-        ImGui::TextWrapped("%s", helperGeneralized_.c_str());
-        ImGui::BeginDisabled(!helperGeneralizedValid_);
-        if (UnwantedPrimaryButton(
-                ui_icons::Check,
-                ui.Text(UiText::UnwantedUseInDraft),
-                "##use_recommended_pattern",
-                ScaleUi(160.0f, 0.0f))) {
-            ruleDraft_.type = RuleType::Regex;
-            ruleDraft_.wholeWord = false;
-            ruleDraft_.text = helperGeneralized_;
-            ruleDraft_.dirty = true;
-            lastTesterMatch_ = {};
-        }
-        ImGui::EndDisabled();
-    }
-
-    if (!helperWarning_.empty()) {
-        ImGui::Spacing();
-        ImGui::TextColored(visual.warn, "%s", helperWarning_.c_str());
-    }
-
-    if (ImGui::CollapsingHeader(ui.Text(UiText::TextPatternAdvanced))) {
-        drawRecognitionOptions();
-        if (!helperTokens_.empty()) {
-            const std::string detectedHeader = ui.Format(
-                UiText::UnwantedDetectedTokensFormat,
-                std::to_string(helperTokens_.size()).c_str());
-            ImGui::SeparatorText(detectedHeader.c_str());
-            ImGui::Indent(ScaleUi(10.0f));
-            const auto tokenLabel = [&](unwanted_regex_builder::TokenKind kind) {
-                const UiText text = text_pattern_ui::TokenLabel(kind);
-                return text == UiText::Count ? "?" : ui.Text(text);
-            };
-            const auto tokenHelp = [&](unwanted_regex_builder::TokenKind kind) {
-                const UiText text = text_pattern_ui::TokenHelp(kind);
-                return text == UiText::Count ? "" : ui.Text(text);
-            };
-            for (const auto& token : helperTokens_) {
-                ImGui::PushID(static_cast<int>(token.offset));
-                TextBadge(tokenLabel(token.kind), visual.accent);
-                DrawUnwantedTooltip(tokenHelp(token.kind));
-                ImGui::SameLine();
-                ImGui::TextWrapped("%s  ->  %s", token.source.c_str(), token.pattern.c_str());
-                ImGui::PopID();
-            }
-            ImGui::Unindent(ScaleUi(10.0f));
-        }
-
-        ImGui::SeparatorText(ui.Text(UiText::TextPatternOtherVariants));
-        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedRegexVariantsHint));
-        const auto useVariant = [&](const std::string& pattern) {
-            ruleDraft_.type = RuleType::Regex;
-            ruleDraft_.wholeWord = false;
-            ruleDraft_.text = pattern;
-            ruleDraft_.dirty = true;
-            lastTesterMatch_ = {};
-        };
-        const bool compactVariants = ImGui::GetContentRegionAvail().x < ScaleUi(690.0f);
-        if (compactVariants) {
-            const auto drawCompactVariant = [&](UiText title, const std::string& pattern, bool valid) {
-                if (pattern.empty()) {
-                    return;
-                }
-                ImGui::PushID(static_cast<int>(title));
-                ImGui::Separator();
-                ImGui::TextColored(valid ? visual.ok : visual.danger, "%s", ui.Text(title));
-                if (!valid && !helperWarning_.empty()) {
-                    DrawUnwantedTooltip(helperWarning_.c_str());
-                }
-                ImGui::TextWrapped("%s", pattern.c_str());
-                if (ImGui::Button(ui.Text(UiText::UnwantedCopy), ScaleUi(120.0f, 0.0f))) {
-                    ImGui::SetClipboardText(pattern.c_str());
-                }
-                ImGui::SameLine();
-                if (UnwantedPrimaryButton(
-                        ui_icons::Check,
-                        ui.Text(UiText::UnwantedUseInDraft),
-                        "##use_variant",
-                        ScaleUi(140.0f, 0.0f))) {
-                    useVariant(pattern);
-                }
-                ImGui::PopID();
-            };
-            drawCompactVariant(UiText::UnwantedHelperExact, helperExact_, helperExactValid_);
-            drawCompactVariant(UiText::UnwantedHelperContains, helperContains_, helperContainsValid_);
-        } else {
-            const ImGuiTableFlags variantFlags = ImGuiTableFlags_SizingStretchProp
-                | ImGuiTableFlags_RowBg
-                | ImGuiTableFlags_BordersInnerH
-                | ImGuiTableFlags_NoSavedSettings;
-            if (ImGui::BeginTable("##unwanted_regex_variants", 4, variantFlags)) {
-                ImGui::TableSetupColumn("variant", ImGuiTableColumnFlags_WidthFixed, ScaleUi(145.0f));
-                ImGui::TableSetupColumn("pattern", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                ImGui::TableSetupColumn("copy", ImGuiTableColumnFlags_WidthFixed, ScaleUi(112.0f));
-                ImGui::TableSetupColumn("use", ImGuiTableColumnFlags_WidthFixed, ScaleUi(132.0f));
-
-                const auto drawTableVariant = [&](UiText title, const std::string& pattern, bool valid) {
-                    if (pattern.empty()) {
-                        return;
-                    }
-                    ImGui::PushID(static_cast<int>(title));
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(valid ? visual.ok : visual.danger, "%s", ui.Text(title));
-                    if (!valid && !helperWarning_.empty()) {
-                        DrawUnwantedTooltip(helperWarning_.c_str());
-                    }
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::TextWrapped("%s", pattern.c_str());
-                    ImGui::TableSetColumnIndex(2);
-                    if (ImGui::Button(ui.Text(UiText::UnwantedCopy), ImVec2(-1.0f, 0.0f))) {
-                        ImGui::SetClipboardText(pattern.c_str());
-                    }
-                    ImGui::TableSetColumnIndex(3);
-                    if (UnwantedPrimaryButton(
-                            ui_icons::Check,
-                            ui.Text(UiText::UnwantedUseInDraft),
-                            "##use_variant",
-                            ImVec2(-1.0f, 0.0f))) {
-                        useVariant(pattern);
-                    }
-                    ImGui::PopID();
-                };
-
-                drawTableVariant(UiText::UnwantedHelperExact, helperExact_, helperExactValid_);
-                drawTableVariant(UiText::UnwantedHelperContains, helperContains_, helperContainsValid_);
-                ImGui::EndTable();
+        for (const std::string& candidate : candidates) {
+            if (compiled.program->Match(candidate).status == unwanted_regex::MatchStatus::Match) {
+                matched = true;
+                break;
             }
         }
     }
+    draftTesterCache_.result = matched ? TesterResult::Match : TesterResult::NoMatch;
 }
 
+void UnwantedMessagesModule::ApplyAutomaticHelperToDraft() {
+    if (!helperGeneralizedValid_) {
+        return;
+    }
+    const bool changed = ruleDraft_.type != RuleType::Regex
+        || ruleDraft_.wholeWord
+        || ruleDraft_.text != helperGeneralized_
+        || ruleDraft_.sample != text_pattern_input::ExtractChatlogPayload(helperSample_).payload;
+    ruleDraft_.type = RuleType::Regex;
+    ruleDraft_.wholeWord = false;
+    ruleDraft_.text = helperGeneralized_;
+    ruleDraft_.sample = std::string(text_pattern_input::ExtractChatlogPayload(helperSample_).payload);
+    if (changed) {
+        ruleDraft_.dirty = true;
+        draftValidationCache_.ready = false;
+        draftTesterCache_.ready = false;
+    }
+}
 void UnwantedMessagesModule::RefreshRegexReferenceFilter() {
     UiSettings& ui = UiSettings::Instance();
     const int language = static_cast<int>(ui.Language());
@@ -2377,7 +2560,7 @@ void UnwantedMessagesModule::DrawRegexReferencePanel() {
         ruleDraft_.wholeWord = false;
         ruleDraft_.text += item.expression;
         ruleDraft_.dirty = true;
-        lastTesterMatch_ = {};
+        draftTesterCache_.ready = false;
     };
 
     const bool compactReference = ImGui::GetContentRegionAvail().x < ScaleUi(760.0f);
@@ -2459,71 +2642,6 @@ void UnwantedMessagesModule::DrawRegexReferencePanel() {
 
 }
 
-void UnwantedMessagesModule::DrawRuleEditorPopup() {
-    UiSettings& ui = UiSettings::Instance();
-    const std::string title = std::string(ui.Text(UiText::UnwantedEditRuleTitle)) + "###unwanted_rule_editor_modal";
-    if (editPopupRequestOpen_) {
-        editPopupRequestOpen_ = false;
-        editPopupOpen_ = true;
-        ImGui::OpenPopup(title.c_str());
-    }
-    if (editPopupForceClose_) {
-        if (ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        editPopupForceClose_ = false;
-        return;
-    }
-    if (!editPopupOpen_) {
-        return;
-    }
-
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const ImVec2 editorMaximum(viewport->WorkSize.x * 0.92f, viewport->WorkSize.y * 0.92f);
-    ImGui::SetNextWindowSizeConstraints(
-        FitModalMinimum(ScaleUi(620.0f, 480.0f), editorMaximum),
-        editorMaximum);
-    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.78f, viewport->WorkSize.y * 0.82f), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-        return;
-    }
-
-    const auto requestClose = [&] {
-        if (ruleDraft_.dirty) {
-            pendingPageAfterDiscard_ = Page::Rules;
-            unsavedConfirmOpen_ = true;
-            return false;
-        }
-        editPopupOpen_ = false;
-        ruleDraft_ = {};
-        ImGui::CloseCurrentPopup();
-        return true;
-    };
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        if (requestClose()) {
-            ImGui::EndPopup();
-            return;
-        }
-    }
-    ImGui::SetCursorPosX(std::max(
-        ImGui::GetCursorPosX(),
-        ImGui::GetWindowWidth() - ScaleUi(132.0f)));
-    if (UnwantedTextButton(ui_icons::Xmark, ui.Text(UiText::Close), "##unwanted_close_editor", ScaleUi(112.0f, 0.0f))) {
-        if (requestClose()) {
-            ImGui::EndPopup();
-            return;
-        }
-    }
-    ImGui::Separator();
-
-    if (BeginUnwantedPanel("##unwanted_edit_workspace", ImVec2(0.0f, 0.0f))) {
-        DrawRuleWorkspace(true);
-    }
-    EndUnwantedPanel();
-    ImGui::EndPopup();
-}
-
 void UnwantedMessagesModule::DrawUnsavedConfirmPopup() {
     UiSettings& ui = UiSettings::Instance();
     const std::string title = std::string(ui.Text(UiText::UnwantedUnsavedTitle)) + "###unwanted_unsaved_confirm";
@@ -2535,10 +2653,23 @@ void UnwantedMessagesModule::DrawUnsavedConfirmPopup() {
         return;
     }
     ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedUnsavedDesc));
+    std::string error;
+    std::string warning;
+    ValidateDraft(error, warning);
+    ImGui::BeginDisabled(!error.empty());
+    if (ImGui::Button(ui.Text(UiText::UnwantedSaveChanges), ScaleUi(150.0f, 0.0f))) {
+        const bool reloadAfterSave = reloadAfterDiscard_;
+        reloadAfterDiscard_ = false;
+        if (SaveDraftRule() && reloadAfterSave) {
+            reloadRequested_ = true;
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
     if (ImGui::Button(ui.Text(UiText::UnwantedDiscard), ScaleUi(150.0f, 0.0f))) {
-        editPopupForceClose_ = editPopupOpen_;
         ruleDraft_ = {};
-        editPopupOpen_ = false;
+        activeRuleId_.clear();
         page_ = pendingPageAfterDiscard_;
         if (reloadAfterDiscard_) {
             reloadAfterDiscard_ = false;
@@ -2547,7 +2678,7 @@ void UnwantedMessagesModule::DrawUnsavedConfirmPopup() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(150.0f, 0.0f))) {
+    if (ImGui::Button(ui.Text(UiText::UnwantedContinueEditing), ScaleUi(190.0f, 0.0f))) {
         reloadAfterDiscard_ = false;
         ImGui::CloseCurrentPopup();
     }
@@ -2564,15 +2695,7 @@ void UnwantedMessagesModule::DrawSettingsPopup() {
     }
 
     bool changed = false;
-    ImGui::SeparatorText(ui.Text(UiText::UnwantedCompatibility));
-    const bool previousChatAsiCompatibility = settings_.chatAsiCompatibility;
-    changed |= ImGui::Checkbox(
-        ui.Text(UiText::UnwantedChatAsiCompatibility),
-        &settings_.chatAsiCompatibility);
-    DrawUnwantedTooltip(ui.Text(UiText::UnwantedChatAsiCompatibilityHelp));
-    const bool chatAsiCompatibilityChanged =
-        previousChatAsiCompatibility != settings_.chatAsiCompatibility;
-    ImGui::SeparatorText(ui.Text(UiText::UnwantedNormalizer));
+    ImGui::SeparatorText(ui.Text(UiText::UnwantedSettingsBasic));
     ImGui::TextWrapped("%s", ui.Text(UiText::UnwantedNormalizerDesc));
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedStripColors), &settings_.normalizer.stripColors);
     DrawUnwantedTooltip(ui.Text(UiText::UnwantedStripColorsHelp));
@@ -2580,23 +2703,49 @@ void UnwantedMessagesModule::DrawSettingsPopup() {
     DrawUnwantedTooltip(ui.Text(UiText::UnwantedCollapseWhitespaceHelp));
     changed |= ImGui::Checkbox(ui.Text(UiText::UnwantedTrim), &settings_.normalizer.trim);
     DrawUnwantedTooltip(ui.Text(UiText::UnwantedTrimHelp));
-    ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedMaxPatternLength));
-    ImGui::SetNextItemWidth(-1.0f);
-    const int previousMaxPatternLength = settings_.maxPatternLength;
-    changed |= ImGui::InputInt("##unwanted_max_pattern_length", &settings_.maxPatternLength, 0, 0);
-    settings_.maxPatternLength = std::clamp(settings_.maxPatternLength, 1, kMaxConfigPatternLength);
-    const bool patternLimitChanged = previousMaxPatternLength != settings_.maxPatternLength;
+    ImGui::TextDisabled("%s", ui.Text(
+        ImGui::GetTime() < settingsSavedUntil_
+            ? UiText::UnwantedSettingsSavedNow
+            : UiText::UnwantedSettingsSaved));
 
-    ImGui::Separator();
-    if (ImGui::Button(ui.Text(UiText::UnwantedReload), ImVec2(-1.0f, 0.0f))) {
-        if (ruleDraft_.active && ruleDraft_.dirty) {
-            pendingPageAfterDiscard_ = page_;
-            reloadAfterDiscard_ = true;
-            unsavedConfirmOpen_ = true;
-        } else {
-            reloadRequested_ = true;
+    const bool previousChatAsiCompatibility = settings_.chatAsiCompatibility;
+    const int previousMaxPatternLength = settings_.maxPatternLength;
+    if (ImGui::CollapsingHeader(ui.Text(UiText::UnwantedSettingsDiagnostics))) {
+        const bool chatAsiLoaded = GetModuleHandleA("_chat.asi") != nullptr;
+        const char* chatAsiStatus = !chatAsiLoaded
+            ? ui.Text(UiText::UnwantedChatAsiStandard)
+            : settings_.chatAsiCompatibility
+                ? ui.Text(UiText::UnwantedChatAsiDetected)
+                : ui.Text(UiText::UnwantedChatAsiDisabled);
+        ImGui::TextDisabled("%s", ui.Format(UiText::UnwantedChatAsiStatus, chatAsiStatus).c_str());
+        changed |= ImGui::Checkbox(
+            ui.Text(UiText::UnwantedChatAsiCompatibility),
+            &settings_.chatAsiCompatibility);
+        DrawUnwantedTooltip(ui.Text(UiText::UnwantedChatAsiCompatibilityHelp));
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedMaxPatternLength));
+        ImGui::SetNextItemWidth(-1.0f);
+        changed |= ImGui::InputInt("##unwanted_max_pattern_length", &settings_.maxPatternLength, 0, 0);
+        settings_.maxPatternLength = std::clamp(settings_.maxPatternLength, 1, kMaxConfigPatternLength);
+
+        if (ImGui::Button(ui.Text(UiText::UnwantedReload), ImVec2(-1.0f, 0.0f))) {
+            if (ruleDraft_.active && ruleDraft_.dirty) {
+                pendingPageAfterDiscard_ = page_;
+                reloadAfterDiscard_ = true;
+                unsavedConfirmOpen_ = true;
+            } else {
+                reloadRequested_ = true;
+            }
+        }
+        if (ImGui::Button(ui.Text(UiText::UnwantedSettingsReset), ImVec2(-1.0f, 0.0f))) {
+            const bool enabled = settings_.enabled;
+            settings_ = Settings{};
+            settings_.enabled = enabled;
+            changed = true;
         }
     }
+    const bool chatAsiCompatibilityChanged =
+        previousChatAsiCompatibility != settings_.chatAsiCompatibility;
+    const bool patternLimitChanged = previousMaxPatternLength != settings_.maxPatternLength;
 
     if (changed) {
         if (chatAsiCompatibilityChanged) {
@@ -2607,7 +2756,9 @@ void UnwantedMessagesModule::DrawSettingsPopup() {
         }
         PublishRuntimeSnapshot();
         RegenerateHelperOutput();
+        draftTesterCache_.ready = false;
         SaveSettings();
+        settingsSavedUntil_ = ImGui::GetTime() + 1.0;
     }
     ImGui::EndPopup();
 }
@@ -2616,6 +2767,7 @@ void UnwantedMessagesModule::DrawDeleteConfirmPopup() {
     UiSettings& ui = UiSettings::Instance();
     const std::string popupTitle = std::string(ui.Text(UiText::UnwantedDeleteSelected)) + "###unwanted_delete_selected_confirm";
     if (deleteSelectedConfirmOpen_) {
+        deleteSelectedConfirmOpen_ = false;
         ImGui::OpenPopup(popupTitle.c_str());
     }
 
@@ -2623,17 +2775,33 @@ void UnwantedMessagesModule::DrawDeleteConfirmPopup() {
         return;
     }
 
-    ImGui::TextWrapped(
-        "%s",
-        ui.Format(UiText::UnwantedDeleteSelectedQuestion, std::to_string(selectedRuleIds_.size()).c_str()).c_str());
-    if (ImGui::Button(ui.Text(UiText::Delete), ScaleUi(120.0f, 0.0f))) {
+    const Rule* singleRule = selectedRuleIds_.size() == 1
+        ? FindRuleById(*selectedRuleIds_.begin())
+        : nullptr;
+    if (singleRule) {
+        ImGui::TextWrapped(
+            "%s",
+            ui.Format(UiText::UnwantedDeleteRuleQuestion, RuleDisplayTitle(*singleRule).c_str()).c_str());
+        ImGui::TextDisabled(
+            "%s",
+            ui.Format(
+                UiText::UnwantedDeleteRuleSummary,
+                (singleRule->sample.empty() ? singleRule->text : singleRule->sample).c_str()).c_str());
+    } else {
+        ImGui::TextWrapped(
+            "%s",
+            ui.Format(UiText::UnwantedDeleteSelectedQuestion, std::to_string(selectedRuleIds_.size()).c_str()).c_str());
+        ImGui::TextDisabled("%s", ui.Text(UiText::UnwantedDeleteSelectionScope));
+    }
+    const std::string deleteLabel = singleRule
+        ? ui.Text(UiText::Delete)
+        : ui.Format(UiText::UnwantedDeleteRulesAction, std::to_string(selectedRuleIds_.size()).c_str());
+    if (UnwantedDangerButton(deleteLabel.c_str(), "##unwanted_confirm_delete", ScaleUi(150.0f, 0.0f))) {
         DeleteSelectedRules();
-        deleteSelectedConfirmOpen_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
     if (ImGui::Button(ui.Text(UiText::Cancel), ScaleUi(120.0f, 0.0f))) {
-        deleteSelectedConfirmOpen_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -2642,9 +2810,11 @@ void UnwantedMessagesModule::DrawDeleteConfirmPopup() {
 std::string UnwantedMessagesModule::AddRule(
     RuleType type,
     std::string text,
+    bool enabled,
     bool nocase,
     bool wholeWord,
-    std::string name) {
+    std::string name,
+    std::string sample) {
     if (text.empty()) {
         return {};
     }
@@ -2652,8 +2822,9 @@ std::string UnwantedMessagesModule::AddRule(
     Rule rule;
     rule.id = AllocateRuleId();
     rule.name = TrimAscii(name);
+    rule.sample = std::move(sample);
     const std::string id = rule.id;
-    rule.enabled = true;
+    rule.enabled = enabled;
     rule.type = type;
     rule.rawType = RuleTypeName(type);
     rule.text = std::move(text);
@@ -2683,9 +2854,9 @@ void UnwantedMessagesModule::DeleteSelectedRules() {
     if (selectedRuleIds_.find(activeRuleId_) != selectedRuleIds_.end() || deletesDraft) {
         activeRuleId_.clear();
         ruleDraft_ = {};
-        editPopupForceClose_ = editPopupOpen_;
-        editPopupOpen_ = false;
-        editPopupRequestOpen_ = false;
+        if (page_ == Page::Editor) {
+            page_ = Page::Rules;
+        }
     }
     selectedRuleIds_.clear();
     RebuildRuleViewCache();
@@ -2723,11 +2894,93 @@ void UnwantedMessagesModule::ClearSelection() {
     selectedRuleIds_.clear();
 }
 
-void UnwantedMessagesModule::SelectAllRules() {
-    selectedRuleIds_.clear();
-    for (const Rule& rule : rules_) {
-        selectedRuleIds_.insert(rule.id);
+void UnwantedMessagesModule::SelectVisibleRules(
+    const std::vector<std::size_t>& visibleIndices,
+    bool selected) {
+    if (!selected) {
+        selectedRuleIds_.clear();
+        return;
     }
+    selectedRuleIds_.clear();
+    for (const std::size_t index : visibleIndices) {
+        if (index < rules_.size()) {
+            selectedRuleIds_.insert(rules_[index].id);
+        }
+    }
+}
+
+void UnwantedMessagesModule::RetainVisibleSelection(const std::vector<std::size_t>& visibleIndices) {
+    std::set<std::string, std::less<>> visibleIds;
+    for (const std::size_t index : visibleIndices) {
+        if (index < rules_.size()) {
+            visibleIds.insert(rules_[index].id);
+        }
+    }
+    std::erase_if(selectedRuleIds_, [&](const std::string& id) {
+        return visibleIds.find(id) == visibleIds.end();
+    });
+}
+
+std::string UnwantedMessagesModule::RuleDisplayTitle(const Rule& rule) const {
+    if (!rule.name.empty()) {
+        return rule.name;
+    }
+    if (!rule.sample.empty()) {
+        return Utf8Preview(rule.sample, 48);
+    }
+    if (!rule.exactDisplayText.empty()) {
+        return Utf8Preview(rule.exactDisplayText, 48);
+    }
+    if (!rule.text.empty()) {
+        return Utf8Preview(rule.text, 48);
+    }
+    return rule.id;
+}
+
+std::string UnwantedMessagesModule::RuleDisplaySummary(const Rule& rule) const {
+    UiSettings& ui = UiSettings::Instance();
+    if (!rule.error.empty()) {
+        return rule.error;
+    }
+    if (!rule.sample.empty()) {
+        return ui.Format(UiText::UnwantedRuleSampleSummary, rule.sample.c_str());
+    }
+    if (rule.type == RuleType::Literal) {
+        return ui.Format(UiText::UnwantedRuleLiteralSummary, rule.text.c_str());
+    }
+    if (!rule.exactDisplayText.empty()) {
+        return ui.Format(UiText::UnwantedRuleExactSummary, rule.exactDisplayText.c_str());
+    }
+    return ui.Format(UiText::UnwantedRulePatternFallback, rule.text.c_str());
+}
+
+void UnwantedMessagesModule::DuplicateRule(std::string_view id) {
+    const Rule* source = FindRuleById(id);
+    if (!source) {
+        return;
+    }
+    Rule copy;
+    copy.id = AllocateRuleId();
+    copy.name = source->name;
+    copy.sample = source->sample;
+    copy.enabled = source->enabled;
+    copy.type = source->type;
+    copy.text = source->text;
+    copy.nocase = source->nocase;
+    copy.wholeWord = source->wholeWord;
+    copy.rawType = source->rawType;
+    copy.invalidType = source->invalidType;
+    CompileRule(copy);
+    const int sourceIndex = FindRuleIndexById(id);
+    const std::size_t insertAt = sourceIndex < 0
+        ? rules_.size()
+        : static_cast<std::size_t>(sourceIndex) + 1;
+    const std::string copiedId = copy.id;
+    rules_.insert(rules_.begin() + static_cast<std::ptrdiff_t>(insertAt), std::move(copy));
+    RebuildRuleViewCache();
+    PublishRuntimeSnapshot();
+    SaveConfig();
+    scrollToRuleId_ = copiedId;
 }
 
 int UnwantedMessagesModule::FindRuleIndexById(std::string_view id) const {
@@ -2749,27 +3002,31 @@ const UnwantedMessagesModule::Rule* UnwantedMessagesModule::FindRuleById(std::st
     return index >= 0 ? &rules_[static_cast<std::size_t>(index)] : nullptr;
 }
 
-void UnwantedMessagesModule::StartCreateRule(std::string text, RuleType type) {
+void UnwantedMessagesModule::StartCreateRule(std::string sample, RuleType type) {
     activeRuleId_.clear();
-    helperSample_.clear();
+    helperSample_ = sample;
     helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Automatic);
-    helperExact_.clear();
     helperGeneralized_.clear();
-    helperContains_.clear();
     helperTokens_.clear();
     helperConstructor_ = {};
     helperWarning_.clear();
     helperGeneralizedValid_ = false;
-    helperExactValid_ = false;
-    helperContainsValid_ = false;
     ruleDraft_ = {};
     ruleDraft_.active = true;
     ruleDraft_.createMode = true;
+    ruleDraft_.sample = std::string(text_pattern_input::ExtractChatlogPayload(sample).payload);
+    ruleDraft_.name = SuggestRuleName(ruleDraft_.sample);
+    ruleDraft_.nameAutoGenerated = !ruleDraft_.name.empty();
     ruleDraft_.enabled = true;
     ruleDraft_.type = type;
-    ruleDraft_.text = std::move(text);
     ruleDraft_.wholeWord = false;
-    ruleDraft_.dirty = !ruleDraft_.text.empty();
+    ruleDraft_.dirty = !ruleDraft_.sample.empty();
+    if (!ruleDraft_.sample.empty()) {
+        RegenerateHelperOutput();
+        if (CurrentRegexWorkspaceMode(helperWorkspaceMode_) == RegexWorkspaceMode::Automatic) {
+            ApplyAutomaticHelperToDraft();
+        }
+    }
     draftValidationCache_.ready = false;
 }
 
@@ -2785,18 +3042,19 @@ void UnwantedMessagesModule::StartEditRule(std::string_view id) {
     ruleDraft_.createMode = false;
     ruleDraft_.id = rule->id;
     ruleDraft_.name = rule->name;
+    ruleDraft_.sample = rule->sample;
     ruleDraft_.enabled = rule->enabled;
     ruleDraft_.type = rule->type;
     ruleDraft_.text = rule->text;
     ruleDraft_.nocase = rule->nocase;
     ruleDraft_.wholeWord = rule->wholeWord;
     ruleDraft_.dirty = false;
-    helperSample_.clear();
+    helperSample_ = rule->sample;
     helperWorkspaceMode_ = static_cast<int>(RegexWorkspaceMode::Automatic);
     helperConstructor_ = {};
     RegenerateHelperOutput();
     draftValidationCache_.ready = false;
-    editPopupRequestOpen_ = true;
+    draftTesterCache_ = {};
 }
 
 bool UnwantedMessagesModule::SaveDraftRule() {
@@ -2819,9 +3077,11 @@ bool UnwantedMessagesModule::SaveDraftRule() {
         const std::string id = AddRule(
             ruleDraft_.type,
             std::move(text),
+            ruleDraft_.enabled,
             ruleDraft_.nocase,
             ruleDraft_.wholeWord,
-            ruleDraft_.name);
+            ruleDraft_.name,
+            ruleDraft_.sample);
         if (id.empty()) {
             return false;
         }
@@ -2832,6 +3092,7 @@ bool UnwantedMessagesModule::SaveDraftRule() {
         if (!createdRule || !RuleMatchesFilter(*createdRule, loweredSearch)) {
             ruleSearch_.clear();
             ruleFilter_ = RuleFilter::All;
+            ruleTypeFilter_ = RuleTypeFilter::All;
         }
         ruleDraft_ = {};
         page_ = Page::Rules;
@@ -2845,6 +3106,7 @@ bool UnwantedMessagesModule::SaveDraftRule() {
 
     rule->enabled = ruleDraft_.enabled;
     rule->name = TrimAscii(ruleDraft_.name);
+    rule->sample = ruleDraft_.sample;
     rule->type = ruleDraft_.type;
     rule->rawType = RuleTypeName(ruleDraft_.type);
     rule->invalidType = false;
@@ -2855,9 +3117,15 @@ bool UnwantedMessagesModule::SaveDraftRule() {
     RebuildRuleViewCache();
     PublishRuntimeSnapshot();
     SaveConfig();
+    scrollToRuleId_ = rule->id;
+    const std::string loweredSearch = Utf8ToLower(TrimAscii(ruleSearch_));
+    if (!RuleMatchesFilter(*rule, loweredSearch)) {
+        ruleSearch_.clear();
+        ruleFilter_ = RuleFilter::All;
+        ruleTypeFilter_ = RuleTypeFilter::All;
+    }
     ruleDraft_ = {};
-    editPopupOpen_ = false;
-    ImGui::CloseCurrentPopup();
+    page_ = Page::Rules;
     return true;
 }
 
@@ -2913,13 +3181,6 @@ bool UnwantedMessagesModule::ValidateDraft(std::string& error, std::string& warn
     return draftValidationCache_.valid;
 }
 
-std::size_t UnwantedMessagesModule::DuplicateRuleCount() const {
-    return static_cast<std::size_t>(std::count_if(
-        rules_.begin(),
-        rules_.end(),
-        [](const Rule& rule) { return rule.duplicate; }));
-}
-
 bool UnwantedMessagesModule::IsDuplicateRule(std::size_t index) const {
     if (index >= rules_.size()) {
         return false;
@@ -2939,24 +3200,21 @@ bool UnwantedMessagesModule::RuleMatchesFilter(const Rule& rule, std::string_vie
             return false;
         }
         break;
-    case RuleFilter::Regex:
-        if (rule.type != RuleType::Regex) {
-            return false;
-        }
-        break;
-    case RuleFilter::Literal:
-        if (rule.type != RuleType::Literal) {
-            return false;
-        }
-        break;
-    case RuleFilter::Errors:
-        if (rule.error.empty()) {
+    case RuleFilter::Problems:
+        if (!RuleHasProblem(rule)) {
             return false;
         }
         break;
     case RuleFilter::All:
     default:
         break;
+    }
+
+    if (ruleTypeFilter_ == RuleTypeFilter::Literal && rule.type != RuleType::Literal) {
+        return false;
+    }
+    if (ruleTypeFilter_ == RuleTypeFilter::Regex && rule.type != RuleType::Regex) {
+        return false;
     }
 
     if (loweredSearch.empty()) {
@@ -2973,32 +3231,19 @@ bool UnwantedMessagesModule::RuleMatchesFilter(const Rule& rule, std::string_vie
 
 void UnwantedMessagesModule::RegenerateHelperOutput() {
     unwanted_regex_builder::Options options;
-    options.colors = helperColors_ && !settings_.normalizer.stripColors;
-    options.playerIds = helperPlayerId_;
-    options.bracketPrefixes = helperBracketTag_;
-    options.nicknames = helperNick_;
-    options.numbers = helperNumbers_;
-    options.money = helperMoney_;
-    options.time = helperTime_;
-    options.domains = helperDomain_;
+    options.colors = !settings_.normalizer.stripColors;
     const text_pattern_input::ChatlogSample chatlogSample = text_pattern_input::ExtractChatlogPayload(helperSample_);
     const std::string normalized = NormalizeCandidate(chatlogSample.payload);
     text_pattern_constructor_ui::SetPreparedSample(helperConstructor_, normalized);
     const unwanted_regex_builder::Result built = unwanted_regex_builder::Build(normalized, options);
-    helperExact_ = built.exact;
     helperGeneralized_ = built.recommended;
-    helperContains_ = built.contains;
     helperTokens_ = built.tokens;
     helperWarning_.clear();
     helperGeneralizedValid_ = false;
-    helperExactValid_ = false;
-    helperContainsValid_ = false;
     UiSettings& ui = UiSettings::Instance();
     if (!built.error.empty()) {
         helperWarning_ = ui.Text(UiText::UnwantedHelperInvalidUtf8);
-        helperExact_.clear();
         helperGeneralized_.clear();
-        helperContains_.clear();
         helperTokens_.clear();
         return;
     }
@@ -3011,16 +3256,11 @@ void UnwantedMessagesModule::RegenerateHelperOutput() {
         return compiled.program
             && compiled.program->Match(normalized).status == unwanted_regex::MatchStatus::Match;
     };
-    helperExactValid_ = matchesSource(helperExact_);
+    const bool exactValid = matchesSource(built.exact);
     helperGeneralizedValid_ = matchesSource(helperGeneralized_);
-    helperContainsValid_ = matchesSource(helperContains_);
-    if (!helperGeneralizedValid_ && helperExactValid_) {
-        helperGeneralized_ = helperExact_;
+    if (!helperGeneralizedValid_ && exactValid) {
+        helperGeneralized_ = built.exact;
         helperGeneralizedValid_ = true;
-        helperContains_ = helperExact_.size() >= 4
-            ? helperExact_.substr(2, helperExact_.size() - 4)
-            : std::string{};
-        helperContainsValid_ = matchesSource(helperContains_);
         helperWarning_ = ui.Text(UiText::UnwantedHelperExactFallback);
     }
 }

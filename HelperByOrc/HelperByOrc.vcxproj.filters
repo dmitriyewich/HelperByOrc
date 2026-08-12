@@ -282,6 +282,9 @@
     <ClCompile Include="text_pattern_ui_support.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="rak_message_history_ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="user_files_path.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -534,6 +537,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="text_pattern_ui_support.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rak_message_history_ui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rak_message_history.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ui_icons.h">

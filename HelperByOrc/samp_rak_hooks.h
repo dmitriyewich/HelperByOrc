@@ -1,6 +1,9 @@
 #pragma once
 
+#include "rak_message_history.h"
+
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -84,6 +87,11 @@ public:
     const std::string& statusText() const;
     Stats stats() const;
     std::vector<std::string> GetRecentLog() const;
+    std::uint64_t IncomingMessageHistoryRevision() const noexcept;
+    bool CopyIncomingMessageHistoryIfChanged(
+        std::uint64_t knownRevision,
+        std::uint64_t& outRevision,
+        std::vector<IncomingMessageHistoryEntry>& outEntries) const;
 
 private:
     using IncomingRpcHandlerFn = bool(__thiscall*)(void*, unsigned char*, int, PlayerID);
@@ -118,6 +126,11 @@ private:
     bool DispatchShowDialog(RakNetBitStreamView& view);
 
     void AppendLog(const char* format, ...);
+    void RememberIncomingMessage(
+        IncomingMessageHistorySource source,
+        std::string_view text,
+        int playerId = -1,
+        std::string_view playerName = {});
     void RecordSendRpc(std::uint8_t id);
     void RecordSendPacket(std::uint8_t id);
     void RecordReceiveRpc(std::uint8_t id);
@@ -146,6 +159,13 @@ private:
     std::string statusText_ = "waiting for SAMP RakNet";
     mutable std::mutex logMutex_;
     std::vector<std::string> recentLog_;
+    static constexpr std::size_t kIncomingMessageHistoryCapacity = 100;
+    mutable std::mutex incomingMessageHistoryMutex_;
+    std::array<IncomingMessageHistoryEntry, kIncomingMessageHistoryCapacity> incomingMessageHistory_{};
+    std::size_t incomingMessageHistoryStart_ = 0;
+    std::size_t incomingMessageHistoryCount_ = 0;
+    std::atomic<std::uint64_t> incomingMessageHistoryRevision_{0};
+    std::uint64_t nextIncomingMessageSequence_ = 1;
     mutable std::mutex statsMutex_;
     Stats stats_;
 

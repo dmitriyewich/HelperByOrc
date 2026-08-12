@@ -1740,6 +1740,7 @@ void ModApp::OnProcessAttach(HMODULE module) {
 
     sampRakHooks_.SetOwnerModule(module_);
     sampRakHooks_.SetSampApi(&sampApi_);
+    unwanted_.SetSampRakHooks(&sampRakHooks_);
     arizonaCefDialogs_.SetSampApi(&sampApi_);
     arizonaCefDialogs_.SetSampRakHooks(&sampRakHooks_);
     arizonaCefDialogs_.OnProcessAttach();

@@ -2,6 +2,7 @@
 
 #include "binder_types.h"
 #include "icon_picker_ui.h"
+#include "rak_message_history_ui.h"
 #include "text_pattern_builder.h"
 #include "text_pattern_constructor_ui.h"
 #include "variables_picker_ui.h"
@@ -21,15 +22,21 @@ struct TextPatternHelperState {
     }
 
     bool popupPending = false;
-    int workspaceMode = 0;
-    bool testRequested = false;
+    bool transactionActive = false;
+    bool manualSelectionOpen = false;
+    bool saveSelectionValue = false;
+    bool referenceOpen = false;
     bool restoreHelperFocus = false;
     int cursorByte = -1;
     int selectionStartByte = -1;
     int selectionEndByte = -1;
     int outputLanguage = -1;
     int validationLanguage = -1;
+    std::string originalTriggerText{};
+    bool originalTriggerPattern = false;
+    std::string workingTriggerText{};
     std::string sample{};
+    std::string alternateSample{};
     text_pattern_builder::Options options{};
     std::string exact{};
     std::string recommended{};
@@ -47,20 +54,30 @@ struct TextPatternHelperState {
     bool validationReady = false;
     std::string validationPattern{};
     std::string validationSample{};
-    bool validationPatternEnabled = false;
     std::string validationNormalizedSample{};
     std::string validationError{};
     std::string validationWarning{};
     bool validationMatched = false;
     bool validationRegexMatched = false;
-    bool validationTested = false;
+    bool validationMatchesEmpty = false;
     bool validationTimestampRemoved = false;
+    bool validationColorsRemoved = false;
     std::shared_ptr<text_pattern::Program> validationProgram{};
     text_pattern::CaptureSnapshot validationCaptures{};
+    bool alternateValidationReady = false;
+    std::string alternateValidationPattern{};
+    std::string alternateValidationSample{};
+    std::string alternateValidationError{};
+    bool alternateValidationMatched = false;
+    bool manualCustomValidationReady = false;
+    std::string manualCustomValidationPattern{};
+    std::string manualCustomValidationSource{};
+    bool manualCustomPatternValid = false;
     std::string captureGroupName{"value"};
     std::string lastCaptureGroupName{};
     std::string captureCustomPattern{R"(\S+)"};
     int capturePreset = 0;
+    rak_message_history_ui::PickerState messageHistoryPicker{};
 };
 
 struct State {
@@ -118,6 +135,7 @@ struct State {
     std::vector<variables_picker::Entry> variablePickerEntries{};
     icon_picker::State iconPicker{};
     TextPatternHelperState textPatternHelper{};
+    SampRakHooks* sampRakHooks = nullptr;
     HotkeyEntry baseline{};
     HotkeyEntry draft{};
 };
