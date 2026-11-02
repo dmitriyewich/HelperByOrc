@@ -9,6 +9,7 @@
 #include "ui_frame_timing.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
+#include "target_selector_diagnostics.h"
 
 #include <GameVersion.h>
 #include <imgui.h>
@@ -3466,6 +3467,10 @@ void ModApp::DrawSettingsDiagnosticsSection() {
     ImGui::SeparatorText(ui.Text(UiText::SettingsSectionDiagnostics));
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsDiagnosticsIntro));
     ImGui::Spacing();
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    targetdiag::Diagnostics::Instance().DrawSettings();
+    ImGui::Spacing();
+#endif
 
     const UiLogLevel logLevels[] = { UiLogLevel::Off, UiLogLevel::Error, UiLogLevel::Info };
     const char* logLevelLabels[] = {

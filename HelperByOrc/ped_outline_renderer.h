@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ped_outline_performance.h"
+#include "feature_flags.h"
 
 #include <array>
 #include <atomic>
@@ -19,6 +20,7 @@ public:
         Pending,
         Miss,
         Hit,
+        Expired,
     };
 
     PedOutlineRenderer() = default;
@@ -34,6 +36,9 @@ public:
         float cursorX,
         float cursorY,
         CursorHitStatus& cursorHit);
+    bool RequestCursorHit(CPed* ped, int cursorX, int cursorY);
+    void CancelCursorHitRequest();
+    bool CursorHitRequestNeedsTarget() const;
     bool HasPendingCursorQueries() const;
     bool PollPendingCursorQueries();
     void OnDeviceLost();
@@ -42,6 +47,9 @@ public:
 
     bool IsDisabled() const;
     bool ConsumeFailure(std::string& reason);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    std::array<std::uint64_t, 8> DiagnosticCounters() const { return diagnosticCounters_; }
+#endif
 
 private:
     enum class RoiResolveStatus : std::uint8_t {
@@ -67,7 +75,6 @@ private:
         int x = 0;
         int y = 0;
         bool pending = false;
-        std::uint64_t generation = 0;
         std::uint64_t session = 0;
         std::uint64_t issuedAtMs = 0;
     };
@@ -87,12 +94,8 @@ private:
         const outlineperf::ScreenRoi& roi,
         bool& renderRejected);
     bool ResolveVisibleMask(const outlineperf::ScreenRoi& roi);
-    bool CompositePendingOutline();
-    bool PollCursorHitQuery(
-        CPed* target,
-        int cursorX,
-        int cursorY,
-        CursorHitStatus& cursorHit);
+    bool CompositePendingOutline(int cursorX, int cursorY);
+    bool PollCursorHitQuery(CursorHitStatus& cursorHit);
     bool IssueCursorHitQuery(
         CPed* target,
         int cursorX,
@@ -132,17 +135,17 @@ private:
     bool failurePending_ = false;
     bool readyLogged_ = false;
     bool activeLogged_ = false;
-    bool cursorSampleValid_ = false;
-    bool cursorSampleHit_ = false;
+    bool cursorHitRequestActive_ = false;
+    bool cursorHitRequestIssued_ = false;
+    bool cursorHitResultReady_ = false;
+    bool cursorHitResult_ = false;
     int partialResolveSupported_ = -1;
-    int cursorSampleX_ = 0;
-    int cursorSampleY_ = 0;
-    CPed* cursorSamplePed_ = nullptr;
-    std::uint64_t maskGeneration_ = 0;
-    std::uint64_t cursorSampleGeneration_ = 0;
+    int cursorHitRequestX_ = 0;
+    int cursorHitRequestY_ = 0;
+    CPed* cursorHitRequestPed_ = nullptr;
+    std::uint64_t cursorHitRequestStartedAtMs_ = 0;
     outlineperf::CursorQuerySession cursorQuerySession_{};
-    outlineperf::CursorPixelStability cursorPixelStability_{};
-    std::uint64_t lastCaptureAtMs_ = 0;
+    std::uint64_t maskCaptureScheduledAtUs_ = 0;
     std::uint64_t perfWindowStartedAtMs_ = 0;
     std::uint64_t perfCaptureCount_ = 0;
     std::uint64_t perfCaptureReuseCount_ = 0;
@@ -164,12 +167,15 @@ private:
     std::uint64_t perfCursorMissCount_ = 0;
     std::uint64_t perfCursorStaleResultCount_ = 0;
     std::uint64_t perfCursorQueryRetiredCount_ = 0;
-    std::uint64_t perfCursorMotionDeferredCount_ = 0;
     std::uint64_t perfCursorQueryPoolBusyCount_ = 0;
+    std::uint64_t perfCursorQueryRequestedCount_ = 0;
     std::uint64_t perfCursorQueryLatencySampleCount_ = 0;
     std::uint64_t perfCursorQueryLatencyTotalMs_ = 0;
     std::uint64_t perfCursorQueryLatencyMaxMs_ = 0;
     CPed* rejectedPed_ = nullptr;
     void* rejectedClump_ = nullptr;
     std::string failureReason_{};
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    std::array<std::uint64_t, 8> diagnosticCounters_{};
+#endif
 };

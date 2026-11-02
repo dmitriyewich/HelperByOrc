@@ -8,30 +8,9 @@
 
 namespace outlineperf {
 
-inline constexpr std::uint64_t kMaskRefreshIntervalMs = 33;
+inline constexpr std::uint64_t kMaskRefreshIntervalUs = 33333;
+inline constexpr std::uint64_t kCursorHitQueryTimeoutMs = 2000;
 inline constexpr std::size_t kCursorHitQuerySlotCount = 2;
-
-struct CursorPixelStability {
-    bool Observe(int pixelX, int pixelY) {
-        if (!initialized || x != pixelX || y != pixelY) {
-            initialized = true;
-            x = pixelX;
-            y = pixelY;
-            return false;
-        }
-        return true;
-    }
-
-    void Reset() {
-        initialized = false;
-        x = 0;
-        y = 0;
-    }
-
-    bool initialized = false;
-    int x = 0;
-    int y = 0;
-};
 
 struct CursorQuerySession {
     [[nodiscard]] std::uint64_t Current() const noexcept {
@@ -272,15 +251,32 @@ inline bool TryBuildProjectedSphereRoi(
 }
 
 inline bool ShouldRefreshMask(
-    std::uint64_t nowMs,
-    std::uint64_t lastCaptureAtMs,
+    std::uint64_t now,
+    std::uint64_t scheduledAt,
     bool maskValid,
     bool sameTarget,
-    std::uint64_t intervalMs) {
-    if (!maskValid || !sameTarget || nowMs < lastCaptureAtMs) {
+    std::uint64_t interval) {
+    if (!maskValid || !sameTarget || now < scheduledAt) {
         return true;
     }
-    return nowMs - lastCaptureAtMs >= intervalMs;
+    return now - scheduledAt >= interval;
+}
+
+inline std::uint64_t AdvanceMaskCaptureTime(
+    std::uint64_t now,
+    std::uint64_t scheduledAt,
+    bool sameTarget,
+    std::uint64_t interval) noexcept {
+    if (!sameTarget || now < scheduledAt || interval == 0) {
+        return now;
+    }
+    const std::uint64_t elapsed = now - scheduledAt;
+    if (elapsed >= interval && elapsed - interval >= interval) {
+        return now;
+    }
+    // Carry sub-frame delay forward instead of rounding every interval up.
+    // Long stalls rebase once; never replay missed captures in a burst.
+    return scheduledAt + interval;
 }
 
 } // namespace outlineperf

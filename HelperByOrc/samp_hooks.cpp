@@ -966,8 +966,8 @@ const std::string& SampHooks::statusText() const {
 
 bool SampHooks::Install() {
     if (!sampApi_ || !sampApi_->sampModule() || !sampApi_->isSupportedVersion()) {
-        statusText_ = "exact SAMP variant is not approved for hooks";
-        debuglog::WriteError("SampHooks install failed: exact SAMP variant is not approved");
+        statusText_ = "SAMP version or code signatures are not supported for hooks";
+        debuglog::WriteError("SampHooks install failed: SAMP version or code signatures are not supported");
         return false;
     }
 

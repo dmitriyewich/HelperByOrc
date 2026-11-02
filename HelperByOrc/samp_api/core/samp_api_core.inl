@@ -233,7 +233,7 @@ void SampApi::LogReadinessDiagnostics(const char* context) const {
 
     if (!CanUseOffsets()) {
         debuglog::WriteInfo(
-            "[samp][diag] %s versioned offset diagnostics skipped: exact SAMP variant is not approved",
+            "[samp][diag] %s versioned offset diagnostics skipped: SAMP version or code signatures are not supported",
             tag);
         return;
     }
@@ -377,7 +377,7 @@ bool SampApi::IsSampReadyByFallback(std::string& reason) const {
     reason = "SAMP is not initialized yet";
 
     if (!CanUseOffsets()) {
-        reason = "SAMP readiness probe failed: exact variant is not approved";
+        reason = "SAMP readiness probe failed: SAMP version or code signatures are not supported";
         return false;
     }
 
@@ -824,18 +824,9 @@ bool SampApi::DetectVersion() {
                 return false;
             }
 
-            std::string variantError;
-            if (!ValidateKnownSampVariant(sampModule_, info.version, ntHeaders, variantError)) {
-                SetError(std::move(variantError));
-                debuglog::WriteError(
-                    "Rejected SAMP version %s (entry point 0x%X): exact variant validation failed",
-                    info.name,
-                    info.address);
-                return false;
-            }
-
-            if (!ValidateCriticalSampSignatures(sampModule_, info.version, variantError)) {
-                SetError(std::move(variantError));
+            std::string signatureError;
+            if (!ValidateCriticalSampSignatures(sampModule_, info.version, signatureError)) {
+                SetError(std::move(signatureError));
                 debuglog::WriteError(
                     "Rejected SAMP version %s (entry point 0x%X): loaded-code signature validation failed",
                     info.name,
@@ -846,7 +837,7 @@ bool SampApi::DetectVersion() {
             supportedVersion_ = true;
             ClearError();
             debuglog::WriteInfo(
-                "Detected exact SAMP version: %s (entry point 0x%X, supported=yes)",
+                "Detected SAMP version: %s (entry point 0x%X, supported=yes)",
                 info.name,
                 info.address);
             ValidateCursorModeFunction();

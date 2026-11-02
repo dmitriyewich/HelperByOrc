@@ -1191,8 +1191,8 @@
     X(SettingsTargetSelectorRequireVisibleNameTag, "Только с видимым ником SA:MP", "Only with a visible SA:MP name tag") \
     X(SettingsTargetSelectorRequireVisibleNameTagHelp, "Исключает игроков, если SA:MP не рисует ник: он отключён, вне серверной дальности или перекрыт стеной/объектом. Видимость модели проверяется точным пикселем.", "Excludes players when SA:MP does not draw the name tag: disabled, outside the server distance, or blocked by a wall/object. Model visibility is checked by the exact cursor pixel.") \
     X(TargetSelectorInstruction, "Наведите курсор на игрока и нажмите ЛКМ. Esc или ПКМ — отмена.", "Hover a player and press LMB. Esc or RMB cancels.") \
-    X(TargetSelectorHoverFormat, "%s [%d] — нажмите ЛКМ для выбора", "%s [%d] — press LMB to select") \
-    X(TargetSelectorNoTarget, "Под курсором нет видимого игрока.", "There is no visible player under the cursor.") \
+    X(TargetSelectorCandidateFormat, "Кандидат: %s [%d] — ЛКМ проверит точный пиксель", "Candidate: %s [%d] — LMB verifies the exact pixel") \
+    X(TargetSelectorNoCandidate, "Кандидат под курсором не найден.", "No candidate was found under the cursor.") \
     X(TargetSelectorSelectedFormat, "Выбран %s [%d].", "Selected %s [%d].") \
     X(TargetSelectorUnavailable, "Ручной выбор targetid сейчас недоступен.", "Manual targetid selection is currently unavailable.") \
     X(TargetSelectorOutlineFailed, "Обводка отключена из-за ошибки рендера. Подробности записаны в лог.", "The outline was disabled after a render error. Details were written to the log.") \

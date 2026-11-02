@@ -5,6 +5,7 @@
 
 #include "hotkey_utils.h"
 #include "ped_outline_renderer.h"
+#include "feature_flags.h"
 
 #include <functional>
 #include <string>
@@ -41,17 +42,60 @@ public:
     void DrawHotkeyCapturePopup();
 
 private:
+    struct PendingClick {
+        void Reset() noexcept {
+            queued = false;
+            cursorX = 0;
+            cursorY = 0;
+        }
+
+        bool queued = false;
+        int cursorX = 0;
+        int cursorY = 0;
+    };
+
+    struct PendingSelection {
+        void Reset() noexcept {
+            active = false;
+            ped = nullptr;
+            playerId = -1;
+            cursorX = 0;
+            cursorY = 0;
+        }
+
+        bool active = false;
+        CPed* ped = nullptr;
+        int playerId = -1;
+        int cursorX = 0;
+        int cursorY = 0;
+    };
+
     bool IsHotkeyDown() const;
     bool IsRuntimeInputBlocked() const;
     bool CanApplyHotkey(const std::vector<unsigned int>& keys, std::string* description = nullptr) const;
     bool ApplyHotkey(const std::vector<unsigned int>& keys);
     bool HandleHotkeyCaptureMessage(UINT message, WPARAM wparam);
-    bool ResolveCursorCandidate(CPed*& ped, int& playerId) const;
-    void ResetRejectedCandidatesForCursor(float cursorX, float cursorY);
-    bool ValidateHoveredPlayer() const;
+    bool ResolveCursorCandidate(
+        float cursorX,
+        float cursorY,
+        CPed*& ped,
+        int& playerId,
+        const std::vector<CPed*>* excludedPeds = nullptr) const;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    bool ResolveDiagnosticCandidate(float cursorX, float cursorY, CPed*& ped, int& playerId,
+        const std::vector<CPed*>* excludedPeds = nullptr) const;
+    bool ResolveRaycastCandidate(float cursorX, float cursorY, CPed*& ped, int& playerId,
+        const std::vector<CPed*>* excludedPeds) const;
+    bool diagnosticIdentityInvalidated_ = false;
+#endif
+    void UpdateCandidate(CPed* ped, int playerId);
+    bool ValidatePlayer(CPed* ped, int playerId) const;
+    bool ValidateSelectionCandidate(CPed* ped, int playerId, int cursorX, int cursorY) const;
+    bool BeginPendingSelection(int cursorX, int cursorY);
+    void ProcessPendingSelection(PedOutlineRenderer::CursorHitStatus cursorHit);
+    void SelectPendingPlayer();
     void Activate();
     void Cancel(const char* reason);
-    void SelectHoveredPlayer();
     void DrawFullscreenHitSurface() const;
     void DrawInstructionOverlay() const;
 
@@ -62,14 +106,13 @@ private:
     PedOutlineRenderer outline_{};
     hotkeys::Capture hotkeyCapture_{};
     hotkeys::CapturePopupState hotkeyCapturePopup_{};
-    CPed* hoveredPed_ = nullptr;
-    int hoveredPlayerId_ = -1;
-    int hoveredCursorX_ = -1;
-    int hoveredCursorY_ = -1;
-    std::string hoveredPlayerName_{};
-    std::vector<CPed*> rejectedCandidates_{};
-    int rejectedCursorX_ = -1;
-    int rejectedCursorY_ = -1;
+    PendingClick pendingClick_{};
+    PendingSelection pendingSelection_{};
+    CPed* candidatePed_ = nullptr;
+    int candidatePlayerId_ = -1;
+    std::string candidatePlayerName_{};
+    std::vector<CPed*> clickRejectedCandidates_{};
+    std::uint64_t pendingClickStartedAtMs_ = 0;
     bool active_ = false;
     bool hotkeyWasDown_ = false;
     bool hadForeground_ = true;

@@ -6,6 +6,8 @@
 #include "samp_api.h"
 #include "tags_module.h"
 #include "ui_settings.h"
+#include "target_selector_diagnostics.h"
+#include "target_selector_native_raycast.h"
 
 #include <CCamera.h>
 #include <CPed.h>
@@ -20,26 +22,69 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
 namespace {
 
 constexpr float kSelectionSphereCenterOffset = 1.0f;
-constexpr float kSelectionSphereRadius = 1.5f;
 constexpr int kMaximumSanePedPoolSize = 4096;
+constexpr int kMaximumSaneHAnimNodeCount = 1024;
+
+constexpr std::array<unsigned int, 11> kSelectionPoseBones = {
+    BONE_HEAD,
+    BONE_UPPERTORSO,
+    BONE_PELVIS,
+    BONE_RIGHTSHOULDER,
+    BONE_RIGHTHAND,
+    BONE_LEFTSHOULDER,
+    BONE_LEFTHAND,
+    BONE_RIGHTKNEE,
+    BONE_RIGHTFOOT,
+    BONE_LEFTKNEE,
+    BONE_LEFTFOOT,
+};
+
+constexpr std::array<targetselectormath::ScreenSegment, 10> kSelectionPoseSegments = {{
+    { 0, 1 }, // head -> upper torso
+    { 1, 2 }, // upper torso -> pelvis
+    { 1, 3 }, // upper torso -> right shoulder
+    { 3, 4 }, // right shoulder -> right hand
+    { 1, 5 }, // upper torso -> left shoulder
+    { 5, 6 }, // left shoulder -> left hand
+    { 2, 7 }, // pelvis -> right knee
+    { 7, 8 }, // right knee -> right foot
+    { 2, 9 }, // pelvis -> left knee
+    { 9, 10 }, // left knee -> left foot
+}};
+
+struct SelectionCamera {
+    const RwMatrix* matrix = nullptr;
+    const RwV2d* viewWindow = nullptr;
+    targetselectormath::ScreenProjection projection{};
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+const SelectionCamera* diagnosticCameraSnapshot = nullptr;
+#endif
 
 bool IsMouseMessage(UINT message) {
     return message >= WM_MOUSEFIRST && message <= WM_MOUSELAST;
 }
 
-bool ScreenToWorldRay(
-    float screenX,
-    float screenY,
-    float selectionDistance,
-    CVector& origin,
-    CVector& target) {
+bool TryResolveSelectionCamera(SelectionCamera& selectionCamera) {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    if (diagnosticCameraSnapshot) {
+        selectionCamera = *diagnosticCameraSnapshot;
+        return true;
+    }
+#endif
+    selectionCamera = {};
     if (RsGlobal.maximumWidth <= 0 || RsGlobal.maximumHeight <= 0) {
         return false;
     }
@@ -52,16 +97,38 @@ bool ScreenToWorldRay(
         return false;
     }
 
-    const float width = static_cast<float>(RsGlobal.maximumWidth);
-    const float height = static_cast<float>(RsGlobal.maximumHeight);
+    selectionCamera.matrix = matrix;
+    selectionCamera.viewWindow = viewWindow;
+    selectionCamera.width = static_cast<float>(RsGlobal.maximumWidth);
+    selectionCamera.height = static_cast<float>(RsGlobal.maximumHeight);
+    return targetselectormath::TryBuildScreenProjection(
+        *matrix,
+        selectionCamera.width,
+        selectionCamera.height,
+        viewWindow->x,
+        viewWindow->y,
+        selectionCamera.projection);
+}
+
+bool ScreenToWorldRay(
+    float screenX,
+    float screenY,
+    float selectionDistance,
+    const SelectionCamera& selectionCamera,
+    CVector& origin,
+    CVector& target) {
+    if (!selectionCamera.matrix || !selectionCamera.viewWindow) {
+        return false;
+    }
+
     targetselectormath::CameraPlanePoint cameraPlane{};
     if (!targetselectormath::TryMapScreenToCameraPlane(
             screenX,
             screenY,
-            width,
-            height,
-            viewWindow->x,
-            viewWindow->y,
+            selectionCamera.width,
+            selectionCamera.height,
+            selectionCamera.viewWindow->x,
+            selectionCamera.viewWindow->y,
             cameraPlane)) {
         return false;
     }
@@ -69,7 +136,7 @@ bool ScreenToWorldRay(
     targetselectormath::WorldRay ray{};
     if (!targetselectormath::TryBuildWorldRay(
             cameraPlane,
-            *matrix,
+            *selectionCamera.matrix,
             selectionDistance,
             ray)) {
         return false;
@@ -78,6 +145,74 @@ bool ScreenToWorldRay(
     origin = CVector(ray.origin.x, ray.origin.y, ray.origin.z);
     target = CVector(ray.target.x, ray.target.y, ray.target.z);
     return true;
+}
+
+__declspec(noinline) bool TryResolvePoseScreenScore(
+    CPed* ped,
+    const SelectionCamera& selectionCamera,
+    float cursorX,
+    float cursorY,
+    float& screenScore) {
+    screenScore = 0.0f;
+    if (!ped
+        || !selectionCamera.matrix
+        || !selectionCamera.viewWindow) {
+        return false;
+    }
+
+    bool resolved = false;
+    __try {
+        RpClump* clump = ped->m_pRwClump;
+        RpHAnimHierarchy* hierarchy = clump
+            ? GetAnimHierarchyFromSkinClump(clump)
+            : nullptr;
+        resolved = hierarchy
+            && hierarchy->numNodes > 0
+            && hierarchy->numNodes <= kMaximumSaneHAnimNodeCount
+            && hierarchy->pMatrixArray
+            && hierarchy->pNodeInfo;
+        for (const unsigned int boneId : kSelectionPoseBones) {
+            if (!resolved) {
+                break;
+            }
+            const int boneIndex = RpHAnimIDGetIndex(
+                hierarchy,
+                static_cast<int>(boneId));
+            resolved = boneIndex >= 0 && boneIndex < hierarchy->numNodes;
+        }
+
+        if (resolved) {
+            std::array<targetselectormath::ScreenPoint, kSelectionPoseBones.size()> projectedBones{};
+            for (std::size_t index = 0; index < kSelectionPoseBones.size(); ++index) {
+                RwV3d world{};
+                ped->GetBonePosition(world, kSelectionPoseBones[index], false);
+                float cameraDepth = 0.0f;
+                if (!targetselectormath::TryProjectWorldToScreen(
+                        { world.x, world.y, world.z },
+                        selectionCamera.projection,
+                        projectedBones[index],
+                        cameraDepth)) {
+                    resolved = false;
+                    break;
+                }
+            }
+            if (resolved) {
+                resolved = targetselectormath::TryScoreScreenPose(
+                    { cursorX, cursorY },
+                    projectedBones.data(),
+                    projectedBones.size(),
+                    kSelectionPoseSegments.data(),
+                    kSelectionPoseSegments.size(),
+                    screenScore);
+            }
+        }
+    } __except (
+        GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION
+            ? EXCEPTION_EXECUTE_HANDLER
+            : EXCEPTION_CONTINUE_SEARCH) {
+        resolved = false;
+    }
+    return resolved;
 }
 
 bool IsSelectablePed(CPed* ped, CPed* localPed) {
@@ -100,8 +235,23 @@ __declspec(noinline) bool TryResolveNameTagAnchor(CPed* ped, CVector& anchor) {
             && ped->m_pVehicle->m_pDriver == ped) {
             anchor = ped->m_pVehicle->GetPosition();
             resolved = true;
-        } else if (ped->m_pRwClump
-            && GetAnimHierarchyFromSkinClump(ped->m_pRwClump)) {
+        } else {
+            RpClump* clump = ped->m_pRwClump;
+            RpHAnimHierarchy* hierarchy = clump
+                ? GetAnimHierarchyFromSkinClump(clump)
+                : nullptr;
+            const int headIndex = hierarchy
+                ? RpHAnimIDGetIndex(hierarchy, BONE_HEAD)
+                : -1;
+            if (!hierarchy
+                || hierarchy->numNodes <= 0
+                || hierarchy->numNodes > kMaximumSaneHAnimNodeCount
+                || !hierarchy->pMatrixArray
+                || !hierarchy->pNodeInfo
+                || headIndex < 0
+                || headIndex >= hierarchy->numNodes) {
+                return false;
+            }
             RwV3d head{};
             ped->GetBonePosition(head, BONE_HEAD, false);
             anchor = CVector(head.x, head.y, head.z);
@@ -142,6 +292,49 @@ __declspec(noinline) bool IsNameTagLineOfSightClear(
         clear = false;
     }
     return clear;
+}
+
+bool PassesSelectionNameTagGate(
+    SampApi* sampApi,
+    CPed* ped,
+    int playerId,
+    const CVector& rayOrigin) {
+    if (!UiSettings::Instance().TargetSelectorRequireVisibleNameTag()) {
+        return true;
+    }
+    if (!sampApi || !ped) {
+        return false;
+    }
+
+    const std::optional<SampApi::PlayerNameTagRenderState> nameTagRenderState =
+        sampApi->GetPlayerNameTagRenderState(playerId);
+    if (!nameTagRenderState) {
+        return false;
+    }
+
+    const CVector& position = ped->GetPosition();
+    const float cameraDeltaX = position.x - rayOrigin.x;
+    const float cameraDeltaY = position.y - rayOrigin.y;
+    const float cameraDeltaZ = position.z - rayOrigin.z;
+    const float cameraDistanceSquared =
+        cameraDeltaX * cameraDeltaX
+        + cameraDeltaY * cameraDeltaY
+        + cameraDeltaZ * cameraDeltaZ;
+    const float nameTagDrawDistanceSquared =
+        nameTagRenderState->drawDistance * nameTagRenderState->drawDistance;
+    if (!std::isfinite(cameraDistanceSquared)
+        || cameraDistanceSquared > nameTagDrawDistanceSquared) {
+        return false;
+    }
+
+    if (nameTagRenderState->noNameTagsBehindWalls) {
+        CVector nameTagAnchor;
+        if (!TryResolveNameTagAnchor(ped, nameTagAnchor)
+            || !IsNameTagLineOfSightClear(rayOrigin, nameTagAnchor)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -219,6 +412,12 @@ bool PlayerTargetSelector::OnWindowMessage(UINT message, WPARAM wparam, LPARAM l
         return false;
     }
 
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    if (targetdiag::Diagnostics::Instance().HandleKey(message, wparam, lparam)) {
+        return true;
+    }
+#endif
+
     if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_ESCAPE) {
         Cancel("escape");
         return true;
@@ -230,11 +429,9 @@ bool PlayerTargetSelector::OnWindowMessage(UINT message, WPARAM wparam, LPARAM l
     if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) {
         const int cursorX = static_cast<short>(LOWORD(lparam));
         const int cursorY = static_cast<short>(HIWORD(lparam));
-        if (cursorX == hoveredCursorX_
-            && cursorY == hoveredCursorY_
-            && ValidateHoveredPlayer()) {
-            SelectHoveredPlayer();
-        }
+        pendingClick_.queued = true;
+        pendingClick_.cursorX = cursorX;
+        pendingClick_.cursorY = cursorY;
         return true;
     }
     return IsMouseMessage(message);
@@ -253,17 +450,106 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
         return;
     }
 
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    auto& diagnostics = targetdiag::Diagnostics::Instance();
+    if (diagnostics.ApplyPendingCommand()) {
+        pendingClick_.Reset();
+        pendingSelection_.Reset();
+        clickRejectedCandidates_.clear();
+        outline_.CancelCursorHitRequest();
+        outline_.SetTarget(nullptr);
+    }
+    if (diagnostics.IsEnabled()) {
+        const char* reason = nullptr;
+        const bool available = targetdiag::PrepareNativeRaycast(device, reason);
+        diagnostics.SetRaycastAvailability(available, reason);
+    }
+    diagnostics.BeginFrame();
+    // All exits finish telemetry outside the timed resolver; no extra renderer/query owner.
+    struct DiagnosticFrame {
+        PedOutlineRenderer& outline;
+        SelectionCamera camera{};
+        RwMatrix matrix{};
+        RwV2d viewWindow{};
+        const SelectionCamera* previousCamera = diagnosticCameraSnapshot;
+        ~DiagnosticFrame() {
+            diagnosticCameraSnapshot = previousCamera;
+            auto& diag = targetdiag::Diagnostics::Instance();
+            diag.RecordRendererCounters(outline.DiagnosticCounters());
+            diag.EndFrame();
+        }
+    } diagnosticFrame{ outline_ };
+    if (TryResolveSelectionCamera(diagnosticFrame.camera)) {
+        diagnosticFrame.matrix = *diagnosticFrame.camera.matrix;
+        diagnosticFrame.viewWindow = *diagnosticFrame.camera.viewWindow;
+        diagnosticFrame.camera.matrix = &diagnosticFrame.matrix;
+        diagnosticFrame.camera.viewWindow = &diagnosticFrame.viewWindow;
+        diagnosticCameraSnapshot = &diagnosticFrame.camera;
+        const auto& position = diagnosticFrame.matrix.pos;
+        const auto& forward = diagnosticFrame.matrix.at;
+        diagnostics.RecordScene(position.x, position.y, position.z, forward.x, forward.y, forward.z,
+            CPools::ms_pPedPool ? CPools::ms_pPedPool->m_nSize : 0,
+            RsGlobal.maximumWidth, RsGlobal.maximumHeight,
+            UiSettings::Instance().TargetSelectorDistance(),
+            UiSettings::Instance().TargetSelectorRequireVisibleNameTag());
+    }
+#endif
+
     const ImVec2 mouse = ImGui::GetIO().MousePos;
-    ResetRejectedCandidatesForCursor(mouse.x, mouse.y);
+    if (pendingClick_.queued) {
+        const int cursorX = pendingClick_.cursorX;
+        const int cursorY = pendingClick_.cursorY;
+        pendingClick_.Reset();
+        pendingClickStartedAtMs_ = GetTickCount64();
+        outline_.CancelCursorHitRequest();
+        pendingSelection_.Reset();
+        clickRejectedCandidates_.clear();
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        diagnostics.RecordClick("queued", -1, cursorX, cursorY, 0);
+#endif
+        BeginPendingSelection(cursorX, cursorY);
+    }
+
+    if (pendingSelection_.active
+        && !ValidatePlayer(pendingSelection_.ped, pendingSelection_.playerId)) {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        diagnosticIdentityInvalidated_ = true;
+#endif
+        ProcessPendingSelection(PedOutlineRenderer::CursorHitStatus::Miss);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        diagnosticIdentityInvalidated_ = false;
+#endif
+    }
+    if (pendingSelection_.active && outline_.CursorHitRequestNeedsTarget()) {
+        const std::uint64_t now = GetTickCount64();
+        if (now >= pendingClickStartedAtMs_
+            && now - pendingClickStartedAtMs_ >= outlineperf::kCursorHitQueryTimeoutMs) {
+            ProcessPendingSelection(PedOutlineRenderer::CursorHitStatus::Expired);
+        }
+    }
 
     CPed* candidatePed = nullptr;
     int candidateId = -1;
-    ResolveCursorCandidate(candidatePed, candidateId);
-    outline_.SetTarget(candidatePed);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    ResolveDiagnosticCandidate(mouse.x, mouse.y, candidatePed, candidateId);
+#else
+    ResolveCursorCandidate(mouse.x, mouse.y, candidatePed, candidateId);
+#endif
+    UpdateCandidate(candidatePed, candidateId);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    diagnostics.RecordCandidate(candidateId, mouse.x, mouse.y);
+#endif
+
+    CPed* renderPed = candidatePed;
+    if (pendingSelection_.active
+        && (outline_.CursorHitRequestNeedsTarget() || !renderPed)) {
+        renderPed = pendingSelection_.ped;
+    }
+    outline_.SetTarget(renderPed);
 
     PedOutlineRenderer::CursorHitStatus cursorHit =
         PedOutlineRenderer::CursorHitStatus::Pending;
-    const bool outlineOk = candidatePed
+    const bool outlineOk = renderPed
         ? outline_.Render(device, mouse.x, mouse.y, cursorHit)
         : outline_.PollPendingCursorQueries();
     if (!outlineOk) {
@@ -282,24 +568,13 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
         return;
     }
 
-    hoveredPed_ = nullptr;
-    hoveredPlayerId_ = -1;
-    hoveredCursorX_ = -1;
-    hoveredCursorY_ = -1;
-    hoveredPlayerName_.clear();
-    if (cursorHit == PedOutlineRenderer::CursorHitStatus::Hit) {
-        hoveredPed_ = candidatePed;
-        hoveredPlayerId_ = candidateId;
-        hoveredCursorX_ = static_cast<int>(std::floor(mouse.x));
-        hoveredCursorY_ = static_cast<int>(std::floor(mouse.y));
-        hoveredPlayerName_ = sampApi_->GetNameID(candidateId);
-        if (hoveredPlayerName_.empty() || hoveredPlayerName_ == "UNKNOWN") {
-            hoveredPlayerName_ = "ID " + std::to_string(candidateId);
+    if (pendingSelection_.active) {
+        ProcessPendingSelection(cursorHit);
+        if (!active_) {
+            return;
         }
-    } else if (cursorHit == PedOutlineRenderer::CursorHitStatus::Miss && candidatePed) {
-        if (std::find(rejectedCandidates_.begin(), rejectedCandidates_.end(), candidatePed)
-            == rejectedCandidates_.end()) {
-            rejectedCandidates_.push_back(candidatePed);
+        if (!outline_.CursorHitRequestNeedsTarget() && candidatePed) {
+            outline_.SetTarget(candidatePed);
         }
     }
 
@@ -308,6 +583,14 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
 }
 
 void PlayerTargetSelector::OnDeviceLost() {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    if (pendingSelection_.active) {
+        targetdiag::Diagnostics::Instance().RecordClick("device-lost-reissue", pendingSelection_.playerId,
+            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
+    } else {
+        targetdiag::Diagnostics::Instance().Abort("device-lost");
+    }
+#endif
     outline_.OnDeviceLost();
 }
 
@@ -388,9 +671,20 @@ void PlayerTargetSelector::DrawHotkeyCapturePopup() {
 }
 
 bool PlayerTargetSelector::IsHotkeyDown() const {
+    const auto& hotkey = UiSettings::Instance().TargetSelectorHotkey();
+    if (hotkey.empty()) {
+        return false;
+    }
+
+    for (const unsigned int key : hotkey) {
+        if ((GetAsyncKeyState(static_cast<int>(hotkeys::NormalizeKey(key))) & 0x8000) == 0) {
+            return false;
+        }
+    }
+
     return hotkeys::ComboMatch(
         hotkeys::CollectPressedKeys(),
-        UiSettings::Instance().TargetSelectorHotkey(),
+        hotkey,
         HotkeyMode::ModifierTrigger);
 }
 
@@ -468,19 +762,26 @@ bool PlayerTargetSelector::HandleHotkeyCaptureMessage(UINT message, WPARAM wpara
 }
 
 bool PlayerTargetSelector::ResolveCursorCandidate(
+    float cursorX,
+    float cursorY,
     CPed*& ped,
-    int& playerId) const {
+    int& playerId,
+    const std::vector<CPed*>* excludedPeds) const {
     ped = nullptr;
     playerId = -1;
     if (!sampApi_ || IsRuntimeInputBlocked()) {
         return false;
     }
 
-    const ImVec2 mouse = ImGui::GetIO().MousePos;
-    if (!std::isfinite(mouse.x) || !std::isfinite(mouse.y)
-        || mouse.x < 0.0f || mouse.y < 0.0f
-        || mouse.x >= static_cast<float>(RsGlobal.maximumWidth)
-        || mouse.y >= static_cast<float>(RsGlobal.maximumHeight)) {
+    if (!std::isfinite(cursorX) || !std::isfinite(cursorY)
+        || cursorX < 0.0f || cursorY < 0.0f
+        || cursorX >= static_cast<float>(RsGlobal.maximumWidth)
+        || cursorY >= static_cast<float>(RsGlobal.maximumHeight)) {
+        return false;
+    }
+
+    SelectionCamera selectionCamera{};
+    if (!TryResolveSelectionCamera(selectionCamera)) {
         return false;
     }
 
@@ -488,15 +789,17 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
     CVector rayTarget;
     const UiSettings& settings = UiSettings::Instance();
     if (!ScreenToWorldRay(
-            mouse.x,
-            mouse.y,
+            cursorX,
+            cursorY,
             settings.TargetSelectorDistance(),
+            selectionCamera,
             rayOrigin,
             rayTarget)) {
         return false;
     }
 
     CPlayerPed* localPed = FindPlayerPed();
+    const int localPlayerId = sampApi_->Local_ID();
     auto* pedPool = CPools::ms_pPedPool;
     if (!pedPool
         || !pedPool->m_pObjects
@@ -506,35 +809,80 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
         return false;
     }
 
-    const targetselectormath::WorldRay ray{
-        { rayOrigin.x, rayOrigin.y, rayOrigin.z },
-        { rayTarget.x, rayTarget.y, rayTarget.z },
-    };
+    targetselectormath::PreparedWorldRay ray{};
+    if (!targetselectormath::TryPrepareWorldRay(
+            {
+                { rayOrigin.x, rayOrigin.y, rayOrigin.z },
+                { rayTarget.x, rayTarget.y, rayTarget.z },
+            },
+            ray)) {
+        return false;
+    }
     CPed* nearestPed = nullptr;
     int nearestPlayerId = -1;
     float nearestDistance = std::numeric_limits<float>::max();
+    float nearestScreenScore = std::numeric_limits<float>::max();
+    std::uintptr_t nearestAddress = std::numeric_limits<std::uintptr_t>::max();
     for (int index = 0; index < pedPool->m_nSize; ++index) {
         CPed* candidate = pedPool->GetAt(index);
         if (!IsSelectablePed(candidate, localPed)) {
             continue;
         }
-        if (std::find(rejectedCandidates_.begin(), rejectedCandidates_.end(), candidate)
-            != rejectedCandidates_.end()) {
+        if (excludedPeds
+            && std::find(excludedPeds->begin(), excludedPeds->end(), candidate)
+                != excludedPeds->end()) {
             continue;
         }
 
         const CVector& position = candidate->GetPosition();
-        float candidateDistance = 0.0f;
-        if (!targetselectormath::TryIntersectRaySphere(
+        targetselectormath::RaySphereHit candidateHit{};
+        if (!targetselectormath::TryIntersectSelectionBounds(
                 ray,
                 {
                     position.x,
                     position.y,
-                    position.z + kSelectionSphereCenterOffset,
+                    position.z,
                 },
-                kSelectionSphereRadius,
-                candidateDistance)
-            || candidateDistance >= nearestDistance) {
+                candidateHit)) {
+            continue;
+        }
+
+        const float candidateDistance = candidateHit.entryDistance;
+        float candidateScreenScore = 0.0f;
+        if (!TryResolvePoseScreenScore(
+                candidate,
+                selectionCamera,
+                cursorX,
+                cursorY,
+                candidateScreenScore)) {
+            targetselectormath::ScreenPoint projectedCenter{};
+            float cameraDepth = 0.0f;
+            if (!targetselectormath::TryProjectWorldToScreen(
+                    {
+                        position.x,
+                        position.y,
+                        position.z + kSelectionSphereCenterOffset,
+                    },
+                    selectionCamera.projection,
+                    projectedCenter,
+                    cameraDepth)) {
+                continue;
+            }
+            const float deltaX = cursorX - projectedCenter.x;
+            const float deltaY = cursorY - projectedCenter.y;
+            candidateScreenScore = deltaX * deltaX + deltaY * deltaY;
+            if (!std::isfinite(candidateScreenScore)) {
+                continue;
+            }
+        }
+
+        const std::uintptr_t candidateAddress = reinterpret_cast<std::uintptr_t>(candidate);
+        const bool candidateIsBetter = candidateScreenScore < nearestScreenScore
+            || (candidateScreenScore == nearestScreenScore
+                && (candidateDistance < nearestDistance
+                    || (candidateDistance == nearestDistance
+                        && candidateAddress < nearestAddress)));
+        if (!candidateIsBetter) {
             continue;
         }
 
@@ -543,49 +891,24 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
         if (!resolved
             || candidatePlayerId < 0
             || candidatePlayerId > 1003
-            || candidatePlayerId == sampApi_->Local_ID()
+            || candidatePlayerId == localPlayerId
             || !sampApi_->IsConnected(candidatePlayerId)) {
+            continue;
+        }
+
+        if (!PassesSelectionNameTagGate(sampApi_, candidate, candidatePlayerId, rayOrigin)) {
             continue;
         }
 
         nearestPed = candidate;
         nearestPlayerId = candidatePlayerId;
         nearestDistance = candidateDistance;
+        nearestScreenScore = candidateScreenScore;
+        nearestAddress = candidateAddress;
     }
 
     if (!nearestPed) {
         return false;
-    }
-
-    if (settings.TargetSelectorRequireVisibleNameTag()) {
-        const std::optional<SampApi::PlayerNameTagRenderState> nameTagRenderState =
-            sampApi_->GetPlayerNameTagRenderState(nearestPlayerId);
-        if (!nameTagRenderState) {
-            return false;
-        }
-
-        const CVector& position = nearestPed->GetPosition();
-        const float cameraDeltaX = position.x - rayOrigin.x;
-        const float cameraDeltaY = position.y - rayOrigin.y;
-        const float cameraDeltaZ = position.z - rayOrigin.z;
-        const float cameraDistanceSquared =
-            cameraDeltaX * cameraDeltaX
-            + cameraDeltaY * cameraDeltaY
-            + cameraDeltaZ * cameraDeltaZ;
-        const float nameTagDrawDistanceSquared =
-            nameTagRenderState->drawDistance * nameTagRenderState->drawDistance;
-        if (!std::isfinite(cameraDistanceSquared)
-            || cameraDistanceSquared > nameTagDrawDistanceSquared) {
-            return false;
-        }
-
-        if (nameTagRenderState->noNameTagsBehindWalls) {
-            CVector nameTagAnchor;
-            if (!TryResolveNameTagAnchor(nearestPed, nameTagAnchor)
-                || !IsNameTagLineOfSightClear(rayOrigin, nameTagAnchor)) {
-                return false;
-            }
-        }
     }
 
     ped = nearestPed;
@@ -593,47 +916,250 @@ bool PlayerTargetSelector::ResolveCursorCandidate(
     return true;
 }
 
-void PlayerTargetSelector::ResetRejectedCandidatesForCursor(float cursorX, float cursorY) {
-    if (!std::isfinite(cursorX) || !std::isfinite(cursorY)) {
-        rejectedCursorX_ = -1;
-        rejectedCursorY_ = -1;
-        rejectedCandidates_.clear();
+void PlayerTargetSelector::UpdateCandidate(CPed* ped, int playerId) {
+    if (candidatePed_ == ped && candidatePlayerId_ == playerId) {
         return;
     }
 
-    const int pixelX = static_cast<int>(std::floor(cursorX));
-    const int pixelY = static_cast<int>(std::floor(cursorY));
-    if (pixelX == rejectedCursorX_ && pixelY == rejectedCursorY_) {
+    candidatePed_ = ped;
+    candidatePlayerId_ = playerId;
+    candidatePlayerName_.clear();
+    if (!ped || playerId < 0 || !sampApi_) {
         return;
     }
 
-    rejectedCursorX_ = pixelX;
-    rejectedCursorY_ = pixelY;
-    rejectedCandidates_.clear();
+    candidatePlayerName_ = sampApi_->GetNameID(playerId);
+    if (candidatePlayerName_.empty() || candidatePlayerName_ == "UNKNOWN") {
+        candidatePlayerName_ = "ID " + std::to_string(playerId);
+    }
 }
 
-bool PlayerTargetSelector::ValidateHoveredPlayer() const {
+bool PlayerTargetSelector::ValidatePlayer(CPed* ped, int playerId) const {
     return sampApi_
-        && hoveredPed_
-        && hoveredPlayerId_ >= 0
-        && hoveredPlayerId_ <= 1003
-        && sampApi_->IsConnected(hoveredPlayerId_)
-        && sampApi_->GetPlayerPedPointer(hoveredPlayerId_) == hoveredPed_;
+        && ped
+        && playerId >= 0
+        && playerId <= 1003
+        && sampApi_->IsConnected(playerId)
+        && sampApi_->GetPlayerPedPointer(playerId) == ped;
+}
+
+bool PlayerTargetSelector::ValidateSelectionCandidate(
+    CPed* ped,
+    int playerId,
+    int cursorX,
+    int cursorY) const {
+    if (!ValidatePlayer(ped, playerId)
+        || ped == FindPlayerPed()
+        || cursorX < 0
+        || cursorY < 0
+        || cursorX >= RsGlobal.maximumWidth
+        || cursorY >= RsGlobal.maximumHeight) {
+        return false;
+    }
+
+    SelectionCamera selectionCamera{};
+    CVector rayOrigin;
+    CVector rayTarget;
+    if (!TryResolveSelectionCamera(selectionCamera)
+        || !ScreenToWorldRay(
+            static_cast<float>(cursorX),
+            static_cast<float>(cursorY),
+            UiSettings::Instance().TargetSelectorDistance(),
+            selectionCamera,
+            rayOrigin,
+            rayTarget)) {
+        return false;
+    }
+
+    const CVector& position = ped->GetPosition();
+    targetselectormath::PreparedWorldRay ray{};
+    targetselectormath::RaySphereHit hit{};
+    if (!targetselectormath::TryPrepareWorldRay(
+            {
+                { rayOrigin.x, rayOrigin.y, rayOrigin.z },
+                { rayTarget.x, rayTarget.y, rayTarget.z },
+            },
+            ray)
+        || !targetselectormath::TryIntersectSelectionBounds(
+            ray,
+            { position.x, position.y, position.z },
+            hit)) {
+        return false;
+    }
+
+    return PassesSelectionNameTagGate(sampApi_, ped, playerId, rayOrigin);
+}
+
+bool PlayerTargetSelector::BeginPendingSelection(int cursorX, int cursorY) {
+    CPed* ped = nullptr;
+    int playerId = -1;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    if (!ResolveDiagnosticCandidate(
+            static_cast<float>(cursorX),
+            static_cast<float>(cursorY),
+            ped,
+            playerId,
+            &clickRejectedCandidates_)) {
+#else
+    if (!ResolveCursorCandidate(
+            static_cast<float>(cursorX),
+            static_cast<float>(cursorY),
+            ped,
+            playerId,
+            &clickRejectedCandidates_)) {
+#endif
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().RecordClick("no-candidate", -1, cursorX, cursorY,
+            clickRejectedCandidates_.size());
+#endif
+        pendingSelection_.Reset();
+        outline_.CancelCursorHitRequest();
+        outline_.SetTarget(nullptr);
+        return false;
+    }
+
+    pendingSelection_.active = true;
+    pendingSelection_.ped = ped;
+    pendingSelection_.playerId = playerId;
+    pendingSelection_.cursorX = cursorX;
+    pendingSelection_.cursorY = cursorY;
+    outline_.SetTarget(ped);
+    if (!outline_.RequestCursorHit(ped, cursorX, cursorY)) {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().RecordClick("request-rejected", playerId, cursorX, cursorY,
+            clickRejectedCandidates_.size());
+#endif
+        debuglog::WriteError(
+            "[target-selector] exact click request rejected id=%d ped=%p pixel=(%d,%d)",
+            playerId,
+            ped,
+            cursorX,
+            cursorY);
+        pendingSelection_.Reset();
+        outline_.SetTarget(nullptr);
+        return false;
+    }
+    return true;
+}
+
+void PlayerTargetSelector::ProcessPendingSelection(
+    PedOutlineRenderer::CursorHitStatus cursorHit) {
+    if (!pendingSelection_.active) {
+        return;
+    }
+    // Poll/accept a ready hit before applying the whole-click deadline.
+    if (cursorHit == PedOutlineRenderer::CursorHitStatus::Hit) {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().RecordClick("gpu-hit", pendingSelection_.playerId,
+            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
+#endif
+        SelectPendingPlayer();
+        return;
+    }
+    const std::uint64_t now = GetTickCount64();
+    if (cursorHit == PedOutlineRenderer::CursorHitStatus::Expired
+        || (now >= pendingClickStartedAtMs_
+            && now - pendingClickStartedAtMs_ >= outlineperf::kCursorHitQueryTimeoutMs)) {
+        debuglog::WriteInfo("[target-selector] click attempt expired; selection unchanged");
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().RecordClick("expired", pendingSelection_.playerId,
+            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
+#endif
+        outline_.CancelCursorHitRequest();
+        pendingSelection_.Reset();
+        clickRejectedCandidates_.clear();
+        return;
+    }
+    if (cursorHit == PedOutlineRenderer::CursorHitStatus::Pending) {
+        return;
+    }
+
+    const int cursorX = pendingSelection_.cursorX;
+    const int cursorY = pendingSelection_.cursorY;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    targetdiag::Diagnostics::Instance().RecordClick(
+        diagnosticIdentityInvalidated_ ? "identity-invalidated" : "gpu-miss", pendingSelection_.playerId,
+        cursorX, cursorY, clickRejectedCandidates_.size());
+#endif
+    if (pendingSelection_.ped
+        && std::find(
+               clickRejectedCandidates_.begin(),
+               clickRejectedCandidates_.end(),
+               pendingSelection_.ped)
+            == clickRejectedCandidates_.end()) {
+        clickRejectedCandidates_.push_back(pendingSelection_.ped);
+    }
+    outline_.CancelCursorHitRequest();
+    pendingSelection_.Reset();
+    if (!BeginPendingSelection(cursorX, cursorY)) {
+        clickRejectedCandidates_.clear();
+    }
+}
+
+void PlayerTargetSelector::SelectPendingPlayer() {
+    if (!ValidateSelectionCandidate(
+            pendingSelection_.ped,
+            pendingSelection_.playerId,
+            pendingSelection_.cursorX,
+            pendingSelection_.cursorY)
+        || !tagsModule_) {
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().RecordClick("validation-failed", pendingSelection_.playerId,
+            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
+#endif
+        debuglog::WriteError(
+            "[target-selector] exact hit rejected after frozen candidate validation "
+            "id=%d ped=%p",
+            pendingSelection_.playerId,
+            pendingSelection_.ped);
+        outline_.CancelCursorHitRequest();
+        pendingSelection_.Reset();
+        clickRejectedCandidates_.clear();
+        return;
+    }
+
+    std::string playerName = sampApi_->GetNameID(pendingSelection_.playerId);
+    if (playerName.empty() || playerName == "UNKNOWN") {
+        playerName = "ID " + std::to_string(pendingSelection_.playerId);
+    }
+
+    CPlayerPed* localPed = FindPlayerPed();
+    const void* currentAimPed = localPed ? localPed->m_pPlayerTargettedPed : nullptr;
+    tagsModule_->SetManualTargetId(pendingSelection_.playerId, currentAimPed);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    targetdiag::Diagnostics::Instance().RecordClick("selected", pendingSelection_.playerId,
+        pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
+#endif
+    debuglog::WriteInfo(
+        "[target-selector] selected id=%d ped=%p name=%s",
+        pendingSelection_.playerId,
+        pendingSelection_.ped,
+        playerName.c_str());
+
+    if (notificationManager_) {
+        notificationManager_->ShowUserPopup(
+            UiSettings::Instance().Format(
+                UiText::TargetSelectorSelectedFormat,
+                playerName.c_str(),
+                pendingSelection_.playerId),
+            NotificationSeverity::Success);
+    }
+    Cancel("selected");
 }
 
 void PlayerTargetSelector::Activate() {
     active_ = true;
-    hoveredPed_ = nullptr;
-    hoveredPlayerId_ = -1;
-    hoveredCursorX_ = -1;
-    hoveredCursorY_ = -1;
-    hoveredPlayerName_.clear();
-    rejectedCandidates_.clear();
-    rejectedCursorX_ = -1;
-    rejectedCursorY_ = -1;
+    pendingClick_.Reset();
+    pendingSelection_.Reset();
+    candidatePed_ = nullptr;
+    candidatePlayerId_ = -1;
+    candidatePlayerName_.clear();
+    clickRejectedCandidates_.clear();
+    outline_.CancelCursorHitRequest();
     outline_.SetTarget(nullptr);
     debuglog::WriteInfo(
-        "[target-selector] activated hotkey=%s distance=%.1f requireVisibleNameTag=%d",
+        "[target-selector] activated hotkey=%s distance=%.1f requireVisibleNameTag=%d "
+        "candidateRank=screen-pose-v1",
         HotkeyText().c_str(),
         UiSettings::Instance().TargetSelectorDistance(),
         UiSettings::Instance().TargetSelectorRequireVisibleNameTag() ? 1 : 0);
@@ -645,41 +1171,17 @@ void PlayerTargetSelector::Cancel(const char* reason) {
     }
 
     active_ = false;
-    hoveredPed_ = nullptr;
-    hoveredPlayerId_ = -1;
-    hoveredCursorX_ = -1;
-    hoveredCursorY_ = -1;
-    hoveredPlayerName_.clear();
-    rejectedCandidates_.clear();
-    rejectedCursorX_ = -1;
-    rejectedCursorY_ = -1;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    targetdiag::Diagnostics::Instance().Abort(reason);
+#endif
+    pendingClick_.Reset();
+    pendingSelection_.Reset();
+    candidatePed_ = nullptr;
+    candidatePlayerId_ = -1;
+    candidatePlayerName_.clear();
+    clickRejectedCandidates_.clear();
     outline_.Deactivate();
     debuglog::WriteInfo("[target-selector] canceled reason=%s", reason ? reason : "unknown");
-}
-
-void PlayerTargetSelector::SelectHoveredPlayer() {
-    if (!ValidateHoveredPlayer() || !tagsModule_) {
-        return;
-    }
-
-    CPlayerPed* localPed = FindPlayerPed();
-    const void* currentAimPed = localPed ? localPed->m_pPlayerTargettedPed : nullptr;
-    tagsModule_->SetManualTargetId(hoveredPlayerId_, currentAimPed);
-    debuglog::WriteInfo(
-        "[target-selector] selected id=%d ped=%p name=%s",
-        hoveredPlayerId_,
-        hoveredPed_,
-        hoveredPlayerName_.c_str());
-
-    if (notificationManager_) {
-        notificationManager_->ShowUserPopup(
-            UiSettings::Instance().Format(
-                UiText::TargetSelectorSelectedFormat,
-                hoveredPlayerName_.c_str(),
-                hoveredPlayerId_),
-            NotificationSeverity::Success);
-    }
-    Cancel("selected");
 }
 
 void PlayerTargetSelector::DrawFullscreenHitSurface() const {
@@ -718,17 +1220,24 @@ void PlayerTargetSelector::DrawInstructionOverlay() const {
     if (ImGui::Begin("##target_selector_instruction", nullptr, flags)) {
         ImGui::TextUnformatted(ui.Text(UiText::TargetSelectorInstruction));
         ImGui::Separator();
-        if (hoveredPed_) {
+        if (candidatePed_) {
             ImGui::Text(
                 "%s",
                 ui.Format(
-                    UiText::TargetSelectorHoverFormat,
-                    hoveredPlayerName_.c_str(),
-                    hoveredPlayerId_)
+                    UiText::TargetSelectorCandidateFormat,
+                    candidatePlayerName_.c_str(),
+                    candidatePlayerId_)
                     .c_str());
         } else {
-            ImGui::TextDisabled("%s", ui.Text(UiText::TargetSelectorNoTarget));
+            ImGui::TextDisabled("%s", ui.Text(UiText::TargetSelectorNoCandidate));
         }
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        targetdiag::Diagnostics::Instance().DrawOverlay();
+#endif
     }
     ImGui::End();
 }
+
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+#include "player_target_selector_diagnostic.inl"
+#endif

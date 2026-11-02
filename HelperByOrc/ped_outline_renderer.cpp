@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -29,7 +30,7 @@ constexpr float kOutlineThickness = 3.0f;
 constexpr float kOutlineDiagonal = 2.0f;
 constexpr std::uint64_t kPerformanceLogIntervalMs = 5000;
 constexpr float kFallbackPedHalfWidth = 1.35f;
-constexpr float kFallbackPedBottomOffset = -0.50f;
+constexpr float kFallbackPedBottomOffset = -1.50f;
 constexpr float kFallbackPedTopOffset = 3.20f;
 
 constexpr std::array<unsigned int, 11> kOutlineBoundsBones = {
@@ -55,31 +56,33 @@ constexpr std::array<D3DRENDERSTATETYPE, 6> kCaptureRenderStates = {
     D3DRS_COLORWRITEENABLE,
 };
 
-// fxc 10.1 /O3 /T ps_2_0: s0=visible, c0=offsets, c1=white.
-// Formula matches the visible branch of outline.lua:
-// (1 - centerAlpha) * max(eight neighborAlpha).
+// fxc 10.1 /O3 /T ps_2_0: s0=visible, c0=offsets, c1=white,
+// c2.xy=current cursor UV. The cursor texel is sampled first and texkill
+// avoids the nine outline samples when the cursor is outside the silhouette.
 constexpr DWORD kOutlineShader[] = {
-    0xFFFF0200, 0x05000051, 0xA00F0002, 0x80000000, 0xBF800000, 0x3F800000, 0x00000000, 0x0200001F,
-    0x80000000, 0xB0030000, 0x0200001F, 0x90000000, 0xA00F0800, 0x02000001, 0x80010000, 0xA1000000,
-    0x02000001, 0x80020000, 0xA0000002, 0x03000002, 0x80030000, 0x80E40000, 0xB0E40000, 0x03000002,
-    0x80010001, 0xB0000000, 0xA0000000, 0x02000001, 0x80020001, 0xB0550000, 0x02000001, 0x80010002,
-    0xB0000000, 0x03000002, 0x80020002, 0xB0550000, 0xA0550000, 0x02000001, 0x80010003, 0xA0000002,
-    0x02000001, 0x80020003, 0xA1550000, 0x03000002, 0x80030003, 0x80E40003, 0xB0E40000, 0x03000002,
-    0x80010004, 0xB0000000, 0xA0AA0000, 0x03000002, 0x80020004, 0xB0550000, 0xA0FF0000, 0x03000002,
-    0x80010005, 0xB0000000, 0xA1AA0000, 0x03000002, 0x80020005, 0xB0550000, 0xA1FF0000, 0x03000002,
-    0x80010006, 0xB0000000, 0xA0AA0000, 0x03000002, 0x80020006, 0xB0550000, 0xA1FF0000, 0x02000001,
-    0x800C0000, 0xA0E40000, 0x04000004, 0x80010007, 0x80AA0000, 0xA0550002, 0xB0000000, 0x04000004,
-    0x80020007, 0x80FF0000, 0xA0AA0002, 0xB0550000, 0x03000042, 0x800F0000, 0x80E40000, 0xA0E40800,
-    0x03000042, 0x800F0001, 0x80E40001, 0xA0E40800, 0x03000042, 0x800F0002, 0x80E40002, 0xA0E40800,
-    0x03000042, 0x800F0003, 0x80E40003, 0xA0E40800, 0x03000042, 0x800F0004, 0x80E40004, 0xA0E40800,
-    0x03000042, 0x800F0005, 0x80E40005, 0xA0E40800, 0x03000042, 0x800F0006, 0x80E40006, 0xA0E40800,
-    0x03000042, 0x800F0007, 0x80E40007, 0xA0E40800, 0x03000042, 0x800F0008, 0xB0E40000, 0xA0E40800,
-    0x0300000B, 0x80010002, 0x80FF0001, 0x80FF0000, 0x0300000B, 0x80010000, 0x80000002, 0x80FF0002,
-    0x0300000B, 0x80010001, 0x80000000, 0x80FF0003, 0x0300000B, 0x80010000, 0x80000001, 0x80FF0004,
-    0x0300000B, 0x80010001, 0x80000000, 0x80FF0005, 0x0300000B, 0x80010000, 0x80000001, 0x80FF0006,
-    0x0300000B, 0x80010001, 0x80000000, 0x80FF0007, 0x03000002, 0x80010000, 0x81FF0008, 0xA0AA0002,
-    0x03000005, 0x80010000, 0x80000001, 0x80000000, 0x03000005, 0x800F0000, 0x80000000, 0xA0E40001,
-    0x02000001, 0x800F0800, 0x80E40000, 0x0000FFFF,
+    0xFFFF0200, 0x05000051, 0xA00F0003, 0xBB808081, 0x80000000, 0x3F800000, 0xBF800000, 0x0200001F,
+    0x80000000, 0xB0030000, 0x0200001F, 0x90000000, 0xA00F0800, 0x02000001, 0x80030009, 0xA0E40002,
+    0x03000042, 0x800F0000, 0x80E40009, 0xA0E40800, 0x03000002, 0x800F0000, 0x80FF0000, 0xA0000003,
+    0x02000001, 0x80010001, 0xA1000000, 0x02000001, 0x80020001, 0xA0550003, 0x03000002, 0x80030001,
+    0x80E40001, 0xB0E40000, 0x03000002, 0x80010002, 0xB0000000, 0xA0000000, 0x02000001, 0x80020002,
+    0xB0550000, 0x02000001, 0x80010003, 0xB0000000, 0x03000002, 0x80020003, 0xB0550000, 0xA0550000,
+    0x02000001, 0x80010004, 0xA0550003, 0x02000001, 0x80020004, 0xA1550000, 0x03000002, 0x80030004,
+    0x80E40004, 0xB0E40000, 0x03000002, 0x80010005, 0xB0000000, 0xA0AA0000, 0x03000002, 0x80020005,
+    0xB0550000, 0xA0FF0000, 0x03000002, 0x80010006, 0xB0000000, 0xA1AA0000, 0x03000002, 0x80020006,
+    0xB0550000, 0xA1FF0000, 0x03000002, 0x80010007, 0xB0000000, 0xA0AA0000, 0x03000002, 0x80020007,
+    0xB0550000, 0xA1FF0000, 0x02000001, 0x800C0001, 0xA0E40000, 0x04000004, 0x80010008, 0x80AA0001,
+    0xA0FF0003, 0xB0000000, 0x04000004, 0x80020008, 0x80FF0001, 0xA0AA0003, 0xB0550000, 0x01000041,
+    0x800F0000, 0x03000042, 0x800F0000, 0x80E40001, 0xA0E40800, 0x03000042, 0x800F0001, 0x80E40002,
+    0xA0E40800, 0x03000042, 0x800F0002, 0x80E40003, 0xA0E40800, 0x03000042, 0x800F0003, 0x80E40004,
+    0xA0E40800, 0x03000042, 0x800F0004, 0x80E40005, 0xA0E40800, 0x03000042, 0x800F0005, 0x80E40006,
+    0xA0E40800, 0x03000042, 0x800F0006, 0x80E40007, 0xA0E40800, 0x03000042, 0x800F0007, 0x80E40008,
+    0xA0E40800, 0x03000042, 0x800F0008, 0xB0E40000, 0xA0E40800, 0x0300000B, 0x80010002, 0x80FF0001,
+    0x80FF0000, 0x0300000B, 0x80010000, 0x80000002, 0x80FF0002, 0x0300000B, 0x80010001, 0x80000000,
+    0x80FF0003, 0x0300000B, 0x80010000, 0x80000001, 0x80FF0004, 0x0300000B, 0x80010001, 0x80000000,
+    0x80FF0005, 0x0300000B, 0x80010000, 0x80000001, 0x80FF0006, 0x0300000B, 0x80010001, 0x80000000,
+    0x80FF0007, 0x03000002, 0x80010000, 0x81FF0008, 0xA0AA0003, 0x03000005, 0x80010000, 0x80000001,
+    0x80000000, 0x03000005, 0x800F0000, 0x80000000, 0xA0E40001, 0x02000001, 0x800F0800, 0x80E40000,
+    0x0000FFFF,
 };
 
 // fxc 10.1 /O3 /T ps_2_0. One point-filtered alpha sample followed by
@@ -264,9 +267,7 @@ void PedOutlineRenderer::SetTarget(CPed* ped) {
 
     maskValid_ = false;
     capturedPed_ = nullptr;
-    lastCaptureAtMs_ = 0;
-    cursorSampleValid_ = false;
-    cursorSamplePed_ = nullptr;
+    maskCaptureScheduledAtUs_ = 0;
     rejectedPed_ = nullptr;
     rejectedClump_ = nullptr;
     if (!next) {
@@ -275,18 +276,10 @@ void PedOutlineRenderer::SetTarget(CPed* ped) {
 }
 
 void PedOutlineRenderer::Deactivate() {
-    const std::uint64_t retiringSession = cursorQuerySession_.Current();
-    cursorQuerySession_.Retire();
-    for (const CursorHitQuerySlot& slot : cursorHitQueries_) {
-        if (slot.pending && slot.session == retiringSession) {
-            ++perfCursorQueryRetiredCount_;
-        }
-    }
+    CancelCursorHitRequest();
     SetTarget(nullptr);
     LogPerformanceIfDue(true);
     perfWindowStartedAtMs_ = 0;
-    cursorSampleValid_ = false;
-    cursorSamplePed_ = nullptr;
     RestoreRenderHooks();
 }
 
@@ -304,72 +297,65 @@ bool PedOutlineRenderer::Render(
         return false;
     }
 
-    CPed* target = targetPed_.load(std::memory_order_acquire);
-    if (!std::isfinite(cursorX)
-        || !std::isfinite(cursorY)
-        || cursorX < 0.0f
-        || cursorY < 0.0f
-        || cursorX >= static_cast<float>(targetDesc_.Width)
-        || cursorY >= static_cast<float>(targetDesc_.Height)) {
-        cursorHit = CursorHitStatus::Miss;
-        return true;
-    }
-
-    const int cursorPixelX = static_cast<int>(std::floor(cursorX));
-    const int cursorPixelY = static_cast<int>(std::floor(cursorY));
-    const bool cursorPixelStable = cursorPixelStability_.Observe(
-        cursorPixelX,
-        cursorPixelY);
-    if (!PollCursorHitQuery(target, cursorPixelX, cursorPixelY, cursorHit)) {
+    if (!PollCursorHitQuery(cursorHit)) {
         return false;
     }
 
+    CPed* target = targetPed_.load(std::memory_order_acquire);
+    const bool cursorValid = std::isfinite(cursorX)
+        && std::isfinite(cursorY)
+        && cursorX >= 0.0f
+        && cursorY >= 0.0f
+        && cursorX < static_cast<float>(targetDesc_.Width)
+        && cursorY < static_cast<float>(targetDesc_.Height);
+    const int cursorPixelX = cursorValid ? static_cast<int>(std::floor(cursorX)) : -1;
+    const int cursorPixelY = cursorValid ? static_cast<int>(std::floor(cursorY)) : -1;
+
     if (rejectedPed_ == target && rejectedClump_ == target->m_pRwClump) {
-        cursorHit = CursorHitStatus::Miss;
+        if (cursorHitRequestActive_ && cursorHitRequestPed_ == target) {
+            cursorHitResultReady_ = true;
+            cursorHitResult_ = false;
+            cursorHit = CursorHitStatus::Miss;
+        }
         return true;
     }
     if (!maskValid_ || !capturedPed_ || capturedPed_ != target) {
         return true;
     }
 
-    if (!outlineperf::ContainsPixel(capturedRoi_.capture, cursorPixelX, cursorPixelY)) {
+    const bool requestMatchesTarget = cursorHitRequestActive_
+        && cursorHitRequestPed_ == target;
+    if (requestMatchesTarget
+        && !cursorHitRequestIssued_
+        && !cursorHitResultReady_
+        && !outlineperf::ContainsPixel(
+            capturedRoi_.capture,
+            cursorHitRequestX_,
+            cursorHitRequestY_)) {
+        cursorHitResultReady_ = true;
+        cursorHitResult_ = false;
         cursorHit = CursorHitStatus::Miss;
-        return true;
     }
 
-    const bool sampleMatches = cursorSampleValid_
-        && cursorSamplePed_ == target
-        && cursorSampleX_ == cursorPixelX
-        && cursorSampleY_ == cursorPixelY;
-    if (sampleMatches) {
-        cursorHit = cursorSampleHit_ ? CursorHitStatus::Hit : CursorHitStatus::Miss;
-    }
-
-    const bool queryDesired = !sampleMatches
-        || (cursorHit == CursorHitStatus::Hit
-            && cursorSampleGeneration_ != maskGeneration_);
-    bool matchingQueryPending = false;
     bool freeQuerySlotAvailable = false;
     for (const CursorHitQuerySlot& slot : cursorHitQueries_) {
-        matchingQueryPending = matchingQueryPending
-            || (slot.pending
-                && cursorQuerySession_.IsCurrent(slot.session)
-                && slot.ped == target
-                && slot.x == cursorPixelX
-                && slot.y == cursorPixelY);
         freeQuerySlotAvailable = freeQuerySlotAvailable || !slot.pending;
     }
 
-    const bool queryNeeded = queryDesired
-        && cursorPixelStable
-        && !matchingQueryPending
+    const bool queryNeeded = cursorHitRequestActive_
+        && !cursorHitRequestIssued_
+        && !cursorHitResultReady_
+        && requestMatchesTarget
         && freeQuerySlotAvailable;
-    if (queryDesired && !cursorPixelStable) {
-        ++perfCursorMotionDeferredCount_;
-    } else if (queryDesired && !matchingQueryPending && !freeQuerySlotAvailable) {
+    if (cursorHitRequestActive_
+        && !cursorHitRequestIssued_
+        && !cursorHitResultReady_
+        && requestMatchesTarget
+        && !freeQuerySlotAvailable) {
         ++perfCursorQueryPoolBusyCount_;
     }
-    const bool compositeNeeded = cursorHit == CursorHitStatus::Hit;
+    const bool compositeNeeded = cursorValid
+        && outlineperf::ContainsPixel(capturedRoi_.capture, cursorPixelX, cursorPixelY);
     if (queryNeeded || compositeNeeded) {
         FrameContext context{};
         if (!AcquireFrameContext(context)) {
@@ -378,10 +364,16 @@ bool PedOutlineRenderer::Render(
         }
 
         const char* renderFailure = nullptr;
-        if (queryNeeded && !IssueCursorHitQuery(target, cursorPixelX, cursorPixelY)) {
+        if (queryNeeded
+            && !IssueCursorHitQuery(
+                cursorHitRequestPed_,
+                cursorHitRequestX_,
+                cursorHitRequestY_)) {
             renderFailure = "outline cursor hit query failed";
         }
-        if (!renderFailure && compositeNeeded && !CompositePendingOutline()) {
+        if (!renderFailure
+            && compositeNeeded
+            && !CompositePendingOutline(cursorPixelX, cursorPixelY)) {
             renderFailure = "outline composite failed";
         }
         RestoreFrameContext(context);
@@ -394,6 +386,10 @@ bool PedOutlineRenderer::Render(
     if (compositeNeeded) {
         ++perfCompositeCount_;
         perfCompositePixels_ += outlineperf::Area(capturedRoi_.composite);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        ++diagnosticCounters_[1];
+        diagnosticCounters_[7] += outlineperf::Area(capturedRoi_.composite);
+#endif
     }
     LogPerformanceIfDue(false);
 
@@ -401,11 +397,58 @@ bool PedOutlineRenderer::Render(
         activeLogged_ = true;
         debuglog::WriteInfo(
             "[target-selector][outline] active ped=%p color=white depth=visible-only "
-            "hit=pixel-mask-async thickness=%.0f",
+            "hover=pixel-mask-gpu click=pixel-mask-async thickness=%.0f",
             target,
             kOutlineThickness);
     }
     return true;
+}
+
+bool PedOutlineRenderer::RequestCursorHit(CPed* ped, int cursorX, int cursorY) {
+    if (disabled_ || !ped || cursorX < 0 || cursorY < 0) {
+        return false;
+    }
+
+    CancelCursorHitRequest();
+    cursorHitRequestActive_ = true;
+    cursorHitRequestIssued_ = false;
+    cursorHitResultReady_ = false;
+    cursorHitResult_ = false;
+    cursorHitRequestPed_ = ped;
+    cursorHitRequestX_ = cursorX;
+    cursorHitRequestY_ = cursorY;
+    cursorHitRequestStartedAtMs_ = GetTickCount64();
+    ++perfCursorQueryRequestedCount_;
+    return true;
+}
+
+void PedOutlineRenderer::CancelCursorHitRequest() {
+    if (!cursorHitRequestActive_) {
+        return;
+    }
+
+    const std::uint64_t retiringSession = cursorQuerySession_.Current();
+    cursorQuerySession_.Retire();
+    for (const CursorHitQuerySlot& slot : cursorHitQueries_) {
+        if (slot.pending && slot.session == retiringSession) {
+            ++perfCursorQueryRetiredCount_;
+        }
+    }
+
+    cursorHitRequestActive_ = false;
+    cursorHitRequestIssued_ = false;
+    cursorHitResultReady_ = false;
+    cursorHitResult_ = false;
+    cursorHitRequestPed_ = nullptr;
+    cursorHitRequestX_ = 0;
+    cursorHitRequestY_ = 0;
+    cursorHitRequestStartedAtMs_ = 0;
+}
+
+bool PedOutlineRenderer::CursorHitRequestNeedsTarget() const {
+    return cursorHitRequestActive_
+        && !cursorHitRequestIssued_
+        && !cursorHitResultReady_;
 }
 
 bool PedOutlineRenderer::HasPendingCursorQueries() const {
@@ -417,7 +460,7 @@ bool PedOutlineRenderer::HasPendingCursorQueries() const {
 
 bool PedOutlineRenderer::PollPendingCursorQueries() {
     CursorHitStatus ignored = CursorHitStatus::Pending;
-    const bool ok = PollCursorHitQuery(nullptr, 0, 0, ignored);
+    const bool ok = PollCursorHitQuery(ignored);
     LogPerformanceIfDue(false);
     return ok;
 }
@@ -437,6 +480,7 @@ void PedOutlineRenderer::OnDeviceReset() {
 }
 
 void PedOutlineRenderer::Shutdown() {
+    CancelCursorHitRequest();
     LogPerformanceIfDue(true);
     targetPed_.store(nullptr, std::memory_order_release);
     maskValid_ = false;
@@ -734,8 +778,8 @@ bool PedOutlineRenderer::EnsureResources(IDirect3DDevice9* device) {
         readyLogged_ = true;
         debuglog::WriteInfo(
             "[target-selector][outline] resources ready %ux%u msaa=%d quality=%lu "
-            "shader=visible-only-ps_2_0 samples=9 cursorHit=async-occlusion-query "
-            "querySlots=%zu stableFrames=1",
+            "shader=visible-only-ps_2_0 samples=10 cursorGate=gpu-texkill "
+            "cursorHit=click-only-async-query querySlots=%zu",
             desc.Width,
             desc.Height,
             static_cast<int>(desc.MultiSampleType),
@@ -763,8 +807,7 @@ void PedOutlineRenderer::ReleaseResources() {
     maskValid_ = false;
     capturedPed_ = nullptr;
     partialResolveSupported_ = -1;
-    lastCaptureAtMs_ = 0;
-    maskGeneration_ = 0;
+    maskCaptureScheduledAtUs_ = 0;
     ResetCursorHitState();
 }
 
@@ -996,6 +1039,10 @@ bool PedOutlineRenderer::ResolveVisibleMask(const outlineperf::ScreenRoi& roi) {
             partialResolveSupported_ = 1;
             ++perfPartialResolveCount_;
             perfResolvedPixels_ += outlineperf::Area(roi.capture);
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+            ++diagnosticCounters_[4];
+            diagnosticCounters_[6] += outlineperf::Area(roi.capture);
+#endif
             return true;
         }
         if (partialResult == D3DERR_INVALIDCALL) {
@@ -1016,13 +1063,17 @@ bool PedOutlineRenderer::ResolveVisibleMask(const outlineperf::ScreenRoi& roi) {
     if (SUCCEEDED(fullResult)) {
         ++perfFullResolveCount_;
         perfResolvedPixels_ += static_cast<std::uint64_t>(targetDesc_.Width) * targetDesc_.Height;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+        ++diagnosticCounters_[5];
+        diagnosticCounters_[6] += static_cast<std::uint64_t>(targetDesc_.Width) * targetDesc_.Height;
+#endif
         return true;
     }
     return false;
 }
 
-bool PedOutlineRenderer::CompositePendingOutline() {
-    const float constants[8] = {
+bool PedOutlineRenderer::CompositePendingOutline(int cursorX, int cursorY) {
+    const float constants[12] = {
         kOutlineThickness / static_cast<float>(targetDesc_.Width),
         kOutlineThickness / static_cast<float>(targetDesc_.Height),
         kOutlineDiagonal / static_cast<float>(targetDesc_.Width),
@@ -1031,6 +1082,10 @@ bool PedOutlineRenderer::CompositePendingOutline() {
         1.0f,
         1.0f,
         1.0f,
+        (static_cast<float>(cursorX) + 0.5f) / static_cast<float>(targetDesc_.Width),
+        (static_cast<float>(cursorY) + 0.5f) / static_cast<float>(targetDesc_.Height),
+        0.0f,
+        0.0f,
     };
     const float width = static_cast<float>(targetDesc_.Width);
     const float height = static_cast<float>(targetDesc_.Height);
@@ -1048,7 +1103,7 @@ bool PedOutlineRenderer::CompositePendingOutline() {
     };
 
     bool ok = SUCCEEDED(compositeStateBlock_->Apply())
-        && SUCCEEDED(device_->SetPixelShaderConstantF(0, constants, 2))
+        && SUCCEEDED(device_->SetPixelShaderConstantF(0, constants, 3))
         && SUCCEEDED(device_->SetScissorRect(&compositeRect));
     if (ok) {
         ok = SUCCEEDED(device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(OutlineVertex)));
@@ -1056,11 +1111,7 @@ bool PedOutlineRenderer::CompositePendingOutline() {
     return ok;
 }
 
-bool PedOutlineRenderer::PollCursorHitQuery(
-    CPed* target,
-    int cursorX,
-    int cursorY,
-    CursorHitStatus& cursorHit) {
+bool PedOutlineRenderer::PollCursorHitQuery(CursorHitStatus& cursorHit) {
     const std::uint64_t now = GetTickCount64();
     for (CursorHitQuerySlot& slot : cursorHitQueries_) {
         if (!slot.pending || !slot.query) {
@@ -1071,6 +1122,9 @@ bool PedOutlineRenderer::PollCursorHitQuery(
         const HRESULT result = slot.query->GetData(&visiblePixels, sizeof(visiblePixels), 0);
         if (result == S_OK) {
             slot.pending = false;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+            ++diagnosticCounters_[3];
+#endif
             const bool currentSession = cursorQuerySession_.IsCurrent(slot.session);
             if (currentSession) {
                 ++perfCursorQueryResolvedCount_;
@@ -1089,22 +1143,15 @@ bool PedOutlineRenderer::PollCursorHitQuery(
                     perfCursorQueryLatencyMaxMs_,
                     latencyMs);
 
-                const bool currentPixel = slot.ped == target
-                    && slot.x == cursorX
-                    && slot.y == cursorY;
-                if (currentPixel
-                    && (!cursorSampleValid_
-                        || cursorSamplePed_ != target
-                        || cursorSampleX_ != cursorX
-                        || cursorSampleY_ != cursorY
-                        || slot.generation >= cursorSampleGeneration_)) {
-                    cursorSampleValid_ = true;
-                    cursorSampleHit_ = hit;
-                    cursorSamplePed_ = slot.ped;
-                    cursorSampleX_ = slot.x;
-                    cursorSampleY_ = slot.y;
-                    cursorSampleGeneration_ = slot.generation;
-                } else if (!currentPixel) {
+                const bool currentRequest = cursorHitRequestActive_
+                    && cursorHitRequestIssued_
+                    && slot.ped == cursorHitRequestPed_
+                    && slot.x == cursorHitRequestX_
+                    && slot.y == cursorHitRequestY_;
+                if (currentRequest) {
+                    cursorHitResultReady_ = true;
+                    cursorHitResult_ = hit;
+                } else {
                     ++perfCursorStaleResultCount_;
                 }
             }
@@ -1112,20 +1159,37 @@ bool PedOutlineRenderer::PollCursorHitQuery(
             slot.ped = nullptr;
             slot.x = 0;
             slot.y = 0;
-            slot.generation = 0;
             slot.session = 0;
             slot.issuedAtMs = 0;
+        } else if (result == S_FALSE
+            && now >= slot.issuedAtMs
+            && now - slot.issuedAtMs >= outlineperf::kCursorHitQueryTimeoutMs) {
+            Disable("outline cursor hit query timed out");
+            return false;
         } else if (result != S_FALSE) {
             Disable("outline cursor hit query polling failed");
             return false;
         }
     }
 
-    if (cursorSampleValid_
-        && cursorSamplePed_ == target
-        && cursorSampleX_ == cursorX
-        && cursorSampleY_ == cursorY) {
-        cursorHit = cursorSampleHit_ ? CursorHitStatus::Hit : CursorHitStatus::Miss;
+    if (cursorHitRequestActive_
+        && !cursorHitRequestIssued_
+        && !cursorHitResultReady_
+        && now >= cursorHitRequestStartedAtMs_
+        && now - cursorHitRequestStartedAtMs_ >= outlineperf::kCursorHitQueryTimeoutMs) {
+        debuglog::WriteInfo(
+            "[target-selector][outline] click capture expired before GPU query "
+            "ped=%p pixel=(%d,%d)",
+            cursorHitRequestPed_,
+            cursorHitRequestX_,
+            cursorHitRequestY_);
+        CancelCursorHitRequest();
+        cursorHit = CursorHitStatus::Expired;
+        return true;
+    }
+
+    if (cursorHitRequestActive_ && cursorHitResultReady_) {
+        cursorHit = cursorHitResult_ ? CursorHitStatus::Hit : CursorHitStatus::Miss;
     }
     return true;
 }
@@ -1182,10 +1246,13 @@ bool PedOutlineRenderer::IssueCursorHitQuery(
     freeSlot->ped = target;
     freeSlot->x = cursorX;
     freeSlot->y = cursorY;
-    freeSlot->generation = maskGeneration_;
     freeSlot->session = cursorQuerySession_.Current();
     freeSlot->issuedAtMs = GetTickCount64();
+    cursorHitRequestIssued_ = true;
     ++perfCursorQueryIssuedCount_;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    ++diagnosticCounters_[2];
+#endif
     return true;
 }
 
@@ -1195,17 +1262,15 @@ void PedOutlineRenderer::ResetCursorHitState() {
         slot.ped = nullptr;
         slot.x = 0;
         slot.y = 0;
-        slot.generation = 0;
         slot.session = 0;
         slot.issuedAtMs = 0;
     }
-    cursorSampleValid_ = false;
-    cursorSampleHit_ = false;
-    cursorSamplePed_ = nullptr;
-    cursorSampleX_ = 0;
-    cursorSampleY_ = 0;
-    cursorSampleGeneration_ = 0;
-    cursorPixelStability_.Reset();
+    if (cursorHitRequestActive_) {
+        cursorHitRequestIssued_ = false;
+        cursorHitResultReady_ = false;
+        cursorHitResult_ = false;
+        cursorHitRequestStartedAtMs_ = GetTickCount64();
+    }
 }
 
 void PedOutlineRenderer::CaptureIfTarget(CPed* ped) {
@@ -1215,14 +1280,16 @@ void PedOutlineRenderer::CaptureIfTarget(CPed* ped) {
         return;
     }
 
-    const std::uint64_t now = GetTickCount64();
+    const auto elapsed = std::chrono::steady_clock::now().time_since_epoch();
+    const auto captureNowUs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count());
     const bool sameTarget = maskValid_ && capturedPed_ == ped;
     if (!outlineperf::ShouldRefreshMask(
-            now,
-            lastCaptureAtMs_,
+            captureNowUs,
+            maskCaptureScheduledAtUs_,
             maskValid_,
             sameTarget,
-            outlineperf::kMaskRefreshIntervalMs)) {
+            outlineperf::kMaskRefreshIntervalUs)) {
         ++perfCaptureReuseCount_;
         return;
     }
@@ -1282,11 +1349,14 @@ void PedOutlineRenderer::CaptureIfTarget(CPed* ped) {
     capturedPed_ = ped;
     capturedRoi_ = roi;
     maskValid_ = true;
-    ++maskGeneration_;
-    lastCaptureAtMs_ = now;
+    maskCaptureScheduledAtUs_ = outlineperf::AdvanceMaskCaptureTime(
+        captureNowUs, maskCaptureScheduledAtUs_, sameTarget, outlineperf::kMaskRefreshIntervalUs);
     ++perfCaptureCount_;
+#if HELPERBYORC_TARGET_DIAGNOSTICS
+    ++diagnosticCounters_[0];
+#endif
     if (perfWindowStartedAtMs_ == 0) {
-        perfWindowStartedAtMs_ = now;
+        perfWindowStartedAtMs_ = GetTickCount64();
     }
 }
 
@@ -1299,8 +1369,8 @@ void PedOutlineRenderer::LogPerformanceIfDue(bool force) {
         + perfCursorQueryIssuedCount_
         + perfCursorQueryResolvedCount_
         + perfCursorQueryRetiredCount_
-        + perfCursorMotionDeferredCount_
-        + perfCursorQueryPoolBusyCount_;
+        + perfCursorQueryPoolBusyCount_
+        + perfCursorQueryRequestedCount_;
     if (eventCount == 0) {
         return;
     }
@@ -1337,9 +1407,9 @@ void PedOutlineRenderer::LogPerformanceIfDue(bool force) {
         "captureHz=%.1f roiAvg=%.2f%% resolvedAvg=%.2f%% partial=%llu full=%llu "
         "boneBounds=%llu fixedBounds=%llu roiSkipped=%llu unsafePedSkipped=%llu "
         "cursorQuery(issued=%llu resolved=%llu hit=%llu miss=%llu stale=%llu retired=%llu "
-        "moveDeferred=%llu poolBusy=%llu latencySamples=%llu latencyAvg=%.1fms latencyMax=%llums) "
+        "moveDeferred=0 poolBusy=%llu latencySamples=%llu latencyAvg=%.1fms latencyMax=%llums) "
         "roiFail(input=%llu bone=%llu bounds=%llu) "
-        "partialResolve=%d",
+        "cursorRequests=%llu partialResolve=%d",
         static_cast<unsigned long long>(elapsedMs),
         static_cast<unsigned long long>(perfCaptureCount_),
         static_cast<unsigned long long>(perfCaptureReuseCount_),
@@ -1359,7 +1429,6 @@ void PedOutlineRenderer::LogPerformanceIfDue(bool force) {
         static_cast<unsigned long long>(perfCursorMissCount_),
         static_cast<unsigned long long>(perfCursorStaleResultCount_),
         static_cast<unsigned long long>(perfCursorQueryRetiredCount_),
-        static_cast<unsigned long long>(perfCursorMotionDeferredCount_),
         static_cast<unsigned long long>(perfCursorQueryPoolBusyCount_),
         static_cast<unsigned long long>(perfCursorQueryLatencySampleCount_),
         averageCursorQueryLatencyMs,
@@ -1367,6 +1436,7 @@ void PedOutlineRenderer::LogPerformanceIfDue(bool force) {
         static_cast<unsigned long long>(perfRoiInvalidInputCount_),
         static_cast<unsigned long long>(perfRoiBoneProjectionFailedCount_),
         static_cast<unsigned long long>(perfRoiInvalidProjectedBoundsCount_),
+        static_cast<unsigned long long>(perfCursorQueryRequestedCount_),
         partialResolveSupported_);
 
     perfWindowStartedAtMs_ = now;
@@ -1390,8 +1460,8 @@ void PedOutlineRenderer::LogPerformanceIfDue(bool force) {
     perfCursorMissCount_ = 0;
     perfCursorStaleResultCount_ = 0;
     perfCursorQueryRetiredCount_ = 0;
-    perfCursorMotionDeferredCount_ = 0;
     perfCursorQueryPoolBusyCount_ = 0;
+    perfCursorQueryRequestedCount_ = 0;
     perfCursorQueryLatencySampleCount_ = 0;
     perfCursorQueryLatencyTotalMs_ = 0;
     perfCursorQueryLatencyMaxMs_ = 0;
