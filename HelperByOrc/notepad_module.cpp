@@ -300,7 +300,7 @@ float CheckboxItemWidth(std::string_view label) {
 bool ContinueToolbar(float nextItemWidth) {
     const ImGuiStyle& style = ImGui::GetStyle();
     const float nextX = ImGui::GetItemRectMax().x + style.ItemSpacing.x;
-    const float contentMaxX = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    const float contentMaxX = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     if (nextX + nextItemWidth > contentMaxX) {
         return false;
     }

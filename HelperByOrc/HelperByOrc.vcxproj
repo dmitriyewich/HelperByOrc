@@ -47,7 +47,6 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros">
-    <HelperTargetDiagnostics Condition="'$(HelperTargetDiagnostics)'==''">0</HelperTargetDiagnostics>
     <PluginSdkDir>$(MSBuildProjectDirectory)\external\plugin-sdk</PluginSdkDir>
     <ImGuiDir>$(MSBuildProjectDirectory)\external\imgui</ImGuiDir>
     <MinHookDir>$(MSBuildProjectDirectory)\external\MinHook</MinHookDir>
@@ -73,16 +72,11 @@
     <IntDir>$(MSBuildProjectDirectory)\build\Release\</IntDir>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32' and '$(HelperTargetDiagnostics)'=='1'">
-    <OutDir>$(MSBuildProjectDirectory)\Release\TargetDiagnostics\</OutDir>
-    <IntDir>$(MSBuildProjectDirectory)\build\TargetDiagnostics\</IntDir>
-  </PropertyGroup>
-
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;GTASA;PLUGIN_SGV_10US;RW;NOMINMAX;HELPERBYORC_TARGET_DIAGNOSTICS=$(HelperTargetDiagnostics);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;GTASA;PLUGIN_SGV_10US;RW;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -105,7 +99,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;GTASA;PLUGIN_SGV_10US;RW;NOMINMAX;HELPERBYORC_TARGET_DIAGNOSTICS=$(HelperTargetDiagnostics);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;GTASA;PLUGIN_SGV_10US;RW;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <StringPooling>true</StringPooling>
       <Optimization>MaxSpeed</Optimization>
@@ -183,8 +177,6 @@
     <ClCompile Include="overlay_cursor_controller.cpp" />
     <ClCompile Include="ped_outline_renderer.cpp" />
     <ClCompile Include="player_target_selector.cpp" />
-    <ClCompile Include="target_selector_diagnostics.cpp" />
-    <ClCompile Include="target_selector_native_raycast.cpp" />
     <ClCompile Include="rak_message_history_ui.cpp" />
     <ClCompile Include="raknet_bitstream_view.cpp" />
     <ClCompile Include="samp_api.cpp" />
@@ -290,10 +282,6 @@
     <ClInclude Include="ped_outline_renderer.h" />
     <ClInclude Include="player_target_selector.h" />
     <ClInclude Include="player_target_selector_math.h" />
-    <ClInclude Include="target_selector_diagnostic_math.h" />
-    <ClInclude Include="target_selector_diagnostics.h" />
-    <ClInclude Include="target_selector_native_raycast.h" />
-    <ClInclude Include="player_target_selector_diagnostic.inl" />
     <ClInclude Include="rak_message_history.h" />
     <ClInclude Include="rak_message_history_ui.h" />
     <ClInclude Include="raknet_bitstream_view.h" />
@@ -334,11 +322,6 @@
 
   <Target Name="GeneratePluginSdkProjects" BeforeTargets="BuildPluginSdk" Condition="'$(Platform)'=='Win32' and !Exists('$(PluginSdkDir)\Plugin_SA\Plugin_SA.vcxproj')">
     <Exec Command="&quot;$(PluginSdkDir)\tools\premake\premake5.exe&quot; vs2022 --file=&quot;$(PluginSdkDir)\tools\premake\premake5.lua&quot;" EnvironmentVariables="PLUGIN_SDK_DIR=$(PluginSdkDir)" />
-  </Target>
-
-  <Target Name="ValidateTargetDiagnostics" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(HelperTargetDiagnostics)'!='0' and '$(HelperTargetDiagnostics)'!='1'" Text="HelperTargetDiagnostics must be 0 or 1." />
-    <Error Condition="'$(HelperTargetDiagnostics)'=='1' and '$(Configuration)|$(Platform)'!='Release|Win32'" Text="Target diagnostics require Release|Win32." />
   </Target>
 
   <Target Name="BuildPluginSdk" BeforeTargets="Link" Condition="'$(Platform)'=='Win32' and '$(PluginSdkBuildConfiguration)' != ''">

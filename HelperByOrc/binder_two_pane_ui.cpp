@@ -745,7 +745,9 @@ void BinderModule::Impl::DrawTwoPaneBindDirectory() {
     drawList->AddLine(
         ImVec2(headerRect.Min.x, headerRect.Max.y),
         headerRect.Max,
-        ImGui::GetColorU32(BinderListStyleTokens().separator));
+        ImGui::GetColorU32(BinderListStyleTokens().separator),
+        1.0f,
+        ImDrawFlags_StrokeLegacy);
 
     const auto drawHeaderLabel = [&](const char* label, float x, float width, bool centered) {
         const ImRect cell(ImVec2(x, headerRect.Min.y), ImVec2(x + width, headerRect.Max.y));

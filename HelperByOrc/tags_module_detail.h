@@ -290,7 +290,7 @@ bool DrawNavigationCardButton(
             ImVec2(childMin.x + ScaleUi(6.0f), childMax.y),
             ImGui::GetColorU32(accent),
             ScaleUi(14.0f),
-            ImDrawFlags_RoundCornersLeft);
+            ImDrawFlags_RoundLeft);
 
         ImGui::SetCursorPos(ScaleUi(20.0f, 18.0f));
         ImGui::TextColored(accent, "%s", title);

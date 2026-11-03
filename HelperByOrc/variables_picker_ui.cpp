@@ -366,7 +366,7 @@ void DrawPanelBackground(const ImVec2& size, const VisualStyle& visual) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const float rounding = ScaleUi(7.0f);
     drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBg), rounding);
-    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, 0, ScaleUi(1.0f));
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 }
 
 bool BeginPanel(const char* id, const ImVec2& size, const VisualStyle& visual, ImGuiWindowFlags flags = 0) {
@@ -401,7 +401,9 @@ void DrawRowBackground(ImDrawList* drawList, const ImRect& rowRect, int rowIndex
         drawList->AddLine(
             ImVec2(rowRect.Min.x + ScaleUi(6.0f), rowRect.Max.y),
             ImVec2(rowRect.Max.x - ScaleUi(6.0f), rowRect.Max.y),
-            ImGui::GetColorU32(visual.separator));
+            ImGui::GetColorU32(visual.separator),
+            1.0f,
+            ImDrawFlags_StrokeLegacy);
     }
 }
 
@@ -424,7 +426,7 @@ bool FlatIconButton(
     if ((hovered && enabled) || held) {
         const ImVec4 bg = held ? visual.buttonActive : visual.buttonHover;
         drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
-        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     }
 
     if (iconColor.w < 0.0f) {
@@ -501,7 +503,7 @@ void DrawBadge(const char* label, const ImVec4& color, const VisualStyle& visual
     const ImRect rect(pos, ImVec2(pos.x + size.x, pos.y + size.y));
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(WithAlpha(color, 0.16f)), ScaleUi(4.0f));
-    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(WithAlpha(color, 0.36f)), ScaleUi(4.0f), 0, ScaleUi(1.0f));
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(WithAlpha(color, 0.36f)), ScaleUi(4.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     drawList->AddText(
         ImVec2(rect.Min.x + ScaleUi(5.0f), rect.Min.y + std::floor((rect.GetHeight() - textSize.y) * 0.5f)),
         ImGui::GetColorU32(BlendColor(color, visual.headerText, 0.18f)),
@@ -1009,7 +1011,7 @@ void DrawEntryRow(
 
     const ImVec4 badgeColor = BadgeColor(entry, visual);
     drawList->AddRectFilled(badgeRect.Min, badgeRect.Max, ImGui::GetColorU32(WithAlpha(badgeColor, 0.16f)), ScaleUi(4.0f));
-    drawList->AddRect(badgeRect.Min, badgeRect.Max, ImGui::GetColorU32(WithAlpha(badgeColor, 0.36f)), ScaleUi(4.0f), 0, ScaleUi(1.0f));
+    drawList->AddRect(badgeRect.Min, badgeRect.Max, ImGui::GetColorU32(WithAlpha(badgeColor, 0.36f)), ScaleUi(4.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     drawList->AddText(
         ImVec2(badgeRect.Min.x + ScaleUi(5.0f), badgeRect.Min.y + std::floor((badgeRect.GetHeight() - badgeTextSize.y) * 0.5f)),
         ImGui::GetColorU32(BlendColor(badgeColor, visual.headerText, 0.18f)),

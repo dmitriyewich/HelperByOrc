@@ -883,7 +883,7 @@ void DrawHudPanelBackground(const ImVec2& size, const HudEditorVisualStyle& visu
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const float rounding = ScaleUi(7.0f);
     drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBg), rounding);
-    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, 0, ScaleUi(1.0f));
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 }
 
 bool BeginHudPanel(const char* id, const ImVec2& size, const HudEditorVisualStyle& visual, ImGuiWindowFlags flags = 0) {
@@ -926,7 +926,9 @@ void DrawHudRowBackground(ImDrawList* drawList, const ImRect& rowRect, int rowIn
         drawList->AddLine(
             ImVec2(rowRect.Min.x + ScaleUi(6.0f), rowRect.Max.y),
             ImVec2(rowRect.Max.x - ScaleUi(6.0f), rowRect.Max.y),
-            ImGui::GetColorU32(visual.separator));
+            ImGui::GetColorU32(visual.separator),
+            1.0f,
+            ImDrawFlags_StrokeLegacy);
     }
 }
 
@@ -949,7 +951,7 @@ bool HudFlatIconButton(
     if ((hovered && enabled) || held) {
         const ImVec4 bg = held ? visual.buttonActive : visual.buttonHover;
         drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
-        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     }
 
     if (iconColor.w < 0.0f) {
@@ -995,7 +997,7 @@ bool HudTextActionButton(
         bg = visual.buttonHover;
     }
     drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
-    drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, primary ? 0.42f : 0.26f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+    drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, primary ? 0.42f : 0.26f)), ScaleUi(5.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 
     const ImVec4 textColor = enabled ? visual.headerText : visual.faintText;
     const float padX = ScaleUi(10.0f);
@@ -3510,8 +3512,8 @@ struct HudModule::Impl {
                 rect.Max,
                 ColorU32(element.style.stroke, (editor && !element.style.strokeEnabled ? 0.35f : element.style.strokeAlpha) * element.opacity),
                 rounding,
-                0,
-                std::max(1.0f, element.style.strokeSize * scale));
+                std::max(1.0f, element.style.strokeSize * scale),
+                ImDrawFlags_StrokeLegacy);
         }
     }
 
@@ -3676,7 +3678,7 @@ struct HudModule::Impl {
         }
         drawList->AddImage(texture.textureId, imageMin, imageMax, uvMin, uvMax, ColorU32(element.style.tint, element.style.tintAlpha * element.opacity));
         if (element.style.strokeEnabled) {
-            drawList->AddRect(rect.Min, rect.Max, ColorU32(element.style.stroke, element.style.strokeAlpha * element.opacity), element.style.rounding, 0, element.style.strokeSize);
+            drawList->AddRect(rect.Min, rect.Max, ColorU32(element.style.stroke, element.style.strokeAlpha * element.opacity), element.style.rounding, element.style.strokeSize, ImDrawFlags_StrokeLegacy);
         }
     }
 
@@ -3685,7 +3687,8 @@ struct HudModule::Impl {
             rect.Min,
             rect.Max,
             ColorU32(element.style.stroke, element.style.strokeAlpha * element.opacity),
-            std::max(1.0f, element.style.strokeSize * scale));
+            std::max(1.0f, element.style.strokeSize * scale),
+            ImDrawFlags_StrokeLegacy);
     }
 
     void DrawIconElement(ImDrawList* drawList, HudElement& element, const ImRect& rect, float scale) const {
@@ -5841,14 +5844,14 @@ struct HudModule::Impl {
         const float grid = std::max(1.0f, gridSize * scale);
         const ImU32 color = ImGui::GetColorU32(visual.gridMinor);
         for (float x = rect.Min.x; x <= rect.Max.x; x += grid) {
-            drawList->AddLine(ImVec2(x, rect.Min.y), ImVec2(x, rect.Max.y), color);
+            drawList->AddLineV(x, rect.Min.y, rect.Max.y, color);
         }
         for (float y = rect.Min.y; y <= rect.Max.y; y += grid) {
-            drawList->AddLine(ImVec2(rect.Min.x, y), ImVec2(rect.Max.x, y), color);
+            drawList->AddLineH(rect.Min.x, rect.Max.x, y, color);
         }
         const ImU32 majorColor = ImGui::GetColorU32(visual.gridMajor);
-        drawList->AddLine(ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Min.y), ImVec2(rect.Min.x + rect.GetWidth() * 0.5f, rect.Max.y), majorColor);
-        drawList->AddLine(ImVec2(rect.Min.x, rect.Min.y + rect.GetHeight() * 0.5f), ImVec2(rect.Max.x, rect.Min.y + rect.GetHeight() * 0.5f), majorColor);
+        drawList->AddLineV(rect.Min.x + rect.GetWidth() * 0.5f, rect.Min.y, rect.Max.y, majorColor);
+        drawList->AddLineH(rect.Min.x, rect.Max.x, rect.Min.y + rect.GetHeight() * 0.5f, majorColor);
     }
 
     void DrawInlineTextEdit(HudElement& element, const ImRect& rect) {
@@ -5954,7 +5957,7 @@ struct HudModule::Impl {
         const ImRect canvasRect(origin, ImVec2(origin.x + canvasSize.x, origin.y + canvasSize.y));
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         drawList->AddRectFilled(canvasRect.Min, canvasRect.Max, ImGui::GetColorU32(visual.canvasBg), ScaleUi(2.0f));
-        drawList->AddRect(canvasRect.Min, canvasRect.Max, ImGui::GetColorU32(visual.canvasBorder), ScaleUi(2.0f), 0, ScaleUi(1.0f));
+        drawList->AddRect(canvasRect.Min, canvasRect.Max, ImGui::GetColorU32(visual.canvasBorder), ScaleUi(2.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
         DrawEditorGrid(drawList, canvasRect, scale, visual);
 
         const float inputPadding = ScaleUi(14.0f);
@@ -6067,17 +6070,17 @@ struct HudModule::Impl {
         const ImU32 guideColor = ImGui::ColorConvertFloat4ToU32(ImVec4(0.95f, 0.45f, 0.72f, 0.95f));
         if (activeGuideX) {
             const float x = origin.x + *activeGuideX * scale;
-            drawList->AddLine(ImVec2(x, canvasRect.Min.y), ImVec2(x, canvasRect.Max.y), guideColor, ScaleUi(1.0f));
+            drawList->AddLine(ImVec2(x, canvasRect.Min.y), ImVec2(x, canvasRect.Max.y), guideColor, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
         }
         if (activeGuideY) {
             const float y = origin.y + *activeGuideY * scale;
-            drawList->AddLine(ImVec2(canvasRect.Min.x, y), ImVec2(canvasRect.Max.x, y), guideColor, ScaleUi(1.0f));
+            drawList->AddLine(ImVec2(canvasRect.Min.x, y), ImVec2(canvasRect.Max.x, y), guideColor, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
         }
 
         if (!hover.HasHandle() && hover.HasElement() && !IsElementSelected(hover.elementId)) {
             if (const HudElement* element = FindElement(widget, hover.elementId)) {
                 const ImRect rect = ElementRect(*element, origin, scale);
-                drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.95f, 0.78f, 0.32f, 0.95f)), 0.0f, 0, ScaleUi(1.0f));
+                drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.95f, 0.78f, 0.32f, 0.95f)), 0.0f, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
             }
         }
 
@@ -6089,7 +6092,7 @@ struct HudModule::Impl {
             ImGui::PushID(element->id.c_str());
             const bool selected = IsElementSelected(element->id);
             if (selected) {
-                drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 1.0f)), 0.0f, 0, ScaleUi(1.5f));
+                drawList->AddRect(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 1.0f)), 0.0f, ScaleUi(1.5f), ImDrawFlags_StrokeLegacy);
                 const bool primary = !selectedElementIds.empty() && selectedElementIds.back() == element->id;
                 if (primary) {
                     constexpr ResizeHandle handles[] = {
@@ -6119,7 +6122,7 @@ struct HudModule::Impl {
 
         if (canvasMode == CanvasInteractionMode::MarqueeSelecting && canvasGestureMoved) {
             drawList->AddRectFilled(canvasMarqueeRect.Min, canvasMarqueeRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.12f)));
-            drawList->AddRect(canvasMarqueeRect.Min, canvasMarqueeRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.85f)), 0.0f, 0, ScaleUi(1.0f));
+            drawList->AddRect(canvasMarqueeRect.Min, canvasMarqueeRect.Max, ImGui::ColorConvertFloat4ToU32(ImVec4(0.35f, 0.78f, 1.0f, 0.85f)), 0.0f, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
         }
 
         const std::string zoomLabel = canvasFitZoom

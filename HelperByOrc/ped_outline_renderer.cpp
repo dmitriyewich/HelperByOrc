@@ -386,10 +386,6 @@ bool PedOutlineRenderer::Render(
     if (compositeNeeded) {
         ++perfCompositeCount_;
         perfCompositePixels_ += outlineperf::Area(capturedRoi_.composite);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        ++diagnosticCounters_[1];
-        diagnosticCounters_[7] += outlineperf::Area(capturedRoi_.composite);
-#endif
     }
     LogPerformanceIfDue(false);
 
@@ -1039,10 +1035,6 @@ bool PedOutlineRenderer::ResolveVisibleMask(const outlineperf::ScreenRoi& roi) {
             partialResolveSupported_ = 1;
             ++perfPartialResolveCount_;
             perfResolvedPixels_ += outlineperf::Area(roi.capture);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-            ++diagnosticCounters_[4];
-            diagnosticCounters_[6] += outlineperf::Area(roi.capture);
-#endif
             return true;
         }
         if (partialResult == D3DERR_INVALIDCALL) {
@@ -1063,10 +1055,6 @@ bool PedOutlineRenderer::ResolveVisibleMask(const outlineperf::ScreenRoi& roi) {
     if (SUCCEEDED(fullResult)) {
         ++perfFullResolveCount_;
         perfResolvedPixels_ += static_cast<std::uint64_t>(targetDesc_.Width) * targetDesc_.Height;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        ++diagnosticCounters_[5];
-        diagnosticCounters_[6] += static_cast<std::uint64_t>(targetDesc_.Width) * targetDesc_.Height;
-#endif
         return true;
     }
     return false;
@@ -1122,9 +1110,6 @@ bool PedOutlineRenderer::PollCursorHitQuery(CursorHitStatus& cursorHit) {
         const HRESULT result = slot.query->GetData(&visiblePixels, sizeof(visiblePixels), 0);
         if (result == S_OK) {
             slot.pending = false;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-            ++diagnosticCounters_[3];
-#endif
             const bool currentSession = cursorQuerySession_.IsCurrent(slot.session);
             if (currentSession) {
                 ++perfCursorQueryResolvedCount_;
@@ -1250,9 +1235,6 @@ bool PedOutlineRenderer::IssueCursorHitQuery(
     freeSlot->issuedAtMs = GetTickCount64();
     cursorHitRequestIssued_ = true;
     ++perfCursorQueryIssuedCount_;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    ++diagnosticCounters_[2];
-#endif
     return true;
 }
 
@@ -1352,9 +1334,6 @@ void PedOutlineRenderer::CaptureIfTarget(CPed* ped) {
     maskCaptureScheduledAtUs_ = outlineperf::AdvanceMaskCaptureTime(
         captureNowUs, maskCaptureScheduledAtUs_, sameTarget, outlineperf::kMaskRefreshIntervalUs);
     ++perfCaptureCount_;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    ++diagnosticCounters_[0];
-#endif
     if (perfWindowStartedAtMs_ == 0) {
         perfWindowStartedAtMs_ = GetTickCount64();
     }

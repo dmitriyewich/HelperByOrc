@@ -109,13 +109,21 @@ bool FileExists(const char* path) {
     return path && GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
 }
 
-const ImWchar* TextGlyphRanges(ImFontAtlas& atlas) {
+const ImWchar* TextGlyphRanges() {
     if (!g_textGlyphRanges.empty()) {
         return g_textGlyphRanges.Data;
     }
 
+    // Keep the previous Latin/Cyrillic coverage without the obsolete atlas helper.
+    static constexpr ImWchar baseRanges[] = {
+        0x0020, 0x00FF,
+        0x0400, 0x052F,
+        0x2DE0, 0x2DFF,
+        0xA640, 0xA69F,
+        0,
+    };
     ImFontGlyphRangesBuilder builder;
-    builder.AddRanges(atlas.GetGlyphRangesCyrillic());
+    builder.AddRanges(baseRanges);
     for (ImWchar glyph : kExtraTextGlyphs) {
         builder.AddChar(glyph);
     }
@@ -268,7 +276,7 @@ bool LoadRequestedFontFamily(ImGuiIO& io, const char* reason) {
     textConfig.OversampleV = 1;
     textConfig.RasterizerMultiply = 1.08f;
 
-    const ImWchar* glyphRanges = TextGlyphRanges(*io.Fonts);
+    const ImWchar* glyphRanges = TextGlyphRanges();
     const FontFamilyDefinition& requested = FamilyDefinition(g_requestedFamily);
     bool loaded = TryLoadFamily(io, requested, textConfig, glyphRanges);
 
@@ -435,7 +443,7 @@ void LogAtlasDiagnosticsOnce() {
     const ImGuiStyle& style = ImGui::GetStyle();
     debuglog::WriteInfo(
         "[ui][font] atlas family=%s requested=%s size=%.0f sourceSize=%.1f regular=\"%s\" bold=\"%s\" styleScale=%.3f "
-        "legacyIoScale=%.3f texture=%dx%d bpp=%d loader=%s fallback=%d",
+        "texture=%dx%d bpp=%d loader=%s fallback=%d",
         FontFamilyId(g_activeFamily),
         FontFamilyId(g_requestedFamily),
         g_activeFontSize,
@@ -443,7 +451,6 @@ void LogAtlasDiagnosticsOnce() {
         g_activeRegularFontPath ? g_activeRegularFontPath : "<imgui-default>",
         g_activeBoldFontPath ? g_activeBoldFontPath : "<regular>",
         style.FontScaleMain,
-        io.FontGlobalScale,
         texture->Width,
         texture->Height,
         texture->BytesPerPixel,

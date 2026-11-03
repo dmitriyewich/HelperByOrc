@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ped_outline_performance.h"
-#include "feature_flags.h"
 
 #include <array>
 #include <atomic>
@@ -47,9 +46,6 @@ public:
 
     bool IsDisabled() const;
     bool ConsumeFailure(std::string& reason);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    std::array<std::uint64_t, 8> DiagnosticCounters() const { return diagnosticCounters_; }
-#endif
 
 private:
     enum class RoiResolveStatus : std::uint8_t {
@@ -175,7 +171,4 @@ private:
     CPed* rejectedPed_ = nullptr;
     void* rejectedClump_ = nullptr;
     std::string failureReason_{};
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    std::array<std::uint64_t, 8> diagnosticCounters_{};
-#endif
 };

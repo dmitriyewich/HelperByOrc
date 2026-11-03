@@ -274,7 +274,7 @@ bool IconButton(const char* icon, const char* id, const char* tooltip, const ImV
         ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
         style.FrameRounding);
     if (style.FrameBorderSize > 0.0f) {
-        drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, 0, style.FrameBorderSize);
+        drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, style.FrameBorderSize, ImDrawFlags_StrokeLegacy);
     }
     DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(ImGuiCol_Text));
     if (tooltip && tooltip[0] != '\0' && hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
@@ -301,7 +301,7 @@ bool IconToggleButton(const char* icon, const char* id, const char* tooltip, boo
         : ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
     const ImU32 borderColor = value ? ImGui::GetColorU32(ImVec4(0.48f, 0.63f, 0.96f, 0.95f)) : ImGui::GetColorU32(ImGuiCol_Border);
     drawList->AddRectFilled(min, max, bgColor, style.FrameRounding);
-    drawList->AddRect(min, max, borderColor, style.FrameRounding, 0, std::max(1.0f, style.FrameBorderSize));
+    drawList->AddRect(min, max, borderColor, style.FrameRounding, std::max(1.0f, style.FrameBorderSize), ImDrawFlags_StrokeLegacy);
     DrawCenteredIconGlyph(
         drawList,
         icon,

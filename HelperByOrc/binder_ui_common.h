@@ -77,7 +77,7 @@ inline void DrawTwoPanePanelBackground(const ImVec2& size) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const float rounding = ScaleUi(7.0f);
     drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBg), rounding);
-    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, 0, ScaleUi(1.0f));
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 }
 
 inline bool BeginTwoPanePanel(const char* id, const ImVec2& size) {
@@ -118,7 +118,9 @@ inline void DrawBinderListRowBackground(
         drawList->AddLine(
             ImVec2(rowRect.Min.x + ScaleUi(6.0f), rowRect.Max.y),
             ImVec2(rowRect.Max.x - ScaleUi(6.0f), rowRect.Max.y),
-            ImGui::GetColorU32(visual.separator));
+            ImGui::GetColorU32(visual.separator),
+            1.0f,
+            ImDrawFlags_StrokeLegacy);
     }
 }
 
@@ -167,7 +169,7 @@ inline bool BinderListFlatIconButton(
     if ((hovered && enabled) || held) {
         const ImVec4 bg = held ? visual.buttonActive : visual.buttonHover;
         drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
-        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+        drawList->AddRect(min, max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(5.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     }
 
     if (iconColor.w < 0.0f) {
@@ -204,7 +206,7 @@ inline bool BinderListTextActionButton(
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImVec4 bg = held ? visual.buttonActive : hovered ? visual.buttonHover : visual.buttonBg;
     drawList->AddRectFilled(min, max, ImGui::GetColorU32(bg), ScaleUi(5.0f));
-    drawList->AddRect(min, max, ImGui::GetColorU32(visual.panelBorder), ScaleUi(5.0f), 0, ScaleUi(1.0f));
+    drawList->AddRect(min, max, ImGui::GetColorU32(visual.panelBorder), ScaleUi(5.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 
     const float padX = ScaleUi(10.0f);
     const float iconW = icon != nullptr && icon[0] != '\0' ? ScaleUi(22.0f) : 0.0f;

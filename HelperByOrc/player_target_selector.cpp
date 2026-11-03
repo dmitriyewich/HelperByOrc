@@ -6,8 +6,6 @@
 #include "samp_api.h"
 #include "tags_module.h"
 #include "ui_settings.h"
-#include "target_selector_diagnostics.h"
-#include "target_selector_native_raycast.h"
 
 #include <CCamera.h>
 #include <CPed.h>
@@ -69,21 +67,11 @@ struct SelectionCamera {
     float height = 0.0f;
 };
 
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-const SelectionCamera* diagnosticCameraSnapshot = nullptr;
-#endif
-
 bool IsMouseMessage(UINT message) {
     return message >= WM_MOUSEFIRST && message <= WM_MOUSELAST;
 }
 
 bool TryResolveSelectionCamera(SelectionCamera& selectionCamera) {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    if (diagnosticCameraSnapshot) {
-        selectionCamera = *diagnosticCameraSnapshot;
-        return true;
-    }
-#endif
     selectionCamera = {};
     if (RsGlobal.maximumWidth <= 0 || RsGlobal.maximumHeight <= 0) {
         return false;
@@ -412,12 +400,6 @@ bool PlayerTargetSelector::OnWindowMessage(UINT message, WPARAM wparam, LPARAM l
         return false;
     }
 
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    if (targetdiag::Diagnostics::Instance().HandleKey(message, wparam, lparam)) {
-        return true;
-    }
-#endif
-
     if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_ESCAPE) {
         Cancel("escape");
         return true;
@@ -450,51 +432,6 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
         return;
     }
 
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    auto& diagnostics = targetdiag::Diagnostics::Instance();
-    if (diagnostics.ApplyPendingCommand()) {
-        pendingClick_.Reset();
-        pendingSelection_.Reset();
-        clickRejectedCandidates_.clear();
-        outline_.CancelCursorHitRequest();
-        outline_.SetTarget(nullptr);
-    }
-    if (diagnostics.IsEnabled()) {
-        const char* reason = nullptr;
-        const bool available = targetdiag::PrepareNativeRaycast(device, reason);
-        diagnostics.SetRaycastAvailability(available, reason);
-    }
-    diagnostics.BeginFrame();
-    // All exits finish telemetry outside the timed resolver; no extra renderer/query owner.
-    struct DiagnosticFrame {
-        PedOutlineRenderer& outline;
-        SelectionCamera camera{};
-        RwMatrix matrix{};
-        RwV2d viewWindow{};
-        const SelectionCamera* previousCamera = diagnosticCameraSnapshot;
-        ~DiagnosticFrame() {
-            diagnosticCameraSnapshot = previousCamera;
-            auto& diag = targetdiag::Diagnostics::Instance();
-            diag.RecordRendererCounters(outline.DiagnosticCounters());
-            diag.EndFrame();
-        }
-    } diagnosticFrame{ outline_ };
-    if (TryResolveSelectionCamera(diagnosticFrame.camera)) {
-        diagnosticFrame.matrix = *diagnosticFrame.camera.matrix;
-        diagnosticFrame.viewWindow = *diagnosticFrame.camera.viewWindow;
-        diagnosticFrame.camera.matrix = &diagnosticFrame.matrix;
-        diagnosticFrame.camera.viewWindow = &diagnosticFrame.viewWindow;
-        diagnosticCameraSnapshot = &diagnosticFrame.camera;
-        const auto& position = diagnosticFrame.matrix.pos;
-        const auto& forward = diagnosticFrame.matrix.at;
-        diagnostics.RecordScene(position.x, position.y, position.z, forward.x, forward.y, forward.z,
-            CPools::ms_pPedPool ? CPools::ms_pPedPool->m_nSize : 0,
-            RsGlobal.maximumWidth, RsGlobal.maximumHeight,
-            UiSettings::Instance().TargetSelectorDistance(),
-            UiSettings::Instance().TargetSelectorRequireVisibleNameTag());
-    }
-#endif
-
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     if (pendingClick_.queued) {
         const int cursorX = pendingClick_.cursorX;
@@ -504,21 +441,12 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
         outline_.CancelCursorHitRequest();
         pendingSelection_.Reset();
         clickRejectedCandidates_.clear();
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        diagnostics.RecordClick("queued", -1, cursorX, cursorY, 0);
-#endif
         BeginPendingSelection(cursorX, cursorY);
     }
 
     if (pendingSelection_.active
         && !ValidatePlayer(pendingSelection_.ped, pendingSelection_.playerId)) {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        diagnosticIdentityInvalidated_ = true;
-#endif
         ProcessPendingSelection(PedOutlineRenderer::CursorHitStatus::Miss);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        diagnosticIdentityInvalidated_ = false;
-#endif
     }
     if (pendingSelection_.active && outline_.CursorHitRequestNeedsTarget()) {
         const std::uint64_t now = GetTickCount64();
@@ -530,15 +458,8 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
 
     CPed* candidatePed = nullptr;
     int candidateId = -1;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    ResolveDiagnosticCandidate(mouse.x, mouse.y, candidatePed, candidateId);
-#else
     ResolveCursorCandidate(mouse.x, mouse.y, candidatePed, candidateId);
-#endif
     UpdateCandidate(candidatePed, candidateId);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    diagnostics.RecordCandidate(candidateId, mouse.x, mouse.y);
-#endif
 
     CPed* renderPed = candidatePed;
     if (pendingSelection_.active
@@ -583,14 +504,6 @@ void PlayerTargetSelector::DrawOverlay(IDirect3DDevice9* device) {
 }
 
 void PlayerTargetSelector::OnDeviceLost() {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    if (pendingSelection_.active) {
-        targetdiag::Diagnostics::Instance().RecordClick("device-lost-reissue", pendingSelection_.playerId,
-            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
-    } else {
-        targetdiag::Diagnostics::Instance().Abort("device-lost");
-    }
-#endif
     outline_.OnDeviceLost();
 }
 
@@ -993,25 +906,12 @@ bool PlayerTargetSelector::ValidateSelectionCandidate(
 bool PlayerTargetSelector::BeginPendingSelection(int cursorX, int cursorY) {
     CPed* ped = nullptr;
     int playerId = -1;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    if (!ResolveDiagnosticCandidate(
-            static_cast<float>(cursorX),
-            static_cast<float>(cursorY),
-            ped,
-            playerId,
-            &clickRejectedCandidates_)) {
-#else
     if (!ResolveCursorCandidate(
             static_cast<float>(cursorX),
             static_cast<float>(cursorY),
             ped,
             playerId,
             &clickRejectedCandidates_)) {
-#endif
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().RecordClick("no-candidate", -1, cursorX, cursorY,
-            clickRejectedCandidates_.size());
-#endif
         pendingSelection_.Reset();
         outline_.CancelCursorHitRequest();
         outline_.SetTarget(nullptr);
@@ -1025,10 +925,6 @@ bool PlayerTargetSelector::BeginPendingSelection(int cursorX, int cursorY) {
     pendingSelection_.cursorY = cursorY;
     outline_.SetTarget(ped);
     if (!outline_.RequestCursorHit(ped, cursorX, cursorY)) {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().RecordClick("request-rejected", playerId, cursorX, cursorY,
-            clickRejectedCandidates_.size());
-#endif
         debuglog::WriteError(
             "[target-selector] exact click request rejected id=%d ped=%p pixel=(%d,%d)",
             playerId,
@@ -1049,10 +945,6 @@ void PlayerTargetSelector::ProcessPendingSelection(
     }
     // Poll/accept a ready hit before applying the whole-click deadline.
     if (cursorHit == PedOutlineRenderer::CursorHitStatus::Hit) {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().RecordClick("gpu-hit", pendingSelection_.playerId,
-            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
-#endif
         SelectPendingPlayer();
         return;
     }
@@ -1061,10 +953,6 @@ void PlayerTargetSelector::ProcessPendingSelection(
         || (now >= pendingClickStartedAtMs_
             && now - pendingClickStartedAtMs_ >= outlineperf::kCursorHitQueryTimeoutMs)) {
         debuglog::WriteInfo("[target-selector] click attempt expired; selection unchanged");
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().RecordClick("expired", pendingSelection_.playerId,
-            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
-#endif
         outline_.CancelCursorHitRequest();
         pendingSelection_.Reset();
         clickRejectedCandidates_.clear();
@@ -1076,11 +964,6 @@ void PlayerTargetSelector::ProcessPendingSelection(
 
     const int cursorX = pendingSelection_.cursorX;
     const int cursorY = pendingSelection_.cursorY;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    targetdiag::Diagnostics::Instance().RecordClick(
-        diagnosticIdentityInvalidated_ ? "identity-invalidated" : "gpu-miss", pendingSelection_.playerId,
-        cursorX, cursorY, clickRejectedCandidates_.size());
-#endif
     if (pendingSelection_.ped
         && std::find(
                clickRejectedCandidates_.begin(),
@@ -1103,10 +986,6 @@ void PlayerTargetSelector::SelectPendingPlayer() {
             pendingSelection_.cursorX,
             pendingSelection_.cursorY)
         || !tagsModule_) {
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().RecordClick("validation-failed", pendingSelection_.playerId,
-            pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
-#endif
         debuglog::WriteError(
             "[target-selector] exact hit rejected after frozen candidate validation "
             "id=%d ped=%p",
@@ -1126,10 +1005,6 @@ void PlayerTargetSelector::SelectPendingPlayer() {
     CPlayerPed* localPed = FindPlayerPed();
     const void* currentAimPed = localPed ? localPed->m_pPlayerTargettedPed : nullptr;
     tagsModule_->SetManualTargetId(pendingSelection_.playerId, currentAimPed);
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    targetdiag::Diagnostics::Instance().RecordClick("selected", pendingSelection_.playerId,
-        pendingSelection_.cursorX, pendingSelection_.cursorY, clickRejectedCandidates_.size());
-#endif
     debuglog::WriteInfo(
         "[target-selector] selected id=%d ped=%p name=%s",
         pendingSelection_.playerId,
@@ -1171,9 +1046,6 @@ void PlayerTargetSelector::Cancel(const char* reason) {
     }
 
     active_ = false;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    targetdiag::Diagnostics::Instance().Abort(reason);
-#endif
     pendingClick_.Reset();
     pendingSelection_.Reset();
     candidatePed_ = nullptr;
@@ -1231,13 +1103,6 @@ void PlayerTargetSelector::DrawInstructionOverlay() const {
         } else {
             ImGui::TextDisabled("%s", ui.Text(UiText::TargetSelectorNoCandidate));
         }
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-        targetdiag::Diagnostics::Instance().DrawOverlay();
-#endif
     }
     ImGui::End();
 }
-
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-#include "player_target_selector_diagnostic.inl"
-#endif

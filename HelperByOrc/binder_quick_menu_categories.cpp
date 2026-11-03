@@ -99,7 +99,8 @@ void DrawCategoryBandTitle(
             ImVec2(lineStart, lineY),
             ImVec2(rightEdge, lineY),
             ImGui::GetColorU32(WithAlpha(visual.separator, 0.74f)),
-            ScaleUi(1.0f));
+            ScaleUi(1.0f),
+            ImDrawFlags_StrokeLegacy);
     }
 }
 
@@ -264,7 +265,8 @@ const BinderCategory* DrawTextTabs(
                     ImVec2(tabRect.Min.x + inset, tabRect.Max.y - thickness * 0.5f),
                     ImVec2(tabRect.Max.x - inset, tabRect.Max.y - thickness * 0.5f),
                     ImGui::GetColorU32(visual.accent),
-                    thickness);
+                    thickness,
+                    ImDrawFlags_StrokeLegacy);
                 ImGui::EndTabItem();
             }
         }

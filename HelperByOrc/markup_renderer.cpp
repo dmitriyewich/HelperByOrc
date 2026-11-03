@@ -1319,7 +1319,8 @@ struct MarkupRenderer::Impl {
                         ImVec2(itemMin.x, itemMax.y - thickness),
                         ImVec2(itemMax.x, itemMax.y - thickness),
                         decorationColor,
-                        thickness);
+                        thickness,
+                        ImDrawFlags_StrokeLegacy);
                 }
                 if (segment.strike) {
                     const float y = itemMin.y + (itemMax.y - itemMin.y) * 0.55f;
@@ -1327,7 +1328,8 @@ struct MarkupRenderer::Impl {
                         ImVec2(itemMin.x, y),
                         ImVec2(itemMax.x, y),
                         decorationColor,
-                        thickness);
+                        thickness,
+                        ImDrawFlags_StrokeLegacy);
                 }
             }
         }
@@ -1427,8 +1429,7 @@ struct MarkupRenderer::Impl {
                         textCursor,
                         textEnd).x;
                     if (fullWidth > availableWidth) {
-                        const float scale = fontSize / std::max(1.0f, font->LegacySize);
-                        chunkEnd = font->CalcWordWrapPositionA(scale, textCursor, textEnd, availableWidth);
+                        chunkEnd = font->CalcWordWrapPosition(fontSize, textCursor, textEnd, availableWidth);
                     }
                 }
 
@@ -1537,7 +1538,8 @@ struct MarkupRenderer::Impl {
                         ImVec2(cursor.x, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
                         ImVec2(cursor.x + avail, cursor.y + ImGui::GetTextLineHeight() * 0.5f),
                         ImGui::GetColorU32(color),
-                        separatorSize);
+                        separatorSize,
+                        ImDrawFlags_StrokeLegacy);
                 }
                 ImGui::Dummy(ImVec2(avail, ImGui::GetTextLineHeightWithSpacing()));
                 return;
@@ -1633,8 +1635,8 @@ struct MarkupRenderer::Impl {
                     lineScreenMax,
                     ImGui::GetColorU32(ImVec4(0.31f, 0.64f, 1.0f, 0.85f)),
                     ScaleUi(3.0f),
-                    0,
-                    std::max(1.0f, ScaleUi(1.0f)));
+                    std::max(1.0f, ScaleUi(1.0f)),
+                    ImDrawFlags_StrokeLegacy);
             }
             if (static_cast<int>(lineIndex) == options.scrollToLine) {
                 ImGui::SetScrollHereY(0.35f);

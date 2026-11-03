@@ -565,7 +565,8 @@ void BinderModule::Impl::DrawQuickMenu() {
             ImVec2(left, y),
             ImVec2(right, y),
             ImGui::GetColorU32(WithAlpha(visual.separator, 0.56f)),
-            std::max(1.0f, ScaleUi(1.0f)));
+            std::max(1.0f, ScaleUi(1.0f)),
+            ImDrawFlags_StrokeLegacy);
     };
 
     constexpr float kCascadePopupLabelMaxWidth = 320.0f;

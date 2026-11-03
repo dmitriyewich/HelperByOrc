@@ -670,8 +670,8 @@ void NotificationManager::DrawOverlay() {
             cardMax,
             ColorWithAlpha(borderColor, fade),
             rounding,
-            0,
-            std::max(1.0f, ui.Scale(1.0f)));
+            std::max(1.0f, ui.Scale(1.0f)),
+            ImDrawFlags_StrokeLegacy);
 
         const ImVec2 iconPos(
             cardMin.x + accentWidth + paddingX,

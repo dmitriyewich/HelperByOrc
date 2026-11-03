@@ -194,7 +194,7 @@ void DrawUnwantedPanelBackground(const ImVec2& size) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const float rounding = ScaleUi(7.0f);
     drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBg), rounding);
-    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, 0, ScaleUi(1.0f));
+    drawList->AddRect(rect.Min, rect.Max, ImGui::GetColorU32(visual.panelBorder), rounding, ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
 }
 
 bool BeginUnwantedPanel(const char* id, const ImVec2& size) {
@@ -913,7 +913,7 @@ bool UnwantedMessagesModule::DrawMiscCard() {
             ImVec2(childMin.x + ScaleUi(6.0f), childMax.y),
             ImGui::GetColorU32(accent),
             ScaleUi(8.0f),
-            ImDrawFlags_RoundCornersLeft);
+            ImDrawFlags_RoundLeft);
 
         ImGui::SetCursorPos(ScaleUi(20.0f, 18.0f));
         ImGui::TextColored(accent, "%s", ui.Text(UiText::UnwantedTitle));

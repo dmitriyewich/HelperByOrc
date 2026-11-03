@@ -75,7 +75,7 @@ void BinderModule::Impl::DrawExplorerBreadcrumb() {
     const ImRect barRect(start, ImVec2(start.x + availableWidth, start.y + barHeight));
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(barRect.Min, barRect.Max, ImGui::GetColorU32(visual.searchBg), ScaleUi(6.0f));
-    drawList->AddRect(barRect.Min, barRect.Max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(6.0f));
+    drawList->AddRect(barRect.Min, barRect.Max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.28f)), ScaleUi(6.0f), 1.0f, ImDrawFlags_StrokeLegacy);
 
     ImGui::PushClipRect(barRect.Min, barRect.Max, true);
     float x = barRect.Min.x + barPadX;
@@ -129,7 +129,7 @@ void BinderModule::Impl::DrawExplorerBreadcrumb() {
             drawList->AddRectFilled(chipRect.Min, chipRect.Max, ImGui::GetColorU32(chipBg), ScaleUi(4.0f));
         }
         if (crumb.current) {
-            drawList->AddRect(chipRect.Min, chipRect.Max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.34f)), ScaleUi(4.0f));
+            drawList->AddRect(chipRect.Min, chipRect.Max, ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.34f)), ScaleUi(4.0f), 1.0f, ImDrawFlags_StrokeLegacy);
         }
 
         if (!crumb.ellipsis) {
@@ -181,8 +181,8 @@ void BinderModule::Impl::DrawExplorerToolbar() {
         ImVec2(start.x + toolbarWidth, start.y + buttonSide),
         ImGui::GetColorU32(WithAlpha(visual.panelBorder, 0.22f)),
         ScaleUi(6.0f),
-        0,
-        ScaleUi(1.0f));
+        ScaleUi(1.0f),
+        ImDrawFlags_StrokeLegacy);
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(itemGap, style.ItemSpacing.y));
 
@@ -621,7 +621,9 @@ void BinderModule::Impl::DrawExplorerBindRow(
         drawList->AddLine(
             ImVec2(rowRect.Min.x, rowRect.Max.y),
             rowRect.Max,
-            ImGui::GetColorU32(ImGuiCol_Border, 0.24f));
+            ImGui::GetColorU32(ImGuiCol_Border, 0.24f),
+            1.0f,
+            ImDrawFlags_StrokeLegacy);
     }
 
     ImGui::PushID(index);
@@ -1239,7 +1241,9 @@ void BinderModule::Impl::DrawExplorerDirectory() {
     drawList->AddLine(
         ImVec2(headerRect.Min.x, headerRect.Max.y),
         headerRect.Max,
-        ImGui::GetColorU32(visual.separator));
+        ImGui::GetColorU32(visual.separator),
+        1.0f,
+        ImDrawFlags_StrokeLegacy);
 
     const auto drawHeaderLabel = [&](const char* label, float x, float width, const char* tooltip, bool centered) {
         if (label == nullptr) {

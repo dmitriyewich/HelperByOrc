@@ -293,7 +293,7 @@ void CaptureDrawDataStats(UiFramePerf& perf, ImDrawData* drawData) {
     }
     perf.vertices = drawData->TotalVtxCount;
     perf.indices = drawData->TotalIdxCount;
-    perf.cmdLists = drawData->CmdListsCount;
+    perf.cmdLists = drawData->CmdLists.Size;
 }
 
 void AccumulateUiFramePerf(const UiFramePerf& perf, bool slow) {
@@ -576,7 +576,7 @@ void DbgTraceImGuiInternalState(const char* reason) {
     const ImGuiWindow* wheel = g.WheelingWindow;
 
     debuglog::WriteInfo(
-        "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScaleMain=%.3f legacyIoScale=%.3f WantCapM=%d WantCapK=%d "
+        "[ui][dbg] %s mp=(%.1f,%.1f) mpValid=%d dsp=(%.1f,%.1f) fontScaleMain=%.3f WantCapM=%d WantCapK=%d "
         "NavWin=\"%s\" HovWin=\"%s\" HovUnderMove=\"%s\" MoveWin=\"%s\" WheelWin=\"%s\" "
         "popAny=%d OpenPop=%d BeginPop=%d ActId=0x%08X HovId=0x%08X NavId=0x%08X NavHighlightUnderNav=%d",
         reason,
@@ -586,7 +586,6 @@ void DbgTraceImGuiInternalState(const char* reason) {
         io.DisplaySize.x,
         io.DisplaySize.y,
         ImGui::GetStyle().FontScaleMain,
-        io.FontGlobalScale,
         io.WantCaptureMouse ? 1 : 0,
         io.WantCaptureKeyboard ? 1 : 0,
         DbgImGuiWindowName(g.NavWindow),
@@ -1336,7 +1335,7 @@ void ImGuiOverlay::InitializeImGuiIfNeeded(IDirect3DDevice9* device) {
     imguiInitialized_ = true;
     renderDevice_ = device;
 
-    debuglog::WriteInfo("ImGui initialized. Game window=%p", gameWindow_);
+    debuglog::WriteInfo("ImGui initialized. Dear ImGui %s. Game window=%p", ImGui::GetVersion(), gameWindow_);
 }
 
 void ImGuiOverlay::RestoreWindowProc() {
@@ -2033,7 +2032,10 @@ void ImGuiOverlay::RenderFrame(IDirect3DDevice9* device) {
 
     if (renderCallback_) {
         stageBeginMs = PerfNowMs();
+        // Preserve pre-1.92.9 numeric live preview while typing in settings and HUD editors.
+        ImGui::PushItemFlag(ImGuiItemFlags_LiveEditOnInputScalar, true);
         renderCallback_(device);
+        ImGui::PopItemFlag();
         perf.renderUiMs = PerfNowMs() - stageBeginMs;
     }
     RefreshHelperWindowHitRects();

@@ -63,7 +63,7 @@ void EndLuaVariablesPanel(const ImVec4& accent) {
         ImVec2(panelMin.x + ScaleUi(3.0f), panelMax.y),
         ImGui::GetColorU32(WithAlpha(accent, 0.82f)),
         ScaleUi(7.0f),
-        ImDrawFlags_RoundCornersLeft);
+        ImDrawFlags_RoundLeft);
     ImGui::EndChild();
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
@@ -76,7 +76,7 @@ void DrawLuaVariablesBadge(const char* label, const ImVec4& color, const LuaVari
     const ImVec2 max(pos.x + size.x, pos.y + size.y);
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(pos, max, ImGui::GetColorU32(WithAlpha(color, 0.16f)), ScaleUi(4.0f));
-    drawList->AddRect(pos, max, ImGui::GetColorU32(WithAlpha(color, 0.38f)), ScaleUi(4.0f), 0, ScaleUi(1.0f));
+    drawList->AddRect(pos, max, ImGui::GetColorU32(WithAlpha(color, 0.38f)), ScaleUi(4.0f), ScaleUi(1.0f), ImDrawFlags_StrokeLegacy);
     drawList->AddText(
         ImVec2(pos.x + ScaleUi(5.0f), pos.y + std::floor((size.y - textSize.y) * 0.5f)),
         ImGui::GetColorU32(LerpColor(color, style.headerText, 0.18f)),

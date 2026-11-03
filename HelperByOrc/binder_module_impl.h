@@ -435,7 +435,7 @@ inline bool SmallIconActionButton(const char* icon, const char* id, const char* 
     const ImU32 bgColor = ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
     drawList->AddRectFilled(min, max, bgColor, style.FrameRounding);
     if (style.FrameBorderSize > 0.0f) {
-        drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, 0, style.FrameBorderSize);
+        drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, style.FrameBorderSize, ImDrawFlags_StrokeLegacy);
     }
 
     DrawCenteredIconGlyph(drawList, icon, ImRect(min, max), ImGui::GetColorU32(ImGuiCol_Text));
@@ -1741,7 +1741,7 @@ inline void DrawFolderDropPreview(const ImRect& rect, FolderDropZone zone) {
             ImVec2(rect.Min.x + ScaleUi(2.0f), rect.Min.y + ScaleUi(2.0f)),
             ImVec2(rect.Max.x - ScaleUi(2.0f), rect.Max.y - ScaleUi(2.0f)));
         drawList->AddRectFilled(inner.Min, inner.Max, ImGui::GetColorU32(glow), ScaleUi(3.0f));
-        drawList->AddRect(inner.Min, inner.Max, color, ScaleUi(3.0f), 0, ScaleUi(2.0f));
+        drawList->AddRect(inner.Min, inner.Max, color, ScaleUi(3.0f), ScaleUi(2.0f), ImDrawFlags_StrokeLegacy);
         drawList->AddRectFilled(
             ImVec2(inner.Min.x, inner.Min.y),
             ImVec2(inner.Min.x + ScaleUi(4.0f), inner.Max.y),

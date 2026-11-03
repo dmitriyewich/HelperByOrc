@@ -5,7 +5,6 @@
 
 #include "hotkey_utils.h"
 #include "ped_outline_renderer.h"
-#include "feature_flags.h"
 
 #include <functional>
 #include <string>
@@ -81,13 +80,6 @@ private:
         CPed*& ped,
         int& playerId,
         const std::vector<CPed*>* excludedPeds = nullptr) const;
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    bool ResolveDiagnosticCandidate(float cursorX, float cursorY, CPed*& ped, int& playerId,
-        const std::vector<CPed*>* excludedPeds = nullptr) const;
-    bool ResolveRaycastCandidate(float cursorX, float cursorY, CPed*& ped, int& playerId,
-        const std::vector<CPed*>* excludedPeds) const;
-    bool diagnosticIdentityInvalidated_ = false;
-#endif
     void UpdateCandidate(CPed* ped, int playerId);
     bool ValidatePlayer(CPed* ped, int playerId) const;
     bool ValidateSelectionCandidate(CPed* ped, int playerId, int cursorX, int cursorY) const;

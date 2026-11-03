@@ -9,7 +9,6 @@
 #include "ui_frame_timing.h"
 #include "ui_icons.h"
 #include "ui_settings.h"
-#include "target_selector_diagnostics.h"
 
 #include <GameVersion.h>
 #include <imgui.h>
@@ -1369,7 +1368,7 @@ void DrawTitleBarTabItem(
     if (item.active || item.hovered || selected) {
         const ImGuiCol color = item.active
             ? ImGuiCol_ButtonActive
-            : (item.hovered ? ImGuiCol_TabHovered : ImGuiCol_TabUnfocusedActive);
+            : (item.hovered ? ImGuiCol_TabHovered : ImGuiCol_TabDimmedSelected);
         draw->AddRectFilled(item.min, item.max, ImGui::GetColorU32(color), rounding);
     }
 
@@ -1379,7 +1378,8 @@ void DrawTitleBarTabItem(
             ImVec2(item.min.x + horizontalPadding, item.max.y - lineThickness * 0.5f),
             ImVec2(item.max.x - horizontalPadding, item.max.y - lineThickness * 0.5f),
             ImGui::GetColorU32(ImGuiCol_ButtonActive),
-            lineThickness);
+            lineThickness,
+            ImDrawFlags_StrokeLegacy);
     }
 
     const char* icon = GetTabIcon(item.tab);
@@ -1511,7 +1511,8 @@ bool DrawSettingsHeaderTab(UiText labelId, bool selected) {
             ImVec2(centerX - halfWidth, lineY),
             ImVec2(centerX + halfWidth, lineY),
             ImGui::ColorConvertFloat4ToU32(lineColor),
-            Scale(2.5f));
+            Scale(2.5f),
+            ImDrawFlags_StrokeLegacy);
     }
 
     return clicked;
@@ -1548,7 +1549,7 @@ void DrawSettingsHotkeyChip(const char* label) {
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(pos, max, ImGui::GetColorU32(ImGuiCol_FrameBg, 0.78f), rounding);
-    drawList->AddRect(pos, max, ImGui::GetColorU32(ImGuiCol_Border, 0.62f), rounding);
+    drawList->AddRect(pos, max, ImGui::GetColorU32(ImGuiCol_Border, 0.62f), rounding, 1.0f, ImDrawFlags_StrokeLegacy);
     drawList->AddText(
         ImVec2(pos.x + padding.x, pos.y + (size.y - textSize.y) * 0.5f),
         ImGui::GetColorU32(ImGuiCol_Text),
@@ -2411,6 +2412,7 @@ void ModApp::ApplyMainStyle(float scale) const {
     colors[ImGuiCol_Border] = ImVec4(0.34f, 0.39f, 0.48f, 0.82f);
     colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.30f);
     colors[ImGuiCol_FrameBg] = ImVec4(0.19f, 0.20f, 0.24f, 1.00f);
+    colors[ImGuiCol_CheckboxSelectedBg] = colors[ImGuiCol_FrameBg];
     colors[ImGuiCol_FrameBgHovered] = ImVec4(0.23f, 0.28f, 0.38f, 1.00f);
     colors[ImGuiCol_FrameBgActive] = ImVec4(0.27f, 0.36f, 0.51f, 1.00f);
     colors[ImGuiCol_Button] = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
@@ -2438,16 +2440,16 @@ void ModApp::ApplyMainStyle(float scale) const {
     colors[ImGuiCol_ResizeGripActive] = ImVec4(0.62f, 0.72f, 0.92f, 0.95f);
     colors[ImGuiCol_Tab] = ImVec4(0.15f, 0.17f, 0.21f, 1.00f);
     colors[ImGuiCol_TabHovered] = ImVec4(0.34f, 0.39f, 0.48f, 0.90f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
-    colors[ImGuiCol_TabUnfocused] = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
-    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.16f, 0.20f, 0.29f, 1.00f);
+    colors[ImGuiCol_TabSelected] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
+    colors[ImGuiCol_TabDimmed] = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
+    colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.16f, 0.20f, 0.29f, 1.00f);
     colors[ImGuiCol_TableHeaderBg] = ImVec4(0.14f, 0.17f, 0.22f, 1.00f);
     colors[ImGuiCol_TableBorderStrong] = ImVec4(0.24f, 0.29f, 0.38f, 1.00f);
     colors[ImGuiCol_TableBorderLight] = ImVec4(0.17f, 0.20f, 0.25f, 1.00f);
     colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.035f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.47f, 0.60f, 0.80f, 0.35f);
-    colors[ImGuiCol_NavHighlight] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
+    colors[ImGuiCol_NavCursor] = ImVec4(0.47f, 0.60f, 0.80f, 1.00f);
     colors[ImGuiCol_NavWindowingHighlight] = ImVec4(0.47f, 0.60f, 0.80f, 0.70f);
     colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.15f, 0.18f, 0.22f, 0.20f);
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.15f, 0.18f, 0.22f, 0.70f);
@@ -2707,7 +2709,7 @@ void ModApp::DrawTitleBarNavigation(const ImVec2& titleMin, const ImVec2& titleM
         titleMax,
         ImGui::GetColorU32(draggingTitleBar ? ImGuiCol_TitleBgActive : ImGuiCol_TitleBg),
         Scale(6.0f),
-        ImDrawFlags_RoundCornersTop);
+        ImDrawFlags_RoundTop);
     draw->AddText(
         brandFont,
         brandFontSize,
@@ -3467,10 +3469,6 @@ void ModApp::DrawSettingsDiagnosticsSection() {
     ImGui::SeparatorText(ui.Text(UiText::SettingsSectionDiagnostics));
     ImGui::TextWrapped("%s", ui.Text(UiText::SettingsDiagnosticsIntro));
     ImGui::Spacing();
-#if HELPERBYORC_TARGET_DIAGNOSTICS
-    targetdiag::Diagnostics::Instance().DrawSettings();
-    ImGui::Spacing();
-#endif
 
     const UiLogLevel logLevels[] = { UiLogLevel::Off, UiLogLevel::Error, UiLogLevel::Info };
     const char* logLevelLabels[] = {
@@ -3646,7 +3644,6 @@ void ModApp::PrepareUiForImGuiNewFrame(IDirect3DDevice9* device) {
     ApplyMainStyle(uiScale);
     ui_fonts::ApplySettings(UiSettings::Instance().FontFamily(), UiSettings::Instance().FontSize());
     ImGui::GetStyle().FontScaleMain = uiScale;
-    io.FontGlobalScale = 1.0f;
     const double styleMs = UiPerfNowMs() - stageBeginMs;
     const double totalMs = UiPerfNowMs() - beginMs;
     static bool s_firstPreparePerfLogged = false;

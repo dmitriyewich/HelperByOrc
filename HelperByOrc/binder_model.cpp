@@ -1401,7 +1401,7 @@ ExplorerDirectoryDropStatus BinderModule::Impl::DrawExplorerDirectoryDropTarget(
             fill.w = 0.42f;
         }
         drawList->AddRectFilled(rect.Min, rect.Max, ImGui::GetColorU32(fill), ScaleUi(4.0f));
-        drawList->AddRect(rect.Min, rect.Max, borderColor, ScaleUi(4.0f), 0, ScaleUi(1.5f));
+        drawList->AddRect(rect.Min, rect.Max, borderColor, ScaleUi(4.0f), ScaleUi(1.5f), ImDrawFlags_StrokeLegacy);
 
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
             UiSettings& ui = UiSettings::Instance();
